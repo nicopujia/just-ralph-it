@@ -1841,7 +1841,12 @@
         detail.className = 'issue-detail';
         var detailParts = [];
         if (issue.description) detailParts.push('<strong>Description:</strong>' + renderMarkdown(issue.description));
-        if (issue.acceptance_criteria) detailParts.push('<strong>Acceptance Criteria:</strong>' + renderMarkdown(issue.acceptance_criteria));
+        if (issue.acceptance_criteria && issue.acceptance_criteria.length) {
+            var acItems = issue.acceptance_criteria.map(function(item) {
+                return '<li>' + escapeHtml(item) + '</li>';
+            }).join('');
+            detailParts.push('<strong>Acceptance Criteria:</strong><ul class="issue-detail-ac">' + acItems + '</ul>');
+        }
         if (issue.depends_on && issue.depends_on.length) detailParts.push(renderIssueDependencies(issue.depends_on));
         if (issue.assignee) detailParts.push('<strong>Assignee:</strong> ' + escapeHtml(issue.assignee));
         detail.innerHTML = detailParts.join('<br>');

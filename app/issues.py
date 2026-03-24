@@ -32,10 +32,10 @@ def _parse_issue(path: Path) -> dict:
     # Ensure defaults
     data.setdefault("priority", 4)
     data.setdefault("depends_on", [])
-    # Normalize acceptance_criteria to string for frontend compatibility
+    # Ensure acceptance_criteria is always a list
     ac = data.get("acceptance_criteria", [])
-    if isinstance(ac, list):
-        data["acceptance_criteria"] = "\n".join(f"- {item}" for item in ac) if ac else ""
+    if isinstance(ac, str):
+        data["acceptance_criteria"] = [line.strip() for line in ac.split("\n") if line.strip()]
     return data
 
 
