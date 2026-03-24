@@ -322,8 +322,8 @@ async def create_project(
         if rc != 0:
             logger.warning("bd hooks install failed (rc=%d): %s", rc, err)
 
-        # 5. Create AGENTS.md
-        logger.info(f"Creating project {name}: step 5 - creating AGENTS.md")
+        # 5. Create CLAUDE.md
+        logger.info(f"Creating project {name}: step 5 - creating CLAUDE.md")
         agents_md = (
             f"# {name}\n"
             f"\n"
@@ -333,7 +333,7 @@ async def create_project(
             f"- Repository: {github_repo_url}\n"
             f"- Created by: {github_username}"
         )
-        (project_dir / "AGENTS.md").write_text(agents_md)
+        (project_dir / "CLAUDE.md").write_text(agents_md)
 
         # 6. Create uploads/ directory
         logger.info(f"Creating project {name}: step 6 - creating uploads directory")
@@ -529,7 +529,7 @@ async def get_agents_md(name: str, user: dict = Depends(get_current_user)):
         if not await cursor.fetchone():
             raise HTTPException(status_code=404, detail="Project not found")
 
-    agents_path = DATA_DIR / github_username / name / "AGENTS.md"
+    agents_path = DATA_DIR / github_username / name / "CLAUDE.md"
 
     if not agents_path.exists():
         return {"content": "", "exists": False}

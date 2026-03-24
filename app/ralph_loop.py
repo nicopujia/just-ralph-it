@@ -28,7 +28,7 @@ def build_ralph_prompt(issue: dict, user_name: str, user_email: str) -> str:
     notes = issue.get("notes") or "N/A"
 
     return (
-        f"Read AGENTS.md in the project root and any relevant subdirectories.\n"
+        f"Read CLAUDE.md in the project root and any relevant subdirectories.\n"
         f"Then read this issue:\n"
         f"\n"
         f"Issue: {issue_id}\n"

@@ -47,7 +47,7 @@
 
 **Right panel: 4 Tabs**
 1. **Issues**: Read-only, minimal custom view of beads issues. Grouped by epic. Expandable to show description/acceptance criteria. Polls `bd list --json`.
-2. **AGENTS.md**: Rendered markdown of project's root AGENTS.md
+2. **CLAUDE.md**: Rendered markdown of project's root CLAUDE.md
 3. **Ralph** (appears after JRI): Streaming stdout from Ralph's `claude` subprocess via SSE
 4. **Uploads**: File manager for `<project>/uploads/`. List files, upload (any type/size), delete, rename. Flat directory.
 
@@ -74,11 +74,11 @@
 #### Readiness Check
 1. Ralphy judges completeness
 2. User confirms
-3. Subagent checks batch of issues + AGENTS.md for ambiguities (can acceptance criteria be interpreted >1 way?)
+3. Subagent checks batch of issues + CLAUDE.md for ambiguities (can acceptance criteria be interpreted >1 way?)
 4. Ralphy resolves flagged ambiguities with user
 5. Issues marked as open → JRI button appears
 
-#### AGENTS.md
+#### CLAUDE.md
 - Project-wide context needed for any issue
 - Anything that belongs in a specific issue stays in the issue
 - Ralphy generates and maintains it throughout conversation
@@ -90,13 +90,13 @@
 while there are ready issues:
     issue = `bd ready -n 1 --json`
     `bd update <id> --claim`
-    read AGENTS.md + directory AGENTS.md files
+    read CLAUDE.md + directory CLAUDE.md files
     read full issue via `bd show <id> --json`
     TDD: write tests from acceptance criteria → implement → verify
     commit to main with Co-authored-by
     `bd close <id>`
     git push
-    update AGENTS.md (root or directory-specific) with discoveries
+    update CLAUDE.md (root or directory-specific) with discoveries
 ```
 
 - Fresh `claude` subprocess per issue — completely new context each time
