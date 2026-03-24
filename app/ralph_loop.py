@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
+from app import issues
 from app.database import get_db
 from app.prompts.ralph import RALPH_SYSTEM_PROMPT
 from app.sse_bus import sse_bus
@@ -51,7 +52,7 @@ def build_ralph_prompt(issue: dict, user_name: str, user_email: str) -> str:
         f"Solve this issue completely. Follow TDD: write tests from acceptance criteria first, then implement.\n"
         f'When done: git add -A && git commit -m "<msg>" '
         f'--trailer "Co-authored-by: {user_name} <{user_email}>"\n'
-        f'Then: bd close {issue_id} --reason "Completed"'
+        f"Then: mv .ralph/issues/open/{issue_id}.yaml .ralph/issues/closed/"
     )
 
 
@@ -103,13 +104,10 @@ class RalphLoop:
                 await reset_proc.communicate()
                 # Reopen the issue
                 if issue_id:
-                    reopen_proc = await asyncio.create_subprocess_exec(
-                        "bd", "update", issue_id, "--status", "open",
-                        cwd=project_dir,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    )
-                    await reopen_proc.communicate()
+                    try:
+                        issues.set_status(project_dir, issue_id, "open")
+                    except Exception:
+                        logger.warning("Could not reopen issue %s", issue_id)
                     await sse_bus.publish(
                         project_name, "issue_update",
                         {"issue_id": issue_id, "action": "reopened"},
@@ -129,18 +127,7 @@ class RalphLoop:
     async def _poll_for_human_blockers(self) -> None:
         """Check for issues assigned to Human and create notifications."""
         try:
-            proc = await asyncio.create_subprocess_exec(
-                "bd", "list", "--json",
-                cwd=self.project_dir,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout_bytes, _ = await proc.communicate()
-
-            try:
-                all_issues = json.loads(stdout_bytes.decode())
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                return
+            all_issues = issues.list_all(self.project_dir)
 
             human_issues = [
                 i for i in all_issues
@@ -203,25 +190,11 @@ class RalphLoop:
                 await self._poll_for_human_blockers()
 
                 # --- Get ready issues ---
-                proc = await asyncio.create_subprocess_exec(
-                    "bd", "ready", "-n", "1", "--json",
-                    cwd=self.project_dir,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                stdout_bytes, _ = await proc.communicate()
+                ready_issues = issues.get_ready(self.project_dir)[:1]
 
-                try:
-                    issues = json.loads(stdout_bytes.decode())
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    issues = []
+                logger.info("Project %s: found %d ready issues", self.project_name, len(ready_issues))
 
-                # Filter out epics
-                issues = [i for i in issues if i.get("issue_type") != "epic"]
-
-                logger.info("Project %s: found %d ready issues", self.project_name, len(issues))
-
-                if not issues:
+                if not ready_issues:
                     self.status = "stopped"
                     self._save_state()
                     await self._update_db_status("idle")
@@ -235,7 +208,7 @@ class RalphLoop:
                     )
                     break
 
-                issue = issues[0]
+                issue = ready_issues[0]
                 self.current_issue_id = issue.get("id", "")
                 self.iteration += 1
 
@@ -245,12 +218,9 @@ class RalphLoop:
 
                 try:
                     # --- Claim ---
-                    await asyncio.create_subprocess_exec(
-                        "bd", "update", self.current_issue_id, "--claim",
-                        cwd=self.project_dir,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                        env=self._env({"BD_ACTOR": "ralph"}),
+                    issues.update_field(
+                        self.project_dir, self.current_issue_id,
+                        assignee="ralph",
                     )
                     await sse_bus.publish(self.project_name, "issue_update", {"issue_id": self.current_issue_id, "action": "claimed"})
 
@@ -278,7 +248,7 @@ class RalphLoop:
                         cwd=self.project_dir,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.STDOUT,
-                        env=self._env({"BD_ACTOR": "ralph"}),
+                        env=self._env({}),
                     )
 
                     # Stream stdout
@@ -312,25 +282,14 @@ class RalphLoop:
                         )
 
                     # --- Check if issue was closed ---
-                    check_proc = await asyncio.create_subprocess_exec(
-                        "bd", "show", self.current_issue_id, "--json",
-                        cwd=self.project_dir,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
+                    issue_data = issues.get_issue(
+                        self.project_dir, self.current_issue_id,
                     )
-                    check_out, _ = await check_proc.communicate()
-                    try:
-                        issue_data = json.loads(check_out.decode())
-                        # bd show --json may return a list or a dict
-                        if isinstance(issue_data, list):
-                            issue_data = issue_data[0] if issue_data else {}
-                        if issue_data.get("status") != "closed":
-                            logger.warning(
-                                "Issue %s was not closed by Ralph after iteration %d",
-                                self.current_issue_id, self.iteration,
-                            )
-                    except (json.JSONDecodeError, UnicodeDecodeError):
-                        pass
+                    if issue_data and issue_data.get("status") != "closed":
+                        logger.warning(
+                            "Issue %s was not closed by Ralph after iteration %d",
+                            self.current_issue_id, self.iteration,
+                        )
 
                     # Notify frontend of issue state change
                     await sse_bus.publish(self.project_name, "issue_update", {"issue_id": self.current_issue_id, "action": "completed"})
@@ -429,13 +388,10 @@ class RalphLoop:
         await reset_proc.communicate()
 
         # Reopen issue
-        reopen_proc = await asyncio.create_subprocess_exec(
-            "bd", "update", issue_id, "--status", "open",
-            cwd=self.project_dir,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await reopen_proc.communicate()
+        try:
+            issues.set_status(self.project_dir, issue_id, "open")
+        except Exception:
+            logger.warning("Could not reopen issue %s during recovery", issue_id)
 
         await sse_bus.publish(
             self.project_name, "ralph_status",

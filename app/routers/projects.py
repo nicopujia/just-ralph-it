@@ -1,10 +1,7 @@
 import asyncio
-import json
 import logging
-import os
 import re
 import shutil
-from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -13,6 +10,7 @@ from pydantic import BaseModel
 from app.auth_utils import get_current_user
 from app.config import DATA_DIR, RALPH_BOT_GITHUB_TOKEN, MAINTENANCE_MODE
 from app.database import get_db
+from app import issues
 
 logger = logging.getLogger(__name__)
 
@@ -77,24 +75,6 @@ async def _get_project_dir(name: str, user: dict) -> str:
     return str(project_dir)
 
 
-def _normalize_dependencies(issue: dict) -> list[dict]:
-    """Convert bd dependency objects into UI-friendly dependency entries."""
-    normalized: list[dict] = []
-
-    for dep in issue.get("dependencies") or []:
-        if not isinstance(dep, dict):
-            continue
-
-        dep_type = dep.get("type") or "related"
-        depends_on_id = dep.get("depends_on_id")
-        if not depends_on_id or dep_type == "parent-child":
-            continue
-
-        normalized.append({"id": depends_on_id, "type": dep_type})
-
-    return normalized
-
-
 @router.get("/{name}/issues")
 async def list_issues(
     name: str,
@@ -102,72 +82,34 @@ async def list_issues(
 ):
     """List all issues in a project, grouped by parent epic."""
     cwd = await _get_project_dir(name, user)
+    all_issues = issues.list_all(cwd)
 
-    rc, stdout, _ = await _run(["bd", "list", "--all", "--json"], cwd=cwd)
-    if rc != 0:
+    if not all_issues:
         return {"epics": [], "ungrouped": []}
 
-    try:
-        issues = json.loads(stdout)
-    except json.JSONDecodeError:
-        return {"epics": [], "ungrouped": []}
-
-    if not issues:
-        return {"epics": [], "ungrouped": []}
-
-    _FIELDS = (
-        "id",
-        "title",
-        "issue_type",
-        "status",
-        "priority",
-        "description",
-        "acceptance_criteria",
-        "assignee",
-        "dependencies",
-        "created_at",
-    )
-
-    def _pick(issue: dict) -> dict:
-        picked = {k: issue.get(k) for k in _FIELDS}
-        picked["dependencies"] = _normalize_dependencies(issue)
-        return picked
-
-    epics_map: dict[str, dict] = {}  # epic id -> epic dict with children
+    epics_map: dict[str, dict] = {}
     ungrouped: list[dict] = []
 
-    # First pass: identify epics (type == "epic" or has children via dotted ids)
-    for issue in issues:
-        iid = issue.get("id", "")
-        if issue.get("issue_type") == "epic" or (
-            "." not in iid
-            and any(
-                other.get("id", "").startswith(iid + ".")
-                for other in issues
-                if other.get("id", "") != iid
-            )
-        ):
-            epics_map[iid] = {
-                "id": iid,
+    # First pass: identify epics
+    for issue in all_issues:
+        if issue.get("type") == "epic":
+            epics_map[issue["id"]] = {
+                "id": issue["id"],
                 "title": issue.get("title", ""),
                 "status": issue.get("status", ""),
                 "children": [],
             }
 
     # Second pass: assign children to epics
-    for issue in issues:
-        iid = issue.get("id", "")
+    for issue in all_issues:
+        iid = issue["id"]
         if iid in epics_map:
             continue
-
         parent = issue.get("parent", "")
-        if not parent and "." in iid:
-            parent = iid.rsplit(".", 1)[0]
-
         if parent and parent in epics_map:
-            epics_map[parent]["children"].append(_pick(issue))
+            epics_map[parent]["children"].append(issue)
         else:
-            ungrouped.append(_pick(issue))
+            ungrouped.append(issue)
 
     return {
         "epics": list(epics_map.values()),
@@ -183,17 +125,10 @@ async def get_issue(
 ):
     """Return full details for a single issue."""
     cwd = await _get_project_dir(name, user)
-
-    rc, stdout, stderr = await _run(["bd", "show", issue_id, "--json"], cwd=cwd)
-    if rc != 0:
-        raise HTTPException(
-            status_code=404, detail=f"Issue not found: {stderr.strip()}"
-        )
-
-    try:
-        return json.loads(stdout)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=500, detail="Failed to parse issue data")
+    issue = issues.get_issue(cwd, issue_id)
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    return issue
 
 
 @router.post("")
@@ -266,61 +201,9 @@ async def create_project(
             cwd=cwd,
         )
 
-        # 4. bd init (with retry — shared Dolt server may need a moment)
-        logger.info(f"Creating project {name}: step 4 - bd init")
-        # Ensure shared Dolt server is running before attempting bd init
-        shared_pid_file = Path.home() / ".beads" / "shared-server" / "dolt-server.pid"
-        server_alive = False
-        if shared_pid_file.exists():
-            try:
-                pid = int(shared_pid_file.read_text().strip())
-                os.kill(pid, 0)
-                server_alive = True
-            except (ValueError, OSError):
-                pass
-        if not server_alive:
-            await _run(["bd", "dolt", "start"], cwd=str(Path.home()), timeout=30)
-        last_bd_init_error = ""
-        for attempt in range(3):
-            try:
-                rc, out, err = await _run(
-                    [
-                        "bd",
-                        "init",
-                        "--shared-server",
-                        "-p",
-                        name,
-                        "--agents-template", "/dev/null",
-                    ],
-                    cwd=cwd,
-                    timeout=10,
-                )
-            except RuntimeError as exc:
-                rc = -1
-                out = ""
-                err = str(exc)
-
-            last_bd_init_error = err or out or f"bd init failed with rc={rc}"
-            if rc == 0:
-                break
-            logger.warning(
-                "bd init attempt %d failed (rc=%d): %s",
-                attempt + 1,
-                rc,
-                last_bd_init_error,
-            )
-            if attempt < 2:
-                await asyncio.sleep(2)
-        if rc != 0:
-            raise RuntimeError(
-                f"bd init failed after 3 attempts: {last_bd_init_error}"
-            )
-
-        # 4b. Install beads git hooks (auto-commit issues to repo)
-        logger.info(f"Creating project {name}: step 4b - bd hooks install")
-        rc, _, err = await _run(["bd", "hooks", "install"], cwd=cwd)
-        if rc != 0:
-            logger.warning("bd hooks install failed (rc=%d): %s", rc, err)
+        # 4. Initialize issue tracking
+        logger.info(f"Creating project {name}: step 4 - init issues")
+        issues.init_issues(cwd)
 
         # 5. Create CLAUDE.md
         logger.info(f"Creating project {name}: step 5 - creating CLAUDE.md")
@@ -472,14 +355,9 @@ async def create_project(
     }
 
 
-async def _get_issue_count(project_dir: str) -> int:
-    """Run `bd list --json` in the project directory and count issues."""
+def _get_issue_count(project_dir: str) -> int:
     try:
-        rc, stdout, _ = await _run(["bd", "list", "--json"], cwd=project_dir)
-        if rc != 0:
-            return 0
-        issues = json.loads(stdout)
-        return len(issues)
+        return issues.issue_count(project_dir)
     except Exception:
         return 0
 
@@ -499,7 +377,7 @@ async def list_projects(user: dict = Depends(get_current_user)):
 
     row_dicts = [dict(row) for row in rows]
     project_dirs = [str(DATA_DIR / github_username / r["name"]) for r in row_dicts]
-    issue_counts = await asyncio.gather(*[_get_issue_count(d) for d in project_dirs])
+    issue_counts = [_get_issue_count(d) for d in project_dirs]
 
     return [
         {
@@ -594,7 +472,7 @@ async def get_project(name: str, user: dict = Depends(get_current_user)):
 
     row_dict = dict(row)
     project_dir = str(DATA_DIR / github_username / row_dict["name"])
-    issue_count = await _get_issue_count(project_dir)
+    issue_count = _get_issue_count(project_dir)
 
     return {
         "id": row_dict["id"],

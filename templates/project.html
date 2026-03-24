@@ -1761,10 +1761,8 @@
                 adj[i.id] = [];
             });
             issues.forEach(function(i) {
-                (i.dependencies || []).forEach(function(d) {
-                    // If this issue depends on another in this list
-                    var depId = d.depends_on_id || d.depends_on;
-                    if (depId && idSet[depId] && d.type !== 'parent-child') {
+                (i.depends_on || []).forEach(function(depId) {
+                    if (depId && idSet[depId]) {
                         adj[depId] = adj[depId] || [];
                         adj[depId].push(i.id);
                         inDegree[i.id] = (inDegree[i.id] || 0) + 1;
@@ -1844,7 +1842,7 @@
         var detailParts = [];
         if (issue.description) detailParts.push('<strong>Description:</strong>' + renderMarkdown(issue.description));
         if (issue.acceptance_criteria) detailParts.push('<strong>Acceptance Criteria:</strong>' + renderMarkdown(issue.acceptance_criteria));
-        if (issue.dependencies && issue.dependencies.length) detailParts.push(renderIssueDependencies(issue.dependencies));
+        if (issue.depends_on && issue.depends_on.length) detailParts.push(renderIssueDependencies(issue.depends_on));
         if (issue.assignee) detailParts.push('<strong>Assignee:</strong> ' + escapeHtml(issue.assignee));
         detail.innerHTML = detailParts.join('<br>');
 
@@ -1857,13 +1855,10 @@
         return frag;
     }
 
-    function renderIssueDependencies(dependencies) {
-        var items = (dependencies || []).map(function(dep) {
-            if (!dep || !dep.id) return '';
-            var label = dep.type && dep.type !== 'blocks'
-                ? escapeHtml(dep.type) + ': ' + escapeHtml(dep.id)
-                : escapeHtml(dep.id);
-            return '<li>' + label + '</li>';
+    function renderIssueDependencies(dependsOn) {
+        var items = (dependsOn || []).map(function(slug) {
+            if (!slug) return '';
+            return '<li>' + escapeHtml(slug) + '</li>';
         }).filter(Boolean);
 
         if (!items.length) return '';
