@@ -1,0 +1,7 @@
+title: Robustness improvements
+type: epic
+priority: 1
+created: '2026-03-21'
+description: Ralph loop stop timeout, DRY session constant, startup env validation.
+acceptance_criteria:
+- Ralph stop has timeout, no duplicated constants, missing env vars caught at startup

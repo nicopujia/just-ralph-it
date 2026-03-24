@@ -1,0 +1,36 @@
+title: Implement chat file attachments for multimodal processing
+type: task
+priority: 1
+assignee: ralph
+parent: ralphy-chat-interface
+depends_on:
+- implement-ralphy-chat-backend-using-claude-cli-subprocess
+created: '2026-03-21'
+description: "Add file attachment support to the chat endpoint.\n\n## POST /api/projects/{name}/chat\
+  \ (updated)\nChange from JSON body to multipart/form-data:\n- Field `message`: string\
+  \ (required)\n- Field `attachments`: file upload(s) (optional, max 3 files)\n\n\
+  ### Attachment validation\n- Allowed MIME types: image/png, image/jpeg, image/gif,\
+  \ image/webp, application/pdf\n- Max file size: 3MB per file\n- Return 400 with\
+  \ specific message if validation fails (wrong type or too large)\n\n### Attachment\
+  \ handling\n- For each valid attachment, convert to base64 and include in the claude\
+  \ CLI prompt as a multipart message.\n- Claude CLI's -p flag accepts content via\
+  \ stdin. The message format for multimodal should include the files.\n- Actually,\
+  \ claude CLI with -p does not natively support multimodal stdin. Instead: save the\
+  \ attachment to a temp file, and instruct Ralphy to read it using the Read tool.\
+  \ Prepend to the user message: 'The user attached the following file(s): {filename1}\
+  \ (saved at {temp_path1}), {filename2} (saved at {temp_path2}). Please read and\
+  \ analyze them.'\n- Save temp files to {project_dir}/.tmp_attachments/ and clean\
+  \ up after the response is complete.\n\n### Frontend considerations\n- The frontend\
+  \ will send this as FormData, not JSON. The chat endpoint must accept both:\n  -\
+  \ Content-Type: application/json (message only, no attachments)\n  - Content-Type:\
+  \ multipart/form-data (message + optional attachments)"
+acceptance_criteria:
+- POST with multipart/form-data containing a message and a PNG image returns a streaming
+  response where Ralphy acknowledges the image content.
+- POST with a PDF attachment works similarly — Ralphy can read and reference the PDF
+  content.
+- POST with a 4MB file returns 400 with message about size limit.
+- POST with a .zip file returns 400 with message about allowed types.
+- POST with JSON body (no attachments) still works as before.
+- Temp files are cleaned up after the response stream ends.
+- POST with 4 files returns 400 (max 3).

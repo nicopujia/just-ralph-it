@@ -1,0 +1,33 @@
+title: Implement in-app notification system for Ralph blockers
+type: task
+priority: 1
+assignee: ralph
+parent: in-app-notifications-human-blocking
+depends_on:
+- implement-ralph-loop-subprocess-manager
+- implement-sse-event-bus-for-real-time-updates
+created: '2026-03-21'
+description: "Implement the notification system for when Ralph is blocked and needs\
+  \ human help.\n\n## How notifications are created\nRalph's system prompt instructs\
+  \ it to create a beads issue assigned to 'Human' when blocked. The background issue\
+  \ poller (from the SSE event bus task) detects new issues with assignee='Human'\
+  \ and creates a notification.\n\n## Detection logic (in the background poller)\n\
+  When polling bd list --json, check for issues where:\n- assignee == 'Human'\n- status\
+  \ == 'open'  \n- The issue ID is not already associated with an acknowledged notification\
+  \ in SQLite.\n\nFor each such issue, insert a row into the notifications table and\
+  \ publish a 'notification' SSE event.\n\n## API endpoints (in app/routers/ralph.py)\n\
+  \n### GET /api/projects/{name}/notifications\n- Requires auth.\n- Return all unacknowledged\
+  \ notifications for this project.\n- Return JSON array of notification objects with\
+  \ id, message, beads_issue_id, created_at.\n\n### POST /api/projects/{name}/notifications/{id}/acknowledge\
+  \  \n- Requires auth.\n- Set acknowledged=1 in SQLite.\n- Return 200.\n\n## SSE\
+  \ event format\nEvent type: notification. Data: {id, message, beads_issue_id, created_at}.\
+  \ The message should include the issue title for context. The frontend displays\
+  \ this as a persistent banner at the top of the page until acknowledged."
+acceptance_criteria:
+- When Ralph creates an issue assigned to 'Human', a notification appears in the SSE
+  stream within 3 seconds (one poll cycle).
+- GET /api/projects/{name}/notifications returns unacknowledged notifications.
+- POST /api/projects/{name}/notifications/{id}/acknowledge marks it as acknowledged.
+- After acknowledging, the notification no longer appears in GET.
+- The same Human-assigned issue does not create duplicate notifications.
+- The notification message includes the issue title for context.

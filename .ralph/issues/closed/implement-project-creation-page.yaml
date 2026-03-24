@@ -1,0 +1,35 @@
+title: Implement project creation page
+type: task
+priority: 0
+assignee: ralph
+parent: frontend-ui
+depends_on:
+- implement-landing-page
+- implement-project-creation-with-github-repo-initialization
+created: '2026-03-21'
+description: "Create the project creation page at GET /new.\n\n## Route: GET /new\
+  \ (in app/routers/pages.py)\n- Requires auth (redirect to / if not logged in).\n\
+  - Render the project creation template.\n\n## Template: templates/new_project.html\n\
+  Extends base.html. Same header as dashboard. Contains:\n\n### Content\n- h2: 'New\
+  \ Project'\n- A form with:\n  - Label 'Project Name' + text input (name='name').\
+  \ Validation: alphanumeric + hyphens, 1-100 chars. Show validation inline.\n  -\
+  \ Label 'Description' + textarea (name='description', placeholder='What do you want\
+  \ to build?', rows=4).\n  - Submit button: 'Create Project'\n- On submit (JavaScript):\n\
+  \  - Prevent default.\n  - Validate name client-side (regex: ^[a-zA-Z0-9][a-zA-Z0-9-]*[a-zA-Z0-9]$|^[a-zA-Z0-9]$\
+  \ for single char).\n  - Show a loading state on the button ('Creating...', disabled).\n\
+  \  - POST /api/projects with JSON {name, description}.\n  - On success: redirect\
+  \ to /project/{name}.\n  - On 400/409: show the error message below the name field.\n\
+  \  - On other errors: show a generic error message.\n\n### Styles\n- Form max-width\
+  \ 500px, centered.\n- Input and textarea: full width, dark theme (dark bg, light\
+  \ border, light text).\n- Error messages in red."
+acceptance_criteria:
+- GET /new when logged in renders the form with name input, description textarea,
+  and submit button.
+- GET /new when not logged in redirects to /.
+- Submitting valid name and description creates the project and redirects to /project/{name}.
+- Submitting an invalid name (e.g., '---') shows an inline validation error without
+  calling the API.
+- Submitting a duplicate name shows the 409 error message from the API.
+- The submit button shows 'Creating...' and is disabled during the API call.
+- The description textarea placeholder is 'What do you want to build?'.
+- Form styling matches the dark theme.

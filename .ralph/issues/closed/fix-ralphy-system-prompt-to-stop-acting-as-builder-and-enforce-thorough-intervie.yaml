@@ -1,0 +1,38 @@
+title: Fix Ralphy system prompt to stop acting as builder and enforce thorough interviewing
+type: task
+priority: 0
+assignee: Nicolás Pujia
+parent: fix-core-planning-flow
+created: '2026-03-21'
+description: "Ralphy's system prompt in app/prompts/ralphy.py is not restrictive enough.\
+  \ Ralphy creates code files, writes implementations, and skips the interviewing\
+  \ phase. The prompt says minimum 10 questions but Ralphy ignores this.\n\nWHAT TO\
+  \ CHANGE:\n1. In app/prompts/ralphy.py (RALPHY_SYSTEM_PROMPT):\n   - Add explicit\
+  \ rule: 'The ONLY file you may create or modify is AGENTS.md at the project root.\
+  \ You MUST NOT create, edit, or write any other file.'\n   - Strengthen the minimum-questions\
+  \ rule: 'You MUST ask AT LEAST 10 thoughtful questions across multiple message exchanges\
+  \ BEFORE creating any beads issue. Do NOT batch all questions in one message—spread\
+  \ them across the conversation to dig deeper into each answer.'\n   - Add: 'If the\
+  \ user asks you to build, code, or implement anything, firmly but politely refuse.\
+  \ Say: I am your planning assistant. Once we finalize the issues, you can click\
+  \ Just Ralph It to start the build.'\n   - Add: 'NEVER use the Write or Edit tools\
+  \ on any file other than AGENTS.md. If you find yourself about to create a source\
+  \ file, STOP.'\n   - Rewrite rule about bd commands: 'You may ONLY use these tools:\
+  \ Bash (restricted to bd and git commands), Read, Glob, Grep, Write (ONLY for AGENTS.md),\
+  \ Edit (ONLY for AGENTS.md).'\n\n2. In app/routers/chat.py line 20:\n   - Change\
+  \ ALLOWED_TOOLS from 'Bash(bd:*) Bash(git:*) Read Write Edit Glob Grep' to 'Bash(bd:*)\
+  \ Bash(git:*) Read Glob Grep Write(AGENTS.md) Edit(AGENTS.md)'\n   - This restricts\
+  \ Write and Edit to only the AGENTS.md file at the tool permission level.\n\n3.\
+  \ In app/prompts/ralphy.py, restructure the workflow section to emphasize the interview-first\
+  \ approach:\n   - Phase 1 (Understanding): Ask about problem, users, goals, constraints\
+  \ (minimum 5 questions)\n   - Phase 2 (Exploration): Explore features, flows, edge\
+  \ cases, tech preferences (minimum 5 questions)\n   - Phase 3 (Issue Creation):\
+  \ Only after thorough understanding, create issues incrementally\n   - Phase 4 (Review\
+  \ & Finalize): Review all issues, resolve ambiguities, mark open"
+acceptance_criteria:
+- RALPHY_SYSTEM_PROMPT in app/prompts/ralphy.py contains explicit prohibition against
+  creating any file except AGENTS.md
+- ALLOWED_TOOLS in app/routers/chat.py restricts Write and Edit to AGENTS.md only
+- Prompt explicitly requires spreading questions across multiple exchanges (not batching)
+- Prompt contains firm refusal language for build requests
+- Workflow section restructured into 4 phases with minimum question counts per phase

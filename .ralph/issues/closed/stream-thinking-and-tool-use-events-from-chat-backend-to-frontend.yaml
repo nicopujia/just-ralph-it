@@ -1,0 +1,40 @@
+title: Stream thinking and tool-use events from chat backend to frontend
+type: task
+priority: 0
+assignee: Nicolás Pujia
+parent: fix-core-planning-flow
+created: '2026-03-21'
+description: "The backend chat streaming in app/routers/chat.py (_stream_claude function)\
+  \ only handles 'text' content blocks and 'text_delta' deltas from Claude CLI's stream-json\
+  \ output. It silently drops thinking blocks and tool_use blocks. The frontend (templates/project.html)\
+  \ already has scaffolding to display these (the rebuildMsg function with thinkingSteps\
+  \ array and collapsible details element) but never receives the events.\n\nWHAT\
+  \ TO CHANGE in app/routers/chat.py, function _stream_claude:\n\n1. In the 'assistant'\
+  \ message type handler (line 177-183), add handling for thinking and tool_use content\
+  \ blocks:\n   - For blocks with type 'thinking': emit SSE event {\"type\": \"thinking\"\
+  , \"content\": block[\"thinking\"]}\n   - For blocks with type 'tool_use': emit\
+  \ SSE event {\"type\": \"tool_use\", \"name\": block[\"name\"], \"input\": block.get(\"\
+  input\", {})}\n\n2. In the 'content_block_delta' handler (line 185-189), add handling\
+  \ for thinking_delta:\n   - For delta type 'thinking_delta': emit SSE event {\"\
+  type\": \"thinking\", \"content\": delta[\"thinking\"]}\n\n3. Also handle the 'content_block_start'\
+  \ message type from stream-json:\n   - If the content_block has type 'tool_use':\
+  \ emit SSE event {\"type\": \"tool_use\", \"name\": content_block[\"name\"]}\n \
+  \  - If the content_block has type 'thinking': emit SSE event {\"type\": \"thinking_start\"\
+  }\n\nWHAT TO CHANGE in templates/project.html (the frontend JS):\n\n4. In the pump()\
+  \ function's line processing (around line 982-1008), update event handling:\n  \
+  \ - For evt.type === 'thinking': append evt.content to a thinkingText string (not\
+  \ thinkingSteps array), rebuild message with thinking collapsible\n   - For evt.type\
+  \ === 'thinking_start': reset thinkingText, show thinking indicator\n   - For evt.type\
+  \ === 'tool_use': push to thinkingSteps with the tool name, rebuild message\n\n\
+  5. Update the rebuildMsg() function to render thinking text as a single collapsible\
+  \ block:\n   - If thinkingText is non-empty, show a <details> with summary 'Thinking...'\
+  \ and the thinking text in a monospace div\n   - If thinkingSteps has entries, show\
+  \ each tool use step below the thinking"
+acceptance_criteria:
+- When Ralphy thinks, the frontend shows a collapsible 'Thinking...' section with
+  the thinking text in monospace
+- When Ralphy uses a tool (e.g., bd create), the tool name appears as a step in the
+  thinking/working section
+- The text response still renders below the thinking section as before
+- No events are silently dropped—all content block types are forwarded to the frontend
+- The thinking indicator ('Ralphy is thinking...') shows while thinking is in progress

@@ -1,0 +1,142 @@
+title: Implement main project page with two-panel layout
+type: task
+priority: 0
+assignee: ralph
+parent: frontend-ui
+depends_on:
+- implement-in-app-notification-system-for-ralph-blockers
+- implement-ralphy-chat-backend-using-claude-cli-subprocess
+- implement-landing-page
+- implement-beads-issues-polling-api-endpoint
+- implement-agentsmd-reading-endpoint
+- implement-uploads-file-manager-api
+- implement-stripe-checkout-for-per-project-billing
+- implement-ralph-loop-subprocess-manager
+- implement-sse-event-bus-for-real-time-updates
+created: '2026-03-21'
+description: "Create the main project page at GET /project/{name} with the two-panel\
+  \ layout.\n\n## Route: GET /project/{name} (in app/routers/pages.py)\n- Requires\
+  \ auth (redirect to / if not logged in).\n- Verify project belongs to user (404\
+  \ if not).\n- Check for ?payment=success query param — if present, start Ralph loop\
+  \ via API call.\n- Render the project template with project data passed to the template.\n\
+  \n## Template: templates/project.html\nExtends base.html. This is the main workspace.\n\
+  \n### Layout (CSS Grid or Flexbox)\n- Full viewport height (100vh minus header).\n\
+  - Two panels side by side.\n- Left panel: 40% width. Right panel: 60% width.\n-\
+  \ A subtle vertical divider between them (1px border).\n\n### Header (same as dashboard\
+  \ but with additions)\n- 'Just Ralph It' (link to /dashboard) on left.\n- Project\
+  \ name in the center.\n- GitHub repo link (icon or text, opens new tab) next to\
+  \ project name.\n- User avatar + username + logout on the right.\n\n### Left Panel:\
+  \ Chat\nA chat interface with:\n\n#### Message display area\n- Scrollable div taking\
+  \ up all available height above the input.\n- Messages alternate between user (right-aligned,\
+  \ slightly different bg) and assistant (left-aligned).\n- User messages: rendered\
+  \ as plain text (but the user typed markdown, so show it raw).\n- Assistant messages:\
+  \ rendered as HTML from markdown (use a simple markdown-to-HTML function in JS —\
+  \ or just show raw text for v1 and iterate later. Decision: show raw text with basic\
+  \ formatting: bold, italic, code, links. Use a minimal regex-based renderer, not\
+  \ a full library).\n- Auto-scroll to bottom on new messages.\n- Show a 'Ralphy is\
+  \ thinking...' indicator when waiting for response.\n\n#### Input area (at bottom\
+  \ of left panel)\n- A textarea (not input) with placeholder 'Type your message...\
+  \ (markdown encouraged)'.\n- Below the textarea: a row with:\n  - An attachment\
+  \ button (paperclip icon or text 'Attach') that opens a file picker (accept='image/*,application/pdf',\
+  \ max 3 files, max 3MB each).\n  - Show attached file names if any.\n  - A 'Send'\
+  \ button.\n- The textarea should grow with content (auto-resize) up to 200px max\
+  \ height, then scroll.\n- Keyboard: Enter sends, Shift+Enter for newline.\n- **Disabled\
+  \ state**: while Ralphy is processing (SSE ralphy_processing event), disable the\
+  \ textarea and send button. Show 'Ralphy is thinking...' indicator.\n\n#### JRI\
+  \ button\n- A prominent button labeled 'Just Ralph It' that appears ABOVE the input\
+  \ area.\n- Visibility controlled by a JavaScript flag set from SSE or Ralphy's response.\n\
+  - When Ralphy's response includes the phrase 'Just Ralph It' button or similar indicator\
+  \ (we need a protocol — see below), show the button.\n- On click:\n  - If free tier\
+  \ applies: call POST /api/projects/{name}/ralph/checkout. If response.free is true,\
+  \ Ralph starts. Else redirect to Stripe.\n  - The button disappears after clicking.\n\
+  \  - Show 'Stop' and 'Resume' buttons in its place.\n\n#### JRI button protocol\n\
+  Ralphy doesn't directly control the UI. Instead, the backend detects when Ralphy\
+  \ has marked issues as ready (status changed from deferred to open). The detection\
+  \ logic:\n- After each Ralphy response, the frontend polls GET /api/projects/{name}/issues.\n\
+  - If there are issues with status='open' AND none with status='deferred', show the\
+  \ JRI button.\n- This way, Ralphy just needs to do its job (mark issues open) and\
+  \ the UI reacts.\n\n#### Stop/Resume buttons\n- 'Stop' button: visible when Ralph\
+  \ is running. On click: POST /api/projects/{name}/ralph/stop. Changes to 'Stopping...'\
+  \ until the loop actually stops.\n- 'Resume' button: visible when Ralph is stopped\
+  \ (not idle — stopped means intentionally paused). On click: POST /api/projects/{name}/ralph/start.\n\
+  \n### Right Panel: Tabs\nFour tabs with tab headers at the top of the right panel.\n\
+  \n#### Tab 1: Issues\n- Default active tab.\n- On load and periodically (via SSE\
+  \ issue_update events): fetch GET /api/projects/{name}/issues.\n- Render issues\
+  \ grouped by epic:\n  - Epic name as a section header with status indicator (colored\
+  \ dot: green=closed, yellow=in_progress, gray=open, dim=deferred).\n  - Under each\
+  \ epic: list of child issues, each showing:\n    - Status dot (same color coding)\n\
+  \    - Issue ID (small, muted)\n    - Title\n    - Type badge (small, text: feat/task/bug/chore)\n\
+  \    - Priority (P0-P4, only show if P0 or P1)\n  - Each issue is clickable to expand/collapse\
+  \ details:\n    - Description (full text)\n    - Acceptance criteria (full text)\n\
+  \    - Dependencies (list of issue IDs)\n    - Assignee (if set)\n- Ungrouped issues\
+  \ at the bottom under 'Other'.\n- Issues should update in real-time via SSE without\
+  \ full re-render (update individual issue status dots and add new issues).\n\n####\
+  \ Tab 2: AGENTS.md\n- Fetch GET /api/projects/{name}/agents-md on tab activation\
+  \ and on SSE agents_md_update events.\n- Render the markdown content. For v1, basic\
+  \ rendering: headings, paragraphs, lists, code blocks, bold, italic. Use the same\
+  \ minimal renderer as chat messages.\n- If AGENTS.md doesn't exist yet, show 'AGENTS.md\
+  \ will appear here as Ralphy defines the project structure.'\n\n#### Tab 3: Ralph\
+  \ (only visible after Ralph starts)\n- Tab header only appears when Ralph loop status\
+  \ is 'running', 'stopping', or 'stopped'.\n- Content: a terminal-like div with dark\
+  \ background (#111) and monospace font.\n- Connect to GET /api/projects/{name}/events\
+  \ SSE and filter for ralph_stdout events.\n- Append each stdout line to the terminal\
+  \ div.\n- Auto-scroll to bottom.\n- Show the current issue being worked on at the\
+  \ top: 'Working on: {issue_id} — {issue_title}'.\n- When loop is done, show 'Ralph\
+  \ has finished all issues.' at the bottom.\n\n#### Tab 4: Uploads\n- Fetch GET /api/projects/{name}/uploads\
+  \ on tab activation.\n- Show a file list: name, size (human-readable: KB/MB), modified\
+  \ date.\n- Each file has: a rename button (pencil icon) and a delete button (X icon).\n\
+  - Rename: inline edit — clicking rename turns the name into an input field. On blur\
+  \ or Enter: PATCH the API. On Escape: cancel.\n- Delete: confirm() dialog, then\
+  \ DELETE API call, remove from list.\n- Upload area: a 'Upload File' button that\
+  \ opens a file picker (no type/size constraints). On selection: POST /api/projects/{name}/uploads\
+  \ with the file. Add the new file to the list.\n- Drag-and-drop upload: the entire\
+  \ uploads tab area is a drop zone. On drop: upload all dropped files.\n\n### Notification\
+  \ banner\n- At the very top of the page (above header), a persistent yellow/orange\
+  \ banner.\n- Shows when there are unacknowledged notifications (from SSE notification\
+  \ events or fetched on page load).\n- Content: the notification message (e.g., 'Ralph\
+  \ needs help: Need GitHub API key for deployment').\n- An 'Acknowledge' button on\
+  \ the right of the banner. On click: POST acknowledge API, hide the banner.\n- If\
+  \ multiple notifications, stack them or show the most recent with a count.\n\n###\
+  \ Completion toast\n- When the Ralph loop finishes (SSE ralph_status event with\
+  \ status='done'):\n  - Show a toast notification in the bottom-right corner with\
+  \ a green background: 'Your project is ready!'\n  - Auto-dismiss after 10 seconds,\
+  \ or click to dismiss.\n  - The toast is just a positioned div with a fade-in/fade-out\
+  \ animation.\n\n### SSE connection\nOn page load, connect to GET /api/projects/{name}/events\
+  \ via EventSource.\nHandle all event types:\n- issue_update: refresh the issues\
+  \ tab data\n- agents_md_update: refresh the AGENTS.md tab if active\n- ralph_stdout:\
+  \ append to Ralph terminal\n- ralph_status: update loop state, show/hide tabs and\
+  \ buttons\n- notification: show notification banner\n- ralphy_processing: enable/disable\
+  \ chat input\n\n### Page load initialization\n1. Fetch GET /api/projects/{name}\
+  \ for project data (including ralph_loop_status).\n2. Fetch GET /api/projects/{name}/issues\
+  \ for initial issues.\n3. Fetch GET /api/projects/{name}/agents-md for initial AGENTS.md.\n\
+  4. Connect SSE.\n5. If ralph_loop_status is 'running': show Ralph tab, show Stop\
+  \ button, connect stdout stream.\n6. If ralph_loop_status is 'idle' and there are\
+  \ open issues but no deferred ones: show JRI button.\n7. Fetch GET /api/projects/{name}/notifications\
+  \ for any pending notifications.\n\nAll JavaScript is vanilla — no frameworks, no\
+  \ build step."
+acceptance_criteria:
+- GET /project/{name} renders the two-panel layout with chat on the left and tabs
+  on the right.
+- The left panel has a textarea input with 'Type your message...' placeholder, Send
+  button, and Attach button.
+- Sending a message streams Ralphy's response in real-time (SSE), displayed in the
+  chat area.
+- 'The right panel has 4 tabs: Issues, AGENTS.md, Ralph, Uploads.'
+- Issues tab shows issues grouped by epic with status dots, expandable details.
+- AGENTS.md tab renders the markdown content of the project's AGENTS.md.
+- Uploads tab lists files with upload, rename, delete, and drag-and-drop functionality.
+- Ralph tab appears when the loop is running and shows streaming stdout in a terminal-like
+  view.
+- The JRI button appears above the chat input when all issues are open and none are
+  deferred.
+- Clicking JRI triggers Stripe checkout (or free tier) and starts the Ralph loop.
+- Stop/Resume buttons work correctly.
+- Notification banner appears at the top when Ralph needs human help.
+- Green 'Your project is ready!' toast appears when Ralph finishes all issues.
+- SSE connection handles all event types and updates the UI in real-time.
+- The page correctly initializes based on the current project state (running loop,
+  idle, etc.).
+- Enter sends message, Shift+Enter creates newline.
+- Chat input is disabled while Ralphy is processing.
+- No external JavaScript frameworks — all vanilla JS.
+- The page has a link to the GitHub repo in the header.

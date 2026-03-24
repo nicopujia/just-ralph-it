@@ -1,0 +1,28 @@
+title: Implement AGENTS.md reading endpoint
+type: task
+priority: 1
+assignee: ralph
+parent: right-panel-issues-agentsmd-and-uploads-tabs
+depends_on:
+- implement-project-creation-with-github-repo-initialization
+created: '2026-03-21'
+description: 'Create an endpoint to read the project''s root AGENTS.md.
+
+
+  ## GET /api/projects/{name}/agents-md
+
+  - Requires auth. Verify project belongs to user.
+
+  - Read the file at {project_dir}/AGENTS.md.
+
+  - If the file doesn''t exist, return {"content": "", "exists": false}.
+
+  - If it exists, return {"content": "<raw markdown string>", "exists": true}.
+
+  - The frontend will render this as HTML using a markdown library.'
+acceptance_criteria:
+- GET /api/projects/{name}/agents-md for a project with an AGENTS.md returns the raw
+  markdown content.
+- The response includes an 'exists' boolean field.
+- For a project without AGENTS.md, returns empty content and exists=false.
+- For an invalid project, returns 404.

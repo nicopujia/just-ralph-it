@@ -1,0 +1,17 @@
+title: Set placeholder text size to match button text size
+type: task
+priority: 2
+assignee: Nicolás Pujia
+parent: uiux-polish
+created: '2026-03-21'
+description: "In templates/project.html, the textarea placeholder has font-size: 0.8em\
+  \ (line 256-258) but the buttons (Attach, Send) have font-size: 0.85rem (line 272).\
+  \ The user wants the placeholder text to be the same size as the button text.\n\n\
+  WHAT TO CHANGE in templates/project.html:\n\n1. Change the placeholder CSS rule\
+  \ (line 256-258):\n   FROM: .chat-input-area textarea::placeholder { font-size:\
+  \ 0.8em; }\n   TO:   .chat-input-area textarea::placeholder { font-size: 0.85rem;\
+  \ }\n\nThis matches the button font-size exactly."
+acceptance_criteria:
+- The placeholder text in the chat textarea is the same font-size (0.85rem) as the
+  Attach and Send button text
+- No other font sizes are affected

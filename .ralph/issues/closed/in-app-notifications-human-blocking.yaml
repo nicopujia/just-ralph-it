@@ -1,0 +1,10 @@
+title: In-App Notifications & Human Blocking
+type: epic
+priority: 1
+created: '2026-03-21'
+description: When Ralph is blocked (needs human identity, API keys, etc.), it creates
+  a Human-assigned issue and shows a persistent in-app banner.
+acceptance_criteria:
+- When Ralph cannot proceed due to needing human help, it creates a beads issue assigned
+  to 'Human' that blocks the current issue. A persistent banner appears in the UI
+  until the user acknowledges. Ralph moves to the next iteration.

@@ -1,0 +1,20 @@
+title: Make Stripe checkout URLs configurable instead of hardcoded
+type: task
+priority: 1
+assignee: Nicolás Pujia
+parent: security-hardening
+created: '2026-03-21'
+description: "In app/routers/ralph.py lines 100-101, the Stripe checkout success_url\
+  \ and cancel_url are hardcoded to https://justralph.it. This breaks development\
+  \ environments.\n\nWHAT TO CHANGE:\n\n1. In app/config.py, add:\n   BASE_URL = os.getenv('BASE_URL',\
+  \ 'https://justralph.it')\n\n2. In app/routers/ralph.py:\n   - Add import: from\
+  \ app.config import BASE_URL (alongside existing imports from app.config)\n   -\
+  \ Change line 100: success_url=f'{BASE_URL}/project/{name}?payment=success&session_id={{CHECKOUT_SESSION_ID}}'\n\
+  \   - Change line 101: cancel_url=f'{BASE_URL}/project/{name}?payment=cancel'\n\n\
+  3. Similarly in app/routers/auth.py line 17:\n   - Change _CALLBACK_URI = 'https://justralph.it/auth/callback'\n\
+  \   - TO: from app.config import BASE_URL then _CALLBACK_URI = f'{BASE_URL}/auth/callback'"
+acceptance_criteria:
+- BASE_URL is loaded from environment variable with default https://justralph.it
+- Stripe checkout URLs use BASE_URL
+- OAuth callback URL uses BASE_URL
+- No hardcoded justralph.it URLs remain in Python source files

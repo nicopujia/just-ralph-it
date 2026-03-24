@@ -1,0 +1,27 @@
+title: Add authentication to SSE endpoint
+type: task
+priority: 0
+assignee: Nicolás Pujia
+parent: security-hardening
+created: '2026-03-21'
+description: "The SSE endpoint at /api/projects/{project_name}/events in app/routers/sse.py\
+  \ has NO authentication. Any unauthenticated client can subscribe to any project's\
+  \ real-time events including issue updates, ralph stdout, and notifications. There\
+  \ is even a comment on line 24 that says 'Auth will be added by a later task'.\n\
+  \nWHAT TO CHANGE in app/routers/sse.py:\n\n1. Add imports:\n   from fastapi import\
+  \ APIRouter, Depends, HTTPException\n   from app.auth_utils import get_current_user\n\
+  \   from app.database import get_db\n\n2. Change the endpoint signature (line 17):\n\
+  \   FROM: async def project_events(project_name: str):\n   TO:   async def project_events(project_name:\
+  \ str, user: dict = Depends(get_current_user)):\n\n3. Add project ownership verification\
+  \ after getting the user:\n   async with get_db() as db:\n       cursor = await\
+  \ db.execute(\n           'SELECT id FROM projects WHERE user_id = ? AND name =\
+  \ ?',\n           (user['id'], project_name),\n       )\n       row = await cursor.fetchone()\n\
+  \   if row is None:\n       raise HTTPException(status_code=404, detail='Project\
+  \ not found')\n\n4. Remove the comment about auth being added later.\n\nNOTE: SSE\
+  \ uses EventSource in the browser which sends cookies automatically, so the session\
+  \ cookie will be included. No frontend changes needed."
+acceptance_criteria:
+- GET /api/projects/{name}/events returns 401 if no session cookie
+- GET /api/projects/{name}/events returns 404 if user doesn't own the project
+- Authenticated users can still subscribe to their own project's events
+- The comment about auth being added later is removed

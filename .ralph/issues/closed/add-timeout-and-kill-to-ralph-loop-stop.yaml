@@ -1,0 +1,24 @@
+title: Add timeout and kill to Ralph loop stop
+type: task
+priority: 1
+assignee: Nicolás Pujia
+parent: robustness-improvements
+created: '2026-03-21'
+description: "In app/ralph_loop.py, the stop() method (line 307-325) waits indefinitely\
+  \ for the Claude process to finish. If Claude hangs, stop() blocks forever.\n\n\
+  WHAT TO CHANGE in app/ralph_loop.py:\n\n1. In the stop() method, replace the indefinite\
+  \ wait with a timeout:\n   if self.process and self.process.returncode is None:\n\
+  \       try:\n           await asyncio.wait_for(self.process.wait(), timeout=30)\n\
+  \       except asyncio.TimeoutError:\n           logger.warning('Claude process\
+  \ did not exit in 30s, killing it')\n           self.process.kill()\n          \
+  \ await self.process.wait()\n\n2. Similarly for the task wait:\n   if self._task\
+  \ and not self._task.done():\n       try:\n           await asyncio.wait_for(self._task,\
+  \ timeout=10)\n       except asyncio.TimeoutError:\n           logger.warning('Ralph\
+  \ loop task did not finish in 10s, cancelling')\n           self._task.cancel()\n\
+  \           try:\n               await self._task\n           except asyncio.CancelledError:\n\
+  \               pass"
+acceptance_criteria:
+- stop() returns within ~40 seconds even if Claude process is hanging
+- Hanging processes are killed after 30 second timeout
+- Loop task is cancelled after 10 second timeout if still running
+- Normal stop (process exits on its own) works as before

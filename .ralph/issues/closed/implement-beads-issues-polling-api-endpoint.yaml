@@ -1,0 +1,34 @@
+title: Implement beads issues polling API endpoint
+type: task
+priority: 0
+assignee: ralph
+parent: right-panel-issues-agentsmd-and-uploads-tabs
+depends_on:
+- implement-project-creation-with-github-repo-initialization
+created: '2026-03-21'
+description: "Create an API endpoint that returns the current state of beads issues\
+  \ for a project.\n\n## GET /api/projects/{name}/issues\n- Requires auth. Verify\
+  \ project belongs to user.\n- Run `bd list --json` in the project directory.\n-\
+  \ Parse the JSON output (array of issue objects).\n- Group issues by their parent\
+  \ epic. Issues without a parent go in an 'Ungrouped' section.\n- For each issue,\
+  \ also fetch dependency info by examining the deps field in the bd output.\n- Return\
+  \ JSON structure:\n```json\n{\n  \"epics\": [\n    {\n      \"id\": \"jri-abc\"\
+  ,\n      \"title\": \"Epic Name\",\n      \"status\": \"open\",\n      \"children\"\
+  : [\n        {\n          \"id\": \"jri-abc.1\",\n          \"title\": \"Task Name\"\
+  ,\n          \"type\": \"feature\",\n          \"status\": \"deferred\",\n     \
+  \     \"priority\": 2,\n          \"description\": \"...\",\n          \"acceptance_criteria\"\
+  : \"...\",\n          \"assignee\": null,\n          \"dependencies\": [\"jri-abc.0\"\
+  ],\n          \"created_at\": \"...\"\n        }\n      ]\n    }\n  ],\n  \"ungrouped\"\
+  : [...]\n}\n```\n- If bd list fails (e.g., beads not initialized), return {\"epics\"\
+  : [], \"ungrouped\": []}.\n\n## GET /api/projects/{name}/issues/{issue_id}\n- Requires\
+  \ auth.\n- Run `bd show {issue_id} --json` in the project directory.\n- Return the\
+  \ full issue JSON as-is from bd."
+acceptance_criteria:
+- GET /api/projects/{name}/issues returns a JSON object with 'epics' and 'ungrouped'
+  arrays.
+- Issues are grouped under their parent epic correctly.
+- Each issue contains id, title, type, status, priority, description, acceptance_criteria,
+  assignee, dependencies, and created_at.
+- GET /api/projects/{name}/issues/{id} returns the full details of a specific issue.
+- 'For a project with no issues, returns {"epics": [], "ungrouped": []}.'
+- For an invalid project name, returns 404.
