@@ -53,13 +53,13 @@ make run
 
 | What | Where |
 |------|-------|
-| App database (users, projects) | `~/jri/data/jri.db` (SQLite) |
-| Project repos + uploads | `~/jri/data/<username>/<project-name>/` |
-| Beads issues (per project) | `~/jri/data/<username>/<project-name>/.beads/` |
+| App database (users, projects) | `./data/jri.db` (SQLite) |
+| Project repos + uploads | `./data/<github-username>/<project-name>/` |
+| Beads issues (per project) | `./data/<user>/<project>/.beads/` |
 | Shared Dolt server | `~/.beads/shared-server/` |
 | Ralphy session files | `~/.claude/projects/-home-nico-jri-data-<user>-<project>/` |
-| Auth credentials | `~/jri/.env`, `~/.config/gh/hosts.yml`, `~/.claude/.credentials.json` |
-| Waitlist (maintenance mode) | `~/jri/data/waitlist.txt` |
+| Auth credentials | `./.env`, `~/.config/gh/hosts.yml`, `~/.claude/.credentials.json` |
+| Waitlist (maintenance mode) | `./data/waitlist.txt` |
 
 ## Logs
 
