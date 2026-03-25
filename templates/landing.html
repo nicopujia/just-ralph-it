@@ -139,28 +139,7 @@ body.landing {
     gap: 0.75rem;
     width: 100%;
 }
-.btn-login {
-    display: block;
-    width: 100%;
-    padding: 0.75rem 1rem;
-    border: 2px solid var(--accent);
-    background: transparent;
-    color: var(--accent);
-    font-size: 0.875rem;
-    font-weight: 700;
-    font-family: var(--landing-font);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    text-align: center;
-    text-decoration: none;
-    cursor: pointer;
-    transition: background-color 0.2s, color 0.2s;
-    box-sizing: border-box;
-}
-.btn-login:hover {
-    background-color: var(--accent);
-    color: var(--landing-bg);
-}
+
 @media (max-width: 640px) {
     .bouncing-logo { display: none; }
     .landing-card { min-width: 0; margin: 1rem; padding: 1.5rem; }
@@ -198,9 +177,9 @@ body.landing {
         <!-- Actions -->
         <div class="landing-actions">
             {% if logged_in %}
-            <a href="/projects" class="btn-login">GO TO DASHBOARD</a>
+            <a href="/projects" class="btn btn-primary">GO TO DASHBOARD</a>
             {% else %}
-            <a href="/auth/login" class="btn-login">LOGIN WITH GITHUB</a>
+            <a href="/auth/login" class="btn btn-primary">LOGIN WITH GITHUB</a>
             {% endif %}
         </div>
     </div>

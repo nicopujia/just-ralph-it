@@ -68,32 +68,6 @@
         align-items: center;
         gap: 1rem;
     }
-    .btn-submit {
-        display: inline-block;
-        padding: 0.75rem 1.5rem;
-        border: 1px solid var(--text);
-        background: transparent;
-        color: var(--text-bright);
-        font-size: 1rem;
-        border-radius: 4px;
-        cursor: pointer;
-        transition: background-color 0.2s;
-    }
-    .btn-submit:hover {
-        background-color: var(--hover-bg);
-    }
-    .btn-submit:disabled {
-        opacity: 0.6;
-        cursor: not-allowed;
-    }
-    .btn-cancel {
-        color: var(--text-dim);
-        text-decoration: none;
-        font-size: 0.95rem;
-    }
-    .btn-cancel:hover {
-        color: var(--text-bright);
-    }
 </style>
 {% endblock %}
 
@@ -114,8 +88,8 @@
             <textarea id="description" name="description" placeholder="What do you want to build?" rows="4"></textarea>
         </div>
         <div class="form-actions">
-            <button type="submit" class="btn-submit" id="submit-btn">Create Project</button>
-            <a href="/projects" class="btn-cancel">Cancel</a>
+            <button type="submit" class="btn btn-primary" id="submit-btn">Create Project</button>
+            <a href="/projects" class="btn">Cancel</a>
         </div>
     </form>
 </div>
