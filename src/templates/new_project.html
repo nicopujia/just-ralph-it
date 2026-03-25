@@ -112,8 +112,9 @@
             return;
         }
 
+        const allButtons = document.querySelectorAll('button');
+        allButtons.forEach(function(btn) { btn.disabled = true; });
         submitBtn.textContent = 'Creating...';
-        submitBtn.disabled = true;
         nameInput.disabled = true;
         descInput.disabled = true;
 
@@ -139,8 +140,8 @@
             showError('Something went wrong. Please try again.');
         }
 
+        allButtons.forEach(function(btn) { btn.disabled = false; });
         submitBtn.textContent = 'Create Project';
-        submitBtn.disabled = false;
         nameInput.disabled = false;
         descInput.disabled = false;
     });
