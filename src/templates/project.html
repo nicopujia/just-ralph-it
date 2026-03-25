@@ -1705,7 +1705,7 @@
         if (status === 'running' || status === 'stopping') {
             jriBtn.textContent = 'Ralph is building...';
             jriBtn.disabled = true;
-        } else if (status === 'payment_required' && currentUnpaidCount > 0) {
+        } else if (status === 'payment_required' && currentUnpaidCount > 0 && !(paymentStatusCache && paymentStatusCache.free_user)) {
             var payAmount = currentUnpaidCount * 5;
             jriBtn.textContent = 'Pay for ' + currentUnpaidCount + ' ' + (currentUnpaidCount === 1 ? 'task' : 'tasks') + ' \u2014 $' + payAmount;
         } else {
@@ -1715,7 +1715,12 @@
                 tasksData.forEach(function(t) { if (t.status !== 'done') taskCount++; });
             }
             var total = 10 + (taskCount * 5);
-            jriBtn.textContent = taskCount > 0 ? 'Just Ralph It ($' + total + ')' : 'Just Ralph It';
+            var isFree = paymentStatusCache && paymentStatusCache.free_user;
+            if (isFree) {
+                jriBtn.textContent = 'Just Ralph It (Free)';
+            } else {
+                jriBtn.textContent = taskCount > 0 ? 'Just Ralph It ($' + total + ')' : 'Just Ralph It';
+            }
         }
 
         jriBtn.addEventListener('click', function() {
@@ -2004,6 +2009,16 @@
                     .then(function(ps) {
                         paymentStatusCache = ps;
                         updatePricing(ps);
+                        // Update JRI button for free users once status is known
+                        if (ps.free_user) {
+                            var jriMsg = document.querySelector('.jri-msg');
+                            if (jriMsg) {
+                                var jriBtn = jriMsg.querySelector('.btn-jri');
+                                if (jriBtn && !jriBtn.disabled) {
+                                    jriBtn.textContent = 'Just Ralph It (Free)';
+                                }
+                            }
+                        }
                     })
                     .catch(function() {});
             }
@@ -2517,6 +2532,7 @@
     var currentUnpaidCount = 0;
 
     function showPaymentBanner(unpaidCount) {
+        if (paymentStatusCache && paymentStatusCache.free_user) return;
         currentUnpaidCount = unpaidCount;
         var cost = unpaidCount * 5;
         ralphBannerText.textContent = unpaidCount + ' new unpaid ' + (unpaidCount === 1 ? 'task' : 'tasks') + '. Pay $' + cost + ' to continue.';
@@ -2573,7 +2589,11 @@
         if (jriMsg) {
             var jriBtn = jriMsg.querySelector('.btn-jri');
             if (jriBtn) {
-                jriBtn.textContent = 'Pay for ' + unpaidCount + ' ' + (unpaidCount === 1 ? 'task' : 'tasks') + ' \u2014 $' + (unpaidCount * 5);
+                if (paymentStatusCache && paymentStatusCache.free_user) {
+                    jriBtn.textContent = 'Just Ralph It (Free)';
+                } else {
+                    jriBtn.textContent = 'Pay for ' + unpaidCount + ' ' + (unpaidCount === 1 ? 'task' : 'tasks') + ' \u2014 $' + (unpaidCount * 5);
+                }
                 jriBtn.disabled = false;
                 jriBtn.style.cursor = '';
                 jriBtn.style.background = '';
