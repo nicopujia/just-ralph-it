@@ -17,7 +17,7 @@ from app.sse_bus import sse_bus
 
 router = APIRouter(prefix="/api/projects", tags=["chat"])
 
-ALLOWED_TOOLS = "Bash(bd:*) Bash(git:*) Read Glob Grep Write(README.md) Edit(README.md) WebSearch WebFetch"
+ALLOWED_TOOLS = "Bash(git:*) Bash(ls:*) Bash(cat:*) Bash(mv:*) Bash(mkdir:*) Read Glob Grep Write(README.md) Write(.jri/tasks/) Edit(README.md) Edit(.jri/tasks/) WebSearch WebFetch"
 MAX_MESSAGE_LENGTH = 50_000
 
 ALLOWED_MIME_TYPES = {
@@ -153,7 +153,7 @@ async def _stream_claude(
 
     args = _build_claude_args(session_id, is_new_session, user_message)
 
-    env = {"BD_ACTOR": "ralphy"}
+    env = {}
 
     await sse_bus.publish(project_name, "ralphy_processing", {"status": "start"})
 
@@ -205,7 +205,7 @@ async def _stream_claude(
                         yield f"data: {json.dumps(event)}\n\n"
                         log_file.write(f"[tool_use] {content_block['name']}\n")
                         log_file.flush()
-                        # Publish issue_update when Ralphy uses Bash (likely bd commands)
+                        # Publish issue_update when Ralphy uses Bash (likely task file changes)
                         if content_block["name"] == "Bash":
                             await sse_bus.publish(project_name, "issue_update", {})
 
@@ -256,7 +256,7 @@ async def _stream_claude(
         log_file.close()
         _active_procs.pop(project_name, None)
         await sse_bus.publish(project_name, "ralphy_processing", {"status": "end"})
-        # Final issue refresh so all clients pick up any bd changes Ralphy made
+        # Final issue refresh so all clients pick up any task changes Ralphy made
         await sse_bus.publish(project_name, "issue_update", {})
 
 

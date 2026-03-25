@@ -1537,7 +1537,7 @@
                             } else if (evt.type === 'tool_use') {
                                 var label = evt.name || 'Working...';
                                 thinkingSteps.push(label);
-                                // Refresh issues when Ralphy uses Bash (likely bd commands)
+                                // Refresh issues when Ralphy uses Bash (likely task file changes)
                                 if (evt.name === 'Bash') {
                                     fetchIssues(); fetchReadme();
                                 }
@@ -1599,7 +1599,7 @@
        JRI / STOP / RESUME BUTTONS
        ══════════════════════════════════════════════ */
     function checkJriVisibility(responseText) {
-        // JRI button is triggered by bd update --status open tool_use events,
+        // JRI button is triggered by task promotion to todo events,
         // not by text regex. Just refresh project state for stop/resume buttons.
         refreshProject();
     }
@@ -2552,7 +2552,7 @@
             } catch(e) {}
         }
 
-        // 1c. Restore JRI button if flag was set (by bd update --status open detection)
+        // 1c. Restore JRI button if flag was set (by task promotion to todo detection)
         if (localStorage.getItem(STORAGE_KEY + '-jri') === 'true') {
             showJriButton();
         }
