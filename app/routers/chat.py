@@ -66,7 +66,7 @@ def _build_claude_args(
     session_id: str, is_new_session: bool, user_message: str
 ) -> list[str]:
     """Build the argument list for the claude CLI subprocess."""
-    args = ["claude", "-p", "--model", "opus", "--max-budget-usd", "5"]
+    args = ["claude", "-p", "--model", "opus"]
 
     if is_new_session:
         args += ["--session-id", session_id]

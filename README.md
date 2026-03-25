@@ -49,6 +49,50 @@ uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 # App starts at http://127.0.0.1:8000
 ```
 
+## Ralph Task System
+
+Internal tasks live in `.ralph/tasks/` as YAML files, organized by lifecycle stage:
+
+```
+.ralph/tasks/
+  draft/     # ideas, not yet ready
+  todo/      # ready to be picked up
+  doing/     # currently in progress
+  done/      # completed
+```
+
+Each YAML file has a `title`, `priority`, `assignee`, `depends_on`, `created`, and `acceptance_criteria`. Tasks are moved between directories as they progress.
+
+## Session & Auth
+
+- **GitHub OAuth**: redirects to GitHub, exchanges code for token, fetches user profile, creates/updates local user record
+- **Session tokens**: signed with `itsdangerous`, stored as `session` cookie, 30-day expiry (`SESSION_MAX_AGE`)
+
+## SSE Event Types
+
+Real-time updates via `app/sse_bus.py`, keyed by project name:
+
+`issue_update`, `claude_md_update`, `ralph_stdout`, `ralph_status`, `notification`, `ralphy_processing`
+
+## Upload Constraints
+
+- **Max multipart size**: 10 MB (set in `app/main.py` via `MultiPartParser.max_file_size`)
+- **Max attachment size**: 3 MB per file (enforced in `app/routers/chat.py`)
+- **nginx limit**: `client_max_body_size 10M`
+- Path traversal (`..`, `/`) is rejected
+
+## Maintenance Mode
+
+Set `MAINTENANCE_MODE=1` (or `true`/`yes`) to block new project creation. When active, the create-project endpoint returns 503 and appends the user's email to `./data/waitlist.txt`.
+
+## Testing
+
+```bash
+uv run pytest                                    # unit tests
+uv run pytest tests/e2e_test.py -v --timeout=120 # e2e tests
+uv run ruff check .                              # lint
+```
+
 ## Data
 
 | What | Where |

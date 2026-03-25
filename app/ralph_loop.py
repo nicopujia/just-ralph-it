@@ -239,7 +239,6 @@ class RalphLoop:
                     self.process = await asyncio.create_subprocess_exec(
                         "claude", "-p",
                         "--model", "opus",
-                        "--max-budget-usd", "10",
                         "--output-format", "stream-json",
                         "--verbose",
                         "--dangerously-skip-permissions",
