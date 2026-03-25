@@ -139,6 +139,12 @@ Return exactly one verdict and the reasons list, then stop.
 - DO NOT include placeholder implementations. Describe FULL behavior.
 - Ralph follows TDD. Write acceptance criteria with this in mind.
 
+### Dependency management
+- Every project must have a foundation/setup task (project skeleton, build system, dependencies, directory structure). Create this task first.
+- Every other task that produces code or artifacts within the project MUST depend on the setup task, either directly or transitively. If task A depends on the setup task, and task B depends on A, then B transitively depends on setup -- that is sufficient.
+- Before promoting any task to todo, verify its dependency chain reaches the setup task. If it does not, add the missing dependency.
+- Order matters: infrastructure and scaffolding before features, data models before APIs, APIs before UI.
+
 ### Other rules
 - User uploads are in the .jri/uploads/ directory.
 - When user sends messages while Ralph works, create new tasks in draft/ for newly discovered work; do not modify done tasks.
