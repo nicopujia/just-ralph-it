@@ -190,6 +190,25 @@ async def create_project(
         logger.info(f"Creating project {name}: step 6 - creating uploads directory")
         (project_dir / ".jri" / "uploads").mkdir(parents=True, exist_ok=True)
 
+        # 6a. Write .jri/README.md
+        jri_readme = (
+            "# .jri/ — Project Tracking Directory\n"
+            "\n"
+            "This directory is managed by JRI for project-level task tracking and file storage.\n"
+            "\n"
+            "## Structure\n"
+            "\n"
+            "```\n"
+            "tasks/          — task tracking (YAML files organized by status)\n"
+            "  draft/        — tasks being defined\n"
+            "  todo/         — tasks ready to start\n"
+            "  doing/        — tasks in progress\n"
+            "  done/         — completed tasks\n"
+            "uploads/        — user-uploaded reference files\n"
+            "```\n"
+        )
+        (project_dir / ".jri" / "README.md").write_text(jri_readme)
+
         # 6b. Create .env file and .gitignore
         (project_dir / ".env").write_text("")
         (project_dir / ".gitignore").write_text(".env\n")
