@@ -4,6 +4,7 @@ import asyncio
 import collections
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -84,7 +85,11 @@ class RalphLoop:
     @staticmethod
     async def check_interrupted(project_dir: str, project_name: str) -> None:
         """Check if a previous loop was interrupted and clean up."""
-        state_path = Path(project_dir) / ".jri_state"
+        state_path = Path(project_dir) / ".jri" / "state"
+        # Also check legacy path
+        legacy_path = Path(project_dir) / ".jri_state"
+        if legacy_path.exists() and not state_path.exists():
+            state_path = legacy_path
         if not state_path.exists():
             return
         try:
@@ -103,6 +108,14 @@ class RalphLoop:
                     stderr=asyncio.subprocess.PIPE,
                 )
                 await reset_proc.communicate()
+                # Clean up abandoned worktrees
+                wt_proc = await asyncio.create_subprocess_exec(
+                    "git", "worktree", "prune",
+                    cwd=project_dir,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await wt_proc.communicate()
                 # Reopen the issue
                 if issue_id:
                     try:
@@ -113,8 +126,9 @@ class RalphLoop:
                         project_name, "issue_update",
                         {"issue_id": issue_id, "action": "reopened"},
                     )
-                # Clean up state file
+                # Clean up state file(s)
                 state_path.unlink(missing_ok=True)
+                legacy_path.unlink(missing_ok=True)
         except Exception:
             logger.exception("Failed to recover interrupted loop for %s", project_name)
 
@@ -300,6 +314,55 @@ class RalphLoop:
                         "Iteration %d crashed on issue %s in project %s",
                         self.iteration, self.current_issue_id, self.project_name,
                     )
+                    # Check if there are unpushed commits (post-commit crash)
+                    try:
+                        unpushed = await asyncio.create_subprocess_exec(
+                            "git", "log", "--oneline", "@{u}..HEAD",
+                            cwd=self.project_dir,
+                            stdout=asyncio.subprocess.PIPE,
+                            stderr=asyncio.subprocess.PIPE,
+                        )
+                        up_out, up_err = await unpushed.communicate()
+                        has_unpushed = unpushed.returncode == 0 and up_out.strip()
+
+                        if has_unpushed:
+                            # Commits exist locally -- try to push them
+                            push_proc = await asyncio.create_subprocess_exec(
+                                "git", "push",
+                                cwd=self.project_dir,
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.PIPE,
+                            )
+                            await push_proc.communicate()
+                            if push_proc.returncode == 0:
+                                # Push succeeded, move task to done
+                                logger.info(
+                                    "Post-crash push succeeded for issue %s",
+                                    self.current_issue_id,
+                                )
+                                try:
+                                    tasks.set_status(
+                                        self.project_dir,
+                                        self.current_issue_id,
+                                        "done",
+                                    )
+                                except Exception:
+                                    logger.warning(
+                                        "Could not move issue %s to done after post-crash push",
+                                        self.current_issue_id,
+                                    )
+                                continue
+                            else:
+                                logger.warning(
+                                    "Post-crash push failed for issue %s, recovering",
+                                    self.current_issue_id,
+                                )
+                    except Exception:
+                        logger.warning(
+                            "Could not check unpushed commits for issue %s",
+                            self.current_issue_id,
+                        )
+
                     await self._recover(self.current_issue_id)
                     continue
 
@@ -389,6 +452,15 @@ class RalphLoop:
             stderr=asyncio.subprocess.PIPE,
         )
         await reset_proc.communicate()
+
+        # Clean up abandoned worktrees
+        wt_proc = await asyncio.create_subprocess_exec(
+            "git", "worktree", "prune",
+            cwd=self.project_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        await wt_proc.communicate()
 
         # Reopen issue
         try:
@@ -554,15 +626,19 @@ class RalphLoop:
         return None  # Skip unknown types
 
     def _save_state(self) -> None:
-        """Persist loop state to .jri_state in the project directory."""
+        """Persist loop state to .jri/state using atomic write."""
         state = {
             "project_id": self.project_id,
             "status": self.status,
             "current_issue_id": self.current_issue_id,
             "iteration": self.iteration,
         }
-        state_path = Path(self.project_dir) / ".jri_state"
-        state_path.write_text(json.dumps(state, indent=2))
+        jri_dir = Path(self.project_dir) / ".jri"
+        jri_dir.mkdir(parents=True, exist_ok=True)
+        tmp_path = jri_dir / "state.tmp"
+        state_path = jri_dir / "state"
+        tmp_path.write_text(json.dumps(state, indent=2))
+        os.replace(tmp_path, state_path)
 
     async def _update_db_status(self, status: str) -> None:
         async with get_db() as db:

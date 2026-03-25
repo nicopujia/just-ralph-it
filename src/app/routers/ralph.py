@@ -7,6 +7,7 @@ import stripe
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
+from app import tasks
 from app.auth_utils import get_current_user
 from app.config import BASE_URL, DATA_DIR, STRIPE_SECRET_KEY
 from app.database import get_db
@@ -156,7 +157,38 @@ async def ralph_stop(name: str, user: dict = Depends(get_current_user)):
 
     loop = _loops.get(name)
     if loop is not None:
+        current_issue = loop.current_issue_id
+        project_dir = loop.project_dir
         await loop.stop()
+
+        # Clean up git state and move task back to todo
+        try:
+            reset_proc = await asyncio.create_subprocess_exec(
+                "git", "reset", "--hard", "HEAD",
+                cwd=project_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await reset_proc.communicate()
+
+            wt_proc = await asyncio.create_subprocess_exec(
+                "git", "worktree", "prune",
+                cwd=project_dir,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            await wt_proc.communicate()
+
+            if current_issue:
+                try:
+                    task_data = tasks.get_task(project_dir, current_issue)
+                    if task_data and task_data.get("status") == "doing":
+                        tasks.set_status(project_dir, current_issue, "todo")
+                except Exception:
+                    logger.warning("Could not reopen issue %s on stop", current_issue)
+        except Exception:
+            logger.exception("Error cleaning up git state on stop for %s", name)
+
         return {"status": "stopped"}
 
     # No in-memory loop — DB may be stale (e.g., after service restart).
