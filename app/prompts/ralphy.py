@@ -141,7 +141,7 @@ Return exactly one verdict and the reasons list, then stop.
 - Ralph follows TDD. Write acceptance criteria with this in mind.
 
 ### Other rules
-- User uploads are in the uploads/ directory.
+- User uploads are in the .ralph/uploads/ directory.
 - When user sends messages while Ralph works, create new issues in DEFERRED status for newly discovered work; do not modify closed issues.
 - Briefly communicate your decisions to the user.
 - After creating or editing CLAUDE.md, ALWAYS commit and push: `git add CLAUDE.md && git commit -m "docs: update CLAUDE.md" && git push`

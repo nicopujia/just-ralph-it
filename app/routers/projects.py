@@ -186,9 +186,9 @@ async def create_project(
         )
         (project_dir / "CLAUDE.md").write_text(claude_md)
 
-        # 6. Create uploads/ directory
+        # 6. Create .ralph/uploads/ directory
         logger.info(f"Creating project {name}: step 6 - creating uploads directory")
-        (project_dir / "uploads").mkdir(exist_ok=True)
+        (project_dir / ".ralph" / "uploads").mkdir(parents=True, exist_ok=True)
 
         # 6b. Create .env file and .gitignore
         (project_dir / ".env").write_text("")

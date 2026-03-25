@@ -7,7 +7,7 @@ Rules:
 3. TDD: write tests FIRST from acceptance criteria, then implement.
 4. NO placeholder/stub implementations. COMPLETE and FUNCTIONAL only.
 5. You have root access. Install whatever you need.
-6. Human uploads are in uploads/. Check there if needed.
+6. Human uploads are in .ralph/uploads/. Check there if needed.
 7. Verify ALL acceptance criteria by running/testing.
 8. Commit to main with Co-authored-by trailer.
 9. Close issue by moving its file (see Issue management below).

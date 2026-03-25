@@ -115,8 +115,8 @@ async def _validate_attachments(attachments: list[UploadFile]) -> list[tuple[str
 def _save_attachments_to_uploads(
     project_dir: str, validated: list[tuple[str, bytes]]
 ) -> list[str]:
-    """Save validated attachments to uploads/ and return list of filenames."""
-    uploads_dir = Path(project_dir) / "uploads"
+    """Save validated attachments to .ralph/uploads/ and return list of filenames."""
+    uploads_dir = Path(project_dir) / ".ralph" / "uploads"
     uploads_dir.mkdir(parents=True, exist_ok=True)
 
     filenames: list[str] = []
