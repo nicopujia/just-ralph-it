@@ -85,7 +85,7 @@ class RalphLoop:
     @staticmethod
     async def check_interrupted(project_dir: str, project_name: str) -> None:
         """Check if a previous loop was interrupted and clean up."""
-        state_path = Path(project_dir) / ".jri" / "state"
+        state_path = Path(project_dir) / ".jri" / "state.json"
         # Also check legacy path
         legacy_path = Path(project_dir) / ".jri_state"
         if legacy_path.exists() and not state_path.exists():
@@ -626,7 +626,7 @@ class RalphLoop:
         return None  # Skip unknown types
 
     def _save_state(self) -> None:
-        """Persist loop state to .jri/state using atomic write."""
+        """Persist loop state to .jri/state.json using atomic write."""
         state = {
             "project_id": self.project_id,
             "status": self.status,
@@ -635,8 +635,8 @@ class RalphLoop:
         }
         jri_dir = Path(self.project_dir) / ".jri"
         jri_dir.mkdir(parents=True, exist_ok=True)
-        tmp_path = jri_dir / "state.tmp"
-        state_path = jri_dir / "state"
+        tmp_path = jri_dir / "state.json.tmp"
+        state_path = jri_dir / "state.json"
         tmp_path.write_text(json.dumps(state, indent=2))
         os.replace(tmp_path, state_path)
 

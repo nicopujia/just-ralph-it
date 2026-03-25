@@ -211,7 +211,7 @@ async def create_project(
         (project_dir / ".gitignore").write_text(
             ".env\n"
             ".jri/logs/\n"
-            ".jri/state\n"
+            ".jri/state.json\n"
         )
 
         # 7. Git add all and commit
