@@ -53,12 +53,13 @@ class SubdomainMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] == "http":
             headers = dict(scope.get("headers", []))
-            subdomain = headers.get(b"x-subdomain", b"").decode()
-            if subdomain:
+            project = headers.get(b"x-subdomain-project", b"").decode()
+            username = headers.get(b"x-subdomain-username", b"").decode()
+            if project and username:
                 from app.routers.deploy_proxy import handle_subdomain_request
                 from starlette.requests import Request as StarletteRequest
                 request = StarletteRequest(scope, receive, send)
-                response = await handle_subdomain_request(request, subdomain)
+                response = await handle_subdomain_request(request, project, username)
                 await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)

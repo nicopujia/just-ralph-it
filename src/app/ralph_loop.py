@@ -315,8 +315,10 @@ class RalphLoop:
         try:
             async with get_db() as db:
                 cursor = await db.execute(
-                    "SELECT deploy_type, deploy_port, deploy_start_command, deploy_subdomain "
-                    "FROM projects WHERE id = ?",
+                    "SELECT p.deploy_type, p.deploy_port, p.deploy_start_command, "
+                    "p.deploy_subdomain, u.github_username "
+                    "FROM projects p JOIN users u ON p.user_id = u.id "
+                    "WHERE p.id = ?",
                     (self.project_id,),
                 )
                 row = await cursor.fetchone()
@@ -331,7 +333,11 @@ class RalphLoop:
 
             deploy_port = row_dict.get("deploy_port")
             deploy_start_command = row_dict.get("deploy_start_command")
-            deploy_subdomain = row_dict.get("deploy_subdomain") or self.project_name.lower()
+            github_username = row_dict.get("github_username", "unknown").lower()
+            deploy_subdomain = row_dict.get("deploy_subdomain") or f"{self.project_name.lower()}.{github_username}"
+            # Ensure subdomain uses the new {project}.{username} format
+            if "." not in deploy_subdomain:
+                deploy_subdomain = f"{deploy_subdomain}.{github_username}"
 
             from app.deploy_manager import deploy_dynamic
             await deploy_dynamic(

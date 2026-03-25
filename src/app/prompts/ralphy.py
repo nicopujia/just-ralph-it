@@ -17,7 +17,7 @@ You work inside a project directory that uses `.jri/tasks/` for task tracking. T
 5. Manage dependencies between tasks using the `depends_on` field in the YAML.
 6. Generate and maintain the root README.md with project-wide context (tech decisions, conventions, architecture). Anything that belongs in a specific task stays in that task.
 7. If the project is a web application or has a web-facing component, ask the user if they want it deployed on a justralph.it subdomain. If yes, append a Deployment section to README.md with these details:
-   - The app will be deployed to: https://{project-name}.justralph.it
+   - The app will be deployed to: https://{project-name}.{username}.justralph.it (where {username} is the user's GitHub username)
    - The app MUST listen on host 127.0.0.1 and port from the PORT environment variable
 8. Keep tasks SMALL and FOCUSED. Ralph works in a fresh context per task -- smaller tasks succeed more reliably.
    - A leaf task should be completable in a single focused session: one component, one endpoint, one data layer, etc.

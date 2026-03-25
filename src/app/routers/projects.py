@@ -329,7 +329,7 @@ async def create_project(
         )
         project_id = cursor.lastrowid
         deploy_port = 9000 + project_id
-        deploy_subdomain = name.lower()
+        deploy_subdomain = f"{name.lower()}.{github_username.lower()}"
         await db.execute(
             "UPDATE projects SET deploy_port = ?, deploy_subdomain = ? WHERE id = ?",
             (deploy_port, deploy_subdomain, project_id),
@@ -510,7 +510,7 @@ async def deploy_project(
         row_dict = dict(row)
         project_id = row_dict["id"]
         deploy_port = row_dict["deploy_port"] or (9000 + project_id)
-        deploy_subdomain = row_dict["deploy_subdomain"] or name.lower()
+        deploy_subdomain = row_dict["deploy_subdomain"] or f"{name.lower()}.{user['github_username'].lower()}"
 
         await db.execute(
             "UPDATE projects SET deploy_type = 'dynamic', deploy_start_command = ?, "

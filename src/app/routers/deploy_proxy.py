@@ -11,15 +11,17 @@ from app.database import get_db
 logger = logging.getLogger(__name__)
 
 
-async def handle_subdomain_request(request: Request, subdomain: str) -> Response:
-    """Handle requests to {subdomain}.justralph.it."""
+async def handle_subdomain_request(request: Request, project: str, username: str) -> Response:
+    """Handle requests to {project}.{username}.justralph.it."""
     path = request.url.path.lstrip("/")
 
-    # Look up project
+    # Look up project by username + project name
     async with get_db() as db:
         cursor = await db.execute(
-            "SELECT deploy_port, deploy_status FROM projects WHERE deploy_subdomain = ?",
-            (subdomain,),
+            "SELECT p.deploy_port, p.deploy_status FROM projects p "
+            "JOIN users u ON p.user_id = u.id "
+            "WHERE LOWER(u.github_username) = ? AND LOWER(p.name) = ?",
+            (username.lower(), project.lower()),
         )
         row = await cursor.fetchone()
 
@@ -38,7 +40,8 @@ async def handle_subdomain_request(request: Request, subdomain: str) -> Response
 
     headers = dict(request.headers)
     headers.pop("host", None)
-    headers.pop("x-subdomain", None)
+    headers.pop("x-subdomain-project", None)
+    headers.pop("x-subdomain-username", None)
 
     body = await request.body()
 

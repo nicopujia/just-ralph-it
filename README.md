@@ -101,11 +101,11 @@ uv run ruff check .                              # lint
 
 ## Deployment
 
-Each project can be deployed to `{name}.justralph.it`:
+Each project can be deployed to `{project-name}.{username}.justralph.it`:
 
 - A **systemd unit** (`jri-deploy-{name}.service`) is created per project, running the user-specified start command.
 - **Port allocation**: `9000 + project_id`. The app must listen on `127.0.0.1:$PORT`.
-- **Subdomain routing**: Cloudflare wildcards `*.justralph.it` to nginx, which sets the `X-Subdomain` header. FastAPI middleware reads the header and reverse-proxies the request to the project's port.
+- **Subdomain routing**: Cloudflare wildcards `*.justralph.it` to nginx, which captures two subdomain levels (`{project}.{username}`) and passes them as `X-Subdomain-Project` and `X-Subdomain-Username` headers. FastAPI middleware reads both headers and reverse-proxies the request to the matching project's port.
 - Deployment is triggered automatically when Ralph finishes all issues (if `deploy_type` is configured), or manually via the API.
 
 ## Data
