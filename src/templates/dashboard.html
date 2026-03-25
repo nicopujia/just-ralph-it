@@ -111,6 +111,78 @@
         padding: 3rem 0;
         font-size: 1.1rem;
     }
+    .modal-overlay {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0,0,0,0.6);
+        z-index: 1000;
+        justify-content: center;
+        align-items: center;
+    }
+    .modal-overlay.active { display: flex; }
+    .modal-box {
+        background: var(--card-bg);
+        border: 1px solid var(--border-light);
+        border-radius: 8px;
+        padding: 1.5rem 2rem;
+        max-width: 420px;
+        width: 90%;
+    }
+    .modal-box h3 {
+        margin: 0 0 0.5rem;
+        font-size: 1.1rem;
+    }
+    .modal-box p {
+        margin: 0 0 1rem;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+    }
+    .modal-box input[type="text"] {
+        width: 100%;
+        padding: 0.4rem 0.6rem;
+        border: 1px solid var(--border-light);
+        border-radius: 4px;
+        background: var(--bg);
+        color: var(--text);
+        font-size: 0.9rem;
+        margin-bottom: 0.75rem;
+        box-sizing: border-box;
+    }
+    .modal-box label.checkbox-label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+        color: var(--text-muted);
+        margin-bottom: 1rem;
+        cursor: pointer;
+    }
+    .modal-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+    }
+    .modal-actions button {
+        padding: 0.4rem 1rem;
+        border-radius: 4px;
+        border: 1px solid var(--border-light);
+        cursor: pointer;
+        font-size: 0.85rem;
+    }
+    .modal-actions .btn-cancel {
+        background: var(--card-bg);
+        color: var(--text);
+    }
+    .modal-actions .btn-confirm-delete {
+        background: #ff4444;
+        color: #fff;
+        border-color: #ff4444;
+    }
+    .modal-actions .btn-confirm-delete:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
 </style>
 {% endblock %}
 
@@ -125,6 +197,22 @@
     </div>
     <div id="empty-state" class="empty-state" style="display:none;">
         <p>No projects yet.</p>
+    </div>
+</div>
+
+<div id="delete-modal" class="modal-overlay">
+    <div class="modal-box">
+        <h3>Delete project</h3>
+        <p>This will permanently delete the project. Type the project name to confirm: <strong id="delete-modal-name"></strong></p>
+        <input type="text" id="delete-modal-input" placeholder="Project name" autocomplete="off">
+        <label class="checkbox-label">
+            <input type="checkbox" id="delete-modal-repo-cb">
+            Also delete the GitHub repository
+        </label>
+        <div class="modal-actions">
+            <button class="btn-cancel" id="delete-modal-cancel">Cancel</button>
+            <button class="btn-confirm-delete" id="delete-modal-confirm" disabled>Delete</button>
+        </div>
     </div>
 </div>
 <script>
@@ -178,21 +266,7 @@
             delBtn.className = 'btn-delete';
             delBtn.textContent = 'Delete';
             delBtn.addEventListener('click', function() {
-                var typed = window.prompt('This will permanently delete the project and its GitHub repo.\n\nType the project name to confirm deletion: ' + p.name);
-                if (typed === null) return;
-                if (typed !== p.name) {
-                    alert('Project name does not match. Deletion cancelled.');
-                    return;
-                }
-                fetch('/api/projects/' + encodeURIComponent(p.name) + '?delete_repo=true', { method: 'DELETE' })
-                    .then(function(res) {
-                        if (res.ok) {
-                            card.remove();
-                            if (listEl.children.length === 0) {
-                                emptyEl.style.display = 'block';
-                            }
-                        }
-                    });
+                openDeleteModal(p.name, card);
             });
             actions.appendChild(delBtn);
 
@@ -208,6 +282,59 @@
             listEl.appendChild(card);
         });
     }
+
+    var modal = document.getElementById('delete-modal');
+    var modalName = document.getElementById('delete-modal-name');
+    var modalInput = document.getElementById('delete-modal-input');
+    var modalRepoCb = document.getElementById('delete-modal-repo-cb');
+    var modalCancel = document.getElementById('delete-modal-cancel');
+    var modalConfirm = document.getElementById('delete-modal-confirm');
+    var pendingDeleteName = null;
+    var pendingDeleteCard = null;
+
+    function openDeleteModal(name, card) {
+        pendingDeleteName = name;
+        pendingDeleteCard = card;
+        modalName.textContent = name;
+        modalInput.value = '';
+        modalRepoCb.checked = false;
+        modalConfirm.disabled = true;
+        modal.classList.add('active');
+        modalInput.focus();
+    }
+
+    function closeDeleteModal() {
+        modal.classList.remove('active');
+        pendingDeleteName = null;
+        pendingDeleteCard = null;
+    }
+
+    modalInput.addEventListener('input', function() {
+        modalConfirm.disabled = (modalInput.value !== pendingDeleteName);
+    });
+
+    modalCancel.addEventListener('click', closeDeleteModal);
+
+    modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeDeleteModal();
+    });
+
+    modalConfirm.addEventListener('click', function() {
+        if (!pendingDeleteName || modalInput.value !== pendingDeleteName) return;
+        var deleteRepo = modalRepoCb.checked;
+        var url = '/api/projects/' + encodeURIComponent(pendingDeleteName) + '?delete_repo=' + deleteRepo;
+        var cardRef = pendingDeleteCard;
+        closeDeleteModal();
+        fetch(url, { method: 'DELETE' })
+            .then(function(res) {
+                if (res.ok) {
+                    cardRef.remove();
+                    if (listEl.children.length === 0) {
+                        emptyEl.style.display = 'block';
+                    }
+                }
+            });
+    });
 
     fetch('/api/projects')
         .then(function(res) { return res.json(); })
