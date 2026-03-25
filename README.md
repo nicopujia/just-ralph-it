@@ -67,7 +67,3 @@ uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 | Ralphy conversations | `~/.claude/projects/-home-nico-jri-data-<user>-<project>/<session-id>.jsonl` |
 | Ralph loop conversations | Same path, session ID from `ralph_loop.py` logs |
 | nginx access/error | `/var/log/nginx/access.log`, `/var/log/nginx/error.log` |
-
-## Environment variables
-
-See `example.env`. Required: `SECRET_KEY`, `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`.
