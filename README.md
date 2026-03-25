@@ -29,32 +29,39 @@ User <-> nginx (port 80) <-> uvicorn/FastAPI (port 8000)
 
 ## Local setup
 
+### Prerequisites
+
+- Python 3.12+
+- [uv](https://docs.astral.sh/uv/) (Python package manager)
+- [claude](https://docs.anthropic.com/en/docs/claude-cli) CLI (Anthropic CLI, must be on PATH)
+- [gh](https://cli.github.com/) CLI (authenticated as the bot account, must be on PATH)
+
+### Steps
+
 ```bash
 # 1. Clone
-git clone https://github.com/ralphpujia/jri.git && cd jri
+git clone https://github.com/nicopujia/justralph.it.git && cd justralph.it
 
 # 2. Install Python dependencies
 uv sync
 
-# 3. External tools (must be on PATH)
-#    - claude (Anthropic CLI)
-#    - gh (GitHub CLI, authenticated as the bot account)
-
-# 4. Configure environment
+# 3. Configure environment
 cp example.env .env
-# Edit .env with your credentials
+# Edit .env -- at minimum set SECRET_KEY, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET
 
-# 5. Run
+# 4. Run
 uv run uvicorn app.main:app --app-dir src --reload --host 127.0.0.1 --port 8000
 # App starts at http://127.0.0.1:8000
 ```
 
+The SQLite database (`./data/jri.db`) is created automatically on first run.
+
 ## Ralph Task System
 
-Internal tasks live in `.ralph/tasks/` as YAML files, organized by lifecycle stage:
+Internal tasks live in `.jri/tasks/` as YAML files, organized by lifecycle stage:
 
 ```
-.ralph/tasks/
+.jri/tasks/
   draft/     # ideas, not yet ready
   todo/      # ready to be picked up
   doing/     # currently in progress
