@@ -35,7 +35,8 @@ async def _get_project(name: str, user: dict) -> dict:
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT id, name, ralph_loop_status, ralph_loop_current_issue, "
-            "ralph_loop_iteration, stripe_payment_id, paid_task_count "
+            "ralph_loop_iteration, stripe_payment_id, paid_task_count, "
+            "base_fee_paid "
             "FROM projects WHERE user_id = ? AND name = ?",
             (user["id"], name),
         )
@@ -97,18 +98,36 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
     free = is_free_user(user)
     total_tasks = _count_non_done_tasks(project_dir)
     paid_task_count = project.get("paid_task_count", 0)
+    base_fee_paid = bool(project.get("base_fee_paid", 0))
     unpaid = total_tasks - paid_task_count
 
     # Free users or nothing to pay: start directly
-    if free or unpaid <= 0:
+    if free or (unpaid <= 0 and base_fee_paid):
         budget = _calc_budget(project_dir, paid_task_count, free)
         await _start_ralph_loop(name, project, user, budget=budget)
         return {"free": free, "redirect": None}
 
-    if total_tasks == 0:
+    if total_tasks == 0 and base_fee_paid:
         raise HTTPException(status_code=400, detail="No tasks found")
 
-    unit_amount = unpaid * 100  # $1 per task in cents
+    # Pricing: $10 base (one-time) + $5 per unpaid task
+    base_amount = 0 if base_fee_paid else 1000  # $10 in cents
+    task_amount = max(unpaid, 0) * 500  # $5 per task in cents
+    unit_amount = base_amount + task_amount
+
+    if unit_amount <= 0:
+        # Everything already paid, just start
+        budget = _calc_budget(project_dir, paid_task_count, free=False)
+        await _start_ralph_loop(name, project, user, budget=budget)
+        return {"free": False, "redirect": None}
+
+    # Build description
+    parts = []
+    if not base_fee_paid:
+        parts.append("Project base ($10)")
+    if unpaid > 0:
+        parts.append(f"{unpaid} tasks \u00d7 $5")
+    description = " + ".join(parts)
 
     # Create Stripe Checkout Session
     checkout_session = stripe.checkout.Session.create(
@@ -119,7 +138,8 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
                     "currency": "usd",
                     "unit_amount": unit_amount,
                     "product_data": {
-                        "name": f"Just Ralph It — {name} ({unpaid} new tasks)",
+                        "name": f"Just Ralph It \u2014 {name}",
+                        "description": description,
                     },
                 },
                 "quantity": 1,
@@ -131,7 +151,8 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
         metadata={
             "user_id": str(user["id"]),
             "project_name": name,
-            "unpaid_count": str(unpaid),
+            "unpaid_count": str(max(unpaid, 0)),
+            "includes_base_fee": "1" if not base_fee_paid else "0",
         },
     )
 
@@ -158,14 +179,23 @@ async def ralph_payment_callback(
 
     # Get the unpaid count that was stored in checkout metadata
     unpaid_count = int(session.metadata.get("unpaid_count", "0"))
+    includes_base_fee = session.metadata.get("includes_base_fee", "0") == "1"
 
-    # Update payment ID and increment paid_task_count
+    # Update payment ID, increment paid_task_count, and mark base fee paid
     async with get_db() as db:
-        await db.execute(
-            "UPDATE projects SET stripe_payment_id = ?, "
-            "paid_task_count = paid_task_count + ? WHERE id = ?",
-            (session_id, unpaid_count, project["id"]),
-        )
+        if includes_base_fee:
+            await db.execute(
+                "UPDATE projects SET stripe_payment_id = ?, "
+                "paid_task_count = paid_task_count + ?, "
+                "base_fee_paid = 1 WHERE id = ?",
+                (session_id, unpaid_count, project["id"]),
+            )
+        else:
+            await db.execute(
+                "UPDATE projects SET stripe_payment_id = ?, "
+                "paid_task_count = paid_task_count + ? WHERE id = ?",
+                (session_id, unpaid_count, project["id"]),
+            )
         await db.commit()
 
     # Re-read updated paid_task_count
@@ -349,7 +379,9 @@ async def ralph_payment_status(name: str, user: dict = Depends(get_current_user)
     project = await _get_project(name, user)
     project_dir = await _get_project_dir(name, user)
 
+    free = is_free_user(user)
     paid_task_count = project.get("paid_task_count", 0)
+    base_paid = bool(project.get("base_fee_paid", 0))
     total_tasks = _count_non_done_tasks(project_dir)
     unpaid = max(total_tasks - paid_task_count, 0)
 
@@ -357,6 +389,8 @@ async def ralph_payment_status(name: str, user: dict = Depends(get_current_user)
         "paid_task_count": paid_task_count,
         "total_tasks": total_tasks,
         "unpaid": unpaid,
+        "base_paid": base_paid,
+        "free_user": free,
     }
 
 
