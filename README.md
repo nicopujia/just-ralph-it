@@ -31,7 +31,6 @@ User <-> nginx (port 80) <-> uvicorn/FastAPI (port 8000)
 
 ### Prerequisites
 
-- Python 3.12+
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
 - [claude](https://docs.anthropic.com/en/docs/claude-cli) CLI (Anthropic CLI, must be on PATH)
 - [gh](https://cli.github.com/) CLI (authenticated as the bot account, must be on PATH)
