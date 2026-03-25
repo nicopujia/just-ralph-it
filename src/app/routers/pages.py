@@ -95,7 +95,8 @@ async def project_page(request: Request, name: str):
     if not token:
         return RedirectResponse(url="/", status_code=302)
     try:
-        user_id = decode_session_token(token)
+        session_data = decode_session_token(token)
+        user_id = session_data["uid"] if isinstance(session_data, dict) else session_data
     except Exception:
         return RedirectResponse(url="/", status_code=302)
 
