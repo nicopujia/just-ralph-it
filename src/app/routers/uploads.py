@@ -57,7 +57,7 @@ def _get_upload_path(project_dir: Path, filename: str) -> Path:
     if _has_path_traversal(filename):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
-    file_path = project_dir / ".ralph" / "uploads" / filename
+    file_path = project_dir / ".jri" / "uploads" / filename
     if not file_path.exists() or not file_path.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     return file_path
@@ -70,7 +70,7 @@ class RenameRequest(BaseModel):
 @router.get("/{name}/uploads")
 async def list_uploads(name: str, user: dict = Depends(get_current_user)):
     project_dir = await _get_project_dir(name, user)
-    uploads_dir = project_dir / ".ralph" / "uploads"
+    uploads_dir = project_dir / ".jri" / "uploads"
 
     if not uploads_dir.exists():
         return []
@@ -99,7 +99,7 @@ async def upload_file(
     user: dict = Depends(get_current_user),
 ):
     project_dir = await _get_project_dir(name, user)
-    uploads_dir = project_dir / ".ralph" / "uploads"
+    uploads_dir = project_dir / ".jri" / "uploads"
     uploads_dir.mkdir(parents=True, exist_ok=True)
 
     actual_name = _resolve_collision(uploads_dir, str(file.filename or "upload"))
@@ -148,7 +148,7 @@ async def rename_upload(
         raise HTTPException(status_code=400, detail="Invalid filename")
 
     project_dir = await _get_project_dir(name, user)
-    uploads_dir = project_dir / ".ralph" / "uploads"
+    uploads_dir = project_dir / ".jri" / "uploads"
     file_path = _get_upload_path(project_dir, filename)
 
     actual_name = _resolve_collision(uploads_dir, body.new_name)

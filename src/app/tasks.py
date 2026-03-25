@@ -26,7 +26,7 @@ def _yaml_dump(data: dict) -> str:
 
 
 def tasks_dir(project_dir: str) -> Path:
-    return Path(project_dir) / ".ralph" / "tasks"
+    return Path(project_dir) / ".jri" / "tasks"
 
 
 def init_tasks(project_dir: str) -> None:

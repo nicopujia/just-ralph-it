@@ -23,7 +23,7 @@ def _yaml_dump(data: dict) -> str:
 
 
 def issues_dir(project_dir: str) -> Path:
-    return Path(project_dir) / ".ralph" / "issues"
+    return Path(project_dir) / ".jri" / "issues"
 
 
 def init_issues(project_dir: str) -> None:
