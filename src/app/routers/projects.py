@@ -208,7 +208,11 @@ async def create_project(
 
         # 6b. Create .env file and .gitignore
         (project_dir / ".env").write_text("")
-        (project_dir / ".gitignore").write_text(".env\n")
+        (project_dir / ".gitignore").write_text(
+            ".env\n"
+            ".jri/logs/\n"
+            ".jri/state\n"
+        )
 
         # 7. Git add all and commit
         logger.info(f"Creating project {name}: step 7 - git add and commit")
