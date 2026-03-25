@@ -176,15 +176,12 @@
         color: var(--text-dimmer);
         user-select: none;
     }
-    .chat-msg .thinking .thinking-content {
+    .chat-msg .thinking-content .thinking > div {
         font-family: 'SF Mono', 'Fira Code', monospace;
         font-size: 0.78rem;
         color: var(--text-faint);
-        padding: 0.3rem 0 0.2rem 0.8rem;
+        padding: 0.1rem 0 0.1rem 0.8rem;
         line-height: 1.6;
-    }
-    .chat-msg .thinking .thinking-content div {
-        padding: 0.05rem 0;
     }
 
     .thinking-indicator {
@@ -1456,7 +1453,7 @@
                                 html += '<div>Tool: ' + escapeHtml(s) + '</div>';
                             });
                         }
-                        html += '</div></details>';
+                        html += '</details></div>';
                     }
                     if (finalText && (!hasThinkingContent() || thinkingComplete)) {
                         html += '<div class="message-text">' + renderMarkdown(finalText) + '</div>';
@@ -2438,7 +2435,7 @@
                 var html = '';
                 if (msg.thinkingText || (msg.thinkingSteps && msg.thinkingSteps.length > 0)) {
                     html += '<div class="thinking-content">';
-                    html += '<details class="thinking"><summary>Thinking...</summary>';
+                    html += '<details class="thinking"><summary>Finished thinking</summary>';
                     if (msg.thinkingText) {
                         html += '<div>' + escapeHtml(msg.thinkingText) + '</div>';
                     }
@@ -2450,7 +2447,7 @@
                     if (msg.interleaveText) {
                         html += '<div class="thinking-interleave">' + escapeHtml(msg.interleaveText) + '</div>';
                     }
-                    html += '</div></details>';
+                    html += '</details></div>';
                 }
                 if (msg.content) {
                     html += '<div class="message-text">' + renderMarkdown(msg.content) + '</div>';

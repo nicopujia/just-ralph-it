@@ -212,6 +212,7 @@ async def create_project(
             ".env\n"
             ".jri/logs/\n"
             ".jri/state.json\n"
+            ".jri/chat.json\n"
         )
 
         # 7. Git add all and commit

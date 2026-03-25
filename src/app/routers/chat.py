@@ -138,6 +138,32 @@ def _prepend_attachment_info(message: str, filenames: list[str]) -> str:
 _active_procs: dict[str, asyncio.subprocess.Process] = {}
 
 
+def _chat_json_path(project_dir: str) -> Path:
+    return Path(project_dir) / ".jri" / "chat.json"
+
+
+def _load_chat_json(project_dir: str) -> list[dict]:
+    path = _chat_json_path(project_dir)
+    if not path.exists():
+        return []
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+
+
+def _save_chat_json(project_dir: str, messages: list[dict]) -> None:
+    path = _chat_json_path(project_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(messages, ensure_ascii=False), encoding="utf-8")
+
+
+def _append_chat_message(project_dir: str, msg: dict) -> None:
+    messages = _load_chat_json(project_dir)
+    messages.append(msg)
+    _save_chat_json(project_dir, messages)
+
+
 async def _stream_claude(
     project_name: str,
     project_dir: str,
@@ -146,6 +172,9 @@ async def _stream_claude(
     user_message: str,
 ):
     """Async generator that spawns claude CLI and yields SSE events."""
+    # Persist user message
+    _append_chat_message(project_dir, {"role": "user", "content": user_message})
+
     # Send an initial keepalive immediately to establish the SSE stream.
     # This prevents proxies (e.g. Cloudflare's 100s initial-response timeout)
     # from dropping the connection before the subprocess starts producing output.
@@ -171,6 +200,11 @@ async def _stream_claude(
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "ralphy.log"
     log_file = open(log_path, "a", encoding="utf-8")
+
+    # Accumulate assistant response for persistence
+    assistant_text = ""
+    assistant_thinking = ""
+    assistant_tools: list[str] = []
 
     try:
         got_result = False
@@ -211,24 +245,30 @@ async def _stream_claude(
                 if msg_type == "content_block_start":
                     content_block = data.get("content_block", {})
                     if content_block.get("type") == "tool_use":
-                        event = {"type": "tool_use", "name": content_block["name"], "input": content_block.get("input", {})}
+                        tool_name = content_block["name"]
+                        event = {"type": "tool_use", "name": tool_name, "input": content_block.get("input", {})}
                         yield f"data: {json.dumps(event)}\n\n"
-                        log_file.write(f"[tool_use] {content_block['name']}\n")
+                        log_file.write(f"[tool_use] {tool_name}\n")
                         log_file.flush()
+                        assistant_tools.append(tool_name)
                         # Publish issue_update when Ralphy uses Bash (likely task file changes)
-                        if content_block["name"] == "Bash":
+                        if tool_name == "Bash":
                             await sse_bus.publish(project_name, "issue_update", {})
 
                 elif msg_type == "content_block_delta":
                     delta = data.get("delta", {})
                     if delta.get("type") == "text_delta":
-                        event = {"type": "text", "content": delta["text"]}
+                        text_chunk = delta["text"]
+                        event = {"type": "text", "content": text_chunk}
                         yield f"data: {json.dumps(event)}\n\n"
-                        log_file.write(delta["text"])
+                        log_file.write(text_chunk)
                         log_file.flush()
+                        assistant_text += text_chunk
                     elif delta.get("type") == "thinking_delta":
-                        event = {"type": "thinking", "content": delta["thinking"]}
+                        thinking_chunk = delta["thinking"]
+                        event = {"type": "thinking", "content": thinking_chunk}
                         yield f"data: {json.dumps(event)}\n\n"
+                        assistant_thinking += thinking_chunk
 
                 elif msg_type == "result":
                     result_text = data.get("result", "")
@@ -236,6 +276,9 @@ async def _stream_claude(
                     yield f"data: {json.dumps(event)}\n\n"
                     log_file.write("\n--- Done ---\n")
                     log_file.flush()
+                    # Use result text if it's longer (more complete) than streamed text
+                    if result_text and len(result_text) >= len(assistant_text):
+                        assistant_text = result_text
                     got_result = True
 
             await proc.wait()
@@ -265,6 +308,14 @@ async def _stream_claude(
     finally:
         log_file.close()
         _active_procs.pop(project_name, None)
+        # Persist assistant response
+        if assistant_text:
+            entry: dict = {"role": "assistant", "content": assistant_text}
+            if assistant_thinking:
+                entry["thinkingText"] = assistant_thinking
+            if assistant_tools:
+                entry["thinkingSteps"] = assistant_tools
+            _append_chat_message(project_dir, entry)
         await sse_bus.publish(project_name, "ralphy_processing", {"status": "end"})
         # Final issue refresh so all clients pick up any task changes Ralphy made
         await sse_bus.publish(project_name, "issue_update", {})
@@ -333,19 +384,6 @@ async def chat(
     )
 
 
-def _extract_text_content(content) -> str:
-    """Extract text from a message content field (string or list of blocks)."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                parts.append(block.get("text", ""))
-        return "".join(parts)
-    return ""
-
-
 @router.get("/{name}/chat/processing")
 async def chat_processing(name: str, user: dict = Depends(get_current_user)):
     """Check if Ralphy is currently processing for this project."""
@@ -357,53 +395,9 @@ async def chat_processing(name: str, user: dict = Depends(get_current_user)):
 
 @router.get("/{name}/chat/history")
 async def get_chat_history(name: str, user: dict = Depends(get_current_user)):
-    project = await _get_project_for_user(user, name)
-    session_id = project.get("ralph_session_id")
-
-    if not session_id:
-        return {"messages": []}
-
+    await _get_project_for_user(user, name)
     github_username: str = user["github_username"]
-    session_file = (
-        Path.home()
-        / ".claude"
-        / "projects"
-        / f"-home-nico-jri-data-{github_username}-{name}"
-        / f"{session_id}.jsonl"
-    )
+    project_dir = str(DATA_DIR / github_username / name)
 
-    if not session_file.exists():
-        return {"messages": []}
-
-    messages = []
-    for line in session_file.read_text().splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            msg = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-
-        role = None
-        if msg.get("type") == "user" and msg.get("message", {}).get("role") == "user":
-            role = "user"
-            content = _extract_text_content(msg.get("message", {}).get("content", ""))
-        elif msg.get("type") == "assistant" and msg.get("message", {}).get("role") == "assistant":
-            role = "assistant"
-            content = _extract_text_content(msg.get("message", {}).get("content", ""))
-        else:
-            continue
-
-        if content:
-            messages.append({"role": role, "content": content})
-
-    # Merge consecutive assistant messages (tool-use fragments during thinking)
-    merged = []
-    for msg in messages:
-        if merged and merged[-1]["role"] == "assistant" and msg["role"] == "assistant":
-            merged[-1]["content"] += "\n\n" + msg["content"]
-        else:
-            merged.append(msg)
-
-    return {"messages": merged}
+    messages = _load_chat_json(project_dir)
+    return {"messages": messages}
