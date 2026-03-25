@@ -155,27 +155,28 @@ description: |-
 
   All JavaScript is vanilla — no frameworks, no build step.
 acceptance_criteria:
-- GET /project/{name} renders the two-panel layout with chat on the left and tabs
-  on the right.
-- The left panel has a textarea input with 'Type your message...' placeholder, Send
-  button, and Attach button.
-- Sending a message streams Ralphy's response in real-time (SSE), displayed in the
-  chat area.
+- |-
+  GET /project/{name} renders the two-panel layout with chat on the left and tabs on the right.
+- |-
+  The left panel has a textarea input with 'Type your message...' placeholder, Send button, and Attach button.
+- |-
+  Sending a message streams Ralphy's response in real-time (SSE), displayed in the chat area.
 - 'The right panel has 4 tabs: Issues, AGENTS.md, Ralph, Uploads.'
 - Issues tab shows issues grouped by epic with status dots, expandable details.
 - AGENTS.md tab renders the markdown content of the project's AGENTS.md.
-- Uploads tab lists files with upload, rename, delete, and drag-and-drop functionality.
-- Ralph tab appears when the loop is running and shows streaming stdout in a terminal-like
-  view.
-- The JRI button appears above the chat input when all issues are open and none are
-  deferred.
+- |-
+  Uploads tab lists files with upload, rename, delete, and drag-and-drop functionality.
+- |-
+  Ralph tab appears when the loop is running and shows streaming stdout in a terminal-like view.
+- |-
+  The JRI button appears above the chat input when all issues are open and none are deferred.
 - Clicking JRI triggers Stripe checkout (or free tier) and starts the Ralph loop.
 - Stop/Resume buttons work correctly.
 - Notification banner appears at the top when Ralph needs human help.
 - Green 'Your project is ready!' toast appears when Ralph finishes all issues.
 - SSE connection handles all event types and updates the UI in real-time.
-- The page correctly initializes based on the current project state (running loop,
-  idle, etc.).
+- |-
+  The page correctly initializes based on the current project state (running loop, idle, etc.).
 - Enter sends message, Shift+Enter creates newline.
 - Chat input is disabled while Ralphy is processing.
 - No external JavaScript frameworks — all vanilla JS.

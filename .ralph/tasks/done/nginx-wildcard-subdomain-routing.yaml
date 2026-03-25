@@ -85,8 +85,8 @@ description: |-
      Install: sudo cp deploy/nginx-subdomains.conf /etc/nginx/sites-available/jri-subdomains.conf && sudo ln -sf /etc/nginx/sites-available/jri-subdomains.conf /etc/nginx/sites-enabled/ && sudo nginx -t && sudo systemctl reload nginx
 acceptance_criteria:
 - nginx routes *.justralph.it to the jri app with X-Subdomain header
-- 'FastAPI router handles subdomain requests: serves static files or proxies to dynamic
-  port'
+- |-
+  FastAPI router handles subdomain requests: serves static files or proxies to dynamic port
 - Unknown/undeployed subdomains return 404
 - WebSocket upgrade headers passed through for dynamic apps
 - /var/www/jri-sites/ directory exists

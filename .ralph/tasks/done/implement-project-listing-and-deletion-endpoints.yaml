@@ -28,12 +28,14 @@ description: |-
   - Verify the project belongs to the current user. Return 404 if not found.
   - Return the project JSON (same shape as list items) plus: ralph_session_id, ralph_loop_current_issue, ralph_loop_iteration.
 acceptance_criteria:
-- GET /api/projects returns an array of the user's projects with issue_count populated.
-- GET /api/projects/{name} returns the full project details for an existing project.
+- |-
+  GET /api/projects returns an array of the user's projects with issue_count populated.
+- |-
+  GET /api/projects/{name} returns the full project details for an existing project.
 - GET /api/projects/nonexistent returns
-- 4. DELETE /api/projects/{name}?delete_repo=true deletes the local directory, the
-  SQLite row, and the GitHub repo.
-- DELETE /api/projects/{name}?delete_repo=false deletes the local directory and SQLite
-  row but leaves the GitHub repo.
+- |-
+  4. DELETE /api/projects/{name}?delete_repo=true deletes the local directory, the SQLite row, and the GitHub repo.
+- |-
+  DELETE /api/projects/{name}?delete_repo=false deletes the local directory and SQLite row but leaves the GitHub repo.
 - DELETE on a project with ralph_loop_status='running' returns
 - 7. After deletion, GET /api/projects no longer includes the deleted project.

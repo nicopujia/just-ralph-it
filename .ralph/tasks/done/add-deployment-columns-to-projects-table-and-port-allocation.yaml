@@ -36,8 +36,8 @@ description: |-
      - For dynamic: stops the systemd unit
      - Sets deploy_status='stopped'
 acceptance_criteria:
-- projects table has deploy_type, deploy_port, deploy_status, deploy_start_command,
-  deploy_subdomain columns
+- |-
+  projects table has deploy_type, deploy_port, deploy_status, deploy_start_command, deploy_subdomain columns
 - New projects get deploy_port allocated automatically (9000 + id)
 - GET project endpoint returns deployment fields
 - POST deploy endpoint sets deployment type

@@ -17,5 +17,6 @@ description: |-
   This reuses the existing _get_project helper which already verifies user ownership.
 acceptance_criteria:
 - GET /api/projects/{name}/ralph/stream returns 401 without session cookie
-- GET /api/projects/{name}/ralph/stream returns 404 if user doesn't own the project
+- |-
+  GET /api/projects/{name}/ralph/stream returns 404 if user doesn't own the project
 - Authenticated owners can still stream Ralph output

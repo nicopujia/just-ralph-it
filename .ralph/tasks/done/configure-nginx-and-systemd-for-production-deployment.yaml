@@ -37,11 +37,13 @@ description: "Set up nginx to proxy justralph.it to the uvicorn app, and create 
   echo 'Deployed successfully'\n```\n\nStore the nginx and systemd config files in\
   \ a deploy/ directory in the repo."
 acceptance_criteria:
-- The file deploy/nginx.conf exists with the correct nginx server block configuration
-  including SSE support headers.
-- The file deploy/jri.service exists with the correct systemd service configuration.
+- |-
+  The file deploy/nginx.conf exists with the correct nginx server block configuration including SSE support headers.
+- |-
+  The file deploy/jri.service exists with the correct systemd service configuration.
 - The deploy.sh script exists and is executable.
-- Running deploy.sh installs dependencies, updates nginx config, and starts the service.
+- |-
+  Running deploy.sh installs dependencies, updates nginx config, and starts the service.
 - After deployment, https://justralph.it serves the FastAPI app (landing page).
 - SSE connections work through nginx (proxy_buffering off is set).
 - The /prd redirect still works.

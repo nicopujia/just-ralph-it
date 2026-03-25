@@ -47,11 +47,12 @@ description: |-
   - Run `bd show {issue_id} --json` in the project directory.
   - Return the full issue JSON as-is from bd.
 acceptance_criteria:
-- GET /api/projects/{name}/issues returns a JSON object with 'epics' and 'ungrouped'
-  arrays.
+- |-
+  GET /api/projects/{name}/issues returns a JSON object with 'epics' and 'ungrouped' arrays.
 - Issues are grouped under their parent epic correctly.
-- Each issue contains id, title, type, status, priority, description, acceptance_criteria,
-  assignee, dependencies, and created_at.
-- GET /api/projects/{name}/issues/{id} returns the full details of a specific issue.
+- |-
+  Each issue contains id, title, type, status, priority, description, acceptance_criteria, assignee, dependencies, and created_at.
+- |-
+  GET /api/projects/{name}/issues/{id} returns the full details of a specific issue.
 - 'For a project with no issues, returns {"epics": [], "ungrouped": []}.'
 - For an invalid project name, returns 404.

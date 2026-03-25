@@ -61,12 +61,11 @@ description: |-
   - No CORS needed (same-origin, served behind nginx)
 acceptance_criteria:
 - Running `pip install -r requirements.txt` succeeds with no errors.
-- Running `cd ~/jri && python -c 'from app.main import app; print(app.title)'` prints
-  'Just Ralph It'.
-- Running `cd ~/jri && python -c 'from app.config import GITHUB_CLIENT_ID, SECRET_KEY,
-  DATA_DIR; print(GITHUB_CLIENT_ID); print(DATA_DIR)'` prints the values from ~/jri.env
-  and the correct data directory path.
+- |-
+  Running `cd ~/jri && python -c 'from app.main import app; print(app.title)'` prints 'Just Ralph It'.
+- |-
+  Running `cd ~/jri && python -c 'from app.config import GITHUB_CLIENT_ID, SECRET_KEY, DATA_DIR; print(GITHUB_CLIENT_ID); print(DATA_DIR)'` prints the values from ~/jri.env and the correct data directory path.
 - All files listed in the directory structure above exist.
-- requirements.txt contains exactly the packages listed above (versions may be adjusted
-  if needed for compatibility, but all packages must be present).
+- |-
+  requirements.txt contains exactly the packages listed above (versions may be adjusted if needed for compatibility, but all packages must be present).
 - Every .py file is valid Python (no syntax errors).

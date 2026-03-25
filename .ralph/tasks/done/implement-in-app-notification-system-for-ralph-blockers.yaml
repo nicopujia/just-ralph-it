@@ -22,10 +22,11 @@ description: "Implement the notification system for when Ralph is blocked and ne
   \ The message should include the issue title for context. The frontend displays\
   \ this as a persistent banner at the top of the page until acknowledged."
 acceptance_criteria:
-- When Ralph creates an issue assigned to 'Human', a notification appears in the SSE
-  stream within 3 seconds (one poll cycle).
+- |-
+  When Ralph creates an issue assigned to 'Human', a notification appears in the SSE stream within 3 seconds (one poll cycle).
 - GET /api/projects/{name}/notifications returns unacknowledged notifications.
-- POST /api/projects/{name}/notifications/{id}/acknowledge marks it as acknowledged.
+- |-
+  POST /api/projects/{name}/notifications/{id}/acknowledge marks it as acknowledged.
 - After acknowledging, the notification no longer appears in GET.
 - The same Human-assigned issue does not create duplicate notifications.
 - The notification message includes the issue title for context.

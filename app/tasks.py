@@ -14,7 +14,7 @@ STATUSES = ("todo", "doing", "done", "draft")
 def _yaml_dump(data: dict) -> str:
     """Dump YAML using block scalars (|) for multiline strings."""
     def str_representer(dumper, s):
-        style = "|" if "\n" in s else None
+        style = "|" if "\n" in s or len(s) > 80 else None
         return dumper.represent_scalar("tag:yaml.org,2002:str", s, style=style)
 
     dumper = yaml.Dumper

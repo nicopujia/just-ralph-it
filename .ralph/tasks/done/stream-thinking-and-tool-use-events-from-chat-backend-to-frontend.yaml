@@ -29,10 +29,12 @@ description: |-
      - If thinkingText is non-empty, show a <details> with summary 'Thinking...' and the thinking text in a monospace div
      - If thinkingSteps has entries, show each tool use step below the thinking
 acceptance_criteria:
-- When Ralphy thinks, the frontend shows a collapsible 'Thinking...' section with
-  the thinking text in monospace
-- When Ralphy uses a tool (e.g., bd create), the tool name appears as a step in the
-  thinking/working section
+- |-
+  When Ralphy thinks, the frontend shows a collapsible 'Thinking...' section with the thinking text in monospace
+- |-
+  When Ralphy uses a tool (e.g., bd create), the tool name appears as a step in the thinking/working section
 - The text response still renders below the thinking section as before
-- No events are silently dropped—all content block types are forwarded to the frontend
-- The thinking indicator ('Ralphy is thinking...') shows while thinking is in progress
+- |-
+  No events are silently dropped—all content block types are forwarded to the frontend
+- |-
+  The thinking indicator ('Ralphy is thinking...') shows while thinking is in progress

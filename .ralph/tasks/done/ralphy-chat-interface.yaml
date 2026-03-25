@@ -1,9 +1,8 @@
 title: Ralphy Chat Interface
 priority: 0
 created: '2026-03-21'
-description: The chat interface powering Ralphy (the interviewer agent), including
-  message streaming, file attachments, and session persistence.
+description: |-
+  The chat interface powering Ralphy (the interviewer agent), including message streaming, file attachments, and session persistence.
 acceptance_criteria:
-- Users can chat with Ralphy in real-time with streaming responses. Ralphy maintains
-  conversation history across page reloads. Chat attachments (images/PDFs, max 3MB)
-  are processed multimodally. Input is disabled while Ralphy is processing.
+- |-
+  Users can chat with Ralphy in real-time with streaming responses. Ralphy maintains conversation history across page reloads. Chat attachments (images/PDFs, max 3MB) are processed multimodally. Input is disabled while Ralphy is processing.

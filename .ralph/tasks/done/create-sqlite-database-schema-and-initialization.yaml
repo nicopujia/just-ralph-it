@@ -56,15 +56,15 @@ description: |-
   ## Lifespan integration
   - In app/main.py, call `await init_db()` inside the lifespan startup.
 acceptance_criteria:
-- 'Running the app and then checking: `sqlite3 ~/jri/data/jri.db ''.tables''` shows
-  ''users projects notifications''.'
-- Running `sqlite3 ~/jri/data/jri.db '.schema users'` shows the exact columns and
-  constraints listed above.
-- Running `sqlite3 ~/jri/data/jri.db '.schema projects'` shows the exact columns and
-  constraints listed above, including the UNIQUE constraint on (user_id, name).
-- Running `sqlite3 ~/jri/data/jri.db '.schema notifications'` shows the exact columns
-  and constraints listed above.
+- |-
+  Running the app and then checking: `sqlite3 ~/jri/data/jri.db '.tables'` shows 'users projects notifications'.
+- |-
+  Running `sqlite3 ~/jri/data/jri.db '.schema users'` shows the exact columns and constraints listed above.
+- |-
+  Running `sqlite3 ~/jri/data/jri.db '.schema projects'` shows the exact columns and constraints listed above, including the UNIQUE constraint on (user_id, name).
+- |-
+  Running `sqlite3 ~/jri/data/jri.db '.schema notifications'` shows the exact columns and constraints listed above.
 - Running `sqlite3 ~/jri/data/jri.db 'PRAGMA journal_mode'` returns 'wal'.
 - Running `sqlite3 ~/jri/data/jri.db 'PRAGMA foreign_keys'` returns '1'.
-- The init_db function is idempotent — running it twice does not error or duplicate
-  tables.
+- |-
+  The init_db function is idempotent — running it twice does not error or duplicate tables.

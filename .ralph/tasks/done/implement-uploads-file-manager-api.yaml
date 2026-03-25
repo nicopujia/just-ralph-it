@@ -40,7 +40,8 @@ acceptance_criteria:
 - POST a file to /api/projects/{name}/uploads saves it to the uploads/ directory.
 - POST the same filename again saves it as filename_1.ext (not overwriting).
 - POST a third time with the same name saves as filename_2.ext.
-- GET /api/projects/{name}/uploads lists all files with name, size, and modified_at.
+- |-
+  GET /api/projects/{name}/uploads lists all files with name, size, and modified_at.
 - DELETE /api/projects/{name}/uploads/{name} removes the file and returns
 - 6. DELETE a nonexistent file returns
 - 7. PATCH /api/projects/{name}/uploads/{name} with new_name renames the file.

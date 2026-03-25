@@ -14,8 +14,8 @@ description: |-
   - If it exists, return {"content": "<raw markdown string>", "exists": true}.
   - The frontend will render this as HTML using a markdown library.
 acceptance_criteria:
-- GET /api/projects/{name}/agents-md for a project with an AGENTS.md returns the raw
-  markdown content.
+- |-
+  GET /api/projects/{name}/agents-md for a project with an AGENTS.md returns the raw markdown content.
 - The response includes an 'exists' boolean field.
 - For a project without AGENTS.md, returns empty content and exists=false.
 - For an invalid project, returns 404.
