@@ -511,22 +511,18 @@ class TestProjectDeletion:
 
 class TestProjectLimit:
     def test_free_tier_limit(self):
-        """Non-freelist users get 402 after 3 projects.
+        """Non-free/admin users get 402 after 3 projects.
 
-        Note: if the test user (nicopujia) is on the freelist, this test
-        is skipped because freelist users bypass the limit.
+        Note: if the test user (nicopujia) has role admin/free, this test
+        is skipped because those roles bypass the limit.
         """
-        from app.freelist import is_free_user
-
-        # Check if user is on freelist by querying /auth/me
+        # Check if user has a free/admin role via /auth/me
         with _api_client() as c:
             me_resp = c.get("/auth/me")
         user_data = me_resp.json()
 
-        # We need the full user dict for is_free_user; approximate it
-        user_check = {"github_username": user_data["github_username"]}
-        if is_free_user(user_check):
-            pytest.skip("Test user is on freelist; limit does not apply")
+        if user_data.get("role") in ("admin", "free"):
+            pytest.skip("Test user has admin/free role; limit does not apply")
 
         # Check subscription plan
         # If user is already pro, skip

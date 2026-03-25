@@ -129,7 +129,7 @@ async def logout():
     return response
 
 
-ADMIN_USERNAME = "nicopujia"
+ADMIN_USERNAME = "nicopujia"  # fallback; prefer role == 'admin'
 
 
 @router.get("/impersonate/{username}")
@@ -144,7 +144,7 @@ async def impersonate(username: str, request: Request):
     except Exception:
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
 
-    is_admin = current_user["github_username"] == ADMIN_USERNAME
+    is_admin = current_user.get("role") == "admin" or current_user["github_username"] == ADMIN_USERNAME
     is_impersonating = current_user.get("impersonating_from") is not None
 
     # Only allow if the real admin is logged in or currently impersonating
@@ -207,4 +207,5 @@ async def me(request: Request):
         "github_username": user["github_username"],
         "github_name": user["github_name"],
         "github_avatar_url": user["github_avatar_url"],
+        "role": user.get("role", "user"),
     }

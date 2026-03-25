@@ -140,4 +140,52 @@ async def init_db() -> None:
         except Exception:
             pass  # column already exists
 
+        # Migrate: add role column to users
+        try:
+            await db.execute(
+                "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'"
+            )
+        except Exception:
+            pass  # column already exists
+
+        # Migrate: seed roles from legacy whitelist.txt / freelist.txt
+        # Only runs if there are users with no role set (i.e. still 'user' default).
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM users WHERE role != 'user'"
+        )
+        (role_count,) = await cursor.fetchone()
+        if role_count == 0:
+            _whitelist_path = DATA_DIR / "whitelist.txt"
+            _freelist_path = DATA_DIR / "freelist.txt"
+            _whitelist: set[str] = set()
+            _freelist: set[str] = set()
+            if _whitelist_path.exists():
+                _whitelist = {
+                    ln.strip()
+                    for ln in _whitelist_path.read_text().splitlines()
+                    if ln.strip()
+                }
+            if _freelist_path.exists():
+                _freelist = {
+                    ln.strip()
+                    for ln in _freelist_path.read_text().splitlines()
+                    if ln.strip()
+                }
+            # admin
+            await db.execute(
+                "UPDATE users SET role = 'admin' WHERE github_username = 'nicopujia'"
+            )
+            # free (freelist minus admin)
+            for uname in _freelist - {"nicopujia"}:
+                await db.execute(
+                    "UPDATE users SET role = 'free' WHERE github_username = ?",
+                    (uname,),
+                )
+            # beta (whitelist minus freelist minus admin)
+            for uname in _whitelist - _freelist - {"nicopujia"}:
+                await db.execute(
+                    "UPDATE users SET role = 'beta' WHERE github_username = ?",
+                    (uname,),
+                )
+
         await db.commit()
