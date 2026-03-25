@@ -13,6 +13,7 @@ from app.config import BASE_URL, DATA_DIR, STRIPE_SECRET_KEY
 from app.database import get_db
 from app.ralph_loop import RalphLoop
 from app.routers.projects import _get_issue_count, _get_project_dir
+from app.freelist import is_free_user
 from app.whitelist import check_whitelist
 
 logger = logging.getLogger(__name__)
@@ -71,6 +72,11 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
     check_whitelist(user)
     project = await _get_project(name, user)
     project_dir = await _get_project_dir(name, user)
+
+    # Freelist users skip payment entirely
+    if is_free_user(user):
+        await _start_ralph_loop(name, project, user)
+        return {"free": True, "redirect": None}
 
     # Already paid — just start Ralph
     if project.get("stripe_payment_id"):

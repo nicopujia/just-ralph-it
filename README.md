@@ -91,6 +91,10 @@ Real-time updates via `src/app/sse_bus.py`, keyed by project name:
 
 Only GitHub usernames listed in `./data/whitelist.txt` (one per line) can create projects or start Ralph. Non-whitelisted users receive a 403 and their username is appended to `./data/waitlist.txt` automatically. This gating is always active, independent of any maintenance mode flag.
 
+## Freelist (Free Access)
+
+GitHub usernames in `./data/freelist.txt` (one per line) skip Stripe payment when starting Ralph. They still must pass whitelist gating. This is intended for team members and select early users.
+
 ## Testing
 
 ```bash
@@ -117,6 +121,7 @@ Each project can be deployed to `{project-name}.{username}.justralph.it`:
 | Ralphy session files | `~/.claude/projects/-home-nico-jri-data-<user>-<project>/` |
 | Auth credentials | `./.env`, `~/.config/gh/hosts.yml`, `~/.claude/.credentials.json` |
 | Beta whitelist | `./data/whitelist.txt` |
+| Freelist (skip payment) | `./data/freelist.txt` |
 | Waitlist (non-whitelisted users) | `./data/waitlist.txt` |
 
 ## Logs
