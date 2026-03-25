@@ -12,7 +12,7 @@ from app.auth_utils import get_current_user
 from app.config import BASE_URL, DATA_DIR, STRIPE_SECRET_KEY
 from app.database import get_db
 from app.ralph_loop import RalphLoop
-from app.routers.projects import _get_issue_count, _get_project_dir
+from app.routers.projects import _get_project_dir
 from app.freelist import is_free_user
 from app.whitelist import check_whitelist
 
@@ -34,7 +34,8 @@ async def _get_project(name: str, user: dict) -> dict:
     """Look up project by name for the authenticated user. Returns row dict."""
     async with get_db() as db:
         cursor = await db.execute(
-            "SELECT id, name, ralph_loop_status, ralph_loop_current_issue, ralph_loop_iteration, stripe_payment_id "
+            "SELECT id, name, ralph_loop_status, ralph_loop_current_issue, "
+            "ralph_loop_iteration, stripe_payment_id, paid_task_count "
             "FROM projects WHERE user_id = ? AND name = ?",
             (user["id"], name),
         )
@@ -44,7 +45,26 @@ async def _get_project(name: str, user: dict) -> dict:
     return dict(row)
 
 
-async def _start_ralph_loop(name: str, project: dict, user: dict) -> None:
+def _count_non_done_tasks(project_dir: str) -> int:
+    """Count tasks that are not done (draft + todo + doing)."""
+    all_tasks = tasks.list_all(project_dir)
+    return sum(1 for t in all_tasks if t.get("status") != "done")
+
+
+def _calc_budget(project_dir: str, paid_task_count: int, free: bool) -> int:
+    """Calculate the task budget for the Ralph loop.
+
+    For free users returns a virtually unlimited budget.
+    For paid users returns paid_task_count minus already doing/done tasks.
+    """
+    if free:
+        return 999999
+    all_tasks = tasks.list_all(project_dir)
+    done_doing = sum(1 for t in all_tasks if t.get("status") in ("done", "doing"))
+    return max(paid_task_count - done_doing, 0)
+
+
+async def _start_ralph_loop(name: str, project: dict, user: dict, budget: int = 999999) -> None:
     """Shared helper to start the Ralph loop for a project."""
     if name in _loops and _loops[name].status == "running":
         return
@@ -61,6 +81,7 @@ async def _start_ralph_loop(name: str, project: dict, user: dict) -> None:
         project_name=name,
         user_github_name=user_name,
         user_github_email=user_email,
+        task_budget=budget,
     )
     _loops[name] = loop
     await loop.start()
@@ -68,26 +89,26 @@ async def _start_ralph_loop(name: str, project: dict, user: dict) -> None:
 
 @router.post("/{name}/ralph/checkout")
 async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
-    """Create a Stripe checkout session or start Ralph if already paid."""
+    """Create a Stripe checkout session for unpaid tasks, or start Ralph directly."""
     check_whitelist(user)
     project = await _get_project(name, user)
     project_dir = await _get_project_dir(name, user)
 
-    # Freelist users skip payment entirely
-    if is_free_user(user):
-        await _start_ralph_loop(name, project, user)
-        return {"free": True, "redirect": None}
+    free = is_free_user(user)
+    total_tasks = _count_non_done_tasks(project_dir)
+    paid_task_count = project.get("paid_task_count", 0)
+    unpaid = total_tasks - paid_task_count
 
-    # Already paid — just start Ralph
-    if project.get("stripe_payment_id"):
-        await _start_ralph_loop(name, project, user)
-        return {"free": True, "redirect": None}
+    # Free users or nothing to pay: start directly
+    if free or unpaid <= 0:
+        budget = _calc_budget(project_dir, paid_task_count, free)
+        await _start_ralph_loop(name, project, user, budget=budget)
+        return {"free": free, "redirect": None}
 
-    issue_count = _get_issue_count(project_dir)
-    if issue_count == 0:
-        raise HTTPException(status_code=400, detail="No issues found — nothing to bid on")
+    if total_tasks == 0:
+        raise HTTPException(status_code=400, detail="No tasks found")
 
-    unit_amount = issue_count * 100  # $1 per issue in cents
+    unit_amount = unpaid * 100  # $1 per task in cents
 
     # Create Stripe Checkout Session
     checkout_session = stripe.checkout.Session.create(
@@ -98,7 +119,7 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
                     "currency": "usd",
                     "unit_amount": unit_amount,
                     "product_data": {
-                        "name": f"Just Ralph It — {name} ({issue_count} issues)",
+                        "name": f"Just Ralph It — {name} ({unpaid} new tasks)",
                     },
                 },
                 "quantity": 1,
@@ -107,7 +128,11 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
         success_url=f"{BASE_URL}/projects/{name}?tab=ralph&payment=success&session_id={{CHECKOUT_SESSION_ID}}",
         cancel_url=f"{BASE_URL}/projects/{name}?payment=cancel",
         client_reference_id=str(project["id"]),
-        metadata={"user_id": str(user["id"]), "project_name": name},
+        metadata={
+            "user_id": str(user["id"]),
+            "project_name": name,
+            "unpaid_count": str(unpaid),
+        },
     )
 
     return {"free": False, "redirect": checkout_session.url}
@@ -119,7 +144,7 @@ async def ralph_payment_callback(
     session_id: str = Query(...),
     user: dict = Depends(get_current_user),
 ):
-    """Verify Stripe payment and start Ralph loop."""
+    """Verify Stripe payment, update paid_task_count, and start Ralph loop."""
     project = await _get_project(name, user)
 
     # Retrieve the Stripe session
@@ -131,18 +156,31 @@ async def ralph_payment_callback(
     if session.client_reference_id != str(project["id"]):
         raise HTTPException(status_code=400, detail="Session does not match project")
 
-    # Store payment ID
+    # Get the unpaid count that was stored in checkout metadata
+    unpaid_count = int(session.metadata.get("unpaid_count", "0"))
+
+    # Update payment ID and increment paid_task_count
     async with get_db() as db:
         await db.execute(
-            "UPDATE projects SET stripe_payment_id = ? WHERE id = ?",
-            (session_id, project["id"]),
+            "UPDATE projects SET stripe_payment_id = ?, "
+            "paid_task_count = paid_task_count + ? WHERE id = ?",
+            (session_id, unpaid_count, project["id"]),
         )
         await db.commit()
 
-    # Start Ralph loop
-    await _start_ralph_loop(name, project, user)
+    # Re-read updated paid_task_count
+    project = await _get_project(name, user)
+    project_dir = await _get_project_dir(name, user)
+    budget = _calc_budget(project_dir, project["paid_task_count"], free=False)
 
-    return {"status": "started"}
+    # Resume existing loop if paused, otherwise start a new one
+    loop = _loops.get(name)
+    if loop is not None and loop.status == "payment_required":
+        await loop.resume_after_payment(budget)
+    else:
+        await _start_ralph_loop(name, project, user, budget=budget)
+
+    return {"status": "started", "paid_task_count": project["paid_task_count"]}
 
 
 @router.post("/{name}/ralph/start")
@@ -154,7 +192,11 @@ async def ralph_start(name: str, user: dict = Depends(get_current_user)):
     if name in _loops and _loops[name].status == "running":
         raise HTTPException(status_code=409, detail="Ralph loop is already running")
 
-    await _start_ralph_loop(name, project, user)
+    free = is_free_user(user)
+    project_dir = await _get_project_dir(name, user)
+    budget = _calc_budget(project_dir, project.get("paid_task_count", 0), free)
+
+    await _start_ralph_loop(name, project, user, budget=budget)
 
     return {"status": "running"}
 
@@ -213,8 +255,26 @@ async def ralph_stop(name: str, user: dict = Depends(get_current_user)):
 
 @router.post("/{name}/ralph/resume")
 async def ralph_resume(name: str, user: dict = Depends(get_current_user)):
-    """Resume (same as start) the Ralph loop."""
-    return await ralph_start(name, user=user)
+    """Resume the Ralph loop with recalculated budget."""
+    check_whitelist(user)
+    project = await _get_project(name, user)
+
+    free = is_free_user(user)
+    project_dir = await _get_project_dir(name, user)
+    budget = _calc_budget(project_dir, project.get("paid_task_count", 0), free)
+
+    # If the loop is paused waiting for payment, resume it in-place
+    loop = _loops.get(name)
+    if loop is not None and loop.status == "payment_required":
+        await loop.resume_after_payment(budget)
+        return {"status": "running"}
+
+    if loop is not None and loop.status == "running":
+        raise HTTPException(status_code=409, detail="Ralph loop is already running")
+
+    await _start_ralph_loop(name, project, user, budget=budget)
+
+    return {"status": "running"}
 
 
 @router.get("/{name}/ralph/stream")
@@ -235,7 +295,7 @@ async def ralph_stream(name: str, user: dict = Depends(get_current_user)):
                 except asyncio.TimeoutError:
                     yield ": keepalive\n\n"
                 # Stop streaming once loop is no longer running
-                if loop.status not in ("running", "stopping"):
+                if loop.status not in ("running", "stopping", "payment_required"):
                     break
         except asyncio.CancelledError:
             pass
@@ -281,6 +341,23 @@ async def acknowledge_notification(
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Notification not found")
     return {"status": "acknowledged"}
+
+
+@router.get("/{name}/ralph/payment-status")
+async def ralph_payment_status(name: str, user: dict = Depends(get_current_user)):
+    """Return payment delta info for the frontend."""
+    project = await _get_project(name, user)
+    project_dir = await _get_project_dir(name, user)
+
+    paid_task_count = project.get("paid_task_count", 0)
+    total_tasks = _count_non_done_tasks(project_dir)
+    unpaid = max(total_tasks - paid_task_count, 0)
+
+    return {
+        "paid_task_count": paid_task_count,
+        "total_tasks": total_tasks,
+        "unpaid": unpaid,
+    }
 
 
 @router.get("/{name}/ralph/status")

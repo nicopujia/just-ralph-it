@@ -112,4 +112,12 @@ async def init_db() -> None:
             except Exception:
                 pass  # column already exists
 
+        # Migrate: add paid_task_count column to projects
+        try:
+            await db.execute(
+                "ALTER TABLE projects ADD COLUMN paid_task_count INTEGER DEFAULT 0"
+            )
+        except Exception:
+            pass  # column already exists
+
         await db.commit()

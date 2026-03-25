@@ -11,6 +11,7 @@ EVENT_TYPES = frozenset({
     "ralph_status",
     "notification",
     "ralphy_processing",
+    "payment_required",
 })
 
 

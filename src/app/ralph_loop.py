@@ -68,6 +68,7 @@ class RalphLoop:
         project_name: str,
         user_github_name: str,
         user_github_email: str,
+        task_budget: int = 0,
     ) -> None:
         self.project_id = project_id
         self.project_dir = project_dir
@@ -81,6 +82,9 @@ class RalphLoop:
         self.user_github_email = user_github_email
         self._subscribers: set[asyncio.Queue] = set()
         self._task: Optional[asyncio.Task] = None
+        self.task_budget: int = task_budget
+        self.tasks_completed: int = 0
+        self._payment_event: asyncio.Event = asyncio.Event()
 
     @staticmethod
     async def check_interrupted(project_dir: str, project_name: str) -> None:
@@ -223,6 +227,51 @@ class RalphLoop:
                     )
                     break
 
+                # --- Budget enforcement ---
+                if self.task_budget > 0 and self.tasks_completed >= self.task_budget:
+                    # Count remaining todo tasks
+                    all_ready = tasks.get_ready(self.project_dir)
+                    unpaid_count = len(all_ready)
+
+                    if unpaid_count > 0:
+                        logger.info(
+                            "Project %s: budget exhausted (%d/%d), %d unpaid tasks remain",
+                            self.project_name, self.tasks_completed,
+                            self.task_budget, unpaid_count,
+                        )
+                        self.status = "payment_required"
+                        self._save_state()
+                        await self._update_db_status("payment_required")
+                        await sse_bus.publish(
+                            self.project_name, "payment_required",
+                            {"unpaid_count": unpaid_count, "project_name": self.project_name},
+                        )
+                        await sse_bus.publish(
+                            self.project_name, "ralph_status",
+                            {"status": "payment_required", "unpaid_count": unpaid_count},
+                        )
+
+                        # Wait for payment to resume (or stop)
+                        self._payment_event.clear()
+                        await self._payment_event.wait()
+
+                        # If stop() was called while waiting, exit
+                        if self.status == "stopping":
+                            break
+
+                        # After resume, reset counter and continue the loop
+                        self.tasks_completed = 0
+                        self.status = "running"
+                        self._save_state()
+                        await self._update_db_status("running")
+                        logger.info(
+                            "Project %s: resumed after payment, new budget=%d",
+                            self.project_name, self.task_budget,
+                        )
+                        continue
+                    # else: over budget but no more todo tasks, normal exit
+                    # (will hit the "no ready_issues" check next iteration)
+
                 issue = ready_issues[0]
                 self.current_issue_id = issue.get("id", "")
                 self.iteration += 1
@@ -308,6 +357,7 @@ class RalphLoop:
 
                     # Notify frontend of issue state change
                     await sse_bus.publish(self.project_name, "issue_update", {"issue_id": self.current_issue_id, "action": "completed"})
+                    self.tasks_completed += 1
 
                 except Exception:
                     logger.exception(
@@ -482,11 +532,18 @@ class RalphLoop:
             issue_id, self.project_name,
         )
 
+    async def resume_after_payment(self, new_budget: int) -> None:
+        """Resume the loop after payment with an updated budget."""
+        self.task_budget = new_budget
+        self._payment_event.set()
+
     async def stop(self) -> None:
         """Gracefully stop after the current iteration finishes."""
-        if self.status != "running":
+        if self.status not in ("running", "payment_required"):
             return
         self.status = "stopping"
+        # Unblock if waiting for payment
+        self._payment_event.set()
         # If a process is running, wait with timeout then kill
         if self.process and self.process.returncode is None:
             try:
