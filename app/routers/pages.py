@@ -130,6 +130,11 @@ async def project_page(request: Request, name: str):
         except Exception:
             logger.exception("Payment callback failed for project %s", name)
 
+    valid_tabs = {"overview", "tasks", "ralph", "uploads", "env"}
+    active_tab = request.query_params.get("tab", "overview")
+    if active_tab not in valid_tabs:
+        active_tab = "overview"
+
     return templates.TemplateResponse(
-        "project.html", {"request": request, "user": user, "project": project}
+        "project.html", {"request": request, "user": user, "project": project, "active_tab": active_tab}
     )
