@@ -409,6 +409,10 @@
         text-decoration: none;
     }
     .tab-btn:hover { color: var(--text-muted); }
+    .tab-btn:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: -4px;
+    }
     .tab-btn.active {
         color: var(--text);
         border-bottom-color: #e8a820;
