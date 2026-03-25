@@ -89,7 +89,7 @@ Real-time updates via `src/app/sse_bus.py`, keyed by project name:
 
 ## Maintenance Mode
 
-Set `MAINTENANCE_MODE=1` (or `true`/`yes`) to block new project creation. When active, the create-project endpoint returns 503 and appends the user's email to `./data/waitlist.txt`.
+Set `MAINTENANCE_MODE=1` (or `true`/`yes`) to block new project creation. When active, the create-project endpoint returns 503 and appends the user's GitHub username to `./data/waitlist.txt`.
 
 ## Testing
 

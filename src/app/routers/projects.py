@@ -105,18 +105,18 @@ async def create_project(
     user: dict = Depends(get_current_user),
 ):
     name = body.name
-    # Maintenance mode: save interested user's email and reject
+    # Maintenance mode: save interested user's username and reject
     if MAINTENANCE_MODE:
-        email = user.get("github_email") or f"{user['github_username']}@users.noreply.github.com"
+        github_username = user["github_username"]
         waitlist_path = DATA_DIR / "waitlist.txt"
         # Append if not already in the list
         existing = waitlist_path.read_text() if waitlist_path.exists() else ""
-        if email not in existing:
+        if github_username not in existing.splitlines():
             with open(waitlist_path, "a") as f:
-                f.write(f"{email}\n")
+                f.write(f"{github_username}\n")
         raise HTTPException(
             status_code=503,
-            detail="We're currently in maintenance. We've saved your email and will notify you when we're back!",
+            detail="We're currently in maintenance. We've saved your username and will notify you when we're back!",
         )
     description = body.description
 
