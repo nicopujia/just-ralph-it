@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from app.auth_utils import get_current_user
 from app.config import DATA_DIR, RALPH_BOT_GITHUB_TOKEN
 from app.database import get_db
+from app.freelist import is_free_user
 from app import tasks
 from app.whitelist import check_whitelist
 
@@ -106,6 +107,34 @@ async def create_project(
     user: dict = Depends(get_current_user),
 ):
     name = body.name
+    user_id: int = user["id"]
+
+    # Free-tier limit: 3 projects (unless freelist or subscribed pro)
+    if not is_free_user(user):
+        async with get_db() as db:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM projects WHERE user_id = ?", (user_id,)
+            )
+            (count,) = await cursor.fetchone()
+
+            # Check subscription plan
+            cur2 = await db.execute(
+                "SELECT subscription_plan FROM users WHERE id = ?", (user_id,)
+            )
+            row = await cur2.fetchone()
+            plan = row["subscription_plan"] if row and row["subscription_plan"] else None
+
+        if count >= 3 and plan != "pro":
+            raise HTTPException(
+                status_code=402,
+                detail={
+                    "detail": "You've used your 3 free projects. Subscribe to the Pro plan ($20/mo) for unlimited projects.",
+                    "upgrade_required": True,
+                    "plan": "pro",
+                    "price": "$20/mo",
+                },
+            )
+
     # Closed beta: only whitelisted users can create projects
     check_whitelist(user)
     description = body.description
@@ -124,7 +153,6 @@ async def create_project(
         user.get("github_email")
         or f"{github_username}@users.noreply.github.com"
     )
-    user_id: int = user["id"]
 
     # Check uniqueness in DB
     async with get_db() as db:

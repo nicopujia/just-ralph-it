@@ -55,6 +55,29 @@
         margin-top: 0.4rem;
         display: none;
     }
+    .upgrade-banner {
+        background: var(--input-bg);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 1.25rem;
+        margin-bottom: 1.5rem;
+        display: none;
+    }
+    .upgrade-banner p {
+        margin: 0 0 0.75rem 0;
+        color: var(--text);
+    }
+    .upgrade-banner .btn-subscribe {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        background: var(--accent, #6366f1);
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        font-size: 0.95rem;
+        cursor: pointer;
+        text-decoration: none;
+    }
     .form-actions {
         display: flex;
         align-items: center;
@@ -66,6 +89,10 @@
 {% block content %}
 <div class="new-project-container">
     <h2>New Project</h2>
+    <div class="upgrade-banner" id="upgrade-banner">
+        <p id="upgrade-msg"></p>
+        <button class="btn-subscribe" disabled title="Coming soon">Subscribe ($20/mo)</button>
+    </div>
     <form id="new-project-form">
         <div class="form-group">
             <label for="name">Project Name</label>
@@ -132,7 +159,14 @@
 
             try {
                 const data = await res.json();
-                showError(data.detail || 'Something went wrong. Please try again.');
+                if (res.status === 402 && data.detail && data.detail.upgrade_required) {
+                    var banner = document.getElementById('upgrade-banner');
+                    document.getElementById('upgrade-msg').textContent = data.detail.detail;
+                    banner.style.display = 'block';
+                } else {
+                    var detail = (typeof data.detail === 'string') ? data.detail : (data.detail && data.detail.detail) || 'Something went wrong. Please try again.';
+                    showError(detail);
+                }
             } catch (_) {
                 showError('Something went wrong. Please try again.');
             }

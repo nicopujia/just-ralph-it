@@ -87,6 +87,18 @@ async def init_db() -> None:
             """
         )
 
+        # Migrate: add subscription columns to users
+        for col_name, col_def in [
+            ("subscription_plan", "TEXT DEFAULT NULL"),
+            ("subscription_id", "TEXT DEFAULT NULL"),
+        ]:
+            try:
+                await db.execute(
+                    f"ALTER TABLE users ADD COLUMN {col_name} {col_def}"
+                )
+            except Exception:
+                pass  # column already exists
+
         # Migrate: rename beads_issue_id -> task_id in notifications
         try:
             await db.execute(
@@ -116,6 +128,14 @@ async def init_db() -> None:
         try:
             await db.execute(
                 "ALTER TABLE projects ADD COLUMN paid_task_count INTEGER DEFAULT 0"
+            )
+        except Exception:
+            pass  # column already exists
+
+        # Migrate: add base_fee_paid column to projects
+        try:
+            await db.execute(
+                "ALTER TABLE projects ADD COLUMN base_fee_paid INTEGER DEFAULT 0"
             )
         except Exception:
             pass  # column already exists
