@@ -121,13 +121,15 @@ Each project can be deployed to `{name}.justralph.it`:
 
 ## Logs
 
-All application logs are written to the `logs/` directory (gitignored):
+Application logs go to `logs/app.log` (rotating, 5 MB). Per-project agent logs live inside each project's `.jri/` directory:
 
 ```
 logs/
-  app.log                              # FastAPI/uvicorn app logs (rotating, 5 MB)
-  projects/<project-name>/ralph.log    # Ralph loop stdout per project
-  projects/<project-name>/ralphy.log   # Ralphy chat output per project
+  app.log                                                  # FastAPI/uvicorn app logs (rotating, 5 MB)
+
+data/<user>/<project>/.jri/
+  ralph.log                                                # Ralph loop stdout
+  ralphy.log                                               # Ralphy chat output
 ```
 
 Console output is preserved for development. Directories are created automatically.

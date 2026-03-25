@@ -11,7 +11,7 @@ from starlette.responses import StreamingResponse
 from app.auth_utils import get_current_user
 from app.config import DATA_DIR
 from app.database import get_db
-from app.logging_config import get_project_log_dir
+
 from app.prompts.ralphy import RALPHY_SYSTEM_PROMPT
 from app.sse_bus import sse_bus
 
@@ -157,7 +157,9 @@ async def _stream_claude(
 
     await sse_bus.publish(project_name, "ralphy_processing", {"status": "start"})
 
-    log_path = get_project_log_dir(project_name) / "ralphy.log"
+    log_dir = Path(project_dir) / ".jri"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / "ralphy.log"
     log_file = open(log_path, "a", encoding="utf-8")
 
     try:

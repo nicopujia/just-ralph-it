@@ -36,10 +36,3 @@ def setup_logging(level: int = logging.INFO) -> None:
     root.setLevel(level)
     root.addHandler(file_handler)
     root.addHandler(console_handler)
-
-
-def get_project_log_dir(project_name: str) -> Path:
-    """Return logs/projects/<project-name>/, creating it if needed."""
-    d = LOGS_DIR / "projects" / project_name
-    d.mkdir(parents=True, exist_ok=True)
-    return d

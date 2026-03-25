@@ -9,7 +9,7 @@ from typing import Optional
 
 from app import tasks
 from app.database import get_db
-from app.logging_config import get_project_log_dir
+
 from app.prompts.ralph import RALPH_SYSTEM_PROMPT
 from app.sse_bus import sse_bus
 
@@ -453,7 +453,9 @@ class RalphLoop:
         """Read lines from the subprocess stdout and fan out to subscribers."""
         assert self.process and self.process.stdout
 
-        log_path = get_project_log_dir(self.project_name) / "ralph.log"
+        log_dir = Path(self.project_dir) / ".jri"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "ralph.log"
         log_file = open(log_path, "a", encoding="utf-8")
 
         try:
