@@ -22,6 +22,12 @@ Rules:
 14. NEVER break existing tests.
 15. If README.md contains a Deployment section, follow its instructions exactly for how the app should be served and deployed.
 16. ALWAYS use non-interactive flags: cp -f, mv -f, rm -f, apt-get -y. Never let a command hang on a prompt.
+17. Web app verification: if README.md has a Deployment section (i.e. this is a web app), verify the app works end-to-end after tests pass:
+    - Start the app locally (using the start command from the Deployment section) on a random available port.
+    - Run acceptance checks against it: hit key routes, verify responses, check that pages render and APIs return expected data.
+    - Tear down the server when done.
+    - If anything fails, fix it before committing.
+    - Skip this step for non-web projects (no Deployment section).
 
 ## Task management
 Tasks are YAML files in .jri/tasks/{status}/{slug}.yaml where status is todo, doing, done, or draft.
