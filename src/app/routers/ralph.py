@@ -13,6 +13,7 @@ from app.config import BASE_URL, DATA_DIR, STRIPE_SECRET_KEY
 from app.database import get_db
 from app.ralph_loop import RalphLoop
 from app.routers.projects import _get_issue_count, _get_project_dir
+from app.whitelist import check_whitelist
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +68,7 @@ async def _start_ralph_loop(name: str, project: dict, user: dict) -> None:
 @router.post("/{name}/ralph/checkout")
 async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
     """Create a Stripe checkout session or start Ralph if already paid."""
+    check_whitelist(user)
     project = await _get_project(name, user)
     project_dir = await _get_project_dir(name, user)
 
@@ -140,6 +142,7 @@ async def ralph_payment_callback(
 @router.post("/{name}/ralph/start")
 async def ralph_start(name: str, user: dict = Depends(get_current_user)):
     """Begin the Ralph loop for a project."""
+    check_whitelist(user)
     project = await _get_project(name, user)
 
     if name in _loops and _loops[name].status == "running":

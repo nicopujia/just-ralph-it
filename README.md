@@ -87,9 +87,9 @@ Real-time updates via `src/app/sse_bus.py`, keyed by project name:
 - **nginx limit**: `client_max_body_size 10M`
 - Path traversal (`..`, `/`) is rejected
 
-## Maintenance Mode
+## Closed Beta (Whitelist)
 
-Set `MAINTENANCE_MODE=1` (or `true`/`yes`) to block new project creation. When active, the create-project endpoint returns 503 and appends the user's GitHub username to `./data/waitlist.txt`.
+Only GitHub usernames listed in `./data/whitelist.txt` (one per line) can create projects or start Ralph. Non-whitelisted users receive a 403 and their username is appended to `./data/waitlist.txt` automatically. This gating is always active, independent of any maintenance mode flag.
 
 ## Testing
 
@@ -116,7 +116,8 @@ Each project can be deployed to `{project-name}.{username}.justralph.it`:
 | Project repos + uploads | `./data/<github-username>/<project-name>/` |
 | Ralphy session files | `~/.claude/projects/-home-nico-jri-data-<user>-<project>/` |
 | Auth credentials | `./.env`, `~/.config/gh/hosts.yml`, `~/.claude/.credentials.json` |
-| Waitlist (maintenance mode) | `./data/waitlist.txt` |
+| Beta whitelist | `./data/whitelist.txt` |
+| Waitlist (non-whitelisted users) | `./data/waitlist.txt` |
 
 ## Logs
 

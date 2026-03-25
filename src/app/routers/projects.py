@@ -8,9 +8,10 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from app.auth_utils import get_current_user
-from app.config import DATA_DIR, RALPH_BOT_GITHUB_TOKEN, MAINTENANCE_MODE
+from app.config import DATA_DIR, RALPH_BOT_GITHUB_TOKEN
 from app.database import get_db
 from app import tasks
+from app.whitelist import check_whitelist
 
 logger = logging.getLogger(__name__)
 
@@ -105,19 +106,8 @@ async def create_project(
     user: dict = Depends(get_current_user),
 ):
     name = body.name
-    # Maintenance mode: save interested user's username and reject
-    if MAINTENANCE_MODE:
-        github_username = user["github_username"]
-        waitlist_path = DATA_DIR / "waitlist.txt"
-        # Append if not already in the list
-        existing = waitlist_path.read_text() if waitlist_path.exists() else ""
-        if github_username not in existing.splitlines():
-            with open(waitlist_path, "a") as f:
-                f.write(f"{github_username}\n")
-        raise HTTPException(
-            status_code=503,
-            detail="We're currently in maintenance. We've saved your username and will notify you when we're back!",
-        )
+    # Closed beta: only whitelisted users can create projects
+    check_whitelist(user)
     description = body.description
 
     # --- Token check ---
