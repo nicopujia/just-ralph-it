@@ -146,7 +146,7 @@ class RalphLoop:
                     # Check if notification already exists for this issue
                     cursor = await db.execute(
                         "SELECT id FROM notifications "
-                        "WHERE project_id = ? AND beads_issue_id = ?",
+                        "WHERE project_id = ? AND task_id = ?",
                         (self.project_id, issue_id),
                     )
                     existing = await cursor.fetchone()
@@ -155,7 +155,7 @@ class RalphLoop:
 
                     message = f"Ralph needs help: {title}"
                     cursor = await db.execute(
-                        "INSERT INTO notifications (project_id, message, beads_issue_id) "
+                        "INSERT INTO notifications (project_id, message, task_id) "
                         "VALUES (?, ?, ?)",
                         (self.project_id, message, issue_id),
                     )
@@ -175,7 +175,7 @@ class RalphLoop:
                         {
                             "id": notification_id,
                             "message": message,
-                            "beads_issue_id": issue_id,
+                            "task_id": issue_id,
                             "created_at": created_at,
                         },
                     )

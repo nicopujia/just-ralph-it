@@ -74,7 +74,7 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
         await _start_ralph_loop(name, project, user)
         return {"free": True, "redirect": None}
 
-    issue_count = await _get_issue_count(project_dir)
+    issue_count = _get_issue_count(project_dir)
     if issue_count == 0:
         raise HTTPException(status_code=400, detail="No issues found — nothing to bid on")
 
@@ -214,7 +214,7 @@ async def get_notifications(name: str, user: dict = Depends(get_current_user)):
     project = await _get_project(name, user)
     async with get_db() as db:
         cursor = await db.execute(
-            "SELECT id, message, beads_issue_id, created_at "
+            "SELECT id, message, task_id, created_at "
             "FROM notifications "
             "WHERE project_id = ? AND acknowledged = 0 "
             "ORDER BY created_at DESC",

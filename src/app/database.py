@@ -66,12 +66,20 @@ async def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
                 message TEXT NOT NULL,
-                beads_issue_id TEXT,
+                task_id TEXT,
                 acknowledged INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
             """
         )
+
+        # Migrate: rename beads_issue_id -> task_id in notifications
+        try:
+            await db.execute(
+                "ALTER TABLE notifications RENAME COLUMN beads_issue_id TO task_id"
+            )
+        except Exception:
+            pass  # column already renamed or doesn't exist
 
         # Migrate: add deployment columns to projects if they don't exist.
         # SQLite doesn't support IF NOT EXISTS for ALTER TABLE, so catch errors.
