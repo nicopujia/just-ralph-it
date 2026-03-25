@@ -84,7 +84,7 @@ class RalphLoop:
     @staticmethod
     async def check_interrupted(project_dir: str, project_name: str) -> None:
         """Check if a previous loop was interrupted and clean up."""
-        state_path = Path(project_dir) / ".ralph_state"
+        state_path = Path(project_dir) / ".jri_state"
         if not state_path.exists():
             return
         try:
@@ -548,14 +548,14 @@ class RalphLoop:
         return None  # Skip unknown types
 
     def _save_state(self) -> None:
-        """Persist loop state to .ralph_state in the project directory."""
+        """Persist loop state to .jri_state in the project directory."""
         state = {
             "project_id": self.project_id,
             "status": self.status,
             "current_issue_id": self.current_issue_id,
             "iteration": self.iteration,
         }
-        state_path = Path(self.project_dir) / ".ralph_state"
+        state_path = Path(self.project_dir) / ".jri_state"
         state_path.write_text(json.dumps(state, indent=2))
 
     async def _update_db_status(self, status: str) -> None:
