@@ -178,7 +178,12 @@
             delBtn.className = 'btn-delete';
             delBtn.textContent = 'Delete';
             delBtn.addEventListener('click', function() {
-                if (!confirm('Delete project "' + p.name + '"? This will also delete the GitHub repo.')) return;
+                var typed = window.prompt('This will permanently delete the project and its GitHub repo.\n\nType the project name to confirm deletion: ' + p.name);
+                if (typed === null) return;
+                if (typed !== p.name) {
+                    alert('Project name does not match. Deletion cancelled.');
+                    return;
+                }
                 fetch('/api/projects/' + encodeURIComponent(p.name) + '?delete_repo=true', { method: 'DELETE' })
                     .then(function(res) {
                         if (res.ok) {
