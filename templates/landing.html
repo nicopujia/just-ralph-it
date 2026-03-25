@@ -15,8 +15,6 @@ body.landing {
     --landing-text: #e0e0e0;
     --landing-text-bright: #fff;
     --landing-text-muted: #666;
-    --landing-accent: #FFD700;
-    --landing-accent-hover: #e6c200;
     --landing-border: #333;
     --landing-font: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     margin: 0;
@@ -32,8 +30,6 @@ body.landing {
         --landing-text: #1a1a1a;
         --landing-text-bright: #000;
         --landing-text-muted: #666;
-        --landing-accent: #d4a800;
-        --landing-accent-hover: #b89200;
         --landing-border: #ddd;
     }
 }
@@ -95,7 +91,7 @@ body.landing {
 .bracket-corner {
     position: absolute;
     width: 12px; height: 12px;
-    border-color: var(--landing-accent);
+    border-color: var(--accent);
     border-style: solid;
 }
 .bracket-tl { top: 0; left: 0; border-width: 2px 0 0 2px; }
@@ -114,7 +110,7 @@ body.landing {
     word-break: break-word;
 }
 .landing-subtitle {
-    color: var(--landing-accent);
+    color: var(--accent);
     font-size: 0.875rem;
     text-transform: uppercase;
     letter-spacing: 0.1em;
@@ -149,9 +145,9 @@ body.landing {
     display: block;
     width: 100%;
     padding: 0.75rem 1rem;
-    border: 2px solid var(--landing-accent);
+    border: 2px solid var(--accent);
     background: transparent;
-    color: var(--landing-accent);
+    color: var(--accent);
     font-size: 0.875rem;
     font-weight: 700;
     font-family: var(--landing-font);
@@ -164,7 +160,7 @@ body.landing {
     box-sizing: border-box;
 }
 .btn-login:hover {
-    background-color: var(--landing-accent);
+    background-color: var(--accent);
     color: var(--landing-bg);
 }
 @media (max-width: 640px) {
