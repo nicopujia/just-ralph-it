@@ -76,7 +76,7 @@ fi
 # --- Clone repo ---
 echo "==> Cloning JRI repo..."
 if [ ! -d /home/nico/jri/.git ]; then
-    git clone https://github.com/ralphpujia/jri.git /home/nico/jri
+    git clone https://github.com/nicopujia/justralph.it.git /home/nico/jri
 fi
 
 # --- Python dependencies ---
