@@ -479,8 +479,8 @@ class TestProjectDeletion:
             _delete_project(name)
             raise
 
-    def test_delete_via_ui_prompt(self, page: Page):
-        """Delete through the UI prompt dialog on the dashboard."""
+    def test_delete_via_ui_modal(self, page: Page):
+        """Delete through the custom modal dialog on the dashboard."""
         name = _unique_name("e2e-delui")
 
         try:
@@ -492,11 +492,17 @@ class TestProjectDeletion:
             card = page.locator(f".project-card[data-name='{name}']")
             card.wait_for(state="visible", timeout=15_000)
 
-            # The delete button triggers a prompt asking to type the project name
-            page.on("dialog", lambda dialog: dialog.accept(name))
-
+            # Click delete button to open the modal
             delete_btn = card.locator(".btn-delete")
             delete_btn.click()
+
+            # Type project name in the confirmation input
+            confirm_input = page.locator("#delete-modal-input")
+            confirm_input.wait_for(state="visible", timeout=5_000)
+            confirm_input.fill(name)
+
+            # Click the confirm delete button
+            page.locator("#delete-modal-confirm").click()
 
             # Wait for the card to disappear
             card.wait_for(state="hidden", timeout=15_000)
