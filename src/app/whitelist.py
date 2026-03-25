@@ -30,5 +30,5 @@ def check_whitelist(user: dict) -> None:
 
     raise HTTPException(
         status_code=403,
-        detail="Closed beta. Your username has been added to the waitlist.",
+        detail="We're in closed beta. We'll let you know when you're in.",
     )
