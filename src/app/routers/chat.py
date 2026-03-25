@@ -146,10 +146,20 @@ async def _stream_claude(
     user_message: str,
 ):
     """Async generator that spawns claude CLI and yields SSE events."""
-    # If Ralphy is already running for this project, wait for it to finish
+    # Send an initial keepalive immediately to establish the SSE stream.
+    # This prevents proxies (e.g. Cloudflare's 100s initial-response timeout)
+    # from dropping the connection before the subprocess starts producing output.
+    yield ": keepalive\n\n"
+
+    # If Ralphy is already running for this project, wait for it to finish.
+    # Send keepalives while waiting so proxies don't drop the connection.
     existing = _active_procs.get(project_name)
     if existing and existing.returncode is None:
-        await existing.wait()
+        wait_task = asyncio.ensure_future(existing.wait())
+        while not wait_task.done():
+            done, _ = await asyncio.wait({wait_task}, timeout=15)
+            if not done:
+                yield ": keepalive\n\n"
 
     args = _build_claude_args(session_id, is_new_session, user_message)
 
