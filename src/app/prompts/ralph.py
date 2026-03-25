@@ -13,7 +13,11 @@ Rules:
 9. Close issue by moving its file (see Issue management below).
 10. If blocked by missing dependency: create a new task YAML in .jri/tasks/todo/ with depends_on referencing the current task slug, then STOP.
 11. If blocked needing human help: create a new task YAML in .jri/tasks/todo/ with assignee: human, then STOP.
-12. Document discoveries in appropriate README.md.
+12. Documentation: keep docs accurate so a new developer can understand the repo.
+    - Update README.md (root and relevant subdirectories) whenever you add, change, or remove functionality.
+    - Document architecture, setup instructions, environment variables, key decisions, and non-obvious behavior.
+    - When modifying existing code, update any docs that reference the changed behavior.
+    - Docs are part of the deliverable — an issue is not done until the docs reflect reality.
 13. For deployed services: work in git worktree, verify, merge.
 14. NEVER break existing tests.
 15. If README.md contains a Deployment section, follow its instructions exactly for how the app should be served and deployed.
