@@ -73,6 +73,20 @@ async def init_db() -> None:
             """
         )
 
+        await db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL DEFAULT '',
+                thinking_text TEXT DEFAULT '',
+                thinking_steps TEXT DEFAULT '[]',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
         # Migrate: rename beads_issue_id -> task_id in notifications
         try:
             await db.execute(

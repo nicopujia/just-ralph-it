@@ -1,7 +1,6 @@
 import asyncio
 import json
 import os
-import tempfile
 import uuid
 from pathlib import Path
 
@@ -139,56 +138,57 @@ def _prepend_attachment_info(message: str, filenames: list[str]) -> str:
 _active_procs: dict[str, asyncio.subprocess.Process] = {}
 
 
-def _chat_json_path(project_dir: str) -> Path:
-    return Path(project_dir) / ".jri" / "chat.json"
+async def _append_chat_message(project_id: int, msg: dict) -> None:
+    """Insert a chat message into the database."""
+    async with get_db() as db:
+        await db.execute(
+            "INSERT INTO chat_messages (project_id, role, content, thinking_text, thinking_steps) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                project_id,
+                msg["role"],
+                msg.get("content", ""),
+                msg.get("thinkingText", ""),
+                json.dumps(msg.get("thinkingSteps", [])),
+            ),
+        )
+        await db.commit()
 
 
-def _load_chat_json(project_dir: str) -> list[dict]:
-    path = _chat_json_path(project_dir)
-    if not path.exists():
-        return []
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
-        return []
+async def _load_chat_messages(project_id: int) -> list[dict]:
+    """Load all chat messages for a project from the database."""
+    async with get_db() as db:
+        cursor = await db.execute(
+            "SELECT role, content, thinking_text, thinking_steps, created_at "
+            "FROM chat_messages WHERE project_id = ? ORDER BY id",
+            (project_id,),
+        )
+        rows = await cursor.fetchall()
 
-
-def _save_chat_json(project_dir: str, messages: list[dict]) -> None:
-    """Atomically write messages to chat.json (write tmp + os.replace)."""
-    path = _chat_json_path(project_dir)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(messages, f, ensure_ascii=False)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp_path, str(path))
-    except BaseException:
-        # Clean up temp file on failure; don't lose existing data
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
-
-
-def _append_chat_message(project_dir: str, msg: dict) -> None:
-    messages = _load_chat_json(project_dir)
-    messages.append(msg)
-    _save_chat_json(project_dir, messages)
+    messages = []
+    for row in rows:
+        r = dict(row)
+        msg: dict = {"role": r["role"], "content": r["content"]}
+        if r["thinking_text"]:
+            msg["thinkingText"] = r["thinking_text"]
+        steps = json.loads(r["thinking_steps"]) if r["thinking_steps"] else []
+        if steps:
+            msg["thinkingSteps"] = steps
+        messages.append(msg)
+    return messages
 
 
 async def _stream_claude(
     project_name: str,
     project_dir: str,
+    project_id: int,
     session_id: str,
     is_new_session: bool,
     user_message: str,
 ):
     """Async generator that spawns claude CLI and yields SSE events."""
     # Persist user message
-    _append_chat_message(project_dir, {"role": "user", "content": user_message})
+    await _append_chat_message(project_id, {"role": "user", "content": user_message})
 
     # Send an initial keepalive immediately to establish the SSE stream.
     # This prevents proxies (e.g. Cloudflare's 100s initial-response timeout)
@@ -330,7 +330,7 @@ async def _stream_claude(
                 entry["thinkingText"] = assistant_thinking
             if assistant_tools:
                 entry["thinkingSteps"] = assistant_tools
-            _append_chat_message(project_dir, entry)
+            await _append_chat_message(project_id, entry)
         await sse_bus.publish(project_name, "ralphy_processing", {"status": "end"})
         # Final issue refresh so all clients pick up any task changes Ralphy made
         await sse_bus.publish(project_name, "issue_update", {})
@@ -387,6 +387,7 @@ async def chat(
         _stream_claude(
             project_name=name,
             project_dir=project_dir,
+            project_id=project["id"],
             session_id=session_id,
             is_new_session=is_new,
             user_message=user_message,
@@ -410,9 +411,6 @@ async def chat_processing(name: str, user: dict = Depends(get_current_user)):
 
 @router.get("/{name}/chat/history")
 async def get_chat_history(name: str, user: dict = Depends(get_current_user)):
-    await _get_project_for_user(user, name)
-    github_username: str = user["github_username"]
-    project_dir = str(DATA_DIR / github_username / name)
-
-    messages = _load_chat_json(project_dir)
+    project = await _get_project_for_user(user, name)
+    messages = await _load_chat_messages(project["id"])
     return {"messages": messages}
