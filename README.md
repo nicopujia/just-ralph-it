@@ -121,9 +121,21 @@ Each project can be deployed to `{name}.justralph.it`:
 
 ## Logs
 
+All application logs are written to the `logs/` directory (gitignored):
+
+```
+logs/
+  app.log                              # FastAPI/uvicorn app logs (rotating, 5 MB)
+  projects/<project-name>/ralph.log    # Ralph loop stdout per project
+  projects/<project-name>/ralphy.log   # Ralphy chat output per project
+```
+
+Console output is preserved for development. Directories are created automatically.
+
+Other log sources:
+
 | What | Where |
 |------|-------|
-| App logs (requests + errors) | `journalctl -u jri -f` |
-| Ralphy conversations | `~/.claude/projects/-home-nico-jri-data-<user>-<project>/<session-id>.jsonl` |
-| Ralph loop conversations | Same path, session ID from `ralph_loop.py` logs |
+| systemd service | `journalctl -u jri -f` |
+| Ralphy session files | `~/.claude/projects/-home-nico-jri-data-<user>-<project>/<session-id>.jsonl` |
 | nginx access/error | `/var/log/nginx/access.log`, `/var/log/nginx/error.log` |

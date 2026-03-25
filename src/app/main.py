@@ -7,8 +7,10 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import DATA_DIR
 from app.database import init_db
+from app.logging_config import setup_logging
 from app.routers import auth, pages, projects, chat, ralph, uploads, sse
 
+setup_logging()
 logger = logging.getLogger(__name__)
 
 

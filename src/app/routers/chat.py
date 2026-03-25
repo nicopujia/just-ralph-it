@@ -11,6 +11,7 @@ from starlette.responses import StreamingResponse
 from app.auth_utils import get_current_user
 from app.config import DATA_DIR
 from app.database import get_db
+from app.logging_config import get_project_log_dir
 from app.prompts.ralphy import RALPHY_SYSTEM_PROMPT
 from app.sse_bus import sse_bus
 
@@ -156,6 +157,9 @@ async def _stream_claude(
 
     await sse_bus.publish(project_name, "ralphy_processing", {"status": "start"})
 
+    log_path = get_project_log_dir(project_name) / "ralphy.log"
+    log_file = open(log_path, "a", encoding="utf-8")
+
     try:
         got_result = False
         max_attempts = 2
@@ -197,6 +201,8 @@ async def _stream_claude(
                     if content_block.get("type") == "tool_use":
                         event = {"type": "tool_use", "name": content_block["name"], "input": content_block.get("input", {})}
                         yield f"data: {json.dumps(event)}\n\n"
+                        log_file.write(f"[tool_use] {content_block['name']}\n")
+                        log_file.flush()
                         # Publish issue_update when Ralphy uses Bash (likely bd commands)
                         if content_block["name"] == "Bash":
                             await sse_bus.publish(project_name, "issue_update", {})
@@ -206,6 +212,8 @@ async def _stream_claude(
                     if delta.get("type") == "text_delta":
                         event = {"type": "text", "content": delta["text"]}
                         yield f"data: {json.dumps(event)}\n\n"
+                        log_file.write(delta["text"])
+                        log_file.flush()
                     elif delta.get("type") == "thinking_delta":
                         event = {"type": "thinking", "content": delta["thinking"]}
                         yield f"data: {json.dumps(event)}\n\n"
@@ -214,6 +222,8 @@ async def _stream_claude(
                     result_text = data.get("result", "")
                     event = {"type": "done", "result": result_text}
                     yield f"data: {json.dumps(event)}\n\n"
+                    log_file.write("\n--- Done ---\n")
+                    log_file.flush()
                     got_result = True
 
             await proc.wait()
@@ -241,6 +251,7 @@ async def _stream_claude(
         yield f"data: {json.dumps(event)}\n\n"
 
     finally:
+        log_file.close()
         _active_procs.pop(project_name, None)
         await sse_bus.publish(project_name, "ralphy_processing", {"status": "end"})
         # Final issue refresh so all clients pick up any bd changes Ralphy made

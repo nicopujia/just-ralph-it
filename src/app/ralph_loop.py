@@ -9,6 +9,7 @@ from typing import Optional
 
 from app import tasks
 from app.database import get_db
+from app.logging_config import get_project_log_dir
 from app.prompts.ralph import RALPH_SYSTEM_PROMPT
 from app.sse_bus import sse_bus
 
@@ -451,35 +452,46 @@ class RalphLoop:
     async def _stream_process_output(self) -> None:
         """Read lines from the subprocess stdout and fan out to subscribers."""
         assert self.process and self.process.stdout
-        while True:
-            line_bytes = await self.process.stdout.readline()
-            if not line_bytes:
-                break
-            raw = line_bytes.decode(errors="replace").strip()
-            if not raw:
-                continue
 
-            # Try to parse stream-json and extract readable content
-            display_line = self._parse_stream_line(raw)
-            if not display_line:
-                # Log unparsed non-empty lines for debugging
-                if raw and not raw.startswith("{"):
-                    logger.debug("Unparsed non-JSON line: %s", raw[:200])
-                continue
+        log_path = get_project_log_dir(self.project_name) / "ralph.log"
+        log_file = open(log_path, "a", encoding="utf-8")
 
-            self.stdout_lines.append(display_line)
+        try:
+            while True:
+                line_bytes = await self.process.stdout.readline()
+                if not line_bytes:
+                    break
+                raw = line_bytes.decode(errors="replace").strip()
+                if not raw:
+                    continue
 
-            # Publish to local subscribers
-            for q in self._subscribers.copy():
-                try:
-                    q.put_nowait(display_line)
-                except asyncio.QueueFull:
-                    pass
+                # Try to parse stream-json and extract readable content
+                display_line = self._parse_stream_line(raw)
+                if not display_line:
+                    # Log unparsed non-empty lines for debugging
+                    if raw and not raw.startswith("{"):
+                        logger.debug("Unparsed non-JSON line: %s", raw[:200])
+                    continue
 
-            # Publish to SSE bus
-            await sse_bus.publish(
-                self.project_name, "ralph_stdout", {"line": display_line},
-            )
+                self.stdout_lines.append(display_line)
+
+                # Write to ralph log file
+                log_file.write(display_line + "\n")
+                log_file.flush()
+
+                # Publish to local subscribers
+                for q in self._subscribers.copy():
+                    try:
+                        q.put_nowait(display_line)
+                    except asyncio.QueueFull:
+                        pass
+
+                # Publish to SSE bus
+                await sse_bus.publish(
+                    self.project_name, "ralph_stdout", {"line": display_line},
+                )
+        finally:
+            log_file.close()
 
 
     def _parse_stream_line(self, raw: str) -> str | None:
