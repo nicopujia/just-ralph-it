@@ -1,4 +1,4 @@
-# Just Ralph It
+# JRI — Just Ralph It
 
 The proper tool around the Ralph Wiggum technique. Read the [PRD](https://nicolaspujia.com/ralph).
 
