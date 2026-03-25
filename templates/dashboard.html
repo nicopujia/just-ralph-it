@@ -77,7 +77,7 @@
         display: flex;
         justify-content: space-between;
         align-items: center;
-        transition: background-color 0.2s, border-color 0.2s;
+        transition: background-color 0.15s ease-out, border-color 0.15s ease-out;
     }
     .project-card:hover {
         background: var(--hover-bg);
@@ -95,6 +95,9 @@
         font-size: 1.1rem;
     }
     .project-info a.project-name:hover {
+        color: var(--text-bright);
+    }
+    .project-card:hover .project-name {
         color: var(--text-bright);
     }
     .project-meta {
