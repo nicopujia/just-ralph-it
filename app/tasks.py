@@ -11,15 +11,25 @@ logger = logging.getLogger(__name__)
 STATUSES = ("todo", "doing", "done", "draft")
 
 
-def _yaml_dump(data: dict) -> str:
-    """Dump YAML using block scalars (|) for multiline strings."""
-    def str_representer(dumper, s):
-        style = "|" if "\n" in s else None
-        return dumper.represent_scalar("tag:yaml.org,2002:str", s, style=style)
+def _would_be_quoted(s: str) -> bool:
+    """Return True if pyyaml would quote this string in plain style."""
+    dumped = yaml.dump(s, default_flow_style=False, allow_unicode=True)
+    return dumped.startswith("'") or dumped.startswith('"')
 
-    dumper = yaml.Dumper
-    dumper.add_representer(str, str_representer)
-    return yaml.dump(data, Dumper=dumper, allow_unicode=True, sort_keys=False)
+
+def _yaml_dump(data: dict) -> str:
+    """Dump YAML using block scalars (|) for multiline strings and long strings that would be quoted."""
+
+    class _Dumper(yaml.Dumper):
+        pass
+
+    def str_representer(dumper, s):
+        if "\n" in s or (len(s) > 40 and _would_be_quoted(s)):
+            return dumper.represent_scalar("tag:yaml.org,2002:str", s, style="|")
+        return dumper.represent_scalar("tag:yaml.org,2002:str", s, style=None)
+
+    _Dumper.add_representer(str, str_representer)
+    return yaml.dump(data, Dumper=_Dumper, allow_unicode=True, sort_keys=False)
 
 
 def tasks_dir(project_dir: str) -> Path:

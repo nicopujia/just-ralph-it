@@ -1,8 +1,8 @@
 title: Ralph Loop
 priority: 0
 created: '2026-03-21'
-description: 'The automated Ralph builder loop: issue pickup, TDD execution, commit/push,
-  crash recovery, stop/resume controls.'
+description: |-
+  The automated Ralph builder loop: issue pickup, TDD execution, commit/push, crash recovery, stop/resume controls.
 acceptance_criteria:
 - Clicking JRI starts the Ralph loop. Ralph picks issues via bd ready -n 1 --json,
   claims them, reads AGENTS.md + issue details, writes tests first, implements, commits

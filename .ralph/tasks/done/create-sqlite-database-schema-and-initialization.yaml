@@ -56,8 +56,8 @@ description: |-
   ## Lifespan integration
   - In app/main.py, call `await init_db()` inside the lifespan startup.
 acceptance_criteria:
-- 'Running the app and then checking: `sqlite3 ~/jri/data/jri.db ''.tables''` shows
-  ''users projects notifications''.'
+- |-
+  Running the app and then checking: `sqlite3 ~/jri/data/jri.db '.tables'` shows 'users projects notifications'.
 - Running `sqlite3 ~/jri/data/jri.db '.schema users'` shows the exact columns and
   constraints listed above.
 - Running `sqlite3 ~/jri/data/jri.db '.schema projects'` shows the exact columns and

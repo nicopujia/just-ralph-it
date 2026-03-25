@@ -38,7 +38,7 @@ acceptance_criteria:
 - The page has a dark background (#0a0a0a) and light text (#e0e0e0).
 - The 'Sign in with GitHub' link points to /auth/login.
 - The page is centered vertically and horizontally.
-- 'The paragraph text is exactly: ''Tool to transform your software idea into a very
-  detailed plan and let an AI agent build it entirely.'''
+- |-
+  The paragraph text is exactly: 'Tool to transform your software idea into a very detailed plan and let an AI agent build it entirely.'
 - A base.html template exists and is extended by landing.html.
 - No external CSS frameworks or JavaScript libraries are loaded.

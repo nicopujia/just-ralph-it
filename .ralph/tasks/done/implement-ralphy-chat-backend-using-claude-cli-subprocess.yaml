@@ -85,8 +85,8 @@ description: |-
   - Actually: claude CLI does not have --system-prompt-file. So write the prompt to {project_dir}/.ralphy_system_prompt and use `--system-prompt "$(cat {project_dir}/.ralphy_system_prompt)"`. Wait — that's still shell. Instead, construct the subprocess args list in Python and pass the prompt as a string argument directly (no shell=True). This avoids all escaping issues.
   - Always use subprocess with shell=False (pass args as a list).
 acceptance_criteria:
-- 'POST /api/projects/{name}/chat with {"message": "Hello"} returns a streaming SSE
-  response (Content-Type: text/event-stream).'
+- |-
+  POST /api/projects/{name}/chat with {"message": "Hello"} returns a streaming SSE response (Content-Type: text/event-stream).
 - The SSE stream contains events with type='text' that include Ralphy's response text.
 - The SSE stream ends with a type='done' event.
 - A second POST to the same project continues the same claude session (conversation

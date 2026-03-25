@@ -161,7 +161,8 @@ acceptance_criteria:
   button, and Attach button.
 - Sending a message streams Ralphy's response in real-time (SSE), displayed in the
   chat area.
-- 'The right panel has 4 tabs: Issues, AGENTS.md, Ralph, Uploads.'
+- |-
+  The right panel has 4 tabs: Issues, AGENTS.md, Ralph, Uploads.
 - Issues tab shows issues grouped by epic with status dots, expandable details.
 - AGENTS.md tab renders the markdown content of the project's AGENTS.md.
 - Uploads tab lists files with upload, rename, delete, and drag-and-drop functionality.

@@ -44,14 +44,14 @@ description: |-
 
   All subprocess calls (git, bd) must be run with cwd set to the project directory. Use asyncio.create_subprocess_exec for async subprocess execution.
 acceptance_criteria:
-- 'POST /api/projects with {"name": "test-project", "description": "A test"} returns
-  200 with the project JSON including github_repo_url.'
-- 'The directory ~/jri/data/{username}/test-project/ exists and contains: .git/, .beads/,
-  AGENTS.md, uploads/.'
+- |-
+  POST /api/projects with {"name": "test-project", "description": "A test"} returns 200 with the project JSON including github_repo_url.
+- |-
+  The directory ~/jri/data/{username}/test-project/ exists and contains: .git/, .beads/, AGENTS.md, uploads/.
 - The GitHub repo https://github.com/ralphpujia/test-project exists and is public.
 - The user's GitHub account is listed as a collaborator on the repo.
-- '`git log` in the project directory shows the initial commit with the Co-authored-by
-  header.'
+- |-
+  `git log` in the project directory shows the initial commit with the Co-authored-by header.
 - bd list in the project directory works (beads is initialized).
 - POST /api/projects with the same name returns
 - 8. POST /api/projects with name '---invalid' returns
