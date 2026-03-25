@@ -16,7 +16,7 @@ from app.sse_bus import sse_bus
 
 router = APIRouter(prefix="/api/projects", tags=["chat"])
 
-ALLOWED_TOOLS = "Bash(bd:*) Bash(git:*) Read Glob Grep Write(CLAUDE.md) Edit(CLAUDE.md) WebSearch WebFetch"
+ALLOWED_TOOLS = "Bash(bd:*) Bash(git:*) Read Glob Grep Write(README.md) Edit(README.md) WebSearch WebFetch"
 MAX_MESSAGE_LENGTH = 50_000
 
 ALLOWED_MIME_TYPES = {

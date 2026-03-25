@@ -6,7 +6,7 @@ from typing import Any
 
 EVENT_TYPES = frozenset({
     "issue_update",
-    "claude_md_update",
+    "readme_update",
     "ralph_stdout",
     "ralph_status",
     "notification",

@@ -93,6 +93,15 @@ uv run pytest tests/e2e_test.py -v --timeout=120 # e2e tests
 uv run ruff check .                              # lint
 ```
 
+## Deployment
+
+Each project can be deployed to `{name}.justralph.it`:
+
+- A **systemd unit** (`jri-deploy-{name}.service`) is created per project, running the user-specified start command.
+- **Port allocation**: `9000 + project_id`. The app must listen on `127.0.0.1:$PORT`.
+- **Subdomain routing**: Cloudflare wildcards `*.justralph.it` to nginx, which sets the `X-Subdomain` header. FastAPI middleware reads the header and reverse-proxies the request to the project's port.
+- Deployment is triggered automatically when Ralph finishes all issues (if `deploy_type` is configured), or manually via the API.
+
 ## Data
 
 | What | Where |

@@ -29,7 +29,7 @@ def build_ralph_prompt(issue: dict, user_name: str, user_email: str) -> str:
     notes = issue.get("notes") or "N/A"
 
     return (
-        f"Read CLAUDE.md in the project root and any relevant subdirectories.\n"
+        f"Read README.md in the project root and any relevant subdirectories.\n"
         f"Then read this issue:\n"
         f"\n"
         f"Issue: {issue_id}\n"
@@ -332,15 +332,11 @@ class RalphLoop:
             deploy_start_command = row_dict.get("deploy_start_command")
             deploy_subdomain = row_dict.get("deploy_subdomain") or self.project_name.lower()
 
-            if deploy_type == "dynamic":
-                from app.deploy_manager import deploy_dynamic
-                await deploy_dynamic(
-                    self.project_name, self.project_dir,
-                    deploy_start_command or "", deploy_port or 9000,
-                )
-            elif deploy_type == "static":
-                from app.deploy_manager import deploy_static
-                await deploy_static(self.project_name, self.project_dir)
+            from app.deploy_manager import deploy_dynamic
+            await deploy_dynamic(
+                self.project_name, self.project_dir,
+                deploy_start_command or "", deploy_port or 9000,
+            )
 
             # Update deploy_status in DB
             async with get_db() as db:

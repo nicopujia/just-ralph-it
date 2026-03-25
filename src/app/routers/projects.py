@@ -173,9 +173,9 @@ async def create_project(
         logger.info(f"Creating project {name}: step 4 - init tasks")
         tasks.init_tasks(cwd)
 
-        # 5. Create CLAUDE.md
-        logger.info(f"Creating project {name}: step 5 - creating CLAUDE.md")
-        claude_md = (
+        # 5. Create README.md
+        logger.info(f"Creating project {name}: step 5 - creating README.md")
+        readme_md = (
             f"# {name}\n"
             f"\n"
             f"{description}\n"
@@ -184,7 +184,7 @@ async def create_project(
             f"- Repository: {github_repo_url}\n"
             f"- Created by: {github_username}"
         )
-        (project_dir / "CLAUDE.md").write_text(claude_md)
+        (project_dir / "README.md").write_text(readme_md)
 
         # 6. Create .ralph/uploads/ directory
         logger.info(f"Creating project {name}: step 6 - creating uploads directory")
@@ -361,8 +361,8 @@ async def list_projects(user: dict = Depends(get_current_user)):
     ]
 
 
-@router.get("/{name}/claude-md")
-async def get_claude_md(name: str, user: dict = Depends(get_current_user)):
+@router.get("/{name}/readme")
+async def get_readme(name: str, user: dict = Depends(get_current_user)):
     github_username: str = user["github_username"]
     user_id: int = user["id"]
 
@@ -375,12 +375,12 @@ async def get_claude_md(name: str, user: dict = Depends(get_current_user)):
         if not await cursor.fetchone():
             raise HTTPException(status_code=404, detail="Project not found")
 
-    claude_md_path = DATA_DIR / github_username / name / "CLAUDE.md"
+    readme_path = DATA_DIR / github_username / name / "README.md"
 
-    if not claude_md_path.exists():
+    if not readme_path.exists():
         return {"content": "", "exists": False}
 
-    content = claude_md_path.read_text()
+    content = readme_path.read_text()
     return {"content": content, "exists": True}
 
 
@@ -461,7 +461,6 @@ async def get_project(name: str, user: dict = Depends(get_current_user)):
 
 
 class DeployRequest(BaseModel):
-    type: str  # 'static' or 'dynamic'
     start_command: str | None = None
 
 
@@ -472,8 +471,6 @@ async def deploy_project(
     user: dict = Depends(get_current_user),
 ):
     """Configure deployment for a project."""
-    if body.type not in ("static", "dynamic"):
-        raise HTTPException(status_code=400, detail="type must be 'static' or 'dynamic'")
 
     user_id: int = user["id"]
 
@@ -492,9 +489,9 @@ async def deploy_project(
         deploy_subdomain = row_dict["deploy_subdomain"] or name.lower()
 
         await db.execute(
-            "UPDATE projects SET deploy_type = ?, deploy_start_command = ?, "
+            "UPDATE projects SET deploy_type = 'dynamic', deploy_start_command = ?, "
             "deploy_status = 'running', deploy_port = ?, deploy_subdomain = ? WHERE id = ?",
-            (body.type, body.start_command, deploy_port, deploy_subdomain, project_id),
+            (body.start_command, deploy_port, deploy_subdomain, project_id),
         )
         await db.commit()
 

@@ -1,13 +1,11 @@
-"""Systemd unit management for dynamic and static app deployment."""
+"""Systemd unit management for dynamic app deployment."""
 
 import asyncio
 import logging
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 UNIT_DIR = "/etc/systemd/system"
-SITES_DIR = "/var/www/jri-sites"
 SUBPROCESS_TIMEOUT = 15
 
 
@@ -94,43 +92,11 @@ async def deploy_dynamic(
     logger.info("Dynamic service %s started", service)
 
 
-async def deploy_static(project_name: str, project_dir: str) -> str:
-    """Detect a static output directory, symlink it under /var/www/jri-sites/."""
-    candidates = ["dist", "build", "public", "out", ".output/public"]
-    detected = project_dir
-
-    for candidate in candidates:
-        path = Path(project_dir) / candidate
-        if path.is_dir():
-            detected = str(path)
-            break
-
-    logger.info(
-        "Deploying static site %s: %s -> %s/%s",
-        project_name, detected, SITES_DIR, project_name,
-    )
-
-    await _run("sudo", "mkdir", "-p", SITES_DIR)
-    await _run(
-        "sudo", "ln", "-sf", detected, f"{SITES_DIR}/{project_name}"
-    )
-
-    logger.info("Static site %s linked", project_name)
-    return detected
-
-
-async def stop_deploy(project_name: str, deploy_type: str) -> None:
-    """Stop a dynamic service or remove a static site symlink."""
-    if deploy_type == "dynamic":
-        service = f"jri-deploy-{project_name}"
-        logger.info("Stopping dynamic service %s", service)
-        await _run("sudo", "systemctl", "stop", service)
-    elif deploy_type == "static":
-        link = f"{SITES_DIR}/{project_name}"
-        logger.info("Removing static site link %s", link)
-        await _run("sudo", "rm", "-f", link)
-    else:
-        raise ValueError(f"Unknown deploy_type: {deploy_type}")
+async def stop_deploy(project_name: str) -> None:
+    """Stop a dynamic deploy service."""
+    service = f"jri-deploy-{project_name}"
+    logger.info("Stopping dynamic service %s", service)
+    await _run("sudo", "systemctl", "stop", service)
 
 
 async def restart_deploy(project_name: str) -> None:
