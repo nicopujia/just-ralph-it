@@ -11,10 +11,8 @@ tasks/        — YAML task files organized by status
   doing/      — tasks in progress
   done/       — completed tasks
 uploads/      — user-uploaded reference files
-logs/         — application and agent output logs
+logs/         — application output logs
   app.log     — FastAPI/uvicorn app logs (rotating, 5 MB)
-  ralph.log   — Ralph (builder) output log
-  ralphy.log  — Ralphy (interviewer) output log
 ```
 
 Each task is a YAML file named by its slug (e.g. `implement-dashboard-page.yaml`).
