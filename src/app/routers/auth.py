@@ -134,14 +134,33 @@ ADMIN_USERNAME = "nicopujia"
 
 @router.get("/impersonate/{username}")
 async def impersonate(username: str, request: Request):
-    """Log in as another user. Restricted to admin."""
+    """Log in as another user. Restricted to admin.
+
+    The admin can always return to their own account because the session
+    stores who originally initiated the impersonation.
+    """
     try:
-        admin = await get_current_user(request)
+        current_user = await get_current_user(request)
     except Exception:
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
 
-    if admin["github_username"] != ADMIN_USERNAME:
+    is_admin = current_user["github_username"] == ADMIN_USERNAME
+    is_impersonating = current_user.get("impersonating_from") is not None
+
+    # Only allow if the real admin is logged in or currently impersonating
+    if not is_admin and not is_impersonating:
         return JSONResponse({"detail": "Forbidden"}, status_code=403)
+
+    # If currently impersonating, verify the original user is the admin
+    if is_impersonating:
+        async with get_db() as db:
+            cursor = await db.execute(
+                "SELECT github_username FROM users WHERE id = ?",
+                (current_user["impersonating_from"],),
+            )
+            orig = await cursor.fetchone()
+        if not orig or orig["github_username"] != ADMIN_USERNAME:
+            return JSONResponse({"detail": "Forbidden"}, status_code=403)
 
     async with get_db() as db:
         cursor = await db.execute(
@@ -152,7 +171,19 @@ async def impersonate(username: str, request: Request):
     if not row:
         return JSONResponse({"detail": "User not found"}, status_code=404)
 
-    session_token = create_session_token(row["id"])
+    target_id = row["id"]
+
+    # Determine the real admin user id for the impersonating_from field
+    admin_id = (
+        current_user["impersonating_from"] if is_impersonating else current_user["id"]
+    )
+
+    # If switching back to admin, clear the impersonating_from flag
+    if target_id == admin_id:
+        session_token = create_session_token(target_id)
+    else:
+        session_token = create_session_token(target_id, impersonating_from=admin_id)
+
     response = RedirectResponse(url="/projects", status_code=302)
     response.set_cookie(
         "session",
