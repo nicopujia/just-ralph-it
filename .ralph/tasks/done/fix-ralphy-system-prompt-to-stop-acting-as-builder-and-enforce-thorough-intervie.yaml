@@ -1,5 +1,4 @@
-title: |-
-  Fix Ralphy system prompt to stop acting as builder and enforce thorough interviewing
+title: Fix Ralphy system prompt to stop acting as builder and enforce thorough interviewing
 priority: 0
 assignee: Nicolás Pujia
 created: '2026-03-21'
@@ -24,11 +23,9 @@ description: |-
      - Phase 3 (Issue Creation): Only after thorough understanding, create issues incrementally
      - Phase 4 (Review & Finalize): Review all issues, resolve ambiguities, mark open
 acceptance_criteria:
-- |-
-  RALPHY_SYSTEM_PROMPT in app/prompts/ralphy.py contains explicit prohibition against creating any file except AGENTS.md
+- RALPHY_SYSTEM_PROMPT in app/prompts/ralphy.py contains explicit prohibition against
+  creating any file except AGENTS.md
 - ALLOWED_TOOLS in app/routers/chat.py restricts Write and Edit to AGENTS.md only
-- |-
-  Prompt explicitly requires spreading questions across multiple exchanges (not batching)
+- Prompt explicitly requires spreading questions across multiple exchanges (not batching)
 - Prompt contains firm refusal language for build requests
-- |-
-  Workflow section restructured into 4 phases with minimum question counts per phase
+- Workflow section restructured into 4 phases with minimum question counts per phase

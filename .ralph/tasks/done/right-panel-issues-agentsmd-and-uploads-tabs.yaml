@@ -1,8 +1,10 @@
 title: 'Right Panel: Issues, AGENTS.md, and Uploads Tabs'
 priority: 0
 created: '2026-03-21'
-description: |-
-  The right-side panel with tabs for live issue view, AGENTS.md rendering, and file uploads management.
+description: The right-side panel with tabs for live issue view, AGENTS.md rendering,
+  and file uploads management.
 acceptance_criteria:
-- |-
-  Right panel shows 4 tabs. Issues tab: read-only, grouped by epic, expandable, polls bd list --json. AGENTS.md tab: rendered markdown, auto-refreshes. Uploads tab: file manager for <project>/uploads/ (list, upload any file, delete, rename, name-collision handling with suffix). Ralph tab appears after JRI is clicked.
+- 'Right panel shows 4 tabs. Issues tab: read-only, grouped by epic, expandable, polls
+  bd list --json. AGENTS.md tab: rendered markdown, auto-refreshes. Uploads tab: file
+  manager for <project>/uploads/ (list, upload any file, delete, rename, name-collision
+  handling with suffix). Ralph tab appears after JRI is clicked.'

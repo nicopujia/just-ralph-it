@@ -42,13 +42,13 @@ description: |-
   - stripe.api_key = STRIPE_SECRET_KEY (set in config.py)
   - Note: STRIPE_SECRET_KEY in jri.env currently has a pk_test_ prefix which is wrong. The code should use it as-is but log a warning if it starts with 'pk_' since that's the publishable key, not the secret key.
 acceptance_criteria:
-- |-
-  POST /api/projects/{name}/ralph/checkout for the first project (free tier) returns {"free": true} and starts Ralph directly.
-- |-
-  POST /api/projects/{name}/ralph/checkout for subsequent projects returns a Stripe checkout URL.
-- |-
-  After successful Stripe payment, GET /api/projects/{name}/ralph/payment-callback with valid session_id starts the Ralph loop and stores stripe_payment_id.
+- 'POST /api/projects/{name}/ralph/checkout for the first project (free tier) returns
+  {"free": true} and starts Ralph directly.'
+- POST /api/projects/{name}/ralph/checkout for subsequent projects returns a Stripe
+  checkout URL.
+- After successful Stripe payment, GET /api/projects/{name}/ralph/payment-callback
+  with valid session_id starts the Ralph loop and stores stripe_payment_id.
 - GET payment-callback with an unpaid session returns
-- |-
-  5. The Stripe checkout session has the correct amount ($20), product name, and redirect URLs.
+- 5. The Stripe checkout session has the correct amount ($20), product name, and redirect
+  URLs.
 - A warning is logged if STRIPE_SECRET_KEY starts with 'pk_'.

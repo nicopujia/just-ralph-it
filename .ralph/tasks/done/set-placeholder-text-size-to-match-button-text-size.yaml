@@ -13,6 +13,6 @@ description: |-
 
   This matches the button font-size exactly.
 acceptance_criteria:
-- |-
-  The placeholder text in the chat textarea is the same font-size (0.85rem) as the Attach and Send button text
+- The placeholder text in the chat textarea is the same font-size (0.85rem) as the
+  Attach and Send button text
 - No other font sizes are affected

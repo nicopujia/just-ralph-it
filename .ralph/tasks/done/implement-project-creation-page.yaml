@@ -35,13 +35,12 @@ description: |-
   - Input and textarea: full width, dark theme (dark bg, light border, light text).
   - Error messages in red.
 acceptance_criteria:
-- |-
-  GET /new when logged in renders the form with name input, description textarea, and submit button.
+- GET /new when logged in renders the form with name input, description textarea,
+  and submit button.
 - GET /new when not logged in redirects to /.
-- |-
-  Submitting valid name and description creates the project and redirects to /project/{name}.
-- |-
-  Submitting an invalid name (e.g., '---') shows an inline validation error without calling the API.
+- Submitting valid name and description creates the project and redirects to /project/{name}.
+- Submitting an invalid name (e.g., '---') shows an inline validation error without
+  calling the API.
 - Submitting a duplicate name shows the 409 error message from the API.
 - The submit button shows 'Creating...' and is disabled during the API call.
 - The description textarea placeholder is 'What do you want to build?'.

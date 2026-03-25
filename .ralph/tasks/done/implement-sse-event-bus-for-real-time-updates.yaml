@@ -45,14 +45,12 @@ description: "Create a centralized SSE event bus in app/sse_bus.py that the fron
   \ changed."
 acceptance_criteria:
 - GET /api/projects/{name}/events returns a text/event-stream response.
-- |-
-  When Ralph publishes a stdout line, connected SSE clients receive it as a ralph_stdout event.
-- |-
-  When an issue status changes, connected SSE clients receive an issue_update event.
+- When Ralph publishes a stdout line, connected SSE clients receive it as a ralph_stdout
+  event.
+- When an issue status changes, connected SSE clients receive an issue_update event.
 - When AGENTS.md changes, connected SSE clients receive an agents_md_update event.
 - SSE connection sends keepalive comments every 30 seconds to prevent timeout.
-- |-
-  Multiple SSE clients can connect to the same project and all receive the same events.
+- Multiple SSE clients can connect to the same project and all receive the same events.
 - Disconnecting a client cleans up the subscription (no memory leak).
 - The background poller runs every 3 seconds for projects with active Ralph loops.
 - The SSE bus is a singleton — all parts of the app publish to the same instance.

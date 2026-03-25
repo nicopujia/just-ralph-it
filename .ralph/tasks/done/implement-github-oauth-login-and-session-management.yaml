@@ -29,15 +29,15 @@ description: "Implement GitHub OAuth in app/routers/auth.py and session middlewa
   \ httpx.AsyncClient for all HTTP calls to GitHub. Create a shared instance in config.py\
   \ or use a lifespan-managed client."
 acceptance_criteria:
-- |-
-  Visiting /auth/login in a browser redirects to GitHub's OAuth page with the correct client_id and callback URL.
-- |-
-  After authorizing on GitHub, the browser is redirected to /auth/callback, which sets a `session` cookie and redirects to /dashboard.
+- Visiting /auth/login in a browser redirects to GitHub's OAuth page with the correct
+  client_id and callback URL.
+- After authorizing on GitHub, the browser is redirected to /auth/callback, which
+  sets a `session` cookie and redirects to /dashboard.
 - GET /auth/me returns JSON with the user's GitHub username and avatar URL.
 - GET /auth/me without a session cookie returns
 - 5. GET /auth/logout deletes the session cookie and redirects to /.
-- |-
-  The user's GitHub token, username, name, email, and avatar URL are stored in the SQLite users table.
-- |-
-  Logging in a second time updates the existing user row (upsert), not creating a duplicate.
+- The user's GitHub token, username, name, email, and avatar URL are stored in the
+  SQLite users table.
+- Logging in a second time updates the existing user row (upsert), not creating a
+  duplicate.
 - The session cookie is signed — tampering with it causes a 401 on /auth/me.

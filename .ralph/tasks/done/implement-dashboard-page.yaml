@@ -40,14 +40,14 @@ description: |-
   ### JavaScript
   Vanilla JS only. On load: fetch GET /api/projects and render. Delete handler as described.
 acceptance_criteria:
-- |-
-  GET /dashboard when logged in renders the page with header showing user's avatar and username.
+- GET /dashboard when logged in renders the page with header showing user's avatar
+  and username.
 - GET /dashboard when not logged in redirects to /.
 - The page fetches and displays projects with name, issue count, and GitHub link.
 - Each project name links to /project/{name}.
 - The 'New Project' button links to /new.
-- |-
-  Clicking delete shows confirm dialog and on confirm calls DELETE API and removes card.
+- Clicking delete shows confirm dialog and on confirm calls DELETE API and removes
+  card.
 - When no projects, 'No projects yet.' is displayed.
 - Logout link works and redirects to landing page.
 - No external JavaScript frameworks — vanilla JS only.

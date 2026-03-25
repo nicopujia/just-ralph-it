@@ -1,5 +1,5 @@
-title: |-
-  Fix chat input focus: only textarea should highlight on focus, not the whole input area
+title: 'Fix chat input focus: only textarea should highlight on focus, not the whole
+  input area'
 priority: 1
 assignee: Nicolás Pujia
 created: '2026-03-21'
@@ -28,10 +28,9 @@ description: |-
      - But when user is NOT typing (empty textarea), let Tab move focus naturally
      - The key fix is the CSS: remove :focus-within from the container
 acceptance_criteria:
-- |-
-  When user clicks into the textarea, ONLY the textarea area shows a visual focus indicator (subtle background change), NOT the entire input bar
-- |-
-  The Attach and Send buttons do NOT appear highlighted when the textarea is focused
+- When user clicks into the textarea, ONLY the textarea area shows a visual focus
+  indicator (subtle background change), NOT the entire input bar
+- The Attach and Send buttons do NOT appear highlighted when the textarea is focused
 - Tab+Enter still sends messages as before
-- |-
-  The overall input area container keeps its static border (no :focus-within color change)
+- The overall input area container keeps its static border (no :focus-within color
+  change)

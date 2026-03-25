@@ -28,10 +28,10 @@ description: |-
     - Content-Type: application/json (message only, no attachments)
     - Content-Type: multipart/form-data (message + optional attachments)
 acceptance_criteria:
-- |-
-  POST with multipart/form-data containing a message and a PNG image returns a streaming response where Ralphy acknowledges the image content.
-- |-
-  POST with a PDF attachment works similarly — Ralphy can read and reference the PDF content.
+- POST with multipart/form-data containing a message and a PNG image returns a streaming
+  response where Ralphy acknowledges the image content.
+- POST with a PDF attachment works similarly — Ralphy can read and reference the PDF
+  content.
 - POST with a 4MB file returns 400 with message about size limit.
 - POST with a .zip file returns 400 with message about allowed types.
 - POST with JSON body (no attachments) still works as before.

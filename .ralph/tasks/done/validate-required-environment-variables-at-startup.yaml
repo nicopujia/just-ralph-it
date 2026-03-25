@@ -26,8 +26,8 @@ description: |-
 
   DO NOT add RALPH_BOT_GITHUB_TOKEN to required vars since it's loaded dynamically from gh auth token.
 acceptance_criteria:
-- |-
-  App fails to start with clear error message if GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, or SECRET_KEY are missing
+- App fails to start with clear error message if GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET,
+  or SECRET_KEY are missing
 - App starts with warning if STRIPE_SECRET_KEY is missing
 - Error message lists all missing vars, not just the first one
 - Existing .env setup continues to work
