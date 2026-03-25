@@ -190,7 +190,7 @@ async def create_project(
             "## Structure\n"
             "\n"
             "```\n"
-            "tasks/      — YAML task files organized by status\n"
+            "tasks/      — Markdown task files with YAML frontmatter, organized by status\n"
             "  draft/    — tasks being defined\n"
             "  todo/     — tasks ready to start\n"
             "  doing/    — tasks in progress\n"
@@ -201,7 +201,7 @@ async def create_project(
             "  ralphy.log  — Ralphy (interviewer) output log\n"
             "```\n"
             "\n"
-            "Each task is a YAML file named by its slug (e.g. `implement-dashboard-page.yaml`).\n"
+            "Each task is a Markdown file with YAML frontmatter, named by its slug (e.g. `implement-dashboard-page.md`).\n"
             "Status is determined by which subdirectory the file lives in.\n"
         )
         (project_dir / ".jri" / "README.md").write_text(jri_readme)

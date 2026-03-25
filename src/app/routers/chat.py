@@ -336,6 +336,15 @@ def _extract_text_content(content) -> str:
     return ""
 
 
+@router.get("/{name}/chat/processing")
+async def chat_processing(name: str, user: dict = Depends(get_current_user)):
+    """Check if Ralphy is currently processing for this project."""
+    await _get_project_for_user(user, name)
+    proc = _active_procs.get(name)
+    is_processing = proc is not None and proc.returncode is None
+    return {"processing": is_processing}
+
+
 @router.get("/{name}/chat/history")
 async def get_chat_history(name: str, user: dict = Depends(get_current_user)):
     project = await _get_project_for_user(user, name)

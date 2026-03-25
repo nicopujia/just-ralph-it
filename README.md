@@ -57,7 +57,7 @@ The SQLite database (`./data/jri.db`) is created automatically on first run.
 
 ## Ralph Task System
 
-Internal tasks live in `.jri/tasks/` as YAML files, organized by lifecycle stage:
+Internal tasks live in `.jri/tasks/` as Markdown files with YAML frontmatter, organized by lifecycle stage:
 
 ```
 .jri/tasks/
@@ -67,7 +67,7 @@ Internal tasks live in `.jri/tasks/` as YAML files, organized by lifecycle stage
   done/      # completed
 ```
 
-Each YAML file has a `title`, `priority`, `assignee`, `depends_on`, `created`, and `acceptance_criteria`. Tasks are moved between directories as they progress.
+Each task file has YAML frontmatter with `title`, `priority`, `assignee`, `depends_on`, `acceptance_criteria`, etc. The markdown body is the description. Tasks are moved between directories as they progress.
 
 ## Session & Auth
 

@@ -54,7 +54,7 @@ def build_ralph_prompt(issue: dict, user_name: str, user_email: str) -> str:
         f"Solve this issue completely. Follow TDD: write tests from acceptance criteria first, then implement.\n"
         f'When done: git add -A && git commit -m "<msg>" '
         f'--trailer "Co-authored-by: {user_name} <{user_email}>"\n'
-        f"Then: mv .jri/tasks/doing/{issue_id}.yaml .jri/tasks/done/"
+        f"Then: mv .jri/tasks/doing/{issue_id}.md .jri/tasks/done/"
     )
 
 

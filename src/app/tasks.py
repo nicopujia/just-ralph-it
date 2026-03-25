@@ -1,4 +1,4 @@
-"""YAML-based task tracking."""
+"""Markdown+YAML frontmatter task tracking."""
 
 import logging
 import shutil
@@ -10,9 +10,21 @@ logger = logging.getLogger(__name__)
 
 STATUSES = ("todo", "doing", "done", "draft")
 
+# Fields stored in YAML frontmatter (description lives in the markdown body).
+_FRONTMATTER_FIELDS = (
+    "title", "priority", "acceptance_criteria", "depends_on",
+    "parent", "assignee", "blocked_reason",
+)
 
-def _yaml_dump(data: dict) -> str:
-    """Dump YAML using block scalars (|) for multiline strings only."""
+
+def _compose_task(data: dict) -> str:
+    """Compose a markdown file with YAML frontmatter from *data*.
+
+    The ``description`` key (if present) becomes the markdown body;
+    everything else goes into the YAML frontmatter.
+    """
+    frontmatter = {k: v for k, v in data.items() if k != "description"}
+    description = data.get("description", "")
 
     class _Dumper(yaml.Dumper):
         pass
@@ -22,7 +34,31 @@ def _yaml_dump(data: dict) -> str:
         return dumper.represent_scalar("tag:yaml.org,2002:str", s, style=style)
 
     _Dumper.add_representer(str, str_representer)
-    return yaml.dump(data, Dumper=_Dumper, allow_unicode=True, sort_keys=False)
+    yml = yaml.dump(frontmatter, Dumper=_Dumper, allow_unicode=True, sort_keys=False)
+
+    body = description.strip() if description else ""
+    if body:
+        return f"---\n{yml}---\n\n{body}\n"
+    return f"---\n{yml}---\n"
+
+
+def _parse_frontmatter(text: str) -> tuple[dict, str]:
+    """Split a markdown file into (frontmatter dict, body string)."""
+    text = text.strip()
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        # parts[0] is empty (before first ---), parts[1] is YAML, parts[2] is body
+        if len(parts) >= 3:
+            fm = yaml.safe_load(parts[1]) or {}
+            body = parts[2].strip()
+            return fm, body
+        if len(parts) == 2:
+            fm = yaml.safe_load(parts[1]) or {}
+            return fm, ""
+    # Fallback: treat entire file as YAML (legacy)
+    fm = yaml.safe_load(text) or {}
+    desc = fm.pop("description", "")
+    return fm, desc
 
 
 def tasks_dir(project_dir: str) -> Path:
@@ -40,7 +76,10 @@ def init_tasks(project_dir: str) -> None:
 
 
 def _parse_task(path: Path) -> dict:
-    data = yaml.safe_load(path.read_text()) or {}
+    fm, body = _parse_frontmatter(path.read_text())
+    data = fm
+    if body:
+        data["description"] = body
     if not data.get("title"):
         logger.warning("Task %s missing title", path.name)
     data["id"] = path.stem
@@ -58,9 +97,13 @@ def _parse_task(path: Path) -> dict:
 def _find_task_path(project_dir: str, slug: str) -> Path | None:
     base = tasks_dir(project_dir)
     for status in STATUSES:
-        path = base / status / f"{slug}.yaml"
+        path = base / status / f"{slug}.md"
         if path.exists():
             return path
+        # Backwards compat: check for legacy .yaml
+        legacy = base / status / f"{slug}.yaml"
+        if legacy.exists():
+            return legacy
     return None
 
 
@@ -71,6 +114,12 @@ def list_all(project_dir: str) -> list[dict]:
         status_dir = base / status
         if not status_dir.exists():
             continue
+        for path in sorted(status_dir.glob("*.md")):
+            try:
+                results.append(_parse_task(path))
+            except Exception:
+                logger.exception("Failed to parse task %s", path)
+        # Also pick up legacy .yaml files not yet migrated
         for path in sorted(status_dir.glob("*.yaml")):
             try:
                 results.append(_parse_task(path))
@@ -114,17 +163,20 @@ def update_field(project_dir: str, slug: str, **fields) -> None:
     path = _find_task_path(project_dir, slug)
     if path is None:
         raise FileNotFoundError(f"Task not found: {slug}")
-    data = yaml.safe_load(path.read_text()) or {}
-    data.update(fields)
-    path.write_text(_yaml_dump(data))
+    fm, body = _parse_frontmatter(path.read_text())
+    fm.update(fields)
+    # If description was passed, move it to the body
+    desc = fm.pop("description", body)
+    fm["description"] = desc
+    path.write_text(_compose_task(fm))
 
 
 def create_task(project_dir: str, slug: str, data: dict) -> None:
-    dest = tasks_dir(project_dir) / "todo" / f"{slug}.yaml"
+    dest = tasks_dir(project_dir) / "todo" / f"{slug}.md"
     if dest.exists():
         raise FileExistsError(f"Task already exists: {slug}")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(_yaml_dump(data))
+    dest.write_text(_compose_task(data))
 
 
 def task_count(project_dir: str) -> int:
@@ -133,5 +185,6 @@ def task_count(project_dir: str) -> int:
     for status in STATUSES:
         status_dir = base / status
         if status_dir.exists():
-            count += len(list(status_dir.glob("*.yaml")))
+            count += len(list(status_dir.glob("*.md")))
+            count += len(list(status_dir.glob("*.yaml")))  # legacy
     return count

@@ -30,8 +30,8 @@ Rules:
     - Skip this step for non-web projects (no Deployment section).
 
 ## Task management
-Tasks are YAML files in .jri/tasks/{status}/{slug}.yaml where status is todo, doing, done, or draft.
-- Close task: mv .jri/tasks/doing/{slug}.yaml .jri/tasks/done/
-- Create blocking task: write a new .yaml file to .jri/tasks/todo/ with depends_on listing the current task slug
-- Need human help: write a new .yaml file to .jri/tasks/todo/ with assignee: human\
+Tasks are Markdown files with YAML frontmatter in .jri/tasks/{status}/{slug}.md where status is todo, doing, done, or draft.
+- Close task: mv .jri/tasks/doing/{slug}.md .jri/tasks/done/
+- Create blocking task: write a new .md file to .jri/tasks/todo/ with YAML frontmatter containing depends_on listing the current task slug
+- Need human help: write a new .md file to .jri/tasks/todo/ with YAML frontmatter containing assignee: human\
 """
