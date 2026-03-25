@@ -11,17 +11,18 @@ User <-> nginx (port 80) <-> uvicorn/FastAPI (port 8000)
                     |             |              |
                  SQLite       Ralphy          Ralph
                 (jri.db)   (interviewer)    (builder)
-                    |         Claude CLI     Claude CLI
-                    |             |              |
-                    +-------> Beads (bd) <------+
-                              Dolt server
+                             Claude CLI     Claude CLI
 ```
 
-- **FastAPI** app with Jinja2 templates, SSE for real-time streaming
-- **SQLite** for app metadata (users, projects, sessions)
-- **Beads (`bd`)** for issue tracking, backed by a shared Dolt SQL server
-- **Ralphy**: interviews users, creates detailed issues (Claude Opus via CLI)
+### AI Agents
+
+- **Ralphy**: interviews users to understand their project, creates detailed issues (Claude Opus via CLI)
 - **Ralph**: picks up open issues one by one, implements via TDD (Claude Opus via CLI)
+
+### Tech Stack
+
+- **FastAPI** with Jinja2 templates, SSE for real-time streaming
+- **SQLite** for app metadata (users, projects, sessions)
 - **GitHub**: OAuth login + `ralphpujia` bot account creates repos per project
 - **Stripe**: per-project payments
 - **nginx + Cloudflare**: reverse proxy, SSL, subdomain routing for deployed projects
@@ -37,7 +38,6 @@ uv sync
 
 # 3. External tools (must be on PATH)
 #    - claude (Anthropic CLI)
-#    - bd (beads issue tracker)
 #    - gh (GitHub CLI, authenticated as the bot account)
 
 # 4. Configure environment
@@ -55,8 +55,6 @@ uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 |------|-------|
 | App database (users, projects) | `./data/jri.db` (SQLite) |
 | Project repos + uploads | `./data/<github-username>/<project-name>/` |
-| Beads issues (per project) | `./data/<user>/<project>/.beads/` |
-| Shared Dolt server | `~/.beads/shared-server/` |
 | Ralphy session files | `~/.claude/projects/-home-nico-jri-data-<user>-<project>/` |
 | Auth credentials | `./.env`, `~/.config/gh/hosts.yml`, `~/.claude/.credentials.json` |
 | Waitlist (maintenance mode) | `./data/waitlist.txt` |
