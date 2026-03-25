@@ -261,17 +261,11 @@ async def ralph_status(name: str, user: dict = Depends(get_current_user)):
                 )
                 await db.commit()
 
-        github_username = user["github_username"]
-        stdout_path = DATA_DIR / github_username / name / ".ralph_stdout"
-        recent = []
-        if stdout_path.exists():
-            lines = stdout_path.read_text().splitlines()
-            recent = lines[-50:]
         return {
             "status": db_status,
             "current_issue": project.get("ralph_loop_current_issue"),
             "iteration": project.get("ralph_loop_iteration", 0),
-            "recent_output": recent,
+            "recent_output": [],
         }
 
     recent = list(loop.stdout_lines)[-50:]

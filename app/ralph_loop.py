@@ -485,7 +485,6 @@ class RalphLoop:
                 self.project_name, "ralph_stdout", {"line": display_line},
             )
 
-        self._save_stdout()
 
     def _parse_stream_line(self, raw: str) -> str | None:
         """Parse a stream-json line and return a human-readable string, or None to skip."""
@@ -537,11 +536,6 @@ class RalphLoop:
             return None  # Skip system init messages
 
         return None  # Skip unknown types
-
-    def _save_stdout(self) -> None:
-        """Persist stdout to disk for recovery."""
-        stdout_path = Path(self.project_dir) / ".ralph_stdout"
-        stdout_path.write_text("\n".join(self.stdout_lines))
 
     def _save_state(self) -> None:
         """Persist loop state to .ralph_state in the project directory."""

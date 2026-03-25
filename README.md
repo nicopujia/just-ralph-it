@@ -72,7 +72,7 @@ Each YAML file has a `title`, `priority`, `assignee`, `depends_on`, `created`, a
 
 Real-time updates via `app/sse_bus.py`, keyed by project name:
 
-`issue_update`, `claude_md_update`, `ralph_stdout`, `ralph_status`, `notification`, `ralphy_processing`
+`issue_update`, `claude_md_update`, `ralph_stdout` (live-streamed, not persisted to disk), `ralph_status`, `notification`, `ralphy_processing`
 
 ## Upload Constraints
 
