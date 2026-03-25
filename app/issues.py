@@ -1,4 +1,4 @@
-"""YAML-based issue tracking — replaces beads (bd CLI + Dolt)."""
+"""YAML-based issue tracking."""
 
 import logging
 import shutil
@@ -9,7 +9,17 @@ import yaml
 logger = logging.getLogger(__name__)
 
 STATUSES = ("open", "closed", "deferred")
-REQUIRED_FIELDS = {"title", "type"}
+
+
+def _yaml_dump(data: dict) -> str:
+    """Dump YAML using block scalars (|) for multiline strings."""
+    def str_representer(dumper, s):
+        style = "|" if "\n" in s else None
+        return dumper.represent_scalar("tag:yaml.org,2002:str", s, style=style)
+
+    dumper = yaml.Dumper
+    dumper.add_representer(str, str_representer)
+    return yaml.dump(data, Dumper=dumper, allow_unicode=True, sort_keys=False)
 
 
 def issues_dir(project_dir: str) -> Path:
@@ -24,12 +34,11 @@ def init_issues(project_dir: str) -> None:
 
 def _parse_issue(path: Path) -> dict:
     data = yaml.safe_load(path.read_text()) or {}
-    missing = REQUIRED_FIELDS - data.keys()
-    if missing:
-        logger.warning("Issue %s missing fields: %s", path.name, missing)
-    data["id"] = path.stem  # slug from filename
-    data["status"] = path.parent.name  # dir name = status
-    # Ensure defaults
+    if not data.get("title"):
+        logger.warning("Issue %s missing title", path.name)
+    data["id"] = path.stem
+    data["status"] = path.parent.name
+    data.pop("type", None)  # type field dropped
     data.setdefault("priority", 4)
     data.setdefault("depends_on", [])
     # Ensure acceptance_criteria is always a list
@@ -73,11 +82,9 @@ def get_issue(project_dir: str, slug: str) -> dict | None:
 def get_ready(project_dir: str) -> list[dict]:
     all_issues = list_all(project_dir)
     closed_slugs = {i["id"] for i in all_issues if i["status"] == "closed"}
-
     ready = [
         i for i in all_issues
         if i["status"] == "open"
-        and i.get("type") != "epic"
         and all(dep in closed_slugs for dep in i.get("depends_on", []))
     ]
     ready.sort(key=lambda i: i.get("priority", 4))
@@ -91,7 +98,7 @@ def set_status(project_dir: str, slug: str, new_status: str) -> None:
     if path is None:
         raise FileNotFoundError(f"Issue not found: {slug}")
     if path.parent.name == new_status:
-        return  # already in target status
+        return
     dest = issues_dir(project_dir) / new_status / path.name
     shutil.move(str(path), str(dest))
 
@@ -102,7 +109,7 @@ def update_field(project_dir: str, slug: str, **fields) -> None:
         raise FileNotFoundError(f"Issue not found: {slug}")
     data = yaml.safe_load(path.read_text()) or {}
     data.update(fields)
-    path.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False))
+    path.write_text(_yaml_dump(data))
 
 
 def create_issue(project_dir: str, slug: str, data: dict) -> None:
@@ -110,7 +117,7 @@ def create_issue(project_dir: str, slug: str, data: dict) -> None:
     if dest.exists():
         raise FileExistsError(f"Issue already exists: {slug}")
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(yaml.dump(data, allow_unicode=True, sort_keys=False))
+    dest.write_text(_yaml_dump(data))
 
 
 def issue_count(project_dir: str) -> int:

@@ -1,8 +1,6 @@
 title: Implement GitHub OAuth login and session management
-type: task
 priority: 0
 assignee: ralph
-parent: authentication-user-management
 depends_on:
 - create-sqlite-database-schema-and-initialization
 created: '2026-03-21'

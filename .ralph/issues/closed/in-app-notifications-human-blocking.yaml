@@ -1,5 +1,4 @@
 title: In-App Notifications & Human Blocking
-type: epic
 priority: 1
 created: '2026-03-21'
 description: When Ralph is blocked (needs human identity, API keys, etc.), it creates

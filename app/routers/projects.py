@@ -80,41 +80,9 @@ async def list_issues(
     name: str,
     user: dict = Depends(get_current_user),
 ):
-    """List all issues in a project, grouped by parent epic."""
+    """List all issues in a project."""
     cwd = await _get_project_dir(name, user)
-    all_issues = issues.list_all(cwd)
-
-    if not all_issues:
-        return {"epics": [], "ungrouped": []}
-
-    epics_map: dict[str, dict] = {}
-    ungrouped: list[dict] = []
-
-    # First pass: identify epics
-    for issue in all_issues:
-        if issue.get("type") == "epic":
-            epics_map[issue["id"]] = {
-                "id": issue["id"],
-                "title": issue.get("title", ""),
-                "status": issue.get("status", ""),
-                "children": [],
-            }
-
-    # Second pass: assign children to epics
-    for issue in all_issues:
-        iid = issue["id"]
-        if iid in epics_map:
-            continue
-        parent = issue.get("parent", "")
-        if parent and parent in epics_map:
-            epics_map[parent]["children"].append(issue)
-        else:
-            ungrouped.append(issue)
-
-    return {
-        "epics": list(epics_map.values()),
-        "ungrouped": ungrouped,
-    }
+    return issues.list_all(cwd)
 
 
 @router.get("/{name}/issues/{issue_id}")

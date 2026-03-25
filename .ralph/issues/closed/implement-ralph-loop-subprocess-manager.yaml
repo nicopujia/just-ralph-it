@@ -1,8 +1,6 @@
 title: Implement Ralph loop subprocess manager
-type: task
 priority: 0
 assignee: ralph
-parent: ralph-loop
 depends_on:
 - implement-ralphy-chat-backend-using-claude-cli-subprocess
 created: '2026-03-21'

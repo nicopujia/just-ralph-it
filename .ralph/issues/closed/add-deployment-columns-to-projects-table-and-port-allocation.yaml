@@ -1,30 +1,40 @@
 title: Add deployment columns to projects table and port allocation
-type: task
 priority: 0
 assignee: Nicolás Pujia
-parent: subdomain-deployment-for-user-projects
 created: '2026-03-21'
-description: "Add columns to the projects table for deployment state and allocate\
-  \ ports for dynamic apps.\n\nWHAT TO CHANGE:\n\n1. In app/database.py, add columns\
-  \ to the projects CREATE TABLE:\n   - deploy_type TEXT DEFAULT NULL  -- 'static'\
-  \ or 'dynamic' or NULL (not deployed)\n   - deploy_port INTEGER DEFAULT NULL  --\
-  \ allocated port for dynamic apps (9000 + project id)\n   - deploy_status TEXT DEFAULT\
-  \ 'idle'  -- 'idle', 'running', 'stopped', 'failed'\n   - deploy_start_command TEXT\
-  \ DEFAULT NULL  -- command to start the app (e.g., 'npm start', 'python app.py')\n\
-  \   - deploy_subdomain TEXT DEFAULT NULL  -- the subdomain name (defaults to project\
-  \ name)\n\n   Use ALTER TABLE IF NOT EXISTS pattern since the DB may already exist.\
-  \ Add migration logic in init_db() that checks if columns exist and adds them if\
-  \ not.\n\n2. In app/routers/projects.py, when creating a project:\n   - Set deploy_subdomain\
-  \ = project name (sanitized, lowercase)\n   - Set deploy_port = 9000 + project_id\
-  \ (after INSERT, use lastrowid)\n   - Update the row with the allocated port\n\n\
-  3. In app/routers/projects.py GET /api/projects/{name}:\n   - Include deploy_type,\
-  \ deploy_port, deploy_status, deploy_subdomain in the response\n\n4. Add a new endpoint\
-  \ POST /api/projects/{name}/deploy:\n   - Accepts JSON: { type: 'static' | 'dynamic',\
-  \ start_command?: string }\n   - Updates deploy_type and optionally deploy_start_command\n\
-  \   - For static: sets deploy_type='static', no port needed\n   - For dynamic: sets\
-  \ deploy_type='dynamic', ensures port is allocated\n   - Returns the subdomain URL\n\
-  \n5. Add a new endpoint POST /api/projects/{name}/deploy/stop:\n   - Stops the deployed\
-  \ app\n   - For dynamic: stops the systemd unit\n   - Sets deploy_status='stopped'"
+description: |-
+  Add columns to the projects table for deployment state and allocate ports for dynamic apps.
+
+  WHAT TO CHANGE:
+
+  1. In app/database.py, add columns to the projects CREATE TABLE:
+     - deploy_type TEXT DEFAULT NULL  -- 'static' or 'dynamic' or NULL (not deployed)
+     - deploy_port INTEGER DEFAULT NULL  -- allocated port for dynamic apps (9000 + project id)
+     - deploy_status TEXT DEFAULT 'idle'  -- 'idle', 'running', 'stopped', 'failed'
+     - deploy_start_command TEXT DEFAULT NULL  -- command to start the app (e.g., 'npm start', 'python app.py')
+     - deploy_subdomain TEXT DEFAULT NULL  -- the subdomain name (defaults to project name)
+
+     Use ALTER TABLE IF NOT EXISTS pattern since the DB may already exist. Add migration logic in init_db() that checks if columns exist and adds them if not.
+
+  2. In app/routers/projects.py, when creating a project:
+     - Set deploy_subdomain = project name (sanitized, lowercase)
+     - Set deploy_port = 9000 + project_id (after INSERT, use lastrowid)
+     - Update the row with the allocated port
+
+  3. In app/routers/projects.py GET /api/projects/{name}:
+     - Include deploy_type, deploy_port, deploy_status, deploy_subdomain in the response
+
+  4. Add a new endpoint POST /api/projects/{name}/deploy:
+     - Accepts JSON: { type: 'static' | 'dynamic', start_command?: string }
+     - Updates deploy_type and optionally deploy_start_command
+     - For static: sets deploy_type='static', no port needed
+     - For dynamic: sets deploy_type='dynamic', ensures port is allocated
+     - Returns the subdomain URL
+
+  5. Add a new endpoint POST /api/projects/{name}/deploy/stop:
+     - Stops the deployed app
+     - For dynamic: stops the systemd unit
+     - Sets deploy_status='stopped'
 acceptance_criteria:
 - projects table has deploy_type, deploy_port, deploy_status, deploy_start_command,
   deploy_subdomain columns

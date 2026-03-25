@@ -1,108 +1,60 @@
 title: Create SQLite database schema and initialization
-type: task
 priority: 0
 assignee: ralph
-parent: project-foundation
 depends_on:
 - initialize-python-project-with-fastapi-uvicorn-and-project-structure
 created: '2026-03-21'
-description: 'Implement the SQLite database layer in app/database.py.
-
+description: |-
+  Implement the SQLite database layer in app/database.py.
 
   ## Schema
 
-
   ### Table: users
-
   | Column | Type | Constraints |
-
   |--------|------|-------------|
-
   | id | INTEGER | PRIMARY KEY AUTOINCREMENT |
-
   | github_id | INTEGER | UNIQUE NOT NULL |
-
   | github_username | TEXT | NOT NULL |
-
   | github_name | TEXT | nullable |
-
   | github_email | TEXT | nullable |
-
   | github_avatar_url | TEXT | nullable |
-
-  | github_token | TEXT | NOT NULL (the user''s OAuth access token) |
-
-  | created_at | TEXT | NOT NULL DEFAULT (datetime(''now'')) |
-
+  | github_token | TEXT | NOT NULL (the user's OAuth access token) |
+  | created_at | TEXT | NOT NULL DEFAULT (datetime('now')) |
 
   ### Table: projects
-
   | Column | Type | Constraints |
-
   |--------|------|-------------|
-
   | id | INTEGER | PRIMARY KEY AUTOINCREMENT |
-
   | user_id | INTEGER | NOT NULL REFERENCES users(id) ON DELETE CASCADE |
-
   | name | TEXT | NOT NULL |
-
   | description | TEXT | NOT NULL |
-
   | github_repo_url | TEXT | nullable |
-
   | ralph_session_id | TEXT | nullable (claude CLI session ID for Ralphy) |
-
-  | ralph_loop_status | TEXT | NOT NULL DEFAULT ''idle'' (one of: idle, running, stopping,
-  stopped) |
-
-  | ralph_loop_current_issue | TEXT | nullable (beads issue ID currently being worked)
-  |
-
+  | ralph_loop_status | TEXT | NOT NULL DEFAULT 'idle' (one of: idle, running, stopping, stopped) |
+  | ralph_loop_current_issue | TEXT | nullable (beads issue ID currently being worked) |
   | ralph_loop_iteration | INTEGER | NOT NULL DEFAULT 0 |
-
   | stripe_payment_id | TEXT | nullable |
-
-  | created_at | TEXT | NOT NULL DEFAULT (datetime(''now'')) |
-
+  | created_at | TEXT | NOT NULL DEFAULT (datetime('now')) |
   | UNIQUE(user_id, name) |
 
-
   ### Table: notifications
-
   | Column | Type | Constraints |
-
   |--------|------|-------------|
-
   | id | INTEGER | PRIMARY KEY AUTOINCREMENT |
-
   | project_id | INTEGER | NOT NULL REFERENCES projects(id) ON DELETE CASCADE |
-
   | message | TEXT | NOT NULL |
-
   | beads_issue_id | TEXT | nullable (the Human-assigned blocking issue) |
-
   | acknowledged | INTEGER | NOT NULL DEFAULT 0 |
-
-  | created_at | TEXT | NOT NULL DEFAULT (datetime(''now'')) |
-
+  | created_at | TEXT | NOT NULL DEFAULT (datetime('now')) |
 
   ## Implementation in app/database.py
 
-
-  - `async def init_db()`: Create the database file at DATA_DIR/jri.db if it doesn''t
-  exist. Execute CREATE TABLE IF NOT EXISTS for all three tables. Enable WAL mode
-  and foreign keys.
-
-  - `async def get_db()`: Async context manager that yields an aiosqlite connection
-  with row_factory = aiosqlite.Row.
-
+  - `async def init_db()`: Create the database file at DATA_DIR/jri.db if it doesn't exist. Execute CREATE TABLE IF NOT EXISTS for all three tables. Enable WAL mode and foreign keys.
+  - `async def get_db()`: Async context manager that yields an aiosqlite connection with row_factory = aiosqlite.Row.
   - All functions use the DATA_DIR/jri.db path from config.py.
 
-
   ## Lifespan integration
-
-  - In app/main.py, call `await init_db()` inside the lifespan startup.'
+  - In app/main.py, call `await init_db()` inside the lifespan startup.
 acceptance_criteria:
 - 'Running the app and then checking: `sqlite3 ~/jri/data/jri.db ''.tables''` shows
   ''users projects notifications''.'

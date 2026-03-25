@@ -1,28 +1,51 @@
 title: Implement beads issues polling API endpoint
-type: task
 priority: 0
 assignee: ralph
-parent: right-panel-issues-agentsmd-and-uploads-tabs
 depends_on:
 - implement-project-creation-with-github-repo-initialization
 created: '2026-03-21'
-description: "Create an API endpoint that returns the current state of beads issues\
-  \ for a project.\n\n## GET /api/projects/{name}/issues\n- Requires auth. Verify\
-  \ project belongs to user.\n- Run `bd list --json` in the project directory.\n-\
-  \ Parse the JSON output (array of issue objects).\n- Group issues by their parent\
-  \ epic. Issues without a parent go in an 'Ungrouped' section.\n- For each issue,\
-  \ also fetch dependency info by examining the deps field in the bd output.\n- Return\
-  \ JSON structure:\n```json\n{\n  \"epics\": [\n    {\n      \"id\": \"jri-abc\"\
-  ,\n      \"title\": \"Epic Name\",\n      \"status\": \"open\",\n      \"children\"\
-  : [\n        {\n          \"id\": \"jri-abc.1\",\n          \"title\": \"Task Name\"\
-  ,\n          \"type\": \"feature\",\n          \"status\": \"deferred\",\n     \
-  \     \"priority\": 2,\n          \"description\": \"...\",\n          \"acceptance_criteria\"\
-  : \"...\",\n          \"assignee\": null,\n          \"dependencies\": [\"jri-abc.0\"\
-  ],\n          \"created_at\": \"...\"\n        }\n      ]\n    }\n  ],\n  \"ungrouped\"\
-  : [...]\n}\n```\n- If bd list fails (e.g., beads not initialized), return {\"epics\"\
-  : [], \"ungrouped\": []}.\n\n## GET /api/projects/{name}/issues/{issue_id}\n- Requires\
-  \ auth.\n- Run `bd show {issue_id} --json` in the project directory.\n- Return the\
-  \ full issue JSON as-is from bd."
+description: |-
+  Create an API endpoint that returns the current state of beads issues for a project.
+
+  ## GET /api/projects/{name}/issues
+  - Requires auth. Verify project belongs to user.
+  - Run `bd list --json` in the project directory.
+  - Parse the JSON output (array of issue objects).
+  - Group issues by their parent epic. Issues without a parent go in an 'Ungrouped' section.
+  - For each issue, also fetch dependency info by examining the deps field in the bd output.
+  - Return JSON structure:
+  ```json
+  {
+    "epics": [
+      {
+        "id": "jri-abc",
+        "title": "Epic Name",
+        "status": "open",
+        "children": [
+          {
+            "id": "jri-abc.1",
+            "title": "Task Name",
+            "type": "feature",
+            "status": "deferred",
+            "priority": 2,
+            "description": "...",
+            "acceptance_criteria": "...",
+            "assignee": null,
+            "dependencies": ["jri-abc.0"],
+            "created_at": "..."
+          }
+        ]
+      }
+    ],
+    "ungrouped": [...]
+  }
+  ```
+  - If bd list fails (e.g., beads not initialized), return {"epics": [], "ungrouped": []}.
+
+  ## GET /api/projects/{name}/issues/{issue_id}
+  - Requires auth.
+  - Run `bd show {issue_id} --json` in the project directory.
+  - Return the full issue JSON as-is from bd.
 acceptance_criteria:
 - GET /api/projects/{name}/issues returns a JSON object with 'epics' and 'ungrouped'
   arrays.

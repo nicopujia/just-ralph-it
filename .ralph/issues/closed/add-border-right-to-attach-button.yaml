@@ -1,8 +1,6 @@
 title: Add border-right to Attach button
-type: task
 priority: 2
 assignee: Nicolás Pujia
-parent: uiux-polish
 created: '2026-03-21'
 description: "In templates/project.html, the Attach button (.btn-attach, line 263-275)\
   \ has border-left: 1px solid var(--border) but no border-right. The DOM order is:\

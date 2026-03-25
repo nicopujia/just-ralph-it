@@ -1,8 +1,6 @@
 title: Configure nginx and systemd for production deployment
-type: task
 priority: 0
 assignee: ralph
-parent: deployment-nginx-configuration
 depends_on:
 - implement-main-project-page-with-two-panel-layout
 created: '2026-03-21'

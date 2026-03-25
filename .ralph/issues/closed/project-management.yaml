@@ -1,5 +1,4 @@
 title: Project Management
-type: epic
 priority: 0
 created: '2026-03-21'
 description: 'CRUD operations for projects: creation (with GitHub repo), dashboard

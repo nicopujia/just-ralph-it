@@ -493,12 +493,24 @@
         gap: 0.5rem;
         padding: 0.35rem 0.5rem;
         border-radius: 4px;
+        font-size: 0.85rem;
+        list-style: none;
+    }
+    details.issue-item { border-radius: 4px; }
+    details.issue-item > summary {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.35rem 0.5rem;
+        border-radius: 4px;
         cursor: pointer;
         font-size: 0.85rem;
+        list-style: none;
     }
-    .issue-row:hover { background: var(--card-bg); }
+    details.issue-item > summary::-webkit-details-marker { display: none; }
+    details.issue-item > summary::marker { display: none; }
+    details.issue-item > summary:hover { background: var(--card-bg); }
     .issue-id {
-        color: var(--text-faint);
         font-size: 0.75rem;
         min-width: 50px;
     }
@@ -519,7 +531,6 @@
         color: #ff6b6b;
     }
     .issue-detail {
-        display: none;
         padding: 0.5rem 0.5rem 0.5rem 1.5rem;
         font-size: 0.82rem;
         color: var(--text-dimmer);
@@ -527,7 +538,16 @@
         border-left: 2px solid var(--border);
         margin: 0.2rem 0 0.4rem 0.8rem;
     }
-    .issue-detail.expanded { display: block; }
+    .issue-group-header {
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--text-faint);
+        padding: 0.75rem 0.5rem 0.25rem;
+    }
+    .issue-group-header:first-child { padding-top: 0.25rem; }
+    .issue-detail-part + .issue-detail-part { margin-top: 0.5rem; }
     .issue-detail strong { color: var(--text-muted); }
     .issue-detail p { margin: 0.25rem 0; }
     .issue-detail ul, .issue-detail ol {
@@ -1691,17 +1711,13 @@
        ISSUES TAB
        ══════════════════════════════════════════════ */
     function allIssuesReady(data) {
-        if (!data) return false;
+        if (!data || !data.length) return false;
         var hasOpen = false;
         var hasDeferred = false;
-        function check(c) {
+        (data || []).forEach(function(c) {
             if (c.status === 'open') hasOpen = true;
             if (c.status === 'deferred') hasDeferred = true;
-        }
-        (data.epics || []).forEach(function(e) {
-            (e.children || []).forEach(check);
         });
-        (data.ungrouped || []).forEach(check);
         return hasOpen && !hasDeferred;
     }
 
@@ -1745,101 +1761,54 @@
         var container = document.getElementById('tab-issues');
         container.innerHTML = '';
 
-        if ((!data.epics || data.epics.length === 0) && (!data.ungrouped || data.ungrouped.length === 0)) {
+        if (!data || data.length === 0) {
             container.innerHTML = '<p style="color:var(--text-faint);font-style:italic;text-align:center;margin-top:2rem;">No issues yet. Chat with Ralphy to create your project plan.</p>';
             return;
         }
 
-        function topoSort(issues) {
-            // Build dependency graph from 'blocks' type dependencies
-            var idSet = {};
-            issues.forEach(function(i) { idSet[i.id] = i; });
-            var inDegree = {};
-            var adj = {};
-            issues.forEach(function(i) {
-                inDegree[i.id] = 0;
-                adj[i.id] = [];
-            });
-            issues.forEach(function(i) {
-                (i.depends_on || []).forEach(function(depId) {
-                    if (depId && idSet[depId]) {
-                        adj[depId] = adj[depId] || [];
-                        adj[depId].push(i.id);
-                        inDegree[i.id] = (inDegree[i.id] || 0) + 1;
-                    }
-                });
-            });
-            // Kahn's algorithm
-            var queue = [];
-            issues.forEach(function(i) {
-                if (!inDegree[i.id]) queue.push(i.id);
-            });
-            var sorted = [];
-            while (queue.length > 0) {
-                var id = queue.shift();
-                sorted.push(idSet[id]);
-                (adj[id] || []).forEach(function(nid) {
-                    inDegree[nid]--;
-                    if (inDegree[nid] === 0) queue.push(nid);
-                });
+        var issues = data.filter(function(i) { return i.type !== 'epic'; });
+
+        var groups = [
+            { label: 'In Progress', statuses: ['in_progress'], issues: [] },
+            { label: 'Open',        statuses: ['open'],        issues: [] },
+            { label: 'Closed',      statuses: ['closed'],      issues: [] },
+        ];
+
+        issues.forEach(function(issue) {
+            var s = issue.status;
+            for (var g = 0; g < groups.length; g++) {
+                if (groups[g].statuses.indexOf(s) !== -1) { groups[g].issues.push(issue); return; }
             }
-            // Add any remaining (cycles) at the end
-            issues.forEach(function(i) {
-                if (sorted.indexOf(i) === -1) sorted.push(i);
-            });
-            return sorted;
-        }
-
-        (data.epics || []).forEach(function(epic) {
-            var section = document.createElement('div');
-            section.className = 'epic-section';
-
-            var header = document.createElement('div');
-            header.className = 'epic-header';
-            header.innerHTML = statusDotHtml(epic.status, 'epic') + ' ' + escapeHtml(epic.title || epic.id);
-            section.appendChild(header);
-
-            var sorted = topoSort(epic.children || []);
-            sorted.forEach(function(issue) {
-                section.appendChild(createIssueRow(issue));
-            });
-
-            container.appendChild(section);
+            groups[1].issues.push(issue); // fallback to open
         });
 
-        if (data.ungrouped && data.ungrouped.length > 0) {
-            var ungroupedSection = document.createElement('div');
-            ungroupedSection.className = 'epic-section';
-
-            var sorted = topoSort(data.ungrouped);
-            sorted.forEach(function(issue) {
-                ungroupedSection.appendChild(createIssueRow(issue));
+        groups.forEach(function(group) {
+            if (!group.issues.length) return;
+            var header = document.createElement('div');
+            header.className = 'issue-group-header';
+            header.textContent = group.label;
+            container.appendChild(header);
+            group.issues.forEach(function(issue) {
+                container.appendChild(createIssueRow(issue));
             });
-
-            container.appendChild(ungroupedSection);
-        }
+        });
     }
 
     function createIssueRow(issue) {
-        var frag = document.createDocumentFragment();
+        var details = document.createElement('details');
+        details.className = 'issue-item';
 
-        var row = document.createElement('div');
-        row.className = 'issue-row';
-
+        var summary = document.createElement('summary');
         var dotHtml = statusDotHtml(issue.status);
-        var idHtml = '<span class="issue-id">' + escapeHtml(issue.id || '') + '</span>';
         var titleHtml = '<span class="issue-title">' + escapeHtml(issue.title || '') + '</span>';
-        var badgeHtml = issue.type ? '<span class="issue-badge">' + escapeHtml(issue.type) + '</span>' : '';
-        var prioHtml = '';
-        if (issue.priority === 'P0' || issue.priority === 'P1') {
-            prioHtml = '<span class="issue-priority">' + issue.priority + '</span>';
-        }
-
-        row.innerHTML = dotHtml + idHtml + titleHtml + badgeHtml + prioHtml;
+        var prioHtml = (issue.priority <= 1) ? '<span class="issue-priority">P' + issue.priority + '</span>' : '';
+        summary.innerHTML = dotHtml + titleHtml + prioHtml;
+        details.appendChild(summary);
 
         var detail = document.createElement('div');
         detail.className = 'issue-detail';
         var detailParts = [];
+        if (issue.id) detailParts.push('<strong>ID:</strong> <span class="issue-id">' + escapeHtml(issue.id) + '</span>');
         if (issue.description) detailParts.push('<strong>Description:</strong>' + renderMarkdown(issue.description));
         if (issue.acceptance_criteria && issue.acceptance_criteria.length) {
             var acItems = issue.acceptance_criteria.map(function(item) {
@@ -1849,15 +1818,10 @@
         }
         if (issue.depends_on && issue.depends_on.length) detailParts.push(renderIssueDependencies(issue.depends_on));
         if (issue.assignee) detailParts.push('<strong>Assignee:</strong> ' + escapeHtml(issue.assignee));
-        detail.innerHTML = detailParts.join('<br>');
+        detail.innerHTML = detailParts.map(function(p) { return '<div class="issue-detail-part">' + p + '</div>'; }).join('');
+        details.appendChild(detail);
 
-        row.addEventListener('click', function() {
-            detail.classList.toggle('expanded');
-        });
-
-        frag.appendChild(row);
-        frag.appendChild(detail);
-        return frag;
+        return details;
     }
 
     function renderIssueDependencies(dependsOn) {

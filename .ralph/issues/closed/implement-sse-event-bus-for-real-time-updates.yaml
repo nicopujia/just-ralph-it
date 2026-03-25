@@ -1,8 +1,6 @@
 title: Implement SSE event bus for real-time updates
-type: task
 priority: 0
 assignee: ralph
-parent: ralph-loop
 depends_on:
 - initialize-python-project-with-fastapi-uvicorn-and-project-structure
 created: '2026-03-21'

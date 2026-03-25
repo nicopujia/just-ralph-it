@@ -1,8 +1,6 @@
 title: Implement in-app notification system for Ralph blockers
-type: task
 priority: 1
 assignee: ralph
-parent: in-app-notifications-human-blocking
 depends_on:
 - implement-ralph-loop-subprocess-manager
 - implement-sse-event-bus-for-real-time-updates
