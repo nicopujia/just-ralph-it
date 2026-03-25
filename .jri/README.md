@@ -1,4 +1,4 @@
-# .jri/ — JRI Platform Task Tracking
+# .jri/ — JRI (Just Ralph It) Platform Task Tracking
 
 This directory tracks tasks for the JRI platform itself.
 

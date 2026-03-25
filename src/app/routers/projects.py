@@ -194,7 +194,7 @@ async def create_project(
         jri_readme = (
             "# .jri/ — Project Tracking Directory\n"
             "\n"
-            "This directory is managed by JRI for project-level task tracking and file storage.\n"
+            "This directory is managed by JRI (Just Ralph It) for project-level task tracking and file storage.\n"
             "\n"
             "## Structure\n"
             "\n"
