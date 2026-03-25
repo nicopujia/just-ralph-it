@@ -1801,11 +1801,25 @@
             groups[1].issues.push(issue); // fallback to todo
         });
 
+        // Collect done task slugs for dependency resolution
+        var doneSlugs = {};
+        groups.forEach(function(group) {
+            if (group.statuses[0] === 'done') {
+                group.issues.forEach(function(issue) { doneSlugs[issue.id] = true; });
+            }
+        });
+
         groups.forEach(function(group) {
             group.issues.sort(function(a, b) {
                 var pa = typeof a.priority === 'number' ? a.priority : parseInt(String(a.priority).replace(/\D/g, ''), 10);
                 var pb = typeof b.priority === 'number' ? b.priority : parseInt(String(b.priority).replace(/\D/g, ''), 10);
-                return (isNaN(pa) ? 99 : pa) - (isNaN(pb) ? 99 : pb);
+                var prioDiff = (isNaN(pa) ? 99 : pa) - (isNaN(pb) ? 99 : pb);
+                if (prioDiff !== 0) return prioDiff;
+                // Secondary sort: free tasks (no unresolved deps) before blocked ones
+                var aFree = !a.depends_on || !a.depends_on.length || a.depends_on.every(function(d) { return doneSlugs[d]; });
+                var bFree = !b.depends_on || !b.depends_on.length || b.depends_on.every(function(d) { return doneSlugs[d]; });
+                if (aFree !== bFree) return aFree ? -1 : 1;
+                return 0;
             });
 
             var groupDetails = document.createElement('details');
