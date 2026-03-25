@@ -2,53 +2,20 @@
 
 {% block title %}Dashboard | Just Ralph It{% endblock %}
 
+{% block breadcrumb %}
+<a href="/">Just Ralph It</a>
+<span class="separator">/</span>
+<span class="current">Projects</span>
+{% endblock %}
+
 {% block head %}
 <style>
-    nav {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 0.7rem 1.5rem;
-        border-bottom: 1px solid var(--border-light);
-        min-height: 48px;
-    }
     a.gh-link {
         color: var(--text-muted);
         text-decoration: none;
         padding: 2px 8px;
         display: inline-flex;
         align-items: center;
-    }
-    nav a.brand {
-        color: var(--text);
-        text-decoration: none;
-        font-weight: 600;
-        font-size: 1.05rem;
-    }
-    nav a.brand:hover {
-        color: var(--text-bright);
-    }
-    .nav-right {
-        display: flex;
-        align-items: center;
-        gap: 0.8rem;
-    }
-    .nav-right img {
-        width: 28px;
-        height: 28px;
-        border-radius: 50%;
-    }
-    .nav-right .username {
-        color: var(--text-muted);
-        font-size: 0.9rem;
-    }
-    .nav-right a {
-        color: var(--text-dimmer);
-        text-decoration: none;
-        font-size: 0.85rem;
-    }
-    .nav-right a:hover {
-        color: var(--text-bright);
     }
     .container {
         max-width: 800px;
@@ -148,14 +115,6 @@
 {% endblock %}
 
 {% block content %}
-<nav>
-    <a href="/projects" class="brand">Just Ralph It</a>
-    <div class="nav-right">
-        <img src="{{ user.github_avatar_url }}" alt="Avatar">
-        <span class="username">{{ user.github_username }}</span>
-        <a href="/auth/logout" onclick="return confirm('Are you sure you want to log out?')">Logout</a>
-    </div>
-</nav>
 <div class="container">
     <div class="header-row">
         <h2>Your Projects</h2>

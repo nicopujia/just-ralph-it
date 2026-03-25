@@ -122,9 +122,79 @@
             color: var(--text);
         }
     </style>
+    <style>
+        /* ── Shared nav ── */
+        .site-nav {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.7rem 1.5rem;
+            border-bottom: 1px solid var(--border-light);
+            min-height: 48px;
+        }
+        .site-nav .breadcrumb {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 1.05rem;
+        }
+        .site-nav .breadcrumb a {
+            color: var(--text);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .site-nav .breadcrumb a:hover {
+            color: var(--text-bright);
+        }
+        .site-nav .breadcrumb .separator {
+            color: var(--text-dim);
+        }
+        .site-nav .breadcrumb .current {
+            color: var(--text-bright);
+            font-weight: 600;
+        }
+        .nav-right {
+            display: flex;
+            align-items: center;
+            gap: 0.8rem;
+        }
+        .nav-right img {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+        }
+        .nav-right .username {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+        .nav-right a {
+            color: var(--text-dimmer);
+            text-decoration: none;
+            font-size: 0.85rem;
+        }
+        .nav-right a:hover {
+            color: var(--text-bright);
+        }
+    </style>
     {% block head %}{% endblock %}
 </head>
 <body{% block body_attrs %}{% endblock %}>
+    {% block nav %}
+    {% if user is defined and user %}
+    <nav class="site-nav">
+        <div class="breadcrumb">
+            {% block breadcrumb %}
+            <a href="/">Just Ralph It</a>
+            {% endblock %}
+        </div>
+        <div class="nav-right">
+            <img src="{{ user.github_avatar_url }}" alt="Avatar">
+            <span class="username">{{ user.github_username }}</span>
+            <a href="/auth/logout" onclick="return confirm('Are you sure you want to log out?')">Logout</a>
+        </div>
+    </nav>
+    {% endif %}
+    {% endblock %}
     {% block content %}{% endblock %}
 </body>
 </html>
