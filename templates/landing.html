@@ -46,10 +46,7 @@ body.landing {
     content: '';
     position: fixed;
     top: 0; left: 0; right: 0; bottom: 0;
-    background: repeating-linear-gradient(
-        0deg, transparent, transparent 2px,
-        rgba(255, 215, 0, 0.03) 2px, rgba(255, 215, 0, 0.03) 4px
-    );
+    background: transparent;
     pointer-events: none;
     z-index: 50;
 }
@@ -68,6 +65,7 @@ body.landing {
     position: relative;
     z-index: 10;
     background-color: var(--landing-card-bg);
+    border: 1px solid var(--landing-border);
     padding: 2.5rem;
     display: flex;
     flex-direction: column;
