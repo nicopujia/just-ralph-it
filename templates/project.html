@@ -906,11 +906,11 @@
     <!-- Right panel: Tabs -->
     <div class="right-panel">
         <div class="tab-bar">
-            <a href="#overview" class="tab-btn active" data-tab="agents-md">Overview</a>
-            <a href="#tasks" class="tab-btn" data-tab="tasks">Tasks</a>
-            <a href="#ralph" id="tab-btn-ralph" class="tab-btn" data-tab="ralph">Ralph</a>
-            <a href="#uploads" class="tab-btn" data-tab="uploads">Uploads</a>
-            <a href="#env" class="tab-btn" data-tab="env">Env</a>
+            <a href="#overview" class="tab-btn active" data-tab="agents-md" title="⌥1">Overview</a>
+            <a href="#tasks" class="tab-btn" data-tab="tasks" title="⌥2">Tasks</a>
+            <a href="#ralph" id="tab-btn-ralph" class="tab-btn" data-tab="ralph" title="⌥3">Ralph</a>
+            <a href="#uploads" class="tab-btn" data-tab="uploads" title="⌥4">Uploads</a>
+            <a href="#env" class="tab-btn" data-tab="env" title="⌥5">Env</a>
             <div style="flex:1;"></div>
             <div id="ralph-controls" class="ralph-controls">
                 <button id="btn-ralph-stop" class="ralph-ctrl-btn" title="Stop Ralph" disabled>&#9209;</button>
@@ -1681,6 +1681,7 @@
 
         // Lazy-load data on tab activation
         if (tab === 'agents-md') fetchAgentsMd();
+        if (tab === 'tasks') fetchIssues();
         if (tab === 'uploads') fetchUploads();
         if (tab === 'env') fetchEnv();
     }
@@ -1697,6 +1698,19 @@
             var hash = tabToHash[tab] || '#overview';
             history.replaceState(null, '', hash);
         });
+    });
+
+    var tabOrder = ['agents-md', 'tasks', 'ralph', 'uploads', 'env'];
+    document.addEventListener('keydown', function(e) {
+        if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+        var m = e.code && e.code.match(/^Digit(\d)$/);
+        if (m) {
+            var n = parseInt(m[1], 10);
+            if (n >= 1 && n <= tabOrder.length) {
+                e.preventDefault();
+                activateTab(tabOrder[n - 1]);
+            }
+        }
     });
 
     function showRalphTab() {
