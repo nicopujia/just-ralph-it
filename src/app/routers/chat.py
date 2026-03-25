@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -153,9 +154,23 @@ def _load_chat_json(project_dir: str) -> list[dict]:
 
 
 def _save_chat_json(project_dir: str, messages: list[dict]) -> None:
+    """Atomically write messages to chat.json (write tmp + os.replace)."""
     path = _chat_json_path(project_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(messages, ensure_ascii=False), encoding="utf-8")
+    fd, tmp_path = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(messages, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_path, str(path))
+    except BaseException:
+        # Clean up temp file on failure; don't lose existing data
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def _append_chat_message(project_dir: str, msg: dict) -> None:
@@ -308,8 +323,8 @@ async def _stream_claude(
     finally:
         log_file.close()
         _active_procs.pop(project_name, None)
-        # Persist assistant response
-        if assistant_text:
+        # Persist assistant response if there was ANY output
+        if assistant_text or assistant_thinking or assistant_tools:
             entry: dict = {"role": "assistant", "content": assistant_text}
             if assistant_thinking:
                 entry["thinkingText"] = assistant_thinking
