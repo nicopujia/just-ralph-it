@@ -928,7 +928,7 @@
     <div class="header-right">
         <img src="{{ user.github_avatar_url }}" alt="Avatar">
         <span class="username">{{ user.github_username }}</span>
-        <a href="/auth/logout">Logout</a>
+        <a href="/auth/logout" onclick="return confirm('Are you sure you want to log out?')">Logout</a>
     </div>
 </header>
 
