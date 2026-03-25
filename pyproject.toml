@@ -1,0 +1,30 @@
+[project]
+name = "jri"
+version = "0.1.0"
+description = "AI-powered code automation platform"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.115.0",
+    "uvicorn[standard]==0.30.0",
+    "aiosqlite==0.20.0",
+    "python-dotenv==1.0.1",
+    "httpx==0.27.0",
+    "itsdangerous==2.2.0",
+    "python-multipart==0.0.9",
+    "jinja2==3.1.4",
+    "markdown==3.7",
+    "stripe==10.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]

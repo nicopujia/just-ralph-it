@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-pip3 install -r requirements.txt
+uv sync --no-dev
 sudo cp -f deploy/nginx.conf /etc/nginx/sites-enabled/justralph.it
 sudo nginx -t
 sudo systemctl reload nginx

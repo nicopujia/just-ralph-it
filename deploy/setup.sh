@@ -34,7 +34,13 @@ fi
 echo "==> Installing system packages..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y python3 python3-pip python3-venv nginx git curl jq rsync sqlite3 mosh
+apt-get install -y python3 nginx git curl jq rsync sqlite3 mosh
+
+# --- uv ---
+echo "==> Installing uv..."
+if ! command -v uv &>/dev/null; then
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+fi
 
 # --- Node.js 22 via nodesource ---
 echo "==> Installing Node.js 22..."
@@ -75,7 +81,7 @@ fi
 
 # --- Python dependencies ---
 echo "==> Installing Python dependencies..."
-pip install -r /home/nico/jri/requirements.txt --break-system-packages
+cd /home/nico/jri && /root/.local/bin/uv sync --no-dev
 
 # --- Create data directory ---
 echo "==> Creating data directory..."

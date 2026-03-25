@@ -33,7 +33,7 @@ User <-> nginx (port 80) <-> uvicorn/FastAPI (port 8000)
 git clone https://github.com/ralphpujia/jri.git && cd jri
 
 # 2. Install Python dependencies
-pip install -r requirements.txt
+uv sync
 
 # 3. External tools (must be on PATH)
 #    - claude (Anthropic CLI)
@@ -45,7 +45,7 @@ cp example.env .env
 # Edit .env with your credentials
 
 # 5. Run
-make run
+uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 # App starts at http://127.0.0.1:8000
 ```
 
