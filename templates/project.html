@@ -395,6 +395,7 @@
         background: var(--tab-bar-bg);
     }
     .tab-btn {
+        position: relative;
         padding: 0.55rem 1.2rem;
         background: none;
         border: none;
@@ -454,8 +455,9 @@
         margin: -6px;
         flex-shrink: 0;
     }
-    .status-dot-wrap::after {
-        content: attr(data-status-label);
+    .tooltip-wrap::after,
+    .tab-btn[data-tooltip]::after {
+        content: attr(data-tooltip);
         position: absolute;
         left: 50%;
         bottom: calc(100% + 6px);
@@ -473,8 +475,9 @@
         transition: opacity 120ms ease;
         z-index: 9999;
     }
-    .status-dot-wrap:hover::after,
-    .status-dot-wrap:focus-visible::after {
+    .tab-btn[data-tooltip]::after { bottom: auto; top: calc(100% + 6px); }
+    .tooltip-wrap:hover::after,
+    .tab-btn[data-tooltip]:hover::after {
         opacity: 1;
     }
     .status-dot-wrap-epic::after {
@@ -525,10 +528,29 @@
         background: var(--badge-bg);
         color: var(--text-dimmer);
     }
-    .issue-priority {
-        font-size: 0.7rem;
-        font-weight: 700;
-        color: #ff6b6b;
+    .issue-priority,
+    .issue-priority-urgent {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 14px;
+        flex-shrink: 0;
+        cursor: default;
+    }
+    .issue-priority { align-items: flex-end; gap: 2px; }
+    .issue-priority-urgent {
+        font-size: 0.75rem;
+        font-weight: 900;
+        color: var(--tab-bar-bg);
+        background: #e8720c;
+        border-radius: 2px;
+        line-height: 1;
+    }
+    .issue-priority .bar {
+        width: 3px;
+        border-radius: 1px 1px 0 0;
     }
     .issue-detail {
         padding: 0.5rem 0.5rem 0.5rem 1.5rem;
@@ -539,14 +561,39 @@
         margin: 0.2rem 0 0.4rem 0.8rem;
     }
     .issue-group-header {
-        font-size: 0.7rem;
-        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.75rem;
+        font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.06em;
-        color: var(--text-faint);
+        color: var(--text-muted);
         padding: 0.75rem 0.5rem 0.25rem;
+        cursor: pointer;
+        list-style: none;
     }
-    .issue-group-header:first-child { padding-top: 0.25rem; }
+    .issue-group-header::-webkit-details-marker { display: none; }
+    .issue-group-header::marker { display: none; }
+    .issue-group-header::before {
+        content: '›';
+        font-family: monospace;
+        font-size: 1rem;
+        line-height: 1;
+        display: inline-block;
+        transform-origin: center;
+        opacity: 0.35;
+        transition: transform 120ms ease, opacity 120ms ease;
+        flex-shrink: 0;
+    }
+    details[open] > .issue-group-header::before { transform: rotate(90deg); }
+    .issue-group-header:hover::before { opacity: 1; }
+    .issue-group-count {
+        color: var(--text-dim);
+        font-weight: 500;
+        letter-spacing: 0;
+        text-transform: none;
+    }
     .issue-detail-part + .issue-detail-part { margin-top: 0.5rem; }
     .issue-detail strong { color: var(--text-muted); }
     .issue-detail p { margin: 0.25rem 0; }
@@ -906,11 +953,11 @@
     <!-- Right panel: Tabs -->
     <div class="right-panel">
         <div class="tab-bar">
-            <a href="#overview" class="tab-btn active" data-tab="agents-md" title="⌥1">Overview</a>
-            <a href="#tasks" class="tab-btn" data-tab="tasks" title="⌥2">Tasks</a>
-            <a href="#ralph" id="tab-btn-ralph" class="tab-btn" data-tab="ralph" title="⌥3">Ralph</a>
-            <a href="#uploads" class="tab-btn" data-tab="uploads" title="⌥4">Uploads</a>
-            <a href="#env" class="tab-btn" data-tab="env" title="⌥5">Env</a>
+            <a href="?tab=overview" class="tab-btn{% if active_tab == 'overview' %} active{% endif %}" data-tab="agents-md" data-tooltip="⌥1">Overview</a>
+            <a href="?tab=tasks" class="tab-btn{% if active_tab == 'tasks' %} active{% endif %}" data-tab="tasks" data-tooltip="⌥2">Tasks</a>
+            <a href="?tab=ralph" id="tab-btn-ralph" class="tab-btn{% if active_tab == 'ralph' %} active{% endif %}" data-tab="ralph" data-tooltip="⌥3">Ralph</a>
+            <a href="?tab=uploads" class="tab-btn{% if active_tab == 'uploads' %} active{% endif %}" data-tab="uploads" data-tooltip="⌥4">Uploads</a>
+            <a href="?tab=env" class="tab-btn{% if active_tab == 'env' %} active{% endif %}" data-tab="env" data-tooltip="⌥5">Env</a>
             <div style="flex:1;"></div>
             <div id="ralph-controls" class="ralph-controls">
                 <button id="btn-ralph-stop" class="ralph-ctrl-btn" title="Stop Ralph" disabled>&#9209;</button>
@@ -918,14 +965,14 @@
             </div>
         </div>
         <div class="tab-content">
-            <div id="tab-agents-md" class="tab-pane active">
+            <div id="tab-agents-md" class="tab-pane{% if active_tab == 'overview' %} active{% endif %}">
                 <div class="agents-md-content" id="agents-md-body"></div>
             </div>
-            <div id="tab-tasks" class="tab-pane"></div>
-            <div id="tab-ralph" class="tab-pane">
+            <div id="tab-tasks" class="tab-pane{% if active_tab == 'tasks' %} active{% endif %}"></div>
+            <div id="tab-ralph" class="tab-pane{% if active_tab == 'ralph' %} active{% endif %}">
                 <div id="ralph-terminal" class="ralph-terminal">Ralph's build output will appear here once you start the build.</div>
             </div>
-            <div id="tab-uploads" class="tab-pane">
+            <div id="tab-uploads" class="tab-pane{% if active_tab == 'uploads' %} active{% endif %}">
                 <div id="drop-zone-overlay" class="drop-zone-overlay">Drop files here to upload</div>
                 <div class="upload-controls" style="justify-content:space-between;align-items:center;">
                     <span style="color:var(--text-dim);font-size:0.85rem;">Upload files for Ralph to reference during the build</span>
@@ -934,7 +981,7 @@
                 <div id="upload-list" class="upload-list"></div>
                 <input type="file" id="upload-file-input" multiple style="display:none;">
             </div>
-            <div id="tab-env" class="tab-pane">
+            <div id="tab-env" class="tab-pane{% if active_tab == 'env' %} active{% endif %}">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
                     <span style="color:var(--text-dim);font-size:0.85rem;">Environment variables for this project.</span>
                     <div style="display:flex;gap:0.4rem;">
@@ -1669,7 +1716,9 @@
     var tabBtns = document.querySelectorAll('.tab-btn');
     var tabPanes = document.querySelectorAll('.tab-pane');
 
-    var hashToTab = { '#overview': 'agents-md', '#tasks': 'tasks', '#ralph': 'ralph', '#uploads': 'uploads', '#env': 'env' };
+    // tab slug (data-tab attr) → query param value
+    var tabToParam = { 'agents-md': 'overview', 'tasks': 'tasks', 'ralph': 'ralph', 'uploads': 'uploads', 'env': 'env' };
+    var tabOrder = ['agents-md', 'tasks', 'ralph', 'uploads', 'env'];
 
     function activateTab(tab) {
         tabBtns.forEach(function(b) { b.classList.remove('active'); });
@@ -1678,6 +1727,10 @@
         if (targetBtn) targetBtn.classList.add('active');
         var targetPane = document.getElementById('tab-' + tab);
         if (targetPane) targetPane.classList.add('active');
+
+        // Update URL without reload
+        var param = tabToParam[tab] || 'overview';
+        history.pushState(null, '', '?tab=' + param);
 
         // Lazy-load data on tab activation
         if (tab === 'agents-md') fetchAgentsMd();
@@ -1689,18 +1742,10 @@
     tabBtns.forEach(function(btn) {
         btn.addEventListener('click', function(e) {
             e.preventDefault();
-            var tab = btn.dataset.tab;
-            activateTab(tab);
-
-            // Update hash without scrolling
-            var tabToHash = {};
-            Object.keys(hashToTab).forEach(function(h) { tabToHash[hashToTab[h]] = h; });
-            var hash = tabToHash[tab] || '#overview';
-            history.replaceState(null, '', hash);
+            activateTab(btn.dataset.tab);
         });
     });
 
-    var tabOrder = ['agents-md', 'tasks', 'ralph', 'uploads', 'env'];
     document.addEventListener('keydown', function(e) {
         if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
         var m = e.code && e.code.match(/^Digit(\d)$/);
@@ -1761,7 +1806,7 @@
         else if (status === 'draft') { cls += ' draft'; label = 'Draft'; }
         else { cls += ' todo'; label = 'To Do'; }
         if (variant === 'epic') wrapCls += ' status-dot-wrap-epic';
-        return '<span class="' + wrapCls + '" data-status-label="' + label + '" aria-label="Status: ' + label + '" tabindex="0"><span class="' + cls + '"></span></span>';
+        return '<span class="' + wrapCls + '" aria-label="Status: ' + label + '"><span class="' + cls + '"></span></span>';
     }
 
     function renderIssues(data) {
@@ -1778,8 +1823,8 @@
         var groups = [
             { label: 'Doing', statuses: ['doing'], issues: [] },
             { label: 'To Do', statuses: ['todo'],  issues: [] },
-            { label: 'Done',  statuses: ['done'],  issues: [] },
             { label: 'Draft', statuses: ['draft'], issues: [] },
+            { label: 'Done',  statuses: ['done'],  issues: [] },
         ];
 
         issues.forEach(function(issue) {
@@ -1791,14 +1836,22 @@
         });
 
         groups.forEach(function(group) {
-            if (!group.issues.length) return;
-            var header = document.createElement('div');
-            header.className = 'issue-group-header';
-            header.textContent = group.label;
-            container.appendChild(header);
-            group.issues.forEach(function(issue) {
-                container.appendChild(createIssueRow(issue));
+            group.issues.sort(function(a, b) {
+                var pa = typeof a.priority === 'number' ? a.priority : parseInt(String(a.priority).replace(/\D/g, ''), 10);
+                var pb = typeof b.priority === 'number' ? b.priority : parseInt(String(b.priority).replace(/\D/g, ''), 10);
+                return (isNaN(pa) ? 99 : pa) - (isNaN(pb) ? 99 : pb);
             });
+
+            var groupDetails = document.createElement('details');
+            groupDetails.open = true;
+            var summary = document.createElement('summary');
+            summary.className = 'issue-group-header';
+            summary.innerHTML = statusDotHtml(group.statuses[0]) + ' ' + escapeHtml(group.label) + ' <span class="issue-group-count">(' + group.issues.length + ')</span>';
+            groupDetails.appendChild(summary);
+            group.issues.forEach(function(issue) {
+                groupDetails.appendChild(createIssueRow(issue));
+            });
+            container.appendChild(groupDetails);
         });
     }
 
@@ -1807,10 +1860,9 @@
         details.className = 'issue-item';
 
         var summary = document.createElement('summary');
-        var dotHtml = statusDotHtml(issue.status);
         var titleHtml = '<span class="issue-title">' + escapeHtml(issue.title || '') + '</span>';
-        var prioHtml = (issue.priority <= 1) ? '<span class="issue-priority">P' + issue.priority + '</span>' : '';
-        summary.innerHTML = dotHtml + titleHtml + prioHtml;
+        var prioHtml = priorityIconHtml(issue.priority);
+        summary.innerHTML = prioHtml + titleHtml;
         details.appendChild(summary);
 
         var detail = document.createElement('div');
@@ -1830,6 +1882,26 @@
         details.appendChild(detail);
 
         return details;
+    }
+
+    function priorityIconHtml(priority) {
+        // priority may come as integer (0-3) or string ('P0'-'P3')
+        var n = typeof priority === 'number' ? priority : parseInt(String(priority).replace(/\D/g, ''), 10);
+        if (isNaN(n)) return '';
+        if (n === 0) {
+            return '<span class="issue-priority-urgent tooltip-wrap" data-tooltip="Urgent">!</span>';
+        }
+        // bars: 3 bars for High (P1), 2 for Medium (P2), 1 for Low (P3)
+        var filled = n === 1 ? 3 : n === 2 ? 2 : 1;
+        var label  = n === 1 ? 'High' : n === 2 ? 'Medium' : 'Low';
+        var color  = '#999999';
+        var dim    = '#3d3d4d';
+        var heights = ['4px', '7px', '11px'];
+        var bars = heights.map(function(h, i) {
+            var active = i < filled;
+            return '<span class="bar" style="height:' + h + ';background:' + (active ? color : dim) + ';"></span>';
+        }).join('');
+        return '<span class="issue-priority tooltip-wrap" data-tooltip="' + label + '">' + bars + '</span>';
     }
 
     function renderIssueDependencies(dependsOn) {
@@ -2482,12 +2554,8 @@
 
         scrollChat();
 
-        // 1d. Activate tab from URL hash or payment success
-        var initialHash = window.location.hash;
+        // 1d. Payment success: update UI (tab already activated server-side via ?tab=ralph)
         if (window.location.search.indexOf('payment=success') !== -1) {
-            activateTab('ralph');
-            history.replaceState(null, '', '#ralph');
-            // Payment callback already started Ralph — update UI
             var jriMsg = document.querySelector('.jri-msg');
             if (jriMsg) {
                 var jriBtn = jriMsg.querySelector('.btn-jri');
@@ -2499,8 +2567,6 @@
                     jriBtn.style.color = 'var(--text-dim)';
                 }
             }
-        } else if (initialHash && hashToTab[initialHash]) {
-            activateTab(hashToTab[initialHash]);
         }
 
         // 2. Auto-send description if first visit (no history and no existing session)
@@ -2523,7 +2589,12 @@
         // 7. Fetch notifications
         fetchNotifications();
 
-        // 8. Auto-focus message input
+        // 8. Lazy-load data for the server-rendered active tab
+        var activePane = document.querySelector('.tab-pane.active');
+        if (activePane && activePane.id === 'tab-uploads') fetchUploads();
+        if (activePane && activePane.id === 'tab-env') fetchEnv();
+
+        // 9. Auto-focus message input
         document.getElementById('chat-input').focus();
     }
 
