@@ -4,7 +4,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-LOGS_DIR = Path(__file__).resolve().parent.parent.parent / "logs"
+LOGS_DIR = Path(__file__).resolve().parent.parent.parent / ".jri" / "logs"
 APP_LOG = LOGS_DIR / "app.log"
 
 LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s  %(message)s"

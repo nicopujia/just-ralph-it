@@ -157,7 +157,7 @@ async def _stream_claude(
 
     await sse_bus.publish(project_name, "ralphy_processing", {"status": "start"})
 
-    log_dir = Path(project_dir) / ".jri"
+    log_dir = Path(project_dir) / ".jri" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "ralphy.log"
     log_file = open(log_path, "a", encoding="utf-8")

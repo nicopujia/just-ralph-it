@@ -120,13 +120,13 @@ Each project can be deployed to `{project-name}.{username}.justralph.it`:
 
 ## Logs
 
-Application logs go to `logs/app.log` (rotating, 5 MB). Per-project agent logs live inside each project's `.jri/` directory:
+Application logs go to `.jri/logs/app.log` (rotating, 5 MB). Per-project agent logs live inside each project's `.jri/` directory:
 
 ```
-logs/
+.jri/logs/
   app.log                                                  # FastAPI/uvicorn app logs (rotating, 5 MB)
 
-data/<user>/<project>/.jri/
+data/<user>/<project>/.jri/logs/
   ralph.log                                                # Ralph loop stdout
   ralphy.log                                               # Ralphy chat output
 ```

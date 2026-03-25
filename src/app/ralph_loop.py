@@ -459,7 +459,7 @@ class RalphLoop:
         """Read lines from the subprocess stdout and fan out to subscribers."""
         assert self.process and self.process.stdout
 
-        log_dir = Path(self.project_dir) / ".jri"
+        log_dir = Path(self.project_dir) / ".jri" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         log_path = log_dir / "ralph.log"
         log_file = open(log_path, "a", encoding="utf-8")

@@ -186,9 +186,10 @@ async def create_project(
         )
         (project_dir / "README.md").write_text(readme_md)
 
-        # 6. Create .jri/uploads/ directory
-        logger.info(f"Creating project {name}: step 6 - creating uploads directory")
+        # 6. Create .jri/uploads/ and .jri/logs/ directories
+        logger.info(f"Creating project {name}: step 6 - creating .jri subdirectories")
         (project_dir / ".jri" / "uploads").mkdir(parents=True, exist_ok=True)
+        (project_dir / ".jri" / "logs").mkdir(parents=True, exist_ok=True)
 
         # 6a. Write .jri/README.md
         jri_readme = (
@@ -205,8 +206,9 @@ async def create_project(
             "  doing/    — tasks in progress\n"
             "  done/     — completed tasks\n"
             "uploads/    — user-uploaded reference files\n"
-            "ralph.log   — Ralph (builder) output log\n"
-            "ralphy.log  — Ralphy (interviewer) output log\n"
+            "logs/       — agent output logs\n"
+            "  ralph.log   — Ralph (builder) output log\n"
+            "  ralphy.log  — Ralphy (interviewer) output log\n"
             "```\n"
             "\n"
             "Each task is a YAML file named by its slug (e.g. `implement-dashboard-page.yaml`).\n"
