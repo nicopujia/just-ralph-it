@@ -1,0 +1,50 @@
+---
+title: Implement uploads file manager API
+priority: 1
+assignee: ralph
+depends_on:
+- implement-project-creation-with-github-repo-initialization
+created: '2026-03-21'
+acceptance_criteria:
+- POST a file to /api/projects/{name}/uploads saves it to the uploads/ directory.
+- POST the same filename again saves it as filename_1.ext (not overwriting).
+- POST a third time with the same name saves as filename_2.ext.
+- GET /api/projects/{name}/uploads lists all files with name, size, and modified_at.
+- DELETE /api/projects/{name}/uploads/{name} removes the file and returns
+- 6. DELETE a nonexistent file returns
+- 7. PATCH /api/projects/{name}/uploads/{name} with new_name renames the file.
+- Attempting path traversal (e.g., filename='../../etc/passwd') returns
+- 9. All endpoints return 404 for projects that don't belong to the user.
+---
+
+Create endpoints for managing files in the project's uploads/ directory.
+
+## GET /api/projects/{name}/uploads
+- Requires auth. Verify project belongs to user.
+- List all files in {project_dir}/uploads/.
+- Return JSON array: [{ "name": "filename.ext", "size": 12345, "modified_at": "2024-01-01T00:00:00" }, ...]
+- Sort by modified_at descending (newest first).
+- If uploads/ doesn't exist, return [].
+
+## POST /api/projects/{name}/uploads
+- Requires auth. Multipart/form-data with field `file` (single file upload).
+- No constraints on file type or size (unlike chat attachments).
+- Save to {project_dir}/uploads/{filename}.
+- **Name collision handling**: if a file with the same name exists, append a numeric suffix: `file.txt` → `file_1.txt` → `file_2.txt`. Find the next available suffix by scanning existing files.
+- Return JSON: { "name": "actual_saved_filename.ext", "size": 12345 }
+
+## DELETE /api/projects/{name}/uploads/{filename}
+- Requires auth.
+- Delete the file at {project_dir}/uploads/{filename}.
+- Return 404 if file doesn't exist.
+- Return 204 on success.
+- **Security**: validate that filename doesn't contain path traversal (.. or /). Return 400 if it does.
+
+## PATCH /api/projects/{name}/uploads/{filename}
+- Requires auth.
+- Request body: { "new_name": string }
+- Rename the file within uploads/.
+- **Security**: validate both old and new names don't contain path traversal.
+- If new_name already exists, apply the same collision suffix logic as POST.
+- Return JSON: { "name": "actual_new_name.ext" }
+- Return 404 if original file doesn't exist.

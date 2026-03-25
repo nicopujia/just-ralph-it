@@ -1,0 +1,10 @@
+---
+title: Fix core planning flow
+priority: 0
+created: '2026-03-21'
+acceptance_criteria:
+- Ralphy never writes code, asks 10+ questions before first issue, thinking/tool-use
+  visible in chat, issues tab updates in real time
+---
+
+The main feature—Ralphy interviewing users and creating issues—is fundamentally broken. Ralphy acts as a builder instead of an interviewer, asks too few questions, thinking/tool-use events are not streamed to the frontend, and issue updates are not visible.

@@ -1,0 +1,56 @@
+---
+title: Implement Stripe checkout for per-project billing
+priority: 1
+assignee: ralph
+depends_on:
+- implement-ralph-loop-subprocess-manager
+created: '2026-03-21'
+acceptance_criteria:
+- 'POST /api/projects/{name}/ralph/checkout for the first project (free tier) returns
+  {"free": true} and starts Ralph directly.'
+- POST /api/projects/{name}/ralph/checkout for subsequent projects returns a Stripe
+  checkout URL.
+- After successful Stripe payment, GET /api/projects/{name}/ralph/payment-callback
+  with valid session_id starts the Ralph loop and stores stripe_payment_id.
+- GET payment-callback with an unpaid session returns
+- 5. The Stripe checkout session has the correct amount ($20), product name, and redirect
+  URLs.
+- A warning is logged if STRIPE_SECRET_KEY starts with 'pk_'.
+---
+
+Implement Stripe checkout flow triggered by the 'Just Ralph It' button.
+
+## Flow
+1. User clicks JRI button in the UI.
+2. Frontend calls POST /api/projects/{name}/ralph/checkout.
+3. Backend creates a Stripe Checkout Session.
+4. Backend returns the checkout URL.
+5. Frontend redirects to Stripe.
+6. On success, Stripe redirects to /project/{name}?payment=success.
+7. Backend verifies the payment via webhook or redirect handler, then starts the Ralph loop.
+
+## POST /api/projects/{name}/ralph/checkout
+- Requires auth.
+- Check free tier: count user's projects that have stripe_payment_id set. If 0 and this project has no payment, this is the free project — skip payment, start Ralph directly, return {"free": true, "redirect": null}.
+- Otherwise: create Stripe Checkout Session:
+  - mode: 'payment'
+  - line_items: [{ price_data: { currency: 'usd', unit_amount: 2000 (i.e., $20.00), product_data: { name: 'Just Ralph It — {project_name}' } }, quantity: 1 }]
+  - success_url: 'https://justralph.it/project/{name}?payment=success&session_id={CHECKOUT_SESSION_ID}'
+  - cancel_url: 'https://justralph.it/project/{name}?payment=cancel'
+  - client_reference_id: str(project_id)
+  - metadata: { user_id: str(user_id), project_name: name }
+- Return {"free": false, "redirect": checkout_session.url}
+
+## GET /api/projects/{name}/ralph/payment-callback?session_id=...
+- Called when user returns from Stripe success URL.
+- Retrieve the Stripe session via stripe.checkout.Session.retrieve(session_id).
+- Verify payment_status == 'paid'.
+- Verify client_reference_id matches the project.
+- Store the session ID in projects.stripe_payment_id.
+- Start the Ralph loop.
+- Return 200 {"status": "started"}.
+- If payment not confirmed, return 402 {"error": "Payment not confirmed"}.
+
+## Configuration
+- stripe.api_key = STRIPE_SECRET_KEY (set in config.py)
+- Note: STRIPE_SECRET_KEY in jri.env currently has a pk_test_ prefix which is wrong. The code should use it as-is but log a warning if it starts with 'pk_' since that's the publishable key, not the secret key.

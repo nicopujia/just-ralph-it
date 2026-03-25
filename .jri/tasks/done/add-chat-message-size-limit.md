@@ -1,0 +1,27 @@
+---
+title: Add chat message size limit
+priority: 1
+assignee: Nicolás Pujia
+created: '2026-03-21'
+acceptance_criteria:
+- Messages longer than 50,000 characters are rejected with HTTP 400
+- Frontend shows alert for messages over 50,000 characters before sending
+- Normal-length messages work as before
+---
+
+There is no validation on chat message size. Users can send arbitrarily large messages which could cause memory issues or Claude API token limit errors.
+
+WHAT TO CHANGE:
+
+1. In app/routers/chat.py, add a constant:
+   MAX_MESSAGE_LENGTH = 50000  # 50KB
+
+2. In the chat() endpoint function, after extracting user_message (around line 261), add validation:
+   if len(user_message) > MAX_MESSAGE_LENGTH:
+       raise HTTPException(status_code=400, detail=f'Message too long. Maximum {MAX_MESSAGE_LENGTH} characters.')
+
+3. In templates/project.html, add client-side validation in the sendMessage() function (around line 904):
+   if (text.length > 50000) {
+       alert('Message is too long. Maximum 50,000 characters.');
+       return;
+   }

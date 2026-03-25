@@ -1,0 +1,59 @@
+---
+title: Implement beads issues polling API endpoint
+priority: 0
+assignee: ralph
+depends_on:
+- implement-project-creation-with-github-repo-initialization
+created: '2026-03-21'
+acceptance_criteria:
+- GET /api/projects/{name}/issues returns a JSON object with 'epics' and 'ungrouped'
+  arrays.
+- Issues are grouped under their parent epic correctly.
+- Each issue contains id, title, type, status, priority, description, acceptance_criteria,
+  assignee, dependencies, and created_at.
+- GET /api/projects/{name}/issues/{id} returns the full details of a specific issue.
+- 'For a project with no issues, returns {"epics": [], "ungrouped": []}.'
+- For an invalid project name, returns 404.
+---
+
+Create an API endpoint that returns the current state of beads issues for a project.
+
+## GET /api/projects/{name}/issues
+- Requires auth. Verify project belongs to user.
+- Run `bd list --json` in the project directory.
+- Parse the JSON output (array of issue objects).
+- Group issues by their parent epic. Issues without a parent go in an 'Ungrouped' section.
+- For each issue, also fetch dependency info by examining the deps field in the bd output.
+- Return JSON structure:
+```json
+{
+  "epics": [
+    {
+      "id": "jri-abc",
+      "title": "Epic Name",
+      "status": "open",
+      "children": [
+        {
+          "id": "jri-abc.1",
+          "title": "Task Name",
+          "type": "feature",
+          "status": "deferred",
+          "priority": 2,
+          "description": "...",
+          "acceptance_criteria": "...",
+          "assignee": null,
+          "dependencies": ["jri-abc.0"],
+          "created_at": "..."
+        }
+      ]
+    }
+  ],
+  "ungrouped": [...]
+}
+```
+- If bd list fails (e.g., beads not initialized), return {"epics": [], "ungrouped": []}.
+
+## GET /api/projects/{name}/issues/{issue_id}
+- Requires auth.
+- Run `bd show {issue_id} --json` in the project directory.
+- Return the full issue JSON as-is from bd.

@@ -1124,6 +1124,23 @@
                     listResult.push('<' + type + '>');
                 }
                 listResult.push('<li>' + text + '</li>');
+            } else if (rawLine.trim() === '' && listStack.length > 0) {
+                // Blank line inside a list: peek ahead to see if the list continues
+                var nextListItem = false;
+                for (var peek = li + 1; peek < listLines.length; peek++) {
+                    var peekLine = listLines[peek];
+                    if (peekLine.trim() === '') continue; // skip consecutive blanks
+                    if (peekLine.match(/^(\s*)[*-]\s+(.+)$/) || peekLine.match(/^(\s*)\d+\.\s+(.+)$/)) {
+                        nextListItem = true;
+                    }
+                    break;
+                }
+                if (nextListItem) {
+                    // Skip the blank line; keep the list open
+                } else {
+                    closeListsTo(0);
+                    listResult.push(rawLine);
+                }
             } else {
                 closeListsTo(0);
                 listResult.push(rawLine);
@@ -2537,6 +2554,14 @@
 
         // 6. Connect SSE
         connectSSE();
+
+        // 6b. Check if Ralphy is currently processing (handles page reload mid-stream)
+        fetch(API + '/chat/processing')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.processing) setProcessing(true);
+            })
+            .catch(function() {});
 
         // 7. Fetch notifications
         fetchNotifications();

@@ -1,0 +1,23 @@
+---
+title: Add authentication to Ralph stream endpoint
+priority: 0
+assignee: Nicolás Pujia
+created: '2026-03-21'
+acceptance_criteria:
+- GET /api/projects/{name}/ralph/stream returns 401 without session cookie
+- GET /api/projects/{name}/ralph/stream returns 404 if user doesn't own the project
+- Authenticated owners can still stream Ralph output
+---
+
+The Ralph stream endpoint at GET /api/projects/{name}/ralph/stream in app/routers/ralph.py (line 173-201) has NO authentication dependency. Anyone who knows a project name can stream Ralph's stdout output.
+
+WHAT TO CHANGE in app/routers/ralph.py:
+
+1. Change the endpoint signature (line 174):
+   FROM: async def ralph_stream(name: str):
+   TO:   async def ralph_stream(name: str, user: dict = Depends(get_current_user)):
+
+2. Add project ownership check after the function signature:
+   await _get_project(name, user)
+
+This reuses the existing _get_project helper which already verifies user ownership.

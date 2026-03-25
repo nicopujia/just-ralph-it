@@ -1,0 +1,94 @@
+---
+title: Nginx wildcard subdomain routing
+priority: 0
+assignee: Nicolás Pujia
+depends_on:
+- add-deployment-columns-to-projects-table-and-port-allocation
+created: '2026-03-21'
+acceptance_criteria:
+- nginx routes *.justralph.it to the jri app with X-Subdomain header
+- 'FastAPI router handles subdomain requests: serves static files or proxies to dynamic
+  port'
+- Unknown/undeployed subdomains return 404
+- WebSocket upgrade headers passed through for dynamic apps
+- /var/www/jri-sites/ directory exists
+---
+
+Configure nginx to route *.justralph.it subdomains to deployed projects.
+
+WHAT TO CHANGE:
+
+1. Create deploy/nginx-subdomains.conf with a new server block:
+   server {
+       listen 80;
+       server_name ~^(?<subdomain>[a-z0-9-]+)\.justralph\.it$;
+
+       # For static sites: try serving from /var/www/jri-sites/{subdomain}
+       # For dynamic apps: proxy to the project's allocated port via a map or lua
+       # Simplest approach: use a try_files fallback
+
+       # Try static first
+       root /var/www/jri-sites/$subdomain;
+
+       location / {
+           try_files $uri $uri/ @dynamic;
+       }
+
+       # Fallback to dynamic proxy
+       location @dynamic {
+           # We need to resolve the port. Simplest: use a file-based map.
+           # Each project writes its port to /var/www/jri-ports/{subdomain}
+           # nginx reads it via set_by_lua or we use a fixed mapping.
+           #
+           # Simplest approach without lua: use the jri app as a reverse proxy.
+           # Route to the main app which looks up the port and proxies.
+           proxy_pass http://127.0.0.1:8000;
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+           proxy_set_header X-Subdomain $subdomain;
+           proxy_buffering off;
+       }
+   }
+
+   ACTUALLY, simpler approach that avoids lua/maps:
+   - nginx extracts the subdomain
+   - For EVERY subdomain request, proxy to the main jri app with X-Subdomain header
+   - The jri app has a catch-all route that:
+     a. Looks up the project by subdomain in DB
+     b. If deploy_type='static', serves files from the project's static dir
+     c. If deploy_type='dynamic', reverse-proxies to localhost:{deploy_port}
+   This is simpler and keeps all routing logic in Python.
+
+   So the nginx config is just:
+   server {
+       listen 80;
+       server_name ~^(?<subdomain>[a-z0-9-]+)\.justralph\.it$;
+
+       location / {
+           proxy_pass http://127.0.0.1:8000;
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+           proxy_set_header X-Subdomain $subdomain;
+           proxy_http_version 1.1;
+           proxy_set_header Upgrade $http_upgrade;
+           proxy_set_header Connection $connection_upgrade;
+           proxy_buffering off;
+       }
+   }
+
+2. In app/routers/ create a new file deploy_proxy.py with a catch-all router:
+   - Mount at lowest priority
+   - Check X-Subdomain header (set by nginx)
+   - Look up project by deploy_subdomain in DB
+   - If deploy_type='static': use FileResponse/StaticFiles to serve from project's static dir
+   - If deploy_type='dynamic': use httpx to reverse-proxy to localhost:{deploy_port}
+   - If not found or not deployed: return 404 page
+
+3. Create /var/www/jri-sites/ directory (mkdir -p, owned by nico)
+
+4. Update deploy/nginx.conf to include the subdomain config or create as separate file.
+   Install: sudo cp deploy/nginx-subdomains.conf /etc/nginx/sites-available/jri-subdomains.conf && sudo ln -sf /etc/nginx/sites-available/jri-subdomains.conf /etc/nginx/sites-enabled/ && sudo nginx -t && sudo systemctl reload nginx

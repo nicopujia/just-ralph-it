@@ -1,0 +1,25 @@
+---
+title: 'DRY: remove duplicated session max age constant'
+priority: 2
+assignee: Nicolás Pujia
+created: '2026-03-21'
+acceptance_criteria:
+- SESSION_MAX_AGE is defined ONLY in app/auth_utils.py
+- app/routers/auth.py imports and uses it from auth_utils
+- No duplicate definitions exist
+- Cookie max_age and token validation both use the same constant
+---
+
+The _SESSION_MAX_AGE constant is defined in both app/auth_utils.py (line 7) and app/routers/auth.py (line 18). Both are set to 30 * 24 * 60 * 60 (30 days).
+
+WHAT TO CHANGE:
+
+1. In app/routers/auth.py:
+   - Remove the local _SESSION_MAX_AGE = 30 * 24 * 60 * 60 definition (line 18)
+   - Add to the existing import from app.auth_utils: import _SESSION_MAX_AGE
+   - Wait—_SESSION_MAX_AGE is private (underscore prefix). Instead:
+     - In app/auth_utils.py: rename _SESSION_MAX_AGE to SESSION_MAX_AGE (remove underscore, make it public)
+     - In app/auth_utils.py: update the reference in decode_session_token to use SESSION_MAX_AGE
+     - In app/routers/auth.py: import SESSION_MAX_AGE from app.auth_utils
+     - In app/routers/auth.py: replace _SESSION_MAX_AGE with SESSION_MAX_AGE in the set_cookie call (line 117)
+     - In app/routers/auth.py: remove the local _SESSION_MAX_AGE definition

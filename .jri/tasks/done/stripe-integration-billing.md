@@ -1,0 +1,11 @@
+---
+title: Stripe Integration & Billing
+priority: 1
+created: '2026-03-21'
+acceptance_criteria:
+- Clicking JRI redirects to Stripe checkout ($20). On successful payment, Ralph loop
+  starts. Free tier users get 1 project without payment. Payment failure shows error,
+  Ralph does not start.
+---
+
+Stripe checkout for per-project billing. Flat $20/project for v1. Free tier: 1 project.

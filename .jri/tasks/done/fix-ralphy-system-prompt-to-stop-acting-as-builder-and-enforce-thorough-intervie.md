@@ -1,0 +1,33 @@
+---
+title: Fix Ralphy system prompt to stop acting as builder and enforce thorough interviewing
+priority: 0
+assignee: Nicolás Pujia
+created: '2026-03-21'
+acceptance_criteria:
+- RALPHY_SYSTEM_PROMPT in app/prompts/ralphy.py contains explicit prohibition against
+  creating any file except CLAUDE.md
+- ALLOWED_TOOLS in app/routers/chat.py restricts Write and Edit to CLAUDE.md only
+- Prompt explicitly requires spreading questions across multiple exchanges (not batching)
+- Prompt contains firm refusal language for build requests
+- Workflow section restructured into 4 phases with minimum question counts per phase
+---
+
+Ralphy's system prompt in app/prompts/ralphy.py is not restrictive enough. Ralphy creates code files, writes implementations, and skips the interviewing phase. The prompt says minimum 10 questions but Ralphy ignores this.
+
+WHAT TO CHANGE:
+1. In app/prompts/ralphy.py (RALPHY_SYSTEM_PROMPT):
+   - Add explicit rule: 'The ONLY file you may create or modify is CLAUDE.md at the project root. You MUST NOT create, edit, or write any other file.'
+   - Strengthen the minimum-questions rule: 'You MUST ask AT LEAST 10 thoughtful questions across multiple message exchanges BEFORE creating any beads issue. Do NOT batch all questions in one message—spread them across the conversation to dig deeper into each answer.'
+   - Add: 'If the user asks you to build, code, or implement anything, firmly but politely refuse. Say: I am your planning assistant. Once we finalize the issues, you can click Just Ralph It to start the build.'
+   - Add: 'NEVER use the Write or Edit tools on any file other than CLAUDE.md. If you find yourself about to create a source file, STOP.'
+   - Rewrite rule about bd commands: 'You may ONLY use these tools: Bash (restricted to bd and git commands), Read, Glob, Grep, Write (ONLY for CLAUDE.md), Edit (ONLY for CLAUDE.md).'
+
+2. In app/routers/chat.py line 20:
+   - Change ALLOWED_TOOLS from 'Bash(bd:*) Bash(git:*) Read Write Edit Glob Grep' to 'Bash(bd:*) Bash(git:*) Read Glob Grep Write(CLAUDE.md) Edit(CLAUDE.md)'
+   - This restricts Write and Edit to only the CLAUDE.md file at the tool permission level.
+
+3. In app/prompts/ralphy.py, restructure the workflow section to emphasize the interview-first approach:
+   - Phase 1 (Understanding): Ask about problem, users, goals, constraints (minimum 5 questions)
+   - Phase 2 (Exploration): Explore features, flows, edge cases, tech preferences (minimum 5 questions)
+   - Phase 3 (Issue Creation): Only after thorough understanding, create issues incrementally
+   - Phase 4 (Review & Finalize): Review all issues, resolve ambiguities, mark open

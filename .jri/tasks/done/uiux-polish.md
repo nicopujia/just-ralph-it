@@ -1,0 +1,10 @@
+---
+title: UI/UX polish
+priority: 1
+created: '2026-03-21'
+acceptance_criteria:
+- All UI issues resolved, input elements behave independently, visual consistency
+  achieved
+---
+
+Collection of frontend UI fixes: chat input focus behavior, attach button border, placeholder text size.

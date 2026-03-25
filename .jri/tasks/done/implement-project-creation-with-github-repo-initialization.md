@@ -1,0 +1,61 @@
+---
+title: Implement project creation with GitHub repo initialization
+priority: 0
+assignee: ralph
+depends_on:
+- implement-github-oauth-login-and-session-management
+created: '2026-03-21'
+acceptance_criteria:
+- 'POST /api/projects with {"name": "test-project", "description": "A test"} returns
+  200 with the project JSON including github_repo_url.'
+- 'The directory ~/jri/data/{username}/test-project/ exists and contains: .git/, .beads/,
+  CLAUDE.md, uploads/.'
+- The GitHub repo https://github.com/ralphpujia/test-project exists and is public.
+- The user's GitHub account is listed as a collaborator on the repo.
+- '`git log` in the project directory shows the initial commit with the Co-authored-by
+  header.'
+- bd list in the project directory works (beads is initialized).
+- POST /api/projects with the same name returns
+- 8. POST /api/projects with name '---invalid' returns
+- 9. The project row exists in SQLite with correct github_repo_url.
+- CLAUDE.md contains the project name, description, repo URL, and creator username.
+---
+
+Implement project creation in app/routers/projects.py.
+
+## POST /api/projects
+Request body (JSON): { "name": string, "description": string }
+
+### Validation
+- `name` must be 1-100 chars, alphanumeric + hyphens only, no leading/trailing hyphens. Return 400 with message if invalid.
+- `name` must be unique for the user. Return 409 if duplicate.
+
+### Steps (in order)
+1. Create the project directory at ~/jri/data/{github_username}/{name}/
+2. Initialize a git repo: `git init` in that directory.
+3. Set git user config for the repo: `git config user.name 'ralphpujia'` and `git config user.email 'ralphpujia@users.noreply.github.com'`.
+4. Initialize beads: `bd init` in that directory.
+5. Create an initial CLAUDE.md in the project root with content:
+```markdown
+# {name}
+
+{description}
+
+## Project Info
+- Repository: https://github.com/ralphpujia/{name}
+- Created by: {github_username}
+```
+6. Create the uploads/ directory inside the project.
+7. Git add all, commit with message 'Initial project setup' and Co-authored-by header using the user's GitHub name and email (format: `Co-authored-by: {name} <{email}>`). If name or email is null, use github_username and `{github_username}@users.noreply.github.com`.
+8. Create the GitHub repo via GitHub API: POST https://api.github.com/user/repos with {"name": name, "description": description, "private": false, "auto_init": false}. Use the ralphpujia token (from config.RALPH_BOT_GITHUB_TOKEN) in the Authorization header.
+9. Add the user as a collaborator: PUT https://api.github.com/repos/ralphpujia/{name}/collaborators/{github_username} with {"permission": "push"}. Use the ralphpujia token.
+10. Add the GitHub remote: `git remote add origin https://x-access-token:{ralphpujia_token}@github.com/ralphpujia/{name}.git`
+11. Push: `git push -u origin main`.
+12. Insert the project into SQLite with github_repo_url = 'https://github.com/ralphpujia/{name}'.
+13. Return JSON: { "id": ..., "name": ..., "description": ..., "github_repo_url": ... }
+
+### Error handling
+- If any GitHub API call fails, clean up: delete the local directory and return 500 with the error message.
+- If the GitHub repo already exists (409 from GitHub), return 409 with message 'Repository already exists on GitHub'.
+
+All subprocess calls (git, bd) must be run with cwd set to the project directory. Use asyncio.create_subprocess_exec for async subprocess execution.

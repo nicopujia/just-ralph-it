@@ -1,0 +1,26 @@
+---
+title: Implement Ralph loop subprocess manager
+priority: 0
+assignee: ralph
+depends_on:
+- implement-ralphy-chat-backend-using-claude-cli-subprocess
+created: '2026-03-21'
+acceptance_criteria:
+- POST /api/projects/{name}/ralph/start starts the Ralph loop and returns
+- 2. GET /api/projects/{name}/ralph/status returns the current loop status, issue,
+  and iteration.
+- GET /api/projects/{name}/ralph/stream returns an SSE stream that includes Ralph's
+  claude CLI output in real-time.
+- POST /api/projects/{name}/ralph/stop sets the loop to 'stopping' and it stops after
+  the current iteration finishes.
+- 'If the claude subprocess crashes (non-zero exit), the loop recovers: git reset
+  --hard, issue reopened, loop continues.'
+- The loop state is saved to .ralph_state before each iteration.
+- When there are no more ready issues, the loop status becomes 'idle' and subscribers
+  receive a loop_done event.
+- POST /api/projects/{name}/ralph/start on an already-running loop returns
+- 9. Ralph's system prompt is stored in app/prompts/ralph.py and contains all 14 rules
+  listed above.
+- The build_ralph_prompt function constructs a complete prompt from the issue JSON
+  including Co-authored-by trailer information.
+---

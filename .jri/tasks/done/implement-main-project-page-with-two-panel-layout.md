@@ -1,0 +1,184 @@
+---
+title: Implement main project page with two-panel layout
+priority: 0
+assignee: ralph
+depends_on:
+- implement-in-app-notification-system-for-ralph-blockers
+- implement-ralphy-chat-backend-using-claude-cli-subprocess
+- implement-landing-page
+- implement-beads-issues-polling-api-endpoint
+- implement-claudemd-reading-endpoint
+- implement-uploads-file-manager-api
+- implement-stripe-checkout-for-per-project-billing
+- implement-ralph-loop-subprocess-manager
+- implement-sse-event-bus-for-real-time-updates
+created: '2026-03-21'
+acceptance_criteria:
+- GET /project/{name} renders the two-panel layout with chat on the left and tabs
+  on the right.
+- The left panel has a textarea input with 'Type your message...' placeholder, Send
+  button, and Attach button.
+- Sending a message streams Ralphy's response in real-time (SSE), displayed in the
+  chat area.
+- 'The right panel has 4 tabs: Issues, CLAUDE.md, Ralph, Uploads.'
+- Issues tab shows issues grouped by epic with status dots, expandable details.
+- CLAUDE.md tab renders the markdown content of the project's CLAUDE.md.
+- Uploads tab lists files with upload, rename, delete, and drag-and-drop functionality.
+- Ralph tab appears when the loop is running and shows streaming stdout in a terminal-like
+  view.
+- The JRI button appears above the chat input when all issues are open and none are
+  deferred.
+- Clicking JRI triggers Stripe checkout (or free tier) and starts the Ralph loop.
+- Stop/Resume buttons work correctly.
+- Notification banner appears at the top when Ralph needs human help.
+- Green 'Your project is ready!' toast appears when Ralph finishes all issues.
+- SSE connection handles all event types and updates the UI in real-time.
+- The page correctly initializes based on the current project state (running loop,
+  idle, etc.).
+- Enter sends message, Shift+Enter creates newline.
+- Chat input is disabled while Ralphy is processing.
+- No external JavaScript frameworks — all vanilla JS.
+- The page has a link to the GitHub repo in the header.
+---
+
+Create the main project page at GET /project/{name} with the two-panel layout.
+
+## Route: GET /project/{name} (in app/routers/pages.py)
+- Requires auth (redirect to / if not logged in).
+- Verify project belongs to user (404 if not).
+- Check for ?payment=success query param — if present, start Ralph loop via API call.
+- Render the project template with project data passed to the template.
+
+## Template: templates/project.html
+Extends base.html. This is the main workspace.
+
+### Layout (CSS Grid or Flexbox)
+- Full viewport height (100vh minus header).
+- Two panels side by side.
+- Left panel: 40% width. Right panel: 60% width.
+- A subtle vertical divider between them (1px border).
+
+### Header (same as dashboard but with additions)
+- 'Just Ralph It' (link to /dashboard) on left.
+- Project name in the center.
+- GitHub repo link (icon or text, opens new tab) next to project name.
+- User avatar + username + logout on the right.
+
+### Left Panel: Chat
+A chat interface with:
+
+#### Message display area
+- Scrollable div taking up all available height above the input.
+- Messages alternate between user (right-aligned, slightly different bg) and assistant (left-aligned).
+- User messages: rendered as plain text (but the user typed markdown, so show it raw).
+- Assistant messages: rendered as HTML from markdown (use a simple markdown-to-HTML function in JS — or just show raw text for v1 and iterate later. Decision: show raw text with basic formatting: bold, italic, code, links. Use a minimal regex-based renderer, not a full library).
+- Auto-scroll to bottom on new messages.
+- Show a 'Ralphy is thinking...' indicator when waiting for response.
+
+#### Input area (at bottom of left panel)
+- A textarea (not input) with placeholder 'Type your message... (markdown encouraged)'.
+- Below the textarea: a row with:
+  - An attachment button (paperclip icon or text 'Attach') that opens a file picker (accept='image/*,application/pdf', max 3 files, max 3MB each).
+  - Show attached file names if any.
+  - A 'Send' button.
+- The textarea should grow with content (auto-resize) up to 200px max height, then scroll.
+- Keyboard: Enter sends, Shift+Enter for newline.
+- **Disabled state**: while Ralphy is processing (SSE ralphy_processing event), disable the textarea and send button. Show 'Ralphy is thinking...' indicator.
+
+#### JRI button
+- A prominent button labeled 'Just Ralph It' that appears ABOVE the input area.
+- Visibility controlled by a JavaScript flag set from SSE or Ralphy's response.
+- When Ralphy's response includes the phrase 'Just Ralph It' button or similar indicator (we need a protocol — see below), show the button.
+- On click:
+  - If free tier applies: call POST /api/projects/{name}/ralph/checkout. If response.free is true, Ralph starts. Else redirect to Stripe.
+  - The button disappears after clicking.
+  - Show 'Stop' and 'Resume' buttons in its place.
+
+#### JRI button protocol
+Ralphy doesn't directly control the UI. Instead, the backend detects when Ralphy has marked issues as ready (status changed from deferred to open). The detection logic:
+- After each Ralphy response, the frontend polls GET /api/projects/{name}/issues.
+- If there are issues with status='open' AND none with status='deferred', show the JRI button.
+- This way, Ralphy just needs to do its job (mark issues open) and the UI reacts.
+
+#### Stop/Resume buttons
+- 'Stop' button: visible when Ralph is running. On click: POST /api/projects/{name}/ralph/stop. Changes to 'Stopping...' until the loop actually stops.
+- 'Resume' button: visible when Ralph is stopped (not idle — stopped means intentionally paused). On click: POST /api/projects/{name}/ralph/start.
+
+### Right Panel: Tabs
+Four tabs with tab headers at the top of the right panel.
+
+#### Tab 1: Issues
+- Default active tab.
+- On load and periodically (via SSE issue_update events): fetch GET /api/projects/{name}/issues.
+- Render issues grouped by epic:
+  - Epic name as a section header with status indicator (colored dot: green=closed, yellow=in_progress, gray=open, dim=deferred).
+  - Under each epic: list of child issues, each showing:
+    - Status dot (same color coding)
+    - Issue ID (small, muted)
+    - Title
+    - Type badge (small, text: feat/task/bug/chore)
+    - Priority (P0-P4, only show if P0 or P1)
+  - Each issue is clickable to expand/collapse details:
+    - Description (full text)
+    - Acceptance criteria (full text)
+    - Dependencies (list of issue IDs)
+    - Assignee (if set)
+- Ungrouped issues at the bottom under 'Other'.
+- Issues should update in real-time via SSE without full re-render (update individual issue status dots and add new issues).
+
+#### Tab 2: CLAUDE.md
+- Fetch GET /api/projects/{name}/claude-md on tab activation and on SSE claude_md_update events.
+- Render the markdown content. For v1, basic rendering: headings, paragraphs, lists, code blocks, bold, italic. Use the same minimal renderer as chat messages.
+- If CLAUDE.md doesn't exist yet, show 'CLAUDE.md will appear here as Ralphy defines the project structure.'
+
+#### Tab 3: Ralph (only visible after Ralph starts)
+- Tab header only appears when Ralph loop status is 'running', 'stopping', or 'stopped'.
+- Content: a terminal-like div with dark background (#111) and monospace font.
+- Connect to GET /api/projects/{name}/events SSE and filter for ralph_stdout events.
+- Append each stdout line to the terminal div.
+- Auto-scroll to bottom.
+- Show the current issue being worked on at the top: 'Working on: {issue_id} — {issue_title}'.
+- When loop is done, show 'Ralph has finished all issues.' at the bottom.
+
+#### Tab 4: Uploads
+- Fetch GET /api/projects/{name}/uploads on tab activation.
+- Show a file list: name, size (human-readable: KB/MB), modified date.
+- Each file has: a rename button (pencil icon) and a delete button (X icon).
+- Rename: inline edit — clicking rename turns the name into an input field. On blur or Enter: PATCH the API. On Escape: cancel.
+- Delete: confirm() dialog, then DELETE API call, remove from list.
+- Upload area: a 'Upload File' button that opens a file picker (no type/size constraints). On selection: POST /api/projects/{name}/uploads with the file. Add the new file to the list.
+- Drag-and-drop upload: the entire uploads tab area is a drop zone. On drop: upload all dropped files.
+
+### Notification banner
+- At the very top of the page (above header), a persistent yellow/orange banner.
+- Shows when there are unacknowledged notifications (from SSE notification events or fetched on page load).
+- Content: the notification message (e.g., 'Ralph needs help: Need GitHub API key for deployment').
+- An 'Acknowledge' button on the right of the banner. On click: POST acknowledge API, hide the banner.
+- If multiple notifications, stack them or show the most recent with a count.
+
+### Completion toast
+- When the Ralph loop finishes (SSE ralph_status event with status='done'):
+  - Show a toast notification in the bottom-right corner with a green background: 'Your project is ready!'
+  - Auto-dismiss after 10 seconds, or click to dismiss.
+  - The toast is just a positioned div with a fade-in/fade-out animation.
+
+### SSE connection
+On page load, connect to GET /api/projects/{name}/events via EventSource.
+Handle all event types:
+- issue_update: refresh the issues tab data
+- claude_md_update: refresh the CLAUDE.md tab if active
+- ralph_stdout: append to Ralph terminal
+- ralph_status: update loop state, show/hide tabs and buttons
+- notification: show notification banner
+- ralphy_processing: enable/disable chat input
+
+### Page load initialization
+1. Fetch GET /api/projects/{name} for project data (including ralph_loop_status).
+2. Fetch GET /api/projects/{name}/issues for initial issues.
+3. Fetch GET /api/projects/{name}/claude-md for initial CLAUDE.md.
+4. Connect SSE.
+5. If ralph_loop_status is 'running': show Ralph tab, show Stop button, connect stdout stream.
+6. If ralph_loop_status is 'idle' and there are open issues but no deferred ones: show JRI button.
+7. Fetch GET /api/projects/{name}/notifications for any pending notifications.
+
+All JavaScript is vanilla — no frameworks, no build step.

@@ -1,0 +1,38 @@
+---
+title: 'Fix chat input focus: only textarea should highlight on focus, not the whole
+  input area'
+priority: 1
+assignee: Nicolás Pujia
+created: '2026-03-21'
+acceptance_criteria:
+- When user clicks into the textarea, ONLY the textarea area shows a visual focus
+  indicator (subtle background change), NOT the entire input bar
+- The Attach and Send buttons do NOT appear highlighted when the textarea is focused
+- Tab+Enter still sends messages as before
+- The overall input area container keeps its static border (no :focus-within color
+  change)
+---
+
+Currently in templates/project.html, the .chat-input-area container has a :focus-within CSS rule (line 238-240) that changes border-color when ANY child element is focused. This means when the user focuses the textarea, the entire input area (textarea + Attach button + Send button) gets a highlighted border, making them look like a single fused control. The user expects: focusing the textarea highlights only the textarea, and pressing Tab moves focus to the Send button (with its own visual state).
+
+WHAT TO CHANGE in templates/project.html:
+
+1. Remove the .chat-input-area:focus-within rule (lines 238-240):
+   DELETE: .chat-input-area:focus-within { border-color: var(--border-focus); }
+
+2. Add a focus style to the textarea itself. Since the textarea has border:none and is inside the container, add a subtle visual indicator. Add:
+   .chat-input-area textarea:focus { background: var(--hover-bg); }
+   This gives a subtle background change to just the textarea when focused.
+
+3. Ensure Tab key navigation works naturally: the browser's default Tab order is Attach -> textarea -> Send (DOM order). The current Tab+Enter send mechanism (chatInput keydown handler) intercepts Tab. Modify the Tab handler so that Tab ONLY sets the tabPressed flag but does NOT call e.preventDefault(). This allows the browser to naturally move focus to the Send button when Tab is pressed. Only if Enter is pressed within 500ms of Tab, send the message.
+
+Wait—actually re-reading the code (line 819-823), Tab DOES call e.preventDefault() which blocks natural tab navigation. The fix:
+   - Remove e.preventDefault() from the Tab handler
+   - Instead, let Tab move focus naturally to Send button
+   - If user presses Enter while Send is focused, it activates the button (default behavior)
+   - Remove the Tab+Enter mechanism entirely and just use Enter to send (with Shift+Enter or the existing markdown list behavior for newlines)
+
+ACTUALLY—the user specifically requested Tab+Enter to send. So keep that mechanism but fix the focus issue:
+   - Keep e.preventDefault() on Tab in the textarea (so Tab sets flag but doesn't actually move focus while typing)
+   - But when user is NOT typing (empty textarea), let Tab move focus naturally
+   - The key fix is the CSS: remove :focus-within from the container
