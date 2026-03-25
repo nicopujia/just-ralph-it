@@ -30,7 +30,7 @@ description: |-
   │   └── (empty for now, will hold Jinja2 templates)
   ├── requirements.txt
   ├── NOTES.md
-  ├── AGENTS.md
+  ├── CLAUDE.md
   └── README.md
   ```
 

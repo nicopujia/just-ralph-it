@@ -5,7 +5,7 @@ description: 'The automated Ralph builder loop: issue pickup, TDD execution, com
   crash recovery, stop/resume controls.'
 acceptance_criteria:
 - Clicking JRI starts the Ralph loop. Ralph picks issues via bd ready -n 1 --json,
-  claims them, reads AGENTS.md + issue details, writes tests first, implements, commits
+  claims them, reads CLAUDE.md + issue details, writes tests first, implements, commits
   with Co-authored-by, pushes, closes issue. Loop continues until no ready issues.
   Crash recovery via git reset + reopen. Stop/Resume buttons work. Ralph tab streams
   stdout via SSE.

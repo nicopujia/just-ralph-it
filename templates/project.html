@@ -631,27 +631,27 @@
         padding-left: 1.15rem;
     }
 
-    /* ── AGENTS.md tab ── */
-    .agents-md-content {
+    /* ── CLAUDE.md tab ── */
+    .claude-md-content {
         line-height: 1.6;
         font-size: 0.9rem;
     }
-    .agents-md-content h1, .agents-md-content h2, .agents-md-content h3 {
+    .claude-md-content h1, .claude-md-content h2, .claude-md-content h3 {
         color: var(--text-bright);
         margin: 1rem 0 0.4rem;
     }
-    .agents-md-content h1 { font-size: 1.3rem; }
-    .agents-md-content h2 { font-size: 1.1rem; }
-    .agents-md-content h3 { font-size: 0.95rem; }
-    .agents-md-content p { margin: 0.3rem 0; }
-    .agents-md-content code {
+    .claude-md-content h1 { font-size: 1.3rem; }
+    .claude-md-content h2 { font-size: 1.1rem; }
+    .claude-md-content h3 { font-size: 0.95rem; }
+    .claude-md-content p { margin: 0.3rem 0; }
+    .claude-md-content code {
         background: var(--code-bg);
         padding: 0.15rem 0.35rem;
         border-radius: 3px;
         font-family: 'SF Mono', 'Fira Code', monospace;
         font-size: 0.85em;
     }
-    .agents-md-content pre {
+    .claude-md-content pre {
         background: var(--code-bg);
         border: 1px solid var(--border);
         border-radius: 4px;
@@ -659,12 +659,12 @@
         overflow-x: auto;
         margin: 0.4rem 0;
     }
-    .agents-md-content a { color: #6ca6e8; }
-    .agents-md-content ul, .agents-md-content ol {
+    .claude-md-content a { color: #6ca6e8; }
+    .claude-md-content ul, .claude-md-content ol {
         padding-left: 1.5rem;
         margin: 0.3rem 0;
     }
-    .agents-md-placeholder {
+    .claude-md-placeholder {
         color: var(--text-faint);
         font-style: italic;
         margin-top: 2rem;
@@ -958,7 +958,7 @@
     <!-- Right panel: Tabs -->
     <div class="right-panel">
         <div class="tab-bar">
-            <a href="?tab=overview" class="tab-btn{% if active_tab == 'overview' %} active{% endif %}" data-tab="agents-md" data-tooltip="⌥1">Overview</a>
+            <a href="?tab=overview" class="tab-btn{% if active_tab == 'overview' %} active{% endif %}" data-tab="claude-md" data-tooltip="⌥1">Overview</a>
             <a href="?tab=tasks" class="tab-btn{% if active_tab == 'tasks' %} active{% endif %}" data-tab="tasks" data-tooltip="⌥2">Tasks</a>
             <a href="?tab=ralph" id="tab-btn-ralph" class="tab-btn{% if active_tab == 'ralph' %} active{% endif %}" data-tab="ralph" data-tooltip="⌥3">Ralph</a>
             <a href="?tab=uploads" class="tab-btn{% if active_tab == 'uploads' %} active{% endif %}" data-tab="uploads" data-tooltip="⌥4">Uploads</a>
@@ -970,8 +970,8 @@
             </div>
         </div>
         <div class="tab-content">
-            <div id="tab-agents-md" class="tab-pane{% if active_tab == 'overview' %} active{% endif %}">
-                <div class="agents-md-content" id="agents-md-body"></div>
+            <div id="tab-claude-md" class="tab-pane{% if active_tab == 'overview' %} active{% endif %}">
+                <div class="claude-md-content" id="claude-md-body"></div>
             </div>
             <div id="tab-tasks" class="tab-pane{% if active_tab == 'tasks' %} active{% endif %}"></div>
             <div id="tab-ralph" class="tab-pane{% if active_tab == 'ralph' %} active{% endif %}">
@@ -1097,7 +1097,7 @@
     var mainLayout = document.getElementById('main-layout');
     var tabBtnRalph = document.getElementById('tab-btn-ralph');
     var ralphTerminal = document.getElementById('ralph-terminal');
-    var agentsMdBody = document.getElementById('agents-md-body');
+    var claudeMdBody = document.getElementById('claude-md-body');
     var uploadList = document.getElementById('upload-list');
     var btnUploadFile = document.getElementById('btn-upload-file');
     var uploadFileInput = document.getElementById('upload-file-input');
@@ -1539,7 +1539,7 @@
                                 thinkingSteps.push(label);
                                 // Refresh issues when Ralphy uses Bash (likely bd commands)
                                 if (evt.name === 'Bash') {
-                                    fetchIssues(); fetchAgentsMd();
+                                    fetchIssues(); fetchClaudeMd();
                                 }
                                 ensureMsgDiv();
                                 rebuildMsg();
@@ -1566,9 +1566,9 @@
                                 localStorage.removeItem(STORAGE_KEY + '-pending');
                                 ensureMsgDiv();
                                 rebuildMsg();
-                                // Refresh issues and AGENTS.md after Ralphy finishes
+                                // Refresh issues and CLAUDE.md after Ralphy finishes
                                 fetchIssues();
-                                fetchAgentsMd();
+                                fetchClaudeMd();
                             } else if (evt.type === 'error') {
                                 setProcessing(false);
                                 addChatMessage('assistant', '<span style="color:#ff4444;">Error: ' + (evt.message || 'Unknown error') + '</span>');
@@ -1722,8 +1722,8 @@
     var tabPanes = document.querySelectorAll('.tab-pane');
 
     // tab slug (data-tab attr) → query param value
-    var tabToParam = { 'agents-md': 'overview', 'tasks': 'tasks', 'ralph': 'ralph', 'uploads': 'uploads', 'env': 'env' };
-    var tabOrder = ['agents-md', 'tasks', 'ralph', 'uploads', 'env'];
+    var tabToParam = { 'claude-md': 'overview', 'tasks': 'tasks', 'ralph': 'ralph', 'uploads': 'uploads', 'env': 'env' };
+    var tabOrder = ['claude-md', 'tasks', 'ralph', 'uploads', 'env'];
 
     function activateTab(tab) {
         tabBtns.forEach(function(b) { b.classList.remove('active'); });
@@ -1738,7 +1738,7 @@
         history.pushState(null, '', '?tab=' + param);
 
         // Lazy-load data on tab activation
-        if (tab === 'agents-md') fetchAgentsMd();
+        if (tab === 'claude-md') fetchClaudeMd();
         if (tab === 'tasks') fetchIssues();
         if (tab === 'uploads') fetchUploads();
         if (tab === 'env') fetchEnv();
@@ -1925,17 +1925,17 @@
     }
 
     /* ══════════════════════════════════════════════
-       AGENTS.MD TAB
+       CLAUDE.MD TAB
        ══════════════════════════════════════════════ */
-    function fetchAgentsMd() {
-        fetch(API + '/agents-md')
+    function fetchClaudeMd() {
+        fetch(API + '/claude-md')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.exists && data.content) {
-                    agentsMdBody.innerHTML = renderMarkdown(data.content);
-                    agentsMdBody.className = 'agents-md-content';
+                    claudeMdBody.innerHTML = renderMarkdown(data.content);
+                    claudeMdBody.className = 'claude-md-content';
                 } else {
-                    agentsMdBody.innerHTML = '<p class="agents-md-placeholder">AGENTS.md will appear here as Ralphy defines the project structure.</p>';
+                    claudeMdBody.innerHTML = '<p class="claude-md-placeholder">CLAUDE.md will appear here as Ralphy defines the project structure.</p>';
                 }
             })
             .catch(function() {});
@@ -2313,8 +2313,8 @@
             fetchIssues();
         });
 
-        es.addEventListener('agents_md_update', function(e) {
-            fetchAgentsMd();
+        es.addEventListener('claude_md_update', function(e) {
+            fetchClaudeMd();
         });
 
         es.addEventListener('ralph_stdout', function(e) {
@@ -2585,8 +2585,8 @@
         // 4. Fetch issues
         fetchIssues();
 
-        // 5. Fetch agents-md
-        fetchAgentsMd();
+        // 5. Fetch claude-md
+        fetchClaudeMd();
 
         // 6. Connect SSE
         connectSSE();

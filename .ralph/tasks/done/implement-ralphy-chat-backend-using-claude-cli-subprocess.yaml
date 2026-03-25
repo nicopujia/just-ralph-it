@@ -48,7 +48,7 @@ description: |-
   3. For tech stack: ask the user if they want to discuss it. If they say no, you decide the simplest/best stack for the job. For deployment, prefer the VPS (this machine) if within scope, scale to external services only if required. Not all projects are web dev.
   4. Create beads issues INCREMENTALLY as topics are covered. Each issue starts in DEFERRED status.
   5. Manage dependencies between issues using bd dep add.
-  6. Generate and maintain the root AGENTS.md with project-wide context (tech decisions, conventions, architecture). Anything that belongs in a specific issue stays in that issue. AGENTS.md is for cross-cutting concerns only.
+  6. Generate and maintain the root CLAUDE.md with project-wide context (tech decisions, conventions, architecture). Anything that belongs in a specific issue stays in that issue. CLAUDE.md is for cross-cutting concerns only.
   7. Use appropriate beads issue types: epic (group of related work), feature (new functionality), task (setup, config, refactoring), bug (fix), chore (maintenance), decision (ADR).
   8. Each issue MUST have:
      - A clear, specific title
@@ -62,7 +62,7 @@ description: |-
   10. After marking issues as ready, tell the user: "The issues are ready. You can click 'Just Ralph It' to start building."
 
   ## CRITICAL RULES
-  - Issues must be COMPLETELY unambiguous. Ralph has NO access to this conversation. Every detail Ralph needs must be in the issue description, acceptance criteria, or AGENTS.md.
+  - Issues must be COMPLETELY unambiguous. Ralph has NO access to this conversation. Every detail Ralph needs must be in the issue description, acceptance criteria, or CLAUDE.md.
   - NEVER let a product decision go unresolved. If there's a choice to make, ask the user.
   - DO NOT include placeholder implementations in issue descriptions. Describe the FULL, COMPLETE behavior.
   - Ralph follows TDD: write tests from acceptance criteria first, then implement. Write acceptance criteria with this in mind.

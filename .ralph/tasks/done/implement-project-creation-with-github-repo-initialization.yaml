@@ -19,7 +19,7 @@ description: |-
   2. Initialize a git repo: `git init` in that directory.
   3. Set git user config for the repo: `git config user.name 'ralphpujia'` and `git config user.email 'ralphpujia@users.noreply.github.com'`.
   4. Initialize beads: `bd init` in that directory.
-  5. Create an initial AGENTS.md in the project root with content:
+  5. Create an initial CLAUDE.md in the project root with content:
   ```markdown
   # {name}
 
@@ -47,7 +47,7 @@ acceptance_criteria:
 - 'POST /api/projects with {"name": "test-project", "description": "A test"} returns
   200 with the project JSON including github_repo_url.'
 - 'The directory ~/jri/data/{username}/test-project/ exists and contains: .git/, .beads/,
-  AGENTS.md, uploads/.'
+  CLAUDE.md, uploads/.'
 - The GitHub repo https://github.com/ralphpujia/test-project exists and is public.
 - The user's GitHub account is listed as a collaborator on the repo.
 - '`git log` in the project directory shows the initial commit with the Co-authored-by
@@ -56,4 +56,4 @@ acceptance_criteria:
 - POST /api/projects with the same name returns
 - 8. POST /api/projects with name '---invalid' returns
 - 9. The project row exists in SQLite with correct github_repo_url.
-- AGENTS.md contains the project name, description, repo URL, and creator username.
+- CLAUDE.md contains the project name, description, repo URL, and creator username.

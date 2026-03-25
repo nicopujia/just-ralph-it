@@ -175,7 +175,7 @@ async def create_project(
 
         # 5. Create CLAUDE.md
         logger.info(f"Creating project {name}: step 5 - creating CLAUDE.md")
-        agents_md = (
+        claude_md = (
             f"# {name}\n"
             f"\n"
             f"{description}\n"
@@ -184,7 +184,7 @@ async def create_project(
             f"- Repository: {github_repo_url}\n"
             f"- Created by: {github_username}"
         )
-        (project_dir / "CLAUDE.md").write_text(agents_md)
+        (project_dir / "CLAUDE.md").write_text(claude_md)
 
         # 6. Create uploads/ directory
         logger.info(f"Creating project {name}: step 6 - creating uploads directory")
@@ -361,8 +361,8 @@ async def list_projects(user: dict = Depends(get_current_user)):
     ]
 
 
-@router.get("/{name}/agents-md")
-async def get_agents_md(name: str, user: dict = Depends(get_current_user)):
+@router.get("/{name}/claude-md")
+async def get_claude_md(name: str, user: dict = Depends(get_current_user)):
     github_username: str = user["github_username"]
     user_id: int = user["id"]
 
@@ -375,12 +375,12 @@ async def get_agents_md(name: str, user: dict = Depends(get_current_user)):
         if not await cursor.fetchone():
             raise HTTPException(status_code=404, detail="Project not found")
 
-    agents_path = DATA_DIR / github_username / name / "CLAUDE.md"
+    claude_md_path = DATA_DIR / github_username / name / "CLAUDE.md"
 
-    if not agents_path.exists():
+    if not claude_md_path.exists():
         return {"content": "", "exists": False}
 
-    content = agents_path.read_text()
+    content = claude_md_path.read_text()
     return {"content": content, "exists": True}
 
 

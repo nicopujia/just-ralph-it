@@ -6,7 +6,7 @@ depends_on:
 - implement-ralphy-chat-backend-using-claude-cli-subprocess
 - implement-landing-page
 - implement-beads-issues-polling-api-endpoint
-- implement-agentsmd-reading-endpoint
+- implement-claudemd-reading-endpoint
 - implement-uploads-file-manager-api
 - implement-stripe-checkout-for-per-project-billing
 - implement-ralph-loop-subprocess-manager
@@ -98,10 +98,10 @@ description: |-
   - Ungrouped issues at the bottom under 'Other'.
   - Issues should update in real-time via SSE without full re-render (update individual issue status dots and add new issues).
 
-  #### Tab 2: AGENTS.md
-  - Fetch GET /api/projects/{name}/agents-md on tab activation and on SSE agents_md_update events.
+  #### Tab 2: CLAUDE.md
+  - Fetch GET /api/projects/{name}/claude-md on tab activation and on SSE claude_md_update events.
   - Render the markdown content. For v1, basic rendering: headings, paragraphs, lists, code blocks, bold, italic. Use the same minimal renderer as chat messages.
-  - If AGENTS.md doesn't exist yet, show 'AGENTS.md will appear here as Ralphy defines the project structure.'
+  - If CLAUDE.md doesn't exist yet, show 'CLAUDE.md will appear here as Ralphy defines the project structure.'
 
   #### Tab 3: Ralph (only visible after Ralph starts)
   - Tab header only appears when Ralph loop status is 'running', 'stopping', or 'stopped'.
@@ -138,7 +138,7 @@ description: |-
   On page load, connect to GET /api/projects/{name}/events via EventSource.
   Handle all event types:
   - issue_update: refresh the issues tab data
-  - agents_md_update: refresh the AGENTS.md tab if active
+  - claude_md_update: refresh the CLAUDE.md tab if active
   - ralph_stdout: append to Ralph terminal
   - ralph_status: update loop state, show/hide tabs and buttons
   - notification: show notification banner
@@ -147,7 +147,7 @@ description: |-
   ### Page load initialization
   1. Fetch GET /api/projects/{name} for project data (including ralph_loop_status).
   2. Fetch GET /api/projects/{name}/issues for initial issues.
-  3. Fetch GET /api/projects/{name}/agents-md for initial AGENTS.md.
+  3. Fetch GET /api/projects/{name}/claude-md for initial CLAUDE.md.
   4. Connect SSE.
   5. If ralph_loop_status is 'running': show Ralph tab, show Stop button, connect stdout stream.
   6. If ralph_loop_status is 'idle' and there are open issues but no deferred ones: show JRI button.
@@ -161,9 +161,9 @@ acceptance_criteria:
   button, and Attach button.
 - Sending a message streams Ralphy's response in real-time (SSE), displayed in the
   chat area.
-- 'The right panel has 4 tabs: Issues, AGENTS.md, Ralph, Uploads.'
+- 'The right panel has 4 tabs: Issues, CLAUDE.md, Ralph, Uploads.'
 - Issues tab shows issues grouped by epic with status dots, expandable details.
-- AGENTS.md tab renders the markdown content of the project's AGENTS.md.
+- CLAUDE.md tab renders the markdown content of the project's CLAUDE.md.
 - Uploads tab lists files with upload, rename, delete, and drag-and-drop functionality.
 - Ralph tab appears when the loop is running and shows streaming stdout in a terminal-like
   view.

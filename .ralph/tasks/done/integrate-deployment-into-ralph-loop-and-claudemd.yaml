@@ -1,4 +1,4 @@
-title: Integrate deployment into Ralph loop and AGENTS.md
+title: Integrate deployment into Ralph loop and CLAUDE.md
 priority: 0
 assignee: Nicolás Pujia
 depends_on:
@@ -7,7 +7,7 @@ depends_on:
 - nginx-wildcard-subdomain-routing
 created: '2026-03-21'
 description: |-
-  After Ralph finishes all issues and before the loop ends, deploy the project. Also update AGENTS.md template and Ralph's prompt to know about the deployment target.
+  After Ralph finishes all issues and before the loop ends, deploy the project. Also update CLAUDE.md template and Ralph's prompt to know about the deployment target.
 
   WHAT TO CHANGE:
 
@@ -17,8 +17,8 @@ description: |-
      - If deploy_type='static': call deploy_static() from deploy_manager
      - Publish SSE event: ralph_status with status='deployed' and url='{subdomain}.justralph.it'
 
-  2. In app/routers/projects.py, update the AGENTS.md template (step 5 in create_project):
-     Add to the AGENTS.md content:
+  2. In app/routers/projects.py, update the CLAUDE.md template (step 5 in create_project):
+     Add to the CLAUDE.md content:
      ## Deployment
      - This project will be deployed to: https://{name}.justralph.it
      - The app MUST listen on host 127.0.0.1 and port {port} (read from PORT env var)
@@ -35,7 +35,7 @@ description: |-
      - Add a link to the subdomain in the project header next to the GitHub link
 acceptance_criteria:
 - Ralph loop deploys the project after finishing all issues
-- AGENTS.md template includes deployment info with port and subdomain
+- CLAUDE.md template includes deployment info with port and subdomain
 - Ralph's prompt mentions PORT env var requirement
 - Ralphy mentions subdomain deployment for web projects
 - Frontend shows deployment URL after build completes
