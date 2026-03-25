@@ -27,3 +27,8 @@ docs: update setup instructions in README
 Replace pip with uv.
 ```
 
+## Workflow
+
+- Use subagents for each task. Parallelize independent tasks.
+- Commit, push, and restart the service (`sudo systemctl restart jri`) frequently.
+
