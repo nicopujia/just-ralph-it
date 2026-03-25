@@ -192,20 +192,25 @@ async def create_project(
 
         # 6a. Write .jri/README.md
         jri_readme = (
-            "# .jri/ — Project Tracking Directory\n"
+            "# .jri/ — Just Ralph It\n"
             "\n"
-            "This directory is managed by JRI (Just Ralph It) for project-level task tracking and file storage.\n"
+            "Project tracking directory managed by [JRI](https://justralph.it).\n"
             "\n"
             "## Structure\n"
             "\n"
             "```\n"
-            "tasks/          — task tracking (YAML files organized by status)\n"
-            "  draft/        — tasks being defined\n"
-            "  todo/         — tasks ready to start\n"
-            "  doing/        — tasks in progress\n"
-            "  done/         — completed tasks\n"
-            "uploads/        — user-uploaded reference files\n"
+            "tasks/      — YAML task files organized by status\n"
+            "  draft/    — tasks being defined\n"
+            "  todo/     — tasks ready to start\n"
+            "  doing/    — tasks in progress\n"
+            "  done/     — completed tasks\n"
+            "uploads/    — user-uploaded reference files\n"
+            "ralph.log   — Ralph (builder) output log\n"
+            "ralphy.log  — Ralphy (interviewer) output log\n"
             "```\n"
+            "\n"
+            "Each task is a YAML file named by its slug (e.g. `implement-dashboard-page.yaml`).\n"
+            "Status is determined by which subdirectory the file lives in.\n"
         )
         (project_dir / ".jri" / "README.md").write_text(jri_readme)
 
