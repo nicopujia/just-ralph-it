@@ -24,7 +24,8 @@ async def _is_logged_in(request: Request) -> bool:
     if not token:
         return False
     try:
-        user_id = decode_session_token(token)
+        session_data = decode_session_token(token)
+        user_id = session_data["uid"] if isinstance(session_data, dict) else session_data
     except Exception:
         return False
     async with get_db() as db:
@@ -45,7 +46,8 @@ async def dashboard(request: Request):
     if not token:
         return RedirectResponse(url="/", status_code=302)
     try:
-        user_id = decode_session_token(token)
+        session_data = decode_session_token(token)
+        user_id = session_data["uid"] if isinstance(session_data, dict) else session_data
     except Exception:
         return RedirectResponse(url="/", status_code=302)
     async with get_db() as db:
@@ -74,7 +76,8 @@ async def new_project(request: Request):
     if not token:
         return RedirectResponse(url="/", status_code=302)
     try:
-        user_id = decode_session_token(token)
+        session_data = decode_session_token(token)
+        user_id = session_data["uid"] if isinstance(session_data, dict) else session_data
     except Exception:
         return RedirectResponse(url="/", status_code=302)
     async with get_db() as db:
