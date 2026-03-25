@@ -556,6 +556,11 @@
         border-left: 2px solid var(--border);
         margin: 0.2rem 0 0.4rem 0.8rem;
     }
+    .pricing-summary {
+        font-size: 0.8rem;
+        color: var(--text-faint);
+        margin-bottom: 0.75rem;
+    }
     .issue-group-header {
         display: flex;
         align-items: center;
@@ -1841,6 +1846,18 @@
                 group.issues.forEach(function(issue) { doneSlugs[issue.id] = true; });
             }
         });
+
+        // Pricing calculator — count non-done tasks
+        var activeTasks = 0;
+        groups.forEach(function(group) {
+            if (group.statuses[0] !== 'done') activeTasks += group.issues.length;
+        });
+        if (activeTasks > 0) {
+            var pricingEl = document.createElement('div');
+            pricingEl.className = 'pricing-summary';
+            pricingEl.textContent = activeTasks + (activeTasks === 1 ? ' task' : ' tasks') + ' \u00b7 $' + activeTasks;
+            container.appendChild(pricingEl);
+        }
 
         groups.forEach(function(group) {
             group.issues.sort(function(a, b) {
