@@ -27,6 +27,10 @@ docs: update setup instructions in README
 Replace pip with uv.
 ```
 
+## Type Checking
+
+- Run `ty check` before committing.
+
 ## Workflow
 
 - Use subagents for each task. Parallelize independent tasks.

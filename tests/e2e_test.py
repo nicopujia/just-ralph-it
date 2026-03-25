@@ -12,8 +12,8 @@ import pytest
 from playwright.sync_api import sync_playwright, Page, BrowserContext
 import httpx
 
-# Add project root to path so we can import app modules
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# Add src/ to path so we can import app modules
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from app.auth_utils import create_session_token
 

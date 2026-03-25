@@ -8,8 +8,8 @@ import os
 import socket
 import sys
 
-# Ensure working directory is on the path (systemd sets WorkingDirectory but not PYTHONPATH)
-sys.path.insert(0, os.getcwd())
+# Ensure src/ is on the path (systemd sets WorkingDirectory but not PYTHONPATH)
+sys.path.insert(0, os.path.join(os.getcwd(), "src"))
 
 import uvicorn
 

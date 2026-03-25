@@ -45,7 +45,7 @@ cp example.env .env
 # Edit .env with your credentials
 
 # 5. Run
-uv run uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+uv run uvicorn app.main:app --app-dir src --reload --host 127.0.0.1 --port 8000
 # App starts at http://127.0.0.1:8000
 ```
 
@@ -70,13 +70,13 @@ Each YAML file has a `title`, `priority`, `assignee`, `depends_on`, `created`, a
 
 ## SSE Event Types
 
-Real-time updates via `app/sse_bus.py`, keyed by project name:
+Real-time updates via `src/app/sse_bus.py`, keyed by project name:
 
 `issue_update`, `claude_md_update`, `ralph_stdout` (live-streamed, not persisted to disk), `ralph_status`, `notification`, `ralphy_processing`
 
 ## Upload Constraints
 
-- **Max multipart size**: 10 MB (set in `app/main.py` via `MultiPartParser.max_file_size`)
+- **Max multipart size**: 10 MB (set in `src/app/main.py` via `MultiPartParser.max_file_size`)
 - **Max attachment size**: 3 MB per file (enforced in `app/routers/chat.py`)
 - **nginx limit**: `client_max_body_size 10M`
 - Path traversal (`..`, `/`) is rejected

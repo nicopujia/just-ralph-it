@@ -10,8 +10,8 @@ import shutil
 
 import httpx
 
-# Add project root to path so we can import app modules
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# Add src/ to path so we can import app modules
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from app.auth_utils import create_session_token
 from app.config import DATA_DIR, RALPH_BOT_GITHUB_TOKEN
