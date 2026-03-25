@@ -7,7 +7,7 @@ import logging
 from pathlib import Path
 from typing import Optional
 
-from app import issues
+from app import tasks
 from app.database import get_db
 from app.prompts.ralph import RALPH_SYSTEM_PROMPT
 from app.sse_bus import sse_bus
@@ -52,7 +52,7 @@ def build_ralph_prompt(issue: dict, user_name: str, user_email: str) -> str:
         f"Solve this issue completely. Follow TDD: write tests from acceptance criteria first, then implement.\n"
         f'When done: git add -A && git commit -m "<msg>" '
         f'--trailer "Co-authored-by: {user_name} <{user_email}>"\n'
-        f"Then: mv .ralph/issues/open/{issue_id}.yaml .ralph/issues/closed/"
+        f"Then: mv .ralph/tasks/doing/{issue_id}.yaml .ralph/tasks/done/"
     )
 
 
@@ -105,7 +105,7 @@ class RalphLoop:
                 # Reopen the issue
                 if issue_id:
                     try:
-                        issues.set_status(project_dir, issue_id, "open")
+                        tasks.set_status(project_dir, issue_id, "todo")
                     except Exception:
                         logger.warning("Could not reopen issue %s", issue_id)
                     await sse_bus.publish(
@@ -127,11 +127,11 @@ class RalphLoop:
     async def _poll_for_human_blockers(self) -> None:
         """Check for issues assigned to Human and create notifications."""
         try:
-            all_issues = issues.list_all(self.project_dir)
+            all_issues = tasks.list_all(self.project_dir)
 
             human_issues = [
                 i for i in all_issues
-                if i.get("assignee") == "Human" and i.get("status") == "open"
+                if i.get("assignee") == "Human" and i.get("status") == "todo"
             ]
 
             if not human_issues:
@@ -190,7 +190,7 @@ class RalphLoop:
                 await self._poll_for_human_blockers()
 
                 # --- Get ready issues ---
-                ready_issues = issues.get_ready(self.project_dir)[:1]
+                ready_issues = tasks.get_ready(self.project_dir)[:1]
 
                 logger.info("Project %s: found %d ready issues", self.project_name, len(ready_issues))
 
@@ -218,7 +218,8 @@ class RalphLoop:
 
                 try:
                     # --- Claim ---
-                    issues.update_field(
+                    tasks.set_status(self.project_dir, self.current_issue_id, "doing")
+                    tasks.update_field(
                         self.project_dir, self.current_issue_id,
                         assignee="ralph",
                     )
@@ -282,10 +283,10 @@ class RalphLoop:
                         )
 
                     # --- Check if issue was closed ---
-                    issue_data = issues.get_issue(
+                    issue_data = tasks.get_task(
                         self.project_dir, self.current_issue_id,
                     )
-                    if issue_data and issue_data.get("status") != "closed":
+                    if issue_data and issue_data.get("status") != "done":
                         logger.warning(
                             "Issue %s was not closed by Ralph after iteration %d",
                             self.current_issue_id, self.iteration,
@@ -389,7 +390,7 @@ class RalphLoop:
 
         # Reopen issue
         try:
-            issues.set_status(self.project_dir, issue_id, "open")
+            tasks.set_status(self.project_dir, issue_id, "todo")
         except Exception:
             logger.warning("Could not reopen issue %s during recovery", issue_id)
 

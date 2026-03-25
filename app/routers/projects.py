@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from app.auth_utils import get_current_user
 from app.config import DATA_DIR, RALPH_BOT_GITHUB_TOKEN, MAINTENANCE_MODE
 from app.database import get_db
-from app import issues
+from app import tasks
 
 logger = logging.getLogger(__name__)
 
@@ -75,28 +75,28 @@ async def _get_project_dir(name: str, user: dict) -> str:
     return str(project_dir)
 
 
-@router.get("/{name}/issues")
-async def list_issues(
+@router.get("/{name}/tasks")
+async def list_tasks(
     name: str,
     user: dict = Depends(get_current_user),
 ):
-    """List all issues in a project."""
+    """List all tasks in a project."""
     cwd = await _get_project_dir(name, user)
-    return issues.list_all(cwd)
+    return tasks.list_all(cwd)
 
 
-@router.get("/{name}/issues/{issue_id}")
-async def get_issue(
+@router.get("/{name}/tasks/{task_id}")
+async def get_task(
     name: str,
-    issue_id: str,
+    task_id: str,
     user: dict = Depends(get_current_user),
 ):
-    """Return full details for a single issue."""
+    """Return full details for a single task."""
     cwd = await _get_project_dir(name, user)
-    issue = issues.get_issue(cwd, issue_id)
-    if issue is None:
-        raise HTTPException(status_code=404, detail="Issue not found")
-    return issue
+    task = tasks.get_task(cwd, task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
 
 
 @router.post("")
@@ -169,9 +169,9 @@ async def create_project(
             cwd=cwd,
         )
 
-        # 4. Initialize issue tracking
-        logger.info(f"Creating project {name}: step 4 - init issues")
-        issues.init_issues(cwd)
+        # 4. Initialize task tracking
+        logger.info(f"Creating project {name}: step 4 - init tasks")
+        tasks.init_tasks(cwd)
 
         # 5. Create CLAUDE.md
         logger.info(f"Creating project {name}: step 5 - creating CLAUDE.md")
@@ -325,7 +325,7 @@ async def create_project(
 
 def _get_issue_count(project_dir: str) -> int:
     try:
-        return issues.issue_count(project_dir)
+        return tasks.task_count(project_dir)
     except Exception:
         return 0
 

@@ -97,7 +97,7 @@
     /* ── Main layout ── */
     .main-layout {
         display: grid;
-        grid-template-columns: 40% 5px 1fr;
+        grid-template-columns: 50% 5px 1fr;
         height: calc(100vh - 48px);
         overflow: hidden;
     }
@@ -483,10 +483,10 @@
         bottom: auto;
         transform: none;
     }
-    .status-dot.closed { background: #4caf50; }
-    .status-dot.in_progress { background: #e8a820; }
-    .status-dot.open { background: var(--text-dim); }
-    .status-dot.deferred { background: var(--border-focus); opacity: 0.6; }
+    .status-dot.done { background: #4caf50; }
+    .status-dot.doing { background: #e8a820; }
+    .status-dot.todo { background: var(--text-dim); }
+    .status-dot.draft { background: var(--border-focus); opacity: 0.6; }
     .issue-row {
         display: flex;
         align-items: center;
@@ -907,7 +907,7 @@
     <div class="right-panel">
         <div class="tab-bar">
             <a href="#overview" class="tab-btn active" data-tab="agents-md">Overview</a>
-            <a href="#issues" class="tab-btn" data-tab="issues">Issues</a>
+            <a href="#tasks" class="tab-btn" data-tab="tasks">Tasks</a>
             <a href="#ralph" id="tab-btn-ralph" class="tab-btn" data-tab="ralph">Ralph</a>
             <a href="#uploads" class="tab-btn" data-tab="uploads">Uploads</a>
             <a href="#env" class="tab-btn" data-tab="env">Env</a>
@@ -921,7 +921,7 @@
             <div id="tab-agents-md" class="tab-pane active">
                 <div class="agents-md-content" id="agents-md-body"></div>
             </div>
-            <div id="tab-issues" class="tab-pane"></div>
+            <div id="tab-tasks" class="tab-pane"></div>
             <div id="tab-ralph" class="tab-pane">
                 <div id="ralph-terminal" class="ralph-terminal">Ralph's build output will appear here once you start the build.</div>
             </div>
@@ -966,7 +966,7 @@
     var ralphyProcessing = false;
     var currentNotifications = [];
     var attachedFiles = [];
-    var issuesData = null;
+    var tasksData = null;
     var projectData = null;
 
     function updateAttachmentDisplay() {
@@ -1669,7 +1669,7 @@
     var tabBtns = document.querySelectorAll('.tab-btn');
     var tabPanes = document.querySelectorAll('.tab-pane');
 
-    var hashToTab = { '#overview': 'agents-md', '#issues': 'issues', '#ralph': 'ralph', '#uploads': 'uploads', '#env': 'env' };
+    var hashToTab = { '#overview': 'agents-md', '#tasks': 'tasks', '#ralph': 'ralph', '#uploads': 'uploads', '#env': 'env' };
 
     function activateTab(tab) {
         tabBtns.forEach(function(b) { b.classList.remove('active'); });
@@ -1708,26 +1708,26 @@
     }
 
     /* ══════════════════════════════════════════════
-       ISSUES TAB
+       TASKS TAB
        ══════════════════════════════════════════════ */
-    function allIssuesReady(data) {
+    function allTasksReady(data) {
         if (!data || !data.length) return false;
-        var hasOpen = false;
-        var hasDeferred = false;
+        var hasTodo = false;
+        var hasDraft = false;
         (data || []).forEach(function(c) {
-            if (c.status === 'open') hasOpen = true;
-            if (c.status === 'deferred') hasDeferred = true;
+            if (c.status === 'todo') hasTodo = true;
+            if (c.status === 'draft') hasDraft = true;
         });
-        return hasOpen && !hasDeferred;
+        return hasTodo && !hasDraft;
     }
 
     function fetchIssues() {
-        return fetch(API + '/issues')
+        return fetch(API + '/tasks')
             .then(function(r) { return r.json(); })
             .then(function(data) {
-                issuesData = data;
+                tasksData = data;
                 renderIssues(data);
-                if (allIssuesReady(data)) {
+                if (allTasksReady(data)) {
                     showJriButton();
                     localStorage.setItem(STORAGE_KEY + '-jri', 'true');
                 } else {
@@ -1742,36 +1742,30 @@
         var cls = 'status-dot';
         var wrapCls = 'status-dot-wrap';
         var label = 'Open';
-        if (status === 'closed') cls += ' closed';
-        else if (status === 'in_progress') {
-            cls += ' in_progress';
-            label = 'In progress';
-        }
-        else if (status === 'deferred') {
-            cls += ' deferred';
-            label = 'Deferred';
-        }
-        else cls += ' open';
-        if (status === 'closed') label = 'Closed';
+        if (status === 'done') { cls += ' done'; label = 'Done'; }
+        else if (status === 'doing') { cls += ' doing'; label = 'Doing'; }
+        else if (status === 'draft') { cls += ' draft'; label = 'Draft'; }
+        else { cls += ' todo'; label = 'To Do'; }
         if (variant === 'epic') wrapCls += ' status-dot-wrap-epic';
         return '<span class="' + wrapCls + '" data-status-label="' + label + '" aria-label="Status: ' + label + '" tabindex="0"><span class="' + cls + '"></span></span>';
     }
 
     function renderIssues(data) {
-        var container = document.getElementById('tab-issues');
+        var container = document.getElementById('tab-tasks');
         container.innerHTML = '';
 
         if (!data || data.length === 0) {
-            container.innerHTML = '<p style="color:var(--text-faint);font-style:italic;text-align:center;margin-top:2rem;">No issues yet. Chat with Ralphy to create your project plan.</p>';
+            container.innerHTML = '<p style="color:var(--text-faint);font-style:italic;text-align:center;margin-top:2rem;">No tasks yet. Chat with Ralphy to create your project plan.</p>';
             return;
         }
 
-        var issues = data.filter(function(i) { return i.type !== 'epic'; });
+        var issues = data;
 
         var groups = [
-            { label: 'In Progress', statuses: ['in_progress'], issues: [] },
-            { label: 'Open',        statuses: ['open'],        issues: [] },
-            { label: 'Closed',      statuses: ['closed'],      issues: [] },
+            { label: 'Doing', statuses: ['doing'], issues: [] },
+            { label: 'To Do', statuses: ['todo'],  issues: [] },
+            { label: 'Done',  statuses: ['done'],  issues: [] },
+            { label: 'Draft', statuses: ['draft'], issues: [] },
         ];
 
         issues.forEach(function(issue) {
@@ -1779,7 +1773,7 @@
             for (var g = 0; g < groups.length; g++) {
                 if (groups[g].statuses.indexOf(s) !== -1) { groups[g].issues.push(issue); return; }
             }
-            groups[1].issues.push(issue); // fallback to open
+            groups[1].issues.push(issue); // fallback to todo
         });
 
         groups.forEach(function(group) {
