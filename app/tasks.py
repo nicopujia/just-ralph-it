@@ -11,22 +11,15 @@ logger = logging.getLogger(__name__)
 STATUSES = ("todo", "doing", "done", "draft")
 
 
-def _would_be_quoted(s: str) -> bool:
-    """Return True if pyyaml would quote this string in plain style."""
-    dumped = yaml.dump(s, default_flow_style=False, allow_unicode=True)
-    return dumped.startswith("'") or dumped.startswith('"')
-
-
 def _yaml_dump(data: dict) -> str:
-    """Dump YAML using block scalars (|) for multiline strings and long strings that would be quoted."""
+    """Dump YAML using block scalars (|) for multiline strings only."""
 
     class _Dumper(yaml.Dumper):
         pass
 
     def str_representer(dumper, s):
-        if "\n" in s or (len(s) > 40 and _would_be_quoted(s)):
-            return dumper.represent_scalar("tag:yaml.org,2002:str", s, style="|")
-        return dumper.represent_scalar("tag:yaml.org,2002:str", s, style=None)
+        style = "|" if "\n" in s else None
+        return dumper.represent_scalar("tag:yaml.org,2002:str", s, style=style)
 
     _Dumper.add_representer(str, str_representer)
     return yaml.dump(data, Dumper=_Dumper, allow_unicode=True, sort_keys=False)

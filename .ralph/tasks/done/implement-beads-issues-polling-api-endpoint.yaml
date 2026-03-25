@@ -53,6 +53,5 @@ acceptance_criteria:
 - Each issue contains id, title, type, status, priority, description, acceptance_criteria,
   assignee, dependencies, and created_at.
 - GET /api/projects/{name}/issues/{id} returns the full details of a specific issue.
-- |-
-  For a project with no issues, returns {"epics": [], "ungrouped": []}.
+- 'For a project with no issues, returns {"epics": [], "ungrouped": []}.'
 - For an invalid project name, returns 404.

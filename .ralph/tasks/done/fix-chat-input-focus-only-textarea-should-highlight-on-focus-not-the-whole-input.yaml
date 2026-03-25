@@ -1,5 +1,5 @@
-title: |-
-  Fix chat input focus: only textarea should highlight on focus, not the whole input area
+title: 'Fix chat input focus: only textarea should highlight on focus, not the whole
+  input area'
 priority: 1
 assignee: Nicolás Pujia
 created: '2026-03-21'
