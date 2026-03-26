@@ -1269,17 +1269,15 @@
         s = s.replace(/\n{2,}/g, '</p><p>');
         s = '<p>' + s + '</p>';
 
+        // Strip <br> tags from source BEFORE converting newlines
+        // This handles README files that have literal <br> tags we want to ignore
+        s = s.replace(/<br\s*\/?>/gi, ' ');
+        s = s.replace(/  +/g, ' ');
+
         // Single newlines to <br> (skip in block mode — headers, lists, paragraphs already have margins)
         if (!blockMode) {
             s = s.replace(/\n/g, '<br>');
         }
-
-        // Strip all <br> tags - use CSS margins for spacing instead
-        // This fixes inconsistent spacing in README content
-        s = s.replace(/<br\s*\/?>/gi, ' ');
-
-        // Clean up multiple spaces created by <br> removal
-        s = s.replace(/  +/g, ' ');
 
         // Remove <br> inside lists (only relevant when not in block mode, but safe either way)
         s = s.replace(/<\/li><br>/g, '</li>');
@@ -1562,11 +1560,22 @@
                     
                     // Show message text only when response is complete (not during streaming)
                     if (responseDone) {
-                        if (initialText) {
-                            html += '<div class="message-text">' + renderMarkdown(initialText) + '</div>';
-                        }
-                        if (finalText && (!hasThinkingContent() || thinkingComplete)) {
-                            html += '<div class="message-text">' + renderMarkdown(finalText) + '</div>';
+                        // For responses WITH thinking: show initialText before thinking, finalText after
+                        // For responses WITHOUT thinking: show only the final result (avoid duplication)
+                        if (hasThinkingContent()) {
+                            // Thinking flow: show initial text (if any), then final text after thinking
+                            if (initialText) {
+                                html += '<div class="message-text">' + renderMarkdown(initialText) + '</div>';
+                            }
+                            if (finalText && thinkingComplete) {
+                                html += '<div class="message-text">' + renderMarkdown(finalText) + '</div>';
+                            }
+                        } else {
+                            // No thinking: show only the final result, fall back to initial if no final
+                            var displayText = finalText || initialText;
+                            if (displayText) {
+                                html += '<div class="message-text">' + renderMarkdown(displayText) + '</div>';
+                            }
                         }
                     }
                     msgDiv.innerHTML = html;
@@ -2836,20 +2845,23 @@
                             renderHistory(data.messages);
                             saveChatHistory(data.messages);
                         }
+                        // Server has confirmed the message history - safe to clear any pending state
+                        if (pendingToClear) {
+                            try { localStorage.removeItem(STORAGE_KEY + '-pending'); } catch(e) {}
+                            pendingToClear = null;
+                        }
                     }
                 })
                 .catch(function() {});
         }
 
-        // 1b. Restore pending message from interrupted stream
+        // 1b. Restore pending message from interrupted stream (but don't remove yet - wait for server confirmation)
         var pendingRaw = localStorage.getItem(STORAGE_KEY + '-pending');
         if (pendingRaw) {
             try {
                 var pending = JSON.parse(pendingRaw);
                 var restoredParts = [];
-                if (pending.initialText) {
-                    restoredParts.push('<div class="message-text">' + renderMarkdown(pending.initialText) + '</div>');
-                }
+                // For restored messages, show either initialText OR finalText, not both (same logic as live stream)
                 if (pending.thinkingText || (pending.thinkingSteps && pending.thinkingSteps.length > 0)) {
                     restoredParts.push('<div class="thinking-content"><details class="thinking"><summary>' +
                         (pending.thinkingComplete ? 'Finished thinking' : 'Ralphy is thinking...') +
@@ -2863,16 +2875,29 @@
                         });
                     }
                     restoredParts.push('</details></div>');
-                }
-                if (pending.finalText) {
-                    restoredParts.push('<div class="message-text">' + renderMarkdown(pending.finalText) + '</div>');
+                    // Show initialText before thinking, finalText after (if thinking completed)
+                    if (pending.initialText) {
+                        restoredParts.push('<div class="message-text">' + renderMarkdown(pending.initialText) + '</div>');
+                    }
+                    if (pending.finalText && pending.thinkingComplete) {
+                        restoredParts.push('<div class="message-text">' + renderMarkdown(pending.finalText) + '</div>');
+                    }
+                } else {
+                    // No thinking: show only the final result (avoid duplication)
+                    var displayText = pending.finalText || pending.initialText;
+                    if (displayText) {
+                        restoredParts.push('<div class="message-text">' + renderMarkdown(displayText) + '</div>');
+                    }
                 }
                 if (restoredParts.length > 0) {
                     addChatMessage('assistant', restoredParts.join(''));
                 }
-                localStorage.removeItem(STORAGE_KEY + '-pending');
+                // Don't remove pending yet - it will be cleared after server history confirms the message
             } catch(e) {}
         }
+
+        // Store reference to pending for later cleanup after server history confirms
+        var pendingToClear = pendingRaw;
 
         // 1c. Restore JRI button if flag was set (by task promotion to todo detection)
         if (localStorage.getItem(STORAGE_KEY + '-jri') === 'true') {

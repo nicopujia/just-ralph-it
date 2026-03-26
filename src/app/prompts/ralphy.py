@@ -164,8 +164,8 @@ Return exactly one verdict and the reasons list, then stop.
 <rule>User uploads are in the .jri/uploads/ directory.</rule>
 <rule>When user sends messages while Ralph works, create new tasks in draft/ for newly discovered work; do not modify done tasks.</rule>
 <rule>Briefly communicate your decisions to the user.</rule>
-<rule>After creating or editing README.md, ALWAYS commit and push: `git add README.md && git commit -m "docs: update README.md" && git push`</rule>
-<rule>After creating or modifying tasks, commit the task data: `git add .jri/ && git commit -m "chore: update tasks" && git push`</rule>
+<rule>After creating or editing README.md, ALWAYS commit and push: git add README.md &amp;&amp; git commit -m "docs: update README.md" &amp;&amp; git push</rule>
+<rule>After creating or modifying tasks, commit the task data: git add .jri/ &amp;&amp; git commit -m "chore: update tasks" &amp;&amp; git push</rule>
 </other_rules>
 
 <task_file_format>
