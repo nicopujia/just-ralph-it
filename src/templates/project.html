@@ -184,42 +184,6 @@
         line-height: 1.6;
     }
 
-    .thinking-indicator {
-        align-self: flex-start;
-        font-style: italic;
-        font-size: 0.85rem;
-        padding: 0.4rem 0;
-        display: none;
-        color: rgba(230, 232, 235, 0.38);
-        background-image: linear-gradient(
-            90deg,
-            rgba(230, 232, 235, 0.38) 0%,
-            rgba(230, 232, 235, 0.38) 42%,
-            rgba(245, 247, 250, 0.82) 50%,
-            rgba(230, 232, 235, 0.38) 58%,
-            rgba(230, 232, 235, 0.38) 100%
-        );
-        background-size: 320% 100%;
-        background-position: 160% 0;
-        -webkit-background-clip: text;
-        background-clip: text;
-        -webkit-text-fill-color: transparent;
-        will-change: background-position;
-    }
-    .thinking-indicator.visible {
-        display: block;
-        animation: thinking-wave 2.3s linear infinite;
-    }
-
-    @keyframes thinking-wave {
-        from {
-            background-position: 160% 0;
-        }
-        to {
-            background-position: -60% 0;
-        }
-    }
-
     /* ── Chat input ── */
     .chat-controls {
         border-top: 1px solid var(--border-light);
@@ -965,7 +929,6 @@
     <!-- Left panel: Chat -->
     <div class="chat-panel">
         <div id="chat-messages" class="chat-messages">
-            <div id="thinking-indicator" class="thinking-indicator">Ralphy is thinking...</div>
         </div>
         <div class="chat-controls">
             <div id="jri-btn-area" class="jri-btn-area" style="display:none;"></div>
@@ -1134,7 +1097,6 @@
        DOM REFERENCES
        ══════════════════════════════════════════════ */
     var chatMessages = document.getElementById('chat-messages');
-    var thinkingEl = document.getElementById('thinking-indicator');
     var chatInput = document.getElementById('chat-input');
     var btnSend = document.getElementById('btn-send');
     var btnAttach = document.getElementById('btn-attach');
@@ -1312,9 +1274,12 @@
             s = s.replace(/\n/g, '<br>');
         }
 
-        // Normalize multiple consecutive <br> tags to consistent spacing
-        // Multiple <br> tags become one paragraph break
-        s = s.replace(/(<br\s*\/?>\s*){2,}/gi, '</p><p>');
+        // Strip all <br> tags - use CSS margins for spacing instead
+        // This fixes inconsistent spacing in README content
+        s = s.replace(/<br\s*\/?>/gi, ' ');
+
+        // Clean up multiple spaces created by <br> removal
+        s = s.replace(/  +/g, ' ');
 
         // Remove <br> inside lists (only relevant when not in block mode, but safe either way)
         s = s.replace(/<\/li><br>/g, '</li>');
@@ -1349,7 +1314,7 @@
         var div = document.createElement('div');
         div.className = 'chat-msg ' + role;
         div.innerHTML = html;
-        chatMessages.insertBefore(div, thinkingEl);
+        chatMessages.appendChild(div);
         scrollChat();
         return div;
     }
@@ -1363,7 +1328,6 @@
         chatInput.disabled = on;
         btnSend.disabled = on;
         btnAttach.disabled = on;
-        thinkingEl.className = 'thinking-indicator' + (on ? ' visible' : '');
         if (on) scrollChat();
         if (!on) chatInput.focus();
     }
@@ -1605,7 +1569,7 @@
                     if (!msgDiv) {
                         msgDiv = document.createElement('div');
                         msgDiv.className = 'chat-msg assistant';
-                        chatMessages.insertBefore(msgDiv, thinkingEl);
+                        chatMessages.appendChild(msgDiv);
                     }
                 }
 
@@ -1777,7 +1741,7 @@
                 });
         });
         wrapper.appendChild(jriBtn);
-        chatMessages.insertBefore(wrapper, thinkingEl);
+        chatMessages.appendChild(wrapper);
     }
 
     var ralphControls = document.getElementById('ralph-controls');
