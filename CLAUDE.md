@@ -2,9 +2,7 @@
 
 ## Workflow
 
-- Use subagents for ANY TASK YOU DO. Use up to 100 subagents for each of them. Parallelize independent ones. If possible, run them in the background so you don't lock the conversation.
 - Commit, push, and restart the service (`sudo systemctl restart jri`) frequently.
-- Pre-commit hooks enforce formatting (ruff) and type checking (ty).
 - Run the full test suite (`uv run pytest tests/`) after large changes, otherwise only relevant integration tests.
 - Smoke test after restarting: curl key routes to catch 500s.
 
