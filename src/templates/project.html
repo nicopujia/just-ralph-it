@@ -1125,8 +1125,15 @@
        ══════════════════════════════════════════════ */
     function renderMarkdown(text, blockMode) {
         if (!text) return '';
-        // Escape HTML
-        var s = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        var s = text;
+        
+        // Strip <br> tags from source BEFORE any processing
+        // This handles README files that have literal <br> tags
+        s = s.replace(/<br\s*\/?>/gi, ' ');
+        s = s.replace(/  +/g, ' ');
+        
+        // Escape HTML (after BR stripping so we don't match escaped tags)
+        s = s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
         // Horizontal rules: ---, ***, ___ on their own line
         s = s.replace(/^(?:---|\*\*\*|___)$/gm, '<hr>');
@@ -1269,17 +1276,12 @@
         s = s.replace(/\n{2,}/g, '</p><p>');
         s = '<p>' + s + '</p>';
 
-        // Strip <br> tags from source BEFORE converting newlines
-        // This handles README files that have literal <br> tags we want to ignore
-        s = s.replace(/<br\s*\/?>/gi, ' ');
-        s = s.replace(/  +/g, ' ');
-
         // Single newlines to <br> (skip in block mode — headers, lists, paragraphs already have margins)
         if (!blockMode) {
             s = s.replace(/\n/g, '<br>');
         }
 
-        // Remove <br> inside lists (only relevant when not in block mode, but safe either way)
+        // Clean up <br> artifacts from list handling
         s = s.replace(/<\/li><br>/g, '</li>');
         s = s.replace(/<br><li>/g, '<li>');
         s = s.replace(/<ul><br>/g, '<ul>');
@@ -1531,8 +1533,15 @@
                 }
 
                 function getCombinedAssistantText() {
-                    if (initialText && finalText) return initialText + '\n\n' + finalText;
-                    return initialText || finalText;
+                    // For thinking responses: show initialText (before thinking) + finalText (after)
+                    // For non-thinking responses: show only the final canonical text
+                    if (hasThinkingContent()) {
+                        if (initialText && finalText) return initialText + '\n\n' + finalText;
+                        return initialText || finalText;
+                    } else {
+                        // No thinking: return only one text to avoid duplication
+                        return finalText || initialText;
+                    }
                 }
 
                 function rebuildMsg() {
