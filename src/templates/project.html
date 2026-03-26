@@ -1601,9 +1601,10 @@
                 function pump() {
                     return reader.read().then(function(result) {
                         if (result.done) {
-                            localStorage.removeItem(STORAGE_KEY + '-pending');
                             var combinedText = getCombinedAssistantText();
                             if (combinedText) appendToHistory('assistant', combinedText, thinkingText, thinkingSteps, interleaveText);
+                            // Clear pending only after history is saved locally
+                            localStorage.removeItem(STORAGE_KEY + '-pending');
                             setProcessing(false);
                             checkJriVisibility(combinedText);
                             return;
@@ -1654,7 +1655,7 @@
                                     finalText = evt.result;
                                 }
                                 responseDone = true;  // Show complete message after thinking finishes
-                                localStorage.removeItem(STORAGE_KEY + '-pending');
+                                // Note: pending is cleared in result.done handler after history is saved
                                 ensureMsgDiv();
                                 rebuildMsg();
                                 // Refresh issues and README after Ralphy finishes
