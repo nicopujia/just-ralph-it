@@ -10,13 +10,6 @@ logger = logging.getLogger(__name__)
 
 STATUSES = ("todo", "doing", "done", "draft")
 
-# Fields stored in YAML frontmatter (description lives in the markdown body).
-_FRONTMATTER_FIELDS = (
-    "title", "priority", "acceptance_criteria", "depends_on",
-    "parent", "assignee", "blocked_reason",
-)
-
-
 def _compose_task(data: dict) -> str:
     """Compose a markdown file with YAML frontmatter from *data*.
 

@@ -16,18 +16,17 @@ Migrating justralph.it from current IONOS VPS (3.8GB RAM, Ubuntu 24.04) to OVH V
 ```
 
 This handles:
-- User creation, system packages, external tools (node, gh, claude, bd, mosh)
+- User creation, system packages, external tools (node, gh, claude, mosh)
 - Repo clone + Python deps
 - Credential copy (.env, gh token, claude credentials)
-- Data copy (SQLite DB, project repos, beads data, Claude sessions)
+- Data copy (SQLite DB, project repos, Claude sessions)
 - Systemd + nginx setup
 - Service start
 
 ## Post-migration on new server
 
 1. SSH in and verify: `curl -s http://127.0.0.1:8000/ | head -5`
-2. Start shared Dolt server: `bd dolt start` (or let JRI startup handle it)
-3. Verify projects load: `curl -s http://127.0.0.1:8000/api/projects` (with auth cookie)
+2. Verify projects load: `curl -s http://127.0.0.1:8000/api/projects` (with auth cookie)
 
 ## DNS cutover
 
@@ -57,7 +56,6 @@ Keep the old server running for at least 48h after cutover.
 |------|------|--------|
 | App database | `~/jri/data/jri.db` | scp |
 | Project repos + uploads | `~/jri/data/*/` | rsync |
-| Beads shared server | `~/.beads/` | rsync |
 | Claude sessions | `~/.claude/projects/` | rsync |
 | GitHub CLI auth | `~/.config/gh/hosts.yml` | scp |
 | Claude CLI auth | `~/.claude/.credentials.json` | scp |

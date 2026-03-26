@@ -67,12 +67,6 @@ if ! command -v claude &>/dev/null; then
     npm install -g @anthropic-ai/claude-code
 fi
 
-# --- Beads (bd) ---
-echo "==> Installing beads (bd)..."
-if ! command -v bd &>/dev/null; then
-    curl -fsSL https://beads.dev/install | bash
-fi
-
 # --- Clone repo ---
 echo "==> Cloning JRI repo..."
 if [ ! -d /home/nico/jri/.git ]; then
@@ -104,7 +98,6 @@ rm -f /etc/nginx/sites-enabled/default
 echo "==> Creating config directories..."
 mkdir -p /home/nico/.config/gh
 mkdir -p /home/nico/.claude
-mkdir -p /home/nico/.beads
 mkdir -p /home/nico/.local/bin
 
 # --- Fix ownership (before SCP so nico owns the dirs) ---
@@ -134,9 +127,6 @@ scp "${LOCAL_HOME}/jri/data/jri.db" "${REMOTE}:${REMOTE_HOME}/jri/data/jri.db"
 
 echo "==> Copying project data directories..."
 rsync -avz --progress "${LOCAL_HOME}/jri/data/" "${REMOTE}:${REMOTE_HOME}/jri/data/"
-
-echo "==> Copying beads shared server data..."
-rsync -avz --progress "${LOCAL_HOME}/.beads/" "${REMOTE}:${REMOTE_HOME}/.beads/"
 
 echo "==> Copying Claude session files (Ralphy conversations)..."
 rsync -avz --progress "${LOCAL_HOME}/.claude/projects/" "${REMOTE}:${REMOTE_HOME}/.claude/projects/"

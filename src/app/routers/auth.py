@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 
 from app.auth_utils import SESSION_MAX_AGE, create_session_token, get_current_user
-from app.config import BASE_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, SECRET_KEY
+from app.config import BASE_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET
 from app.database import get_db
 
 router = APIRouter(prefix="/auth", tags=["auth"])

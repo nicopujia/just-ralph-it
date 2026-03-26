@@ -716,7 +716,6 @@ class RalphLoop:
     @staticmethod
     def _env(extra: dict[str, str]) -> dict[str, str]:
         """Return a copy of the current environment with extra vars merged in."""
-        import os
         env = os.environ.copy()
         env.update(extra)
         return env

@@ -435,19 +435,6 @@
     .tab-pane.active { display: block; }
 
     /* ── Issues tab ── */
-    .epic-section {
-        margin-bottom: 1.2rem;
-    }
-    .epic-header {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        font-weight: 600;
-        font-size: 0.95rem;
-        padding: 0.4rem 0;
-        border-bottom: 1px solid var(--card-bg);
-        margin-bottom: 0.4rem;
-    }
     .status-dot {
         width: 8px;
         height: 8px;
@@ -489,25 +476,10 @@
     .tab-btn[data-tooltip]:hover::after {
         opacity: 1;
     }
-    .status-dot-wrap-epic::after {
-        left: 0;
-        top: calc(100% + 6px);
-        bottom: auto;
-        transform: none;
-    }
     .status-dot.done { background: #4caf50; }
     .status-dot.doing { background: #e8a820; }
     .status-dot.todo { background: var(--text-dim); }
     .status-dot.draft { background: var(--border-focus); opacity: 0.6; }
-    .issue-row {
-        display: flex;
-        align-items: center;
-        gap: 0.5rem;
-        padding: 0.35rem 0.5rem;
-        border-radius: 4px;
-        font-size: 0.85rem;
-        list-style: none;
-    }
     details.issue-item { border-radius: 4px; }
     details.issue-item > summary {
         display: flex;
@@ -707,11 +679,6 @@
         color: var(--text-dimmer);
         flex: 1;
         overflow-y: auto;
-    }
-    .ralph-done-msg {
-        color: #4caf50;
-        font-weight: 600;
-        margin-top: 0.5rem;
     }
     .ralph-controls {
         display: flex;
@@ -1874,14 +1841,6 @@
         }
     });
 
-    function showRalphTab() {
-        // no-op: Ralph tab is always visible
-    }
-
-    function hideRalphTab() {
-        // no-op: Ralph tab is always visible
-    }
-
     /* ══════════════════════════════════════════════
        TASKS TAB
        ══════════════════════════════════════════════ */
@@ -1912,8 +1871,7 @@
             .catch(function() {});
     }
 
-    function statusDotHtml(status, variant) {
-        console.log('Rendering status dot for status:', status);
+    function statusDotHtml(status) {
         var cls = 'status-dot';
         var wrapCls = 'status-dot-wrap';
         var label = 'Open';
@@ -1921,7 +1879,6 @@
         else if (status === 'doing') { cls += ' doing'; label = 'Doing'; }
         else if (status === 'draft') { cls += ' draft'; label = 'Draft'; }
         else { cls += ' todo'; label = 'To Do'; }
-        if (variant === 'epic') wrapCls += ' status-dot-wrap-epic';
         return '<span class="' + wrapCls + '" aria-label="Status: ' + label + '"><span class="' + cls + '"></span></span>';
     }
 
@@ -2164,10 +2121,6 @@
         }
         ralphTerminal.textContent += line + '\n';
         ralphTerminal.scrollTop = ralphTerminal.scrollHeight;
-    }
-
-    function setRalphWorkingOn(issueId, title) {
-        // No-op: removed redundant working-on display
     }
 
     /* ══════════════════════════════════════════════
@@ -2655,7 +2608,6 @@
                 var data = JSON.parse(e.data);
                 if (data.status === 'running') {
                     hidePaymentBanner();
-                    showRalphTab();
                     refreshProject();
                 } else if (data.status === 'payment_required') {
                     handlePaymentRequired(data.unpaid_count || 1);
@@ -2667,8 +2619,6 @@
                     hidePaymentBanner();
                     showToast('Your project is ready!', 10000);
                     refreshProject();
-                } else if (data.status === 'working_on') {
-                    setRalphWorkingOn(data.issue_id, data.title);
                 } else {
                     refreshProject();
                 }
@@ -2717,18 +2667,6 @@
 
     function applyProjectState() {
         if (!projectData) return;
-
-        var status = projectData.ralph_loop_status;
-
-        if (status === 'running' || status === 'stopping' || status === 'stopped') {
-            showRalphTab();
-        } else {
-            hideRalphTab();
-        }
-
-        if (projectData.ralph_loop_current_issue) {
-            setRalphWorkingOn(projectData.ralph_loop_current_issue, '');
-        }
 
         updateJriButtons();
 

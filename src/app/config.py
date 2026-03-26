@@ -22,10 +22,8 @@ STAGING: bool = os.getenv("STAGING", "").lower() in ("1", "true", "yes")
 # Stripe — use test or prod keys based on STAGING
 if STAGING:
     STRIPE_SECRET_KEY: str = os.environ.get("STRIPE_SECRET_KEY", "")
-    STRIPE_PUBLISHABLE_KEY: str = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
 else:
     STRIPE_SECRET_KEY: str = os.environ.get("PROD_STRIPE_SECRET_KEY", os.environ.get("STRIPE_SECRET_KEY", ""))
-    STRIPE_PUBLISHABLE_KEY: str = os.environ.get("PROD_STRIPE_PUBLISHABLE_KEY", os.environ.get("STRIPE_PUBLISHABLE_KEY", ""))
 
 # Base URL (used for OAuth callbacks, Stripe redirects, etc.)
 BASE_URL: str = os.environ.get("BASE_URL", "https://justralph.it")
@@ -47,8 +45,6 @@ def _get_ralph_bot_github_token() -> str:
         return ""
 
 RALPH_BOT_GITHUB_TOKEN: str = _get_ralph_bot_github_token()
-
-MAINTENANCE_MODE = os.getenv("MAINTENANCE_MODE", "").lower() in ("1", "true", "yes")
 
 # ── Startup validation ──
 _REQUIRED = {

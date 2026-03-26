@@ -1,12 +1,7 @@
 .env
 __pycache__/
 *.pyc
-# Dolt database files (added by bd init)
-.dolt/
 *.db
 data/
-
-# Beads / Dolt files (added by bd init)
-.beads-credential-key
-.beads/
 .jri/logs/
+.beads/
