@@ -72,6 +72,7 @@ class RalphLoop:
     ) -> None:
         self.project_id = project_id
         self.project_dir = project_dir
+        self.dev_dir = project_dir + "-dev"
         self.project_name = project_name
         self.status: str = "stopped"
         self.current_issue_id: Optional[str] = None
@@ -217,6 +218,9 @@ class RalphLoop:
     async def _loop(self) -> None:
         """Core Ralph loop: pick issue, solve, push, repeat."""
         try:
+            # --- Ensure dev worktree exists ---
+            await self._ensure_dev_worktree()
+
             while self.status == "running":
                 # --- Poll for human-assigned blockers ---
                 await self._poll_for_human_blockers()
@@ -324,6 +328,16 @@ class RalphLoop:
                         {"issue_id": self.current_issue_id, "action": "claimed"},
                     )
 
+                    # --- Commit claim on main and sync to dev ---
+                    await self._git_exec(self.project_dir, "add", "-A")
+                    await self._git_exec(
+                        self.project_dir,
+                        "commit",
+                        "-m",
+                        f"claim {self.current_issue_id}",
+                    )
+                    await self._sync_dev_with_main()
+
                     # --- Clear stdout for new issue ---
                     self.stdout_lines.clear()
                     await sse_bus.publish(self.project_name, "ralph_stdout_clear", {})
@@ -357,7 +371,7 @@ class RalphLoop:
                         "Bash Read Write Edit Glob Grep WebFetch WebSearch",
                         "--",
                         prompt,
-                        cwd=self.project_dir,
+                        cwd=self.dev_dir,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.STDOUT,
                         env=self._env({}),
@@ -667,6 +681,93 @@ class RalphLoop:
     def unsubscribe(self, queue: asyncio.Queue) -> None:
         """Remove a subscriber queue."""
         self._subscribers.discard(queue)
+
+    # ------------------------------------------------------------------
+    # Worktree helpers
+    # ------------------------------------------------------------------
+
+    async def _git_exec(self, cwd: str, *args: str) -> tuple[int, str, str]:
+        """Run a git command and return (returncode, stdout, stderr)."""
+        proc = await asyncio.create_subprocess_exec(
+            "git",
+            *args,
+            cwd=cwd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        return (
+            proc.returncode,
+            stdout.decode(errors="replace"),
+            stderr.decode(errors="replace"),
+        )
+
+    async def _ensure_dev_worktree(self) -> None:
+        """Create the dev worktree and branch if they don't exist."""
+        import shutil
+
+        dev_path = Path(self.dev_dir)
+        if dev_path.exists():
+            if (dev_path / ".git").exists():
+                return
+            # Corrupt worktree -- remove and recreate
+            shutil.rmtree(self.dev_dir, ignore_errors=True)
+            await self._git_exec(self.project_dir, "worktree", "prune")
+
+        # Try creating with new branch
+        rc, _, stderr = await self._git_exec(
+            self.project_dir,
+            "worktree",
+            "add",
+            self.dev_dir,
+            "-b",
+            "dev",
+        )
+        if rc != 0:
+            if "already exists" in stderr:
+                rc2, _, stderr2 = await self._git_exec(
+                    self.project_dir,
+                    "worktree",
+                    "add",
+                    self.dev_dir,
+                    "dev",
+                )
+                if rc2 != 0:
+                    raise RuntimeError(f"Failed to create dev worktree: {stderr2}")
+            else:
+                raise RuntimeError(f"Failed to create dev worktree: {stderr}")
+        logger.info("Dev worktree ready at %s", self.dev_dir)
+
+    async def _sync_dev_with_main(self) -> None:
+        """Pull main and merge into dev so dev has the latest."""
+        await self._git_exec(self.project_dir, "pull", "--ff-only")
+        rc, _, stderr = await self._git_exec(self.dev_dir, "merge", "main", "--no-edit")
+        if rc != 0:
+            logger.warning("Merge main into dev failed, resetting dev: %s", stderr)
+            await self._git_exec(self.dev_dir, "reset", "--hard", "main")
+
+    async def _merge_dev_to_main(self) -> None:
+        """Merge dev into main and push. Pre-merge sync resolves conflicts in dev."""
+        # Pre-merge sync: merge main into dev (catches late main changes)
+        rc, _, stderr = await self._git_exec(self.dev_dir, "merge", "main", "--no-edit")
+        if rc != 0:
+            logger.warning("Pre-merge sync failed, aborting: %s", stderr)
+            await self._git_exec(self.dev_dir, "merge", "--abort")
+            raise RuntimeError(f"Pre-merge sync failed: {stderr}")
+
+        # Merge dev into main (should be clean/fast-forward)
+        rc, _, stderr = await self._git_exec(
+            self.project_dir, "merge", "dev", "--no-edit"
+        )
+        if rc != 0:
+            logger.warning("Merge dev->main failed, aborting: %s", stderr)
+            await self._git_exec(self.project_dir, "merge", "--abort")
+            raise RuntimeError(f"Merge dev into main failed: {stderr}")
+
+        # Push main
+        rc, _, stderr = await self._git_exec(self.project_dir, "push")
+        if rc != 0:
+            logger.warning("Push main failed: %s", stderr)
 
     # ------------------------------------------------------------------
     # Internal helpers

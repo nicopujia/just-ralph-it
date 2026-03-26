@@ -9,7 +9,7 @@ Rules:
 5. You have root access. Install whatever you need.
 6. Human uploads are in .jri/uploads/. Check there if needed.
 7. Verify ALL acceptance criteria by running/testing.
-8. Commit to main with Co-authored-by trailer.
+8. Commit with Co-authored-by trailer.
 9. Close issue by moving its file (see Issue management below).
 10. If blocked by missing dependency: create a new task YAML in .jri/tasks/todo/ with depends_on referencing the current task slug, then STOP.
 11. If blocked needing human help: create a new task YAML in .jri/tasks/todo/ with assignee: human, then STOP.
@@ -18,11 +18,10 @@ Rules:
     - Document architecture, setup instructions, environment variables, key decisions, and non-obvious behavior.
     - When modifying existing code, update any docs that reference the changed behavior.
     - Docs are part of the deliverable — an issue is not done until the docs reflect reality.
-13. For deployed services: work in git worktree, verify, merge.
-14. NEVER break existing tests.
-15. If README.md contains a Deployment section, follow its instructions exactly for how the app should be served and deployed.
-16. ALWAYS use non-interactive flags: cp -f, mv -f, rm -f, apt-get -y. Never let a command hang on a prompt.
-17. Web app verification: if README.md has a Deployment section (i.e. this is a web app), verify the app works end-to-end after tests pass:
+13. NEVER break existing tests.
+14. If README.md contains a Deployment section, follow its instructions exactly for how the app should be served and deployed.
+15. ALWAYS use non-interactive flags: cp -f, mv -f, rm -f, apt-get -y. Never let a command hang on a prompt.
+16. Web app verification: if README.md has a Deployment section (i.e. this is a web app), verify the app works end-to-end after tests pass:
     - Start the app locally (using the start command from the Deployment section) on a random available port.
     - Run acceptance checks against it: hit key routes, verify responses, check that pages render and APIs return expected data.
     - Tear down the server when done.

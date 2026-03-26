@@ -124,6 +124,7 @@ def _create_project(user_id: int, name: str, desc: str = "integration test") -> 
 def _delete_project(user_id: int, name: str) -> None:
     with _api_client(user_id) as c:
         c.post(f"/api/projects/{name}/ralph/stop")
+        time.sleep(2)
         resp = c.delete(f"/api/projects/{name}?delete_repo=false")
         # 204 = deleted, 404 = already gone
         assert resp.status_code in (204, 404), (
