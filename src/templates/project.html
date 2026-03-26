@@ -1166,6 +1166,9 @@
         // Escape HTML
         var s = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
+        // Horizontal rules: ---, ***, ___ on their own line
+        s = s.replace(/^(?:---|\*\*\*|___)$/gm, '<hr>');
+
         // Code blocks: ```...```
         s = s.replace(/```([a-zA-Z]*)\n?([\s\S]*?)```/g, function(_, lang, code) {
             return '<pre><code>' + code.trim() + '</code></pre>';
@@ -1192,39 +1195,63 @@
         s = s.replace(/^# (.+)$/gm, '<h1>$1</h1>');
 
         // Lists: handle nesting by processing line-by-line
+        // Track numbering for ordered lists at each indent level
         var listLines = s.split('\n');
         var listResult = [];
-        var listStack = []; // stack of {type: 'ul'|'ol', indent: number}
+        var listStack = []; // stack of {type: 'ul'|'ol', indent: number, counter: number}
+        var olCounters = {}; // track counters per indent level for <ol start="">
 
         function closeListsTo(indent) {
             while (listStack.length > 0 && listStack[listStack.length - 1].indent >= indent) {
-                listResult.push('</' + listStack.pop().type + '>');
+                var closed = listStack.pop();
+                if (closed.type === 'ol' && closed.indent in olCounters) {
+                    delete olCounters[closed.indent];
+                }
+                listResult.push('</' + closed.type + '>');
             }
         }
 
         for (var li = 0; li < listLines.length; li++) {
             var rawLine = listLines[li];
             var ulMatch = rawLine.match(/^(\s*)[*-]\s+(.+)$/);
-            var olMatch = rawLine.match(/^(\s*)\d+\.\s+(.+)$/);
+            var olMatch = rawLine.match(/^(\s*)(\d+)\.\s+(.+)$/);
 
             if (ulMatch || olMatch) {
                 var indent = (ulMatch || olMatch)[1].length;
-                var text = (ulMatch || olMatch)[2];
+                var text = ulMatch ? ulMatch[2] : olMatch[3];
                 var type = ulMatch ? 'ul' : 'ol';
+                var itemNum = olMatch ? parseInt(olMatch[2], 10) : 1;
 
                 if (listStack.length === 0 || indent > listStack[listStack.length - 1].indent) {
-                    listStack.push({type: type, indent: indent});
-                    listResult.push('<' + type + '>');
+                    // New nested list
+                    listStack.push({type: type, indent: indent, counter: itemNum});
+                    if (type === 'ol') {
+                        olCounters[indent] = itemNum;
+                        listResult.push(itemNum === 1 ? '<ol>' : '<ol start="' + itemNum + '">');
+                    } else {
+                        listResult.push('<' + type + '>');
+                    }
                 } else if (indent < listStack[listStack.length - 1].indent) {
                     closeListsTo(indent);
                     if (listStack.length === 0 || listStack[listStack.length - 1].indent < indent) {
-                        listStack.push({type: type, indent: indent});
-                        listResult.push('<' + type + '>');
+                        listStack.push({type: type, indent: indent, counter: itemNum});
+                        if (type === 'ol') {
+                            olCounters[indent] = itemNum;
+                            listResult.push(itemNum === 1 ? '<ol>' : '<ol start="' + itemNum + '">');
+                        } else {
+                            listResult.push('<' + type + '>');
+                        }
                     }
                 } else if (listStack[listStack.length - 1].type !== type) {
-                    listResult.push('</' + listStack.pop().type + '>');
-                    listStack.push({type: type, indent: indent});
-                    listResult.push('<' + type + '>');
+                    var popped = listStack.pop();
+                    listResult.push('</' + popped.type + '>');
+                    listStack.push({type: type, indent: indent, counter: itemNum});
+                    if (type === 'ol') {
+                        olCounters[indent] = itemNum;
+                        listResult.push(itemNum === 1 ? '<ol>' : '<ol start="' + itemNum + '">');
+                    } else {
+                        listResult.push('<' + type + '>');
+                    }
                 }
                 listResult.push('<li>' + text + '</li>');
             } else if (rawLine.trim() === '' && listStack.length > 0) {
@@ -1233,7 +1260,7 @@
                 for (var peek = li + 1; peek < listLines.length; peek++) {
                     var peekLine = listLines[peek];
                     if (peekLine.trim() === '') continue; // skip consecutive blanks
-                    if (peekLine.match(/^(\s*)[*-]\s+(.+)$/) || peekLine.match(/^(\s*)\d+\.\s+(.+)$/)) {
+                    if (peekLine.match(/^(\s*)[*-]\s+(.+)$/) || peekLine.match(/^(\s*)(\d+)\.\s+(.+)$/)) {
                         nextListItem = true;
                     }
                     break;
@@ -1285,6 +1312,10 @@
             s = s.replace(/\n/g, '<br>');
         }
 
+        // Normalize multiple consecutive <br> tags to consistent spacing
+        // Multiple <br> tags become one paragraph break
+        s = s.replace(/(<br\s*\/?>\s*){2,}/gi, '</p><p>');
+
         // Remove <br> inside lists (only relevant when not in block mode, but safe either way)
         s = s.replace(/<\/li><br>/g, '</li>');
         s = s.replace(/<br><li>/g, '<li>');
@@ -1305,6 +1336,8 @@
         s = s.replace(/(<\/ol>)\s*<\/p>/g, '$1');
         s = s.replace(/<p>\s*(<table>)/g, '$1');
         s = s.replace(/(<\/table>)\s*<\/p>/g, '$1');
+        s = s.replace(/<p>\s*(<hr>)/g, '$1');
+        s = s.replace(/(<hr>)\s*<\/p>/g, '$1');
 
         return s;
     }
@@ -1497,7 +1530,8 @@
         chatInput.style.height = 'auto';
     }
 
-    function fetchChat(body, isJson) {
+    function fetchChatWithRetry(body, isJson, retriesLeft) {
+        if (retriesLeft === undefined) retriesLeft = 3;
         var headers = {};
         if (isJson) headers['Content-Type'] = 'application/json';
 
@@ -1530,7 +1564,7 @@
                 }
 
                 function getThinkingSummary() {
-                    return thinkingComplete ? 'Finished thinking' : 'Thinking...';
+                    return thinkingComplete ? 'Finished thinking' : 'Ralphy is thinking...';
                 }
 
                 function getCombinedAssistantText() {
@@ -1552,7 +1586,7 @@
                         html += '<div class="thinking-content">';
                         html += '<details class="thinking"' + (wasOpen ? ' open' : '') + '><summary>' + getThinkingSummary() + '</summary>';
                         if (thinkingText) {
-                            html += '<div>' + escapeHtml(thinkingText) + '</div>';
+                            html += '<div>' + escapeHtmlWithNewlines(thinkingText) + '</div>';
                         }
                         if (thinkingSteps.length > 0) {
                             thinkingSteps.forEach(function(s) {
@@ -1650,8 +1684,22 @@
             .catch(function(err) {
                 console.error('Chat error:', err);
                 setProcessing(false);
-                addChatMessage('assistant', '<span style="color:#ff4444;">Failed to send message: ' + (err.message || err) + '</span>');
+                // Retry with exponential backoff for network errors
+                if (retriesLeft > 0 && (err.name === 'TypeError' || err.message === 'Failed to fetch' || err.message === 'NetworkError')) {
+                    var delay = Math.pow(2, 4 - retriesLeft) * 1000; // 1s, 2s, 4s
+                    showToast('Connection issue. Retrying in ' + (delay/1000) + 's...', 3000);
+                    setTimeout(function() {
+                        fetchChatWithRetry(body, isJson, retriesLeft - 1);
+                    }, delay);
+                    return;
+                }
+                // User-friendly error message without technical details
+                addChatMessage('assistant', '<span style="color:#ff4444;">Unable to reach the server. Please check your connection and try again.</span>');
             });
+    }
+
+    function fetchChat(body, isJson) {
+        return fetchChatWithRetry(body, isJson, 3);
     }
 
     function sendProgrammatic(text) {
@@ -2109,6 +2157,11 @@
     function escapeHtml(str) {
         if (!str) return '';
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function escapeHtmlWithNewlines(str) {
+        if (!str) return '';
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '<br>');
     }
 
     /* ══════════════════════════════════════════════
@@ -2767,7 +2820,7 @@
                     html += '<div class="thinking-content">';
                     html += '<details class="thinking"><summary>Finished thinking</summary>';
                     if (msg.thinkingText) {
-                        html += '<div>' + escapeHtml(msg.thinkingText) + '</div>';
+                        html += '<div>' + escapeHtmlWithNewlines(msg.thinkingText) + '</div>';
                     }
                     if (msg.thinkingSteps && msg.thinkingSteps.length > 0) {
                         msg.thinkingSteps.forEach(function(s) {
@@ -2775,7 +2828,7 @@
                         });
                     }
                     if (msg.interleaveText) {
-                        html += '<div class="thinking-interleave">' + escapeHtml(msg.interleaveText) + '</div>';
+                        html += '<div class="thinking-interleave">' + escapeHtmlWithNewlines(msg.interleaveText) + '</div>';
                     }
                     html += '</details></div>';
                 }
@@ -2797,14 +2850,20 @@
                 .then(function(r) { return r.json(); })
                 .then(function(data) {
                     if (!data.messages || data.messages.length === 0) return;
-                    // Check if localStorage matches server
+                    // Server is source of truth — only re-render if server has more messages
                     var serverCount = data.messages.length;
                     var localCount = history.length;
-                    if (serverCount !== localCount) {
-                        // Server is source of truth — re-render
-                        chatMessages.querySelectorAll('.chat-msg').forEach(function(el) { el.remove(); });
-                        renderHistory(data.messages);
-                        saveChatHistory(data.messages);
+                    // Only replace if server has MORE or EQUAL messages (server is authoritative)
+                    // Never clear local messages if server has fewer (could be timing issue)
+                    if (serverCount >= localCount && serverCount > 0) {
+                        // Only clear and re-render if content actually differs
+                        var serverContent = JSON.stringify(data.messages);
+                        var localContent = JSON.stringify(history);
+                        if (serverContent !== localContent) {
+                            chatMessages.querySelectorAll('.chat-msg').forEach(function(el) { el.remove(); });
+                            renderHistory(data.messages);
+                            saveChatHistory(data.messages);
+                        }
                     }
                 })
                 .catch(function() {});
@@ -2821,10 +2880,10 @@
                 }
                 if (pending.thinkingText || (pending.thinkingSteps && pending.thinkingSteps.length > 0)) {
                     restoredParts.push('<div class="thinking-content"><details class="thinking"><summary>' +
-                        (pending.thinkingComplete ? 'Finished thinking' : 'Thinking...') +
+                        (pending.thinkingComplete ? 'Finished thinking' : 'Ralphy is thinking...') +
                         '</summary>');
                     if (pending.thinkingText) {
-                        restoredParts.push('<div>' + escapeHtml(pending.thinkingText) + '</div>');
+                        restoredParts.push('<div>' + escapeHtmlWithNewlines(pending.thinkingText) + '</div>');
                     }
                     if (pending.thinkingSteps && pending.thinkingSteps.length > 0) {
                         pending.thinkingSteps.forEach(function(step) {

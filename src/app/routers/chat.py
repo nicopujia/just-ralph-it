@@ -155,6 +155,11 @@ async def _ensure_opencode_server(
     config = {
         "model": RALPHY_MODEL,
         "permission": {"*": "allow"},
+        "compaction": {
+            "auto": True,
+            "prune": True,
+            "reserved": 10000,  # Trigger compaction earlier (default is ~20k)
+        },
         "agent": {
             "ralphy": {
                 "mode": "primary",
@@ -175,7 +180,17 @@ async def _ensure_opencode_server(
         "default_agent": "ralphy",
     }
 
-    env = {**os.environ, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
+    # Isolate opencode config/session to project dir (avoids global config conflicts)
+    jri_opencode_dir = str(Path(project_dir) / ".jri" / "opencode")
+    Path(jri_opencode_dir).mkdir(parents=True, exist_ok=True)
+
+    env = {
+        **os.environ,
+        "OPENCODE_CONFIG_CONTENT": json.dumps(config),
+        "OPENCODE_CONFIG_DIR": jri_opencode_dir,
+        "OPENCODE_SESSION_DIR": jri_opencode_dir,
+    }
+    env.pop("OPENCODE_CONFIG", None)
 
     proc = await asyncio.create_subprocess_exec(
         "/home/linuxbrew/.linuxbrew/bin/opencode",
@@ -347,9 +362,15 @@ async def _stream_opencode(
                     if evt_session and evt_session != oc_session_id:
                         continue
 
+                    # Filter out session title/summary parts
+                    part = props.get("part", {})
+                    if isinstance(part, dict):
+                        part_role = part.get("role", "")
+                        if part_role in ("system", "summary", "metadata"):
+                            continue
+
                     # Map OpenCode events to frontend SSE format
                     if event_type == "message.part.updated":
-                        part = props.get("part", {})
                         part_type = part.get("type", "")
 
                         if part_type == "text":
