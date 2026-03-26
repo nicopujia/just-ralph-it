@@ -308,8 +308,8 @@ async def create_project(
                     )
                 break  # success
 
-            # 9. Add user as collaborator (skip for admin — already has access)
-            if user.get("role") != "admin":
+            # 9. Add user as collaborator (skip for admin and bot account)
+            if user.get("role") != "admin" and github_username != "ralphpujia":
                 logger.info(
                     f"Creating project {name}: step 9"
                     f" - adding collaborator {github_username}"
