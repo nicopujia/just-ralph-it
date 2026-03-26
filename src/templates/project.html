@@ -1959,48 +1959,70 @@
             }
         });
 
-        // Pricing calculator — count non-done tasks
+        // Pricing calculator — count non-done and done tasks
         var activeTasks = 0;
+        var doneTasks = 0;
         groups.forEach(function(group) {
-            if (group.statuses[0] !== 'done') activeTasks += group.issues.length;
+            if (group.statuses[0] === 'done') {
+                doneTasks += group.issues.length;
+            } else {
+                activeTasks += group.issues.length;
+            }
         });
-        if (activeTasks > 0) {
+        var totalTasks = activeTasks + doneTasks;
+        if (totalTasks > 0) {
             var pricingEl = document.createElement('div');
             pricingEl.className = 'pricing-summary';
-            var taskTotal = activeTasks * 5;
-            var baseText = '$10/mo base + ' + activeTasks + (activeTasks === 1 ? ' task' : ' tasks') + ' \u00d7 $5/task = $' + (10 + taskTotal);
-            pricingEl.textContent = baseText;
-            container.appendChild(pricingEl);
 
-            // Fetch payment status and update breakdown
-            var updatePricing = function(ps) {
-                if (ps.free_user) {
-                    pricingEl.innerHTML = baseText + ' <span class="pricing-paid">\u2713 Free</span>';
-                    return;
-                }
-                var paid = Math.min(ps.paid_task_count, activeTasks);
-                var unpaid = activeTasks - paid;
-                var basePaid = ps.base_paid;
-                var allPaid = unpaid === 0 && basePaid;
-                if (allPaid) {
-                    pricingEl.innerHTML = baseText + ' <span class="pricing-paid">\u2713 Paid</span>';
-                } else {
-                    var parts = [];
-                    if (basePaid) {
-                        parts.push('<span class="pricing-paid">base \u2713</span>');
-                    } else {
-                        parts.push('<span class="pricing-unpaid">base unpaid</span>');
+            if (activeTasks > 0) {
+                // Active tasks: show full breakdown
+                var taskTotal = activeTasks * 5;
+                var baseText = '$10/mo base + ' + activeTasks + (activeTasks === 1 ? ' task' : ' tasks') + ' × $5/task = $' + (10 + taskTotal);
+                pricingEl.textContent = baseText;
+                container.appendChild(pricingEl);
+
+                // Fetch payment status and update breakdown
+                var updatePricing = function(ps) {
+                    if (ps.free_user) {
+                        pricingEl.innerHTML = baseText + ' <span class="pricing-paid">✓ Free</span>';
+                        return;
                     }
-                    if (unpaid === 0) {
-                        parts.push('<span class="pricing-paid">tasks \u2713</span>');
-                    } else if (paid === 0) {
-                        parts.push('<span class="pricing-unpaid">' + activeTasks + ' unpaid</span>');
+                    var paid = Math.min(ps.paid_task_count, activeTasks);
+                    var unpaid = activeTasks - paid;
+                    var basePaid = ps.base_paid;
+                    var allPaid = unpaid === 0 && basePaid;
+                    if (allPaid) {
+                        pricingEl.innerHTML = baseText + ' <span class="pricing-paid">✓ Paid</span>';
                     } else {
-                        parts.push('<span class="pricing-paid">' + paid + ' paid</span>, <span class="pricing-unpaid">' + unpaid + ' unpaid</span>');
+                        var parts = [];
+                        if (basePaid) {
+                            parts.push('<span class="pricing-paid">base ✓</span>');
+                        } else {
+                            parts.push('<span class="pricing-unpaid">base unpaid</span>');
+                        }
+                        if (unpaid === 0) {
+                            parts.push('<span class="pricing-paid">tasks ✓</span>');
+                        } else if (paid === 0) {
+                            parts.push('<span class="pricing-unpaid">' + activeTasks + ' unpaid</span>');
+                        } else {
+                            parts.push('<span class="pricing-paid">' + paid + ' paid</span>, <span class="pricing-unpaid">' + unpaid + ' unpaid</span>');
+                        }
+                        pricingEl.innerHTML = baseText + ' (' + parts.join(', ') + ')';
                     }
-                    pricingEl.innerHTML = baseText + ' (' + parts.join(', ') + ')';
-                }
-            };
+                };
+            } else {
+                // All tasks done: show completed summary
+                var totalPaid = doneTasks * 5 + 10;
+                pricingEl.innerHTML = doneTasks + (doneTasks === 1 ? ' task' : ' tasks') + ' completed · <span class="pricing-paid">$' + totalPaid + ' paid</span>';
+                container.appendChild(pricingEl);
+
+                var updatePricing = function(ps) {
+                    if (ps.free_user) {
+                        pricingEl.innerHTML = doneTasks + (doneTasks === 1 ? ' task' : ' tasks') + ' completed · <span class="pricing-paid">$0 (free)</span>';
+                    }
+                };
+            }
+
             if (paymentStatusCache) {
                 updatePricing(paymentStatusCache);
             } else {

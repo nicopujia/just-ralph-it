@@ -101,11 +101,11 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
     base_fee_paid = bool(project.get("base_fee_paid", 0))
     unpaid = total_tasks - paid_task_count
 
-    # Free users or nothing to pay: start directly
-    if free or (unpaid <= 0 and base_fee_paid):
-        budget = _calc_budget(project_dir, paid_task_count, free)
+    # Nothing new to pay: start directly
+    if not free and unpaid <= 0 and base_fee_paid:
+        budget = _calc_budget(project_dir, paid_task_count, free=False)
         await _start_ralph_loop(name, project, user, budget=budget)
-        return {"free": free, "redirect": None}
+        return {"free": False, "redirect": None}
 
     if total_tasks == 0 and base_fee_paid:
         raise HTTPException(status_code=400, detail="No tasks found")
@@ -129,6 +129,21 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
         parts.append(f"{unpaid} tasks \u00d7 $5")
     description = " + ".join(parts)
 
+    # Apply 100% coupon for free users
+    discounts = []
+    if free:
+        coupon_id = "jri-free-100"
+        try:
+            stripe.Coupon.retrieve(coupon_id)
+        except stripe.NotFoundError:
+            stripe.Coupon.create(
+                id=coupon_id,
+                percent_off=100,
+                duration="forever",
+                name="JRI Free User",
+            )
+        discounts = [{"coupon": coupon_id}]
+
     # Create Stripe Checkout Session
     checkout_session = stripe.checkout.Session.create(
         mode="payment",
@@ -145,6 +160,7 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
                 "quantity": 1,
             }
         ],
+        discounts=discounts if discounts else [],
         success_url=f"{BASE_URL}/projects/{name}?tab=ralph&payment=success&session_id={{CHECKOUT_SESSION_ID}}",
         cancel_url=f"{BASE_URL}/projects/{name}?payment=cancel",
         client_reference_id=str(project["id"]),
