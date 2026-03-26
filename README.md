@@ -11,13 +11,13 @@ User <-> nginx (port 80) <-> uvicorn/FastAPI (port 8000)
                     |             |              |
                  SQLite       Ralphy          Ralph
                 (jri.db)   (interviewer)    (builder)
-                             Claude CLI     Claude CLI
+                             OpenCode       OpenCode
 ```
 
 ### AI Agents
 
-- **Ralphy**: interviews users to understand their project, creates detailed issues (Claude Opus via CLI)
-- **Ralph**: picks up open issues one by one, implements via TDD (Claude Opus via CLI)
+- **Ralphy**: interviews users to understand their project, creates detailed issues (GLM 5 via OpenCode)
+- **Ralph**: picks up open issues one by one, implements via TDD (GPT 5.4 via OpenCode)
 
 ### Tech Stack
 
@@ -32,7 +32,7 @@ User <-> nginx (port 80) <-> uvicorn/FastAPI (port 8000)
 ### Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
-- [claude](https://docs.anthropic.com/en/docs/claude-cli) CLI (Anthropic CLI, must be on PATH)
+- [opencode](https://opencode.ai) CLI (must be on PATH)
 - [gh](https://cli.github.com/) CLI (authenticated as the bot account, must be on PATH)
 
 ### Steps
@@ -78,7 +78,7 @@ Each task file has YAML frontmatter with `title`, `priority`, `assignee`, `depen
 
 Real-time updates via `src/app/sse_bus.py`, keyed by project name:
 
-`issue_update`, `claude_md_update`, `ralph_stdout` (live-streamed, not persisted to disk), `ralph_status`, `notification`, `ralphy_processing`
+`issue_update`, `agents_md_update`, `ralph_stdout` (live-streamed, not persisted to disk), `ralph_status`, `notification`, `ralphy_processing`
 
 ## Upload Constraints
 
@@ -118,8 +118,8 @@ Each project can be deployed to `{project-name}.{username}.justralph.it`:
 |------|-------|
 | App database (users, projects) | `./data/jri.db` (SQLite) |
 | Project repos + uploads | `./data/<github-username>/<project-name>/` |
-| Ralphy session files | `~/.claude/projects/-home-nico-jri-data-<user>-<project>/` |
-| Auth credentials | `./.env`, `~/.config/gh/hosts.yml`, `~/.claude/.credentials.json` |
+| Ralphy session files | `~/.local/share/opencode/` |
+| Auth credentials | `./.env`, `~/.config/gh/hosts.yml`, `~/.local/share/opencode/auth.json` |
 | Beta whitelist | `./data/whitelist.txt` |
 | Freelist (skip payment) | `./data/freelist.txt` |
 | Waitlist (non-whitelisted users) | `./data/waitlist.txt` |
@@ -144,5 +144,5 @@ Other log sources:
 | What | Where |
 |------|-------|
 | systemd service | `journalctl -u jri -f` |
-| Ralphy session files | `~/.claude/projects/-home-nico-jri-data-<user>-<project>/<session-id>.jsonl` |
+| Ralphy session files | `~/.local/share/opencode/sessions/` |
 | nginx access/error | `/var/log/nginx/access.log`, `/var/log/nginx/error.log` |
