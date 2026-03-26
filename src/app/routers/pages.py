@@ -7,7 +7,6 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.auth_utils import decode_session_token
-from app.config import DATA_DIR
 from app.database import get_db
 
 logger = logging.getLogger(__name__)
@@ -25,7 +24,9 @@ async def _is_logged_in(request: Request) -> bool:
         return False
     try:
         session_data = decode_session_token(token)
-        user_id = session_data["uid"] if isinstance(session_data, dict) else session_data
+        user_id = (
+            session_data["uid"] if isinstance(session_data, dict) else session_data
+        )
     except Exception:
         return False
     async with get_db() as db:
@@ -37,7 +38,9 @@ async def _is_logged_in(request: Request) -> bool:
 @router.get("/")
 async def landing(request: Request):
     logged_in = await _is_logged_in(request)
-    return templates.TemplateResponse("landing.html", {"request": request, "logged_in": logged_in})
+    return templates.TemplateResponse(
+        "landing.html", {"request": request, "logged_in": logged_in}
+    )
 
 
 @router.get("/projects")
@@ -47,7 +50,9 @@ async def dashboard(request: Request):
         return RedirectResponse(url="/", status_code=302)
     try:
         session_data = decode_session_token(token)
-        user_id = session_data["uid"] if isinstance(session_data, dict) else session_data
+        user_id = (
+            session_data["uid"] if isinstance(session_data, dict) else session_data
+        )
     except Exception:
         return RedirectResponse(url="/", status_code=302)
     async with get_db() as db:
@@ -56,7 +61,9 @@ async def dashboard(request: Request):
     if row is None:
         return RedirectResponse(url="/", status_code=302)
     user = dict(row)
-    return templates.TemplateResponse("dashboard.html", {"request": request, "user": user})
+    return templates.TemplateResponse(
+        "dashboard.html", {"request": request, "user": user}
+    )
 
 
 # Legacy redirects
@@ -77,7 +84,9 @@ async def new_project(request: Request):
         return RedirectResponse(url="/", status_code=302)
     try:
         session_data = decode_session_token(token)
-        user_id = session_data["uid"] if isinstance(session_data, dict) else session_data
+        user_id = (
+            session_data["uid"] if isinstance(session_data, dict) else session_data
+        )
     except Exception:
         return RedirectResponse(url="/", status_code=302)
     async with get_db() as db:
@@ -86,7 +95,9 @@ async def new_project(request: Request):
     if row is None:
         return RedirectResponse(url="/", status_code=302)
     user = dict(row)
-    return templates.TemplateResponse("new_project.html", {"request": request, "user": user})
+    return templates.TemplateResponse(
+        "new_project.html", {"request": request, "user": user}
+    )
 
 
 @router.get("/projects/{name}")
@@ -96,7 +107,9 @@ async def project_page(request: Request, name: str):
         return RedirectResponse(url="/", status_code=302)
     try:
         session_data = decode_session_token(token)
-        user_id = session_data["uid"] if isinstance(session_data, dict) else session_data
+        user_id = (
+            session_data["uid"] if isinstance(session_data, dict) else session_data
+        )
     except Exception:
         return RedirectResponse(url="/", status_code=302)
 
@@ -111,7 +124,8 @@ async def project_page(request: Request, name: str):
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT id, name, description, github_repo_url, ralph_loop_status, "
-            "ralph_loop_current_issue, ralph_loop_iteration, ralph_session_id, stripe_payment_id "
+            "ralph_loop_current_issue, ralph_loop_iteration,"
+            " ralph_session_id, stripe_payment_id "
             "FROM projects WHERE user_id = ? AND name = ?",
             (user_id, name),
         )
@@ -151,5 +165,11 @@ async def project_page(request: Request, name: str):
         active_tab = "overview"
 
     return templates.TemplateResponse(
-        "project.html", {"request": request, "user": user, "project": project, "active_tab": active_tab}
+        "project.html",
+        {
+            "request": request,
+            "user": user,
+            "project": project,
+            "active_tab": active_tab,
+        },
     )

@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 STATUSES = ("todo", "doing", "done", "draft")
 
+
 def _compose_task(data: dict) -> str:
     """Compose a markdown file with YAML frontmatter from *data*.
 
@@ -83,7 +84,9 @@ def _parse_task(path: Path) -> dict:
     # Ensure acceptance_criteria is always a list
     ac = data.get("acceptance_criteria", [])
     if isinstance(ac, str):
-        data["acceptance_criteria"] = [line.strip() for line in ac.split("\n") if line.strip()]
+        data["acceptance_criteria"] = [
+            line.strip() for line in ac.split("\n") if line.strip()
+        ]
     return data
 
 
@@ -132,7 +135,8 @@ def get_ready(project_dir: str) -> list[dict]:
     all_tasks = list_all(project_dir)
     done_slugs = {t["id"] for t in all_tasks if t["status"] == "done"}
     ready = [
-        t for t in all_tasks
+        t
+        for t in all_tasks
         if t["status"] == "todo"
         and all(dep in done_slugs for dep in t.get("depends_on", []))
     ]

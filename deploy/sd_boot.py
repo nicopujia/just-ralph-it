@@ -26,8 +26,10 @@ server.config.loaded = False
 # Patch serve to pass our socket
 _original_serve = server.serve
 
+
 async def _serve_with_socket(sockets=None):
     return await _original_serve(sockets=[sock])
+
 
 server.serve = _serve_with_socket
 server.run()

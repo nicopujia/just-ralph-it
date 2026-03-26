@@ -3,16 +3,17 @@
 import asyncio
 from typing import Any
 
-
-EVENT_TYPES = frozenset({
-    "issue_update",
-    "readme_update",
-    "ralph_stdout",
-    "ralph_status",
-    "notification",
-    "ralphy_processing",
-    "payment_required",
-})
+EVENT_TYPES = frozenset(
+    {
+        "issue_update",
+        "readme_update",
+        "ralph_stdout",
+        "ralph_status",
+        "notification",
+        "ralphy_processing",
+        "payment_required",
+    }
+)
 
 
 class SSEBus:
@@ -33,7 +34,9 @@ class SSEBus:
             if not subs:
                 del self._subscribers[project_name]
 
-    async def publish(self, project_name: str, event_type: str, data: dict[str, Any]) -> None:
+    async def publish(
+        self, project_name: str, event_type: str, data: dict[str, Any]
+    ) -> None:
         for queue in self._subscribers.get(project_name, set()).copy():
             try:
                 queue.put_nowait({"event": event_type, "data": data})

@@ -2,13 +2,13 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
 from app.config import DATA_DIR
 from app.database import init_db
 from app.logging_config import setup_logging
-from app.routers import auth, pages, projects, chat, ralph, uploads, sse
+from app.routers import auth, chat, pages, projects, ralph, sse, uploads
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -25,6 +25,7 @@ app = FastAPI(title="Just Ralph It", lifespan=lifespan)
 
 # Increase multipart upload limit (default is 1MB, we allow 3MB files)
 from starlette.formparsers import MultiPartParser
+
 MultiPartParser.max_file_size = 1024 * 1024 * 10  # 10MB
 
 # Mount static files
@@ -47,7 +48,11 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 
 class SubdomainMiddleware:
-    """Route subdomain requests without wrapping responses (avoids StreamingResponse issues)."""
+    """Route subdomain requests without wrapping responses.
+
+    Avoids StreamingResponse issues.
+    """
+
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
@@ -57,8 +62,10 @@ class SubdomainMiddleware:
             project = headers.get(b"x-subdomain-project", b"").decode()
             username = headers.get(b"x-subdomain-username", b"").decode()
             if project and username:
-                from app.routers.deploy_proxy import handle_subdomain_request
                 from starlette.requests import Request as StarletteRequest
+
+                from app.routers.deploy_proxy import handle_subdomain_request
+
                 request = StarletteRequest(scope, receive, send)
                 response = await handle_subdomain_request(request, project, username)
                 await response(scope, receive, send)

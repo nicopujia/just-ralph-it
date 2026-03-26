@@ -27,6 +27,11 @@ docs: update setup instructions in README
 Replace pip with uv.
 ```
 
+## Formatting and Linting
+
+- Run `uv run ruff format .` before committing.
+- Run `uv run ruff check --fix .` before committing.
+
 ## Type Checking
 
 - Run `ty check` before committing.

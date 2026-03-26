@@ -62,15 +62,15 @@ async def deploy_dynamic(
     """Write a systemd unit, enable, and start a dynamic deploy."""
     service = f"jri-deploy-{project_name}"
     unit_path = f"{UNIT_DIR}/{service}.service"
-    unit_content = generate_systemd_unit(
-        project_name, project_dir, start_command, port
-    )
+    unit_content = generate_systemd_unit(project_name, project_dir, start_command, port)
 
     logger.info("Deploying dynamic service %s -> %s", service, unit_path)
 
     # Write unit file via sudo tee
     proc = await asyncio.create_subprocess_exec(
-        "sudo", "tee", unit_path,
+        "sudo",
+        "tee",
+        unit_path,
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
@@ -110,6 +110,4 @@ async def get_deploy_logs(project_name: str, lines: int = 50) -> str:
     """Return recent journal logs for a deploy service."""
     service = f"jri-deploy-{project_name}"
     logger.info("Fetching %d log lines for %s", lines, service)
-    return await _run(
-        "journalctl", "-u", service, "-n", str(lines), "--no-pager"
-    )
+    return await _run("journalctl", "-u", service, "-n", str(lines), "--no-pager")

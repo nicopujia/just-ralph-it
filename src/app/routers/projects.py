@@ -7,11 +7,16 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
+from app import tasks
 from app.auth_utils import get_current_user
-from app.config import DATA_DIR, MAX_FREE_PROJECTS, PRICE_PRO_MONTHLY, RALPH_BOT_GITHUB_TOKEN
+from app.config import (
+    DATA_DIR,
+    MAX_FREE_PROJECTS,
+    PRICE_PRO_MONTHLY,
+    RALPH_BOT_GITHUB_TOKEN,
+)
 from app.database import get_db
 from app.freelist import is_free_user
-from app import tasks
 from app.whitelist import check_whitelist
 
 logger = logging.getLogger(__name__)
@@ -44,9 +49,7 @@ async def _run(
         except ProcessLookupError:
             pass
         await proc.wait()
-        raise RuntimeError(
-            f"Command timed out after {timeout}s: {' '.join(args)}"
-        )
+        raise RuntimeError(f"Command timed out after {timeout}s: {' '.join(args)}")
     returncode = proc.returncode
     if returncode is None:
         raise RuntimeError(f"Command exited without a return code: {' '.join(args)}")
@@ -122,14 +125,21 @@ async def create_project(
                 "SELECT subscription_plan FROM users WHERE id = ?", (user_id,)
             )
             row = await cur2.fetchone()
-            plan = row["subscription_plan"] if row and row["subscription_plan"] else None
+            plan = (
+                row["subscription_plan"] if row and row["subscription_plan"] else None
+            )
 
         if count >= MAX_FREE_PROJECTS and plan != "pro":
             pro_price = f"${PRICE_PRO_MONTHLY // 100}/mo"
             raise HTTPException(
                 status_code=402,
                 detail={
-                    "detail": f"You've used your {MAX_FREE_PROJECTS} free projects. Subscribe to the Pro plan ({pro_price}) for unlimited projects.",
+                    "detail": (
+                        f"You've used your {MAX_FREE_PROJECTS}"
+                        f" free projects. Subscribe to the"
+                        f" Pro plan ({pro_price}) for"
+                        f" unlimited projects."
+                    ),
                     "upgrade_required": True,
                     "plan": "pro",
                     "price": pro_price,
@@ -151,8 +161,7 @@ async def create_project(
     github_username: str = user["github_username"]
     user_name: str = user.get("github_name") or github_username
     user_email: str = (
-        user.get("github_email")
-        or f"{github_username}@users.noreply.github.com"
+        user.get("github_email") or f"{github_username}@users.noreply.github.com"
     )
 
     # Check uniqueness in DB
@@ -219,7 +228,8 @@ async def create_project(
             "## Structure\n"
             "\n"
             "```\n"
-            "tasks/      — Markdown task files with YAML frontmatter, organized by status\n"
+            "tasks/      — Markdown task files with YAML frontmatter,"
+            " organized by status\n"
             "  draft/    — tasks being defined\n"
             "  todo/     — tasks ready to start\n"
             "  doing/    — tasks in progress\n"
@@ -230,26 +240,21 @@ async def create_project(
             "  ralphy.log  — Ralphy (interviewer) output log\n"
             "```\n"
             "\n"
-            "Each task is a Markdown file with YAML frontmatter, named by its slug (e.g. `implement-dashboard-page.md`).\n"
+            "Each task is a Markdown file with YAML frontmatter,"
+            " named by its slug (e.g. `implement-dashboard-page.md`).\n"
             "Status is determined by which subdirectory the file lives in.\n"
         )
         (project_dir / ".jri" / "README.md").write_text(jri_readme)
 
         # 6b. Create .env file and .gitignore
         (project_dir / ".env").write_text("")
-        (project_dir / ".gitignore").write_text(
-            ".env\n"
-            ".jri/logs/\n"
-            ".jri/state.json\n"
-        )
+        (project_dir / ".gitignore").write_text(".env\n.jri/logs/\n.jri/state.json\n")
 
         # 7. Git add all and commit
         logger.info(f"Creating project {name}: step 7 - git add and commit")
         await _run(["git", "add", "."], cwd=cwd)
         commit_msg = (
-            f"Initial project setup\n"
-            f"\n"
-            f"Co-authored-by: {user_name} <{user_email}>"
+            f"Initial project setup\n\nCo-authored-by: {user_name} <{user_email}>"
         )
         rc, _, err = await _run(["git", "commit", "-m", commit_msg], cwd=cwd)
         if rc != 0:
@@ -286,13 +291,16 @@ async def create_project(
                     raise HTTPException(
                         status_code=409,
                         detail=(
-                            "A GitHub repo with this name already exists or was recently deleted. "
-                            "Please wait a moment and try again, or choose a different name."
+                            "A GitHub repo with this name already exists"
+                            " or was recently deleted. "
+                            "Please wait a moment and try again,"
+                            " or choose a different name."
                         ),
                     )
                 if resp.status_code == 422:
                     raise RuntimeError(
-                        f"GitHub repo validation error ({resp.status_code}): {resp.text}"
+                        f"GitHub repo validation error"
+                        f" ({resp.status_code}): {resp.text}"
                     )
                 if resp.status_code >= 400:
                     raise RuntimeError(
@@ -302,16 +310,22 @@ async def create_project(
 
             # 9. Add user as collaborator (skip for admin — already has access)
             if user.get("role") != "admin":
-                logger.info(f"Creating project {name}: step 9 - adding collaborator {github_username}")
+                logger.info(
+                    f"Creating project {name}: step 9"
+                    f" - adding collaborator {github_username}"
+                )
                 resp2 = await client.put(
-                    f"https://api.github.com/repos/ralphpujia/{github_username}-{name}/collaborators/{github_username}",
+                    f"https://api.github.com/repos/ralphpujia/"
+                    f"{github_username}-{name}/collaborators/"
+                    f"{github_username}",
                     headers=headers,
                     json={"permission": "push"},
                     timeout=30,
                 )
                 if resp2.status_code >= 400:
                     raise RuntimeError(
-                        f"GitHub add collaborator failed ({resp2.status_code}): {resp2.text}"
+                        f"GitHub add collaborator failed"
+                        f" ({resp2.status_code}): {resp2.text}"
                     )
 
         # 10. Add remote
@@ -350,7 +364,9 @@ async def create_project(
     # 12. Insert into SQLite
     async with get_db() as db:
         cursor = await db.execute(
-            "INSERT INTO projects (user_id, name, description, github_repo_url) VALUES (?, ?, ?, ?)",
+            "INSERT INTO projects"
+            " (user_id, name, description, github_repo_url)"
+            " VALUES (?, ?, ?, ?)",
             (user_id, name, description, github_repo_url),
         )
         project_id = cursor.lastrowid
@@ -387,7 +403,8 @@ async def list_projects(user: dict = Depends(get_current_user)):
 
     async with get_db() as db:
         cursor = await db.execute(
-            "SELECT id, name, description, github_repo_url, ralph_loop_status, created_at "
+            "SELECT id, name, description, github_repo_url,"
+            " ralph_loop_status, created_at "
             "FROM projects WHERE user_id = ?",
             (user_id,),
         )
@@ -455,7 +472,9 @@ class EnvUpdateRequest(BaseModel):
 
 
 @router.put("/{name}/env")
-async def update_env(name: str, body: EnvUpdateRequest, user: dict = Depends(get_current_user)):
+async def update_env(
+    name: str, body: EnvUpdateRequest, user: dict = Depends(get_current_user)
+):
     user_id = user["id"]
     github_username = user["github_username"]
     async with get_db() as db:
@@ -526,7 +545,8 @@ async def deploy_project(
 
     async with get_db() as db:
         cursor = await db.execute(
-            "SELECT id, deploy_port, deploy_subdomain FROM projects WHERE user_id = ? AND name = ?",
+            "SELECT id, deploy_port, deploy_subdomain"
+            " FROM projects WHERE user_id = ? AND name = ?",
             (user_id, name),
         )
         row = await cursor.fetchone()
@@ -536,11 +556,17 @@ async def deploy_project(
         row_dict = dict(row)
         project_id = row_dict["id"]
         deploy_port = row_dict["deploy_port"] or (9000 + project_id)
-        deploy_subdomain = row_dict["deploy_subdomain"] or f"{name.lower()}.{user['github_username'].lower()}"
+        deploy_subdomain = (
+            row_dict["deploy_subdomain"]
+            or f"{name.lower()}.{user['github_username'].lower()}"
+        )
 
         await db.execute(
-            "UPDATE projects SET deploy_type = 'dynamic', deploy_start_command = ?, "
-            "deploy_status = 'running', deploy_port = ?, deploy_subdomain = ? WHERE id = ?",
+            "UPDATE projects SET deploy_type = 'dynamic',"
+            " deploy_start_command = ?,"
+            " deploy_status = 'running',"
+            " deploy_port = ?, deploy_subdomain = ?"
+            " WHERE id = ?",
             (body.start_command, deploy_port, deploy_subdomain, project_id),
         )
         await db.commit()
@@ -620,7 +646,9 @@ async def delete_project(
             if resp.status_code >= 400 and resp.status_code != 404:
                 raise HTTPException(
                     status_code=500,
-                    detail=f"GitHub delete repo failed ({resp.status_code}): {resp.text}",
+                    detail=(
+                        f"GitHub delete repo failed ({resp.status_code}): {resp.text}"
+                    ),
                 )
 
     # Delete project directory

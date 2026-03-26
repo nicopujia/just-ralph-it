@@ -11,13 +11,16 @@ from starlette.responses import StreamingResponse
 from app.auth_utils import get_current_user
 from app.config import DATA_DIR
 from app.database import get_db
-
 from app.prompts.ralphy import RALPHY_SYSTEM_PROMPT
 from app.sse_bus import sse_bus
 
 router = APIRouter(prefix="/api/projects", tags=["chat"])
 
-ALLOWED_TOOLS = "Bash(git:*) Bash(ls:*) Bash(cat:*) Bash(mv:*) Bash(mkdir:*) Read Glob Grep Write(README.md) Write(.jri/tasks/) Edit(README.md) Edit(.jri/tasks/) WebSearch WebFetch"
+ALLOWED_TOOLS = (
+    "Bash(git:*) Bash(ls:*) Bash(cat:*) Bash(mv:*) Bash(mkdir:*)"
+    " Read Glob Grep Write(README.md) Write(.jri/tasks/)"
+    " Edit(README.md) Edit(.jri/tasks/) WebSearch WebFetch"
+)
 MAX_MESSAGE_LENGTH = 50_000
 
 ALLOWED_MIME_TYPES = {
@@ -48,7 +51,9 @@ async def _get_project_for_user(user: dict, project_name: str) -> dict:
     return dict(row)
 
 
-async def _ensure_session_id(project_id: int, current_session_id: str | None) -> tuple[str, bool]:
+async def _ensure_session_id(
+    project_id: int, current_session_id: str | None
+) -> tuple[str, bool]:
     """Return (session_id, is_new). Creates and stores a new UUID if needed."""
     if current_session_id:
         return current_session_id, False
@@ -75,16 +80,22 @@ def _build_claude_args(
         args += ["--resume", session_id, "--continue"]
 
     args += [
-        "--system-prompt", RALPHY_SYSTEM_PROMPT,
-        "--output-format", "stream-json",
+        "--system-prompt",
+        RALPHY_SYSTEM_PROMPT,
+        "--output-format",
+        "stream-json",
         "--verbose",
-        "--allowedTools", ALLOWED_TOOLS,
-        "--", user_message,
+        "--allowedTools",
+        ALLOWED_TOOLS,
+        "--",
+        user_message,
     ]
     return args
 
 
-async def _validate_attachments(attachments: list[UploadFile]) -> list[tuple[str, bytes]]:
+async def _validate_attachments(
+    attachments: list[UploadFile],
+) -> list[tuple[str, bytes]]:
     """Validate attachments and return list of (filename, content) tuples."""
     if len(attachments) > MAX_ATTACHMENTS:
         raise HTTPException(
@@ -98,7 +109,7 @@ async def _validate_attachments(attachments: list[UploadFile]) -> list[tuple[str
             raise HTTPException(
                 status_code=400,
                 detail=f"File type '{attachment.content_type}' is not allowed. "
-                       f"Allowed types: {', '.join(sorted(ALLOWED_MIME_TYPES))}",
+                f"Allowed types: {', '.join(sorted(ALLOWED_MIME_TYPES))}",
             )
 
         content = await attachment.read()
@@ -142,8 +153,10 @@ async def _append_chat_message(project_id: int, msg: dict) -> None:
     """Insert a chat message into the database."""
     async with get_db() as db:
         await db.execute(
-            "INSERT INTO chat_messages (project_id, role, content, thinking_text, thinking_steps) "
-            "VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO chat_messages"
+            " (project_id, role, content,"
+            " thinking_text, thinking_steps)"
+            " VALUES (?, ?, ?, ?, ?)",
             (
                 project_id,
                 msg["role"],
@@ -237,7 +250,9 @@ async def _stream_claude(
 
             while True:
                 try:
-                    raw_line = await asyncio.wait_for(proc.stdout.readline(), timeout=15)
+                    raw_line = await asyncio.wait_for(
+                        proc.stdout.readline(), timeout=15
+                    )
                 except (asyncio.TimeoutError, TimeoutError):
                     # Keep connection alive during long tool executions
                     yield ": keepalive\n\n"
@@ -261,12 +276,17 @@ async def _stream_claude(
                     content_block = data.get("content_block", {})
                     if content_block.get("type") == "tool_use":
                         tool_name = content_block["name"]
-                        event = {"type": "tool_use", "name": tool_name, "input": content_block.get("input", {})}
+                        event = {
+                            "type": "tool_use",
+                            "name": tool_name,
+                            "input": content_block.get("input", {}),
+                        }
                         yield f"data: {json.dumps(event)}\n\n"
                         log_file.write(f"[tool_use] {tool_name}\n")
                         log_file.flush()
                         assistant_tools.append(tool_name)
-                        # Publish issue_update when Ralphy uses Bash (likely task file changes)
+                        # Publish issue_update when Ralphy uses Bash
+                        # (likely task file changes)
                         if tool_name == "Bash":
                             await sse_bus.publish(project_name, "issue_update", {})
 
@@ -303,8 +323,7 @@ async def _stream_claude(
 
             # Non-zero exit with no result — retry once
             if attempt < max_attempts - 1:
-                stderr_bytes = await proc.stderr.read()
-                last_stderr = stderr_bytes.decode().strip()
+                await proc.stderr.read()
                 continue
 
             # Final attempt failed
@@ -355,8 +374,7 @@ async def chat(
             raise HTTPException(status_code=400, detail="Field 'message' is required.")
 
         attachments: list[UploadFile] = [
-            v for _, v in form.multi_items()
-            if isinstance(v, UploadFile)
+            v for _, v in form.multi_items() if isinstance(v, UploadFile)
         ]
 
         if attachments:

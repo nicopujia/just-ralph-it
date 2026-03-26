@@ -1,9 +1,9 @@
 import logging
+import os
 import subprocess
 from pathlib import Path
 
 from dotenv import load_dotenv
-import os
 
 # Load .env from the project root (~/jri/.env)
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -23,13 +23,16 @@ STAGING: bool = os.getenv("STAGING", "").lower() in ("1", "true", "yes")
 if STAGING:
     STRIPE_SECRET_KEY: str = os.environ.get("STRIPE_SECRET_KEY", "")
 else:
-    STRIPE_SECRET_KEY: str = os.environ.get("PROD_STRIPE_SECRET_KEY", os.environ.get("STRIPE_SECRET_KEY", ""))
+    STRIPE_SECRET_KEY: str = os.environ.get(
+        "PROD_STRIPE_SECRET_KEY", os.environ.get("STRIPE_SECRET_KEY", "")
+    )
 
 # Base URL (used for OAuth callbacks, Stripe redirects, etc.)
 BASE_URL: str = os.environ.get("BASE_URL", "https://justralph.it")
 
 # Data directory for persistent storage
 DATA_DIR: Path = Path.home() / "jri" / "data"
+
 
 # Ralph bot GitHub token – read from gh CLI at import time and cached
 def _get_ralph_bot_github_token() -> str:
@@ -44,6 +47,7 @@ def _get_ralph_bot_github_token() -> str:
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return ""
 
+
 RALPH_BOT_GITHUB_TOKEN: str = _get_ralph_bot_github_token()
 
 # ── Startup validation ──
@@ -54,9 +58,7 @@ _REQUIRED = {
 }
 _missing = [name for name, val in _REQUIRED.items() if not val]
 if _missing:
-    raise RuntimeError(
-        f"Missing required environment variables: {', '.join(_missing)}"
-    )
+    raise RuntimeError(f"Missing required environment variables: {', '.join(_missing)}")
 
 if not STRIPE_SECRET_KEY:
     logging.getLogger(__name__).warning(
@@ -65,6 +67,6 @@ if not STRIPE_SECRET_KEY:
 
 # Pricing (in cents)
 PRICE_PROJECT_BASE = 1000  # $10 one-time base fee per project
-PRICE_PER_TASK = 500       # $5 per task
-MAX_FREE_PROJECTS = 3      # free projects before subscription required
-PRICE_PRO_MONTHLY = 2000   # $20/mo for unlimited projects
+PRICE_PER_TASK = 500  # $5 per task
+MAX_FREE_PROJECTS = 3  # free projects before subscription required
+PRICE_PRO_MONTHLY = 2000  # $20/mo for unlimited projects

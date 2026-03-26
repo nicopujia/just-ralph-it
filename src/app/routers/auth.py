@@ -144,7 +144,10 @@ async def impersonate(username: str, request: Request):
     except Exception:
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
 
-    is_admin = current_user.get("role") == "admin" or current_user["github_username"] == ADMIN_USERNAME
+    is_admin = (
+        current_user.get("role") == "admin"
+        or current_user["github_username"] == ADMIN_USERNAME
+    )
     is_impersonating = current_user.get("impersonating_from") is not None
 
     # Only allow if the real admin is logged in or currently impersonating

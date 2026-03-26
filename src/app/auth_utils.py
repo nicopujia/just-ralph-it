@@ -1,5 +1,5 @@
 from fastapi import HTTPException, Request
-from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from app.config import SECRET_KEY
 from app.database import get_db
@@ -8,9 +8,7 @@ SESSION_MAX_AGE = 30 * 24 * 60 * 60  # 30 days in seconds
 _serializer = URLSafeTimedSerializer(SECRET_KEY)
 
 
-def create_session_token(
-    user_id: int, *, impersonating_from: int | None = None
-) -> str:
+def create_session_token(user_id: int, *, impersonating_from: int | None = None) -> str:
     """Sign a user id into a session token.
 
     If ``impersonating_from`` is provided, it is stored alongside the

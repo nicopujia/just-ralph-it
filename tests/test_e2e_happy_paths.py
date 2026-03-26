@@ -12,7 +12,7 @@ import time
 import httpx
 import pytest
 import stripe
-from playwright.sync_api import sync_playwright, Page
+from playwright.sync_api import Page, sync_playwright
 
 # Add src/ to path so we can import app modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
@@ -56,7 +56,9 @@ def _delete_project(name: str) -> None:
         c.post(f"/api/projects/{name}/ralph/stop")
         time.sleep(1)
         resp = c.delete(f"/api/projects/{name}?delete_repo=false")
-        assert resp.status_code in (204, 404), f"Delete failed: {resp.status_code} {resp.text}"
+        assert resp.status_code in (204, 404), (
+            f"Delete failed: {resp.status_code} {resp.text}"
+        )
 
 
 def _unique_name(prefix: str = "e2e") -> str:
@@ -89,15 +91,19 @@ def page(browser):
     """Browser page with session cookie (logged in as test user)."""
     token = _session_cookie()
     ctx = browser.new_context()
-    ctx.add_cookies([{
-        "name": "session",
-        "value": token,
-        "domain": "localhost",
-        "path": "/",
-        "httpOnly": False,
-        "secure": False,
-        "sameSite": "Lax",
-    }])
+    ctx.add_cookies(
+        [
+            {
+                "name": "session",
+                "value": token,
+                "domain": "localhost",
+                "path": "/",
+                "httpOnly": False,
+                "secure": False,
+                "sameSite": "Lax",
+            }
+        ]
+    )
     p = ctx.new_page()
     yield p
     p.close()
@@ -229,7 +235,9 @@ class TestChat:
 
                 # Verify we got at least some SSE data lines
                 body = resp.text
-                data_lines = [l for l in body.splitlines() if l.startswith("data:")]
+                data_lines = [
+                    line for line in body.splitlines() if line.startswith("data:")
+                ]
                 assert len(data_lines) > 0, "No SSE data events received"
         finally:
             _delete_project(name)
@@ -289,7 +297,7 @@ class TestTasks:
 
             page.goto(f"{BASE_URL}/projects/{name}?tab=tasks")
             page.wait_for_load_state("domcontentloaded")
-            assert page.url.endswith(f"?tab=tasks") or "tab=tasks" in page.url
+            assert page.url.endswith("?tab=tasks") or "tab=tasks" in page.url
         finally:
             _delete_project(name)
 
@@ -309,13 +317,14 @@ class TestStripeCheckout:
         name = _unique_name("e2e-stripe")
 
         try:
-            proj = _create_project(name, "Stripe checkout test")
+            _create_project(name, "Stripe checkout test")
 
             # We need at least one non-done task so there's something to pay for.
             # Create a task file via the tasks API indirectly -- use a direct file write
             # via the chat API is too slow. Instead, create the task file on disk.
             # Since the test user is nicopujia and DATA_DIR is ~/jri/data:
             from app.config import DATA_DIR
+
             tasks_dir = DATA_DIR / "nicopujia" / name / ".jri" / "tasks" / "todo"
             tasks_dir.mkdir(parents=True, exist_ok=True)
             task_file = tasks_dir / "test-task.md"
@@ -357,17 +366,21 @@ class TestStripeCheckout:
 
         session = stripe.checkout.Session.create(
             mode="payment",
-            line_items=[{
-                "price_data": {
-                    "currency": "usd",
-                    "unit_amount": 1500,  # $15
-                    "product_data": {
-                        "name": "E2E Test -- Just Ralph It",
-                        "description": "Test checkout session (will not be completed)",
+            line_items=[
+                {
+                    "price_data": {
+                        "currency": "usd",
+                        "unit_amount": 1500,  # $15
+                        "product_data": {
+                            "name": "E2E Test -- Just Ralph It",
+                            "description": (
+                                "Test checkout session (will not be completed)"
+                            ),
+                        },
                     },
-                },
-                "quantity": 1,
-            }],
+                    "quantity": 1,
+                }
+            ],
             success_url=f"{BASE_URL}/projects/test?payment=success&session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{BASE_URL}/projects/test?payment=cancel",
             client_reference_id="e2e-test",
@@ -388,14 +401,16 @@ class TestStripeCheckout:
             # Create a checkout session directly via Stripe
             session = stripe.checkout.Session.create(
                 mode="payment",
-                line_items=[{
-                    "price_data": {
-                        "currency": "usd",
-                        "unit_amount": 500,
-                        "product_data": {"name": "E2E callback test"},
-                    },
-                    "quantity": 1,
-                }],
+                line_items=[
+                    {
+                        "price_data": {
+                            "currency": "usd",
+                            "unit_amount": 500,
+                            "product_data": {"name": "E2E callback test"},
+                        },
+                        "quantity": 1,
+                    }
+                ],
                 success_url=f"{BASE_URL}/test",
                 cancel_url=f"{BASE_URL}/test",
                 client_reference_id="e2e-test",
@@ -409,7 +424,9 @@ class TestStripeCheckout:
                 )
 
             # Should reject because payment_status != "paid"
-            assert resp.status_code == 402, f"Expected 402, got {resp.status_code}: {resp.text}"
+            assert resp.status_code == 402, (
+                f"Expected 402, got {resp.status_code}: {resp.text}"
+            )
 
         finally:
             _delete_project(name)
@@ -545,10 +562,14 @@ class TestProjectLimit:
                         json={"name": name, "description": f"Limit test {i}"},
                     )
                 if resp.status_code == 402:
-                    pytest.skip("User already has 3+ projects; can't test limit cleanly")
+                    pytest.skip(
+                        "User already has 3+ projects; can't test limit cleanly"
+                    )
                 if resp.status_code == 403:
                     pytest.skip("User not whitelisted")
-                assert resp.status_code == 200, f"Create #{i} failed: {resp.status_code} {resp.text}"
+                assert resp.status_code == 200, (
+                    f"Create #{i} failed: {resp.status_code} {resp.text}"
+                )
                 created.append(name)
 
             # The 4th should fail with 402
@@ -562,7 +583,9 @@ class TestProjectLimit:
                 created.append(names[3])
                 pytest.skip("User bypassed limit (may be freelist/pro)")
 
-            assert resp.status_code == 402, f"Expected 402, got {resp.status_code}: {resp.text}"
+            assert resp.status_code == 402, (
+                f"Expected 402, got {resp.status_code}: {resp.text}"
+            )
             data = resp.json()
             detail = data.get("detail", {})
             assert detail.get("upgrade_required") is True
@@ -589,7 +612,9 @@ class TestLogout:
         page.wait_for_load_state("domcontentloaded")
 
         # Should be on landing page
-        assert page.url.rstrip("/") == BASE_URL.rstrip("/") or page.url == f"{BASE_URL}/"
+        assert (
+            page.url.rstrip("/") == BASE_URL.rstrip("/") or page.url == f"{BASE_URL}/"
+        )
 
     def test_after_logout_protected_pages_redirect(self, page: Page):
         """After logout, visiting /projects redirects to /."""
@@ -602,7 +627,9 @@ class TestLogout:
         page.wait_for_load_state("domcontentloaded")
 
         # Should be redirected to landing
-        assert page.url.rstrip("/") == BASE_URL.rstrip("/") or page.url == f"{BASE_URL}/"
+        assert (
+            page.url.rstrip("/") == BASE_URL.rstrip("/") or page.url == f"{BASE_URL}/"
+        )
 
     def test_logout_api_returns_401(self):
         """After logout, /auth/me returns 401 (no cookie)."""
@@ -624,7 +651,10 @@ class TestProjectPage:
             _create_project(name)
             page.goto(f"{BASE_URL}/projects/{name}")
             page.wait_for_load_state("domcontentloaded")
-            assert page.url.endswith(f"/projects/{name}") or f"/projects/{name}" in page.url
+            assert (
+                page.url.endswith(f"/projects/{name}")
+                or f"/projects/{name}" in page.url
+            )
         finally:
             _delete_project(name)
 

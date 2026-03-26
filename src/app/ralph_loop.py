@@ -10,7 +10,6 @@ from typing import Optional
 
 from app import tasks
 from app.database import get_db
-
 from app.prompts.ralph import RALPH_SYSTEM_PROMPT
 from app.sse_bus import sse_bus
 
@@ -51,7 +50,8 @@ def build_ralph_prompt(issue: dict, user_name: str, user_email: str) -> str:
         f"Notes:\n"
         f"{notes}\n"
         f"\n"
-        f"Solve this issue completely. Follow TDD: write tests from acceptance criteria first, then implement.\n"
+        f"Solve this issue completely. Follow TDD: write tests "
+        f"from acceptance criteria first, then implement.\n"
         f'When done: git add -A && git commit -m "<msg>" '
         f'--trailer "Co-authored-by: {user_name} <{user_email}>"\n'
         f"Then: mv .jri/tasks/doing/{issue_id}.md .jri/tasks/done/"
@@ -77,7 +77,9 @@ class RalphLoop:
         self.current_issue_id: Optional[str] = None
         self.iteration: int = 0
         self.process: Optional[asyncio.subprocess.Process] = None
-        self.stdout_lines: collections.deque = collections.deque(maxlen=STDOUT_BUFFER_SIZE)
+        self.stdout_lines: collections.deque = collections.deque(
+            maxlen=STDOUT_BUFFER_SIZE
+        )
         self.user_github_name = user_github_name
         self.user_github_email = user_github_email
         self._subscribers: set[asyncio.Queue] = set()
@@ -102,11 +104,15 @@ class RalphLoop:
                 issue_id = state.get("current_issue_id")
                 logger.warning(
                     "Found interrupted Ralph loop for %s on issue %s, recovering",
-                    project_name, issue_id,
+                    project_name,
+                    issue_id,
                 )
                 # git reset --hard HEAD
                 reset_proc = await asyncio.create_subprocess_exec(
-                    "git", "reset", "--hard", "HEAD",
+                    "git",
+                    "reset",
+                    "--hard",
+                    "HEAD",
                     cwd=project_dir,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -114,7 +120,9 @@ class RalphLoop:
                 await reset_proc.communicate()
                 # Clean up abandoned worktrees
                 wt_proc = await asyncio.create_subprocess_exec(
-                    "git", "worktree", "prune",
+                    "git",
+                    "worktree",
+                    "prune",
                     cwd=project_dir,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
@@ -127,7 +135,8 @@ class RalphLoop:
                     except Exception:
                         logger.warning("Could not reopen issue %s", issue_id)
                     await sse_bus.publish(
-                        project_name, "issue_update",
+                        project_name,
+                        "issue_update",
                         {"issue_id": issue_id, "action": "reopened"},
                     )
                 # Clean up state file(s)
@@ -149,7 +158,8 @@ class RalphLoop:
             all_issues = tasks.list_all(self.project_dir)
 
             human_issues = [
-                i for i in all_issues
+                i
+                for i in all_issues
                 if i.get("assignee") == "Human" and i.get("status") == "todo"
             ]
 
@@ -189,7 +199,8 @@ class RalphLoop:
                     created_at = row["created_at"] if row else ""
 
                     await sse_bus.publish(
-                        self.project_name, "notification",
+                        self.project_name,
+                        "notification",
                         {
                             "id": notification_id,
                             "message": message,
@@ -199,7 +210,9 @@ class RalphLoop:
                     )
 
         except Exception:
-            logger.exception("Error polling for human blockers in project %s", self.project_name)
+            logger.exception(
+                "Error polling for human blockers in project %s", self.project_name
+            )
 
     async def _loop(self) -> None:
         """Core Ralph loop: pick issue, solve, push, repeat."""
@@ -211,7 +224,11 @@ class RalphLoop:
                 # --- Get ready issues ---
                 ready_issues = tasks.get_ready(self.project_dir)[:1]
 
-                logger.info("Project %s: found %d ready issues", self.project_name, len(ready_issues))
+                logger.info(
+                    "Project %s: found %d ready issues",
+                    self.project_name,
+                    len(ready_issues),
+                )
 
                 if not ready_issues:
                     self.status = "stopped"
@@ -222,7 +239,8 @@ class RalphLoop:
                     await self._deploy_if_configured()
 
                     await sse_bus.publish(
-                        self.project_name, "ralph_status",
+                        self.project_name,
+                        "ralph_status",
                         {"status": "idle", "message": "No more ready issues"},
                     )
                     break
@@ -235,20 +253,31 @@ class RalphLoop:
 
                     if unpaid_count > 0:
                         logger.info(
-                            "Project %s: budget exhausted (%d/%d), %d unpaid tasks remain",
-                            self.project_name, self.tasks_completed,
-                            self.task_budget, unpaid_count,
+                            "Project %s: budget exhausted (%d/%d),"
+                            " %d unpaid tasks remain",
+                            self.project_name,
+                            self.tasks_completed,
+                            self.task_budget,
+                            unpaid_count,
                         )
                         self.status = "payment_required"
                         self._save_state()
                         await self._update_db_status("payment_required")
                         await sse_bus.publish(
-                            self.project_name, "payment_required",
-                            {"unpaid_count": unpaid_count, "project_name": self.project_name},
+                            self.project_name,
+                            "payment_required",
+                            {
+                                "unpaid_count": unpaid_count,
+                                "project_name": self.project_name,
+                            },
                         )
                         await sse_bus.publish(
-                            self.project_name, "ralph_status",
-                            {"status": "payment_required", "unpaid_count": unpaid_count},
+                            self.project_name,
+                            "ralph_status",
+                            {
+                                "status": "payment_required",
+                                "unpaid_count": unpaid_count,
+                            },
                         )
 
                         # Wait for payment to resume (or stop)
@@ -266,7 +295,8 @@ class RalphLoop:
                         await self._update_db_status("running")
                         logger.info(
                             "Project %s: resumed after payment, new budget=%d",
-                            self.project_name, self.task_budget,
+                            self.project_name,
+                            self.task_budget,
                         )
                         continue
                     # else: over budget but no more todo tasks, normal exit
@@ -284,10 +314,15 @@ class RalphLoop:
                     # --- Claim ---
                     tasks.set_status(self.project_dir, self.current_issue_id, "doing")
                     tasks.update_field(
-                        self.project_dir, self.current_issue_id,
+                        self.project_dir,
+                        self.current_issue_id,
                         assignee="ralph",
                     )
-                    await sse_bus.publish(self.project_name, "issue_update", {"issue_id": self.current_issue_id, "action": "claimed"})
+                    await sse_bus.publish(
+                        self.project_name,
+                        "issue_update",
+                        {"issue_id": self.current_issue_id, "action": "claimed"},
+                    )
 
                     # --- Clear stdout for new issue ---
                     self.stdout_lines.clear()
@@ -295,20 +330,33 @@ class RalphLoop:
 
                     # --- Build prompt ---
                     prompt = build_ralph_prompt(
-                        issue, self.user_github_name, self.user_github_email,
+                        issue,
+                        self.user_github_name,
+                        self.user_github_email,
                     )
 
                     # --- Run Claude ---
-                    logger.info("Project %s: starting Claude for issue %s (prompt: %d chars)", self.project_name, self.current_issue_id, len(prompt))
+                    logger.info(
+                        "Project %s: starting Claude for issue %s (prompt: %d chars)",
+                        self.project_name,
+                        self.current_issue_id,
+                        len(prompt),
+                    )
                     self.process = await asyncio.create_subprocess_exec(
-                        "claude", "-p",
-                        "--model", "opus",
-                        "--output-format", "stream-json",
+                        "claude",
+                        "-p",
+                        "--model",
+                        "opus",
+                        "--output-format",
+                        "stream-json",
                         "--verbose",
                         "--dangerously-skip-permissions",
-                        "--system-prompt", RALPH_SYSTEM_PROMPT,
-                        "--allowedTools", "Bash Read Write Edit Glob Grep WebFetch WebSearch",
-                        "--", prompt,
+                        "--system-prompt",
+                        RALPH_SYSTEM_PROMPT,
+                        "--allowedTools",
+                        "Bash Read Write Edit Glob Grep WebFetch WebSearch",
+                        "--",
+                        prompt,
                         cwd=self.project_dir,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.STDOUT,
@@ -321,7 +369,11 @@ class RalphLoop:
                     # Wait for exit
                     await self.process.wait()
                     exit_code = self.process.returncode
-                    logger.info("Project %s: Claude exited with code %d", self.project_name, exit_code)
+                    logger.info(
+                        "Project %s: Claude exited with code %d",
+                        self.project_name,
+                        exit_code,
+                    )
 
                     if exit_code != 0:
                         await self._recover(self.current_issue_id)
@@ -329,14 +381,18 @@ class RalphLoop:
 
                     # --- Push ---
                     push_proc = await asyncio.create_subprocess_exec(
-                        "git", "push",
+                        "git",
+                        "push",
                         cwd=self.project_dir,
                         stdout=asyncio.subprocess.PIPE,
                         stderr=asyncio.subprocess.PIPE,
                     )
                     push_stdout, push_stderr = await push_proc.communicate()
                     if push_proc.returncode == 0:
-                        logger.info("Pushed changes to GitHub for issue %s", self.current_issue_id)
+                        logger.info(
+                            "Pushed changes to GitHub for issue %s",
+                            self.current_issue_id,
+                        )
                     else:
                         logger.warning(
                             "git push failed for issue %s (exit %d): %s",
@@ -347,27 +403,38 @@ class RalphLoop:
 
                     # --- Check if issue was closed ---
                     issue_data = tasks.get_task(
-                        self.project_dir, self.current_issue_id,
+                        self.project_dir,
+                        self.current_issue_id,
                     )
                     if issue_data and issue_data.get("status") != "done":
                         logger.warning(
                             "Issue %s was not closed by Ralph after iteration %d",
-                            self.current_issue_id, self.iteration,
+                            self.current_issue_id,
+                            self.iteration,
                         )
 
                     # Notify frontend of issue state change
-                    await sse_bus.publish(self.project_name, "issue_update", {"issue_id": self.current_issue_id, "action": "completed"})
+                    await sse_bus.publish(
+                        self.project_name,
+                        "issue_update",
+                        {"issue_id": self.current_issue_id, "action": "completed"},
+                    )
                     self.tasks_completed += 1
 
                 except Exception:
                     logger.exception(
                         "Iteration %d crashed on issue %s in project %s",
-                        self.iteration, self.current_issue_id, self.project_name,
+                        self.iteration,
+                        self.current_issue_id,
+                        self.project_name,
                     )
                     # Check if there are unpushed commits (post-commit crash)
                     try:
                         unpushed = await asyncio.create_subprocess_exec(
-                            "git", "log", "--oneline", "@{u}..HEAD",
+                            "git",
+                            "log",
+                            "--oneline",
+                            "@{u}..HEAD",
                             cwd=self.project_dir,
                             stdout=asyncio.subprocess.PIPE,
                             stderr=asyncio.subprocess.PIPE,
@@ -378,7 +445,8 @@ class RalphLoop:
                         if has_unpushed:
                             # Commits exist locally -- try to push them
                             push_proc = await asyncio.create_subprocess_exec(
-                                "git", "push",
+                                "git",
+                                "push",
                                 cwd=self.project_dir,
                                 stdout=asyncio.subprocess.PIPE,
                                 stderr=asyncio.subprocess.PIPE,
@@ -398,7 +466,8 @@ class RalphLoop:
                                     )
                                 except Exception:
                                     logger.warning(
-                                        "Could not move issue %s to done after post-crash push",
+                                        "Could not move issue %s"
+                                        " to done after post-crash push",
                                         self.current_issue_id,
                                     )
                                 continue
@@ -447,15 +516,21 @@ class RalphLoop:
             deploy_port = row_dict.get("deploy_port")
             deploy_start_command = row_dict.get("deploy_start_command")
             github_username = row_dict.get("github_username", "unknown").lower()
-            deploy_subdomain = row_dict.get("deploy_subdomain") or f"{self.project_name.lower()}.{github_username}"
+            deploy_subdomain = (
+                row_dict.get("deploy_subdomain")
+                or f"{self.project_name.lower()}.{github_username}"
+            )
             # Ensure subdomain uses the new {project}.{username} format
             if "." not in deploy_subdomain:
                 deploy_subdomain = f"{deploy_subdomain}.{github_username}"
 
             from app.deploy_manager import deploy_dynamic
+
             await deploy_dynamic(
-                self.project_name, self.project_dir,
-                deploy_start_command or "", deploy_port or 9000,
+                self.project_name,
+                self.project_dir,
+                deploy_start_command or "",
+                deploy_port or 9000,
             )
 
             # Update deploy_status in DB
@@ -468,7 +543,8 @@ class RalphLoop:
 
             # Publish deployed SSE event
             await sse_bus.publish(
-                self.project_name, "ralph_status",
+                self.project_name,
+                "ralph_status",
                 {
                     "status": "deployed",
                     "url": f"https://{deploy_subdomain}.justralph.it",
@@ -476,7 +552,8 @@ class RalphLoop:
             )
             logger.info(
                 "Deployed project %s to https://%s.justralph.it",
-                self.project_name, deploy_subdomain,
+                self.project_name,
+                deploy_subdomain,
             )
 
         except Exception:
@@ -486,17 +563,23 @@ class RalphLoop:
         """Reset git state, reopen issue, log crash, and publish event."""
         logger.warning(
             "Recovering from crash on issue %s in project %s",
-            issue_id, self.project_name,
+            issue_id,
+            self.project_name,
         )
 
         recovery_msg = f"Crashed on issue {issue_id}, recovering..."
         await sse_bus.publish(
-            self.project_name, "ralph_stdout", {"line": recovery_msg},
+            self.project_name,
+            "ralph_stdout",
+            {"line": recovery_msg},
         )
 
         # git reset --hard HEAD
         reset_proc = await asyncio.create_subprocess_exec(
-            "git", "reset", "--hard", "HEAD",
+            "git",
+            "reset",
+            "--hard",
+            "HEAD",
             cwd=self.project_dir,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -505,7 +588,9 @@ class RalphLoop:
 
         # Clean up abandoned worktrees
         wt_proc = await asyncio.create_subprocess_exec(
-            "git", "worktree", "prune",
+            "git",
+            "worktree",
+            "prune",
             cwd=self.project_dir,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -519,17 +604,20 @@ class RalphLoop:
             logger.warning("Could not reopen issue %s during recovery", issue_id)
 
         await sse_bus.publish(
-            self.project_name, "ralph_status",
+            self.project_name,
+            "ralph_status",
             {"status": "crash_recovery", "issue_id": issue_id},
         )
         await sse_bus.publish(
-            self.project_name, "issue_update",
+            self.project_name,
+            "issue_update",
             {"issue_id": issue_id, "action": "reopened"},
         )
 
         logger.info(
             "Recovery complete for issue %s in project %s",
-            issue_id, self.project_name,
+            issue_id,
+            self.project_name,
         )
 
     async def resume_after_payment(self, new_budget: int) -> None:
@@ -625,14 +713,15 @@ class RalphLoop:
 
                 # Publish to SSE bus
                 await sse_bus.publish(
-                    self.project_name, "ralph_stdout", {"line": display_line},
+                    self.project_name,
+                    "ralph_stdout",
+                    {"line": display_line},
                 )
         finally:
             log_file.close()
 
-
     def _parse_stream_line(self, raw: str) -> str | None:
-        """Parse a stream-json line and return a human-readable string, or None to skip."""
+        """Parse a stream-json line, return readable str or None."""
         try:
             data = json.loads(raw)
         except json.JSONDecodeError:
@@ -708,7 +797,8 @@ class RalphLoop:
     async def _update_db_issue(self) -> None:
         async with get_db() as db:
             await db.execute(
-                "UPDATE projects SET ralph_loop_current_issue = ?, ralph_loop_iteration = ? WHERE id = ?",
+                "UPDATE projects SET ralph_loop_current_issue = ?,"
+                " ralph_loop_iteration = ? WHERE id = ?",
                 (self.current_issue_id, self.iteration, self.project_id),
             )
             await db.commit()

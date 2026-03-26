@@ -93,9 +93,7 @@ async def init_db() -> None:
             ("subscription_id", "TEXT DEFAULT NULL"),
         ]:
             try:
-                await db.execute(
-                    f"ALTER TABLE users ADD COLUMN {col_name} {col_def}"
-                )
+                await db.execute(f"ALTER TABLE users ADD COLUMN {col_name} {col_def}")
             except Exception:
                 pass  # column already exists
 
@@ -142,17 +140,13 @@ async def init_db() -> None:
 
         # Migrate: add role column to users
         try:
-            await db.execute(
-                "ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'"
-            )
+            await db.execute("ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'user'")
         except Exception:
             pass  # column already exists
 
         # Migrate: seed roles from legacy whitelist.txt / freelist.txt
         # Only runs if there are users with no role set (i.e. still 'user' default).
-        cursor = await db.execute(
-            "SELECT COUNT(*) FROM users WHERE role != 'user'"
-        )
+        cursor = await db.execute("SELECT COUNT(*) FROM users WHERE role != 'user'")
         (role_count,) = await cursor.fetchone()
         if role_count == 0:
             _whitelist_path = DATA_DIR / "whitelist.txt"

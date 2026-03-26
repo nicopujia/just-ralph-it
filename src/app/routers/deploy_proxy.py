@@ -11,7 +11,9 @@ from app.database import get_db
 logger = logging.getLogger(__name__)
 
 
-async def handle_subdomain_request(request: Request, project: str, username: str) -> Response:
+async def handle_subdomain_request(
+    request: Request, project: str, username: str
+) -> Response:
     """Handle requests to {project}.{username}.justralph.it."""
     path = request.url.path.lstrip("/")
 

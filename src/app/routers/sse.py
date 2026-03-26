@@ -37,7 +37,9 @@ async def project_events(project_name: str, user: dict = Depends(get_current_use
         try:
             while True:
                 try:
-                    msg = await asyncio.wait_for(queue.get(), timeout=KEEPALIVE_INTERVAL)
+                    msg = await asyncio.wait_for(
+                        queue.get(), timeout=KEEPALIVE_INTERVAL
+                    )
                     yield f"event: {msg['event']}\ndata: {json.dumps(msg['data'])}\n\n"
                 except asyncio.TimeoutError:
                     # Keepalive comment to prevent connection timeout

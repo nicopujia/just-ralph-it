@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -19,9 +20,9 @@ from app.config import (
     STRIPE_SECRET_KEY,
 )
 from app.database import get_db
+from app.freelist import is_free_user
 from app.ralph_loop import RalphLoop
 from app.routers.projects import _get_project_dir
-from app.freelist import is_free_user
 from app.whitelist import check_whitelist
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,8 @@ logger = logging.getLogger(__name__)
 stripe.api_key = STRIPE_SECRET_KEY
 if STRIPE_SECRET_KEY.startswith("pk_"):
     logger.warning(
-        "STRIPE_SECRET_KEY starts with 'pk_' — this looks like a publishable key, not a secret key"
+        "STRIPE_SECRET_KEY starts with 'pk_'"
+        " — this looks like a publishable key, not a secret key"
     )
 
 router = APIRouter(prefix="/api/projects", tags=["ralph"])
@@ -73,7 +75,9 @@ def _calc_budget(project_dir: str, paid_task_count: int, free: bool) -> int:
     return max(paid_task_count - done_doing, 0)
 
 
-async def _start_ralph_loop(name: str, project: dict, user: dict, budget: int = 999999) -> None:
+async def _start_ralph_loop(
+    name: str, project: dict, user: dict, budget: int = 999999
+) -> None:
     """Shared helper to start the Ralph loop for a project."""
     if name in _loops and _loops[name].status == "running":
         return
@@ -82,7 +86,9 @@ async def _start_ralph_loop(name: str, project: dict, user: dict, budget: int = 
     project_dir = str(DATA_DIR / github_username / name)
 
     user_name = user.get("github_name") or github_username
-    user_email = user.get("github_email") or f"{github_username}@users.noreply.github.com"
+    user_email = (
+        user.get("github_email") or f"{github_username}@users.noreply.github.com"
+    )
 
     loop = RalphLoop(
         project_id=project["id"],
@@ -269,7 +275,10 @@ async def ralph_stop(name: str, user: dict = Depends(get_current_user)):
         # Clean up git state and move task back to todo
         try:
             reset_proc = await asyncio.create_subprocess_exec(
-                "git", "reset", "--hard", "HEAD",
+                "git",
+                "reset",
+                "--hard",
+                "HEAD",
                 cwd=project_dir,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -277,7 +286,9 @@ async def ralph_stop(name: str, user: dict = Depends(get_current_user)):
             await reset_proc.communicate()
 
             wt_proc = await asyncio.create_subprocess_exec(
-                "git", "worktree", "prune",
+                "git",
+                "worktree",
+                "prune",
                 cwd=project_dir,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
@@ -387,8 +398,7 @@ async def acknowledge_notification(
     project = await _get_project(name, user)
     async with get_db() as db:
         cursor = await db.execute(
-            "UPDATE notifications SET acknowledged = 1 "
-            "WHERE id = ? AND project_id = ?",
+            "UPDATE notifications SET acknowledged = 1 WHERE id = ? AND project_id = ?",
             (notification_id, project["id"]),
         )
         await db.commit()
