@@ -44,5 +44,7 @@ select = ["E", "F", "I", "W"]
 pythonpath = ["src"]
 
 [tool.ty]
+
+[tool.ty.environment]
 python-version = "3.12"
-src = ["src"]
+extra-paths = ["src"]

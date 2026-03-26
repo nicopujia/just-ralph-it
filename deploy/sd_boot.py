@@ -31,5 +31,5 @@ async def _serve_with_socket(sockets=None):
     return await _original_serve(sockets=[sock])
 
 
-server.serve = _serve_with_socket
+server.serve = _serve_with_socket  # ty: ignore[invalid-assignment]
 server.run()

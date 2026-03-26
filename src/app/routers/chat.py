@@ -247,6 +247,8 @@ async def _stream_claude(
                 env={**os.environ, **env},
             )
             _active_procs[project_name] = proc
+            assert proc.stdout is not None
+            assert proc.stderr is not None
 
             while True:
                 try:

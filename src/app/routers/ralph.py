@@ -209,8 +209,9 @@ async def ralph_payment_callback(
         raise HTTPException(status_code=400, detail="Session does not match project")
 
     # Get the unpaid count that was stored in checkout metadata
-    unpaid_count = int(session.metadata.get("unpaid_count", "0"))
-    includes_base_fee = session.metadata.get("includes_base_fee", "0") == "1"
+    metadata = session.metadata or {}
+    unpaid_count = int(metadata.get("unpaid_count", "0"))
+    includes_base_fee = metadata.get("includes_base_fee", "0") == "1"
 
     # Update payment ID, increment paid_task_count, and mark base fee paid
     async with get_db() as db:

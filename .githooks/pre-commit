@@ -7,4 +7,7 @@ uv run ruff format --check .
 echo "Running ruff lint check..."
 uv run ruff check .
 
+echo "Running ty type check..."
+uv run ty check
+
 echo "All checks passed."

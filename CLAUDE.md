@@ -4,6 +4,10 @@
 
 - Use subagents for ANY TASK YOU DO. Use up to 100 subagents for each of them. Parallelize independent ones.
 - Commit, push, and restart the service (`sudo systemctl restart jri`) frequently.
+- Pre-commit hooks enforce formatting (ruff) and type checking (ty).
+- Run the full test suite (`uv run pytest tests/`) before pushing or after large changes.
+- For small changes, run only the relevant test file.
+- Smoke test after restarting: curl key routes to catch 500s.
 
 ## Documentation
 
@@ -31,12 +35,3 @@ docs: update setup instructions in README
 
 Replace pip with uv.
 ```
-
-## Formatting and Linting
-
-- Run `uv run ruff format .` before committing.
-- Run `uv run ruff check --fix .` before committing.
-
-## Type Checking
-
-- Run `ty check` before committing.

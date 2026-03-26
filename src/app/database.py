@@ -147,7 +147,9 @@ async def init_db() -> None:
         # Migrate: seed roles from legacy whitelist.txt / freelist.txt
         # Only runs if there are users with no role set (i.e. still 'user' default).
         cursor = await db.execute("SELECT COUNT(*) FROM users WHERE role != 'user'")
-        (role_count,) = await cursor.fetchone()
+        row = await cursor.fetchone()
+        assert row is not None
+        (role_count,) = row
         if role_count == 0:
             _whitelist_path = DATA_DIR / "whitelist.txt"
             _freelist_path = DATA_DIR / "freelist.txt"

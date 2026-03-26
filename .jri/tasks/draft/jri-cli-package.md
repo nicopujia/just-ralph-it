@@ -1,4 +1,8 @@
-# JRI CLI Package
+---
+title: JRI CLI Package
+depends_on:
+  - migrate-to-opencode
+---
 
 ## Context
 

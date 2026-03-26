@@ -626,6 +626,7 @@ class RalphLoop:
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
+        assert proc.returncode is not None
         return (
             proc.returncode,
             stdout.decode(errors="replace"),
