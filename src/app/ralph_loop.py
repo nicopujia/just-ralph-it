@@ -12,6 +12,7 @@ from typing import Optional
 import httpx
 
 from app import tasks
+from app.config import RALPH_MODEL
 from app.database import get_db
 from app.prompts.ralph import RALPH_SYSTEM_PROMPT
 from app.sse_bus import sse_bus
@@ -247,7 +248,7 @@ class RalphLoop:
             self._opencode_port = s.getsockname()[1]
 
         config = {
-            "model": "opencode/gpt-5.4",
+            "model": RALPH_MODEL,
             "permission": {"*": "allow"},
             "agent": {
                 "ralph": {

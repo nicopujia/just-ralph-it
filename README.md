@@ -17,7 +17,7 @@ User <-> nginx (port 80) <-> uvicorn/FastAPI (port 8000)
 ### AI Agents
 
 - **Ralphy**: interviews users to understand their project, creates detailed issues (GLM 5 via OpenCode)
-- **Ralph**: picks up open issues one by one, implements via TDD (GPT 5.4 via OpenCode)
+- **Ralph**: picks up open issues one by one, implements via TDD (GLM 5 via OpenCode)
 
 ### Tech Stack
 

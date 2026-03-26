@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
 from app.auth_utils import get_current_user
-from app.config import DATA_DIR
+from app.config import DATA_DIR, RALPHY_MODEL
 from app.database import get_db
 from app.prompts.ralphy import RALPHY_SYSTEM_PROMPT
 from app.sse_bus import sse_bus
@@ -153,7 +153,7 @@ async def _ensure_opencode_server(
     port = _find_free_port()
 
     config = {
-        "model": "opencode/glm-5",
+        "model": RALPHY_MODEL,
         "permission": {"*": "allow"},
         "agent": {
             "ralphy": {
