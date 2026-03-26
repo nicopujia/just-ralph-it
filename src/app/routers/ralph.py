@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+from pathlib import Path
 
 import stripe
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -274,6 +275,20 @@ async def ralph_stop(name: str, user: dict = Depends(get_current_user)):
 
         # Clean up git state and move task back to todo
         try:
+            # Reset dev worktree if it exists
+            dev_dir = project_dir + "-dev"
+            if Path(dev_dir).exists():
+                dev_reset = await asyncio.create_subprocess_exec(
+                    "git",
+                    "reset",
+                    "--hard",
+                    "HEAD",
+                    cwd=dev_dir,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                await dev_reset.communicate()
+
             reset_proc = await asyncio.create_subprocess_exec(
                 "git",
                 "reset",

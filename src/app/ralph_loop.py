@@ -108,7 +108,20 @@ class RalphLoop:
                     project_name,
                     issue_id,
                 )
-                # git reset --hard HEAD
+                # Reset dev worktree if it exists
+                dev_dir = project_dir + "-dev"
+                if Path(dev_dir).exists():
+                    dev_reset = await asyncio.create_subprocess_exec(
+                        "git",
+                        "reset",
+                        "--hard",
+                        "HEAD",
+                        cwd=dev_dir,
+                        stdout=asyncio.subprocess.PIPE,
+                        stderr=asyncio.subprocess.PIPE,
+                    )
+                    await dev_reset.communicate()
+                # Reset main
                 reset_proc = await asyncio.create_subprocess_exec(
                     "git",
                     "reset",
@@ -393,31 +406,12 @@ class RalphLoop:
                         await self._recover(self.current_issue_id)
                         continue
 
-                    # --- Push ---
-                    push_proc = await asyncio.create_subprocess_exec(
-                        "git",
-                        "push",
-                        cwd=self.project_dir,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.PIPE,
-                    )
-                    push_stdout, push_stderr = await push_proc.communicate()
-                    if push_proc.returncode == 0:
-                        logger.info(
-                            "Pushed changes to GitHub for issue %s",
-                            self.current_issue_id,
-                        )
-                    else:
-                        logger.warning(
-                            "git push failed for issue %s (exit %d): %s",
-                            self.current_issue_id,
-                            push_proc.returncode,
-                            push_stderr.decode(errors="replace").strip(),
-                        )
+                    # --- Merge dev to main and push ---
+                    await self._merge_dev_to_main()
 
                     # --- Check if issue was closed ---
                     issue_data = tasks.get_task(
-                        self.project_dir,
+                        self.dev_dir,
                         self.current_issue_id,
                     )
                     if issue_data and issue_data.get("status") != "done":
@@ -442,60 +436,6 @@ class RalphLoop:
                         self.current_issue_id,
                         self.project_name,
                     )
-                    # Check if there are unpushed commits (post-commit crash)
-                    try:
-                        unpushed = await asyncio.create_subprocess_exec(
-                            "git",
-                            "log",
-                            "--oneline",
-                            "@{u}..HEAD",
-                            cwd=self.project_dir,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=asyncio.subprocess.PIPE,
-                        )
-                        up_out, up_err = await unpushed.communicate()
-                        has_unpushed = unpushed.returncode == 0 and up_out.strip()
-
-                        if has_unpushed:
-                            # Commits exist locally -- try to push them
-                            push_proc = await asyncio.create_subprocess_exec(
-                                "git",
-                                "push",
-                                cwd=self.project_dir,
-                                stdout=asyncio.subprocess.PIPE,
-                                stderr=asyncio.subprocess.PIPE,
-                            )
-                            await push_proc.communicate()
-                            if push_proc.returncode == 0:
-                                # Push succeeded, move task to done
-                                logger.info(
-                                    "Post-crash push succeeded for issue %s",
-                                    self.current_issue_id,
-                                )
-                                try:
-                                    tasks.set_status(
-                                        self.project_dir,
-                                        self.current_issue_id,
-                                        "done",
-                                    )
-                                except Exception:
-                                    logger.warning(
-                                        "Could not move issue %s"
-                                        " to done after post-crash push",
-                                        self.current_issue_id,
-                                    )
-                                continue
-                            else:
-                                logger.warning(
-                                    "Post-crash push failed for issue %s, recovering",
-                                    self.current_issue_id,
-                                )
-                    except Exception:
-                        logger.warning(
-                            "Could not check unpushed commits for issue %s",
-                            self.current_issue_id,
-                        )
-
                     await self._recover(self.current_issue_id)
                     continue
 
@@ -588,32 +528,22 @@ class RalphLoop:
             {"line": recovery_msg},
         )
 
-        # git reset --hard HEAD
-        reset_proc = await asyncio.create_subprocess_exec(
-            "git",
-            "reset",
-            "--hard",
-            "HEAD",
-            cwd=self.project_dir,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await reset_proc.communicate()
+        # Reset dev worktree (where Ralph was working)
+        await self._git_exec(self.dev_dir, "reset", "--hard", "HEAD")
 
         # Clean up abandoned worktrees
-        wt_proc = await asyncio.create_subprocess_exec(
-            "git",
-            "worktree",
-            "prune",
-            cwd=self.project_dir,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        await wt_proc.communicate()
+        await self._git_exec(self.project_dir, "worktree", "prune")
 
-        # Reopen issue
+        # Reopen issue on main and commit
         try:
             tasks.set_status(self.project_dir, issue_id, "todo")
+            await self._git_exec(self.project_dir, "add", "-A")
+            await self._git_exec(
+                self.project_dir,
+                "commit",
+                "-m",
+                f"reopen {issue_id}",
+            )
         except Exception:
             logger.warning("Could not reopen issue %s during recovery", issue_id)
 
