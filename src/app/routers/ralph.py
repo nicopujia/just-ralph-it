@@ -9,7 +9,15 @@ from fastapi.responses import StreamingResponse
 
 from app import tasks
 from app.auth_utils import get_current_user
-from app.config import BASE_URL, DATA_DIR, STRIPE_SECRET_KEY
+from app.config import (
+    BASE_URL,
+    DATA_DIR,
+    MAX_FREE_PROJECTS,
+    PRICE_PER_TASK,
+    PRICE_PRO_MONTHLY,
+    PRICE_PROJECT_BASE,
+    STRIPE_SECRET_KEY,
+)
 from app.database import get_db
 from app.ralph_loop import RalphLoop
 from app.routers.projects import _get_project_dir
@@ -110,9 +118,9 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
     if total_tasks == 0 and base_fee_paid:
         raise HTTPException(status_code=400, detail="No tasks found")
 
-    # Pricing: $10 base (one-time) + $5 per unpaid task
-    base_amount = 0 if base_fee_paid else 1000  # $10 in cents
-    task_amount = max(unpaid, 0) * 500  # $5 per task in cents
+    # Pricing: base (one-time) + per-task fee
+    base_amount = 0 if base_fee_paid else PRICE_PROJECT_BASE
+    task_amount = max(unpaid, 0) * PRICE_PER_TASK
     unit_amount = base_amount + task_amount
 
     if unit_amount <= 0:
@@ -124,9 +132,9 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
     # Build description
     parts = []
     if not base_fee_paid:
-        parts.append("Project base ($10)")
+        parts.append(f"Project base (${PRICE_PROJECT_BASE // 100})")
     if unpaid > 0:
-        parts.append(f"{unpaid} tasks \u00d7 $5")
+        parts.append(f"{unpaid} tasks \u00d7 ${PRICE_PER_TASK // 100}")
     description = " + ".join(parts)
 
     # Apply 100% coupon for free users
@@ -442,4 +450,19 @@ async def ralph_status(name: str, user: dict = Depends(get_current_user)):
         "current_issue": loop.current_issue_id,
         "iteration": loop.iteration,
         "recent_output": recent,
+    }
+
+
+# Separate router for non-project-scoped endpoints
+pricing_router = APIRouter(tags=["pricing"])
+
+
+@pricing_router.get("/api/pricing")
+async def get_pricing():
+    """Return pricing config as JSON (values in dollars)."""
+    return {
+        "project_base": PRICE_PROJECT_BASE // 100,
+        "per_task": PRICE_PER_TASK // 100,
+        "max_free_projects": MAX_FREE_PROJECTS,
+        "pro_monthly": PRICE_PRO_MONTHLY // 100,
     }

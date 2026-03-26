@@ -91,7 +91,7 @@
     <h2>New Project</h2>
     <div class="upgrade-banner" id="upgrade-banner">
         <p id="upgrade-msg"></p>
-        <button class="btn-subscribe" disabled title="Coming soon">Subscribe ($20/mo)</button>
+        <button class="btn-subscribe" disabled title="Coming soon" id="btn-subscribe">Subscribe</button>
     </div>
     <form id="new-project-form">
         <div class="form-group">
@@ -111,6 +111,14 @@
 </div>
 <script>
 (function() {
+    // Fetch pricing config and update subscribe button
+    fetch('/api/pricing')
+        .then(function(r) { return r.json(); })
+        .then(function(pricing) {
+            var btn = document.getElementById('btn-subscribe');
+            if (btn) btn.textContent = 'Subscribe ($' + pricing.pro_monthly + '/mo)';
+        });
+
     const form = document.getElementById('new-project-form');
     const nameInput = document.getElementById('name');
     const descInput = document.getElementById('description');

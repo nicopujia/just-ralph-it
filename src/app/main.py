@@ -38,6 +38,7 @@ app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(chat.router)
 app.include_router(ralph.router)
+app.include_router(ralph.pricing_router)
 app.include_router(uploads.router)
 app.include_router(sse.router)
 
