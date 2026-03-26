@@ -1512,6 +1512,7 @@
                 var thinkingText = '';
                 var thinkingComplete = false;
                 var interleaveText = '';
+                var responseDone = false;  // Track when response is complete
                 function savePendingMessage() {
                     var pending = {
                         thinkingText: thinkingText,
@@ -1543,9 +1544,8 @@
                     var existingDetails = msgDiv.querySelector('details.thinking');
                     var wasOpen = existingDetails ? existingDetails.open : false;
                     var html = '';
-                    if (initialText) {
-                        html += '<div class="message-text">' + renderMarkdown(initialText) + '</div>';
-                    }
+                    
+                    // Show thinking content if present
                     if (hasThinkingContent()) {
                         html += '<div class="thinking-content">';
                         html += '<details class="thinking"' + (wasOpen ? ' open' : '') + '><summary>' + getThinkingSummary() + '</summary>';
@@ -1559,8 +1559,15 @@
                         }
                         html += '</details></div>';
                     }
-                    if (finalText && (!hasThinkingContent() || thinkingComplete)) {
-                        html += '<div class="message-text">' + renderMarkdown(finalText) + '</div>';
+                    
+                    // Show message text only when response is complete (not during streaming)
+                    if (responseDone) {
+                        if (initialText) {
+                            html += '<div class="message-text">' + renderMarkdown(initialText) + '</div>';
+                        }
+                        if (finalText && (!hasThinkingContent() || thinkingComplete)) {
+                            html += '<div class="message-text">' + renderMarkdown(finalText) + '</div>';
+                        }
                     }
                     msgDiv.innerHTML = html;
                 }
@@ -1628,6 +1635,7 @@
                                 if (evt.result && (!finalText || (evt.result.length > finalText.length && evt.result.indexOf(finalText) === 0))) {
                                     finalText = evt.result;
                                 }
+                                responseDone = true;  // Show complete message after thinking finishes
                                 localStorage.removeItem(STORAGE_KEY + '-pending');
                                 ensureMsgDiv();
                                 rebuildMsg();
