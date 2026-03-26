@@ -19,6 +19,13 @@ User <-> nginx (port 80) <-> uvicorn/FastAPI (port 8000)
 - **Ralphy**: interviews users to understand their project, creates detailed issues (GLM 5 via OpenCode)
 - **Ralph**: picks up open issues one by one, implements via TDD (GLM 5 via OpenCode)
 
+Models default to `opencode-go/glm-5` (free tier). Override via env vars for paid tiers:
+
+| Env var | Default | Paid example |
+|---------|---------|--------------|
+| `RALPH_MODEL` | `opencode-go/glm-5` | `opencode/gpt-5.4` |
+| `RALPHY_MODEL` | `opencode-go/glm-5` | `opencode/glm-5` |
+
 ### Tech Stack
 
 - **FastAPI** with Jinja2 templates, SSE for real-time streaming
