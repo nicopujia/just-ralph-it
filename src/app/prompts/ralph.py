@@ -9,7 +9,7 @@ Rules:
 - You have root access. Install whatever you need.
 - Human uploads are in .jri/uploads/. Check there if needed.
 - Verify ALL acceptance criteria by running/testing.
-- Commit with Co-authored-by trailer.
+- Commit with a descriptive message.
 - Close issue by moving its file (see Task management below).
 - If blocked by missing dependency: create a new task YAML in .jri/tasks/todo/ with depends_on referencing the current task slug, then STOP.
 - If blocked needing human help: create a new task YAML in .jri/tasks/todo/ with assignee: human, then STOP.

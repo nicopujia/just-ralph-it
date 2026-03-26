@@ -5,8 +5,11 @@ import collections
 import json
 import logging
 import os
+import socket
 from pathlib import Path
 from typing import Optional
+
+import httpx
 
 from app import tasks
 from app.database import get_db
@@ -77,7 +80,6 @@ class RalphLoop:
         self.status: str = "stopped"
         self.current_issue_id: Optional[str] = None
         self.iteration: int = 0
-        self.process: Optional[asyncio.subprocess.Process] = None
         self.stdout_lines: collections.deque = collections.deque(
             maxlen=STDOUT_BUFFER_SIZE
         )
@@ -88,6 +90,11 @@ class RalphLoop:
         self.task_budget: int = task_budget
         self.tasks_completed: int = 0
         self._payment_event: asyncio.Event = asyncio.Event()
+        # OpenCode server state
+        self._opencode_port: int = 0
+        self._opencode_process: Optional[asyncio.subprocess.Process] = None
+        self._session_id: Optional[str] = None
+        self._http_client: Optional[httpx.AsyncClient] = None
 
     @staticmethod
     async def check_interrupted(project_dir: str, project_name: str) -> None:
@@ -228,11 +235,314 @@ class RalphLoop:
                 "Error polling for human blockers in project %s", self.project_name
             )
 
+    # ------------------------------------------------------------------
+    # OpenCode server lifecycle
+    # ------------------------------------------------------------------
+
+    async def _start_opencode_server(self) -> None:
+        """Start the OpenCode HTTP server on a free port and wait for health."""
+        # Find a free port
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            self._opencode_port = s.getsockname()[1]
+
+        config = {
+            "model": "opencode/gpt-5.4",
+            "permission": {"*": "allow"},
+            "agent": {
+                "ralph": {
+                    "mode": "primary",
+                    "description": "Autonomous coding agent that solves issues",
+                    "prompt": RALPH_SYSTEM_PROMPT,
+                    "tools": {
+                        "bash": True,
+                        "edit": True,
+                        "write": True,
+                        "read": True,
+                        "grep": True,
+                        "glob": True,
+                        "webfetch": True,
+                        "websearch": True,
+                    },
+                }
+            },
+            "default_agent": "ralph",
+        }
+
+        env = self._env({"OPENCODE_CONFIG_CONTENT": json.dumps(config)})
+
+        self._opencode_process = await asyncio.create_subprocess_exec(
+            "/home/linuxbrew/.linuxbrew/bin/opencode",
+            "serve",
+            "--port",
+            str(self._opencode_port),
+            "--hostname",
+            "127.0.0.1",
+            cwd=self.dev_dir,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            env=env,
+        )
+
+        base_url = f"http://127.0.0.1:{self._opencode_port}"
+        self._http_client = httpx.AsyncClient(
+            base_url=base_url,
+            timeout=httpx.Timeout(None),
+        )
+
+        # Poll for health
+        deadline = asyncio.get_event_loop().time() + 60
+        while asyncio.get_event_loop().time() < deadline:
+            # Check if process died
+            if self._opencode_process.returncode is not None:
+                raise RuntimeError(
+                    f"OpenCode server exited early with code "
+                    f"{self._opencode_process.returncode}"
+                )
+            try:
+                resp = await self._http_client.get(
+                    "/global/health", timeout=httpx.Timeout(2.0)
+                )
+                if resp.status_code == 200:
+                    logger.info(
+                        "OpenCode server ready on port %d for project %s",
+                        self._opencode_port,
+                        self.project_name,
+                    )
+                    return
+            except (httpx.ConnectError, httpx.ReadTimeout, httpx.ConnectTimeout):
+                pass
+            await asyncio.sleep(0.5)
+
+        raise RuntimeError(
+            f"OpenCode server did not become healthy within 60s "
+            f"(port {self._opencode_port})"
+        )
+
+    async def _stop_opencode_server(self) -> None:
+        """Shut down the OpenCode HTTP server and clean up resources."""
+        if self._http_client:
+            try:
+                await self._http_client.aclose()
+            except Exception:
+                pass
+            self._http_client = None
+
+        if self._opencode_process and self._opencode_process.returncode is None:
+            self._opencode_process.terminate()
+            try:
+                await asyncio.wait_for(self._opencode_process.wait(), timeout=10)
+            except asyncio.TimeoutError:
+                logger.warning("OpenCode server did not exit in 10s, killing it")
+                self._opencode_process.kill()
+                await self._opencode_process.wait()
+            except Exception:
+                pass
+
+        self._opencode_process = None
+        self._session_id = None
+
+    # ------------------------------------------------------------------
+    # OpenCode issue execution
+    # ------------------------------------------------------------------
+
+    async def _run_issue(self, prompt: str) -> int:
+        """Run a single issue through OpenCode. Returns 0 on success, 1 on error."""
+        assert self._http_client is not None
+
+        try:
+            # Create session
+            resp = await self._http_client.post(
+                "/session",
+                json={"title": f"Issue {self.current_issue_id}"},
+            )
+            resp.raise_for_status()
+            session_data = resp.json()
+            self._session_id = session_data["id"]
+
+            # Send prompt
+            await self._http_client.post(
+                f"/session/{self._session_id}/prompt_async",
+                json={"parts": [{"type": "text", "text": prompt}]},
+            )
+
+            # Stream events until completion
+            exit_code = await self._stream_events()
+            return exit_code
+
+        except Exception:
+            logger.exception(
+                "Project %s: error running issue %s via OpenCode",
+                self.project_name,
+                self.current_issue_id,
+            )
+            return 1
+        finally:
+            # Clean up session
+            if self._session_id and self._http_client:
+                try:
+                    await self._http_client.delete(f"/session/{self._session_id}")
+                except Exception:
+                    pass
+            self._session_id = None
+
+    async def _stream_events(self) -> int:
+        """Stream SSE events from OpenCode until session completes.
+
+        Returns 0 on success (session.idle), 1 on error.
+        """
+        assert self._http_client is not None
+
+        log_dir = Path(self.project_dir) / ".jri" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "ralph.log"
+        log_file = open(log_path, "a", encoding="utf-8")
+
+        try:
+            async with self._http_client.stream("GET", "/event") as resp:
+                buffer = ""
+                async for chunk in resp.aiter_text():
+                    # Check if opencode process died
+                    if (
+                        self._opencode_process
+                        and self._opencode_process.returncode is not None
+                    ):
+                        logger.error(
+                            "OpenCode server died during streaming (code %d)",
+                            self._opencode_process.returncode,
+                        )
+                        return 1
+
+                    buffer += chunk
+                    # SSE messages are separated by double newlines
+                    while "\n\n" in buffer:
+                        message, buffer = buffer.split("\n\n", 1)
+                        event = self._parse_sse(message)
+                        if event is None:
+                            continue
+
+                        event_type = event.get("type", "")
+                        props = event.get("properties", {})
+
+                        # Filter by session ID
+                        sid = props.get("sessionID", "")
+                        if sid and sid != self._session_id:
+                            continue
+
+                        if event_type == "session.idle":
+                            return 0
+
+                        if event_type == "session.error":
+                            error_data = props.get("error", {})
+                            error_msg = error_data.get("data", {}).get(
+                                "message"
+                            ) or str(error_data)
+                            logger.error(
+                                "Project %s: session error: %s",
+                                self.project_name,
+                                error_msg,
+                            )
+                            return 1
+
+                        # Extract display text
+                        display_text = self._extract_display_text(event_type, props)
+                        if not display_text:
+                            continue
+
+                        self.stdout_lines.append(display_text)
+
+                        # Write to ralph log file
+                        log_file.write(display_text + "\n")
+                        log_file.flush()
+
+                        # Publish to local subscribers
+                        for q in self._subscribers.copy():
+                            try:
+                                q.put_nowait(display_text)
+                            except asyncio.QueueFull:
+                                pass
+
+                        # Publish to SSE bus
+                        await sse_bus.publish(
+                            self.project_name,
+                            "ralph_stdout",
+                            {"line": display_text},
+                        )
+
+        except httpx.RemoteProtocolError:
+            # Server closed the connection, check if it was intentional
+            logger.warning("OpenCode SSE stream closed unexpectedly")
+            return 1
+        except Exception:
+            logger.exception("Error streaming OpenCode events")
+            return 1
+        finally:
+            log_file.close()
+
+        # Stream ended without session.idle
+        return 1
+
+    @staticmethod
+    def _parse_sse(message: str) -> dict | None:
+        """Parse an SSE message into a dict, or None on failure."""
+        data_lines = []
+        for line in message.split("\n"):
+            if line.startswith("data: "):
+                data_lines.append(line[6:])
+            elif line.startswith("data:"):
+                data_lines.append(line[5:])
+        if not data_lines:
+            return None
+        try:
+            return json.loads("".join(data_lines))
+        except json.JSONDecodeError:
+            return None
+
+    @staticmethod
+    def _extract_display_text(event_type: str, props: dict) -> str | None:
+        """Extract human-readable text from an OpenCode event."""
+        if event_type != "message.part.updated":
+            return None
+
+        part = props.get("part", {})
+        part_type = part.get("type", "")
+
+        if part_type == "text":
+            text = part.get("text", "").strip()
+            return text if text else None
+
+        if part_type == "tool_use":
+            name = part.get("name", "")
+            inp = part.get("input", {})
+            if name == "bash":
+                return f"$ {inp.get('command', '')}"
+            if name == "write":
+                return f"Writing {inp.get('file_path', '')}"
+            if name == "edit":
+                return f"Editing {inp.get('file_path', '')}"
+            if name == "read":
+                return f"Reading {inp.get('file_path', '')}"
+            if name == "glob":
+                return f"Searching {inp.get('pattern', '')}"
+            if name == "grep":
+                return f"Grepping {inp.get('pattern', '')}"
+            return f"[{name}]"
+
+        # Ignore other part types (reasoning, step-start, step-finish)
+        return None
+
+    # ------------------------------------------------------------------
+    # Main loop
+    # ------------------------------------------------------------------
+
     async def _loop(self) -> None:
         """Core Ralph loop: pick issue, solve, push, repeat."""
         try:
             # --- Ensure dev worktree exists ---
             await self._ensure_dev_worktree()
+
+            # --- Start OpenCode server ---
+            await self._start_opencode_server()
 
             while self.status == "running":
                 # --- Poll for human-assigned blockers ---
@@ -362,42 +672,16 @@ class RalphLoop:
                         self.user_github_email,
                     )
 
-                    # --- Run Claude ---
+                    # --- Run OpenCode ---
                     logger.info(
-                        "Project %s: starting Claude for issue %s (prompt: %d chars)",
+                        "Project %s: starting OpenCode for issue %s (prompt: %d chars)",
                         self.project_name,
                         self.current_issue_id,
                         len(prompt),
                     )
-                    self.process = await asyncio.create_subprocess_exec(
-                        "claude",
-                        "-p",
-                        "--model",
-                        "opus",
-                        "--output-format",
-                        "stream-json",
-                        "--verbose",
-                        "--dangerously-skip-permissions",
-                        "--system-prompt",
-                        RALPH_SYSTEM_PROMPT,
-                        "--allowedTools",
-                        "Bash Read Write Edit Glob Grep WebFetch WebSearch",
-                        "--",
-                        prompt,
-                        cwd=self.dev_dir,
-                        stdout=asyncio.subprocess.PIPE,
-                        stderr=asyncio.subprocess.STDOUT,
-                        env=self._env({}),
-                    )
-
-                    # Stream stdout
-                    await self._stream_process_output()
-
-                    # Wait for exit
-                    await self.process.wait()
-                    exit_code = self.process.returncode
+                    exit_code = await self._run_issue(prompt)
                     logger.info(
-                        "Project %s: Claude exited with code %d",
+                        "Project %s: OpenCode finished with code %d",
                         self.project_name,
                         exit_code,
                     )
@@ -442,6 +726,7 @@ class RalphLoop:
         except Exception:
             logger.exception("Ralph loop crashed for project %s", self.project_name)
         finally:
+            await self._stop_opencode_server()
             self.status = "stopped"
             self._save_state()
             await self._update_db_status("idle")
@@ -576,14 +861,10 @@ class RalphLoop:
         self.status = "stopping"
         # Unblock if waiting for payment
         self._payment_event.set()
-        # If a process is running, wait with timeout then kill
-        if self.process and self.process.returncode is None:
+        # Abort running session if any
+        if self._session_id and self._http_client:
             try:
-                await asyncio.wait_for(self.process.wait(), timeout=30)
-            except asyncio.TimeoutError:
-                logger.warning("Claude process did not exit in 30s, killing it")
-                self.process.kill()
-                await self.process.wait()
+                await self._http_client.post(f"/session/{self._session_id}/abort")
             except Exception:
                 pass
         # Wait for the task to finish with timeout
@@ -703,105 +984,6 @@ class RalphLoop:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    async def _stream_process_output(self) -> None:
-        """Read lines from the subprocess stdout and fan out to subscribers."""
-        assert self.process and self.process.stdout
-
-        log_dir = Path(self.project_dir) / ".jri" / "logs"
-        log_dir.mkdir(parents=True, exist_ok=True)
-        log_path = log_dir / "ralph.log"
-        log_file = open(log_path, "a", encoding="utf-8")
-
-        try:
-            while True:
-                line_bytes = await self.process.stdout.readline()
-                if not line_bytes:
-                    break
-                raw = line_bytes.decode(errors="replace").strip()
-                if not raw:
-                    continue
-
-                # Try to parse stream-json and extract readable content
-                display_line = self._parse_stream_line(raw)
-                if not display_line:
-                    # Log unparsed non-empty lines for debugging
-                    if raw and not raw.startswith("{"):
-                        logger.debug("Unparsed non-JSON line: %s", raw[:200])
-                    continue
-
-                self.stdout_lines.append(display_line)
-
-                # Write to ralph log file
-                log_file.write(display_line + "\n")
-                log_file.flush()
-
-                # Publish to local subscribers
-                for q in self._subscribers.copy():
-                    try:
-                        q.put_nowait(display_line)
-                    except asyncio.QueueFull:
-                        pass
-
-                # Publish to SSE bus
-                await sse_bus.publish(
-                    self.project_name,
-                    "ralph_stdout",
-                    {"line": display_line},
-                )
-        finally:
-            log_file.close()
-
-    def _parse_stream_line(self, raw: str) -> str | None:
-        """Parse a stream-json line, return readable str or None."""
-        try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
-            return raw  # Not JSON, show as-is
-
-        msg_type = data.get("type")
-
-        if msg_type == "assistant":
-            content_blocks = data.get("message", {}).get("content", [])
-            parts = []
-            for block in content_blocks:
-                if block.get("type") == "text":
-                    parts.append(block["text"])
-                elif block.get("type") == "tool_use":
-                    name = block.get("name", "")
-                    inp = block.get("input", {})
-                    if name == "Bash":
-                        parts.append(f"$ {inp.get('command', '')}")
-                    elif name == "Write":
-                        parts.append(f"Writing {inp.get('file_path', '')}")
-                    elif name == "Edit":
-                        parts.append(f"Editing {inp.get('file_path', '')}")
-                    elif name == "Read":
-                        parts.append(f"Reading {inp.get('file_path', '')}")
-                    elif name == "Glob":
-                        parts.append(f"Searching {inp.get('pattern', '')}")
-                    elif name == "Grep":
-                        parts.append(f"Grepping {inp.get('pattern', '')}")
-                    else:
-                        parts.append(f"[{name}]")
-            return "\n".join(parts) if parts else None
-
-        elif msg_type == "content_block_delta":
-            delta = data.get("delta", {})
-            if delta.get("type") == "text_delta":
-                return delta.get("text", "")
-            return None
-
-        elif msg_type == "result":
-            result = data.get("result", "")
-            if result:
-                return "--- Done ---"
-            return None
-
-        elif msg_type == "system":
-            return None  # Skip system init messages
-
-        return None  # Skip unknown types
 
     def _save_state(self) -> None:
         """Persist loop state to .jri/state.json using atomic write."""

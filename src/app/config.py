@@ -50,6 +50,10 @@ def _get_ralph_bot_github_token() -> str:
 
 RALPH_BOT_GITHUB_TOKEN: str = _get_ralph_bot_github_token()
 
+# Agent models (via OpenCode Zen)
+RALPH_MODEL: str = os.environ.get("RALPH_MODEL", "opencode/gpt-5.4")
+RALPHY_MODEL: str = os.environ.get("RALPHY_MODEL", "opencode/glm-5")
+
 # ── Startup validation ──
 _REQUIRED = {
     "GITHUB_CLIENT_ID": GITHUB_CLIENT_ID,

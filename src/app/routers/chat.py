@@ -1,9 +1,11 @@
 import asyncio
 import json
 import os
+import socket
 import uuid
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from starlette.responses import StreamingResponse
@@ -68,31 +70,6 @@ async def _ensure_session_id(
     return session_id, True
 
 
-def _build_claude_args(
-    session_id: str, is_new_session: bool, user_message: str
-) -> list[str]:
-    """Build the argument list for the claude CLI subprocess."""
-    args = ["claude", "-p", "--model", "opus"]
-
-    if is_new_session:
-        args += ["--session-id", session_id]
-    else:
-        args += ["--resume", session_id, "--continue"]
-
-    args += [
-        "--system-prompt",
-        RALPHY_SYSTEM_PROMPT,
-        "--output-format",
-        "stream-json",
-        "--verbose",
-        "--allowedTools",
-        ALLOWED_TOOLS,
-        "--",
-        user_message,
-    ]
-    return args
-
-
 async def _validate_attachments(
     attachments: list[UploadFile],
 ) -> list[tuple[str, bytes]]:
@@ -146,7 +123,104 @@ def _prepend_attachment_info(message: str, filenames: list[str]) -> str:
     return f"Attachments: {names}\n\n{message}"
 
 
-_active_procs: dict[str, asyncio.subprocess.Process] = {}
+# OpenCode server management
+_opencode_servers: dict[
+    str, dict
+] = {}  # project_name -> {"process": Process, "port": int, "client": httpx.AsyncClient}
+_active_sessions: dict[str, str] = {}  # project_name -> opencode_session_id
+
+
+def _find_free_port() -> int:
+    """Find an available TCP port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+async def _ensure_opencode_server(
+    project_name: str, project_dir: str
+) -> httpx.AsyncClient:
+    """Start an OpenCode server for the project if needed, return client."""
+    server = _opencode_servers.get(project_name)
+    if server:
+        # Check if process is still alive
+        if server["process"].returncode is None:
+            return server["client"]
+        # Process died, clean up
+        await server["client"].aclose()
+        _opencode_servers.pop(project_name, None)
+
+    port = _find_free_port()
+
+    config = {
+        "model": "opencode/glm-5",
+        "permission": {"*": "allow"},
+        "agent": {
+            "ralphy": {
+                "mode": "primary",
+                "description": "AI planning assistant for task creation",
+                "prompt": RALPHY_SYSTEM_PROMPT,
+                "tools": {
+                    "bash": True,
+                    "edit": True,
+                    "write": True,
+                    "read": True,
+                    "grep": True,
+                    "glob": True,
+                    "webfetch": True,
+                    "websearch": True,
+                },
+            }
+        },
+        "default_agent": "ralphy",
+    }
+
+    env = {**os.environ, "OPENCODE_CONFIG_CONTENT": json.dumps(config)}
+
+    proc = await asyncio.create_subprocess_exec(
+        "/home/linuxbrew/.linuxbrew/bin/opencode",
+        "serve",
+        "--port",
+        str(port),
+        "--hostname",
+        "127.0.0.1",
+        cwd=project_dir,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        env=env,
+    )
+
+    base_url = f"http://127.0.0.1:{port}"
+    client = httpx.AsyncClient(base_url=base_url, timeout=httpx.Timeout(None))
+
+    # Wait for health check
+    deadline = asyncio.get_event_loop().time() + 60
+    while asyncio.get_event_loop().time() < deadline:
+        try:
+            resp = await client.get("/global/health")
+            if resp.status_code == 200:
+                break
+        except (httpx.ConnectError, httpx.ReadError, OSError):
+            pass
+        # Check if process died
+        if proc.returncode is not None:
+            await client.aclose()
+            stderr = await proc.stderr.read() if proc.stderr else b""
+            raise RuntimeError(
+                f"opencode serve exited with code {proc.returncode}: {stderr.decode()}"
+            )
+        await asyncio.sleep(0.5)
+    else:
+        proc.terminate()
+        await client.aclose()
+        raise RuntimeError("opencode serve did not become healthy within 60s")
+
+    _opencode_servers[project_name] = {
+        "process": proc,
+        "port": port,
+        "client": client,
+    }
+    return client
 
 
 async def _append_chat_message(project_id: int, msg: dict) -> None:
@@ -191,7 +265,7 @@ async def _load_chat_messages(project_id: int) -> list[dict]:
     return messages
 
 
-async def _stream_claude(
+async def _stream_opencode(
     project_name: str,
     project_dir: str,
     project_id: int,
@@ -199,28 +273,12 @@ async def _stream_claude(
     is_new_session: bool,
     user_message: str,
 ):
-    """Async generator that spawns claude CLI and yields SSE events."""
+    """Async generator that uses OpenCode HTTP API and yields SSE events."""
     # Persist user message
     await _append_chat_message(project_id, {"role": "user", "content": user_message})
 
-    # Send an initial keepalive immediately to establish the SSE stream.
-    # This prevents proxies (e.g. Cloudflare's 100s initial-response timeout)
-    # from dropping the connection before the subprocess starts producing output.
+    # Initial keepalive to establish SSE stream
     yield ": keepalive\n\n"
-
-    # If Ralphy is already running for this project, wait for it to finish.
-    # Send keepalives while waiting so proxies don't drop the connection.
-    existing = _active_procs.get(project_name)
-    if existing and existing.returncode is None:
-        wait_task = asyncio.ensure_future(existing.wait())
-        while not wait_task.done():
-            done, _ = await asyncio.wait({wait_task}, timeout=15)
-            if not done:
-                yield ": keepalive\n\n"
-
-    args = _build_claude_args(session_id, is_new_session, user_message)
-
-    env = {}
 
     await sse_bus.publish(project_name, "ralphy_processing", {"status": "start"})
 
@@ -235,107 +293,121 @@ async def _stream_claude(
     assistant_tools: list[str] = []
 
     try:
-        got_result = False
-        max_attempts = 2
+        # Get or start OpenCode server
+        client = await _ensure_opencode_server(project_name, project_dir)
 
-        for attempt in range(max_attempts):
-            proc = await asyncio.create_subprocess_exec(
-                *args,
-                cwd=project_dir,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env={**os.environ, **env},
-            )
-            _active_procs[project_name] = proc
-            assert proc.stdout is not None
-            assert proc.stderr is not None
+        # Get or create OpenCode session
+        oc_session_id = _active_sessions.get(project_name)
+        if not oc_session_id:
+            resp = await client.post("/session")
+            resp.raise_for_status()
+            session_data = resp.json()
+            oc_session_id = session_data.get("sessionID") or session_data.get("id")
+            _active_sessions[project_name] = oc_session_id
 
-            while True:
-                try:
-                    raw_line = await asyncio.wait_for(
-                        proc.stdout.readline(), timeout=15
-                    )
-                except (asyncio.TimeoutError, TimeoutError):
-                    # Keep connection alive during long tool executions
+        # Send prompt async
+        resp = await client.post(
+            f"/session/{oc_session_id}/prompt_async",
+            json={"parts": [{"type": "text", "text": user_message}]},
+        )
+        resp.raise_for_status()
+
+        # Stream events from /event SSE endpoint
+        last_event_time = asyncio.get_event_loop().time()
+
+        async with client.stream("GET", "/event") as stream:
+            buffer = ""
+            async for chunk in stream.aiter_text():
+                buffer += chunk
+                # Process complete SSE messages (separated by double newlines)
+                while "\n\n" in buffer:
+                    message_str, buffer = buffer.split("\n\n", 1)
+                    last_event_time = asyncio.get_event_loop().time()
+
+                    # Parse SSE data lines
+                    data_lines = []
+                    for sse_line in message_str.split("\n"):
+                        if sse_line.startswith("data: "):
+                            data_lines.append(sse_line[6:])
+                        elif sse_line.startswith("data:"):
+                            data_lines.append(sse_line[5:])
+                    if not data_lines:
+                        continue
+
+                    try:
+                        data = json.loads("".join(data_lines))
+                    except json.JSONDecodeError:
+                        continue
+
+                    event_type = data.get("type", "")
+                    props = data.get("properties", {})
+
+                    # Filter by session
+                    evt_session = props.get("sessionID", "")
+                    if evt_session and evt_session != oc_session_id:
+                        continue
+
+                    # Map OpenCode events to frontend SSE format
+                    if event_type == "message.part.updated":
+                        part = props.get("part", {})
+                        part_type = part.get("type", "")
+
+                        if part_type == "text":
+                            text_content = part.get("text", "")
+                            if text_content:
+                                event = {"type": "text", "content": text_content}
+                                yield f"data: {json.dumps(event)}\n\n"
+                                log_file.write(text_content)
+                                log_file.flush()
+                                assistant_text = text_content
+
+                        elif part_type == "reasoning":
+                            thinking_content = part.get("text", "")
+                            if thinking_content:
+                                event = {
+                                    "type": "thinking",
+                                    "content": thinking_content,
+                                }
+                                yield f"data: {json.dumps(event)}\n\n"
+                                assistant_thinking = thinking_content
+
+                        elif part_type == "tool_use":
+                            tool_name = part.get("name", "unknown")
+                            tool_input = part.get("input", part.get("args", {}))
+                            event = {
+                                "type": "tool_use",
+                                "name": tool_name,
+                                "input": tool_input,
+                            }
+                            yield f"data: {json.dumps(event)}\n\n"
+                            log_file.write(f"[tool_use] {tool_name}\n")
+                            log_file.flush()
+                            if tool_name not in assistant_tools:
+                                assistant_tools.append(tool_name)
+                            if tool_name.lower() in ("bash", "write", "edit"):
+                                await sse_bus.publish(project_name, "issue_update", {})
+
+                    elif event_type == "session.idle":
+                        event = {"type": "done", "result": assistant_text}
+                        yield f"data: {json.dumps(event)}\n\n"
+                        log_file.write("\n--- Done ---\n")
+                        log_file.flush()
+                        break
+
+                    elif event_type == "session.error":
+                        error_data = props.get("error", {})
+                        error_msg = error_data.get("data", {}).get("message") or str(
+                            error_data
+                        )
+                        event = {"type": "error", "message": error_msg}
+                        yield f"data: {json.dumps(event)}\n\n"
+                        break
+
+                # Send keepalive if no events for 15s
+                now = asyncio.get_event_loop().time()
+                if now - last_event_time > 15:
                     yield ": keepalive\n\n"
-                    continue
-
-                if not raw_line:
-                    break  # EOF
-
-                line = raw_line.decode().strip()
-                if not line:
-                    continue
-
-                try:
-                    data = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-
-                msg_type = data.get("type")
-
-                if msg_type == "content_block_start":
-                    content_block = data.get("content_block", {})
-                    if content_block.get("type") == "tool_use":
-                        tool_name = content_block["name"]
-                        event = {
-                            "type": "tool_use",
-                            "name": tool_name,
-                            "input": content_block.get("input", {}),
-                        }
-                        yield f"data: {json.dumps(event)}\n\n"
-                        log_file.write(f"[tool_use] {tool_name}\n")
-                        log_file.flush()
-                        assistant_tools.append(tool_name)
-                        # Publish issue_update when Ralphy uses Bash
-                        # (likely task file changes)
-                        if tool_name == "Bash":
-                            await sse_bus.publish(project_name, "issue_update", {})
-
-                elif msg_type == "content_block_delta":
-                    delta = data.get("delta", {})
-                    if delta.get("type") == "text_delta":
-                        text_chunk = delta["text"]
-                        event = {"type": "text", "content": text_chunk}
-                        yield f"data: {json.dumps(event)}\n\n"
-                        log_file.write(text_chunk)
-                        log_file.flush()
-                        assistant_text += text_chunk
-                    elif delta.get("type") == "thinking_delta":
-                        thinking_chunk = delta["thinking"]
-                        event = {"type": "thinking", "content": thinking_chunk}
-                        yield f"data: {json.dumps(event)}\n\n"
-                        assistant_thinking += thinking_chunk
-
-                elif msg_type == "result":
-                    result_text = data.get("result", "")
-                    event = {"type": "done", "result": result_text}
-                    yield f"data: {json.dumps(event)}\n\n"
-                    log_file.write("\n--- Done ---\n")
-                    log_file.flush()
-                    # Use result text if it's longer (more complete) than streamed text
-                    if result_text and len(result_text) >= len(assistant_text):
-                        assistant_text = result_text
-                    got_result = True
-
-            await proc.wait()
-
-            if got_result or proc.returncode == 0:
-                break
-
-            # Non-zero exit with no result — retry once
-            if attempt < max_attempts - 1:
-                await proc.stderr.read()
-                continue
-
-            # Final attempt failed
-            stderr_bytes = await proc.stderr.read()
-            stderr_text = stderr_bytes.decode().strip()
-            event = {
-                "type": "error",
-                "message": f"Claude exited with code {proc.returncode}: {stderr_text}",
-            }
-            yield f"data: {json.dumps(event)}\n\n"
+                    last_event_time = now
 
     except Exception as exc:
         event = {"type": "error", "message": str(exc)}
@@ -343,7 +415,6 @@ async def _stream_claude(
 
     finally:
         log_file.close()
-        _active_procs.pop(project_name, None)
         # Persist assistant response if there was ANY output
         if assistant_text or assistant_thinking or assistant_tools:
             entry: dict = {"role": "assistant", "content": assistant_text}
@@ -404,7 +475,7 @@ async def chat(
     )
 
     return StreamingResponse(
-        _stream_claude(
+        _stream_opencode(
             project_name=name,
             project_dir=project_dir,
             project_id=project["id"],
@@ -424,9 +495,24 @@ async def chat(
 async def chat_processing(name: str, user: dict = Depends(get_current_user)):
     """Check if Ralphy is currently processing for this project."""
     await _get_project_for_user(user, name)
-    proc = _active_procs.get(name)
-    is_processing = proc is not None and proc.returncode is None
-    return {"processing": is_processing}
+    server = _opencode_servers.get(name)
+    if not server:
+        return {"processing": False}
+    # Check if any session is busy
+    try:
+        oc_sid = _active_sessions.get(name)
+        if oc_sid:
+            resp = await server["client"].get("/session/status")
+            statuses = resp.json()
+            for s in statuses:
+                if (
+                    s.get("sessionID") == oc_sid
+                    and s.get("status", {}).get("type") == "busy"
+                ):
+                    return {"processing": True}
+    except Exception:
+        pass
+    return {"processing": False}
 
 
 @router.get("/{name}/chat/history")

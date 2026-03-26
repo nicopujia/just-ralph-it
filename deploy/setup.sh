@@ -61,10 +61,10 @@ if ! command -v gh &>/dev/null; then
     apt-get install -y gh
 fi
 
-# --- Claude CLI ---
-echo "==> Installing Claude CLI..."
-if ! command -v claude &>/dev/null; then
-    npm install -g @anthropic-ai/claude-code
+# --- OpenCode CLI ---
+echo "==> Installing OpenCode..."
+if ! command -v opencode &>/dev/null; then
+    npm install -g @anthropic-ai/opencode
 fi
 
 # --- Clone repo ---
@@ -97,7 +97,7 @@ rm -f /etc/nginx/sites-enabled/default
 # --- Create config directories for nico ---
 echo "==> Creating config directories..."
 mkdir -p /home/nico/.config/gh
-mkdir -p /home/nico/.claude
+mkdir -p /home/nico/.local/share/opencode
 mkdir -p /home/nico/.local/bin
 
 # --- Fix ownership (before SCP so nico owns the dirs) ---
@@ -116,8 +116,8 @@ echo "==> Copying credentials to new server..."
 # GitHub CLI credentials
 scp "${LOCAL_HOME}/.config/gh/hosts.yml" "${REMOTE}:${REMOTE_HOME}/.config/gh/hosts.yml"
 
-# Claude credentials
-scp "${LOCAL_HOME}/.claude/.credentials.json" "${REMOTE}:${REMOTE_HOME}/.claude/.credentials.json"
+# OpenCode credentials
+scp -r "${LOCAL_HOME}/.local/share/opencode/auth.json" "${REMOTE}:${REMOTE_HOME}/.local/share/opencode/auth.json"
 
 # Environment file
 scp "${LOCAL_HOME}/jri/.env" "${REMOTE}:${REMOTE_HOME}/jri/.env"
@@ -128,8 +128,8 @@ scp "${LOCAL_HOME}/jri/data/jri.db" "${REMOTE}:${REMOTE_HOME}/jri/data/jri.db"
 echo "==> Copying project data directories..."
 rsync -avz --progress "${LOCAL_HOME}/jri/data/" "${REMOTE}:${REMOTE_HOME}/jri/data/"
 
-echo "==> Copying Claude session files (Ralphy conversations)..."
-rsync -avz --progress "${LOCAL_HOME}/.claude/projects/" "${REMOTE}:${REMOTE_HOME}/.claude/projects/"
+echo "==> Copying OpenCode session data..."
+rsync -avz --progress "${LOCAL_HOME}/.local/share/opencode/" "${REMOTE}:${REMOTE_HOME}/.local/share/opencode/"
 
 # ---------------------------------------------------------------------------
 # Phase 3: Fix ownership and start services
