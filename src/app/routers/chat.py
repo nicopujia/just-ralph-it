@@ -158,7 +158,7 @@ async def _ensure_opencode_server(
         "compaction": {
             "auto": True,
             "prune": True,
-            "reserved": 10000,  # Trigger compaction earlier (default is ~20k)
+            "reserved": 30000,  # Higher = earlier compaction (leave more buffer)
         },
         "agent": {
             "ralphy": {
