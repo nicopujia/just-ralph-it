@@ -1,5 +1,10 @@
 # Development Instructions
 
+## Workflow
+
+- Use subagents for ANY TASK YOU DO. Use up to 100 subagents for each of them. Parallelize independent ones.
+- Commit, push, and restart the service (`sudo systemctl restart jri`) frequently.
+
 ## Documentation
 
 - Update existing docs whenever code changes.
@@ -35,9 +40,3 @@ Replace pip with uv.
 ## Type Checking
 
 - Run `ty check` before committing.
-
-## Workflow
-
-- Use subagents for each task. Parallelize independent tasks.
-- Commit, push, and restart the service (`sudo systemctl restart jri`) frequently.
-
