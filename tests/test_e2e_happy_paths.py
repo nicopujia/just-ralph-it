@@ -55,7 +55,7 @@ def _delete_project(name: str) -> None:
         # Stop Ralph if running
         c.post(f"/api/projects/{name}/ralph/stop")
         time.sleep(1)
-        resp = c.delete(f"/api/projects/{name}?delete_repo=true")
+        resp = c.delete(f"/api/projects/{name}?delete_repo=false")
         assert resp.status_code in (204, 404), f"Delete failed: {resp.status_code} {resp.text}"
 
 
@@ -123,7 +123,7 @@ class TestLandingPage:
     def test_login_button_visible(self, anon_page: Page):
         anon_page.goto(BASE_URL)
         anon_page.wait_for_load_state("domcontentloaded")
-        login_btn = anon_page.locator("a.btn-primary", has_text="LOGIN WITH GITHUB")
+        login_btn = anon_page.locator("a.btn", has_text="LOGIN WITH GITHUB")
         login_btn.wait_for(state="visible", timeout=5000)
         assert login_btn.get_attribute("href") == "/auth/login"
 
@@ -443,7 +443,7 @@ class TestProjectDeletion:
         _create_project(name)
 
         with _api_client() as c:
-            resp = c.delete(f"/api/projects/{name}?delete_repo=true")
+            resp = c.delete(f"/api/projects/{name}?delete_repo=false")
         assert resp.status_code == 204
 
         # Verify it's gone

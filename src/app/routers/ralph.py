@@ -135,7 +135,7 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
         coupon_id = "jri-free-100"
         try:
             stripe.Coupon.retrieve(coupon_id)
-        except stripe.NotFoundError:
+        except stripe.InvalidRequestError:
             stripe.Coupon.create(
                 id=coupon_id,
                 percent_off=100,
