@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from app.auth_utils import get_current_user
-from app.config import DATA_DIR, RALPH_BOT_GITHUB_TOKEN
+from app.config import DATA_DIR, MAX_FREE_PROJECTS, PRICE_PRO_MONTHLY, RALPH_BOT_GITHUB_TOKEN
 from app.database import get_db
 from app.freelist import is_free_user
 from app import tasks
@@ -124,14 +124,15 @@ async def create_project(
             row = await cur2.fetchone()
             plan = row["subscription_plan"] if row and row["subscription_plan"] else None
 
-        if count >= 3 and plan != "pro":
+        if count >= MAX_FREE_PROJECTS and plan != "pro":
+            pro_price = f"${PRICE_PRO_MONTHLY // 100}/mo"
             raise HTTPException(
                 status_code=402,
                 detail={
-                    "detail": "You've used your 3 free projects. Subscribe to the Pro plan ($20/mo) for unlimited projects.",
+                    "detail": f"You've used your {MAX_FREE_PROJECTS} free projects. Subscribe to the Pro plan ({pro_price}) for unlimited projects.",
                     "upgrade_required": True,
                     "plan": "pro",
-                    "price": "$20/mo",
+                    "price": pro_price,
                 },
             )
 
@@ -299,18 +300,19 @@ async def create_project(
                     )
                 break  # success
 
-            # 9. Add user as collaborator
-            logger.info(f"Creating project {name}: step 9 - adding collaborator {github_username}")
-            resp2 = await client.put(
-                f"https://api.github.com/repos/ralphpujia/{github_username}-{name}/collaborators/{github_username}",
-                headers=headers,
-                json={"permission": "push"},
-                timeout=30,
-            )
-            if resp2.status_code >= 400:
-                raise RuntimeError(
-                    f"GitHub add collaborator failed ({resp2.status_code}): {resp2.text}"
+            # 9. Add user as collaborator (skip for admin — already has access)
+            if user.get("role") != "admin":
+                logger.info(f"Creating project {name}: step 9 - adding collaborator {github_username}")
+                resp2 = await client.put(
+                    f"https://api.github.com/repos/ralphpujia/{github_username}-{name}/collaborators/{github_username}",
+                    headers=headers,
+                    json={"permission": "push"},
+                    timeout=30,
                 )
+                if resp2.status_code >= 400:
+                    raise RuntimeError(
+                        f"GitHub add collaborator failed ({resp2.status_code}): {resp2.text}"
+                    )
 
         # 10. Add remote
         logger.info(f"Creating project {name}: step 10 - adding git remote")
