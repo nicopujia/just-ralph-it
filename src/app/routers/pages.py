@@ -178,7 +178,7 @@ async def project_page(request: Request, name: str):
     return response
 
 
-# Public docs routes
+# Documentation routes
 @router.get("/docs")
 async def docs_index(request: Request):
     logged_in = await _is_logged_in(request)
