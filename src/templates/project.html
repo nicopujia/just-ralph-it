@@ -179,6 +179,17 @@
         color: var(--text-dimmer);
         user-select: none;
     }
+    .chat-msg .thinking summary.shimmer {
+        background: linear-gradient(90deg, var(--text-dimmer) 25%, var(--text-dim) 50%, var(--text-dimmer) 75%);
+        background-size: 200% 100%;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        animation: shimmer 1.5s ease-in-out infinite;
+    }
+    @keyframes shimmer {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
     .chat-msg .thinking-content .thinking > div {
         font-family: 'SF Mono', 'Fira Code', monospace;
         font-size: 0.78rem;
@@ -1601,7 +1612,7 @@
         // Create assistant message div immediately with "thinking" placeholder
         var assistantDiv = document.createElement('div');
         assistantDiv.className = 'chat-msg assistant';
-        assistantDiv.innerHTML = '<div class="thinking-content"><details class="thinking" open><summary>Ralphy is thinking...</summary></details></div>';
+        assistantDiv.innerHTML = '<div class="thinking-content"><details class="thinking" open><summary class="shimmer">Ralphy is thinking...</summary></details></div>';
         chatMessages.appendChild(assistantDiv);
         scrollChat();
 
@@ -1682,11 +1693,12 @@
                     var existingDetails = msgDiv.querySelector('details.thinking');
                     var wasOpen = existingDetails ? existingDetails.open : false;
                     var html = '';
-                    
+
                     // Show thinking content if present
                     if (hasThinkingContent()) {
+                        var shimmerClass = thinkingComplete ? '' : ' shimmer';
                         html += '<div class="thinking-content">';
-                        html += '<details class="thinking"' + (wasOpen ? ' open' : '') + '><summary>' + getThinkingSummary() + '</summary>';
+                        html += '<details class="thinking"' + (wasOpen ? ' open' : '') + '><summary class="' + shimmerClass + '">' + getThinkingSummary() + '</summary>';
                         if (thinkingText) {
                             html += '<div>' + escapeHtmlWithNewlines(thinkingText) + '</div>';
                         }
@@ -1697,25 +1709,19 @@
                         }
                         html += '</details></div>';
                     }
-                    
-                    // Show message text only when response is complete (not during streaming)
-                    if (responseDone) {
-                        // For responses WITH thinking: show initialText before thinking, finalText after
-                        // For responses WITHOUT thinking: show only the final result (avoid duplication)
-                        if (hasThinkingContent()) {
-                            // Thinking flow: show initial text (if any), then final text after thinking
-                            if (initialText) {
-                                html += '<div class="message-text">' + renderMarkdown(initialText) + '</div>';
-                            }
-                            if (finalText && thinkingComplete) {
-                                html += '<div class="message-text">' + renderMarkdown(finalText) + '</div>';
-                            }
-                        } else {
-                            // No thinking: show only the final result, fall back to initial if no final
-                            var displayText = finalText || initialText;
-                            if (displayText) {
-                                html += '<div class="message-text">' + renderMarkdown(displayText) + '</div>';
-                            }
+
+                    // Show message text incrementally as it streams in
+                    if (hasThinkingContent()) {
+                        if (initialText) {
+                            html += '<div class="message-text">' + renderMarkdown(initialText) + '</div>';
+                        }
+                        if (finalText && thinkingComplete) {
+                            html += '<div class="message-text">' + renderMarkdown(finalText) + '</div>';
+                        }
+                    } else {
+                        var displayText = finalText || initialText;
+                        if (displayText) {
+                            html += '<div class="message-text">' + renderMarkdown(displayText) + '</div>';
                         }
                     }
                     msgDiv.innerHTML = html;
@@ -1736,11 +1742,15 @@
                 function pump() {
                     return reader.read().then(function(result) {
                         if (result.done) {
-                            var combinedText = getCombinedAssistantText();
-                            if (combinedText) appendToHistory('assistant', combinedText, thinkingText, thinkingSteps, interleaveText);
-                            // Clear pending only after history is saved locally
+                            // History already saved atomically in the 'done' event handler.
+                            // Only save here as fallback if stream ended without a done event (network failure).
+                            if (!responseDone) {
+                                var combinedText = getCombinedAssistantText();
+                                if (combinedText) appendToHistory('assistant', combinedText, thinkingText, thinkingSteps, interleaveText);
+                            }
                             localStorage.removeItem(STORAGE_KEY + '-pending');
                             setProcessing(false);
+                            var combinedText = getCombinedAssistantText();
                             checkJriVisibility(combinedText);
                             return;
                         }
@@ -1784,15 +1794,19 @@
                                 if (hasThinkingContent()) {
                                     thinkingComplete = true;
                                 }
-                                // Prefer the final result only when it cleanly extends the streamed final text,
-                                // so we do not replace the visible answer with a different duplicate payload.
+                                // Prefer the final result only when it cleanly extends the streamed final text
                                 if (evt.result && (!finalText || (evt.result.length > finalText.length && evt.result.indexOf(finalText) === 0))) {
                                     finalText = evt.result;
                                 }
-                                responseDone = true;  // Show complete message after thinking finishes
-                                // Note: pending is cleared in result.done handler after history is saved
+                                responseDone = true;
                                 ensureMsgDiv();
                                 rebuildMsg();
+                                // Atomically save complete assistant message to localStorage
+                                var combinedText = getCombinedAssistantText();
+                                if (combinedText) {
+                                    appendToHistory('assistant', combinedText, thinkingText, thinkingSteps, interleaveText);
+                                }
+                                localStorage.removeItem(STORAGE_KEY + '-pending');
                                 // Refresh issues and README after Ralphy finishes
                                 fetchIssues();
                                 fetchReadme();
@@ -3021,132 +3035,45 @@
             chatMessages.querySelectorAll('.chat-msg').forEach(function(el) { el.remove(); });
         }
 
-        function renderPendingMessage(pending) {
-            if (!pending) return;
-            var restoredParts = [];
-            // For restored messages, show either initialText OR finalText, not both (same logic as live stream)
-            if (pending.thinkingText || (pending.thinkingSteps && pending.thinkingSteps.length > 0)) {
-                restoredParts.push('<div class="thinking-content"><details class="thinking"><summary>' +
-                    (pending.thinkingComplete ? 'Finished thinking' : 'Ralphy is thinking...') +
-                    '</summary>');
-                if (pending.thinkingText) {
-                    restoredParts.push('<div>' + escapeHtmlWithNewlines(pending.thinkingText) + '</div>');
-                }
-                if (pending.thinkingSteps && pending.thinkingSteps.length > 0) {
-                    pending.thinkingSteps.forEach(function(step) {
-                        restoredParts.push('<div>Tool: ' + escapeHtml(step) + '</div>');
-                    });
-                }
-                restoredParts.push('</details></div>');
-                // Show initialText before thinking, finalText after (if thinking completed)
-                if (pending.initialText) {
-                    restoredParts.push('<div class="message-text">' + renderMarkdown(pending.initialText) + '</div>');
-                }
-                if (pending.finalText && pending.thinkingComplete) {
-                    restoredParts.push('<div class="message-text">' + renderMarkdown(pending.finalText) + '</div>');
-                }
-            } else {
-                // No thinking: show only the final result (avoid duplication)
-                var displayText = pending.finalText || pending.initialText;
-                if (displayText) {
-                    restoredParts.push('<div class="message-text">' + renderMarkdown(displayText) + '</div>');
-                }
-            }
-            if (restoredParts.length > 0) {
-                addChatMessage('assistant', restoredParts.join(''));
-            }
-        }
-
-        function pendingMatchesServer(serverMessages, pending) {
-            if (!pending || !serverMessages || serverMessages.length === 0) return false;
-            var pendingText = pending.finalText || pending.initialText || '';
-            if (!pendingText) return false;
-            var prefix = pendingText.substring(0, 100);
-            if (!prefix) return false;
-            return serverMessages.some(function(msg) {
-                return msg
-                    && msg.role === 'assistant'
-                    && msg.content
-                    && msg.content.indexOf(prefix) === 0;
-            });
-        }
-
+        // Show localStorage history immediately as a fast preview while server loads
         if (history.length > 0) {
             renderHistory(history);
         }
 
-        // 1b. Restore pending message from interrupted stream (but don't remove yet - wait for server confirmation)
-        var pendingRaw = localStorage.getItem(STORAGE_KEY + '-pending');
-        var pending = null;
-        if (pendingRaw) {
-            try {
-                pending = JSON.parse(pendingRaw);
-                if (pendingMatchesServer(history, pending)) {
-                    localStorage.removeItem(STORAGE_KEY + '-pending');
-                    pendingRaw = null;
-                    pending = null;
-                } else {
-                    renderPendingMessage(pending);
-                }
-                // Don't remove pending yet - it will be cleared after server history confirms the message
-            } catch(e) {
-                localStorage.removeItem(STORAGE_KEY + '-pending');
-                pendingRaw = null;
-            }
-        }
-
-        // Store reference to pending for later cleanup after server history confirms
-        var pendingToClear = pendingRaw;
         var shouldAutoSendDescription = false;
 
-        // Always sync with server — persisted chat must survive refresh even if the
-        // page was rendered with stale session metadata.
+        // Server is the single source of truth. Fetch and replace local state.
         fetch(API + '/chat/history')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 var serverMessages = Array.isArray(data.messages) ? data.messages : [];
 
                 if (serverMessages.length > 0) {
-                    var serverContent = JSON.stringify(serverMessages);
-                    var localContent = JSON.stringify(history);
-                    if (serverContent !== localContent) {
-                        clearRenderedChat();
-                        renderHistory(serverMessages);
-                        if (pendingToClear && pending && !pendingMatchesServer(serverMessages, pending)) {
-                            renderPendingMessage(pending);
-                        }
-                    }
+                    clearRenderedChat();
+                    renderHistory(serverMessages);
                     saveChatHistory(serverMessages);
+                    localStorage.removeItem(STORAGE_KEY + '-pending');
                     history = serverMessages;
-
-                    if (pendingToClear && pending && pendingMatchesServer(serverMessages, pending)) {
-                        localStorage.removeItem(STORAGE_KEY + '-pending');
-                        pendingToClear = null;
-                    }
                     return;
                 }
 
-                // Brand-new projects may reuse a previous localStorage key after a delete/recreate.
-                // Only clear optimistic local history after the server explicitly says there is none.
-                if (history.length > 0 || pendingToClear) {
+                // Server says no messages: clear any stale local data
+                if (history.length > 0) {
                     history = [];
                     saveChatHistory([]);
                     clearRenderedChat();
                 }
-
-                if (pendingToClear) {
-                    localStorage.removeItem(STORAGE_KEY + '-pending');
-                    pendingToClear = null;
-                    pending = null;
-                }
+                localStorage.removeItem(STORAGE_KEY + '-pending');
 
                 if (!PROJECT_HAS_SESSION && PROJECT_DESCRIPTION) {
                     shouldAutoSendDescription = true;
                 }
             })
-            .catch(function() {})
+            .catch(function() {
+                // Server unreachable: keep whatever localStorage had (already rendered above)
+            })
             .finally(function() {
-                // 2. Auto-send description if first visit and the project truly has no saved chat.
+                // Auto-send description if first visit and the project truly has no saved chat.
                 if (shouldAutoSendDescription) {
                     sendProgrammatic(PROJECT_DESCRIPTION);
                 }

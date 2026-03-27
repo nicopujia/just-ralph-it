@@ -301,6 +301,7 @@ async def _stream_opencode(
     assistant_text = ""
     assistant_thinking = ""
     assistant_tools: list[str] = []
+    saved_to_db = False
     log_file = None
 
     try:
@@ -410,6 +411,20 @@ async def _stream_opencode(
                                 await sse_bus.publish(project_name, "issue_update", {})
 
                     elif event_type == "session.idle":
+                        # Persist assistant message BEFORE sending done event
+                        # so it's in the DB when the client fetches history
+                        if assistant_text.strip():
+                            entry: dict = {
+                                "role": "assistant",
+                                "content": assistant_text,
+                            }
+                            if assistant_thinking:
+                                entry["thinkingText"] = assistant_thinking
+                            if assistant_tools:
+                                entry["thinkingSteps"] = assistant_tools
+                            await _append_chat_message(project_id, entry)
+                            saved_to_db = True
+
                         event = {"type": "done", "result": assistant_text}
                         yield f"data: {json.dumps(event)}\n\n"
                         log_file.write("\n--- Done ---\n")
@@ -438,13 +453,17 @@ async def _stream_opencode(
     finally:
         if log_file:
             log_file.close()
-        # Persist assistant response (always save to ensure message history consistency)
-        entry: dict = {"role": "assistant", "content": assistant_text or ""}
-        if assistant_thinking:
-            entry["thinkingText"] = assistant_thinking
-        if assistant_tools:
-            entry["thinkingSteps"] = assistant_tools
-        await _append_chat_message(project_id, entry)
+        # Only save in finally if not already saved (error/partial response case)
+        if not saved_to_db and assistant_text.strip():
+            entry_final: dict = {
+                "role": "assistant",
+                "content": assistant_text,
+            }
+            if assistant_thinking:
+                entry_final["thinkingText"] = assistant_thinking
+            if assistant_tools:
+                entry_final["thinkingSteps"] = assistant_tools
+            await _append_chat_message(project_id, entry_final)
         await sse_bus.publish(project_name, "ralphy_processing", {"status": "end"})
         # Final issue refresh so all clients pick up any task changes Ralphy made
         await sse_bus.publish(project_name, "issue_update", {})
