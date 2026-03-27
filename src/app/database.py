@@ -87,6 +87,12 @@ async def init_db() -> None:
             """
         )
 
+        # Index for faster chat history queries by project
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_messages_project_id ON "
+            "chat_messages(project_id)"
+        )
+
         # Migrate: add subscription columns to users
         for col_name, col_def in [
             ("subscription_plan", "TEXT DEFAULT NULL"),

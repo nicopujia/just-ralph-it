@@ -152,13 +152,16 @@
     .chat-msg tr:nth-child(even) td {
         background: var(--bg-secondary);
     }
-    .chat-msg p { margin: 0.3rem 0; }
+    .chat-msg p { margin: 0.5rem 0; }
     .chat-msg ul, .chat-msg ol {
-        margin: 0.3rem 0;
+        margin: 0.5rem 0;
         padding-left: 1.4rem;
     }
     .chat-msg li {
-        margin: 0.15rem 0;
+        margin: 0.2rem 0;
+    }
+    .chat-msg pre {
+        margin: 0.6rem 0;
     }
     .chat-msg strong { color: var(--text-bright); }
     /* ── Thinking/tool-use collapsible ── */
@@ -831,7 +834,7 @@
     /* ── Toast ── */
     .toast {
         position: fixed;
-        top: 1.5rem;
+        bottom: 1.5rem;
         right: 1.5rem;
         background: var(--card-bg);
         border: 1px solid var(--border);
@@ -843,7 +846,7 @@
         box-shadow: 0 4px 16px rgba(0,0,0,0.35);
         z-index: 1000;
         opacity: 0;
-        transform: translateX(100%);
+        transform: translateY(100%);
         transition: opacity 0.35s ease, transform 0.35s ease;
         pointer-events: none;
         display: flex;
@@ -995,8 +998,30 @@
         transition: all 0.2s;
     }
     .sub-dialog .btn-per-task:hover {
-        color: var(--text-bright);
-        border-color: var(--border-focus);
+        color: var(--text-bright);border-color: var(--border-focus);
+    }
+
+    /* ── Env editor (blur on unfocus) ── */
+    .env-editor {
+        width: 100%;
+        min-height: 300px;
+        background: var(--bg-secondary);
+        color: var(--text);
+        border: 1px solid var(--border-light);
+        border-radius: 4px;
+        padding: 0.6rem;
+        font-family: 'SF Mono', 'Fira Code', monospace;
+        font-size: 0.82rem;
+        resize: vertical;
+        outline: none;
+        line-height: 1.5;
+        transition: filter 0.15s ease;
+    }
+    .env-editor:not(:focus) {
+        filter: blur(4px);
+    }
+    .env-editor:focus {
+        filter: none;
     }
 
     /* Scrollbar styling */
@@ -1075,12 +1100,9 @@
             <div id="tab-env" class="tab-pane{% if active_tab == 'env' %} active{% endif %}">
                 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.8rem;">
                     <span style="color:var(--text-dim);font-size:0.85rem;">Environment variables for this project.</span>
-                    <div style="display:flex;gap:0.4rem;">
-                        <button id="btn-reset-env" style="padding:0.4rem 1rem;background:none;border:1px solid var(--border-light);color:var(--text-dim);border-radius:4px;cursor:pointer;font-size:0.85rem;">Reset</button>
-                        <button id="btn-save-env" style="padding:0.4rem 1rem;background:var(--card-bg);border:1px solid var(--border-light);color:var(--text-muted);border-radius:4px;cursor:pointer;font-size:0.85rem;">Save</button>
-                    </div>
+                    <button id="btn-save-env" style="padding:0.4rem 1rem;background:var(--card-bg);border:1px solid var(--border-light);color:var(--text-muted);border-radius:4px;cursor:pointer;font-size:0.85rem;">Save</button>
                 </div>
-                <textarea id="env-editor" style="width:100%;min-height:300px;background:var(--bg-secondary);color:var(--text);border:1px solid var(--border-light);border-radius:4px;padding:0.6rem;font-family:'SF Mono','Fira Code',monospace;font-size:0.82rem;resize:vertical;outline:none;line-height:1.5;" placeholder="KEY=value&#10;DATABASE_URL=postgres://..."></textarea>
+                <textarea id="env-editor" class="env-editor" placeholder="KEY=value&#10;DATABASE_URL=postgres://..." spellcheck="false"></textarea>
             </div>
         </div>
     </div>
@@ -1124,6 +1146,7 @@
     var HAS_SEEN_SUB_DIALOG_KEY = 'jri-seen-sub-dialog';
     var API = '/api/projects/' + encodeURIComponent(PROJECT_NAME);
     var ralphyProcessing = false;
+    var streamActive = false; // Track if a stream is currently active
     var currentNotifications = [];
     var attachedFiles = [];
     var tasksData = null;
@@ -1386,19 +1409,6 @@
         s = s.replace(/\n{2,}/g, '</p><p>');
         s = '<p>' + s + '</p>';
 
-        // Single newlines to <br> (skip in block mode — headers, lists, paragraphs already have margins)
-        if (!blockMode) {
-            s = s.replace(/\n/g, '<br>');
-        }
-
-        // Clean up <br> artifacts from list handling
-        s = s.replace(/<\/li><br>/g, '</li>');
-        s = s.replace(/<br><li>/g, '<li>');
-        s = s.replace(/<ul><br>/g, '<ul>');
-        s = s.replace(/<br><\/ul>/g, '</ul>');
-        s = s.replace(/<ol><br>/g, '<ol>');
-        s = s.replace(/<br><\/ol>/g, '</ol>');
-
         // Clean up empty paragraphs and nested issues
         s = s.replace(/<p>\s*<\/p>/g, '');
         s = s.replace(/<p>\s*(<h[123]>)/g, '$1');
@@ -1439,7 +1449,10 @@
         btnSend.disabled = on;
         btnAttach.disabled = on;
         if (on) scrollChat();
-        if (!on) chatInput.focus();
+        if (!on) {
+            streamActive = false;
+            chatInput.focus();
+        }
     }
 
     // Auto-resize textarea
@@ -1583,6 +1596,14 @@
         addChatMessage('user', renderMarkdown(text));
         appendToHistory('user', text);
         setProcessing(true);
+        streamActive = true; // Mark stream as active
+
+        // Create assistant message div immediately with "thinking" placeholder
+        var assistantDiv = document.createElement('div');
+        assistantDiv.className = 'chat-msg assistant';
+        assistantDiv.innerHTML = '<div class="thinking-content"><details class="thinking" open><summary>Ralphy is thinking...</summary></details></div>';
+        chatMessages.appendChild(assistantDiv);
+        scrollChat();
 
         var hasAttachments = attachedFiles.length > 0;
 
@@ -1702,9 +1723,13 @@
 
                 function ensureMsgDiv() {
                     if (!msgDiv) {
-                        msgDiv = document.createElement('div');
-                        msgDiv.className = 'chat-msg assistant';
-                        chatMessages.appendChild(msgDiv);
+                        // Reuse existing assistant div if created by sendMessage
+                        msgDiv = chatMessages.querySelector('.chat-msg.assistant:last-child');
+                        if (!msgDiv) {
+                            msgDiv = document.createElement('div');
+                            msgDiv.className = 'chat-msg assistant';
+                            chatMessages.appendChild(msgDiv);
+                        }
                     }
                 }
 
@@ -1808,6 +1833,7 @@
         addChatMessage('user', renderMarkdown(text));
         appendToHistory('user', text);
         setProcessing(true);
+        streamActive = true;
         fetchChat(JSON.stringify({ message: text }), true);
     }
 
@@ -2612,12 +2638,6 @@
        ══════════════════════════════════════════════ */
     var envEditor = document.getElementById('env-editor');
     var btnSaveEnv = document.getElementById('btn-save-env');
-    var btnResetEnv = document.getElementById('btn-reset-env');
-
-    btnResetEnv.addEventListener('click', function() {
-        if (!confirm('Discard unsaved changes?')) return;
-        fetchEnv();
-    });
 
     function fetchEnv() {
         fetch(API + '/env')
@@ -2871,7 +2891,11 @@
             try {
                 var data = JSON.parse(e.data);
                 if (data.status === 'start') {
-                    setProcessing(true);
+                    // Only set processing if stream is actively running
+                    // (prevents stale SSE events from locking the UI)
+                    if (streamActive) {
+                        setProcessing(true);
+                    }
                 } else if (data.status === 'end') {
                     setProcessing(false);
                 }

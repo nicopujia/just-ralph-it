@@ -438,14 +438,13 @@ async def _stream_opencode(
     finally:
         if log_file:
             log_file.close()
-        # Persist assistant response if there was ANY output
-        if assistant_text or assistant_thinking or assistant_tools:
-            entry: dict = {"role": "assistant", "content": assistant_text}
-            if assistant_thinking:
-                entry["thinkingText"] = assistant_thinking
-            if assistant_tools:
-                entry["thinkingSteps"] = assistant_tools
-            await _append_chat_message(project_id, entry)
+        # Persist assistant response (always save to ensure message history consistency)
+        entry: dict = {"role": "assistant", "content": assistant_text or ""}
+        if assistant_thinking:
+            entry["thinkingText"] = assistant_thinking
+        if assistant_tools:
+            entry["thinkingSteps"] = assistant_tools
+        await _append_chat_message(project_id, entry)
         await sse_bus.publish(project_name, "ralphy_processing", {"status": "end"})
         # Final issue refresh so all clients pick up any task changes Ralphy made
         await sse_bus.publish(project_name, "issue_update", {})

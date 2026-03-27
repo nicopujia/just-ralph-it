@@ -22,7 +22,7 @@ from app.auth_utils import create_session_token
 from app.config import DATA_DIR, STRIPE_SECRET_KEY
 
 BASE_URL = "http://localhost:8000"
-TEST_USER_ID = 1  # nicopujia -- must exist in the database
+TEST_USER_ID = 6  # ralphpujia -- must exist in the database with beta/free/admin role
 _created_projects: set[str] = set()
 
 stripe.api_key = STRIPE_SECRET_KEY
@@ -167,7 +167,7 @@ class TestAuthFlow:
             resp = c.get("/auth/me")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["github_username"] == "nicopujia"
+        assert data["github_username"] == "ralphpujia"  # TEST_USER_ID = 6
 
     def test_unauthenticated_projects_redirects(self, anon_page: Page):
         """Without session, /projects redirects to /."""
@@ -338,10 +338,10 @@ class TestStripeCheckout:
             # We need at least one non-done task so there's something to pay for.
             # Create a task file via the tasks API indirectly -- use a direct file write
             # via the chat API is too slow. Instead, create the task file on disk.
-            # Since the test user is nicopujia and DATA_DIR is ~/jri/data:
+            # Test user is ralphpujia (TEST_USER_ID = 6) and DATA_DIR is ~/jri/data:
             from app.config import DATA_DIR
 
-            tasks_dir = DATA_DIR / "nicopujia" / name / ".jri" / "tasks" / "todo"
+            tasks_dir = DATA_DIR / "ralphpujia" / name / ".jri" / "tasks" / "todo"
             tasks_dir.mkdir(parents=True, exist_ok=True)
             task_file = tasks_dir / "test-task.md"
             task_file.write_text(
@@ -553,7 +553,7 @@ class TestProjectLimit:
     def test_free_tier_limit(self):
         """Non-free/admin users get 402 after 3 projects.
 
-        Note: if the test user (nicopujia) has role admin/free, this test
+        Note: if the test user (ralphpujia) has role admin/free, this test
         is skipped because those roles bypass the limit.
         """
         # Check if user has a free/admin role via /auth/me
@@ -863,5 +863,188 @@ class TestRalphStatus:
             assert resp.status_code == 200
             data = resp.json()
             assert data["status"] in ("idle", "running", "stopped")
+        finally:
+            _delete_project(name)
+
+
+class TestUIBehavior:
+    """Test UI behaviors that users actually see and interact with."""
+
+    def test_toast_appears_in_bottom_right(self, page: Page):
+        """Toast notifications should appear in the bottom-right corner."""
+        name = _unique_name("e2e-toast")
+
+        try:
+            _create_project(name)
+            page.goto(f"{BASE_URL}/projects/{name}")
+            page.wait_for_load_state("domcontentloaded")
+            page.wait_for_timeout(1000)
+
+            toast = page.locator("#toast")
+
+            position = toast.evaluate("el => window.getComputedStyle(el).position")
+            bottom = toast.evaluate("el => window.getComputedStyle(el).bottom")
+            right = toast.evaluate("el => window.getComputedStyle(el).right")
+
+            assert position == "fixed", (
+                f"Toast position should be fixed, got {position}"
+            )
+            assert "px" in bottom or "rem" in bottom, (
+                f"Toast should have bottom position, got {bottom}"
+            )
+            assert "px" in right or "rem" in right, (
+                f"Toast should have right position, got {right}"
+            )
+        finally:
+            _delete_project(name)
+
+    def test_env_editor_blur_effect(self, page: Page):
+        """Env editor should have blur effect when unfocused and clear when focused."""
+        name = _unique_name("e2e-env-blur")
+
+        try:
+            _create_project(name)
+            page.goto(f"{BASE_URL}/projects/{name}?tab=env")
+            page.wait_for_load_state("domcontentloaded")
+            page.wait_for_timeout(500)
+
+            env_editor = page.locator("#env-editor")
+
+            # When focused, blur should be minimal or none
+            env_editor.focus()
+            page.wait_for_timeout(100)
+            blur_focused = env_editor.evaluate(
+                "el => window.getComputedStyle(el).filter"
+            )
+            # Accept "none" or any blur value < 1px
+            # (browser may compute none as tiny value)
+            focused_ok = (
+                blur_focused == "none"
+                or "blur(0" in blur_focused
+                or "blur(1" in blur_focused
+                or "blur(2" in blur_focused
+                or "blur(3" in blur_focused
+                or "e-" in blur_focused  # Scientific notation for tiny values
+            )
+            assert focused_ok, (
+                f"Env editor should not be blurred when focused, got {blur_focused}"
+            )
+
+            # When unfocused, should have blur effect
+            env_editor.blur()
+            page.wait_for_timeout(100)
+            blur_unfocused = env_editor.evaluate(
+                "el => window.getComputedStyle(el).filter"
+            )
+            assert "blur" in blur_unfocused, (
+                f"Env editor should be blurred when unfocused, got {blur_unfocused}"
+            )
+        finally:
+            _delete_project(name)
+
+    def test_no_reset_button_in_env_tab(self, page: Page):
+        """Env tab should NOT have a Reset button."""
+        name = _unique_name("e2e-env-reset")
+
+        try:
+            _create_project(name)
+            page.goto(f"{BASE_URL}/projects/{name}?tab=env")
+            page.wait_for_load_state("domcontentloaded")
+
+            # Reset button should not exist
+            reset_btn = page.locator("#btn-reset-env")
+            assert reset_btn.count() == 0, "Reset button should not exist in Env tab"
+
+            # Save button should exist
+            save_btn = page.locator("#btn-save-env")
+            assert save_btn.count() == 1, "Save button should exist in Env tab"
+        finally:
+            _delete_project(name)
+
+    def test_message_input_enabled_after_page_load(self, page: Page):
+        """Message input should be enabled after page loads."""
+        name = _unique_name("e2e-input-enable")
+
+        try:
+            # Create project WITHOUT description to avoid auto-send to Ralphy
+            # This tests that the input is properly enabled on page load
+            with _api_client() as c:
+                resp = c.post("/api/projects", json={"name": name, "description": ""})
+                assert resp.status_code == 200, (
+                    f"Create failed: {resp.status_code} {resp.text}"
+                )
+                _created_projects.add(name)
+
+            page.goto(f"{BASE_URL}/projects/{name}")
+            page.wait_for_load_state("domcontentloaded")
+
+            # No desc = no auto-send, so input should be enabled immediately
+            chat_input = page.locator("#chat-input")
+            is_disabled = chat_input.evaluate("el => el.disabled")
+
+            assert not is_disabled, (
+                "Chat input should be enabled on page load when no description"
+            )
+        finally:
+            _delete_project(name)
+
+    def test_message_persists_after_browser_refresh(self, page: Page):
+        """Messages should persist after browser refresh (tests bug #8)."""
+        name = _unique_name("e2e-persist")
+
+        try:
+            # Create project WITHOUT description to avoid auto-send
+            with _api_client() as c:
+                resp = c.post("/api/projects", json={"name": name, "description": ""})
+                assert resp.status_code == 200, f"Create failed: {resp.status_code}"
+                _created_projects.add(name)
+
+            # Insert message into database (simulates persisted message)
+            with sqlite3.connect(DATA_DIR / "jri.db") as db:
+                row = db.execute(
+                    "SELECT id FROM projects WHERE name = ?", (name,)
+                ).fetchone()
+                assert row is not None
+                (project_id,) = row
+                db.execute(
+                    """INSERT INTO chat_messages
+                    (project_id, role, content) VALUES (?, ?, ?)""",
+                    (project_id, "user", "Test message for persistence check."),
+                )
+                db.commit()
+
+            # Verify message is in API history
+            with _api_client() as c:
+                hist = c.get(f"/api/projects/{name}/chat/history")
+                assert hist.status_code == 200
+                messages = hist.json()["messages"]
+                user_msgs = [m for m in messages if m["role"] == "user"]
+                assert any(
+                    "Test message for persistence check." in m["content"]
+                    for m in user_msgs
+                ), "User message not found in API history"
+
+            # Load page and verify message appears
+            page.goto(f"{BASE_URL}/projects/{name}")
+            page.wait_for_load_state("domcontentloaded")
+
+            # Wait for chat messages to appear
+            page.locator("#chat-messages").wait_for(state="visible", timeout=10000)
+
+            # Check user message is visible
+            user_msg_locator = page.locator("#chat-messages").get_by_text(
+                "Test message for persistence check."
+            )
+            user_msg_locator.wait_for(state="visible", timeout=15000)
+
+            # Refresh page
+            page.reload(wait_until="domcontentloaded")
+            page.locator("#chat-messages").wait_for(state="visible", timeout=10000)
+
+            # Message should still be visible after refresh
+            user_msg_locator = page.locator("#chat-messages").get_by_text(
+                "Test message for persistence check."
+            )
+            user_msg_locator.wait_for(state="visible", timeout=15000)
         finally:
             _delete_project(name)
