@@ -2856,8 +2856,29 @@
                             saveChatHistory(data.messages);
                         }
                         // Server has confirmed the message history - safe to clear any pending state
-                        if (pendingToClear) {
-                            try { localStorage.removeItem(STORAGE_KEY + '-pending'); } catch(e) {}
+                        // Only clear if the server has the same or more messages than we had locally
+                        // AND the pending content appears to be reflected in the server history
+                        if (pendingToClear && serverCount >= localCount) {
+                            try {
+                                var pendingObj = JSON.parse(pendingToClear);
+                                var lastServerMsg = data.messages[data.messages.length - 1];
+                                // Check if last server message matches what we were restoring
+                                // (either as assistant with matching content, or pending was for a new message)
+                                if (lastServerMsg && lastServerMsg.role === 'assistant') {
+                                    var pendingText = pendingObj.finalText || pendingObj.initialText || '';
+                                    // If pending content is a prefix of or matches server content, it's confirmed
+                                    if (pendingText && lastServerMsg.content && lastServerMsg.content.startsWith(pendingText.substring(0, 100))) {
+                                        localStorage.removeItem(STORAGE_KEY + '-pending');
+                                    }
+                                } else {
+                                    // No assistant message yet, or pending was for a new conversation
+                                    // Safe to clear as server history is authoritative
+                                    localStorage.removeItem(STORAGE_KEY + '-pending');
+                                }
+                            } catch(e) {
+                                // If we can't parse pending, clear it safely
+                                localStorage.removeItem(STORAGE_KEY + '-pending');
+                            }
                             pendingToClear = null;
                         }
                     }
