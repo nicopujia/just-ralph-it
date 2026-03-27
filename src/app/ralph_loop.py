@@ -400,7 +400,7 @@ class RalphLoop:
         log_file = open(log_path, "a", encoding="utf-8")
 
         try:
-            async with self._http_client.stream("GET", "/event") as resp:
+            async with self._http_client.stream("GET", "/global/event") as resp:
                 buffer = ""
                 async for chunk in resp.aiter_text():
                     # Check if opencode process died
@@ -422,16 +422,31 @@ class RalphLoop:
                         if event is None:
                             continue
 
-                        event_type = event.get("type", "")
-                        props = event.get("properties", {})
+                        # OpenCode wraps events: {payload: {type, properties}}
+                        payload = event.get("payload", event)
+                        event_type = payload.get("type", "")
+                        props = payload.get("properties", {})
 
                         # Filter by session ID
                         sid = props.get("sessionID", "")
                         if sid and sid != self._session_id:
                             continue
 
-                        if event_type == "session.idle":
-                            return 0
+                        if event_type == "session.status":
+                            status = props.get("status", {})
+                            status_type = status.get("type", "")
+                            if status_type == "idle":
+                                return 0
+                            if status_type == "retry":
+                                error_msg = status.get(
+                                    "message", "Model temporarily unavailable"
+                                )
+                                logger.error(
+                                    "Project %s: model retry: %s",
+                                    self.project_name,
+                                    error_msg,
+                                )
+                                return 1
 
                         if event_type == "session.error":
                             error_data = props.get("error", {})

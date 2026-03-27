@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 import socket
 import uuid
@@ -15,6 +16,8 @@ from app.config import DATA_DIR, RALPHY_MODEL
 from app.database import get_db
 from app.prompts.ralphy import RALPHY_SYSTEM_PROMPT
 from app.sse_bus import sse_bus
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects", tags=["chat"])
 
@@ -326,13 +329,16 @@ async def _stream_opencode(
         # fast responses (race between prompt_async and /event SSE).
         last_event_time = asyncio.get_event_loop().time()
 
-        async with client.stream("GET", "/event") as stream:
+        async with client.stream("GET", "/global/event") as stream:
             # Now that we're listening, send the prompt
             resp = await client.post(
                 f"/session/{oc_session_id}/prompt_async",
                 json={"parts": [{"type": "text", "text": user_message}]},
             )
             resp.raise_for_status()
+
+            # Track last text content to detect incremental updates
+            last_text_len = 0
 
             buffer = ""
             async for chunk in stream.aiter_text():
@@ -353,37 +359,43 @@ async def _stream_opencode(
                         continue
 
                     try:
-                        data = json.loads("".join(data_lines))
+                        raw = json.loads("".join(data_lines))
                     except json.JSONDecodeError:
                         continue
 
-                    event_type = data.get("type", "")
-                    props = data.get("properties", {})
+                    # OpenCode wraps events: {payload: {type, properties}}
+                    payload = raw.get("payload", raw)
+                    event_type = payload.get("type", "")
+                    props = payload.get("properties", {})
 
                     # Filter by session
                     evt_session = props.get("sessionID", "")
                     if evt_session and evt_session != oc_session_id:
                         continue
 
-                    # Filter out session title/summary parts
-                    part = props.get("part", {})
-                    if isinstance(part, dict):
-                        part_role = part.get("role", "")
-                        if part_role in ("system", "summary", "metadata"):
-                            continue
-
                     # Map OpenCode events to frontend SSE format
                     if event_type == "message.part.updated":
+                        part = props.get("part", {})
+                        if not isinstance(part, dict):
+                            continue
                         part_type = part.get("type", "")
 
                         if part_type == "text":
-                            text_content = part.get("text", "")
-                            if text_content:
-                                event = {"type": "text", "content": text_content}
+                            # OpenCode sends full accumulated text each time;
+                            # extract only the new delta.
+                            full_text = part.get("text", "")
+                            # Skip user message echo (role check via messageID)
+                            msg_info = props.get("info", {})
+                            if msg_info.get("role") == "user":
+                                continue
+                            delta = full_text[last_text_len:]
+                            last_text_len = len(full_text)
+                            if delta:
+                                event = {"type": "text", "content": delta}
                                 yield f"data: {json.dumps(event)}\n\n"
-                                log_file.write(text_content)
+                                log_file.write(delta)
                                 log_file.flush()
-                                assistant_text += text_content
+                            assistant_text = full_text
 
                         elif part_type == "reasoning":
                             thinking_content = part.get("text", "")
@@ -393,7 +405,7 @@ async def _stream_opencode(
                                     "content": thinking_content,
                                 }
                                 yield f"data: {json.dumps(event)}\n\n"
-                                assistant_thinking += thinking_content
+                                assistant_thinking = thinking_content
 
                         elif part_type == "tool_use":
                             tool_name = part.get("name", "unknown")
@@ -411,26 +423,38 @@ async def _stream_opencode(
                             if tool_name.lower() in ("bash", "write", "edit"):
                                 await sse_bus.publish(project_name, "issue_update", {})
 
-                    elif event_type == "session.idle":
-                        # Persist assistant message BEFORE sending done event
-                        # so it's in the DB when the client fetches history
-                        if assistant_text.strip():
-                            entry: dict = {
-                                "role": "assistant",
-                                "content": assistant_text,
-                            }
-                            if assistant_thinking:
-                                entry["thinkingText"] = assistant_thinking
-                            if assistant_tools:
-                                entry["thinkingSteps"] = assistant_tools
-                            await _append_chat_message(project_id, entry)
-                            saved_to_db = True
+                    elif event_type == "session.status":
+                        status = props.get("status", {})
+                        status_type = status.get("type", "")
 
-                        event = {"type": "done", "result": assistant_text}
-                        yield f"data: {json.dumps(event)}\n\n"
-                        log_file.write("\n--- Done ---\n")
-                        log_file.flush()
-                        break
+                        if status_type == "idle":
+                            # Persist before sending done event
+                            if assistant_text.strip():
+                                entry: dict = {
+                                    "role": "assistant",
+                                    "content": assistant_text,
+                                }
+                                if assistant_thinking:
+                                    entry["thinkingText"] = assistant_thinking
+                                if assistant_tools:
+                                    entry["thinkingSteps"] = assistant_tools
+                                await _append_chat_message(project_id, entry)
+                                saved_to_db = True
+
+                            event = {"type": "done", "result": assistant_text}
+                            yield f"data: {json.dumps(event)}\n\n"
+                            log_file.write("\n--- Done ---\n")
+                            log_file.flush()
+                            break
+
+                        elif status_type == "retry":
+                            error_msg = status.get(
+                                "message", "Model temporarily unavailable"
+                            )
+                            log.warning("OC retry for %s: %s", project_name, error_msg)
+                            event = {"type": "error", "message": error_msg}
+                            yield f"data: {json.dumps(event)}\n\n"
+                            break
 
                     elif event_type == "session.error":
                         error_data = props.get("error", {})
@@ -448,6 +472,7 @@ async def _stream_opencode(
                     last_event_time = now
 
     except Exception as exc:
+        log.exception("Chat stream error for %s", project_name)
         event = {"type": "error", "message": str(exc)}
         yield f"data: {json.dumps(event)}\n\n"
 
