@@ -297,17 +297,18 @@ async def _stream_opencode(
 
     await sse_bus.publish(project_name, "ralphy_processing", {"status": "start"})
 
-    log_dir = Path(project_dir) / ".jri" / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / "ralphy.log"
-    log_file = open(log_path, "a", encoding="utf-8")
-
     # Accumulate assistant response for persistence
     assistant_text = ""
     assistant_thinking = ""
     assistant_tools: list[str] = []
+    log_file = None
 
     try:
+        # Setup log file - may raise OSError/PermissionError
+        log_dir = Path(project_dir) / ".jri" / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / "ralphy.log"
+        log_file = open(log_path, "a", encoding="utf-8")
         # Get or start OpenCode server
         client = await _ensure_opencode_server(project_name, project_dir)
 
@@ -435,7 +436,8 @@ async def _stream_opencode(
         yield f"data: {json.dumps(event)}\n\n"
 
     finally:
-        log_file.close()
+        if log_file:
+            log_file.close()
         # Persist assistant response if there was ANY output
         if assistant_text or assistant_thinking or assistant_tools:
             entry: dict = {"role": "assistant", "content": assistant_text}
