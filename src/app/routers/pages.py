@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 
 from app.auth_utils import decode_session_token
 from app.database import get_db
+from app.docs import DOCS_PAGES, render_doc_page
 
 logger = logging.getLogger(__name__)
 
@@ -175,3 +176,131 @@ async def project_page(request: Request, name: str):
     )
     response.headers["Cache-Control"] = "no-store"
     return response
+
+
+# Public docs routes
+@router.get("/docs")
+async def docs_index(request: Request):
+    logged_in = await _is_logged_in(request)
+    return templates.TemplateResponse(
+        "docs_index.html", {"request": request, "logged_in": logged_in}
+    )
+
+
+@router.get("/docs/overview")
+async def docs_overview(request: Request):
+    logged_in = await _is_logged_in(request)
+    page = DOCS_PAGES["overview"]
+    content = render_doc_page(page["body"])
+    return templates.TemplateResponse(
+        "docs_page.html",
+        {
+            "request": request,
+            "logged_in": logged_in,
+            "page_title": page["title"],
+            "page_slug": "overview",
+            "content": content,
+        },
+    )
+
+
+@router.get("/docs/agents")
+async def docs_agents(request: Request):
+    logged_in = await _is_logged_in(request)
+    page = DOCS_PAGES["agents"]
+    content = render_doc_page(page["body"])
+    return templates.TemplateResponse(
+        "docs_page.html",
+        {
+            "request": request,
+            "logged_in": logged_in,
+            "page_title": page["title"],
+            "page_slug": "agents",
+            "content": content,
+        },
+    )
+
+
+@router.get("/docs/best-practices")
+async def docs_best_practices(request: Request):
+    logged_in = await _is_logged_in(request)
+    page = DOCS_PAGES["best-practices"]
+    content = render_doc_page(page["body"])
+    return templates.TemplateResponse(
+        "docs_page.html",
+        {
+            "request": request,
+            "logged_in": logged_in,
+            "page_title": page["title"],
+            "page_slug": "best-practices",
+            "content": content,
+        },
+    )
+
+
+@router.get("/docs/pricing")
+async def docs_pricing(request: Request):
+    logged_in = await _is_logged_in(request)
+    page = DOCS_PAGES["pricing"]
+    content = render_doc_page(page["body"])
+    return templates.TemplateResponse(
+        "docs_page.html",
+        {
+            "request": request,
+            "logged_in": logged_in,
+            "page_title": page["title"],
+            "page_slug": "pricing",
+            "content": content,
+        },
+    )
+
+
+@router.get("/docs/privacy-security")
+async def docs_privacy_security(request: Request):
+    logged_in = await _is_logged_in(request)
+    page = DOCS_PAGES["privacy-security"]
+    content = render_doc_page(page["body"])
+    return templates.TemplateResponse(
+        "docs_page.html",
+        {
+            "request": request,
+            "logged_in": logged_in,
+            "page_title": page["title"],
+            "page_slug": "privacy-security",
+            "content": content,
+        },
+    )
+
+
+@router.get("/docs/deployment")
+async def docs_deployment(request: Request):
+    logged_in = await _is_logged_in(request)
+    page = DOCS_PAGES["deployment"]
+    content = render_doc_page(page["body"])
+    return templates.TemplateResponse(
+        "docs_page.html",
+        {
+            "request": request,
+            "logged_in": logged_in,
+            "page_title": page["title"],
+            "page_slug": "deployment",
+            "content": content,
+        },
+    )
+
+
+@router.get("/docs/faq")
+async def docs_faq(request: Request):
+    logged_in = await _is_logged_in(request)
+    page = DOCS_PAGES["faq"]
+    content = render_doc_page(page["body"])
+    return templates.TemplateResponse(
+        "docs_page.html",
+        {
+            "request": request,
+            "logged_in": logged_in,
+            "page_title": page["title"],
+            "page_slug": "faq",
+            "content": content,
+        },
+    )

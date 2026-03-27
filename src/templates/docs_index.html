@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+
+{% block title %}Public Docs - Just Ralph It{% endblock %}
+
+{% block head %}
+<style>
+.docs-container {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+}
+.docs-header {
+    margin-bottom: 2rem;
+}
+.docs-header h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    color: var(--text-bright);
+}
+.docs-header p {
+    color: var(--text-muted);
+    font-size: 1rem;
+    line-height: 1.6;
+}
+.docs-nav-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+    gap: 1rem;
+    margin-top: 2rem;
+}
+.docs-nav-card {
+    display: block;
+    padding: 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--card-bg);
+    text-decoration: none;
+    transition: border-color 0.2s, background-color 0.2s;
+}
+.docs-nav-card:hover {
+    border-color: var(--accent);
+    background: var(--hover-bg);
+}
+.docs-nav-card h2 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--text-bright);
+}
+.docs-nav-card p {
+    font-size: 0.875rem;
+    color: var(--text-dim);
+    line-height: 1.5;
+}
+.docs-philosophy {
+    margin-top: 2rem;
+    padding: 1rem;
+    border-left: 3px solid var(--accent);
+    background: var(--card-bg);
+}
+.docs-philosophy p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.9rem;
+    line-height: 1.6;
+}
+</style>
+{% endblock %}
+
+{% block nav %}
+<nav class="site-nav">
+    <div class="breadcrumb">
+        <a href="/">Just Ralph It</a>
+        <span class="separator">/</span>
+        <span class="current">Docs</span>
+    </div>
+    <div class="nav-right">
+        {% if logged_in %}
+        <a href="/projects" class="btn">GO TO DASHBOARD</a>
+        {% else %}
+        <a href="/auth/login" class="btn">LOGIN WITH GITHUB</a>
+        {% endif %}
+    </div>
+</nav>
+{% endblock %}
+
+{% block content %}
+<div class="docs-container">
+    <div class="docs-header">
+        <h1>Public Docs</h1>
+        <p>Just Ralph It helps turn ideas into clear, buildable task specs before Ralph executes. The workflow is simple: <strong>idea → spec → build → iterate</strong>.</p>
+    </div>
+
+    <div class="docs-philosophy">
+        <p><strong>Philosophy:</strong> Clarify intent thoroughly before coding. Shallow specs produce shallow output. The more you refine your spec, the better the result.</p>
+    </div>
+
+    <div class="docs-nav-grid">
+        <a href="/docs/overview" class="docs-nav-card">
+            <h2>Overview</h2>
+            <p>What JRI is, who it's for, and how the end-to-end flow works.</p>
+        </a>
+        <a href="/docs/agents" class="docs-nav-card">
+            <h2>Agents</h2>
+            <p>How Ralphy and Ralph work together to build your project.</p>
+        </a>
+        <a href="/docs/best-practices" class="docs-nav-card">
+            <h2>Best Practices</h2>
+            <p>How to get the most out of JRI by clarifying your intent.</p>
+        </a>
+        <a href="/docs/pricing" class="docs-nav-card">
+            <h2>Pricing</h2>
+            <p>Free tier, per-task pricing, and Pro plan details.</p>
+        </a>
+        <a href="/docs/privacy-security" class="docs-nav-card">
+            <h2>Privacy & Security</h2>
+            <p>Data handling, ownership, and what to expect.</p>
+        </a>
+        <a href="/docs/deployment" class="docs-nav-card">
+            <h2>Deployment</h2>
+            <p>How projects get deployed and what you can expect.</p>
+        </a>
+        <a href="/docs/faq" class="docs-nav-card">
+            <h2>FAQ</h2>
+            <p>Common questions about using JRI.</p>
+        </a>
+    </div>
+</div>
+{% endblock %}

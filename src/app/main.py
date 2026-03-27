@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Just Ralph It", lifespan=lifespan)
+app = FastAPI(title="Just Ralph It", lifespan=lifespan, docs_url=None, redoc_url=None)
 
 # Increase multipart upload limit (default is 1MB, we allow 3MB files)
 from starlette.formparsers import MultiPartParser
