@@ -7,44 +7,18 @@ order: 7
 
 # Frequently Asked Questions
 
-## General
+## Can non-coders use this?
 
-### What is Just Ralph It?
+Yes. You do not need to write code or understand software architecture to use Just Ralph It. You describe what you want in plain language and the system handles the technical side. If you can write a clear description of a project idea, you can use this platform.
 
-Just Ralph It is an AI-powered code automation platform that helps you build software projects using intelligent agents.
+## How is this different from hiring developers or using coding copilots?
 
-### How does it work?
+Hiring a developer requires defining a spec, reviewing candidates, managing the relationship, and overseeing delivery. That process is slow and expensive even for straightforward projects.
 
-1. Log in with GitHub
-2. Describe your project to Ralphy
-3. Ralphy creates detailed issues
-4. Ralph implements each issue
-5. Your project is deployed automatically
+Coding copilots like GitHub Copilot or Cursor work inside your own editor and assist you while you write code. They do not build projects for you from scratch, and they rely on you to guide them.
 
-## Technical
+Just Ralph It takes a project from idea to deployed software based on a conversation. You describe what you want, Ralphy clarifies the details, and Ralph implements it. You do not manage code, review pull requests, or oversee a developer. The system handles the entire build process.
 
-### What programming languages are supported?
+## What happens if it fails?
 
-Ralph can work with any language, but works best with well-documented ecosystems.
-
-### Where is my code stored?
-
-Code is stored in GitHub repositories created by the `ralphpujia` bot account.
-
-## Billing
-
-### How do I pay?
-
-We use Stripe for secure payment processing. All major credit cards are accepted.
-
-### Can I get a refund?
-
-Yes, contact support within 7 days for a full refund.
-
-## Support
-
-### How do I get help?
-
-- Check this documentation
-- Email support@justralph.it
-- Open an issue on GitHub
+Ralph will surface errors and attempt recovery when issues come up. If the build encounters a problem it cannot resolve, founder support is available when needed.
