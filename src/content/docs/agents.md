@@ -27,11 +27,3 @@ Ralph is your implementation agent. It:
 - Writes clean, well-documented code
 - Runs tests to verify implementations
 
-## Model Configuration
-
-By default, both agents use `opencode-go/glm-5` (free tier). You can override this with environment variables:
-
-| Env Var | Default | Paid Example |
-|---------|---------|--------------|
-| `RALPH_MODEL` | `opencode-go/glm-5` | `opencode/gpt-5.4` |
-| `RALPHY_MODEL` | `opencode-go/glm-5` | `opencode/glm-5` |

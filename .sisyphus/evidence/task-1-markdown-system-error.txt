@@ -1,0 +1,1 @@
+Script 2: PASSED - HTML escaping works correctly, script tags escaped

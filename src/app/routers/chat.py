@@ -381,7 +381,7 @@ async def _stream_opencode(
                                 yield f"data: {json.dumps(event)}\n\n"
                                 log_file.write(text_content)
                                 log_file.flush()
-                                assistant_text = text_content
+                                assistant_text += text_content
 
                         elif part_type == "reasoning":
                             thinking_content = part.get("text", "")
@@ -391,7 +391,7 @@ async def _stream_opencode(
                                     "content": thinking_content,
                                 }
                                 yield f"data: {json.dumps(event)}\n\n"
-                                assistant_thinking = thinking_content
+                                assistant_thinking += thinking_content
 
                         elif part_type == "tool_use":
                             tool_name = part.get("name", "unknown")

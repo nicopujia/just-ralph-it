@@ -7,41 +7,25 @@ order: 4
 
 # Pricing
 
-Just Ralph It offers flexible pricing for different needs.
+## Free Tier
 
-## Plans
-
-### Free Tier
-
-- Limited to whitelisted beta users
+- **3 free projects**
 - Basic project creation
-- Community support
 
-### Paid Tier
+## Pay As You Go
 
-- Priority access
-- Faster processing
-- Advanced features
-- Dedicated support
+- **$4 per task** completed
+- No subscription required
+
+## Pro Plan
+
+- **$20/month**
+- Unlimited projects
+- 1 VPS for all your projects
 
 ## Payment
 
 We use Stripe for secure payment processing:
 
 - All major credit cards accepted
-- Invoices available for business accounts
 - Automatic billing for subscriptions
-
-## Billing Cycle
-
-- Monthly or annual billing
-- Prorated for mid-cycle changes
-- No hidden fees
-
-## Refunds
-
-Contact support within 7 days for a full refund if you're not satisfied.
-
----
-
-*Pricing details are subject to change. Contact us for current rates.*
