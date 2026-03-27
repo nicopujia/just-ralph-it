@@ -68,7 +68,7 @@ def render_doc_page(content: str) -> str:
     escaped = escaped.replace("<", "&lt;")
     escaped = escaped.replace(">", "&gt;")
 
-    md = Markdown(extensions=[])
+    md = Markdown(extensions=["tables"])
     html = md.convert(escaped)
 
     # Sanitize dangerous URL schemes after markdown conversion
