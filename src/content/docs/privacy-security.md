@@ -1,58 +1,38 @@
 ---
 title: Privacy & Security
-description: How we protect your data and ensure security
+description: How we handle your data
 nav_label: Privacy & Security
 order: 5
 ---
 
 # Privacy & Security
 
-Your security and privacy are our top priorities.
+## What We Handle
 
-## Data Protection
+JRI needs access to your GitHub account to operate. When you sign in through GitHub, we receive your basic profile information so we can create and manage your projects.
 
-### What We Store
+We use the project context and account data needed to run the service. This includes your project repositories, issue lists, and configuration. We use this information to coordinate with you and to have Ralph work on your codebase.
 
-- GitHub profile information (username, email)
-- Project metadata and configuration
-- Generated code repositories
+We do not publish details about which models or vendors power the underlying services.
 
-### What We Don't Store
+## Authentication
 
-- Your GitHub password (we use OAuth)
-- Payment card details (handled by Stripe)
-- Sensitive secrets in plain text
+All access goes through GitHub. You authenticate with your GitHub credentials, and we receive a token that lets us work with your repositories on your behalf.
 
-## Security Measures
+## What You Own
 
-### Authentication
+You own the code. You own your keys and secrets. You own the accountability for what you build and deploy through the platform.
 
-- GitHub OAuth for secure login
-- Signed session tokens with `itsdangerous`
-- 30-day session expiry
+When Ralph generates code or helps with your project, that work belongs to you. You decide how to use it, where to deploy it, and what it does.
 
-### Data Isolation
+## The Limits
 
-- Each project has its own directory
-- User data is separated by GitHub username
-- No cross-user data access
+JRI works with the data and systems you give it access to. It has limits.
 
-### Code Security
+It cannot be in two places at once. It does not have physical presence anywhere. It cannot see a locked service unless you unlock it. It does not know your identity beyond what GitHub tells it. It has no sense of taste or aesthetic judgment.
 
-- HTML escaping before markdown rendering
-- Path traversal protection
-- File upload size limits (10 MB max)
-
-## Privacy Policy
-
-We only collect data necessary for the service:
-
-- To authenticate you
-- To create and manage your projects
-- To process payments
-
-We never sell or share your data with third parties.
+These are not failures. They are just the shape of how this works.
 
 ## Reporting Issues
 
-Found a security vulnerability? Email us at security@justralph.it
+Find a security issue? Email security@justralph.it with details.
