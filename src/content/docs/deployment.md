@@ -13,20 +13,6 @@ Learn how your projects are deployed and made accessible.
 
 When Ralph finishes all issues, your project can be automatically deployed (if configured).
 
-## Deployment Architecture
-
-```
-User Request
-    ↓
-Cloudflare (*.justralph.it)
-    ↓
-nginx (port 80)
-    ↓
-FastAPI Reverse Proxy
-    ↓
-Your Project (port 9000 + project_id)
-```
-
 ## Subdomain Routing
 
 Each project gets a unique subdomain:
@@ -36,14 +22,6 @@ Each project gets a unique subdomain:
 ```
 
 Example: `myapp.johndoe.justralph.it`
-
-## Systemd Services
-
-Each deployed project runs as a systemd service:
-
-- Service name: `jri-deploy-{project-name}.service`
-- Port allocation: `9000 + project_id`
-- Automatic restart on failure
 
 ## Manual Deployment
 

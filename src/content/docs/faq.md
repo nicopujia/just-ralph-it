@@ -21,33 +21,15 @@ Just Ralph It is an AI-powered code automation platform that helps you build sof
 4. Ralph implements each issue
 5. Your project is deployed automatically
 
-## Access
-
-### How do I get access?
-
-Currently, Just Ralph It is in closed beta. You need to be whitelisted to create projects.
-
-### Can I skip the waitlist?
-
-Team members and select early users can be added to the freelist for immediate access.
-
 ## Technical
 
 ### What programming languages are supported?
 
 Ralph can work with any language, but works best with well-documented ecosystems.
 
-### Can I use my own models?
-
-Yes! Set `RALPH_MODEL` and `RALPHY_MODEL` environment variables to use different models.
-
 ### Where is my code stored?
 
 Code is stored in GitHub repositories created by the `ralphpujia` bot account.
-
-### Can I deploy to my own infrastructure?
-
-Currently, deployment is limited to our hosted platform. Custom deployment options may be available in the future.
 
 ## Billing
 
