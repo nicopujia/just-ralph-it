@@ -2912,6 +2912,33 @@
                     }
                 } else if (data.status === 'end') {
                     setProcessing(false);
+                    // If we had a pending placeholder from a page reload, replace
+                    // it with the actual response from the server.
+                    var pending = chatMessages.querySelector('.ralphy-pending');
+                    if (pending) {
+                        pending.remove();
+                        fetch(API + '/chat/history')
+                            .then(function(r) { return r.json(); })
+                            .then(function(hdata) {
+                                var msgs = Array.isArray(hdata.messages) ? hdata.messages : [];
+                                if (msgs.length > 0) {
+                                    chatMessages.querySelectorAll('.chat-msg').forEach(function(el) { el.remove(); });
+                                    msgs.forEach(function(msg) {
+                                        var html = '';
+                                        if (msg.thinkingText || (msg.thinkingSteps && msg.thinkingSteps.length > 0)) {
+                                            html += '<div class="thinking-content"><details class="thinking"><summary>Finished thinking</summary>';
+                                            if (msg.thinkingText) html += '<div>' + escapeHtmlWithNewlines(msg.thinkingText) + '</div>';
+                                            if (msg.thinkingSteps) msg.thinkingSteps.forEach(function(s) { html += '<div>Tool: ' + escapeHtml(s) + '</div>'; });
+                                            html += '</details></div>';
+                                        }
+                                        if (msg.content) html += '<div class="message-text">' + renderMarkdown(msg.content) + '</div>';
+                                        addChatMessage(msg.role, html);
+                                    });
+                                    saveChatHistory(msgs);
+                                    scrollChat();
+                                }
+                            }).catch(function() {});
+                    }
                 }
             } catch(err) {}
         });
@@ -3135,7 +3162,15 @@
         fetch(API + '/chat/processing')
             .then(function(r) { return r.json(); })
             .then(function(data) {
-                if (data.processing) setProcessing(true);
+                if (data.processing) {
+                    setProcessing(true);
+                    // Add a thinking placeholder so the user sees Ralphy is working
+                    var assistantDiv = document.createElement('div');
+                    assistantDiv.className = 'chat-msg assistant ralphy-pending';
+                    assistantDiv.innerHTML = '<div class="thinking-content"><details class="thinking" open><summary class="shimmer">Ralphy is thinking...</summary></details></div>';
+                    chatMessages.appendChild(assistantDiv);
+                    scrollChat();
+                }
             })
             .catch(function() {});
 
