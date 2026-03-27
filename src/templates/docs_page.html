@@ -7,7 +7,7 @@
 /* ── Layout ── */
 .docs-layout {
     display: grid;
-    grid-template-columns: 200px 1fr 160px;
+    grid-template-columns: 200px 1fr;
     min-height: calc(100vh - 48px);
 }
 
@@ -54,16 +54,11 @@
     background: var(--hover-bg);
 }
 
-/* ── Right sidebar ── */
+/* ── Actions bar ── */
 .docs-actions {
-    position: sticky;
-    top: 48px;
-    height: calc(100vh - 48px);
-    padding: 1.5rem 0.75rem;
-    border-left: 1px solid var(--border-light);
     display: flex;
-    flex-direction: column;
     gap: 0.5rem;
+    margin-bottom: 1rem;
 }
 .docs-action-btn {
     background: transparent;
@@ -166,32 +161,16 @@
     color: var(--text-muted);
 }
 
-/* ── Mobile actions bar (hidden on desktop) ── */
-.docs-mobile-actions {
-    display: none;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-}
-
 /* ── Responsive ── */
 @media (max-width: 1100px) {
-    .docs-layout {
-        grid-template-columns: 200px 1fr;
-    }
-    .docs-actions {
-        display: none;
-    }
-    .docs-mobile-actions {
-        display: flex;
-    }
-}
-@media (max-width: 768px) {
     .docs-layout {
         grid-template-columns: 1fr;
     }
     .docs-sidebar {
         display: none;
     }
+}
+@media (max-width: 768px) {
     .docs-container {
         padding: 1.5rem 1rem;
     }
@@ -206,6 +185,8 @@
     .nav-right a.btn {
         font-size: 0.75rem !important;
         padding: 0.4rem 0.6rem;
+        width: 100%;
+        text-align: center;
     }
 }
 </style>
@@ -245,17 +226,13 @@
         </ul>
     </div>
     <div class="docs-container">
-        <div class="docs-mobile-actions">
+        <div class="docs-actions">
             <button class="docs-action-btn" onclick="copyMarkdown()">Copy as markdown</button>
             <button class="docs-action-btn" onclick="copyLlmUrl()">Copy URL for LLMs</button>
         </div>
         <div class="docs-content">
             {{ content | safe }}
         </div>
-    </div>
-    <div class="docs-actions">
-        <button class="docs-action-btn" onclick="copyMarkdown()">Copy as markdown</button>
-        <button class="docs-action-btn" onclick="copyLlmUrl()">Copy URL for LLMs</button>
     </div>
 </div>
 <script>

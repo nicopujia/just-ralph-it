@@ -4,23 +4,11 @@
 
 {% block head %}
 <style>
-/* ── Layout ── */
-.docs-index-layout {
-    display: grid;
-    grid-template-columns: 1fr 160px;
-    min-height: calc(100vh - 48px);
-}
-
-/* ── Right sidebar ── */
+/* ── Actions bar ── */
 .docs-actions {
-    position: sticky;
-    top: 48px;
-    height: calc(100vh - 48px);
-    padding: 1.5rem 0.75rem;
-    border-left: 1px solid var(--border-light);
     display: flex;
-    flex-direction: column;
     gap: 0.5rem;
+    margin-bottom: 1rem;
 }
 .docs-action-btn {
     background: transparent;
@@ -111,25 +99,7 @@
     text-decoration-color: var(--accent);
 }
 
-/* ── Mobile actions bar (hidden on desktop) ── */
-.docs-mobile-actions {
-    display: none;
-    gap: 0.5rem;
-    margin-bottom: 1rem;
-}
-
 /* ── Responsive ── */
-@media (max-width: 1100px) {
-    .docs-index-layout {
-        grid-template-columns: 1fr;
-    }
-    .docs-actions {
-        display: none;
-    }
-    .docs-mobile-actions {
-        display: flex;
-    }
-}
 @media (max-width: 768px) {
     .docs-container {
         padding: 1.5rem 1rem;
@@ -150,6 +120,8 @@
     .nav-right a.btn {
         font-size: 0.75rem !important;
         padding: 0.4rem 0.6rem;
+        width: 100%;
+        text-align: center;
     }
 }
 </style>
@@ -173,19 +145,18 @@
 {% endblock %}
 
 {% block content %}
-<div class="docs-index-layout">
-    <div class="docs-container">
-        <div class="docs-header">
-            <h1>Documentation</h1>
-            <p>Just Ralph It helps turn ideas into clear, buildable task specs before Ralph executes. The workflow is simple: <strong>idea → spec → build → iterate</strong>.</p>
-        </div>
+<div class="docs-container">
+    <div class="docs-header">
+        <h1>Documentation</h1>
+        <p>Just Ralph It helps turn ideas into clear, buildable task specs before Ralph executes. The workflow is simple: <strong>idea → spec → build → iterate</strong>.</p>
+    </div>
 
-        <div class="docs-mobile-actions">
-            <button class="docs-action-btn" onclick="copyAllMarkdown()">Copy as markdown</button>
-            <button class="docs-action-btn" onclick="copyLlmUrl()">Copy URL for LLMs</button>
-        </div>
+    <div class="docs-actions">
+        <button class="docs-action-btn" onclick="copyAllMarkdown()">Copy as markdown</button>
+        <button class="docs-action-btn" onclick="copyLlmUrl()">Copy URL for LLMs</button>
+    </div>
 
-        <div class="docs-philosophy">
+    <div class="docs-philosophy">
             <p><strong>Philosophy:</strong> Clarify intent thoroughly before coding. Shallow specs produce shallow output. The more you refine your spec, the better the result.</p>
         </div>
 
@@ -219,10 +190,6 @@
                 <p>Common questions about using JRI.</p>
             </a>
         </div>
-    </div>
-    <div class="docs-actions">
-        <button class="docs-action-btn" onclick="copyAllMarkdown()">Copy as markdown</button>
-        <button class="docs-action-btn" onclick="copyLlmUrl()">Copy URL for LLMs</button>
     </div>
 </div>
 <script>
