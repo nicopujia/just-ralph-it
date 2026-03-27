@@ -4,35 +4,88 @@
 
 {% block head %}
 <style>
-.docs-container {
-        max-width: 900px;
-        margin: 0 auto;
-        margin-left: 220px;
-        padding: 2rem 1.5rem;
-    }
-    @media (max-width: 1200px) {
-        .docs-container {
-            margin-left: auto;
-        }
-    }
-.docs-content-header {
-    display: flex;
-    justify-content: flex-end;
+/* ── Layout ── */
+.docs-layout {
+    display: grid;
+    grid-template-columns: 200px 1fr 160px;
+    min-height: calc(100vh - 48px);
+}
+
+/* ── Left sidebar ── */
+.docs-sidebar {
+    position: sticky;
+    top: 48px;
+    height: calc(100vh - 48px);
+    padding: 1rem;
+    border-right: 1px solid var(--border-light);
+    overflow-y: auto;
+    z-index: 50;
+}
+.docs-sidebar h3 {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-faint);
+    margin-top: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+.docs-sidebar ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+.docs-sidebar li {
     margin-bottom: 0.5rem;
 }
-.copy-md-btn {
+.docs-sidebar a {
+    display: block;
+    padding: 0.25rem 0.5rem;
+    color: var(--text-dim);
+    text-decoration: none;
+    font-size: 0.875rem;
+    border-radius: 3px;
+}
+.docs-sidebar a:hover {
+    color: var(--text-bright);
+    background: var(--hover-bg);
+}
+.docs-sidebar a.active {
+    color: var(--accent);
+    background: var(--hover-bg);
+}
+
+/* ── Right sidebar ── */
+.docs-actions {
+    position: sticky;
+    top: 48px;
+    height: calc(100vh - 48px);
+    padding: 1.5rem 0.75rem;
+    border-left: 1px solid var(--border-light);
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+.docs-action-btn {
     background: transparent;
     border: 1px solid var(--border);
     color: var(--text-muted);
-    font-size: 0.8rem;
-    padding: 0.3rem 0.7rem;
+    font-size: 0.75rem;
+    padding: 0.4rem 0.6rem;
     border-radius: 4px;
     cursor: pointer;
     transition: color 0.2s, border-color 0.2s;
+    text-align: left;
+    white-space: nowrap;
 }
-.copy-md-btn:hover {
+.docs-action-btn:hover {
     color: var(--text-bright);
     border-color: var(--text-bright);
+}
+
+/* ── Main content ── */
+.docs-container {
+    max-width: 900px;
+    padding: 2rem 2.5rem;
 }
 .docs-content {
     line-height: 1.7;
@@ -112,51 +165,47 @@
     margin: 1rem 0;
     color: var(--text-muted);
 }
-.docs-sidebar {
-    position: fixed;
-    left: 0;
-    top: 60px;
-    width: 200px;
-    padding: 1rem;
-    border-right: 1px solid var(--border-light);
-    height: calc(100vh - 60px);
-    overflow-y: auto;
-    z-index: 50;
+
+/* ── Mobile actions bar (hidden on desktop) ── */
+.docs-mobile-actions {
+    display: none;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
 }
-.docs-sidebar h3 {
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    color: var(--text-faint);
-    margin-bottom: 0.75rem;
+
+/* ── Responsive ── */
+@media (max-width: 1100px) {
+    .docs-layout {
+        grid-template-columns: 200px 1fr;
+    }
+    .docs-actions {
+        display: none;
+    }
+    .docs-mobile-actions {
+        display: flex;
+    }
 }
-.docs-sidebar ul {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-}
-.docs-sidebar li {
-    margin-bottom: 0.5rem;
-}
-.docs-sidebar a {
-    display: block;
-    padding: 0.25rem 0.5rem;
-    color: var(--text-dim);
-    text-decoration: none;
-    font-size: 0.875rem;
-    border-radius: 3px;
-}
-.docs-sidebar a:hover {
-    color: var(--text-bright);
-    background: var(--hover-bg);
-}
-.docs-sidebar a.active {
-    color: var(--accent);
-    background: var(--hover-bg);
-}
-@media (max-width: 1200px) {
+@media (max-width: 768px) {
+    .docs-layout {
+        grid-template-columns: 1fr;
+    }
     .docs-sidebar {
         display: none;
+    }
+    .docs-container {
+        padding: 1.5rem 1rem;
+    }
+    .site-nav {
+        flex-wrap: wrap;
+        gap: 0.4rem;
+    }
+    .site-nav .breadcrumb {
+        font-size: 0.9rem;
+        flex-wrap: wrap;
+    }
+    .nav-right a.btn {
+        font-size: 0.75rem !important;
+        padding: 0.4rem 0.6rem;
     }
 }
 </style>
@@ -182,24 +231,31 @@
 {% endblock %}
 
 {% block content %}
-<div class="docs-sidebar">
-    <h3>Documentation</h3>
-    <ul>
-        <li><a href="/docs/overview"{% if page_slug == 'overview' %} class="active"{% endif %}>1. Overview</a></li>
-        <li><a href="/docs/agents"{% if page_slug == 'agents' %} class="active"{% endif %}>2. Agents</a></li>
-        <li><a href="/docs/best-practices"{% if page_slug == 'best-practices' %} class="active"{% endif %}>3. Best Practices</a></li>
-        <li><a href="/docs/pricing"{% if page_slug == 'pricing' %} class="active"{% endif %}>4. Pricing</a></li>
-        <li><a href="/docs/privacy-security"{% if page_slug == 'privacy-security' %} class="active"{% endif %}>5. Privacy & Security</a></li>
-        <li><a href="/docs/deployment"{% if page_slug == 'deployment' %} class="active"{% endif %}>6. Deployment</a></li>
-        <li><a href="/docs/faq"{% if page_slug == 'faq' %} class="active"{% endif %}>7. FAQ</a></li>
-    </ul>
-</div>
-<div class="docs-container">
-    <div class="docs-content-header">
-        <button class="copy-md-btn" onclick="copyMarkdown()" title="Copy as markdown">Copy as markdown</button>
+<div class="docs-layout">
+    <div class="docs-sidebar">
+        <h3>Documentation</h3>
+        <ul>
+            <li><a href="/docs/overview"{% if page_slug == 'overview' %} class="active"{% endif %}>1. Overview</a></li>
+            <li><a href="/docs/agents"{% if page_slug == 'agents' %} class="active"{% endif %}>2. Agents</a></li>
+            <li><a href="/docs/best-practices"{% if page_slug == 'best-practices' %} class="active"{% endif %}>3. Best Practices</a></li>
+            <li><a href="/docs/pricing"{% if page_slug == 'pricing' %} class="active"{% endif %}>4. Pricing</a></li>
+            <li><a href="/docs/privacy-security"{% if page_slug == 'privacy-security' %} class="active"{% endif %}>5. Privacy & Security</a></li>
+            <li><a href="/docs/deployment"{% if page_slug == 'deployment' %} class="active"{% endif %}>6. Deployment</a></li>
+            <li><a href="/docs/faq"{% if page_slug == 'faq' %} class="active"{% endif %}>7. FAQ</a></li>
+        </ul>
     </div>
-    <div class="docs-content">
-        {{ content | safe }}
+    <div class="docs-container">
+        <div class="docs-mobile-actions">
+            <button class="docs-action-btn" onclick="copyMarkdown()">Copy as markdown</button>
+            <button class="docs-action-btn" onclick="copyLlmUrl()">Copy URL for LLMs</button>
+        </div>
+        <div class="docs-content">
+            {{ content | safe }}
+        </div>
+    </div>
+    <div class="docs-actions">
+        <button class="docs-action-btn" onclick="copyMarkdown()">Copy as markdown</button>
+        <button class="docs-action-btn" onclick="copyLlmUrl()">Copy URL for LLMs</button>
     </div>
 </div>
 <script>
@@ -208,11 +264,25 @@ function copyMarkdown() {
         .then(function(r) { return r.text(); })
         .then(function(md) {
             navigator.clipboard.writeText(md).then(function() {
-                var btn = document.querySelector('.copy-md-btn');
-                btn.textContent = 'Copied!';
-                setTimeout(function() { btn.textContent = 'Copy as markdown'; }, 2000);
+                document.querySelectorAll('.docs-action-btn').forEach(function(btn) {
+                    if (btn.textContent === 'Copy as markdown') {
+                        btn.textContent = 'Copied!';
+                        setTimeout(function() { btn.textContent = 'Copy as markdown'; }, 2000);
+                    }
+                });
             });
         });
+}
+function copyLlmUrl() {
+    var url = window.location.origin + '/docs/{{ page_slug }}.md';
+    navigator.clipboard.writeText(url).then(function() {
+        document.querySelectorAll('.docs-action-btn').forEach(function(btn) {
+            if (btn.textContent === 'Copy URL for LLMs') {
+                btn.textContent = 'Copied!';
+                setTimeout(function() { btn.textContent = 'Copy URL for LLMs'; }, 2000);
+            }
+        });
+    });
 }
 </script>
 {% endblock %}

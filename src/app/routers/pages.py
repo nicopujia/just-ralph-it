@@ -194,9 +194,9 @@ async def docs_index_md():
 
     sorted_pages = sorted(DOCS_PAGES.items(), key=lambda kv: kv[1]["order"])
     parts = ["# Just Ralph It Documentation\n"]
-    for slug, page in sorted_pages:
-        parts.append(f"## {page['title']}\n\n{page['body']}\n")
-    return PlainTextResponse("\n---\n\n".join(parts), media_type="text/markdown")
+    for _slug, page in sorted_pages:
+        parts.append(page["body"])
+    return PlainTextResponse("\n\n---\n\n".join(parts), media_type="text/markdown")
 
 
 @router.get("/docs/{slug}.md")
@@ -209,8 +209,7 @@ async def docs_page_md(slug: str):
         from fastapi import HTTPException
 
         raise HTTPException(status_code=404, detail="Page not found")
-    md = f"# {page['title']}\n\n{page['body']}"
-    return PlainTextResponse(md, media_type="text/markdown")
+    return PlainTextResponse(page["body"], media_type="text/markdown")
 
 
 @router.get("/docs/{slug}")
