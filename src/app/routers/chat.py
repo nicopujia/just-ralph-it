@@ -322,17 +322,18 @@ async def _stream_opencode(
             oc_session_id = session_data.get("sessionID") or session_data.get("id")
             _active_sessions[project_name] = oc_session_id
 
-        # Send prompt async
-        resp = await client.post(
-            f"/session/{oc_session_id}/prompt_async",
-            json={"parts": [{"type": "text", "text": user_message}]},
-        )
-        resp.raise_for_status()
-
-        # Stream events from /event SSE endpoint
+        # Open event stream BEFORE sending prompt to avoid missing
+        # fast responses (race between prompt_async and /event SSE).
         last_event_time = asyncio.get_event_loop().time()
 
         async with client.stream("GET", "/event") as stream:
+            # Now that we're listening, send the prompt
+            resp = await client.post(
+                f"/session/{oc_session_id}/prompt_async",
+                json={"parts": [{"type": "text", "text": user_message}]},
+            )
+            resp.raise_for_status()
+
             buffer = ""
             async for chunk in stream.aiter_text():
                 buffer += chunk
