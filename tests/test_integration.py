@@ -18,7 +18,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from app.auth_utils import create_session_token
-from app.config import DATA_DIR, PRICE_PER_TASK, PRICE_PROJECT_BASE
+from app.config import DATA_DIR, PRICE_PER_TASK
 
 BASE_URL = "http://localhost:8000"
 
@@ -159,8 +159,8 @@ def _create_task_file(
 class TestPricingCalculation:
     """Verify checkout amounts via the payment-status and checkout endpoints."""
 
-    def test_zero_tasks_base_unpaid(self, admin_user):
-        """0 tasks, base unpaid -> checkout = $10 (base only)."""
+    def test_zero_tasks_error(self, admin_user):
+        """0 tasks -> checkout returns error (nothing to pay for)."""
         uid = admin_user["id"]
         name = _unique_name("price-0t")
         try:
@@ -171,24 +171,19 @@ class TestPricingCalculation:
             data = resp.json()
             assert data["total_tasks"] == 0
             assert data["unpaid"] == 0
-            assert data["base_paid"] is False
 
-            # Checkout with 0 tasks and base unpaid: base fee only = $10
+            # Checkout with 0 tasks should return error
             with _api_client(uid) as c:
                 resp = c.post(f"/api/projects/{name}/ralph/checkout")
-            assert resp.status_code == 200
-            data = resp.json()
-            # Should get a Stripe redirect (base fee to pay)
-            assert data.get("redirect") is not None
-            assert "checkout.stripe.com" in data["redirect"]
+            assert resp.status_code == 400  # No tasks found
         finally:
             _delete_project(uid, name)
 
-    def test_three_tasks_base_unpaid(self, admin_user):
-        """3 tasks, base unpaid -> $10 + 3x$5 = $25."""
-        uid = admin_user["id"]
-        username = admin_user["github_username"]
-        name = _unique_name("price-3t")
+    def test_three_tasks_unpaid(self, beta_user):
+        """3 tasks unpaid -> 3x$4 = $12."""
+        uid = beta_user["id"]
+        username = beta_user["github_username"]
+        name = _unique_name("price-3tu")
         try:
             _create_project(uid, name)
             for i in range(3):
@@ -200,80 +195,31 @@ class TestPricingCalculation:
             data = resp.json()
             assert data["total_tasks"] == 3
             assert data["unpaid"] == 3
-            assert data["base_paid"] is False
 
-            # Expected: base($10) + 3 tasks($15) = $25
-            expected_cents = PRICE_PROJECT_BASE + 3 * PRICE_PER_TASK
-            assert expected_cents == 2500
-
-            with _api_client(uid) as c:
-                resp = c.post(f"/api/projects/{name}/ralph/checkout")
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data.get("redirect") is not None
-            assert "checkout.stripe.com" in data["redirect"]
-        finally:
-            _delete_project(uid, name)
-
-    def test_three_tasks_base_already_paid(self, admin_user):
-        """3 tasks, base paid -> 3x$5 = $15."""
-        uid = admin_user["id"]
-        username = admin_user["github_username"]
-        name = _unique_name("price-3tb")
-        try:
-            _create_project(uid, name)
-            for i in range(3):
-                _create_task_file(username, name, f"task-{i}", f"Task {i}")
-
-            # Mark base fee as paid via DB (simulating prior payment)
-            import asyncio
-
-            import aiosqlite
-
-            from app.database import DATABASE_PATH
-
-            async def _mark_base_paid():
-                async with aiosqlite.connect(DATABASE_PATH) as db:
-                    await db.execute(
-                        "UPDATE projects SET base_fee_paid = 1 "
-                        "WHERE user_id = ? AND name = ?",
-                        (uid, name),
-                    )
-                    await db.commit()
-
-            asyncio.run(_mark_base_paid())
-
-            with _api_client(uid) as c:
-                resp = c.get(f"/api/projects/{name}/ralph/payment-status")
-            assert resp.status_code == 200
-            data = resp.json()
-            assert data["total_tasks"] == 3
-            assert data["unpaid"] == 3
-            assert data["base_paid"] is True
-
-            # Expected: 3 tasks only = $15
+            # Expected: 3 tasks x $4 = $12
             expected_cents = 3 * PRICE_PER_TASK
-            assert expected_cents == 1500
+            assert expected_cents == 1200
 
             with _api_client(uid) as c:
                 resp = c.post(f"/api/projects/{name}/ralph/checkout")
             assert resp.status_code == 200
             data = resp.json()
             assert data.get("redirect") is not None
+            assert "checkout.stripe.com" in data["redirect"]
         finally:
             _delete_project(uid, name)
 
-    def test_three_tasks_two_already_paid(self, admin_user):
-        """3 tasks, 2 already paid, base paid -> 1x$5 = $5."""
-        uid = admin_user["id"]
-        username = admin_user["github_username"]
+    def test_three_tasks_two_paid(self, beta_user):
+        """3 tasks, 2 already paid -> 1x$4 = $4."""
+        uid = beta_user["id"]
+        username = beta_user["github_username"]
         name = _unique_name("price-3t2p")
         try:
             _create_project(uid, name)
             for i in range(3):
                 _create_task_file(username, name, f"task-{i}", f"Task {i}")
 
-            # Mark base paid + 2 tasks paid
+            # Mark 2 tasks paid
             import asyncio
 
             import aiosqlite
@@ -283,7 +229,7 @@ class TestPricingCalculation:
             async def _mark_partial_paid():
                 async with aiosqlite.connect(DATABASE_PATH) as db:
                     await db.execute(
-                        "UPDATE projects SET base_fee_paid = 1, paid_task_count = 2 "
+                        "UPDATE projects SET paid_task_count = 2 "
                         "WHERE user_id = ? AND name = ?",
                         (uid, name),
                     )
@@ -298,11 +244,10 @@ class TestPricingCalculation:
             assert data["total_tasks"] == 3
             assert data["paid_task_count"] == 2
             assert data["unpaid"] == 1
-            assert data["base_paid"] is True
 
-            # Expected: 1 unpaid task = $5
+            # Expected: 1 unpaid task = $4
             expected_cents = 1 * PRICE_PER_TASK
-            assert expected_cents == 500
+            assert expected_cents == 400
 
             with _api_client(uid) as c:
                 resp = c.post(f"/api/projects/{name}/ralph/checkout")
@@ -312,17 +257,17 @@ class TestPricingCalculation:
         finally:
             _delete_project(uid, name)
 
-    def test_all_paid_starts_directly(self, admin_user):
-        """All tasks paid + base paid -> starts Ralph (no checkout redirect)."""
-        uid = admin_user["id"]
-        username = admin_user["github_username"]
+    def test_all_paid_starts_directly(self, beta_user):
+        """All tasks paid -> starts Ralph (no checkout redirect)."""
+        uid = beta_user["id"]
+        username = beta_user["github_username"]
         name = _unique_name("price-allpd")
         try:
             _create_project(uid, name)
             for i in range(2):
                 _create_task_file(username, name, f"task-{i}", f"Task {i}")
 
-            # Mark everything paid
+            # Mark all tasks paid
             import asyncio
 
             import aiosqlite
@@ -332,7 +277,7 @@ class TestPricingCalculation:
             async def _mark_all_paid():
                 async with aiosqlite.connect(DATABASE_PATH) as db:
                     await db.execute(
-                        "UPDATE projects SET base_fee_paid = 1, paid_task_count = 2 "
+                        "UPDATE projects SET paid_task_count = 2 "
                         "WHERE user_id = ? AND name = ?",
                         (uid, name),
                     )
@@ -379,10 +324,10 @@ class TestPricingCalculation:
         finally:
             _delete_project(uid, name)
 
-    def test_done_tasks_excluded_from_pricing(self, admin_user):
+    def test_done_tasks_excluded_from_pricing(self, beta_user):
         """Done tasks don't count in pricing — only draft/todo/doing count."""
-        uid = admin_user["id"]
-        username = admin_user["github_username"]
+        uid = beta_user["id"]
+        username = beta_user["github_username"]
         name = _unique_name("price-done")
         try:
             _create_project(uid, name)

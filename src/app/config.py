@@ -70,7 +70,6 @@ if not STRIPE_SECRET_KEY:
     )
 
 # Pricing (in cents)
-PRICE_PROJECT_BASE = 1000  # $10 one-time base fee per project
-PRICE_PER_TASK = 500  # $5 per task
+PRICE_PER_TASK = 400  # $4 per task
 MAX_FREE_PROJECTS = 3  # free projects before subscription required
-PRICE_PRO_MONTHLY = 2000  # $20/mo for unlimited projects
+PRICE_PRO_MONTHLY = 2000  # $20/mo for unlimited projects + VPS

@@ -17,7 +17,6 @@ from app.config import (
     MAX_FREE_PROJECTS,
     PRICE_PER_TASK,
     PRICE_PRO_MONTHLY,
-    PRICE_PROJECT_BASE,
     STRIPE_SECRET_KEY,
 )
 from app.database import get_db
@@ -46,8 +45,7 @@ async def _get_project(name: str, user: dict) -> dict:
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT id, name, ralph_loop_status, ralph_loop_current_issue, "
-            "ralph_loop_iteration, stripe_payment_id, paid_task_count, "
-            "base_fee_paid "
+            "ralph_loop_iteration, stripe_payment_id, paid_task_count "
             "FROM projects WHERE user_id = ? AND name = ?",
             (user["id"], name),
         )
@@ -113,22 +111,19 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
     free = is_free_user(user)
     total_tasks = _count_non_done_tasks(project_dir)
     paid_task_count = project.get("paid_task_count", 0)
-    base_fee_paid = bool(project.get("base_fee_paid", 0))
     unpaid = total_tasks - paid_task_count
 
     # Nothing new to pay: start directly
-    if not free and unpaid <= 0 and base_fee_paid:
+    if not free and unpaid <= 0:
         budget = _calc_budget(project_dir, paid_task_count, free=False)
         await _start_ralph_loop(name, project, user, budget=budget)
         return {"free": False, "redirect": None}
 
-    if total_tasks == 0 and base_fee_paid:
+    if total_tasks == 0:
         raise HTTPException(status_code=400, detail="No tasks found")
 
-    # Pricing: base (one-time) + per-task fee
-    base_amount = 0 if base_fee_paid else PRICE_PROJECT_BASE
-    task_amount = max(unpaid, 0) * PRICE_PER_TASK
-    unit_amount = base_amount + task_amount
+    # Pricing: per-task fee only (no base fee)
+    unit_amount = max(unpaid, 0) * PRICE_PER_TASK
 
     if unit_amount <= 0:
         # Everything already paid, just start
@@ -137,12 +132,7 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
         return {"free": False, "redirect": None}
 
     # Build description
-    parts = []
-    if not base_fee_paid:
-        parts.append(f"Project base (${PRICE_PROJECT_BASE // 100})")
-    if unpaid > 0:
-        parts.append(f"{unpaid} tasks \u00d7 ${PRICE_PER_TASK // 100}")
-    description = " + ".join(parts)
+    description = f"{unpaid} tasks \u00d7 ${PRICE_PER_TASK // 100}"
 
     # Apply 100% coupon for free users
     discounts = []
@@ -183,7 +173,6 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
             "user_id": str(user["id"]),
             "project_name": name,
             "unpaid_count": str(max(unpaid, 0)),
-            "includes_base_fee": "1" if not base_fee_paid else "0",
         },
     )
 
@@ -208,26 +197,16 @@ async def ralph_payment_callback(
     if session.client_reference_id != str(project["id"]):
         raise HTTPException(status_code=400, detail="Session does not match project")
 
-    # Get the unpaid count that was stored in checkout metadata
+    # Get the unpaid count from the checkout session metadata
     metadata = session.metadata or {}
     unpaid_count = int(metadata.get("unpaid_count", "0"))
-    includes_base_fee = metadata.get("includes_base_fee", "0") == "1"
 
-    # Update payment ID, increment paid_task_count, and mark base fee paid
     async with get_db() as db:
-        if includes_base_fee:
-            await db.execute(
-                "UPDATE projects SET stripe_payment_id = ?, "
-                "paid_task_count = paid_task_count + ?, "
-                "base_fee_paid = 1 WHERE id = ?",
-                (session_id, unpaid_count, project["id"]),
-            )
-        else:
-            await db.execute(
-                "UPDATE projects SET stripe_payment_id = ?, "
-                "paid_task_count = paid_task_count + ? WHERE id = ?",
-                (session_id, unpaid_count, project["id"]),
-            )
+        await db.execute(
+            "UPDATE projects SET stripe_payment_id = ?, "
+            "paid_task_count = paid_task_count + ? WHERE id = ?",
+            (session_id, unpaid_count, project["id"]),
+        )
         await db.commit()
 
     # Re-read updated paid_task_count
@@ -431,7 +410,6 @@ async def ralph_payment_status(name: str, user: dict = Depends(get_current_user)
 
     free = is_free_user(user)
     paid_task_count = project.get("paid_task_count", 0)
-    base_paid = bool(project.get("base_fee_paid", 0))
     total_tasks = _count_non_done_tasks(project_dir)
     unpaid = max(total_tasks - paid_task_count, 0)
 
@@ -439,7 +417,6 @@ async def ralph_payment_status(name: str, user: dict = Depends(get_current_user)
         "paid_task_count": paid_task_count,
         "total_tasks": total_tasks,
         "unpaid": unpaid,
-        "base_paid": base_paid,
         "free_user": free,
     }
 
@@ -487,7 +464,6 @@ pricing_router = APIRouter(tags=["pricing"])
 async def get_pricing():
     """Return pricing config as JSON (values in dollars)."""
     return {
-        "project_base": PRICE_PROJECT_BASE // 100,
         "per_task": PRICE_PER_TASK // 100,
         "max_free_projects": MAX_FREE_PROJECTS,
         "pro_monthly": PRICE_PRO_MONTHLY // 100,

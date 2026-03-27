@@ -908,6 +908,97 @@
         opacity: 0.85;
     }
 
+    /* ── Subscription dialog ── */
+    .sub-dialog-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.7);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 2000;
+    }
+    .sub-dialog-overlay.visible {
+        display: flex;
+    }
+    .sub-dialog {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.5rem;
+        max-width: 420px;
+        width: 90%;
+        text-align: center;
+    }
+    .sub-dialog h3 {
+        margin: 0 0 0.75rem 0;
+        font-size: 1.3rem;
+        color: var(--text-bright);
+    }
+    .sub-dialog p {
+        margin: 0 0 1rem 0;
+        color: var(--text-muted);
+        line-height: 1.5;
+    }
+    .sub-dialog .sub-price {
+        font-size: 2rem;
+        font-weight: 700;
+        color: #e8a820;
+        margin: 0.5rem 0;
+    }
+    .sub-dialog .sub-features {
+        text-align: left;
+        margin: 1rem 0;
+        padding: 0;
+        list-style: none;
+    }
+    .sub-dialog .sub-features li {
+        padding: 0.4rem 0;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+    .sub-dialog .sub-features li::before {
+        content: '✓';
+        color: #22c55e;
+        font-weight: 700;
+    }
+    .sub-dialog .sub-actions {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+        margin-top: 1rem;
+    }
+    .sub-dialog .btn-subscribe {
+        background: #e8a820;
+        color: #1a1a1a;
+        border: none;
+        padding: 0.7rem 1.5rem;
+        border-radius: 6px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: opacity 0.2s;
+    }
+    .sub-dialog .btn-subscribe:hover {
+        opacity: 0.9;
+    }
+    .sub-dialog .btn-per-task {
+        background: transparent;
+        color: var(--text-muted);
+        border: 1px solid var(--border);
+        padding: 0.6rem 1.5rem;
+        border-radius: 6px;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .sub-dialog .btn-per-task:hover {
+        color: var(--text-bright);
+        border-color: var(--border-focus);
+    }
+
     /* Scrollbar styling */
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -1001,6 +1092,24 @@
     <button class="toast-dismiss" title="Dismiss">&times;</button>
 </div>
 
+<!-- Subscription dialog (shown on first JRI click) -->
+<div id="sub-dialog-overlay" class="sub-dialog-overlay">
+    <div class="sub-dialog">
+        <h3>Unlock Unlimited Projects</h3>
+        <p>Get a dedicated VPS for all your projects with the Pro plan.</p>
+        <div class="sub-price">$20<span style="font-size:1rem;font-weight:400;color:var(--text-dim)">/mo</span></div>
+        <ul class="sub-features">
+            <li>1 VPS for all your projects</li>
+            <li>Create unlimited projects</li>
+            <li>Priority support</li>
+        </ul>
+        <div class="sub-actions">
+            <button id="btn-subscribe-dialog" class="btn-subscribe">Subscribe Now</button>
+            <button id="btn-per-task" class="btn-per-task">Continue with pay-per-task ($4/task)</button>
+        </div>
+    </div>
+</div>
+
 <script>
 (function() {
     /* ══════════════════════════════════════════════
@@ -1012,6 +1121,7 @@
     var PROJECT_RALPH_STATUS = {{ (project.ralph_loop_status or 'idle') | tojson }};
     var PROJECT_HAS_PAYMENT = {{ (project.stripe_payment_id or '') | tojson }} !== '';
     var STORAGE_KEY = 'jri-chat-' + PROJECT_NAME;
+    var HAS_SEEN_SUB_DIALOG_KEY = 'jri-seen-sub-dialog';
     var API = '/api/projects/' + encodeURIComponent(PROJECT_NAME);
     var ralphyProcessing = false;
     var currentNotifications = [];
@@ -1710,6 +1820,82 @@
         refreshProject();
     }
 
+    // Subscription dialog elements
+    var subDialogOverlay = document.getElementById('sub-dialog-overlay');
+    var btnSubscribeDialog = document.getElementById('btn-subscribe-dialog');
+    var btnPerTask = document.getElementById('btn-per-task');
+    var pendingJriCallback = null;
+
+    function showSubDialog(callback) {
+        pendingJriCallback = callback;
+        subDialogOverlay.classList.add('visible');
+    }
+
+    function hideSubDialog() {
+        subDialogOverlay.classList.remove('visible');
+        pendingJriCallback = null;
+    }
+
+    function markSeenSubDialog() {
+        try { localStorage.setItem(HAS_SEEN_SUB_DIALOG_KEY, 'true'); } catch(e) {}
+    }
+
+    function hasSeenSubDialog() {
+        try { return localStorage.getItem(HAS_SEEN_SUB_DIALOG_KEY) === 'true'; } catch(e) { return false; }
+    }
+
+    btnSubscribeDialog.addEventListener('click', function() {
+        markSeenSubDialog();
+        hideSubDialog();
+        // TODO: Implement subscription checkout when ready
+        // For now, just show a message
+        showToast('Subscription coming soon! Proceeding with per-task pricing.', 5000);
+        if (pendingJriCallback) {
+            pendingJriCallback();
+            pendingJriCallback = null;
+        }
+    });
+
+    btnPerTask.addEventListener('click', function() {
+        markSeenSubDialog();
+        hideSubDialog();
+        if (pendingJriCallback) {
+            pendingJriCallback();
+            pendingJriCallback = null;
+        }
+    });
+
+    subDialogOverlay.addEventListener('click', function(e) {
+        if (e.target === subDialogOverlay) {
+            hideSubDialog();
+        }
+    });
+
+    function startRalphCheckout(jriBtn) {
+        jriBtn.disabled = true;
+        jriBtn.textContent = 'Starting...';
+        fetch(API + '/ralph/checkout', { method: 'POST' })
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                if (data.free) {
+                    localStorage.removeItem(STORAGE_KEY + '-jri');
+                    jriBtn.textContent = 'Ralph is building...';
+                    jriBtn.style.cursor = 'not-allowed';
+                    jriBtn.style.background = 'var(--border-light)';
+                    jriBtn.style.color = 'var(--text-dim)';
+                    refreshProject();
+                    activateTab('ralph');
+                    history.replaceState(null, '', '#ralph');
+                } else if (data.redirect) {
+                    window.location.href = data.redirect;
+                }
+            })
+            .catch(function() {
+                jriBtn.disabled = false;
+                jriBtn.textContent = 'Just Ralph It';
+            });
+    }
+
     function showJriButton() {
         if (document.querySelector('.jri-msg')) return;
         // Insert JRI button inline in the chat area, after Ralphy's message
@@ -1723,18 +1909,17 @@
             jriBtn.textContent = 'Ralph is building...';
             jriBtn.disabled = true;
         } else if (status === 'payment_required' && currentUnpaidCount > 0 && !(paymentStatusCache && paymentStatusCache.free_user)) {
-            var perTask = pricingCache ? pricingCache.per_task : 5;
+            var perTask = pricingCache ? pricingCache.per_task : 4;
             var payAmount = currentUnpaidCount * perTask;
             jriBtn.textContent = 'Pay for ' + currentUnpaidCount + ' ' + (currentUnpaidCount === 1 ? 'task' : 'tasks') + ' \u2014 $' + payAmount;
         } else {
-            // Show pricing from config
-            var baseFee = pricingCache ? pricingCache.project_base : 10;
-            var perTask = pricingCache ? pricingCache.per_task : 5;
+            // Show pricing from config (per-task only, no base fee)
+            var perTask = pricingCache ? pricingCache.per_task : 4;
             var taskCount = 0;
             if (tasksData && tasksData.length) {
                 tasksData.forEach(function(t) { if (t.status !== 'done') taskCount++; });
             }
-            var total = baseFee + (taskCount * perTask);
+            var total = taskCount * perTask;
             var isFree = paymentStatusCache && paymentStatusCache.free_user;
             if (isFree) {
                 jriBtn.textContent = 'Just Ralph It (Free)';
@@ -1744,28 +1929,18 @@
         }
 
         jriBtn.addEventListener('click', function() {
-            jriBtn.disabled = true;
-            jriBtn.textContent = 'Starting...';
-            fetch(API + '/ralph/checkout', { method: 'POST' })
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                    if (data.free) {
-                        localStorage.removeItem(STORAGE_KEY + '-jri');
-                        jriBtn.textContent = 'Ralph is building...';
-                        jriBtn.style.cursor = 'not-allowed';
-                        jriBtn.style.background = 'var(--border-light)';
-                        jriBtn.style.color = 'var(--text-dim)';
-                        refreshProject();
-                        activateTab('ralph');
-                        history.replaceState(null, '', '#ralph');
-                    } else if (data.redirect) {
-                        window.location.href = data.redirect;
-                    }
-                })
-                .catch(function() {
-                    jriBtn.disabled = false;
-                    jriBtn.textContent = 'Just Ralph It';
+            // Show subscription dialog on first click (unless user is free or already paid)
+            var isFree = paymentStatusCache && paymentStatusCache.free_user;
+            var alreadyPaid = PROJECT_HAS_PAYMENT || (paymentStatusCache && paymentStatusCache.paid_task_count > 0);
+            
+            if (!isFree && !alreadyPaid && !hasSeenSubDialog()) {
+                showSubDialog(function() {
+                    startRalphCheckout(jriBtn);
                 });
+                return;
+            }
+            
+            startRalphCheckout(jriBtn);
         });
         wrapper.appendChild(jriBtn);
         chatMessages.appendChild(wrapper);
@@ -1985,11 +2160,10 @@
             pricingEl.className = 'pricing-summary';
 
             if (activeTasks > 0) {
-                // Active tasks: show full breakdown
-                var baseFee = pricingCache ? pricingCache.project_base : 10;
-                var perTask = pricingCache ? pricingCache.per_task : 5;
+                // Active tasks: show per-task pricing
+                var perTask = pricingCache ? pricingCache.per_task : 4;
                 var taskTotal = activeTasks * perTask;
-                var baseText = '$' + baseFee + ' base + ' + activeTasks + (activeTasks === 1 ? ' task' : ' tasks') + ' × $' + perTask + '/task = $' + (baseFee + taskTotal);
+                var baseText = activeTasks + (activeTasks === 1 ? ' task' : ' tasks') + ' × $' + perTask + '/task = $' + taskTotal;
                 pricingEl.textContent = baseText;
                 container.appendChild(pricingEl);
 
@@ -2001,32 +2175,24 @@
                     }
                     var paid = Math.min(ps.paid_task_count, activeTasks);
                     var unpaid = activeTasks - paid;
-                    var basePaid = ps.base_paid;
-                    var allPaid = unpaid === 0 && basePaid;
+                    var allPaid = unpaid === 0;
                     if (allPaid) {
                         pricingEl.innerHTML = baseText + ' <span class="pricing-paid">✓ Paid</span>';
                     } else {
                         var parts = [];
-                        if (basePaid) {
-                            parts.push('<span class="pricing-paid">base ✓</span>');
-                        } else {
-                            parts.push('<span class="pricing-unpaid">base unpaid</span>');
+                        if (paid > 0) {
+                            parts.push('<span class="pricing-paid">' + paid + ' paid</span>');
                         }
-                        if (unpaid === 0) {
-                            parts.push('<span class="pricing-paid">tasks ✓</span>');
-                        } else if (paid === 0) {
-                            parts.push('<span class="pricing-unpaid">' + activeTasks + ' unpaid</span>');
-                        } else {
-                            parts.push('<span class="pricing-paid">' + paid + ' paid</span>, <span class="pricing-unpaid">' + unpaid + ' unpaid</span>');
+                        if (unpaid > 0) {
+                            parts.push('<span class="pricing-unpaid">' + unpaid + ' unpaid</span>');
                         }
                         pricingEl.innerHTML = baseText + ' (' + parts.join(', ') + ')';
                     }
                 };
             } else {
                 // All tasks done: show completed summary
-                var baseFee = pricingCache ? pricingCache.project_base : 10;
-                var perTask = pricingCache ? pricingCache.per_task : 5;
-                var totalPaid = doneTasks * perTask + baseFee;
+                var perTask = pricingCache ? pricingCache.per_task : 4;
+                var totalPaid = doneTasks * perTask;
                 pricingEl.innerHTML = doneTasks + (doneTasks === 1 ? ' task' : ' tasks') + ' completed · <span class="pricing-paid">$' + totalPaid + ' paid</span>';
                 container.appendChild(pricingEl);
 
@@ -2163,7 +2329,7 @@
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 if (data.exists && data.content) {
-                    readmeBody.innerHTML = renderMarkdown(data.content);
+                    readmeBody.innerHTML = renderMarkdown(data.content, true);
                     readmeBody.className = 'readme-content';
                 } else {
                     readmeBody.innerHTML = '<p class="readme-placeholder">README.md will appear here as Ralphy defines the project structure.</p>';
@@ -2571,7 +2737,7 @@
     function showPaymentBanner(unpaidCount) {
         if (paymentStatusCache && paymentStatusCache.free_user) return;
         currentUnpaidCount = unpaidCount;
-        var perTask = pricingCache ? pricingCache.per_task : 5;
+        var perTask = pricingCache ? pricingCache.per_task : 4;
         var cost = unpaidCount * perTask;
         ralphBannerText.textContent = unpaidCount + ' new unpaid ' + (unpaidCount === 1 ? 'task' : 'tasks') + '. Pay $' + cost + ' to continue.';
         btnBannerPay.textContent = 'Pay $' + cost;
@@ -2598,7 +2764,7 @@
             })
             .catch(function() {
                 btnBannerPay.disabled = false;
-                var perTask = pricingCache ? pricingCache.per_task : 5;
+                var perTask = pricingCache ? pricingCache.per_task : 4;
                 btnBannerPay.textContent = 'Pay $' + (currentUnpaidCount * perTask);
             });
     });
@@ -2631,7 +2797,7 @@
                 if (paymentStatusCache && paymentStatusCache.free_user) {
                     jriBtn.textContent = 'Just Ralph It (Free)';
                 } else {
-                    var perTask = pricingCache ? pricingCache.per_task : 5;
+                    var perTask = pricingCache ? pricingCache.per_task : 4;
                     jriBtn.textContent = 'Pay for ' + unpaidCount + ' ' + (unpaidCount === 1 ? 'task' : 'tasks') + ' \u2014 $' + (unpaidCount * perTask);
                 }
                 jriBtn.disabled = false;
@@ -2795,13 +2961,9 @@
        INIT
        ══════════════════════════════════════════════ */
     function init() {
-        // Clear stale localStorage if this is a fresh project (no session yet)
-        if (!PROJECT_HAS_SESSION) {
-            localStorage.removeItem('jri-chat-' + PROJECT_NAME);
-            localStorage.removeItem(STORAGE_KEY + '-jri');
-        }
-
-        // 1. Restore chat history from localStorage, or fetch from server if empty
+        // 1. Restore chat history from localStorage while server history loads.
+        // The server remains authoritative, but we do not clear local state until
+        // the server explicitly confirms there is no saved chat for this project.
         var history = loadChatHistory();
 
         function renderHistory(msgs) {
@@ -2831,104 +2993,140 @@
             scrollChat();
         }
 
+        function clearRenderedChat() {
+            chatMessages.querySelectorAll('.chat-msg').forEach(function(el) { el.remove(); });
+        }
+
+        function renderPendingMessage(pending) {
+            if (!pending) return;
+            var restoredParts = [];
+            // For restored messages, show either initialText OR finalText, not both (same logic as live stream)
+            if (pending.thinkingText || (pending.thinkingSteps && pending.thinkingSteps.length > 0)) {
+                restoredParts.push('<div class="thinking-content"><details class="thinking"><summary>' +
+                    (pending.thinkingComplete ? 'Finished thinking' : 'Ralphy is thinking...') +
+                    '</summary>');
+                if (pending.thinkingText) {
+                    restoredParts.push('<div>' + escapeHtmlWithNewlines(pending.thinkingText) + '</div>');
+                }
+                if (pending.thinkingSteps && pending.thinkingSteps.length > 0) {
+                    pending.thinkingSteps.forEach(function(step) {
+                        restoredParts.push('<div>Tool: ' + escapeHtml(step) + '</div>');
+                    });
+                }
+                restoredParts.push('</details></div>');
+                // Show initialText before thinking, finalText after (if thinking completed)
+                if (pending.initialText) {
+                    restoredParts.push('<div class="message-text">' + renderMarkdown(pending.initialText) + '</div>');
+                }
+                if (pending.finalText && pending.thinkingComplete) {
+                    restoredParts.push('<div class="message-text">' + renderMarkdown(pending.finalText) + '</div>');
+                }
+            } else {
+                // No thinking: show only the final result (avoid duplication)
+                var displayText = pending.finalText || pending.initialText;
+                if (displayText) {
+                    restoredParts.push('<div class="message-text">' + renderMarkdown(displayText) + '</div>');
+                }
+            }
+            if (restoredParts.length > 0) {
+                addChatMessage('assistant', restoredParts.join(''));
+            }
+        }
+
+        function pendingMatchesServer(serverMessages, pending) {
+            if (!pending || !serverMessages || serverMessages.length === 0) return false;
+            var pendingText = pending.finalText || pending.initialText || '';
+            if (!pendingText) return false;
+            var prefix = pendingText.substring(0, 100);
+            if (!prefix) return false;
+            return serverMessages.some(function(msg) {
+                return msg
+                    && msg.role === 'assistant'
+                    && msg.content
+                    && msg.content.indexOf(prefix) === 0;
+            });
+        }
+
         if (history.length > 0) {
             renderHistory(history);
         }
 
-        if (PROJECT_HAS_SESSION) {
-            // Always sync with server — localStorage may be stale or empty
-            fetch(API + '/chat/history')
-                .then(function(r) { return r.json(); })
-                .then(function(data) {
-                    if (!data.messages || data.messages.length === 0) return;
-                    // Server is source of truth — only re-render if server has more messages
-                    var serverCount = data.messages.length;
-                    var localCount = history.length;
-                    // Only replace if server has MORE or EQUAL messages (server is authoritative)
-                    // Never clear local messages if server has fewer (could be timing issue)
-                    if (serverCount >= localCount && serverCount > 0) {
-                        // Only clear and re-render if content actually differs
-                        var serverContent = JSON.stringify(data.messages);
-                        var localContent = JSON.stringify(history);
-                        if (serverContent !== localContent) {
-                            chatMessages.querySelectorAll('.chat-msg').forEach(function(el) { el.remove(); });
-                            renderHistory(data.messages);
-                            saveChatHistory(data.messages);
-                        }
-                        // Server has confirmed the message history - safe to clear any pending state
-                        // Only clear if the server has the same or more messages than we had locally
-                        // AND the pending content appears to be reflected in the server history
-                        if (pendingToClear && serverCount >= localCount) {
-                            try {
-                                var pendingObj = JSON.parse(pendingToClear);
-                                var lastServerMsg = data.messages[data.messages.length - 1];
-                                // Check if last server message matches what we were restoring
-                                // (either as assistant with matching content, or pending was for a new message)
-                                if (lastServerMsg && lastServerMsg.role === 'assistant') {
-                                    var pendingText = pendingObj.finalText || pendingObj.initialText || '';
-                                    // If pending content is a prefix of or matches server content, it's confirmed
-                                    if (pendingText && lastServerMsg.content && lastServerMsg.content.startsWith(pendingText.substring(0, 100))) {
-                                        localStorage.removeItem(STORAGE_KEY + '-pending');
-                                    }
-                                } else {
-                                    // No assistant message yet, or pending was for a new conversation
-                                    // Safe to clear as server history is authoritative
-                                    localStorage.removeItem(STORAGE_KEY + '-pending');
-                                }
-                            } catch(e) {
-                                // If we can't parse pending, clear it safely
-                                localStorage.removeItem(STORAGE_KEY + '-pending');
-                            }
-                            pendingToClear = null;
-                        }
-                    }
-                })
-                .catch(function() {});
-        }
-
         // 1b. Restore pending message from interrupted stream (but don't remove yet - wait for server confirmation)
         var pendingRaw = localStorage.getItem(STORAGE_KEY + '-pending');
+        var pending = null;
         if (pendingRaw) {
             try {
-                var pending = JSON.parse(pendingRaw);
-                var restoredParts = [];
-                // For restored messages, show either initialText OR finalText, not both (same logic as live stream)
-                if (pending.thinkingText || (pending.thinkingSteps && pending.thinkingSteps.length > 0)) {
-                    restoredParts.push('<div class="thinking-content"><details class="thinking"><summary>' +
-                        (pending.thinkingComplete ? 'Finished thinking' : 'Ralphy is thinking...') +
-                        '</summary>');
-                    if (pending.thinkingText) {
-                        restoredParts.push('<div>' + escapeHtmlWithNewlines(pending.thinkingText) + '</div>');
-                    }
-                    if (pending.thinkingSteps && pending.thinkingSteps.length > 0) {
-                        pending.thinkingSteps.forEach(function(step) {
-                            restoredParts.push('<div>Tool: ' + escapeHtml(step) + '</div>');
-                        });
-                    }
-                    restoredParts.push('</details></div>');
-                    // Show initialText before thinking, finalText after (if thinking completed)
-                    if (pending.initialText) {
-                        restoredParts.push('<div class="message-text">' + renderMarkdown(pending.initialText) + '</div>');
-                    }
-                    if (pending.finalText && pending.thinkingComplete) {
-                        restoredParts.push('<div class="message-text">' + renderMarkdown(pending.finalText) + '</div>');
-                    }
+                pending = JSON.parse(pendingRaw);
+                if (pendingMatchesServer(history, pending)) {
+                    localStorage.removeItem(STORAGE_KEY + '-pending');
+                    pendingRaw = null;
+                    pending = null;
                 } else {
-                    // No thinking: show only the final result (avoid duplication)
-                    var displayText = pending.finalText || pending.initialText;
-                    if (displayText) {
-                        restoredParts.push('<div class="message-text">' + renderMarkdown(displayText) + '</div>');
-                    }
-                }
-                if (restoredParts.length > 0) {
-                    addChatMessage('assistant', restoredParts.join(''));
+                    renderPendingMessage(pending);
                 }
                 // Don't remove pending yet - it will be cleared after server history confirms the message
-            } catch(e) {}
+            } catch(e) {
+                localStorage.removeItem(STORAGE_KEY + '-pending');
+                pendingRaw = null;
+            }
         }
 
         // Store reference to pending for later cleanup after server history confirms
         var pendingToClear = pendingRaw;
+        var shouldAutoSendDescription = false;
+
+        // Always sync with server — persisted chat must survive refresh even if the
+        // page was rendered with stale session metadata.
+        fetch(API + '/chat/history')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                var serverMessages = Array.isArray(data.messages) ? data.messages : [];
+
+                if (serverMessages.length > 0) {
+                    var serverContent = JSON.stringify(serverMessages);
+                    var localContent = JSON.stringify(history);
+                    if (serverContent !== localContent) {
+                        clearRenderedChat();
+                        renderHistory(serverMessages);
+                        if (pendingToClear && pending && !pendingMatchesServer(serverMessages, pending)) {
+                            renderPendingMessage(pending);
+                        }
+                    }
+                    saveChatHistory(serverMessages);
+                    history = serverMessages;
+
+                    if (pendingToClear && pending && pendingMatchesServer(serverMessages, pending)) {
+                        localStorage.removeItem(STORAGE_KEY + '-pending');
+                        pendingToClear = null;
+                    }
+                    return;
+                }
+
+                // Brand-new projects may reuse a previous localStorage key after a delete/recreate.
+                // Only clear optimistic local history after the server explicitly says there is none.
+                if (history.length > 0 || pendingToClear) {
+                    history = [];
+                    saveChatHistory([]);
+                    clearRenderedChat();
+                }
+
+                if (pendingToClear) {
+                    localStorage.removeItem(STORAGE_KEY + '-pending');
+                    pendingToClear = null;
+                    pending = null;
+                }
+
+                if (!PROJECT_HAS_SESSION && PROJECT_DESCRIPTION) {
+                    shouldAutoSendDescription = true;
+                }
+            })
+            .catch(function() {})
+            .finally(function() {
+                // 2. Auto-send description if first visit and the project truly has no saved chat.
+                if (shouldAutoSendDescription) {
+                    sendProgrammatic(PROJECT_DESCRIPTION);
+                }
+            });
 
         // 1c. Restore JRI button if flag was set (by task promotion to todo detection)
         if (localStorage.getItem(STORAGE_KEY + '-jri') === 'true') {
@@ -2968,11 +3166,6 @@
                 // Clean up URL
                 history.replaceState(null, '', window.location.pathname + '?tab=ralph');
             }
-        }
-
-        // 2. Auto-send description if first visit (no history and no existing session)
-        if (history.length === 0 && !PROJECT_HAS_SESSION && PROJECT_DESCRIPTION) {
-            sendProgrammatic(PROJECT_DESCRIPTION);
         }
 
         // 3. Fetch project data
