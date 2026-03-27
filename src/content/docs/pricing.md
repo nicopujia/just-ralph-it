@@ -1,31 +1,37 @@
 ---
 title: Pricing
-description: Pricing plans and payment information for Just Ralph It
+description: Simple, transparent pricing for Just Ralph It
 nav_label: Pricing
-order: 4
+order: 5
 ---
 
 # Pricing
 
-## Free Tier
+Just Ralph It offers simple, transparent pricing. No hidden fees.
 
-- **3 free projects**
-- Basic project creation
+## Free Projects
 
-## Pay As You Go
+You can create up to **3 free projects**. This lets you try the platform and see how your project comes together before spending anything.
 
-- **$4 per task** completed
-- No subscription required
+## Pay Per Task
 
-## Pro Plan
+Need more than 3 projects? You can pay **$4 per task** to start Ralph on any project. Each task is a single unit of work that Ralph picks up and implements.
 
-- **$20/month**
-- Unlimited projects
-- 1 VPS for all your projects
+This works well if you have a small project or want to control spending closely.
 
-## Payment
+## Pro Plan: $20/month
 
-We use Stripe for secure payment processing:
+For $20 per month, Pro gives you:
 
-- All major credit cards accepted
-- Automatic billing for subscriptions
+- **Unlimited projects** - no per-project limits
+- **1 VPS for all your projects** - your projects run on their own server
+
+Pro is the best option if you build regularly or need to host your projects without managing infrastructure.
+
+## Choosing a Plan
+
+**Free (3 projects)**: Trying the platform, small side projects
+
+**$4/task**: Infrequent builders, controlling costs
+
+**$20/mo Pro**: Regular builders, teams, project hosting

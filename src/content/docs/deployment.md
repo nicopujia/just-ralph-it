@@ -1,40 +1,30 @@
 ---
 title: Deployment
-description: How projects are deployed and accessed
+description: How your project gets deployed with Just Ralph It
 nav_label: Deployment
-order: 6
+order: 4
 ---
 
 # Deployment
 
-Learn how your projects are deployed and made accessible.
+When your project is ready, Just Ralph It makes it available on the web.
 
-## Automatic Deployment
+## How It Works
 
-When Ralph finishes all issues, your project can be automatically deployed (if configured).
+Once Ralph finishes all the issues for your project, it can be deployed automatically if you have deployment configured. You can also trigger deployment manually through the interface.
 
-## Subdomain Routing
+Your project gets its own URL and runs on a dedicated server.
 
-Each project gets a unique subdomain:
+## GitHub Integration
 
-```
-{project-name}.{username}.justralph.it
-```
+Every project gets a GitHub repository created automatically. Your code lives there, and deployment pulls from the same repo.
 
-Example: `myapp.johndoe.justralph.it`
+## Your Deployed Project
 
-## Manual Deployment
+After deployment, your project is accessible and running. You can share the URL with anyone. The server is managed for you, so you do not need to handle hosting setup or configuration.
 
-You can also trigger deployment manually via the API.
+## Updating Your Project
 
-## Requirements
+When you make changes or add new features, redeploying is straightforward. Ralph picks up new issues, implements them, and your deployed project stays up to date.
 
-Your project must:
-
-- Listen on `127.0.0.1:$PORT` (provided via environment)
-- Have a valid start command configured
-- Not require root privileges
-
-## Logs
-
-Deployment logs are available in your project's `.jri/logs/` directory.
+Deployment is part of the journey from idea to running software.
