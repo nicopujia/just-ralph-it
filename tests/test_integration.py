@@ -21,6 +21,7 @@ from app.auth_utils import create_session_token
 from app.config import DATA_DIR, PRICE_PER_TASK
 
 BASE_URL = "http://localhost:8000"
+_created_projects: set[tuple[int, str]] = set()
 
 # User IDs — must exist in the database with the correct roles.
 # We look them up dynamically in the module-scoped fixture below.
@@ -118,18 +119,33 @@ def _create_project(user_id: int, name: str, desc: str = "integration test") -> 
     with _api_client(user_id) as c:
         resp = c.post("/api/projects", json={"name": name, "description": desc})
         assert resp.status_code == 200, f"Create failed: {resp.status_code} {resp.text}"
+        _created_projects.add((user_id, name))
         return resp.json()
 
 
 def _delete_project(user_id: int, name: str) -> None:
     with _api_client(user_id) as c:
         c.post(f"/api/projects/{name}/ralph/stop")
-        time.sleep(2)
-        resp = c.delete(f"/api/projects/{name}?delete_repo=false")
+        resp = None
+        for _ in range(5):
+            time.sleep(1)
+            resp = c.delete(f"/api/projects/{name}")
+            if resp.status_code != 409:
+                break
+        assert resp is not None
         # 204 = deleted, 404 = already gone
         assert resp.status_code in (204, 404), (
             f"Delete failed: {resp.status_code} {resp.text}"
         )
+    _created_projects.discard((user_id, name))
+
+
+@pytest.fixture(autouse=True)
+def cleanup_projects():
+    yield
+    leftovers = list(_created_projects)
+    for user_id, name in leftovers:
+        _delete_project(user_id, name)
 
 
 def _create_task_file(

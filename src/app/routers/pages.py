@@ -164,7 +164,7 @@ async def project_page(request: Request, name: str):
     if active_tab not in valid_tabs:
         active_tab = "overview"
 
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         "project.html",
         {
             "request": request,
@@ -173,3 +173,5 @@ async def project_page(request: Request, name: str):
             "active_tab": active_tab,
         },
     )
+    response.headers["Cache-Control"] = "no-store"
+    return response

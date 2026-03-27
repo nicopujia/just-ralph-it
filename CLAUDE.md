@@ -5,6 +5,7 @@
 - Commit, push, and restart the service (`sudo systemctl restart jri`) frequently.
 - Run the full test suite (`uv run pytest tests/`) after large changes, otherwise only relevant integration tests.
 - Smoke test after restarting: curl key routes to catch 500s.
+- When tests create projects, always clean them up with GitHub repo deletion enabled. Never leave test repos or temporary projects behind.
 
 ## Documentation
 

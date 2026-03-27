@@ -175,7 +175,30 @@ async def create_project(
 
     project_dir = DATA_DIR / github_username / name
     github_repo_url = f"https://github.com/ralphpujia/{github_username}-{name}"
+    github_repo_name = f"{github_username}-{name}"
     token = RALPH_BOT_GITHUB_TOKEN
+    repo_created = False
+
+    async def _delete_github_repo_if_created() -> None:
+        if not repo_created:
+            return
+        headers = {
+            "Authorization": f"token {token}",
+            "Accept": "application/vnd.github+json",
+        }
+        async with httpx.AsyncClient() as client:
+            resp = await client.delete(
+                f"https://api.github.com/repos/ralphpujia/{github_repo_name}",
+                headers=headers,
+                timeout=30,
+            )
+        if resp.status_code >= 400 and resp.status_code != 404:
+            logger.warning(
+                "Failed to clean up GitHub repo %s after project creation error: %s %s",
+                github_repo_name,
+                resp.status_code,
+                resp.text,
+            )
 
     try:
         # 1. Create project directory
@@ -306,6 +329,7 @@ async def create_project(
                     raise RuntimeError(
                         f"GitHub create repo failed ({resp.status_code}): {resp.text}"
                     )
+                repo_created = True
                 break  # success
 
             # 9. Add user as collaborator (skip for admin and bot account)
@@ -316,7 +340,7 @@ async def create_project(
                 )
                 resp2 = await client.put(
                     f"https://api.github.com/repos/ralphpujia/"
-                    f"{github_username}-{name}/collaborators/"
+                    f"{github_repo_name}/collaborators/"
                     f"{github_username}",
                     headers=headers,
                     json={"permission": "push"},
@@ -336,7 +360,7 @@ async def create_project(
                 "remote",
                 "add",
                 "origin",
-                f"https://x-access-token:{token}@github.com/ralphpujia/{github_username}-{name}.git",
+                f"https://x-access-token:{token}@github.com/ralphpujia/{github_repo_name}.git",
             ],
             cwd=cwd,
         )
@@ -349,34 +373,36 @@ async def create_project(
         if rc != 0:
             raise RuntimeError(f"git push failed: {err}")
 
+        async with get_db() as db:
+            cursor = await db.execute(
+                "INSERT INTO projects"
+                " (user_id, name, description, github_repo_url)"
+                " VALUES (?, ?, ?, ?)",
+                (user_id, name, description, github_repo_url),
+            )
+            project_id = cursor.lastrowid
+            deploy_port = 9000 + project_id
+            deploy_subdomain = f"{name.lower()}.{github_username.lower()}"
+            await db.execute(
+                "UPDATE projects SET deploy_port = ?, deploy_subdomain = ?"
+                " WHERE id = ?",
+                (deploy_port, deploy_subdomain, project_id),
+            )
+            await db.commit()
+
     except HTTPException:
         # Re-raise HTTP exceptions (like 409) after cleanup
         if project_dir.exists():
             shutil.rmtree(project_dir)
+        await _delete_github_repo_if_created()
         raise
     except Exception as exc:
         logger.exception(f"Failed to create project {name}")
         # Clean up on any failure
         if project_dir.exists():
             shutil.rmtree(project_dir)
+        await _delete_github_repo_if_created()
         raise HTTPException(status_code=500, detail=str(exc))
-
-    # 12. Insert into SQLite
-    async with get_db() as db:
-        cursor = await db.execute(
-            "INSERT INTO projects"
-            " (user_id, name, description, github_repo_url)"
-            " VALUES (?, ?, ?, ?)",
-            (user_id, name, description, github_repo_url),
-        )
-        project_id = cursor.lastrowid
-        deploy_port = 9000 + project_id
-        deploy_subdomain = f"{name.lower()}.{github_username.lower()}"
-        await db.execute(
-            "UPDATE projects SET deploy_port = ?, deploy_subdomain = ? WHERE id = ?",
-            (deploy_port, deploy_subdomain, project_id),
-        )
-        await db.commit()
 
     # 13. Return JSON
     return {

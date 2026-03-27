@@ -6,6 +6,7 @@ Covers: landing, auth, projects CRUD, chat, tasks, Stripe checkout, logout.
 """
 
 import os
+import sqlite3
 import sys
 import time
 
@@ -18,10 +19,11 @@ from playwright.sync_api import Page, sync_playwright
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from app.auth_utils import create_session_token
-from app.config import STRIPE_SECRET_KEY
+from app.config import DATA_DIR, STRIPE_SECRET_KEY
 
 BASE_URL = "http://localhost:8000"
 TEST_USER_ID = 1  # nicopujia -- must exist in the database
+_created_projects: set[str] = set()
 
 stripe.api_key = STRIPE_SECRET_KEY
 
@@ -46,19 +48,25 @@ def _create_project(name: str, description: str = "E2E test project") -> dict:
     with _api_client() as c:
         resp = c.post("/api/projects", json={"name": name, "description": description})
         assert resp.status_code == 200, f"Create failed: {resp.status_code} {resp.text}"
+        _created_projects.add(name)
         return resp.json()
 
 
 def _delete_project(name: str) -> None:
     """Delete a project via the API (best-effort cleanup)."""
     with _api_client() as c:
-        # Stop Ralph if running
         c.post(f"/api/projects/{name}/ralph/stop")
-        time.sleep(1)
-        resp = c.delete(f"/api/projects/{name}?delete_repo=false")
+        resp = None
+        for _ in range(5):
+            time.sleep(1)
+            resp = c.delete(f"/api/projects/{name}")
+            if resp.status_code != 409:
+                break
+        assert resp is not None
         assert resp.status_code in (204, 404), (
             f"Delete failed: {resp.status_code} {resp.text}"
         )
+    _created_projects.discard(name)
 
 
 def _unique_name(prefix: str = "e2e") -> str:
@@ -108,6 +116,14 @@ def page(browser):
     yield p
     p.close()
     ctx.close()
+
+
+@pytest.fixture(autouse=True)
+def cleanup_projects():
+    yield
+    leftovers = list(_created_projects)
+    for name in leftovers:
+        _delete_project(name)
 
 
 # ── 1. Landing page ──────────────────────────────────────────────────
@@ -460,8 +476,9 @@ class TestProjectDeletion:
         _create_project(name)
 
         with _api_client() as c:
-            resp = c.delete(f"/api/projects/{name}?delete_repo=false")
+            resp = c.delete(f"/api/projects/{name}")
         assert resp.status_code == 204
+        _created_projects.discard(name)
 
         # Verify it's gone
         with _api_client() as c:
@@ -655,6 +672,132 @@ class TestProjectPage:
                 page.url.endswith(f"/projects/{name}")
                 or f"/projects/{name}" in page.url
             )
+        finally:
+            _delete_project(name)
+
+    def test_refresh_keeps_persisted_chat_visible_without_session_id(self, page: Page):
+        name = _unique_name("e2e-refresh-chat")
+
+        try:
+            _create_project(name)
+
+            with sqlite3.connect(DATA_DIR / "jri.db") as db:
+                row = db.execute(
+                    "SELECT id FROM projects WHERE name = ?",
+                    (name,),
+                ).fetchone()
+                assert row is not None
+                (project_id,) = row
+                db.execute(
+                    "INSERT INTO chat_messages"
+                    " (project_id, role, content) VALUES (?, ?, ?)",
+                    (project_id, "user", "Keep this chat message after refresh."),
+                )
+                db.execute(
+                    "UPDATE projects SET ralph_session_id = NULL WHERE name = ?",
+                    (name,),
+                )
+                db.commit()
+
+            with _api_client() as c:
+                history_resp = c.get(f"/api/projects/{name}/chat/history")
+                assert history_resp.status_code == 200
+                assert any(
+                    msg["role"] == "user"
+                    and "Keep this chat message after refresh." in msg["content"]
+                    for msg in history_resp.json()["messages"]
+                )
+
+            page.goto(f"{BASE_URL}/projects/{name}")
+            page.wait_for_load_state("domcontentloaded")
+            page.locator("#chat-messages").get_by_text(
+                "Keep this chat message after refresh."
+            ).wait_for(state="visible", timeout=15000)
+
+            page.reload(wait_until="domcontentloaded")
+            page.locator("#chat-messages").get_by_text(
+                "Keep this chat message after refresh."
+            ).wait_for(state="visible", timeout=15000)
+        finally:
+            _delete_project(name)
+
+    def test_refresh_does_not_duplicate_stale_pending_assistant(self, page: Page):
+        name = _unique_name("e2e-refresh-pending")
+
+        try:
+            _create_project(name)
+
+            with sqlite3.connect(DATA_DIR / "jri.db") as db:
+                row = db.execute(
+                    "SELECT id FROM projects WHERE name = ?",
+                    (name,),
+                ).fetchone()
+                assert row is not None
+                (project_id,) = row
+                db.execute(
+                    "INSERT INTO chat_messages"
+                    " (project_id, role, content) VALUES (?, ?, ?)",
+                    (project_id, "assistant", "Already persisted assistant reply."),
+                )
+                db.execute(
+                    "UPDATE projects SET ralph_session_id = NULL WHERE name = ?",
+                    (name,),
+                )
+                db.commit()
+
+            page.goto(f"{BASE_URL}/projects/{name}")
+            page.wait_for_load_state("domcontentloaded")
+            page.evaluate(
+                """(payload) => {
+                    localStorage.setItem(payload.key, JSON.stringify(payload.history));
+                    localStorage.setItem(
+                        payload.pendingKey,
+                        JSON.stringify(payload.pending)
+                    );
+                }""",
+                {
+                    "key": f"jri-chat-{name}",
+                    "pendingKey": f"jri-chat-{name}-pending",
+                    "history": [
+                        {
+                            "role": "assistant",
+                            "content": "Already persisted assistant reply.",
+                        }
+                    ],
+                    "pending": {
+                        "initialText": "",
+                        "finalText": "Already persisted assistant reply.",
+                        "thinkingComplete": True,
+                        "thinkingText": "",
+                        "thinkingSteps": [],
+                    },
+                },
+            )
+
+            page.reload(wait_until="domcontentloaded")
+            assistant_reply = page.locator(
+                "#chat-messages .chat-msg.assistant",
+                has_text="Already persisted assistant reply.",
+            )
+            assistant_reply.first.wait_for(state="visible", timeout=15000)
+            assert assistant_reply.count() == 1
+            assert (
+                page.evaluate(f"() => localStorage.getItem('jri-chat-{name}-pending')")
+                is None
+            )
+        finally:
+            _delete_project(name)
+
+    def test_project_page_sets_no_store_cache_header(self):
+        name = _unique_name("e2e-page-cache")
+
+        try:
+            _create_project(name)
+
+            with _api_client() as c:
+                resp = c.get(f"/projects/{name}")
+            assert resp.status_code == 200
+            assert resp.headers.get("cache-control") == "no-store"
         finally:
             _delete_project(name)
 
