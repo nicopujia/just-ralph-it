@@ -187,10 +187,40 @@ async def docs_index(request: Request):
     )
 
 
-@router.get("/docs/overview")
-async def docs_overview(request: Request):
+@router.get("/docs.md")
+async def docs_index_md():
+    """Return all documentation as a single markdown file."""
+    from fastapi.responses import PlainTextResponse
+
+    sorted_pages = sorted(DOCS_PAGES.items(), key=lambda kv: kv[1]["order"])
+    parts = ["# Just Ralph It Documentation\n"]
+    for slug, page in sorted_pages:
+        parts.append(f"## {page['title']}\n\n{page['body']}\n")
+    return PlainTextResponse("\n---\n\n".join(parts), media_type="text/markdown")
+
+
+@router.get("/docs/{slug}.md")
+async def docs_page_md(slug: str):
+    """Return raw markdown for a single doc page."""
+    from fastapi.responses import PlainTextResponse
+
+    page = DOCS_PAGES.get(slug)
+    if not page:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Page not found")
+    md = f"# {page['title']}\n\n{page['body']}"
+    return PlainTextResponse(md, media_type="text/markdown")
+
+
+@router.get("/docs/{slug}")
+async def docs_page(request: Request, slug: str):
+    page = DOCS_PAGES.get(slug)
+    if not page:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=404, detail="Page not found")
     logged_in = await _is_logged_in(request)
-    page = DOCS_PAGES["overview"]
     content = render_doc_page(page["body"])
     return templates.TemplateResponse(
         "docs_page.html",
@@ -198,109 +228,8 @@ async def docs_overview(request: Request):
             "request": request,
             "logged_in": logged_in,
             "page_title": page["title"],
-            "page_slug": "overview",
-            "content": content,
-        },
-    )
-
-
-@router.get("/docs/agents")
-async def docs_agents(request: Request):
-    logged_in = await _is_logged_in(request)
-    page = DOCS_PAGES["agents"]
-    content = render_doc_page(page["body"])
-    return templates.TemplateResponse(
-        "docs_page.html",
-        {
-            "request": request,
-            "logged_in": logged_in,
-            "page_title": page["title"],
-            "page_slug": "agents",
-            "content": content,
-        },
-    )
-
-
-@router.get("/docs/best-practices")
-async def docs_best_practices(request: Request):
-    logged_in = await _is_logged_in(request)
-    page = DOCS_PAGES["best-practices"]
-    content = render_doc_page(page["body"])
-    return templates.TemplateResponse(
-        "docs_page.html",
-        {
-            "request": request,
-            "logged_in": logged_in,
-            "page_title": page["title"],
-            "page_slug": "best-practices",
-            "content": content,
-        },
-    )
-
-
-@router.get("/docs/pricing")
-async def docs_pricing(request: Request):
-    logged_in = await _is_logged_in(request)
-    page = DOCS_PAGES["pricing"]
-    content = render_doc_page(page["body"])
-    return templates.TemplateResponse(
-        "docs_page.html",
-        {
-            "request": request,
-            "logged_in": logged_in,
-            "page_title": page["title"],
-            "page_slug": "pricing",
-            "content": content,
-        },
-    )
-
-
-@router.get("/docs/privacy-security")
-async def docs_privacy_security(request: Request):
-    logged_in = await _is_logged_in(request)
-    page = DOCS_PAGES["privacy-security"]
-    content = render_doc_page(page["body"])
-    return templates.TemplateResponse(
-        "docs_page.html",
-        {
-            "request": request,
-            "logged_in": logged_in,
-            "page_title": page["title"],
-            "page_slug": "privacy-security",
-            "content": content,
-        },
-    )
-
-
-@router.get("/docs/deployment")
-async def docs_deployment(request: Request):
-    logged_in = await _is_logged_in(request)
-    page = DOCS_PAGES["deployment"]
-    content = render_doc_page(page["body"])
-    return templates.TemplateResponse(
-        "docs_page.html",
-        {
-            "request": request,
-            "logged_in": logged_in,
-            "page_title": page["title"],
-            "page_slug": "deployment",
-            "content": content,
-        },
-    )
-
-
-@router.get("/docs/faq")
-async def docs_faq(request: Request):
-    logged_in = await _is_logged_in(request)
-    page = DOCS_PAGES["faq"]
-    content = render_doc_page(page["body"])
-    return templates.TemplateResponse(
-        "docs_page.html",
-        {
-            "request": request,
-            "logged_in": logged_in,
-            "page_title": page["title"],
-            "page_slug": "faq",
+            "page_slug": slug,
+            "page_body_md": page["body"],
             "content": content,
         },
     )

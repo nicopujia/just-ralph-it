@@ -77,6 +77,21 @@
 .docs-container a:not(.docs-nav-card):hover {
     text-decoration-color: var(--accent);
 }
+.copy-md-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    white-space: nowrap;
+}
+.copy-md-btn:hover {
+    color: var(--text-bright);
+    border-color: var(--text-bright);
+}
 </style>
 {% endblock %}
 
@@ -100,7 +115,10 @@
 {% block content %}
 <div class="docs-container">
     <div class="docs-header">
-        <h1>Documentation</h1>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+            <h1>Documentation</h1>
+            <button class="copy-md-btn" onclick="copyAllMarkdown()" title="Copy all docs as markdown">Copy as markdown</button>
+        </div>
         <p>Just Ralph It helps turn ideas into clear, buildable task specs before Ralph executes. The workflow is simple: <strong>idea → spec → build → iterate</strong>.</p>
     </div>
 
@@ -139,4 +157,17 @@
         </a>
     </div>
 </div>
+<script>
+function copyAllMarkdown() {
+    fetch('/docs.md')
+        .then(function(r) { return r.text(); })
+        .then(function(md) {
+            navigator.clipboard.writeText(md).then(function() {
+                var btn = document.querySelector('.copy-md-btn');
+                btn.textContent = 'Copied!';
+                setTimeout(function() { btn.textContent = 'Copy as markdown'; }, 2000);
+            });
+        });
+}
+</script>
 {% endblock %}

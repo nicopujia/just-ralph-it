@@ -15,6 +15,25 @@
             margin-left: auto;
         }
     }
+.docs-content-header {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 0.5rem;
+}
+.copy-md-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.8rem;
+    padding: 0.3rem 0.7rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+}
+.copy-md-btn:hover {
+    color: var(--text-bright);
+    border-color: var(--text-bright);
+}
 .docs-content {
     line-height: 1.7;
 }
@@ -159,8 +178,24 @@
     </ul>
 </div>
 <div class="docs-container">
+    <div class="docs-content-header">
+        <button class="copy-md-btn" onclick="copyMarkdown()" title="Copy as markdown">Copy as markdown</button>
+    </div>
     <div class="docs-content">
         {{ content | safe }}
     </div>
 </div>
+<script>
+function copyMarkdown() {
+    fetch('/docs/{{ page_slug }}.md')
+        .then(function(r) { return r.text(); })
+        .then(function(md) {
+            navigator.clipboard.writeText(md).then(function() {
+                var btn = document.querySelector('.copy-md-btn');
+                btn.textContent = 'Copied!';
+                setTimeout(function() { btn.textContent = 'Copy as markdown'; }, 2000);
+            });
+        });
+}
+</script>
 {% endblock %}
