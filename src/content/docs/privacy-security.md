@@ -1,7 +1,6 @@
 ---
 title: Privacy & Security
 description: How we handle your data
-nav_label: Privacy & Security
 order: 5
 ---
 

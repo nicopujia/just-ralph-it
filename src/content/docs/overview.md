@@ -1,7 +1,6 @@
 ---
 title: Overview
 description: Introduction to Just Ralph It and how it works
-nav_label: Overview
 order: 1
 ---
 
@@ -23,6 +22,8 @@ If you have ever tried to describe a project to a developer and felt the convers
 
 If you are a developer who wants to offload implementation, you can feed the system a clear spec and watch it build. But the platform shines brightest when someone with domain expertise, not coding expertise, can articulate what they need.
 
+That said, users with software engineering knowledge will get the most out of the platform. The clarification stage is a conversation, and people who understand technical constraints, can write precise specs, and know how to break problems into concrete requirements will naturally guide Ralphy toward better outcomes. You do not need to code, but thinking like an engineer helps.
+
 ## The flow: idea → spec → build → iterate
 
 Every project follows the same path.
@@ -36,13 +37,17 @@ This cycle continues until you are satisfied with the result.
 
 ## What makes it different
 
-**Hiring a developer** requires you to translate your idea into a technical brief. Most people cannot do this without deep software knowledge. Misunderstandings are discovered late, after money and time have been spent.
+**v0 (by Vercel)** generates UI components from prompts. It is fast for prototyping frontend pieces, but it does not clarify what you actually need before generating code. You get what you asked for literally, not what you meant. There is no spec stage, no task structure, and no deployment pipeline.
 
-**Prompt-first AI copilots** let you start immediately, but vague prompts produce vague results. When the AI fills in your gaps with its own assumptions, you often end up with something that looks right but does not work the way you expected.
+**Lovable** lets you prompt your way to a full-stack app. It skips straight to building, which means vague input produces vague output. When the AI fills in your gaps with its own assumptions, you end up with something that looks right but does not behave the way you expected.
 
-Just Ralph It is different because it refuses to build on unclear ground. The system uses Ralphy to clarify intent before a single line of code is written. The clarification step is not optional or skippable. The system will not let you move forward until the goal is well understood. This takes a little more time upfront and it is intentional. It means the software that gets built actually does what you wanted.
+**Replit** gives you an AI-assisted development environment. It is powerful if you already know how to code, but it still expects you to drive the implementation. There is no structured clarification step and no separation between understanding the goal and executing it.
 
-The platform works best when tasks and goals are clear. The clearer you can describe what you want, the more accurately the system delivers it.
+**Claude Code** is a strong general-purpose coding agent. It works inside your local environment and follows your instructions well, but the burden of defining what to build, in what order, with what acceptance criteria, stays entirely on you.
+
+Just Ralph It is different because it refuses to build on unclear ground. The platform uses a two-stage workflow: Ralphy interviews you first to clarify intent, then Ralph builds from that clarified foundation. The clarification step is not optional or skippable. The system will not let you move forward until the goal is well understood. Shallow specs produce shallow output, so JRI forces depth before construction begins.
+
+Ralph works autonomously on a VPS, not in your local environment. Work is broken into tasks with dependencies and acceptance criteria. When building is done, JRI deploys your project for you. The result is software that actually matches what you had in mind, built and shipped without you needing to manage a dev environment or deployment pipeline.
 
 ## Getting started
 

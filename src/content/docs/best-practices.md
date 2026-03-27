@@ -1,7 +1,6 @@
 ---
 title: Best Practices
 description: Tips for getting the most out of Just Ralph It
-nav_label: Best Practices
 order: 3
 ---
 

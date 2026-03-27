@@ -1,7 +1,6 @@
 ---
 title: FAQ
 description: Frequently asked questions about Just Ralph It
-nav_label: FAQ
 order: 7
 ---
 

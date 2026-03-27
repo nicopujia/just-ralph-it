@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Public Docs - Just Ralph It{% endblock %}
+{% block title %}Documentation - Just Ralph It{% endblock %}
 
 {% block head %}
 <style>
@@ -55,6 +55,7 @@
 }
 .docs-philosophy {
     margin-top: 2rem;
+    margin-bottom: 1.5rem;
     padding: 1rem;
     border-left: 3px solid var(--accent);
     background: var(--card-bg);
@@ -65,6 +66,17 @@
     font-size: 0.9rem;
     line-height: 1.6;
 }
+.docs-nav-card {
+    text-decoration: none !important;
+}
+.docs-container a:not(.docs-nav-card) {
+    color: var(--text);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--text) 50%, transparent);
+}
+.docs-container a:not(.docs-nav-card):hover {
+    text-decoration-color: var(--accent);
+}
 </style>
 {% endblock %}
 
@@ -73,7 +85,7 @@
     <div class="breadcrumb">
         <a href="/">Just Ralph It</a>
         <span class="separator">/</span>
-        <span class="current">Docs</span>
+        <span class="current">Documentation</span>
     </div>
     <div class="nav-right">
         {% if logged_in %}
@@ -88,7 +100,7 @@
 {% block content %}
 <div class="docs-container">
     <div class="docs-header">
-        <h1>Public Docs</h1>
+        <h1>Documentation</h1>
         <p>Just Ralph It helps turn ideas into clear, buildable task specs before Ralph executes. The workflow is simple: <strong>idea → spec → build → iterate</strong>.</p>
     </div>
 
@@ -96,35 +108,33 @@
         <p><strong>Philosophy:</strong> Clarify intent thoroughly before coding. Shallow specs produce shallow output. The more you refine your spec, the better the result.</p>
     </div>
 
-    <p><strong>Start here:</strong> Read <a href="/docs/overview">Overview</a> to understand what JRI does, then <a href="/docs/agents">Agents</a> to see how Ralphy and Ralph work together, and <a href="/docs/best-practices">Best Practices</a> to learn how to get the most out of it.</p>
-
     <div class="docs-nav-grid">
         <a href="/docs/overview" class="docs-nav-card">
-            <h2>Overview</h2>
+            <h2>1. Overview</h2>
             <p>What JRI is, who it's for, and how the end-to-end flow works.</p>
         </a>
         <a href="/docs/agents" class="docs-nav-card">
-            <h2>Agents</h2>
+            <h2>2. Agents</h2>
             <p>How Ralphy and Ralph work together to build your project.</p>
         </a>
         <a href="/docs/best-practices" class="docs-nav-card">
-            <h2>Best Practices</h2>
+            <h2>3. Best Practices</h2>
             <p>How to get the most out of JRI by clarifying your intent.</p>
         </a>
         <a href="/docs/pricing" class="docs-nav-card">
-            <h2>Pricing</h2>
+            <h2>4. Pricing</h2>
             <p>Free tier, per-task pricing, and Pro plan details.</p>
         </a>
         <a href="/docs/privacy-security" class="docs-nav-card">
-            <h2>Privacy/Security</h2>
+            <h2>5. Privacy/Security</h2>
             <p>Data handling, ownership, and what to expect.</p>
         </a>
         <a href="/docs/deployment" class="docs-nav-card">
-            <h2>Deployment</h2>
+            <h2>6. Deployment</h2>
             <p>How projects get deployed and what you can expect.</p>
         </a>
         <a href="/docs/faq" class="docs-nav-card">
-            <h2>FAQ</h2>
+            <h2>7. FAQ</h2>
             <p>Common questions about using JRI.</p>
         </a>
     </div>

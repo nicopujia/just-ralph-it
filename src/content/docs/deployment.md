@@ -1,8 +1,7 @@
 ---
 title: Deployment
 description: How your project gets deployed with Just Ralph It
-nav_label: Deployment
-order: 4
+order: 6
 ---
 
 # Deployment

@@ -5,18 +5,18 @@
 {% block head %}
 <style>
 .docs-container {
-    max-width: 900px;
-    margin: 0 auto;
-    padding: 2rem 1.5rem;
-}
+        max-width: 900px;
+        margin: 0 auto;
+        margin-left: 220px;
+        padding: 2rem 1.5rem;
+    }
+    @media (max-width: 1200px) {
+        .docs-container {
+            margin-left: auto;
+        }
+    }
 .docs-content {
     line-height: 1.7;
-}
-.docs-content h1 {
-    font-size: 2rem;
-    font-weight: 700;
-    margin-bottom: 1.5rem;
-    color: var(--text-bright);
 }
 .docs-content h2 {
     font-size: 1.5rem;
@@ -62,11 +62,14 @@
     padding: 0;
 }
 .docs-content a {
-    color: var(--accent);
-    text-decoration: none;
+    color: var(--text);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--text) 50%, transparent);
+    text-underline-offset: 3px;
+    transition: text-decoration-color 0.2s;
 }
 .docs-content a:hover {
-    text-decoration: underline;
+    text-decoration-color: var(--accent);
 }
 .docs-content blockquote {
     border-left: 3px solid var(--accent);
@@ -128,7 +131,7 @@
     <div class="breadcrumb">
         <a href="/">Just Ralph It</a>
         <span class="separator">/</span>
-        <a href="/docs">Docs</a>
+        <a href="/docs">Documentation</a>
         <span class="separator">/</span>
         <span class="current">{{ page_title }}</span>
     </div>
@@ -146,14 +149,13 @@
 <div class="docs-sidebar">
     <h3>Documentation</h3>
     <ul>
-        <li><a href="/docs"{% if page_slug == 'overview' %} class="active"{% endif %}>Public Docs</a></li>
-        <li><a href="/docs/overview"{% if page_slug == 'overview' %} class="active"{% endif %}>Overview</a></li>
-        <li><a href="/docs/agents"{% if page_slug == 'agents' %} class="active"{% endif %}>Agents</a></li>
-        <li><a href="/docs/best-practices"{% if page_slug == 'best-practices' %} class="active"{% endif %}>Best Practices</a></li>
-        <li><a href="/docs/pricing"{% if page_slug == 'pricing' %} class="active"{% endif %}>Pricing</a></li>
-        <li><a href="/docs/privacy-security"{% if page_slug == 'privacy-security' %} class="active"{% endif %}>Privacy & Security</a></li>
-        <li><a href="/docs/deployment"{% if page_slug == 'deployment' %} class="active"{% endif %}>Deployment</a></li>
-        <li><a href="/docs/faq"{% if page_slug == 'faq' %} class="active"{% endif %}>FAQ</a></li>
+        <li><a href="/docs/overview"{% if page_slug == 'overview' %} class="active"{% endif %}>1. Overview</a></li>
+        <li><a href="/docs/agents"{% if page_slug == 'agents' %} class="active"{% endif %}>2. Agents</a></li>
+        <li><a href="/docs/best-practices"{% if page_slug == 'best-practices' %} class="active"{% endif %}>3. Best Practices</a></li>
+        <li><a href="/docs/pricing"{% if page_slug == 'pricing' %} class="active"{% endif %}>4. Pricing</a></li>
+        <li><a href="/docs/privacy-security"{% if page_slug == 'privacy-security' %} class="active"{% endif %}>5. Privacy & Security</a></li>
+        <li><a href="/docs/deployment"{% if page_slug == 'deployment' %} class="active"{% endif %}>6. Deployment</a></li>
+        <li><a href="/docs/faq"{% if page_slug == 'faq' %} class="active"{% endif %}>7. FAQ</a></li>
     </ul>
 </div>
 <div class="docs-container">

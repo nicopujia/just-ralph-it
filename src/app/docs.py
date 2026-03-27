@@ -1,5 +1,6 @@
 """Markdown-backed documentation content system."""
 
+import re
 from pathlib import Path
 
 import yaml
@@ -32,7 +33,6 @@ def _load_doc_page(filename: str) -> dict:
     return {
         "title": frontmatter.get("title", ""),
         "description": frontmatter.get("description", ""),
-        "nav_label": frontmatter.get("nav_label", frontmatter.get("title", "")),
         "order": frontmatter.get("order", 999),
         "body": body,
     }
@@ -50,6 +50,15 @@ DOCS_PAGES: dict[str, dict] = {
 }
 
 
+def _sanitize_html(html: str) -> str:
+    """Remove dangerous URL schemes from HTML to prevent XSS."""
+    # Pattern matches href/src attributes with dangerous schemes
+    dangerous_scheme_pattern = re.compile(
+        r'(href|src)\s*=\s*["\']?\s*(javascript|vbscript|data|file)\s*:', re.IGNORECASE
+    )
+    return dangerous_scheme_pattern.sub(r'\1="#"', html)
+
+
 def render_doc_page(content: str) -> str:
     """Render markdown content to HTML with HTML escaping for security."""
     _, body = _parse_frontmatter(content)
@@ -60,4 +69,7 @@ def render_doc_page(content: str) -> str:
     escaped = escaped.replace(">", "&gt;")
 
     md = Markdown(extensions=[])
-    return md.convert(escaped)
+    html = md.convert(escaped)
+
+    # Sanitize dangerous URL schemes after markdown conversion
+    return _sanitize_html(html)

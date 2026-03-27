@@ -1,7 +1,6 @@
 ---
 title: AI Agents
 description: Learn about Ralphy and Ralph, our AI-powered agents
-nav_label: Agents
 order: 2
 ---
 

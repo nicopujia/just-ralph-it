@@ -1,37 +1,40 @@
 ---
 title: Pricing
 description: Simple, transparent pricing for Just Ralph It
-nav_label: Pricing
-order: 5
+order: 4
 ---
 
 # Pricing
 
-Just Ralph It offers simple, transparent pricing. No hidden fees.
+Just Ralph It has simple, transparent pricing. No hidden fees.
 
-## Free Projects
+## Free Tier
 
-You can create up to **3 free projects**. This lets you try the platform and see how your project comes together before spending anything.
+Every account gets **up to 3 projects** for free. On the free tier you can chat with **Ralphy** to plan your project, discuss ideas, and refine requirements. Ralphy helps you think through what you want to build before you commit to building it.
 
-## Pay Per Task
+Free accounts do **not** include task execution. Ralph will not write code or make changes on the free tier.
 
-Need more than 3 projects? You can pay **$4 per task** to start Ralph on any project. Each task is a single unit of work that Ralph picks up and implements.
+## Pro Plan ($20/month)
 
-This works well if you have a small project or want to control spending closely.
+To have Ralph actually build your project, you need a Pro subscription. Pro gives you:
 
-## Pro Plan: $20/month
+- **Unlimited projects** (no 3-project cap)
+- **Your own VPS** where Ralph runs and your projects live
 
-For $20 per month, Pro gives you:
+The subscription covers the platform and infrastructure. It does **not** cover task resolution costs (see below).
 
-- **Unlimited projects** - no per-project limits
-- **1 VPS for all your projects** - your projects run on their own server
+## Task Resolution ($4/task)
 
-Pro is the best option if you build regularly or need to host your projects without managing infrastructure.
+Every task Ralph picks up and solves costs **$4**, paid on top of the Pro subscription. This covers the AI compute required for Ralph to read your codebase, implement changes, and verify the result.
 
-## Choosing a Plan
+You only pay when Ralph completes a task. No upfront task bundles, no expiring credits.
 
-**Free (3 projects)**: Trying the platform, small side projects
+## How It Works Together
 
-**$4/task**: Infrequent builders, controlling costs
+| | Free | Pro ($20/mo) + $4/task |
+|---|---|---|
+| Chat with Ralphy | Up to 3 projects | Unlimited projects |
+| Ralph builds your code | -- | $4 per resolved task |
+| Your own VPS | -- | Included |
 
-**$20/mo Pro**: Regular builders, teams, project hosting
+**Getting started**: Sign up, create a project, and chat with Ralphy for free. When you're ready for Ralph to start building, subscribe to Pro and pay per task as work gets done.
