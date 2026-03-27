@@ -339,6 +339,8 @@ async def _stream_opencode(
 
             # Track last text content to detect incremental updates
             last_text_len = 0
+            # Track user message IDs to filter out echoed user content
+            user_message_ids: set[str] = set()
 
             buffer = ""
             async for chunk in stream.aiter_text():
@@ -373,21 +375,31 @@ async def _stream_opencode(
                     if evt_session and evt_session != oc_session_id:
                         continue
 
+                    # Track user message IDs from message.updated events
+                    if event_type == "message.updated":
+                        info = props.get("info", {})
+                        if info.get("role") == "user":
+                            msg_id = info.get("id", "")
+                            if msg_id:
+                                user_message_ids.add(msg_id)
+                        continue
+
                     # Map OpenCode events to frontend SSE format
                     if event_type == "message.part.updated":
                         part = props.get("part", {})
                         if not isinstance(part, dict):
                             continue
+
+                        # Skip parts belonging to user messages
+                        if part.get("messageID") in user_message_ids:
+                            continue
+
                         part_type = part.get("type", "")
 
                         if part_type == "text":
                             # OpenCode sends full accumulated text each time;
                             # extract only the new delta.
                             full_text = part.get("text", "")
-                            # Skip user message echo (role check via messageID)
-                            msg_info = props.get("info", {})
-                            if msg_info.get("role") == "user":
-                                continue
                             delta = full_text[last_text_len:]
                             last_text_len = len(full_text)
                             if delta:
