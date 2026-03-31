@@ -17,6 +17,9 @@ dependencies = [
     "pydantic-settings>=2.13.1",
 ]
 
+[tool.uv.scripts]
+dev = "uvicorn app.main:app --app-dir src --reload --host 127.0.0.1 --port 8000"
+
 [dependency-groups]
 dev = [
     "playwright>=1.58.0",

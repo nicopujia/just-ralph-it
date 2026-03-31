@@ -50,7 +50,7 @@ cp example.env .env
 # MODE defaults to PROD; set MODE=DEV for local development
 
 # 4. Run
-uv run uvicorn app.main:app --app-dir src --reload --host 127.0.0.1 --port 8000
+uv run dev
 # App starts at http://127.0.0.1:8000
 ```
 
