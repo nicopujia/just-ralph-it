@@ -31,7 +31,7 @@ _test_user: dict | None = None
 
 
 def _find_test_user() -> dict:
-    """Find a user with admin/beta/free role by querying /auth/me."""
+    """Find an admin user by querying /auth/me."""
     global _test_user
     if _test_user is not None:
         return _test_user
@@ -43,13 +43,12 @@ def _find_test_user() -> dict:
                 resp = c.get("/auth/me")
                 if resp.status_code == 200:
                     data = resp.json()
-                    role = data.get("role", "user")
-                    if role in ("admin", "beta", "free"):
+                    if data.get("role") == "admin":
                         _test_user = {"id": uid, **data}
                         return _test_user
         except Exception:
             continue
-    raise RuntimeError("No admin/beta/free user found in database (checked IDs 1-50)")
+    raise RuntimeError("No admin user found in database (checked IDs 1-50)")
 
 
 def _session_cookie() -> str:

@@ -33,7 +33,7 @@ PAGE_TIMEOUT = 30_000
 
 
 def find_test_user() -> tuple[int, str]:
-    """Find a user with admin/beta/free role by querying /auth/me for user IDs 1-50.
+    """Find an admin user by querying /auth/me for user IDs 1-50.
 
     Returns (user_id, session_token).
     """
@@ -46,13 +46,12 @@ def find_test_user() -> tuple[int, str]:
                 resp = c.get("/auth/me")
                 if resp.status_code == 200:
                     data = resp.json()
-                    role = data.get("role", "user")
-                    if role in ("admin", "beta", "free"):
-                        print(f"[setup] Using user {data['github_username']} (id={uid}, role={role})")
+                    if data.get("role") == "admin":
+                        print(f"[setup] Using admin user {data['github_username']} (id={uid})")
                         return uid, token
         except Exception:
             continue
-    raise RuntimeError("No admin/beta/free user found in database (checked IDs 1-50)")
+    raise RuntimeError("No admin user found in database (checked IDs 1-50)")
 
 
 def cleanup_project(page):
