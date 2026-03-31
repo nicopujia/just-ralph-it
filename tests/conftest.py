@@ -5,12 +5,16 @@ Provides:
 - Uvicorn server fixture (auto-starts for tests)
 - Admin user lookup
 - Project cleanup
+
+Requires:
+- gh CLI authenticated as JRI_TEST_GITHUB_USER (default: ralphpujia)
 """
 
 import multiprocessing
 import os
 import socket
 import sqlite3
+import subprocess
 import sys
 import time
 from contextlib import closing
@@ -25,12 +29,49 @@ from app.auth_utils import create_session_token
 from app.config import DATA_DIR
 from app.main import app
 
+# Configurable test GitHub account (env var or default)
+TEST_GITHUB_USER = os.environ.get("JRI_TEST_GITHUB_USER", "ralphpujia")
+
 TEST_ADMIN_USER = {
-    "github_id": 68409498,  # ralphpujia's actual GitHub ID
-    "github_username": "ralphpujia",
+    "github_id": 68409498,  # ralphpujia's GitHub ID (updated if different user)
+    "github_username": TEST_GITHUB_USER,
     "github_token": "test-token-unused",  # gh CLI is used instead
     "role": "admin",
 }
+
+
+def _check_gh_auth() -> None:
+    """Verify gh CLI is authenticated as the test user. Exit if not."""
+    try:
+        result = subprocess.run(
+            ["gh", "auth", "status"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        output = result.stdout + result.stderr
+
+        if f"account {TEST_GITHUB_USER}" not in output.lower():
+            print(
+                f"\n{'=' * 60}\n"
+                f"ERROR: gh CLI must be logged in as '{TEST_GITHUB_USER}'\n"
+                f"Current auth:\n{output}\n"
+                f"Run: gh auth login\n"
+                f"Or set JRI_TEST_GITHUB_USER env var to match your gh account\n"
+                f"{'=' * 60}\n"
+            )
+            sys.exit(1)
+
+    except FileNotFoundError:
+        print("\nERROR: gh CLI not found. Install it: https://cli.github.com/\n")
+        sys.exit(1)
+    except subprocess.TimeoutExpired:
+        print("\nERROR: gh auth status timed out\n")
+        sys.exit(1)
+
+
+# Check gh auth at module load (before any tests run)
+_check_gh_auth()
 
 
 def _init_test_db() -> None:
