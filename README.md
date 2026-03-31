@@ -16,15 +16,8 @@ User <-> nginx (port 80) <-> uvicorn/FastAPI (port 8000)
 
 ### AI Agents
 
-- **Ralphy**: interviews users to understand their project, creates detailed issues (GLM 5 via OpenCode)
-- **Ralph**: picks up open issues one by one, implements via TDD (GLM 5 via OpenCode)
-
-Models default to `opencode-go/glm-5` (free tier). Override via env vars for paid tiers:
-
-| Env var | Default | Paid example |
-|---------|---------|--------------|
-| `RALPH_MODEL` | `opencode-go/glm-5` | `opencode/gpt-5.4` |
-| `RALPHY_MODEL` | `opencode-go/glm-5` | `opencode/glm-5` |
+- **Ralphy**: interviews users to understand their project, creates detailed issues (`openai/gpt-5.4` via OpenCode)
+- **Ralph**: picks up open issues one by one, implements via TDD (`openai/gpt-5.4-mini` via OpenCode)
 
 ### Tech Stack
 
@@ -53,14 +46,15 @@ uv sync
 
 # 3. Configure environment
 cp example.env .env
-# Edit .env -- at minimum set SECRET_KEY, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET
+# Edit .env -- set DEV_GITHUB_CLIENT_ID and DEV_GITHUB_CLIENT_SECRET
+# MODE defaults to PROD; set MODE=DEV for local development
 
 # 4. Run
 uv run uvicorn app.main:app --app-dir src --reload --host 127.0.0.1 --port 8000
 # App starts at http://127.0.0.1:8000
 ```
 
-The SQLite database (`./data/jri.db`) is created automatically on first run.
+The SQLite database (`./.data/jri.db`) is created automatically on first run.
 
 ## Ralph Task System
 
@@ -96,11 +90,11 @@ Real-time updates via `src/app/sse_bus.py`, keyed by project name:
 
 ## Closed Beta (Whitelist)
 
-Only GitHub usernames listed in `./data/whitelist.txt` (one per line) can create projects or start Ralph. Non-whitelisted users receive a 403 and their username is appended to `./data/waitlist.txt` automatically. This gating is always active, independent of any maintenance mode flag.
+Only GitHub usernames listed in `./.data/whitelist.txt` (one per line) can create projects or start Ralph. Non-whitelisted users receive a 403 and their username is appended to `./.data/waitlist.txt` automatically. This gating is always active, independent of any maintenance mode flag.
 
 ## Freelist (Free Access)
 
-GitHub usernames in `./data/freelist.txt` (one per line) skip Stripe payment when starting Ralph. They still must pass whitelist gating. This is intended for team members and select early users.
+GitHub usernames in `./.data/freelist.txt` (one per line) skip Stripe payment when starting Ralph. They still must pass whitelist gating. This is intended for team members and select early users.
 
 ## Testing
 
@@ -123,13 +117,13 @@ Each project can be deployed to `{project-name}.{username}.justralph.it`:
 
 | What | Where |
 |------|-------|
-| App database (users, projects) | `./data/jri.db` (SQLite) |
-| Project repos + uploads | `./data/<github-username>/<project-name>/` |
+| App database (users, projects) | `./.data/jri.db` (SQLite) |
+| Project repos + uploads | `./.data/<github-username>/<project-name>/` |
 | Ralphy session files | `~/.local/share/opencode/` |
 | Auth credentials | `./.env`, `~/.config/gh/hosts.yml`, `~/.local/share/opencode/auth.json` |
-| Beta whitelist | `./data/whitelist.txt` |
-| Freelist (skip payment) | `./data/freelist.txt` |
-| Waitlist (non-whitelisted users) | `./data/waitlist.txt` |
+| Beta whitelist | `./.data/whitelist.txt` |
+| Freelist (skip payment) | `./.data/freelist.txt` |
+| Waitlist (non-whitelisted users) | `./.data/waitlist.txt` |
 
 ## Logs
 
