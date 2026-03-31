@@ -365,10 +365,9 @@ class TestStripeCheckout:
             # We need at least one non-done task so there's something to pay for.
             # Create a task file via the tasks API indirectly -- use a direct file write
             # via the chat API is too slow. Instead, create the task file on disk.
-            # Test user is ralphpujia (TEST_USER_ID = 6) and DATA_DIR is ~/jri/data:
-            from app.config import DATA_DIR
-
-            tasks_dir = DATA_DIR / "ralphpujia" / name / ".jri" / "tasks" / "todo"
+            test_user = _find_test_user()
+            username = test_user["github_username"]
+            tasks_dir = DATA_DIR / username / name / ".jri" / "tasks" / "todo"
             tasks_dir.mkdir(parents=True, exist_ok=True)
             task_file = tasks_dir / "test-task.md"
             task_file.write_text(
