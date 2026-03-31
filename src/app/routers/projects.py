@@ -11,6 +11,7 @@ from app import tasks
 from app.auth_utils import get_current_user
 from app.config import (
     DATA_DIR,
+    MAINTENANCE_MODE,
     MAX_FREE_PROJECTS,
     PRICE_PRO_MONTHLY,
     RALPH_BOT_GITHUB_TOKEN,
@@ -24,6 +25,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 _NAME_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
+
+
+def _check_maintenance():
+    if MAINTENANCE_MODE:
+        raise HTTPException(status_code=503, detail="Maintenance mode is active")
 
 
 class CreateProjectRequest(BaseModel):
@@ -109,6 +115,7 @@ async def create_project(
     body: CreateProjectRequest,
     user: dict = Depends(get_current_user),
 ):
+    _check_maintenance()
     name = body.name
     user_id: int = user["id"]
 
@@ -424,6 +431,7 @@ def _get_issue_count(project_dir: str) -> int:
 
 @router.get("")
 async def list_projects(user: dict = Depends(get_current_user)):
+    _check_maintenance()
     user_id: int = user["id"]
     github_username: str = user["github_username"]
 
@@ -517,6 +525,7 @@ async def update_env(
 
 @router.get("/{name}")
 async def get_project(name: str, user: dict = Depends(get_current_user)):
+    _check_maintenance()
     user_id: int = user["id"]
     github_username: str = user["github_username"]
 
