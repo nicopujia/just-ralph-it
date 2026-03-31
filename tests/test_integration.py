@@ -87,7 +87,7 @@ def setup_base_url(test_server):
 
 
 @pytest.fixture(scope="module")
-def admin_user():
+def admin_user(setup_base_url):
     user = _find_user_by_role("admin")
     if user is None:
         pytest.skip("No admin user found in database")
@@ -95,7 +95,7 @@ def admin_user():
 
 
 @pytest.fixture(scope="module")
-def beta_user():
+def beta_user(setup_base_url):
     user = _find_user_by_role("beta")
     if user is None:
         pytest.skip("No beta user found in database")
@@ -103,7 +103,7 @@ def beta_user():
 
 
 @pytest.fixture(scope="module")
-def free_user():
+def free_user(setup_base_url):
     user = _find_user_by_role("free")
     if user is None:
         pytest.skip("No free user found in database")
@@ -111,7 +111,7 @@ def free_user():
 
 
 @pytest.fixture(scope="module")
-def regular_user():
+def regular_user(setup_base_url):
     """A user with role='user' (not admin, beta, or free)."""
     user = _find_user_by_role("user")
     if user is None:

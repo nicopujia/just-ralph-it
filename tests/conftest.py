@@ -1,16 +1,16 @@
 """Pytest configuration and shared fixtures for JRI tests.
 
 Provides:
-- Test client using ASGITransport (no running server needed for API tests)
-- Uvicorn server fixture for Playwright E2E tests
+- Test database seeding with admin user
+- Uvicorn server fixture (auto-starts for tests)
 - Admin user lookup
 - Project cleanup
 """
 
-import asyncio
 import multiprocessing
 import os
 import socket
+import sqlite3
 import sys
 import time
 from contextlib import closing
@@ -22,7 +22,66 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from app.auth_utils import create_session_token
+from app.config import DATA_DIR
 from app.main import app
+
+
+TEST_ADMIN_USER = {
+    "github_id": 999999,
+    "github_username": "test-admin",
+    "github_token": "test-token-not-real",
+    "role": "admin",
+}
+
+
+def _init_test_db() -> None:
+    """Initialize the database with schema (sync version of init_db)."""
+    import asyncio
+    from app.database import init_db
+    asyncio.run(init_db())
+
+
+def _ensure_test_admin_exists() -> int:
+    """Ensure a test admin user exists in the database. Returns user id."""
+    db_path = DATA_DIR / "jri.db"
+
+    # Initialize the database schema first
+    _init_test_db()
+
+    conn = sqlite3.connect(db_path)
+    try:
+        # Check if test admin already exists
+        cursor = conn.execute(
+            "SELECT id FROM users WHERE github_username = ?",
+            (TEST_ADMIN_USER["github_username"],),
+        )
+        row = cursor.fetchone()
+        if row:
+            return row[0]
+
+        # Create test admin
+        conn.execute(
+            """
+            INSERT INTO users (github_id, github_username, github_token, role)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                TEST_ADMIN_USER["github_id"],
+                TEST_ADMIN_USER["github_username"],
+                TEST_ADMIN_USER["github_token"],
+                TEST_ADMIN_USER["role"],
+            ),
+        )
+        conn.commit()
+
+        # Get the inserted user id
+        cursor = conn.execute(
+            "SELECT id FROM users WHERE github_username = ?",
+            (TEST_ADMIN_USER["github_username"],),
+        )
+        return cursor.fetchone()[0]
+    finally:
+        conn.close()
 
 
 def _find_free_port() -> int:
@@ -47,6 +106,9 @@ def test_server():
     Yields the base URL (e.g., http://127.0.0.1:12345).
     Server is automatically stopped after all tests complete.
     """
+    # Ensure test admin user exists before starting server
+    _ensure_test_admin_exists()
+
     port = _find_free_port()
     base_url = f"http://127.0.0.1:{port}"
 
