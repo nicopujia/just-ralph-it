@@ -1,6 +1,6 @@
 """Comprehensive E2E happy-path tests for justralph.it using Playwright.
 
-Runs against the local instance at localhost:8000.
+Server is started automatically via pytest fixtures in conftest.py.
 Uses a session cookie generated from auth_utils to bypass GitHub OAuth.
 Covers: landing, auth, projects CRUD, chat, tasks, Stripe checkout, logout.
 """
@@ -21,13 +21,20 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from app.auth_utils import create_session_token
 from app.config import DATA_DIR, STRIPE_SECRET_KEY
 
-BASE_URL = "http://localhost:8000"
 _created_projects: set[str] = set()
+_base_url: str = ""
 
 stripe.api_key = STRIPE_SECRET_KEY
 
-# Test user (found dynamically at module load)
+# Test user (found dynamically)
 _test_user: dict | None = None
+
+
+@pytest.fixture(scope="module", autouse=True)
+def setup_base_url(test_server):
+    """Set the base URL from the test_server fixture."""
+    global _base_url
+    _base_url = test_server
 
 
 def _find_test_user() -> dict:
@@ -39,7 +46,7 @@ def _find_test_user() -> dict:
     for uid in range(1, 51):
         token = create_session_token(uid)
         try:
-            with httpx.Client(base_url=BASE_URL, cookies={"session": token}, timeout=5) as c:
+            with httpx.Client(base_url=_base_url, cookies={"session": token}, timeout=5) as c:
                 resp = c.get("/auth/me")
                 if resp.status_code == 200:
                     data = resp.json()
@@ -58,9 +65,9 @@ def _session_cookie() -> str:
 
 
 def _api_client(**kwargs) -> httpx.Client:
-    """Return an httpx client with session auth against localhost."""
+    """Return an httpx client with session auth."""
     return httpx.Client(
-        base_url=BASE_URL,
+        base_url=_base_url,
         cookies={"session": _session_cookie()},
         timeout=180,
         **kwargs,
@@ -121,14 +128,16 @@ def anon_page(browser):
 @pytest.fixture
 def page(browser):
     """Browser page with session cookie (logged in as test user)."""
+    from urllib.parse import urlparse
     token = _session_cookie()
+    domain = urlparse(_base_url).hostname
     ctx = browser.new_context()
     ctx.add_cookies(
         [
             {
                 "name": "session",
                 "value": token,
-                "domain": "localhost",
+                "domain": domain,
                 "path": "/",
                 "httpOnly": False,
                 "secure": False,
@@ -155,19 +164,19 @@ def cleanup_projects():
 
 class TestLandingPage:
     def test_returns_200(self, anon_page: Page):
-        resp = anon_page.goto(BASE_URL)
+        resp = anon_page.goto(_base_url)
         assert resp is not None
         assert resp.status == 200
 
     def test_contains_title(self, anon_page: Page):
-        anon_page.goto(BASE_URL)
+        anon_page.goto(_base_url)
         anon_page.wait_for_load_state("domcontentloaded")
         heading = anon_page.locator("h1")
         heading.wait_for(state="visible", timeout=5000)
         assert "JUST RALPH IT" in heading.inner_text()
 
     def test_login_button_visible(self, anon_page: Page):
-        anon_page.goto(BASE_URL)
+        anon_page.goto(_base_url)
         anon_page.wait_for_load_state("domcontentloaded")
         login_btn = anon_page.locator("a.btn", has_text="LOGIN WITH GITHUB")
         login_btn.wait_for(state="visible", timeout=5000)
@@ -180,7 +189,7 @@ class TestLandingPage:
 class TestAuthFlow:
     def test_session_cookie_grants_access(self, page: Page):
         """Authenticated page can reach /projects without redirect to /."""
-        page.goto(f"{BASE_URL}/projects")
+        page.goto(f"{_base_url}/projects")
         page.wait_for_load_state("domcontentloaded")
         # Should stay on /projects, not redirect to /
         assert "/projects" in page.url
@@ -197,10 +206,10 @@ class TestAuthFlow:
 
     def test_unauthenticated_projects_redirects(self, anon_page: Page):
         """Without session, /projects redirects to /."""
-        anon_page.goto(f"{BASE_URL}/projects")
+        anon_page.goto(f"{_base_url}/projects")
         anon_page.wait_for_load_state("domcontentloaded")
         # Should redirect to landing
-        assert anon_page.url.rstrip("/") == BASE_URL.rstrip("/")
+        assert anon_page.url.rstrip("/") == _base_url.rstrip("/")
 
 
 # ── 3. Project creation ─────────────────────────────────────────────
@@ -212,7 +221,7 @@ class TestProjectCreation:
         name = _unique_name("e2e-create")
 
         try:
-            page.goto(f"{BASE_URL}/new")
+            page.goto(f"{_base_url}/new")
             page.wait_for_load_state("domcontentloaded")
 
             page.fill("#name", name)
@@ -232,7 +241,7 @@ class TestProjectCreation:
         try:
             _create_project(name)
 
-            page.goto(f"{BASE_URL}/projects")
+            page.goto(f"{_base_url}/projects")
             page.wait_for_load_state("domcontentloaded")
 
             card = page.locator(f".project-card[data-name='{name}']")
@@ -337,7 +346,7 @@ class TestTasks:
         try:
             _create_project(name)
 
-            page.goto(f"{BASE_URL}/projects/{name}?tab=tasks")
+            page.goto(f"{_base_url}/projects/{name}?tab=tasks")
             page.wait_for_load_state("domcontentloaded")
             assert page.url.endswith("?tab=tasks") or "tab=tasks" in page.url
         finally:
@@ -422,8 +431,8 @@ class TestStripeCheckout:
                     "quantity": 1,
                 }
             ],
-            success_url=f"{BASE_URL}/projects/test?payment=success&session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{BASE_URL}/projects/test?payment=cancel",
+            success_url=f"{_base_url}/projects/test?payment=success&session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{_base_url}/projects/test?payment=cancel",
             client_reference_id="e2e-test",
         )
 
@@ -452,8 +461,8 @@ class TestStripeCheckout:
                         "quantity": 1,
                     }
                 ],
-                success_url=f"{BASE_URL}/test",
-                cancel_url=f"{BASE_URL}/test",
+                success_url=f"{_base_url}/test",
+                cancel_url=f"{_base_url}/test",
                 client_reference_id="e2e-test",
             )
 
@@ -518,7 +527,7 @@ class TestProjectDeletion:
             _create_project(name)
 
             # Verify it's there
-            page.goto(f"{BASE_URL}/projects")
+            page.goto(f"{_base_url}/projects")
             page.wait_for_load_state("domcontentloaded")
             card = page.locator(f".project-card[data-name='{name}']")
             card.wait_for(state="visible", timeout=15_000)
@@ -545,7 +554,7 @@ class TestProjectDeletion:
         try:
             _create_project(name)
 
-            page.goto(f"{BASE_URL}/projects")
+            page.goto(f"{_base_url}/projects")
             page.wait_for_load_state("domcontentloaded")
 
             card = page.locator(f".project-card[data-name='{name}']")
@@ -645,38 +654,38 @@ class TestLogout:
     def test_logout_clears_session(self, page: Page):
         """GET /auth/logout clears the session cookie and redirects to /."""
         # Start on a protected page
-        page.goto(f"{BASE_URL}/projects")
+        page.goto(f"{_base_url}/projects")
         page.wait_for_load_state("domcontentloaded")
         assert "/projects" in page.url
 
         # Logout
-        page.goto(f"{BASE_URL}/auth/logout")
+        page.goto(f"{_base_url}/auth/logout")
         page.wait_for_load_state("domcontentloaded")
 
         # Should be on landing page
         assert (
-            page.url.rstrip("/") == BASE_URL.rstrip("/") or page.url == f"{BASE_URL}/"
+            page.url.rstrip("/") == _base_url.rstrip("/") or page.url == f"{_base_url}/"
         )
 
     def test_after_logout_protected_pages_redirect(self, page: Page):
         """After logout, visiting /projects redirects to /."""
         # Logout first
-        page.goto(f"{BASE_URL}/auth/logout")
+        page.goto(f"{_base_url}/auth/logout")
         page.wait_for_load_state("domcontentloaded")
 
         # Try to access protected page
-        page.goto(f"{BASE_URL}/projects")
+        page.goto(f"{_base_url}/projects")
         page.wait_for_load_state("domcontentloaded")
 
         # Should be redirected to landing
         assert (
-            page.url.rstrip("/") == BASE_URL.rstrip("/") or page.url == f"{BASE_URL}/"
+            page.url.rstrip("/") == _base_url.rstrip("/") or page.url == f"{_base_url}/"
         )
 
     def test_logout_api_returns_401(self):
         """After logout, /auth/me returns 401 (no cookie)."""
         # Make a request without a session cookie
-        with httpx.Client(base_url=BASE_URL, timeout=10) as c:
+        with httpx.Client(base_url=_base_url, timeout=10) as c:
             resp = c.get("/auth/me")
         assert resp.status_code == 401
 
@@ -691,7 +700,7 @@ class TestProjectPage:
 
         try:
             _create_project(name)
-            page.goto(f"{BASE_URL}/projects/{name}")
+            page.goto(f"{_base_url}/projects/{name}")
             page.wait_for_load_state("domcontentloaded")
             assert (
                 page.url.endswith(f"/projects/{name}")
@@ -733,7 +742,7 @@ class TestProjectPage:
                     for msg in history_resp.json()["messages"]
                 )
 
-            page.goto(f"{BASE_URL}/projects/{name}")
+            page.goto(f"{_base_url}/projects/{name}")
             page.wait_for_load_state("domcontentloaded")
             page.locator("#chat-messages").get_by_text(
                 "Keep this chat message after refresh."
@@ -770,7 +779,7 @@ class TestProjectPage:
                 )
                 db.commit()
 
-            page.goto(f"{BASE_URL}/projects/{name}")
+            page.goto(f"{_base_url}/projects/{name}")
             page.wait_for_load_state("domcontentloaded")
             page.evaluate(
                 """(payload) => {
@@ -828,7 +837,7 @@ class TestProjectPage:
 
     def test_nonexistent_project_returns_404(self, page: Page):
         """Visiting a project that does not exist returns 404."""
-        resp = page.goto(f"{BASE_URL}/projects/does-not-exist-ever-99999")
+        resp = page.goto(f"{_base_url}/projects/does-not-exist-ever-99999")
         assert resp is not None
         assert resp.status == 404
 
@@ -901,7 +910,7 @@ class TestUIBehavior:
 
         try:
             _create_project(name)
-            page.goto(f"{BASE_URL}/projects/{name}")
+            page.goto(f"{_base_url}/projects/{name}")
             page.wait_for_load_state("domcontentloaded")
             page.wait_for_timeout(1000)
 
@@ -929,7 +938,7 @@ class TestUIBehavior:
 
         try:
             _create_project(name)
-            page.goto(f"{BASE_URL}/projects/{name}?tab=env")
+            page.goto(f"{_base_url}/projects/{name}?tab=env")
             page.wait_for_load_state("domcontentloaded")
             page.wait_for_timeout(500)
 
@@ -973,7 +982,7 @@ class TestUIBehavior:
 
         try:
             _create_project(name)
-            page.goto(f"{BASE_URL}/projects/{name}?tab=env")
+            page.goto(f"{_base_url}/projects/{name}?tab=env")
             page.wait_for_load_state("domcontentloaded")
 
             # Reset button should not exist
@@ -1000,7 +1009,7 @@ class TestUIBehavior:
                 )
                 _created_projects.add(name)
 
-            page.goto(f"{BASE_URL}/projects/{name}")
+            page.goto(f"{_base_url}/projects/{name}")
             page.wait_for_load_state("domcontentloaded")
 
             # No desc = no auto-send, so input should be enabled immediately
@@ -1050,7 +1059,7 @@ class TestUIBehavior:
                 ), "User message not found in API history"
 
             # Load page and verify message appears
-            page.goto(f"{BASE_URL}/projects/{name}")
+            page.goto(f"{_base_url}/projects/{name}")
             page.wait_for_load_state("domcontentloaded")
 
             # Wait for chat messages to appear

@@ -4,13 +4,15 @@ End-to-end Playwright test for JRI project page chat.
 Creates a project, verifies Ralphy chat flow (message send, streaming,
 persistence across refresh, multi-turn), then cleans up.
 
-Uses localhost:8000 to bypass Cloudflare proxy issues with SSE.
+Server is started automatically via pytest fixtures in conftest.py.
 """
 
 import os
 import sys
 import time
+from urllib.parse import urlparse
 
+import pytest
 from playwright.sync_api import sync_playwright
 
 # Add src/ to path so we can import app modules
@@ -19,17 +21,20 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from app.auth_utils import create_session_token
 
 # ── Config ──────────────────────────────────────────────────────────
-BASE_URL = "http://127.0.0.1:8000"
+_base_url: str = ""
 PROJECT_NAME = "test-ttt4"
 PROJECT_DESC = "A simple tic tac toe game"
 SECOND_MSG = "Make it a 2 player game"
 
-# Dynamically find a test user (admin or beta) via /auth/me
-SESSION_TOKEN: str | None = None
-USER_ID: int | None = None
-
 RALPHY_TIMEOUT = 300_000  # 5 min
 PAGE_TIMEOUT = 30_000
+
+
+@pytest.fixture(scope="module", autouse=True)
+def setup_base_url(test_server):
+    """Set the base URL from the test_server fixture."""
+    global _base_url
+    _base_url = test_server
 
 
 def find_test_user() -> tuple[int, str]:
@@ -42,7 +47,7 @@ def find_test_user() -> tuple[int, str]:
     for uid in range(1, 51):
         token = create_session_token(uid)
         try:
-            with httpx.Client(base_url=BASE_URL, cookies={"session": token}, timeout=5) as c:
+            with httpx.Client(base_url=_base_url, cookies={"session": token}, timeout=5) as c:
                 resp = c.get("/auth/me")
                 if resp.status_code == 200:
                     data = resp.json()
@@ -58,7 +63,7 @@ def cleanup_project(page):
     """Delete the test project via API, including the GitHub repo."""
     print(f"[cleanup] Deleting project '{PROJECT_NAME}'...")
     resp = page.request.delete(
-        f"{BASE_URL}/api/projects/{PROJECT_NAME}?delete_repo=true"
+        f"{_base_url}/api/projects/{PROJECT_NAME}?delete_repo=true"
     )
     if resp.status == 204:
         print("[cleanup] Project deleted successfully.")
@@ -95,7 +100,7 @@ def wait_for_server_history(page, min_user, min_asst, timeout_sec=120):
     )
     deadline = time.time() + timeout_sec
     while time.time() < deadline:
-        resp = page.request.get(f"{BASE_URL}/api/projects/{PROJECT_NAME}/chat/history")
+        resp = page.request.get(f"{_base_url}/api/projects/{PROJECT_NAME}/chat/history")
         if resp.status == 200:
             msgs = resp.json().get("messages", [])
             u = sum(1 for m in msgs if m["role"] == "user")
@@ -105,7 +110,7 @@ def wait_for_server_history(page, min_user, min_asst, timeout_sec=120):
                 return u, a, msgs
         time.sleep(2)
     # Final check
-    resp = page.request.get(f"{BASE_URL}/api/projects/{PROJECT_NAME}/chat/history")
+    resp = page.request.get(f"{_base_url}/api/projects/{PROJECT_NAME}/chat/history")
     msgs = resp.json().get("messages", [])
     u = sum(1 for m in msgs if m["role"] == "user")
     a = sum(1 for m in msgs if m["role"] == "assistant")
@@ -128,6 +133,7 @@ def count_dom_messages(page):
 def run_test():
     # Find a test user dynamically
     user_id, session_token = find_test_user()
+    domain = urlparse(_base_url).hostname
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -138,7 +144,7 @@ def run_test():
                 {
                     "name": "session",
                     "value": session_token,
-                    "domain": "127.0.0.1",
+                    "domain": domain,
                     "path": "/",
                     "httpOnly": True,
                     "secure": False,
@@ -160,7 +166,7 @@ def run_test():
             # ── Step 1: Create project ──────────────────────────────
             print("[step 1] Creating project via API...")
             resp = page.request.post(
-                f"{BASE_URL}/api/projects",
+                f"{_base_url}/api/projects",
                 data={"name": PROJECT_NAME, "description": PROJECT_DESC},
                 headers={"Content-Type": "application/json"},
             )
@@ -170,7 +176,7 @@ def run_test():
             # ── Step 2: Navigate to project page ────────────────────
             print("[step 2] Loading project page...")
             page.goto(
-                f"{BASE_URL}/projects/{PROJECT_NAME}",
+                f"{_base_url}/projects/{PROJECT_NAME}",
                 wait_until="domcontentloaded",
             )
             page.wait_for_selector("#chat-messages", state="visible")
@@ -285,8 +291,56 @@ def run_test():
             browser.close()
 
 
+def test_chat_e2e():
+    """Pytest wrapper for the E2E chat test."""
+    run_test()
+
+
 if __name__ == "__main__":
+    # Allow running standalone for debugging
+    import multiprocessing
+    import socket
+    from contextlib import closing
+
+    import httpx
+
+    def _find_free_port() -> int:
+        with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
+            s.bind(("", 0))
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            return s.getsockname()[1]
+
+    def _run_server(port: int) -> None:
+        import uvicorn
+        from app.main import app
+        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+
+    global _base_url
+    port = _find_free_port()
+    _base_url = f"http://127.0.0.1:{port}"
+    print(f"[setup] Starting server on {_base_url}...")
+
+    proc = multiprocessing.Process(target=_run_server, args=(port,), daemon=True)
+    proc.start()
+
+    # Wait for server
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        try:
+            with httpx.Client(timeout=1) as c:
+                resp = c.get(f"{_base_url}/")
+                if resp.status_code in (200, 302, 307):
+                    break
+        except Exception:
+            time.sleep(0.1)
+    else:
+        proc.terminate()
+        print("Server failed to start")
+        sys.exit(1)
+
     try:
         run_test()
     except Exception:
         sys.exit(1)
+    finally:
+        proc.terminate()
