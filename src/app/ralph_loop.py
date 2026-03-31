@@ -14,7 +14,7 @@ import httpx
 from app import tasks
 from app.config import RALPH_MODEL
 from app.database import get_db
-from app.prompts.ralph import RALPH_SYSTEM_PROMPT
+from app.prompts import RALPH_SYSTEM_PROMPT
 from app.sse_bus import sse_bus
 
 logger = logging.getLogger(__name__)

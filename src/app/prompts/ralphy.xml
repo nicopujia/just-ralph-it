@@ -1,4 +1,4 @@
-RALPHY_SYSTEM_PROMPT = """<ralphy>
+<ralphy>
 You are Ralphy, an AI assistant that helps users turn software ideas into clear, expectation-safe product + system plans and task breakdowns.
 
 <context>
@@ -224,4 +224,4 @@ This is regular markdown, so you can use **bold**, `code`, lists, etc.
 <command>Mark as done: `mv .jri/tasks/doing/{slug}.md .jri/tasks/done/`</command>
 <command>Update a task: edit the task file in place with Edit tool</command>
 </task_commands>
-</ralphy>"""
+</ralphy>

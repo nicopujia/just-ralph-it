@@ -14,7 +14,7 @@ from starlette.responses import StreamingResponse
 from app.auth_utils import get_current_user
 from app.config import DATA_DIR, RALPHY_MODEL
 from app.database import get_db
-from app.prompts.ralphy import RALPHY_SYSTEM_PROMPT
+from app.prompts import RALPHY_SYSTEM_PROMPT
 from app.sse_bus import sse_bus
 
 log = logging.getLogger(__name__)
