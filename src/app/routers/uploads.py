@@ -4,29 +4,26 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel
 
 from app.auth_utils import get_current_user
 from app.config import DATA_DIR
 from app.database import get_db
+from app.schemas import RenameRequest, RenameResponse, UploadInfo, UploadResponse, User
 
 router = APIRouter(prefix="/api/projects", tags=["uploads"])
 
 
-async def _get_project_dir(name: str, user: dict) -> Path:
+async def _get_project_dir(name: str, user: User) -> Path:
     """Verify the project belongs to the user and return its directory path."""
-    user_id: int = user["id"]
-    github_username: str = user["github_username"]
-
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT id FROM projects WHERE user_id = ? AND name = ?",
-            (user_id, name),
+            (user.id, name),
         )
         if not await cursor.fetchone():
             raise HTTPException(status_code=404, detail="Project not found")
 
-    return DATA_DIR / github_username / name
+    return DATA_DIR / user.github_username / name
 
 
 def _has_path_traversal(filename: str) -> bool:
@@ -63,12 +60,10 @@ def _get_upload_path(project_dir: Path, filename: str) -> Path:
     return file_path
 
 
-class RenameRequest(BaseModel):
-    new_name: str
-
-
-@router.get("/{name}/uploads")
-async def list_uploads(name: str, user: dict = Depends(get_current_user)):
+@router.get("/{name}/uploads", response_model=list[UploadInfo])
+async def list_uploads(
+    name: str, user: User = Depends(get_current_user)
+) -> list[UploadInfo]:
     project_dir = await _get_project_dir(name, user)
     uploads_dir = project_dir / ".jri" / "uploads"
 
@@ -81,23 +76,23 @@ async def list_uploads(name: str, user: dict = Depends(get_current_user)):
             stat = entry.stat()
             modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
             files.append(
-                {
-                    "name": entry.name,
-                    "size": stat.st_size,
-                    "modified_at": modified_at.isoformat(),
-                }
+                UploadInfo(
+                    name=entry.name,
+                    size=stat.st_size,
+                    modified_at=modified_at.isoformat(),
+                )
             )
 
-    files.sort(key=lambda f: f["modified_at"], reverse=True)
+    files.sort(key=lambda f: f.modified_at or "", reverse=True)
     return files
 
 
-@router.post("/{name}/uploads")
+@router.post("/{name}/uploads", response_model=UploadResponse)
 async def upload_file(
     name: str,
     file: UploadFile,
-    user: dict = Depends(get_current_user),
-):
+    user: User = Depends(get_current_user),
+) -> UploadResponse:
     project_dir = await _get_project_dir(name, user)
     uploads_dir = project_dir / ".jri" / "uploads"
     uploads_dir.mkdir(parents=True, exist_ok=True)
@@ -108,14 +103,14 @@ async def upload_file(
     content = await file.read()
     dest.write_bytes(content)
 
-    return {"name": actual_name, "size": len(content)}
+    return UploadResponse(name=actual_name, size=len(content))
 
 
 @router.get("/{name}/uploads/{filename}")
 async def get_upload(
     name: str,
     filename: str,
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     project_dir = await _get_project_dir(name, user)
     file_path = _get_upload_path(project_dir, filename)
@@ -128,7 +123,7 @@ async def get_upload(
 async def delete_upload(
     name: str,
     filename: str,
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     project_dir = await _get_project_dir(name, user)
     file_path = _get_upload_path(project_dir, filename)
@@ -137,13 +132,13 @@ async def delete_upload(
     return JSONResponse(status_code=204, content=None)
 
 
-@router.patch("/{name}/uploads/{filename}")
+@router.patch("/{name}/uploads/{filename}", response_model=RenameResponse)
 async def rename_upload(
     name: str,
     filename: str,
     body: RenameRequest,
-    user: dict = Depends(get_current_user),
-):
+    user: User = Depends(get_current_user),
+) -> RenameResponse:
     if _has_path_traversal(body.new_name):
         raise HTTPException(status_code=400, detail="Invalid filename")
 
@@ -154,4 +149,4 @@ async def rename_upload(
     actual_name = _resolve_collision(uploads_dir, body.new_name)
     file_path.rename(uploads_dir / actual_name)
 
-    return {"name": actual_name}
+    return RenameResponse(name=actual_name)
