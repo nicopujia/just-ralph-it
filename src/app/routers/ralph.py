@@ -23,6 +23,17 @@ from app.database import get_db
 from app.freelist import is_free_user
 from app.ralph_loop import RalphLoop
 from app.routers.projects import _get_project_dir
+from app.schemas import (
+    AcknowledgeResponse,
+    Notification,
+    PricingResponse,
+    RalphCheckoutResponse,
+    RalphLoopStatusResponse,
+    RalphPaymentCallbackResponse,
+    RalphPaymentStatusResponse,
+    RalphStatusResponse,
+    User,
+)
 from app.whitelist import check_whitelist
 
 logger = logging.getLogger(__name__)
@@ -40,14 +51,14 @@ router = APIRouter(prefix="/api/projects", tags=["ralph"])
 _loops: dict[str, RalphLoop] = {}
 
 
-async def _get_project(name: str, user: dict) -> dict:
+async def _get_project(name: str, user: User) -> dict:
     """Look up project by name for the authenticated user. Returns row dict."""
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT id, name, ralph_loop_status, ralph_loop_current_issue, "
             "ralph_loop_iteration, stripe_payment_id, paid_task_count "
             "FROM projects WHERE user_id = ? AND name = ?",
-            (user["id"], name),
+            (user.id, name),
         )
         row = await cursor.fetchone()
     if row is None:
@@ -75,19 +86,16 @@ def _calc_budget(project_dir: str, paid_task_count: int, free: bool) -> int:
 
 
 async def _start_ralph_loop(
-    name: str, project: dict, user: dict, budget: int = 999999
+    name: str, project: dict, user: User, budget: int = 999999
 ) -> None:
     """Shared helper to start the Ralph loop for a project."""
     if name in _loops and _loops[name].status == "running":
         return
 
-    github_username: str = user["github_username"]
-    project_dir = str(DATA_DIR / github_username / name)
+    project_dir = str(DATA_DIR / user.github_username / name)
 
-    user_name = user.get("github_name") or github_username
-    user_email = (
-        user.get("github_email") or f"{github_username}@users.noreply.github.com"
-    )
+    user_name = user.github_name or user.github_username
+    user_email = user.github_email or f"{user.github_username}@users.noreply.github.com"
 
     loop = RalphLoop(
         project_id=project["id"],
@@ -101,8 +109,10 @@ async def _start_ralph_loop(
     await loop.start()
 
 
-@router.post("/{name}/ralph/checkout")
-async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
+@router.post("/{name}/ralph/checkout", response_model=RalphCheckoutResponse)
+async def ralph_checkout(
+    name: str, user: User = Depends(get_current_user)
+) -> RalphCheckoutResponse:
     """Create a Stripe checkout session for unpaid tasks, or start Ralph directly."""
     check_whitelist(user)
     project = await _get_project(name, user)
@@ -117,7 +127,7 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
     if not free and unpaid <= 0:
         budget = _calc_budget(project_dir, paid_task_count, free=False)
         await _start_ralph_loop(name, project, user, budget=budget)
-        return {"free": False, "redirect": None}
+        return RalphCheckoutResponse(free=False, redirect=None)
 
     if total_tasks == 0:
         raise HTTPException(status_code=400, detail="No tasks found")
@@ -129,7 +139,7 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
         # Everything already paid, just start
         budget = _calc_budget(project_dir, paid_task_count, free=False)
         await _start_ralph_loop(name, project, user, budget=budget)
-        return {"free": False, "redirect": None}
+        return RalphCheckoutResponse(free=False, redirect=None)
 
     # Build description
     description = f"{unpaid} tasks \u00d7 ${PRICE_PER_TASK // 100}"
@@ -170,21 +180,21 @@ async def ralph_checkout(name: str, user: dict = Depends(get_current_user)):
         cancel_url=f"{BASE_URL}/projects/{name}?payment=cancel",
         client_reference_id=str(project["id"]),
         metadata={
-            "user_id": str(user["id"]),
+            "user_id": str(user.id),
             "project_name": name,
             "unpaid_count": str(max(unpaid, 0)),
         },
     )
 
-    return {"free": False, "redirect": checkout_session.url}
+    return RalphCheckoutResponse(free=False, redirect=checkout_session.url)
 
 
-@router.get("/{name}/ralph/payment-callback")
+@router.get("/{name}/ralph/payment-callback", response_model=RalphPaymentCallbackResponse)
 async def ralph_payment_callback(
     name: str,
     session_id: str = Query(...),
-    user: dict = Depends(get_current_user),
-):
+    user: User = Depends(get_current_user),
+) -> RalphPaymentCallbackResponse:
     """Verify Stripe payment, update paid_task_count, and start Ralph loop."""
     project = await _get_project(name, user)
 
@@ -221,11 +231,15 @@ async def ralph_payment_callback(
     else:
         await _start_ralph_loop(name, project, user, budget=budget)
 
-    return {"status": "started", "paid_task_count": project["paid_task_count"]}
+    return RalphPaymentCallbackResponse(
+        status="started", paid_task_count=project["paid_task_count"]
+    )
 
 
-@router.post("/{name}/ralph/start")
-async def ralph_start(name: str, user: dict = Depends(get_current_user)):
+@router.post("/{name}/ralph/start", response_model=RalphStatusResponse)
+async def ralph_start(
+    name: str, user: User = Depends(get_current_user)
+) -> RalphStatusResponse:
     """Begin the Ralph loop for a project."""
     check_whitelist(user)
     project = await _get_project(name, user)
@@ -239,11 +253,13 @@ async def ralph_start(name: str, user: dict = Depends(get_current_user)):
 
     await _start_ralph_loop(name, project, user, budget=budget)
 
-    return {"status": "running"}
+    return RalphStatusResponse(status="running")
 
 
-@router.post("/{name}/ralph/stop")
-async def ralph_stop(name: str, user: dict = Depends(get_current_user)):
+@router.post("/{name}/ralph/stop", response_model=RalphStatusResponse)
+async def ralph_stop(
+    name: str, user: User = Depends(get_current_user)
+) -> RalphStatusResponse:
     """Gracefully stop the Ralph loop after the current iteration."""
     project = await _get_project(name, user)
 
@@ -300,7 +316,7 @@ async def ralph_stop(name: str, user: dict = Depends(get_current_user)):
         except Exception:
             logger.exception("Error cleaning up git state on stop for %s", name)
 
-        return {"status": "stopped"}
+        return RalphStatusResponse(status="stopped")
 
     # No in-memory loop — DB may be stale (e.g., after service restart).
     # Reset DB status to idle.
@@ -310,11 +326,13 @@ async def ralph_stop(name: str, user: dict = Depends(get_current_user)):
             (project["id"],),
         )
         await db.commit()
-    return {"status": "stopped"}
+    return RalphStatusResponse(status="stopped")
 
 
-@router.post("/{name}/ralph/resume")
-async def ralph_resume(name: str, user: dict = Depends(get_current_user)):
+@router.post("/{name}/ralph/resume", response_model=RalphStatusResponse)
+async def ralph_resume(
+    name: str, user: User = Depends(get_current_user)
+) -> RalphStatusResponse:
     """Resume the Ralph loop with recalculated budget."""
     check_whitelist(user)
     project = await _get_project(name, user)
@@ -327,18 +345,18 @@ async def ralph_resume(name: str, user: dict = Depends(get_current_user)):
     loop = _loops.get(name)
     if loop is not None and loop.status == "payment_required":
         await loop.resume_after_payment(budget)
-        return {"status": "running"}
+        return RalphStatusResponse(status="running")
 
     if loop is not None and loop.status == "running":
         raise HTTPException(status_code=409, detail="Ralph loop is already running")
 
     await _start_ralph_loop(name, project, user, budget=budget)
 
-    return {"status": "running"}
+    return RalphStatusResponse(status="running")
 
 
 @router.get("/{name}/ralph/stream")
-async def ralph_stream(name: str, user: dict = Depends(get_current_user)):
+async def ralph_stream(name: str, user: User = Depends(get_current_user)):
     """SSE endpoint that streams Ralph's stdout in real time."""
     await _get_project(name, user)
     loop = _loops.get(name)
@@ -369,8 +387,10 @@ async def ralph_stream(name: str, user: dict = Depends(get_current_user)):
     )
 
 
-@router.get("/{name}/notifications")
-async def get_notifications(name: str, user: dict = Depends(get_current_user)):
+@router.get("/{name}/notifications", response_model=list[Notification])
+async def get_notifications(
+    name: str, user: User = Depends(get_current_user)
+) -> list[Notification]:
     """Return unacknowledged notifications for a project."""
     project = await _get_project(name, user)
     async with get_db() as db:
@@ -382,13 +402,16 @@ async def get_notifications(name: str, user: dict = Depends(get_current_user)):
             (project["id"],),
         )
         rows = await cursor.fetchall()
-    return [dict(r) for r in rows]
+    return [Notification(**dict(r)) for r in rows]
 
 
-@router.post("/{name}/notifications/{notification_id}/acknowledge")
+@router.post(
+    "/{name}/notifications/{notification_id}/acknowledge",
+    response_model=AcknowledgeResponse,
+)
 async def acknowledge_notification(
-    name: str, notification_id: int, user: dict = Depends(get_current_user)
-):
+    name: str, notification_id: int, user: User = Depends(get_current_user)
+) -> AcknowledgeResponse:
     """Mark a notification as acknowledged."""
     project = await _get_project(name, user)
     async with get_db() as db:
@@ -399,11 +422,13 @@ async def acknowledge_notification(
         await db.commit()
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Notification not found")
-    return {"status": "acknowledged"}
+    return AcknowledgeResponse()
 
 
-@router.get("/{name}/ralph/payment-status")
-async def ralph_payment_status(name: str, user: dict = Depends(get_current_user)):
+@router.get("/{name}/ralph/payment-status", response_model=RalphPaymentStatusResponse)
+async def ralph_payment_status(
+    name: str, user: User = Depends(get_current_user)
+) -> RalphPaymentStatusResponse:
     """Return payment delta info for the frontend."""
     project = await _get_project(name, user)
     project_dir = await _get_project_dir(name, user)
@@ -413,16 +438,18 @@ async def ralph_payment_status(name: str, user: dict = Depends(get_current_user)
     total_tasks = _count_non_done_tasks(project_dir)
     unpaid = max(total_tasks - paid_task_count, 0)
 
-    return {
-        "paid_task_count": paid_task_count,
-        "total_tasks": total_tasks,
-        "unpaid": unpaid,
-        "free_user": free,
-    }
+    return RalphPaymentStatusResponse(
+        paid_task_count=paid_task_count,
+        total_tasks=total_tasks,
+        unpaid=unpaid,
+        free_user=free,
+    )
 
 
-@router.get("/{name}/ralph/status")
-async def ralph_status(name: str, user: dict = Depends(get_current_user)):
+@router.get("/{name}/ralph/status", response_model=RalphLoopStatusResponse)
+async def ralph_status(
+    name: str, user: User = Depends(get_current_user)
+) -> RalphLoopStatusResponse:
     """Return current Ralph loop state."""
     project = await _get_project(name, user)
 
@@ -440,31 +467,31 @@ async def ralph_status(name: str, user: dict = Depends(get_current_user)):
                 )
                 await db.commit()
 
-        return {
-            "status": db_status,
-            "current_issue": project.get("ralph_loop_current_issue"),
-            "iteration": project.get("ralph_loop_iteration", 0),
-            "recent_output": [],
-        }
+        return RalphLoopStatusResponse(
+            status=db_status,
+            current_issue=project.get("ralph_loop_current_issue"),
+            iteration=project.get("ralph_loop_iteration", 0),
+            recent_output=[],
+        )
 
     recent = list(loop.stdout_lines)[-50:]
-    return {
-        "status": loop.status,
-        "current_issue": loop.current_issue_id,
-        "iteration": loop.iteration,
-        "recent_output": recent,
-    }
+    return RalphLoopStatusResponse(
+        status=loop.status,
+        current_issue=loop.current_issue_id,
+        iteration=loop.iteration,
+        recent_output=recent,
+    )
 
 
 # Separate router for non-project-scoped endpoints
 pricing_router = APIRouter(tags=["pricing"])
 
 
-@pricing_router.get("/api/pricing")
-async def get_pricing():
+@pricing_router.get("/api/pricing", response_model=PricingResponse)
+async def get_pricing() -> PricingResponse:
     """Return pricing config as JSON (values in dollars)."""
-    return {
-        "per_task": PRICE_PER_TASK // 100,
-        "max_free_projects": MAX_FREE_PROJECTS,
-        "pro_monthly": PRICE_PRO_MONTHLY // 100,
-    }
+    return PricingResponse(
+        per_task=PRICE_PER_TASK // 100,
+        max_free_projects=MAX_FREE_PROJECTS,
+        pro_monthly=PRICE_PRO_MONTHLY // 100,
+    )
