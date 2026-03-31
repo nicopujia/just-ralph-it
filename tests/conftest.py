@@ -32,13 +32,6 @@ from app.main import app
 # Configurable test GitHub account (env var or default)
 TEST_GITHUB_USER = os.environ.get("JRI_TEST_GITHUB_USER", "ralphpujia")
 
-TEST_ADMIN_USER = {
-    "github_id": 68409498,  # ralphpujia's GitHub ID (updated if different user)
-    "github_username": TEST_GITHUB_USER,
-    "github_token": "test-token-unused",  # gh CLI is used instead
-    "role": "admin",
-}
-
 
 def _check_gh_auth() -> None:
     """Verify gh CLI is authenticated as the test user. Exit if not."""
@@ -95,7 +88,7 @@ def _ensure_test_admin_exists() -> int:
         # Check if user already exists
         cursor = conn.execute(
             "SELECT id, role FROM users WHERE github_username = ?",
-            (TEST_ADMIN_USER["github_username"],),
+            (TEST_GITHUB_USER,),
         )
         row = cursor.fetchone()
         if row:
@@ -109,25 +102,21 @@ def _ensure_test_admin_exists() -> int:
                 conn.commit()
             return user_id
 
-        # Create user
+        # Create user with a unique github_id based on username hash
+        github_id = abs(hash(TEST_GITHUB_USER)) % 10**9
         conn.execute(
             """
             INSERT INTO users (github_id, github_username, github_token, role)
             VALUES (?, ?, ?, ?)
             """,
-            (
-                TEST_ADMIN_USER["github_id"],
-                TEST_ADMIN_USER["github_username"],
-                TEST_ADMIN_USER["github_token"],
-                TEST_ADMIN_USER["role"],
-            ),
+            (github_id, TEST_GITHUB_USER, "test-token-unused", "admin"),
         )
         conn.commit()
 
         # Get the inserted user id
         cursor = conn.execute(
             "SELECT id FROM users WHERE github_username = ?",
-            (TEST_ADMIN_USER["github_username"],),
+            (TEST_GITHUB_USER,),
         )
         return cursor.fetchone()[0]
     finally:
@@ -188,10 +177,10 @@ def test_server():
 
 @pytest.fixture(scope="session")
 def admin_user(test_server):
-    """Find the ralphpujia admin user by querying /auth/me.
+    """Find the test admin user by querying /auth/me.
 
     Returns dict with 'id', 'github_username', 'role', etc.
-    Skips the test session if ralphpujia user doesn't exist.
+    Skips if user doesn't exist.
     """
     base_url = test_server
 
@@ -204,12 +193,12 @@ def admin_user(test_server):
                 resp = c.get("/auth/me")
                 if resp.status_code == 200:
                     data = resp.json()
-                    if data.get("github_username") == "ralphpujia":
+                    if data.get("github_username") == TEST_GITHUB_USER:
                         return {"id": uid, **data}
         except Exception:
             continue
 
-    pytest.skip("ralphpujia user not found in database (checked IDs 1-50)")
+    pytest.skip(f"{TEST_GITHUB_USER} user not found in database (checked IDs 1-50)")
 
 
 @pytest.fixture
