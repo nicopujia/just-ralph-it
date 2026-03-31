@@ -3,7 +3,7 @@
 These tests verify BEHAVIOR, not implementation. If internals change but
 the API contract stays the same, these tests should still pass.
 
-Runs against localhost:8000 (the live service).
+Server is started automatically via pytest fixtures in conftest.py.
 """
 
 import os
@@ -20,12 +20,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from app.auth_utils import create_session_token
 from app.config import DATA_DIR, PRICE_PER_TASK
 
-BASE_URL = "http://localhost:8000"
 _created_projects: set[tuple[int, str]] = set()
 
 # User IDs — must exist in the database with the correct roles.
 # We look them up dynamically in the module-scoped fixture below.
 _user_cache: dict[str, dict] = {}
+_base_url: str = ""
 
 
 def _session_cookie(user_id: int) -> str:
@@ -34,7 +34,7 @@ def _session_cookie(user_id: int) -> str:
 
 def _api_client(user_id: int, **kwargs) -> httpx.Client:
     return httpx.Client(
-        base_url=BASE_URL,
+        base_url=_base_url,
         cookies={"session": _session_cookie(user_id)},
         timeout=30,
         **kwargs,
@@ -61,7 +61,7 @@ def _find_user_by_role(role: str) -> dict | None:
     for uid in range(1, 51):
         try:
             with httpx.Client(
-                base_url=BASE_URL,
+                base_url=_base_url,
                 cookies={"session": create_session_token(uid)},
                 timeout=5,
             ) as c:
@@ -77,6 +77,13 @@ def _find_user_by_role(role: str) -> dict | None:
         except Exception:
             continue
     return None
+
+
+@pytest.fixture(scope="module", autouse=True)
+def setup_base_url(test_server):
+    """Set the base URL from the test_server fixture."""
+    global _base_url
+    _base_url = test_server
 
 
 @pytest.fixture(scope="module")
