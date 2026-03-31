@@ -25,7 +25,6 @@ from app.auth_utils import create_session_token
 from app.config import DATA_DIR
 from app.main import app
 
-
 TEST_ADMIN_USER = {
     "github_id": 68409498,  # ralphpujia's actual GitHub ID
     "github_username": "ralphpujia",
@@ -37,7 +36,9 @@ TEST_ADMIN_USER = {
 def _init_test_db() -> None:
     """Initialize the database with schema (sync version of init_db)."""
     import asyncio
+
     from app.database import init_db
+
     asyncio.run(init_db())
 
 
@@ -146,10 +147,10 @@ def test_server():
 
 @pytest.fixture(scope="session")
 def admin_user(test_server):
-    """Find an admin user by querying /auth/me.
+    """Find the ralphpujia admin user by querying /auth/me.
 
     Returns dict with 'id', 'github_username', 'role', etc.
-    Skips the test session if no admin user exists.
+    Skips the test session if ralphpujia user doesn't exist.
     """
     base_url = test_server
 
@@ -162,12 +163,12 @@ def admin_user(test_server):
                 resp = c.get("/auth/me")
                 if resp.status_code == 200:
                     data = resp.json()
-                    if data.get("role") == "admin":
+                    if data.get("github_username") == "ralphpujia":
                         return {"id": uid, **data}
         except Exception:
             continue
 
-    pytest.skip("No admin user found in database (checked IDs 1-50)")
+    pytest.skip("ralphpujia user not found in database (checked IDs 1-50)")
 
 
 @pytest.fixture
