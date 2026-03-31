@@ -8,13 +8,19 @@ from pathlib import Path
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
-from pydantic import BaseModel
 from starlette.responses import StreamingResponse
 
 from app.auth_utils import get_current_user
 from app.config import DATA_DIR, RALPHY_MODEL
 from app.database import get_db
 from app.prompts import RALPHY_SYSTEM_PROMPT
+from app.schemas import (
+    ChatHistoryResponse,
+    ChatMessage,
+    ChatProcessingResponse,
+    ChatRequest,
+    User,
+)
 from app.sse_bus import sse_bus
 
 log = logging.getLogger(__name__)
@@ -39,16 +45,12 @@ MAX_FILE_SIZE = 3 * 1024 * 1024  # 3 MB
 MAX_ATTACHMENTS = 3
 
 
-class ChatRequest(BaseModel):
-    message: str
-
-
-async def _get_project_for_user(user: dict, project_name: str) -> dict:
+async def _get_project_for_user(user: User, project_name: str) -> dict:
     """Fetch a project row ensuring it belongs to the authenticated user."""
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT * FROM projects WHERE user_id = ? AND name = ?",
-            (user["id"], project_name),
+            (user.id, project_name),
         )
         row = await cursor.fetchone()
     if row is None:
@@ -511,11 +513,10 @@ async def _stream_opencode(
 async def chat(
     name: str,
     request: Request,
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
     project = await _get_project_for_user(user, name)
-    github_username: str = user["github_username"]
-    project_dir = str(DATA_DIR / github_username / name)
+    project_dir = str(DATA_DIR / user.github_username / name)
 
     content_type = request.headers.get("content-type", "")
 
@@ -570,13 +571,15 @@ async def chat(
     )
 
 
-@router.get("/{name}/chat/processing")
-async def chat_processing(name: str, user: dict = Depends(get_current_user)):
+@router.get("/{name}/chat/processing", response_model=ChatProcessingResponse)
+async def chat_processing(
+    name: str, user: User = Depends(get_current_user)
+) -> ChatProcessingResponse:
     """Check if Ralphy is currently processing for this project."""
     await _get_project_for_user(user, name)
     server = _opencode_servers.get(name)
     if not server:
-        return {"processing": False}
+        return ChatProcessingResponse(processing=False)
     # Check if any session is busy
     try:
         oc_sid = _active_sessions.get(name)
@@ -588,14 +591,18 @@ async def chat_processing(name: str, user: dict = Depends(get_current_user)):
                     s.get("sessionID") == oc_sid
                     and s.get("status", {}).get("type") == "busy"
                 ):
-                    return {"processing": True}
+                    return ChatProcessingResponse(processing=True)
     except Exception:
         pass
-    return {"processing": False}
+    return ChatProcessingResponse(processing=False)
 
 
-@router.get("/{name}/chat/history")
-async def get_chat_history(name: str, user: dict = Depends(get_current_user)):
+@router.get("/{name}/chat/history", response_model=ChatHistoryResponse)
+async def get_chat_history(
+    name: str, user: User = Depends(get_current_user)
+) -> ChatHistoryResponse:
     project = await _get_project_for_user(user, name)
     messages = await _load_chat_messages(project["id"])
-    return {"messages": messages}
+    return ChatHistoryResponse(
+        messages=[ChatMessage(**m) for m in messages]
+    )
