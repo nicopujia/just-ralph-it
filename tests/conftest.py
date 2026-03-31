@@ -27,9 +27,9 @@ from app.main import app
 
 
 TEST_ADMIN_USER = {
-    "github_id": 999999,
-    "github_username": "test-admin",
-    "github_token": "test-token-not-real",
+    "github_id": 68409498,  # ralphpujia's actual GitHub ID
+    "github_username": "ralphpujia",
+    "github_token": "test-token-unused",  # gh CLI is used instead
     "role": "admin",
 }
 
@@ -42,7 +42,7 @@ def _init_test_db() -> None:
 
 
 def _ensure_test_admin_exists() -> int:
-    """Ensure a test admin user exists in the database. Returns user id."""
+    """Ensure ralphpujia exists as admin in the database. Returns user id."""
     db_path = DATA_DIR / "jri.db"
 
     # Initialize the database schema first
@@ -50,16 +50,24 @@ def _ensure_test_admin_exists() -> int:
 
     conn = sqlite3.connect(db_path)
     try:
-        # Check if test admin already exists
+        # Check if user already exists
         cursor = conn.execute(
-            "SELECT id FROM users WHERE github_username = ?",
+            "SELECT id, role FROM users WHERE github_username = ?",
             (TEST_ADMIN_USER["github_username"],),
         )
         row = cursor.fetchone()
         if row:
-            return row[0]
+            user_id, role = row
+            # Ensure role is admin for testing
+            if role != "admin":
+                conn.execute(
+                    "UPDATE users SET role = 'admin' WHERE id = ?",
+                    (user_id,),
+                )
+                conn.commit()
+            return user_id
 
-        # Create test admin
+        # Create user
         conn.execute(
             """
             INSERT INTO users (github_id, github_username, github_token, role)
