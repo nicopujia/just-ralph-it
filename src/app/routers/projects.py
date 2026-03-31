@@ -464,7 +464,9 @@ async def list_projects(user: User = Depends(get_current_user)) -> list[ProjectS
 
 
 @router.get("/{name}/readme", response_model=ReadmeResponse)
-async def get_readme(name: str, user: User = Depends(get_current_user)) -> ReadmeResponse:
+async def get_readme(
+    name: str, user: User = Depends(get_current_user)
+) -> ReadmeResponse:
     # Verify project belongs to user
     async with get_db() as db:
         cursor = await db.execute(
@@ -514,7 +516,9 @@ async def update_env(
 
 
 @router.get("/{name}", response_model=ProjectDetail)
-async def get_project(name: str, user: User = Depends(get_current_user)) -> ProjectDetail:
+async def get_project(
+    name: str, user: User = Depends(get_current_user)
+) -> ProjectDetail:
     _check_maintenance()
 
     async with get_db() as db:

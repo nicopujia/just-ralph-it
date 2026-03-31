@@ -189,7 +189,9 @@ async def ralph_checkout(
     return RalphCheckoutResponse(free=False, redirect=checkout_session.url)
 
 
-@router.get("/{name}/ralph/payment-callback", response_model=RalphPaymentCallbackResponse)
+@router.get(
+    "/{name}/ralph/payment-callback", response_model=RalphPaymentCallbackResponse
+)
 async def ralph_payment_callback(
     name: str,
     session_id: str = Query(...),
