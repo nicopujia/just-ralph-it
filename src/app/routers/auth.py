@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from app.auth_utils import SESSION_MAX_AGE, create_session_token, get_current_user
 from app.config import BASE_URL, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET
 from app.database import get_db
+from app.schemas import UserPublic
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -145,10 +146,10 @@ async def impersonate(username: str, request: Request):
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
 
     is_admin = (
-        current_user.get("role") == "admin"
-        or current_user["github_username"] == ADMIN_USERNAME
+        current_user.role == "admin"
+        or current_user.github_username == ADMIN_USERNAME
     )
-    is_impersonating = current_user.get("impersonating_from") is not None
+    is_impersonating = current_user.impersonating_from is not None
 
     # Only allow if the real admin is logged in or currently impersonating
     if not is_admin and not is_impersonating:
@@ -159,7 +160,7 @@ async def impersonate(username: str, request: Request):
         async with get_db() as db:
             cursor = await db.execute(
                 "SELECT github_username FROM users WHERE id = ?",
-                (current_user["impersonating_from"],),
+                (current_user.impersonating_from,),
             )
             orig = await cursor.fetchone()
         if not orig or orig["github_username"] != ADMIN_USERNAME:
@@ -178,7 +179,7 @@ async def impersonate(username: str, request: Request):
 
     # Determine the real admin user id for the impersonating_from field
     admin_id = (
-        current_user["impersonating_from"] if is_impersonating else current_user["id"]
+        current_user.impersonating_from if is_impersonating else current_user.id
     )
 
     # If switching back to admin, clear the impersonating_from flag
@@ -199,16 +200,16 @@ async def impersonate(username: str, request: Request):
     return response
 
 
-@router.get("/me")
-async def me(request: Request):
+@router.get("/me", response_model=UserPublic)
+async def me(request: Request) -> UserPublic:
     try:
         user = await get_current_user(request)
     except Exception:
         return JSONResponse({"detail": "Not authenticated"}, status_code=401)
-    return {
-        "id": user["id"],
-        "github_username": user["github_username"],
-        "github_name": user["github_name"],
-        "github_avatar_url": user["github_avatar_url"],
-        "role": user.get("role", "user"),
-    }
+    return UserPublic(
+        id=user.id,
+        github_username=user.github_username,
+        github_name=user.github_name,
+        github_avatar_url=user.github_avatar_url,
+        role=user.role or "user",
+    )
