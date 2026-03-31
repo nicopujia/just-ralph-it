@@ -3,6 +3,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from app.config import SECRET_KEY
 from app.database import get_db
+from app.schemas import User
 
 SESSION_MAX_AGE = 30 * 24 * 60 * 60  # 30 days in seconds
 _serializer = URLSafeTimedSerializer(SECRET_KEY)
@@ -33,8 +34,8 @@ def decode_session_token(token: str) -> dict:
     return data
 
 
-async def get_current_user(request: Request) -> dict:
-    """Read session cookie, look up user in SQLite, return user dict.
+async def get_current_user(request: Request) -> User:
+    """Read session cookie, look up user in SQLite, return User model.
 
     Raises HTTPException(401) if the session is missing, expired,
     tampered with, or the user no longer exists.
@@ -57,7 +58,7 @@ async def get_current_user(request: Request) -> dict:
     if row is None:
         raise HTTPException(status_code=401, detail="User not found")
 
-    user = dict(row)
+    user_data = dict(row)
     if "ifrom" in session_data:
-        user["impersonating_from"] = session_data["ifrom"]
-    return user
+        user_data["impersonating_from"] = session_data["ifrom"]
+    return User(**user_data)
