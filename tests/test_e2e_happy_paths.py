@@ -22,15 +22,40 @@ from app.auth_utils import create_session_token
 from app.config import DATA_DIR, STRIPE_SECRET_KEY
 
 BASE_URL = "http://localhost:8000"
-TEST_USER_ID = 6  # ralphpujia -- must exist in the database with beta/free/admin role
 _created_projects: set[str] = set()
 
 stripe.api_key = STRIPE_SECRET_KEY
 
+# Test user (found dynamically at module load)
+_test_user: dict | None = None
+
+
+def _find_test_user() -> dict:
+    """Find a user with admin/beta/free role by querying /auth/me."""
+    global _test_user
+    if _test_user is not None:
+        return _test_user
+
+    for uid in range(1, 51):
+        token = create_session_token(uid)
+        try:
+            with httpx.Client(base_url=BASE_URL, cookies={"session": token}, timeout=5) as c:
+                resp = c.get("/auth/me")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    role = data.get("role", "user")
+                    if role in ("admin", "beta", "free"):
+                        _test_user = {"id": uid, **data}
+                        return _test_user
+        except Exception:
+            continue
+    raise RuntimeError("No admin/beta/free user found in database (checked IDs 1-50)")
+
 
 def _session_cookie() -> str:
     """Generate a valid session cookie for the test user."""
-    return create_session_token(TEST_USER_ID)
+    user = _find_test_user()
+    return create_session_token(user["id"])
 
 
 def _api_client(**kwargs) -> httpx.Client:
@@ -167,7 +192,9 @@ class TestAuthFlow:
             resp = c.get("/auth/me")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["github_username"] == "ralphpujia"  # TEST_USER_ID = 6
+        # Verify it matches the dynamically found test user
+        test_user = _find_test_user()
+        assert data["github_username"] == test_user["github_username"]
 
     def test_unauthenticated_projects_redirects(self, anon_page: Page):
         """Without session, /projects redirects to /."""

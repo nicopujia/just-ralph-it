@@ -5,7 +5,6 @@ import shutil
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import BaseModel
 
 from app import tasks
 from app.auth_utils import get_current_user
@@ -18,6 +17,21 @@ from app.config import (
 )
 from app.database import get_db
 from app.freelist import is_free_user
+from app.schemas import (
+    CreateProjectRequest,
+    DeployRequest,
+    DeployResponse,
+    DeployStopResponse,
+    EnvResponse,
+    EnvSavedResponse,
+    EnvUpdateRequest,
+    ProjectCreated,
+    ProjectDetail,
+    ProjectSummary,
+    ReadmeResponse,
+    Task,
+    User,
+)
 from app.whitelist import check_whitelist
 
 logger = logging.getLogger(__name__)
@@ -30,11 +44,6 @@ _NAME_RE = re.compile(r"^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$")
 def _check_maintenance():
     if MAINTENANCE_MODE:
         raise HTTPException(status_code=503, detail="Maintenance mode is active")
-
-
-class CreateProjectRequest(BaseModel):
-    name: str
-    description: str
 
 
 async def _run(
@@ -62,74 +71,70 @@ async def _run(
     return returncode, stdout.decode(), stderr.decode()
 
 
-async def _get_project_dir(name: str, user: dict) -> str:
+async def _get_project_dir(name: str, user: User) -> str:
     """Verify project belongs to user and return its directory path.
 
     Raises HTTPException(404) if the project doesn't exist or doesn't
     belong to the authenticated user.
     """
-    user_id: int = user["id"]
-    github_username: str = user["github_username"]
-
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT id FROM projects WHERE user_id = ? AND name = ?",
-            (user_id, name),
+            (user.id, name),
         )
         if not await cursor.fetchone():
             raise HTTPException(status_code=404, detail="Project not found")
 
-    project_dir = DATA_DIR / github_username / name
+    project_dir = DATA_DIR / user.github_username / name
     if not project_dir.is_dir():
         raise HTTPException(status_code=404, detail="Project directory not found")
 
     return str(project_dir)
 
 
-@router.get("/{name}/tasks")
+@router.get("/{name}/tasks", response_model=list[Task])
 async def list_tasks(
     name: str,
-    user: dict = Depends(get_current_user),
-):
+    user: User = Depends(get_current_user),
+) -> list[Task]:
     """List all tasks in a project."""
     cwd = await _get_project_dir(name, user)
-    return tasks.list_all(cwd)
+    return [Task(**t) for t in tasks.list_all(cwd)]
 
 
-@router.get("/{name}/tasks/{task_id}")
+@router.get("/{name}/tasks/{task_id}", response_model=Task)
 async def get_task(
     name: str,
     task_id: str,
-    user: dict = Depends(get_current_user),
-):
+    user: User = Depends(get_current_user),
+) -> Task:
     """Return full details for a single task."""
     cwd = await _get_project_dir(name, user)
     task = tasks.get_task(cwd, task_id)
     if task is None:
         raise HTTPException(status_code=404, detail="Task not found")
-    return task
+    return Task(**task)
 
 
-@router.post("")
+@router.post("", response_model=ProjectCreated)
 async def create_project(
     body: CreateProjectRequest,
-    user: dict = Depends(get_current_user),
-):
+    user: User = Depends(get_current_user),
+) -> ProjectCreated:
     _check_maintenance()
     name = body.name
-    user_id: int = user["id"]
 
     # Free-tier limit: 3 projects (unless freelist or subscribed pro)
     if not is_free_user(user):
         async with get_db() as db:
             cursor = await db.execute(
-                "SELECT COUNT(*) FROM projects WHERE user_id = ?", (user_id,)
+                "SELECT COUNT(*) FROM projects WHERE user_id = ?", (user.id,)
             )
             (count,) = await cursor.fetchone()
 
             # Check subscription plan
             cur2 = await db.execute(
-                "SELECT subscription_plan FROM users WHERE id = ?", (user_id,)
+                "SELECT subscription_plan FROM users WHERE id = ?", (user.id,)
             )
             row = await cur2.fetchone()
             plan = (
@@ -165,17 +170,15 @@ async def create_project(
     if not (1 <= len(name) <= 100) or not _NAME_RE.match(name):
         raise HTTPException(status_code=400, detail="Invalid project name")
 
-    github_username: str = user["github_username"]
-    user_name: str = user.get("github_name") or github_username
-    user_email: str = (
-        user.get("github_email") or f"{github_username}@users.noreply.github.com"
-    )
+    github_username = user.github_username
+    user_name = user.github_name or github_username
+    user_email = user.github_email or f"{github_username}@users.noreply.github.com"
 
     # Check uniqueness in DB
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT id FROM projects WHERE user_id = ? AND name = ?",
-            (user_id, name),
+            (user.id, name),
         )
         if await cursor.fetchone():
             raise HTTPException(status_code=409, detail="Project name already exists")
@@ -340,7 +343,7 @@ async def create_project(
                 break  # success
 
             # 9. Add user as collaborator (skip for admin and bot account)
-            if user.get("role") != "admin" and github_username != "ralphpujia":
+            if user.role != "admin" and github_username != "ralphpujia":
                 logger.info(
                     f"Creating project {name}: step 9"
                     f" - adding collaborator {github_username}"
@@ -385,7 +388,7 @@ async def create_project(
                 "INSERT INTO projects"
                 " (user_id, name, description, github_repo_url)"
                 " VALUES (?, ?, ?, ?)",
-                (user_id, name, description, github_repo_url),
+                (user.id, name, description, github_repo_url),
             )
             project_id = cursor.lastrowid
             deploy_port = 9000 + project_id
@@ -412,14 +415,14 @@ async def create_project(
         raise HTTPException(status_code=500, detail=str(exc))
 
     # 13. Return JSON
-    return {
-        "id": project_id,
-        "name": name,
-        "description": description,
-        "github_repo_url": github_repo_url,
-        "deploy_port": deploy_port,
-        "deploy_subdomain": deploy_subdomain,
-    }
+    return ProjectCreated(
+        id=project_id,
+        name=name,
+        description=description,
+        github_repo_url=github_repo_url,
+        deploy_port=deploy_port,
+        deploy_subdomain=deploy_subdomain,
+    )
 
 
 def _get_issue_count(project_dir: str) -> int:
@@ -429,105 +432,90 @@ def _get_issue_count(project_dir: str) -> int:
         return 0
 
 
-@router.get("")
-async def list_projects(user: dict = Depends(get_current_user)):
+@router.get("", response_model=list[ProjectSummary])
+async def list_projects(user: User = Depends(get_current_user)) -> list[ProjectSummary]:
     _check_maintenance()
-    user_id: int = user["id"]
-    github_username: str = user["github_username"]
 
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT id, name, description, github_repo_url,"
             " ralph_loop_status, created_at "
             "FROM projects WHERE user_id = ?",
-            (user_id,),
+            (user.id,),
         )
         rows = await cursor.fetchall()
 
     row_dicts = [dict(row) for row in rows]
-    project_dirs = [str(DATA_DIR / github_username / r["name"]) for r in row_dicts]
+    project_dirs = [str(DATA_DIR / user.github_username / r["name"]) for r in row_dicts]
     issue_counts = [_get_issue_count(d) for d in project_dirs]
 
     return [
-        {
-            "id": r["id"],
-            "name": r["name"],
-            "description": r["description"],
-            "github_repo_url": r["github_repo_url"],
-            "issue_count": count,
-            "ralph_loop_status": r["ralph_loop_status"],
-            "created_at": r["created_at"],
-        }
+        ProjectSummary(
+            id=r["id"],
+            name=r["name"],
+            description=r["description"],
+            github_repo_url=r["github_repo_url"],
+            issue_count=count,
+            ralph_loop_status=r["ralph_loop_status"],
+            created_at=r["created_at"],
+        )
         for r, count in zip(row_dicts, issue_counts)
     ]
 
 
-@router.get("/{name}/readme")
-async def get_readme(name: str, user: dict = Depends(get_current_user)):
-    github_username: str = user["github_username"]
-    user_id: int = user["id"]
-
+@router.get("/{name}/readme", response_model=ReadmeResponse)
+async def get_readme(name: str, user: User = Depends(get_current_user)) -> ReadmeResponse:
     # Verify project belongs to user
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT id FROM projects WHERE user_id = ? AND name = ?",
-            (user_id, name),
+            (user.id, name),
         )
         if not await cursor.fetchone():
             raise HTTPException(status_code=404, detail="Project not found")
 
-    readme_path = DATA_DIR / github_username / name / "README.md"
+    readme_path = DATA_DIR / user.github_username / name / "README.md"
 
     if not readme_path.exists():
-        return {"content": "", "exists": False}
+        return ReadmeResponse(content="", exists=False)
 
     content = readme_path.read_text()
-    return {"content": content, "exists": True}
+    return ReadmeResponse(content=content, exists=True)
 
 
-@router.get("/{name}/env")
-async def get_env(name: str, user: dict = Depends(get_current_user)):
-    user_id = user["id"]
-    github_username = user["github_username"]
+@router.get("/{name}/env", response_model=EnvResponse)
+async def get_env(name: str, user: User = Depends(get_current_user)) -> EnvResponse:
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT id FROM projects WHERE user_id = ? AND name = ?",
-            (user_id, name),
+            (user.id, name),
         )
         if not await cursor.fetchone():
             raise HTTPException(status_code=404, detail="Project not found")
-    env_path = DATA_DIR / github_username / name / ".env"
+    env_path = DATA_DIR / user.github_username / name / ".env"
     content = env_path.read_text() if env_path.exists() else ""
-    return {"content": content}
+    return EnvResponse(content=content)
 
 
-class EnvUpdateRequest(BaseModel):
-    content: str
-
-
-@router.put("/{name}/env")
+@router.put("/{name}/env", response_model=EnvSavedResponse)
 async def update_env(
-    name: str, body: EnvUpdateRequest, user: dict = Depends(get_current_user)
-):
-    user_id = user["id"]
-    github_username = user["github_username"]
+    name: str, body: EnvUpdateRequest, user: User = Depends(get_current_user)
+) -> EnvSavedResponse:
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT id FROM projects WHERE user_id = ? AND name = ?",
-            (user_id, name),
+            (user.id, name),
         )
         if not await cursor.fetchone():
             raise HTTPException(status_code=404, detail="Project not found")
-    env_path = DATA_DIR / github_username / name / ".env"
+    env_path = DATA_DIR / user.github_username / name / ".env"
     env_path.write_text(body.content)
-    return {"status": "saved"}
+    return EnvSavedResponse()
 
 
-@router.get("/{name}")
-async def get_project(name: str, user: dict = Depends(get_current_user)):
+@router.get("/{name}", response_model=ProjectDetail)
+async def get_project(name: str, user: User = Depends(get_current_user)) -> ProjectDetail:
     _check_maintenance()
-    user_id: int = user["id"]
-    github_username: str = user["github_username"]
 
     async with get_db() as db:
         cursor = await db.execute(
@@ -535,7 +523,7 @@ async def get_project(name: str, user: dict = Depends(get_current_user)):
             "ralph_loop_status, ralph_loop_current_issue, ralph_loop_iteration, "
             "deploy_type, deploy_port, deploy_status, deploy_subdomain, created_at "
             "FROM projects WHERE user_id = ? AND name = ?",
-            (user_id, name),
+            (user.id, name),
         )
         row = await cursor.fetchone()
 
@@ -543,46 +531,40 @@ async def get_project(name: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Project not found")
 
     row_dict = dict(row)
-    project_dir = str(DATA_DIR / github_username / row_dict["name"])
+    project_dir = str(DATA_DIR / user.github_username / row_dict["name"])
     issue_count = _get_issue_count(project_dir)
 
-    return {
-        "id": row_dict["id"],
-        "name": row_dict["name"],
-        "description": row_dict["description"],
-        "github_repo_url": row_dict["github_repo_url"],
-        "issue_count": issue_count,
-        "ralph_session_id": row_dict["ralph_session_id"],
-        "ralph_loop_status": row_dict["ralph_loop_status"],
-        "ralph_loop_current_issue": row_dict["ralph_loop_current_issue"],
-        "ralph_loop_iteration": row_dict["ralph_loop_iteration"],
-        "deploy_type": row_dict["deploy_type"],
-        "deploy_port": row_dict["deploy_port"],
-        "deploy_status": row_dict["deploy_status"],
-        "deploy_subdomain": row_dict["deploy_subdomain"],
-        "created_at": row_dict["created_at"],
-    }
+    return ProjectDetail(
+        id=row_dict["id"],
+        name=row_dict["name"],
+        description=row_dict["description"],
+        github_repo_url=row_dict["github_repo_url"],
+        issue_count=issue_count,
+        ralph_session_id=row_dict["ralph_session_id"],
+        ralph_loop_status=row_dict["ralph_loop_status"],
+        ralph_loop_current_issue=row_dict["ralph_loop_current_issue"],
+        ralph_loop_iteration=row_dict["ralph_loop_iteration"],
+        deploy_type=row_dict["deploy_type"],
+        deploy_port=row_dict["deploy_port"],
+        deploy_status=row_dict["deploy_status"],
+        deploy_subdomain=row_dict["deploy_subdomain"],
+        created_at=row_dict["created_at"],
+    )
 
 
-class DeployRequest(BaseModel):
-    start_command: str | None = None
-
-
-@router.post("/{name}/deploy")
+@router.post("/{name}/deploy", response_model=DeployResponse)
 async def deploy_project(
     name: str,
     body: DeployRequest,
-    user: dict = Depends(get_current_user),
-):
+    user: User = Depends(get_current_user),
+) -> DeployResponse:
     """Configure deployment for a project."""
-
-    user_id: int = user["id"]
 
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT id, deploy_port, deploy_subdomain"
             " FROM projects WHERE user_id = ? AND name = ?",
-            (user_id, name),
+            (user.id, name),
         )
         row = await cursor.fetchone()
         if row is None:
@@ -593,7 +575,7 @@ async def deploy_project(
         deploy_port = row_dict["deploy_port"] or (9000 + project_id)
         deploy_subdomain = (
             row_dict["deploy_subdomain"]
-            or f"{name.lower()}.{user['github_username'].lower()}"
+            or f"{name.lower()}.{user.github_username.lower()}"
         )
 
         await db.execute(
@@ -606,24 +588,22 @@ async def deploy_project(
         )
         await db.commit()
 
-    return {
-        "subdomain_url": f"https://{deploy_subdomain}.justralph.it",
-        "port": deploy_port,
-    }
+    return DeployResponse(
+        subdomain_url=f"https://{deploy_subdomain}.justralph.it",
+        port=deploy_port,
+    )
 
 
-@router.post("/{name}/deploy/stop")
+@router.post("/{name}/deploy/stop", response_model=DeployStopResponse)
 async def stop_deploy(
     name: str,
-    user: dict = Depends(get_current_user),
-):
+    user: User = Depends(get_current_user),
+) -> DeployStopResponse:
     """Stop deployment for a project."""
-    user_id: int = user["id"]
-
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT id FROM projects WHERE user_id = ? AND name = ?",
-            (user_id, name),
+            (user.id, name),
         )
         row = await cursor.fetchone()
         if row is None:
@@ -635,22 +615,19 @@ async def stop_deploy(
         )
         await db.commit()
 
-    return {"deploy_status": "stopped"}
+    return DeployStopResponse()
 
 
 @router.delete("/{name}", status_code=204)
 async def delete_project(
     name: str,
     delete_repo: bool = True,
-    user: dict = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    user_id: int = user["id"]
-    github_username: str = user["github_username"]
-
     async with get_db() as db:
         cursor = await db.execute(
             "SELECT id, ralph_loop_status FROM projects WHERE user_id = ? AND name = ?",
-            (user_id, name),
+            (user.id, name),
         )
         row = await cursor.fetchone()
 
@@ -673,7 +650,7 @@ async def delete_project(
         }
         async with httpx.AsyncClient() as client:
             resp = await client.delete(
-                f"https://api.github.com/repos/ralphpujia/{github_username}-{name}",
+                f"https://api.github.com/repos/ralphpujia/{user.github_username}-{name}",
                 headers=headers,
                 timeout=30,
             )
@@ -687,7 +664,7 @@ async def delete_project(
                 )
 
     # Delete project directory
-    project_dir = DATA_DIR / github_username / name
+    project_dir = DATA_DIR / user.github_username / name
     if project_dir.exists():
         shutil.rmtree(project_dir)
 

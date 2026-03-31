@@ -7,25 +7,52 @@ persistence across refresh, multi-turn), then cleans up.
 Uses localhost:8000 to bypass Cloudflare proxy issues with SSE.
 """
 
+import os
 import sys
 import time
 
-from itsdangerous import URLSafeTimedSerializer
 from playwright.sync_api import sync_playwright
+
+# Add src/ to path so we can import app modules
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+from app.auth_utils import create_session_token
 
 # ── Config ──────────────────────────────────────────────────────────
 BASE_URL = "http://127.0.0.1:8000"
-SECRET_KEY = "d9ba6a4a238a3115686b5bf8e763e571cfa7750ea3b652d23b12ced71e2c78e0"
-USER_ID = 30  # nicopujia
 PROJECT_NAME = "test-ttt4"
 PROJECT_DESC = "A simple tic tac toe game"
 SECOND_MSG = "Make it a 2 player game"
 
-_serializer = URLSafeTimedSerializer(SECRET_KEY)
-SESSION_TOKEN = _serializer.dumps({"uid": USER_ID})
+# Dynamically find a test user (admin or beta) via /auth/me
+SESSION_TOKEN: str | None = None
+USER_ID: int | None = None
 
 RALPHY_TIMEOUT = 300_000  # 5 min
 PAGE_TIMEOUT = 30_000
+
+
+def find_test_user() -> tuple[int, str]:
+    """Find a user with admin/beta/free role by querying /auth/me for user IDs 1-50.
+
+    Returns (user_id, session_token).
+    """
+    import httpx
+
+    for uid in range(1, 51):
+        token = create_session_token(uid)
+        try:
+            with httpx.Client(base_url=BASE_URL, cookies={"session": token}, timeout=5) as c:
+                resp = c.get("/auth/me")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    role = data.get("role", "user")
+                    if role in ("admin", "beta", "free"):
+                        print(f"[setup] Using user {data['github_username']} (id={uid}, role={role})")
+                        return uid, token
+        except Exception:
+            continue
+    raise RuntimeError("No admin/beta/free user found in database (checked IDs 1-50)")
 
 
 def cleanup_project(page):
@@ -100,6 +127,9 @@ def count_dom_messages(page):
 
 
 def run_test():
+    # Find a test user dynamically
+    user_id, session_token = find_test_user()
+
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context()
@@ -108,7 +138,7 @@ def run_test():
             [
                 {
                     "name": "session",
-                    "value": SESSION_TOKEN,
+                    "value": session_token,
                     "domain": "127.0.0.1",
                     "path": "/",
                     "httpOnly": True,
