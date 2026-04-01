@@ -5,3 +5,4 @@ __pycache__/
 .data/
 .jri/logs/
 .beads/
+.DS_Store
