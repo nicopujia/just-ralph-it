@@ -30,25 +30,9 @@ uv run pre-commit install
 uv run jri --help
 ```
 
-This repo is an installable Python package named `jri`.
-Its runtime source lives under `src/jri/`, and you can run it from the repo
-with either `uv run jri ...` or `uv run python -m jri ...`.
+The Python source lives under `src/jri/`.
 
-### Runtime configuration
-
-Use CLI arguments for runtime behavior.
-
-- `jri start --model <model>`: choose the OpenCode model for that Ralph run
-
-Example:
-
-```bash
-uv run jri start --model opencode/qwen3.6-plus-free
-```
-
-Agent definitions are written to `.opencode/agents/` during `jri init`.
-Their source templates live in `src/jri/prompts.py`. The dynamic per-task
-Ralph prompt is assembled in `src/jri/core/service.py`.
+For usage, architecture, and development workflow, see [docs/](./docs).
 
 ### Tests
 
@@ -56,13 +40,6 @@ Run the normal suite with:
 
 ```bash
 uv run pytest
-```
-
-The live OpenCode test is opt-in and controlled with pytest options rather than
-environment variables:
-
-```bash
-uv run pytest tests/live/test_live_opencode.py --run-live-opencode --opencode-model opencode/qwen3.6-plus-free
 ```
 
 ### Guidelines

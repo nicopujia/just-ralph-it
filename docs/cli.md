@@ -2,25 +2,15 @@
 
 Each section below represents a command for `jri <command>`.
 
-## Runtime configuration
-
-Use CLI arguments for runtime behavior.
-
-- `jri start --model <model>`: explicit model override for that run
-
 ## `init`
 
 Scaffold base structure for JRI; read more about the base structure [@docs/arch.md](./arch.md).
 
 Aborts with warning if already initialized.
-Automatically commits changes made with the command run as the message (e.g., `jri init`, `jri init -f`, etc.).
+Automatically commits only the files created or managed by initialization,
+using the command run as the message (e.g., `jri init`, `jri init -f`, etc.).
 It also writes agent definitions to `.opencode/agents/interrogator.md` and
 `.opencode/agents/ralph.md`.
-
-### Options
-
-- `<directory>`: Directory to initialize on. Default `.`
-- `--force, -f`: Delete and re-create the base structure.
 
 ## `chat`
 
@@ -54,12 +44,6 @@ Then, to solve it:
 
 When `--detached` is used, JRI tracks the loop and child-process metadata in
 `.jri/state.json` so `halt` can terminate the running loop later.
-
-### Options
-
-- `-n`: Define a limit of iterations to run.
-- `-d, --detached`: Run it in the background.
-- `-m, --model`: Choose the OpenCode model for this Ralph run.
 
 ## `reset`
 

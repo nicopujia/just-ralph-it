@@ -5,11 +5,11 @@ import subprocess
 import sys
 import textwrap
 import time
+from importlib.resources import files
 from pathlib import Path
 from types import FrameType
 from typing import Any
 
-from ..prompts import INTERROGATOR_AGENT, RALPH_AGENT
 from .errors import HaltRequested, JriError
 from .git import GitRepo
 from .models import State, Task
@@ -147,11 +147,11 @@ class JriService:
 
         self.paths.opencode_agents_dir.mkdir(parents=True, exist_ok=True)
         (self.paths.opencode_agents_dir / "interrogator.md").write_text(
-            INTERROGATOR_AGENT,
+            _load_prompt("interrogator.md"),
             encoding="utf-8",
         )
         (self.paths.opencode_agents_dir / "ralph.md").write_text(
-            RALPH_AGENT,
+            _load_prompt("ralph.md"),
             encoding="utf-8",
         )
 
@@ -349,3 +349,7 @@ def _build_ralph_prompt(task: Task) -> str:
         - When this task is complete, stop.
         """
     ).strip()
+
+
+def _load_prompt(name: str) -> str:
+    return files("jri.core.prompts").joinpath(name).read_text(encoding="utf-8")

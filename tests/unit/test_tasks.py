@@ -113,8 +113,10 @@ def test_validate_state_payload_allows_runtime_process_metadata() -> None:
 
 
 def test_packaged_schemas_are_available() -> None:
-    assert files("jri.schemas").joinpath("task-metadata.json").is_file()
-    assert files("jri.schemas").joinpath("state.json").is_file()
+    assert files("jri.core.schemas").joinpath("task-metadata.json").is_file()
+    assert files("jri.core.schemas").joinpath("state.json").is_file()
+    assert files("jri.core.prompts").joinpath("interrogator.md").is_file()
+    assert files("jri.core.prompts").joinpath("ralph.md").is_file()
 
 
 def test_parse_task_file_reads_frontmatter_and_body(tmp_path: Path) -> None:

@@ -12,7 +12,7 @@ from .models import Task, TaskMetadata
 
 @cache
 def _load_schema(name: str) -> dict[str, object]:
-    schema_path = files("jri.schemas").joinpath(name)
+    schema_path = files("jri.core.schemas").joinpath(name)
     payload = json.loads(schema_path.read_text(encoding="utf-8"))
     return cast(dict[str, object], payload)
 
