@@ -36,7 +36,7 @@ metadata, run `uv sync` again.
 
 ## Validation
 
-Typical checks:
+Typical checks (already enforced via Git hooks):
 
 ```bash
 uv run ruff check .
