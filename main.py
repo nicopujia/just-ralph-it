@@ -1,6 +1,5 @@
-def main():
-    print("Hello from justralph-it!")
+from jri.cli import main
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
