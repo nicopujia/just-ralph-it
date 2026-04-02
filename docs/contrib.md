@@ -26,11 +26,43 @@ uv run pre-commit install
 During development, run the CLI from the repo with:
 
 ```bash
+uv run jri --help
+```
+
+To run `jri` from anywhere on the system, install this repo as an editable uv
+tool from the repo root:
+
+```bash
+uv tool install -e .
+```
+
+Then you can use:
+
+```bash
 jri --help
 ```
 
-The project is installed in editable mode, so Python source changes under `src/jri/` are picked up immediately. 
-If you change dependencies or packaging metadata, run `uv sync` again.
+If your shell still cannot find `jri`, run:
+
+```bash
+uv tool update-shell
+```
+
+and restart the shell.
+
+With the editable tool install, source changes under `src/jri/` are picked up
+immediately. If you change dependencies or packaging metadata, reinstall the
+tool:
+
+```bash
+uv tool install -e --force .
+```
+
+To remove the system-wide command later:
+
+```bash
+uv tool uninstall jri
+```
 
 Typical checks (linter, formatter, and testing) are already enforced via Git hooks.
 The opt-in live OpenCode test can be run with:
