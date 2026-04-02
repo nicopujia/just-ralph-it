@@ -41,7 +41,7 @@ files used by runtime validation.
 
 ## Agents
 
-Their source templates live in `src/jri/core/prompts/`. `jri init` writes those
+Their source templates live in `src/jri/core/agents/`. `jri init` writes those
 templates into `.opencode/agents/` for the current project.
 The dynamic per-task Ralph user prompt is assembled in
 `src/jri/core/service.py`.

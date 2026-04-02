@@ -352,4 +352,4 @@ def _build_ralph_prompt(task: Task) -> str:
 
 
 def _load_prompt(name: str) -> str:
-    return files("jri.core.prompts").joinpath(name).read_text(encoding="utf-8")
+    return files("jri.core.agents").joinpath(name).read_text(encoding="utf-8")
