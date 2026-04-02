@@ -34,4 +34,6 @@ jri --help
 
 - Use `uv` for anything related to Python
 - Use mostly lowercase for commit messages, abbrs. encouraged
-- Code update = corresponding docs update, always
+- Code update = corresponding docs update
+- Follow TDD principles when writing code
+- Commit and push frequently
