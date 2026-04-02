@@ -35,5 +35,5 @@ package = true
 [tool.hatch.build.targets.wheel]
 packages = ["jri"]
 
-[tool.ruff]
+[tool.ruff.lint]
 select = ["E", "F", "B", "I", "UP"]
