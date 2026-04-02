@@ -98,11 +98,18 @@ class JriService:
         self.ensure_initialized()
         self.git.ensure_clean()
         self.git.checkout("main")
-        iteration_number = self.state_store.load().iteration_number
+        state = self.state_store.load()
+        iteration_number = state.iteration_number
         if iteration_number < 1:
             raise JriError("no successful iteration exists yet")
         self.git.reset_hard(f"jri/{iteration_number}")
-        self.state_store.save(State(iteration_number=iteration_number))
+        self.state_store.save(
+            State(
+                iteration_number=iteration_number,
+                finished_at=state.finished_at,
+                session=state.session,
+            )
+        )
 
     def ensure_initialized(self) -> None:
         self.git.ensure_repo()

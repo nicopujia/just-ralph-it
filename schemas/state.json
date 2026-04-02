@@ -23,6 +23,28 @@
     "session": {
       "type": "string",
       "description": "OpenCode session ID pointing to the current project's interrogation."
+    },
+    "process": {
+      "type": "object",
+      "description": "Ephemeral runtime information for a currently running Ralph loop.",
+      "properties": {
+        "loop_pid": {
+          "type": "integer",
+          "description": "PID of the active JRI loop process."
+        },
+        "child_pid": {
+          "type": ["integer", "null"],
+          "description": "PID of the currently running OpenCode subprocess, if any."
+        },
+        "log_path": {
+          "type": ["string", "null"],
+          "description": "Path to the current Ralph log file."
+        },
+        "detached": {
+          "type": "boolean",
+          "description": "Whether the loop was launched in detached mode."
+        }
+      }
     }
   }
 }

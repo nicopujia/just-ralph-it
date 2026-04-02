@@ -96,6 +96,20 @@ def test_validate_state_payload_rejects_negative_iteration() -> None:
         validate_state_payload({"iteration": {"number": -1}})
 
 
+def test_validate_state_payload_allows_runtime_process_metadata() -> None:
+    validate_state_payload(
+        {
+            "iteration": {"number": 1},
+            "process": {
+                "loop_pid": 123,
+                "child_pid": None,
+                "log_path": ".jri/logs/ralph/1.log",
+                "detached": True,
+            },
+        }
+    )
+
+
 def test_parse_task_file_reads_frontmatter_and_body(tmp_path: Path) -> None:
     task_path = tmp_path / "build-readme.md"
     task_path.write_text(

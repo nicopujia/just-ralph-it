@@ -40,6 +40,15 @@ STATE_SCHEMA: dict[str, object] = {
             },
         },
         "session": {"type": "string"},
+        "process": {
+            "type": "object",
+            "properties": {
+                "loop_pid": {"type": "integer"},
+                "child_pid": {"type": ["integer", "null"]},
+                "log_path": {"type": ["string", "null"]},
+                "detached": {"type": "boolean"},
+            },
+        },
     },
 }
 

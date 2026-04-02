@@ -118,6 +118,7 @@ def test_reset_returns_repo_to_last_successful_iteration(git_repo: Path) -> None
     git(git_repo, "commit", "-m", "add task")
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
     assert service.start(iterations=1) == 1
+    service.state_store.save_session("ses_interrogation")
 
     (git_repo / "extra.txt").write_text("later\n", encoding="utf-8")
     git(git_repo, "add", "extra.txt")
@@ -129,6 +130,8 @@ def test_reset_returns_repo_to_last_successful_iteration(git_repo: Path) -> None
     iteration = read_json(git_repo / ".jri" / "state.json")["iteration"]
     iteration_payload = cast(dict[str, object], iteration)
     assert iteration_payload["number"] == 1
+    assert read_json(git_repo / ".jri" / "state.json")["session"] == "ses_interrogation"
+    assert "finished_at" in iteration_payload
 
 
 def test_halt_terminates_tracked_process(git_repo: Path) -> None:
