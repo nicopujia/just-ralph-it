@@ -32,3 +32,4 @@ uv run pre-commit install
 ### Guidelines
 
 - Use `uv` for anything related to Python
+- Use mostly lowercase for commit messages, abbrs. encouraged
