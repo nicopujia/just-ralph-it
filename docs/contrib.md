@@ -64,7 +64,7 @@ To remove the system-wide command later:
 uv tool uninstall jri
 ```
 
-Typical checks (linter, formatter, and testing) are already enforced via Git hooks.
+Typical checks (linter, formatter, and testing) are already enforced via Git hooks (see [pre-commit config](../.pre-commit-config.yaml)).
 The opt-in live OpenCode test can be run with:
 
 ```bash
