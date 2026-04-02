@@ -57,9 +57,10 @@ The conversation is as long as it needs to be to cover every detail—it may eve
 The agent starts high-level, goes deeper as needed, creates draft tasks as soon as new information appears, and promotes work to `.jri/tasks/todo/` once it is implementation-ready.
 If a task still has open questions, it stays in `draft`; if it was promoted too early, it should be moved back to `draft` until clarified.
 It also commits persisted task progress as the interrogation evolves.
-Detailed operating rules live [@src/jri/core/agents/interrogator.md](../src/jri/core/agents/interrogator.md).
 
 Besides, if the user ever realizes that they actually want to pivot or discard the idea, that's not a failure scenario; it's rather the contrary.
+
+See prompt [@src/jri/core/agents/interrogator.md](../src/jri/core/agents/interrogator.md).
 
 Only one Interrogator is spawned per project.
 
@@ -73,6 +74,8 @@ It also acts as an orchestrator, spinning up to 100 subagents, rather than doing
 
 If Ralph truly cannot solve the task (e.g., if it requires human identification), it creates a new task assigned to `Human`, adds it as a dependency, and aborts, letting the next iteration continue with an unblocked task.
 Besides, if Ralph, while solving the current task, finds new ones (e.g., a bug which should be fixed), it creates them.
+
+See prompt [@src/jri/core/agents/ralph.md](../src/jri/core/agents/ralph.md).
 
 ---
 
