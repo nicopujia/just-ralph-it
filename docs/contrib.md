@@ -64,6 +64,6 @@ This produces a wheel and source distribution under `dist/`.
 - Use mostly lowercase for commit messages, abbrs. encouraged
 - Code update = corresponding docs update
 - Follow TDD principles when writing code
-- Commit and push frequently
+- Never write tests for docs
 - Maintain docs concise
 - Split markdown lines at sentence boundaries

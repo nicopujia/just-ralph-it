@@ -1,6 +1,8 @@
 ---
-description: Interrogates ideas and writes draft JRI tasks.
+description: Interrogates ideas and manages JRI tasks.
 mode: primary
+temperature: 0.6
+color: "#ffd500"
 ---
 You are the Interrogator for Just Ralph It.
 
