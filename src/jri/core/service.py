@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 import shutil
 import signal
@@ -31,9 +29,8 @@ class JriService:
         self.paths = JriPaths(self.root)
         self.git = GitRepo(self.root)
         self.state_store = StateStore(self.paths.state_path)
-        self.opencode_client = opencode_client or OpenCodeClient(
-            model=os.getenv("JRI_OPENCODE_MODEL")
-        )
+        self.opencode_client = opencode_client or OpenCodeClient()
+        self.default_model = os.getenv("JRI_OPENCODE_MODEL")
         self._halt_requested = False
 
     def init(self, *, force: bool, commit_message: str) -> None:
@@ -66,11 +63,24 @@ class JriService:
                 self.state_store.save_session(session_id)
         return returncode
 
-    def start(self, *, iterations: int | None = None, detached: bool = False) -> int:
+    def start(
+        self,
+        *,
+        iterations: int | None = None,
+        detached: bool = False,
+        model: str | None = None,
+    ) -> int:
         self.ensure_initialized()
+        resolved_model = model or self.default_model
         if detached:
-            return self._start_detached(iterations)
-        return self._run_loop(iterations)
+            return self._start_detached(iterations, resolved_model)
+
+        previous_model = self.opencode_client.model
+        self.opencode_client.model = resolved_model
+        try:
+            return self._run_loop(iterations)
+        finally:
+            self.opencode_client.model = previous_model
 
     def stop(self, reason: str | None = None) -> None:
         self.ensure_initialized()
@@ -142,7 +152,7 @@ class JriService:
             encoding="utf-8",
         )
 
-    def _start_detached(self, iterations: int | None) -> int:
+    def _start_detached(self, iterations: int | None, model: str | None) -> int:
         state = self.state_store.load()
         if state.process and state.process.loop_pid:
             raise JriError("a Ralph process is already tracked")
@@ -150,6 +160,8 @@ class JriService:
         command = [sys.executable, "-m", "jri", "start"]
         if iterations is not None:
             command.extend(["-n", str(iterations)])
+        if model is not None:
+            command.extend(["--model", model])
 
         log_path = self.paths.ralph_log_path(
             self.state_store.load().iteration_number + 1, int(time.time())

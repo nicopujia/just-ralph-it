@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import argparse
 import sys
 from pathlib import Path
@@ -29,7 +27,11 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
             case "start":
                 return (
                     0
-                    if service.start(iterations=args.iterations, detached=args.detached)
+                    if service.start(
+                        iterations=args.iterations,
+                        detached=args.detached,
+                        model=args.model,
+                    )
                     >= 0
                     else 1
                 )
@@ -63,6 +65,7 @@ def _build_parser() -> argparse.ArgumentParser:
     start_parser = subparsers.add_parser("start")
     start_parser.add_argument("-n", "--iterations", type=int)
     start_parser.add_argument("-d", "--detached", action="store_true")
+    start_parser.add_argument("-m", "--model")
 
     stop_parser = subparsers.add_parser("stop")
     stop_parser.add_argument("reason", nargs="?")

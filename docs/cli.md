@@ -4,11 +4,12 @@ Each section below represents a command for `jri <command>`.
 
 ## Runtime configuration
 
-`jri` reads configuration from the process environment only; it does not load
-`.env` files automatically.
+Prefer CLI arguments for per-run behavior. `jri` also reads fallback
+configuration from the process environment, and it does not load `.env` files
+automatically.
 
-- `JRI_OPENCODE_MODEL`: optional model override for Ralph runs triggered by
-  `jri start`
+- `jri start --model <model>`: explicit model override for that run
+- `JRI_OPENCODE_MODEL`: fallback model override when `--model` is not provided
 
 ## `init`
 
@@ -58,6 +59,7 @@ Then, to solve it:
 
 - `-n`: Define a limit of iterations to run.
 - `-d, --detached`: Run it in the background.
+- `-m, --model`: Choose the OpenCode model for this Ralph run.
 
 ## `reset`
 

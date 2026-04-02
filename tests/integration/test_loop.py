@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 import signal
 import subprocess
@@ -17,6 +15,7 @@ class SuccessfulFakeOpenCodeClient(OpenCodeClient):
     def __init__(self) -> None:
         super().__init__(model=None)
         self.calls: list[tuple[str, Path]] = []
+        self.models_used: list[str | None] = []
 
     def run_ralph_task(
         self,
@@ -27,12 +26,37 @@ class SuccessfulFakeOpenCodeClient(OpenCodeClient):
         on_start: object | None = None,
     ) -> OpenCodeRunResult:
         self.calls.append((prompt, log_path))
+        self.models_used.append(self.model)
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
         return OpenCodeRunResult(returncode=0, session_id="ses_fake")
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
+
+
+def test_start_uses_explicit_model_override(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    client = SuccessfulFakeOpenCodeClient()
+    service = JriService(git_repo, opencode_client=client)
+
+    completed = service.start(iterations=1, model="opencode/qwen3.6-plus-free")
+
+    assert completed == 1
+    assert client.models_used == ["opencode/qwen3.6-plus-free"]
+    assert client.model is None
 
 
 def test_start_completes_single_iteration(git_repo: Path) -> None:

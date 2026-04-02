@@ -32,19 +32,23 @@ jri --help
 
 ### Runtime configuration
 
-`jri` reads configuration from the process environment only. It does not load
-`.env` files automatically.
+Prefer CLI arguments for per-run behavior.
+`jri` can also read fallback configuration from the process environment, but it
+does not load `.env` files automatically.
 
-Runtime variables:
+Preferred CLI option:
+
+- `jri start --model <model>`: choose the OpenCode model for that Ralph run
+
+Fallback environment variable:
 
 - `JRI_OPENCODE_MODEL`: optional model override for Ralph runs started via
-  `jri start`
+  `jri start` when `--model` is not provided
 
 Example:
 
 ```bash
-export JRI_OPENCODE_MODEL=opencode/qwen3.6-plus-free
-jri start
+uv run jri start --model opencode/qwen3.6-plus-free
 ```
 
 Agent definitions are written to `.opencode/agents/` during `jri init`.
@@ -58,3 +62,4 @@ Ralph prompt is assembled in `src/jri/core/service.py`.
 - Code update = corresponding docs update
 - Follow TDD principles when writing code
 - Commit and push frequently
+- Maintain docs concise

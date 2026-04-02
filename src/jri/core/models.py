@@ -1,8 +1,6 @@
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, cast
+from typing import Literal, Self, cast
 
 Assignee = Literal["Ralph", "Human"]
 
@@ -66,7 +64,7 @@ class State:
         return payload
 
     @classmethod
-    def from_payload(cls, payload: dict[str, object]) -> State:
+    def from_payload(cls, payload: dict[str, object]) -> Self:
         iteration_raw = payload.get("iteration", {})
         iteration_payload = cast(
             dict[str, object], iteration_raw if isinstance(iteration_raw, dict) else {}
