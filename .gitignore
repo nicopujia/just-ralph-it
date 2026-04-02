@@ -1,3 +1,7 @@
+.env*
 .DS_Store
 __pycache__/
 .pytest_cache/
+.venv/
+dist/
+.ruff_cache/
