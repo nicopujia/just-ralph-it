@@ -54,6 +54,10 @@ class JriPaths:
     def opencode_agents_dir(self) -> Path:
         return self.root / ".opencode" / "agents"
 
+    @property
+    def readme(self) -> Path:
+        return self.root / "README.md"
+
     def task_path(self, status: str, slug: str) -> Path:
         return self.task_dir(status) / f"{slug}.md"
 

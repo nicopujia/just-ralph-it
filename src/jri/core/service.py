@@ -143,6 +143,7 @@ class JriService:
         self.paths.gitignore_path.write_text(
             "logs/\nsignals/\nstate.json\n", encoding="utf-8"
         )
+        self.paths.readme.write_text("")
         self.state_store.initialize()
 
         self.paths.opencode_agents_dir.mkdir(parents=True, exist_ok=True)
