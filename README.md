@@ -1,5 +1,7 @@
-# Just Ralph It
+# Just Ralph It (JRI)
 
-- [Docs](./docs)
-- [Concept](https://nicolaspujia.com/ralph)
-- [Original article about the Ralph Wiggum technique, by Geoffrey Huntley](https://ghuntley.com/ralph)
+> The proper tool around the Ralph Wiggum technique.
+
+- [Original article about the Ralph technique](https://ghuntley.com/ralph), by [Geoffrey Huntley](https://x.com/GeoffreyHuntley)
+- [Original JRI concept](https://nicolaspujia.com/ralph)
+- [Repo docs](./docs)
