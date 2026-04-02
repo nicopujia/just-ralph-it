@@ -17,52 +17,26 @@ Recommended:
 
 ### Development
 
-Set up the local environment with:
+Set up the local environment:
 
 ```bash
 uv sync
 uv run pre-commit install
-```
-
-During development, run the CLI from the repo with:
-
-```bash
 uv run jri --help
 ```
 
-To run `jri` from anywhere on the system, install this repo as an editable uv
-tool from the repo root:
+Or install system-wide (editable):
 
 ```bash
 uv tool install -e .
-```
-
-Then you can use:
-
-```bash
+uv tool update-shell # if 'jri' not found, restart shell
 jri --help
+
+uv tool install -e --force .    # reinstall after dependency changes
+uv tool uninstall jri           # remove later
 ```
 
-If your shell still cannot find `jri`, run:
-
-```bash
-uv tool update-shell
-```
-
-and restart the shell.
-
-With the editable tool install, source changes under `src/jri/` are picked up immediately.
-If you change dependencies or packaging metadata, reinstall the tool:
-
-```bash
-uv tool install -e --force .
-```
-
-To remove the system-wide command later:
-
-```bash
-uv tool uninstall jri
-```
+Source changes under `src/jri/` are picked up immediately with the editable install.
 
 Typical checks (linter, formatter, and testing) are already enforced via Git hooks (see [pre-commit config](../.pre-commit-config.yaml)).
 The opt-in live OpenCode test can be run with:
