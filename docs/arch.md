@@ -85,3 +85,10 @@ Likewise, the user never interacts directly with Ralph, only with Interrogator.
 ```
 User <-> Interrogator <-> Tasks <-> Ralph
 ```
+
+## Clients
+
+Clients are the different ways the user has to interact with these agents. 
+
+For now, there's only one client, the CLI (`jri`), and the way to see the tasks is to open the files in an editor.
+In the future, there will be a hosted web app.
