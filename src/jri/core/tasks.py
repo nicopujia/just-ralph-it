@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from functools import cache
+from importlib.resources import files
 from pathlib import Path
 from typing import Any, cast
 
@@ -9,53 +11,22 @@ from jsonschema import Draft202012Validator
 
 from .models import Task, TaskMetadata
 
-TASK_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "required": ["title", "priority", "assignee"],
-    "properties": {
-        "title": {"type": "string", "maxLength": 50},
-        "priority": {"type": "integer", "minimum": 0, "maximum": 4},
-        "assignee": {"type": "string", "enum": ["Ralph", "Human"]},
-        "depends_on": {
-            "type": "array",
-            "uniqueItems": True,
-            "items": {"type": "string"},
-        },
-        "acceptance_criteria": {
-            "type": "array",
-            "items": {"type": "string"},
-        },
-    },
-}
 
-STATE_SCHEMA: dict[str, object] = {
-    "type": "object",
-    "properties": {
-        "iteration": {
-            "type": "object",
-            "properties": {
-                "number": {"type": "integer", "minimum": 0},
-                "started_at": {"type": "integer"},
-                "finished_at": {"type": "integer"},
-            },
-        },
-        "session": {"type": "string"},
-        "process": {
-            "type": "object",
-            "properties": {
-                "loop_pid": {"type": "integer"},
-                "child_pid": {"type": ["integer", "null"]},
-                "log_path": {"type": ["string", "null"]},
-                "detached": {"type": "boolean"},
-            },
-        },
-    },
-}
+@cache
+def _load_schema(name: str) -> dict[str, object]:
+    schema_path = files("jri.schemas").joinpath(name)
+    payload = json.loads(schema_path.read_text(encoding="utf-8"))
+    return cast(dict[str, object], payload)
+
+
+@cache
+def _validator(name: str) -> Any:
+    return Draft202012Validator(_load_schema(name))
 
 
 def validate_task_metadata(payload: dict[str, object]) -> TaskMetadata:
     errors = sorted(
-        Draft202012Validator(TASK_SCHEMA).iter_errors(payload),
+        _validator("task-metadata.json").iter_errors(payload),
         key=lambda error: error.path,
     )
     if errors:
@@ -83,7 +54,7 @@ def validate_task_metadata(payload: dict[str, object]) -> TaskMetadata:
 
 def validate_state_payload(payload: dict[str, object]) -> None:
     errors = sorted(
-        Draft202012Validator(STATE_SCHEMA).iter_errors(payload),
+        _validator("state.json").iter_errors(payload),
         key=lambda error: error.path,
     )
     if errors:

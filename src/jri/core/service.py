@@ -11,6 +11,7 @@ from pathlib import Path
 from types import FrameType
 from typing import Any
 
+from ..prompts import INTERROGATOR_AGENT, RALPH_AGENT
 from .errors import HaltRequested, JriError
 from .git import GitRepo
 from .models import State, Task
@@ -133,10 +134,12 @@ class JriService:
 
         self.paths.opencode_agents_dir.mkdir(parents=True, exist_ok=True)
         (self.paths.opencode_agents_dir / "interrogator.md").write_text(
-            _interrogator_agent(), encoding="utf-8"
+            INTERROGATOR_AGENT,
+            encoding="utf-8",
         )
         (self.paths.opencode_agents_dir / "ralph.md").write_text(
-            _ralph_agent(), encoding="utf-8"
+            RALPH_AGENT,
+            encoding="utf-8",
         )
 
     def _start_detached(self, iterations: int | None) -> int:
@@ -331,47 +334,3 @@ def _build_ralph_prompt(task: Task) -> str:
         - When this task is complete, stop.
         """
     ).strip()
-
-
-def _interrogator_agent() -> str:
-    return (
-        textwrap.dedent(
-            """
-        ---
-        description: Interrogates ideas and writes draft JRI tasks.
-        mode: primary
-        ---
-        You are the Interrogator for Just Ralph It.
-
-        Ask many high-signal questions before proposing implementation work.
-        Convert the user's clarified intent into markdown tasks under
-        `.jri/tasks/draft/`.
-        Never invent requirements the user did not agree with.
-        Once the draft tasks make up a coherent, implementation-ready set,
-        promote them to `.jri/tasks/todo/`.
-        """
-        ).strip()
-        + "\n"
-    )
-
-
-def _ralph_agent() -> str:
-    return (
-        textwrap.dedent(
-            """
-        ---
-        description: Solves a single JRI task autonomously.
-        mode: primary
-        ---
-        You are Ralph for Just Ralph It.
-
-        Solve only the task injected into the user message.
-        Search before assuming something is missing.
-        Use up to 100 subagents when useful.
-        Test the software carefully and commit meaningful progress.
-        If you hit a human-only blocker, create a draft task assigned to Human and stop.
-        If you discover useful follow-up work, write new draft tasks.
-        """
-        ).strip()
-        + "\n"
-    )

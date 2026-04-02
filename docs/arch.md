@@ -30,9 +30,13 @@ signals/
 state.json
 ```
 
-See [@schemas/](../schemas) to understand the exact spec for each file.
+See [@src/jri/schemas/](../src/jri/schemas) to understand the exact schema
+files used by runtime validation.
 
 ## Agents
+
+Their source templates live in `src/jri/prompts.py`. `jri init` writes those
+templates into `.opencode/agents/` for the current project.
 
 There are two agents:
 

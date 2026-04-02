@@ -2,12 +2,22 @@
 
 Each section below represents a command for `jri <command>`.
 
+## Runtime configuration
+
+`jri` reads configuration from the process environment only; it does not load
+`.env` files automatically.
+
+- `JRI_OPENCODE_MODEL`: optional model override for Ralph runs triggered by
+  `jri start`
+
 ## `init`
 
 Scaffold base structure for JRI; read more about the base structure [@docs/arch.md](./arch.md).
 
 Aborts with warning if already initialized.
 Automatically commits changes made with the command run as the message (e.g., `jri init`, `jri init -f`, etc.).
+It also writes agent definitions to `.opencode/agents/interrogator.md` and
+`.opencode/agents/ralph.md`.
 
 ### Options
 

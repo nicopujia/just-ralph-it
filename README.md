@@ -30,6 +30,27 @@ uv run pre-commit install
 jri --help
 ```
 
+### Runtime configuration
+
+`jri` reads configuration from the process environment only. It does not load
+`.env` files automatically.
+
+Runtime variables:
+
+- `JRI_OPENCODE_MODEL`: optional model override for Ralph runs started via
+  `jri start`
+
+Example:
+
+```bash
+export JRI_OPENCODE_MODEL=opencode/qwen3.6-plus-free
+jri start
+```
+
+Agent definitions are written to `.opencode/agents/` during `jri init`.
+Their source templates live in `src/jri/prompts.py`. The dynamic per-task
+Ralph prompt is assembled in `src/jri/core/service.py`.
+
 ### Guidelines
 
 - Use `uv` for anything related to Python

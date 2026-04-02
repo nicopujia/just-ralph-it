@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib.resources import files
 from pathlib import Path
 from typing import Literal
 
@@ -58,6 +59,9 @@ def test_select_next_task_rejects_existing_doing_tasks() -> None:
 
 def test_validate_task_metadata_rejects_invalid_values() -> None:
     with pytest.raises(ValueError, match="assignee"):
+        validate_task_metadata({"title": "Bad task", "priority": 1})
+
+    with pytest.raises(ValueError, match="assignee"):
         validate_task_metadata(
             {
                 "title": "Bad task",
@@ -108,6 +112,11 @@ def test_validate_state_payload_allows_runtime_process_metadata() -> None:
             },
         }
     )
+
+
+def test_packaged_schemas_are_available() -> None:
+    assert files("jri.schemas").joinpath("task-metadata.json").is_file()
+    assert files("jri.schemas").joinpath("state.json").is_file()
 
 
 def test_parse_task_file_reads_frontmatter_and_body(tmp_path: Path) -> None:
