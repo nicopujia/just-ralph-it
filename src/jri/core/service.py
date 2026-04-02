@@ -30,7 +30,6 @@ class JriService:
         self.git = GitRepo(self.root)
         self.state_store = StateStore(self.paths.state_path)
         self.opencode_client = opencode_client or OpenCodeClient()
-        self.default_model = os.getenv("JRI_OPENCODE_MODEL")
         self._halt_requested = False
 
     def init(self, *, force: bool, commit_message: str) -> None:
@@ -71,12 +70,11 @@ class JriService:
         model: str | None = None,
     ) -> int:
         self.ensure_initialized()
-        resolved_model = model or self.default_model
         if detached:
-            return self._start_detached(iterations, resolved_model)
+            return self._start_detached(iterations, model)
 
         previous_model = self.opencode_client.model
-        self.opencode_client.model = resolved_model
+        self.opencode_client.model = model
         try:
             return self._run_loop(iterations)
         finally:

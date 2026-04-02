@@ -4,12 +4,9 @@ Each section below represents a command for `jri <command>`.
 
 ## Runtime configuration
 
-Prefer CLI arguments for per-run behavior. `jri` also reads fallback
-configuration from the process environment, and it does not load `.env` files
-automatically.
+Use CLI arguments for runtime behavior.
 
 - `jri start --model <model>`: explicit model override for that run
-- `JRI_OPENCODE_MODEL`: fallback model override when `--model` is not provided
 
 ## `init`
 
@@ -55,6 +52,9 @@ Then, to solve it:
 7. Changes are pushed to remote, if any.
 8. Repeat
 
+When `--detached` is used, JRI tracks the loop and child-process metadata in
+`.jri/state.json` so `halt` can terminate the running loop later.
+
 ### Options
 
 - `-n`: Define a limit of iterations to run.
@@ -71,4 +71,5 @@ Gracefully stop Ralph at the end of the current iteration by creating a `stop` s
 
 ## `halt`
 
-Force Ralph to stop as if it crashed.
+Force Ralph to stop as if it crashed by using the tracked process metadata in
+`.jri/state.json`.

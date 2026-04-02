@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 
 import pytest
@@ -11,9 +10,13 @@ from tests.helpers import git, write_task
 pytestmark = pytest.mark.live
 
 
-def test_start_with_real_opencode_completes_trivial_task(git_repo: Path) -> None:
-    if os.getenv("JRI_RUN_LIVE_OPENCODE") != "1":
-        pytest.skip("set JRI_RUN_LIVE_OPENCODE=1 to enable live OpenCode tests")
+def test_start_with_real_opencode_completes_trivial_task(
+    git_repo: Path,
+    run_live_opencode: bool,
+    opencode_model: str,
+) -> None:
+    if not run_live_opencode:
+        pytest.skip("pass --run-live-opencode to enable live OpenCode tests")
 
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
@@ -37,9 +40,7 @@ def test_start_with_real_opencode_completes_trivial_task(git_repo: Path) -> None
 
     service = JriService(
         git_repo,
-        opencode_client=OpenCodeClient(
-            model=os.getenv("JRI_TEST_MODEL", "opencode/qwen3.6-plus-free")
-        ),
+        opencode_client=OpenCodeClient(model=opencode_model),
     )
 
     completed = service.start(iterations=1)

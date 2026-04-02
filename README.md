@@ -27,23 +27,18 @@ Recommended:
 ```bash
 uv sync
 uv run pre-commit install
-jri --help
+uv run jri --help
 ```
+
+This repo is an installable Python package named `jri`.
+Its runtime source lives under `src/jri/`, and you can run it from the repo
+with either `uv run jri ...` or `uv run python -m jri ...`.
 
 ### Runtime configuration
 
-Prefer CLI arguments for per-run behavior.
-`jri` can also read fallback configuration from the process environment, but it
-does not load `.env` files automatically.
-
-Preferred CLI option:
+Use CLI arguments for runtime behavior.
 
 - `jri start --model <model>`: choose the OpenCode model for that Ralph run
-
-Fallback environment variable:
-
-- `JRI_OPENCODE_MODEL`: optional model override for Ralph runs started via
-  `jri start` when `--model` is not provided
 
 Example:
 
@@ -54,6 +49,21 @@ uv run jri start --model opencode/qwen3.6-plus-free
 Agent definitions are written to `.opencode/agents/` during `jri init`.
 Their source templates live in `src/jri/prompts.py`. The dynamic per-task
 Ralph prompt is assembled in `src/jri/core/service.py`.
+
+### Tests
+
+Run the normal suite with:
+
+```bash
+uv run pytest
+```
+
+The live OpenCode test is opt-in and controlled with pytest options rather than
+environment variables:
+
+```bash
+uv run pytest tests/live/test_live_opencode.py --run-live-opencode --opencode-model opencode/qwen3.6-plus-free
+```
 
 ### Guidelines
 

@@ -20,7 +20,9 @@ Every project is initialized with the same base structure:
 - **Tasks** are markdown files whose frontmatter is the metadata and the body is the description.
 - **Signals** are files that, if present, tell the loop what to do, and whose optional contents indicate the reason which will be logged.
   - `stop`: makes the loop stop at the end of the current iteration. It is deleted after that or when a loop starts.
-- **Logs** contain absolutely everything that happens related to JRI. If anything is logged outside the repo (e.g., OpenCode sessions, etc.), they're symlinked under `.jri/logs/external/<external-source>/`.
+- **Logs** contain absolutely everything that happens related to JRI. OpenCode
+  session exports are written under
+  `.jri/logs/external/opencode/<session-id>.json`.
 
 The following are `.gitignore`d:
 
@@ -33,10 +35,16 @@ state.json
 See [@src/jri/schemas/](../src/jri/schemas) to understand the exact schema
 files used by runtime validation.
 
+- `task-metadata.json` validates task markdown frontmatter.
+- `state.json` validates `.jri/state.json`, including ephemeral process-tracking
+  fields used by detached runs and `halt`.
+
 ## Agents
 
 Their source templates live in `src/jri/prompts.py`. `jri init` writes those
 templates into `.opencode/agents/` for the current project.
+The dynamic per-task Ralph user prompt is assembled in
+`src/jri/core/service.py`.
 
 There are two agents:
 
