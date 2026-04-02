@@ -1,7 +1,7 @@
 [project]
 name = "jri"
 version = "0.1.0"
-description = "CLI for running the Just Ralph It workflow"
+description = "Just Ralph It: the proper tool around the Ralph Wiggum technique."
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
