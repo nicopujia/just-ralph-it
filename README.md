@@ -27,6 +27,7 @@ Recommended:
 ```bash
 uv sync
 uv run pre-commit install
+jri --help
 ```
 
 ### Guidelines
