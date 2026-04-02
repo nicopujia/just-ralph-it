@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from jri.opencode import OpenCodeClient
-from jri.service import JriService
+from jri.core.opencode import OpenCodeClient
+from jri.core.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git, write_task
 

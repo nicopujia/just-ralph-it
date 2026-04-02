@@ -4,8 +4,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from .errors import JriError
-from .service import JriService
+from ..core.errors import JriError
+from ..core.service import JriService
 
 
 def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:

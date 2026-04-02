@@ -5,8 +5,8 @@ from typing import Literal
 
 import pytest
 
-from jri.models import Task, TaskMetadata
-from jri.tasks import (
+from jri.core.models import Task, TaskMetadata
+from jri.core.tasks import (
     parse_task_file,
     select_next_task,
     validate_state_payload,

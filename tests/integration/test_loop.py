@@ -6,9 +6,9 @@ import subprocess
 from pathlib import Path
 from typing import cast
 
-from jri.models import OpenCodeRunResult
-from jri.opencode import OpenCodeClient
-from jri.service import JriService
+from jri.core.models import OpenCodeRunResult
+from jri.core.opencode import OpenCodeClient
+from jri.core.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git, read_json, write_task
 
