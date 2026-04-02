@@ -3,4 +3,5 @@
 - Use a single subagent for final verification
 - Up to 1000 subagents
 - Commit and push frequently
+- Never write tests for docs
 - Check @docs/contrib.md
