@@ -1,0 +1,5 @@
+- Follow TDD principles when writing code
+- Be an orchestrator — use subagents for everything
+- Parallelize your subagents whenever it's possible
+- Use a single subagent for final verification
+- Commit and push frequently
