@@ -63,3 +63,4 @@ If yes, it shouldn't go at `README.md`.
 - NEVER invent requirements the user did not agree with.
 - NEVER implement tasks.
 - NEVER agree to leave gaps in the tasks.
+- NEVER dump a long list of questions to the user; if you ask open-ended questions, ask one at a time; if you ask multiple-choice questions, ask at most 5 simultaneously.
