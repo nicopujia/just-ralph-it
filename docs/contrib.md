@@ -12,7 +12,8 @@ Mandatory:
 
 Recommended:
 
-- VPS or [Docker](https://docs.docker.com/get-started/get-docker/). VPS is preferred if you want to give as much power as possible to Ralph.
+- VPS or [Docker](https://docs.docker.com/get-started/get-docker/).
+  VPS is preferred if you want to give as much power as possible to Ralph.
 
 ### Development
 
@@ -50,9 +51,8 @@ uv tool update-shell
 
 and restart the shell.
 
-With the editable tool install, source changes under `src/jri/` are picked up
-immediately. If you change dependencies or packaging metadata, reinstall the
-tool:
+With the editable tool install, source changes under `src/jri/` are picked up immediately.
+If you change dependencies or packaging metadata, reinstall the tool:
 
 ```bash
 uv tool install -e --force .
@@ -71,7 +71,8 @@ The opt-in live OpenCode test can be run with:
 uv run pytest tests/live/test_live_opencode.py --run-live-opencode --opencode-model opencode/qwen3.6-plus-free
 ```
 
-You can specify any available model you want. I recommend using the [free models from OpenCode Zen](https://opencode.ai/docs/zen/#pricing).
+You can specify any available model you want.
+I recommend using the [free models from OpenCode Zen](https://opencode.ai/docs/zen/#pricing).
 
 ### Build
 
@@ -91,3 +92,4 @@ This produces a wheel and source distribution under `dist/`.
 - Follow TDD principles when writing code
 - Commit and push frequently
 - Maintain docs concise
+- Split markdown lines at sentence boundaries

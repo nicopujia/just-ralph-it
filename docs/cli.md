@@ -7,10 +7,8 @@ Each section below represents a command for `jri <command>`.
 Scaffold base structure for JRI; read more about the base structure [@docs/arch.md](./arch.md).
 
 Aborts with warning if already initialized.
-Automatically commits only the files created or managed by initialization,
-using the command run as the message (e.g., `jri init`, `jri init -f`, etc.).
-It also writes agent definitions to `.opencode/agents/interrogator.md` and
-`.opencode/agents/ralph.md`.
+Automatically commits only the files created or managed by initialization, using the command run as the message (e.g., `jri init`, `jri init -f`, etc.).
+It also writes agent definitions to `.opencode/agents/interrogator.md` and `.opencode/agents/ralph.md`.
 
 ## `chat`
 
@@ -42,8 +40,7 @@ Then, to solve it:
 7. Changes are pushed to remote, if any.
 8. Repeat
 
-When `--detached` is used, JRI tracks the loop and child-process metadata in
-`.jri/state.json` so `halt` can terminate the running loop later.
+When `--detached` is used, JRI tracks the loop and child-process metadata in `.jri/state.json` so `halt` can terminate the running loop later.
 
 ## `reset`
 
@@ -55,5 +52,4 @@ Gracefully stop Ralph at the end of the current iteration by creating a `stop` s
 
 ## `halt`
 
-Force Ralph to stop as if it crashed by using the tracked process metadata in
-`.jri/state.json`.
+Force Ralph to stop as if it crashed by using the tracked process metadata in `.jri/state.json`.
