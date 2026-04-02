@@ -22,6 +22,11 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     force=args.force, commit_message=_command_message(argv)
                 )
                 return 0
+            case "upgrade":
+                directory = (working_directory / args.directory).resolve()
+                upgrade_service = JriService(directory)
+                upgrade_service.upgrade(commit_message=_command_message(argv))
+                return 0
             case "chat":
                 return service.chat(unknown)
             case "start":
@@ -81,6 +86,21 @@ def _build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Reinitialize the project even if .jri already exists.",
+    )
+
+    upgrade_parser = subparsers.add_parser(
+        "upgrade",
+        help="Refresh JRI-managed generated files for this project.",
+        description=(
+            "Update bundled agent prompts and other JRI-managed generated "
+            "files without touching project tasks."
+        ),
+    )
+    upgrade_parser.add_argument(
+        "directory",
+        nargs="?",
+        default=".",
+        help="Target project directory. Defaults to the current directory.",
     )
 
     subparsers.add_parser(

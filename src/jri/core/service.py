@@ -23,6 +23,11 @@ _INIT_COMMIT_PATHS = (
     ".opencode/agents/interrogator.md",
     ".opencode/agents/ralph.md",
 )
+_UPGRADE_COMMIT_PATHS = (
+    ".jri/.gitignore",
+    ".opencode/agents/interrogator.md",
+    ".opencode/agents/ralph.md",
+)
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
 
 
@@ -46,6 +51,11 @@ class JriService:
 
         self._create_scaffold()
         self.git.commit_paths_if_needed(commit_message, list(_INIT_COMMIT_PATHS))
+
+    def upgrade(self, *, commit_message: str) -> None:
+        self.ensure_initialized()
+        self._write_managed_files()
+        self.git.commit_paths_if_needed(commit_message, list(_UPGRADE_COMMIT_PATHS))
 
     def chat(self, extra_args: list[str]) -> int:
         self.ensure_initialized()
@@ -140,12 +150,13 @@ class JriService:
         self.paths.ralph_logs_dir.mkdir(parents=True, exist_ok=True)
         self.paths.external_logs_dir.mkdir(parents=True, exist_ok=True)
         self.paths.external_opencode_dir.mkdir(parents=True, exist_ok=True)
+        self._write_managed_files()
+        self.state_store.initialize()
+
+    def _write_managed_files(self) -> None:
         self.paths.gitignore_path.write_text(
             "logs/\nsignals/\nstate.json\n", encoding="utf-8"
         )
-        self.paths.readme.write_text("")
-        self.state_store.initialize()
-
         self.paths.opencode_agents_dir.mkdir(parents=True, exist_ok=True)
         (self.paths.opencode_agents_dir / "interrogator.md").write_text(
             _load_prompt("interrogator.md"),
