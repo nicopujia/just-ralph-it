@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "description": "Tasks are Markdown files, and their YAML frontmatter contains their metadata. This is the schema for those frontmatters.",
+  "description": "Tasks are Markdown files. Their body are the description. Their YAML frontmatter contains their metadata. This is the schema for those frontmatters.",
   "required": ["title", "priority", "assignee"],
   "properties": {
     "title": {
