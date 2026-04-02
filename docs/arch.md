@@ -52,15 +52,12 @@ There are two agents:
 
 Makes you **a lot** of questions and creates tasks as the interrogation goes on. 
 
-It's in charge of losslessly mapping the user's idea into tasks, making sure that there are no ambiguities left; that way, the end result will match the user's expectations. 
-For doing so, it goes from high-level questions first (problem, who's it for, etc.) and, once those are clear, down to lower-level ones.
-It creates the tasks as soon as the user shares new information, and writes them down under `.jri/tasks/draft/`, no matter if they're incomplete.
-It also asks the user about edge cases and possibilities they might be missing, not just what they're thinking about.
-Nevertheless, it absolutely **never** specs anything the user didn't agree with.
-Once it considers draft tasks are ready to be implemented and make up a coherent whole, it promotes them to `.jri/tasks/todo/`, from where Ralph will pick them up.
-
+It's in charge of losslessly mapping the user's idea into tasks, making sure that there are no ambiguities left; that way, the end result will match the user's expectations.
 The conversation is as long as it needs to be to cover every detail—it may even take many hours.
-When the conversation gets too long relative to the context window, it gets aggressively compacted (always keeping context window under 250k tokens or 70%, whatever happens first based on the model), as every detail discussed so far should have already been saved on tasks.
+The agent starts high-level, goes deeper as needed, creates draft tasks as soon as new information appears, and promotes work to `.jri/tasks/todo/` once it is implementation-ready.
+If a task still has open questions, it stays in `draft`; if it was promoted too early, it should be moved back to `draft` until clarified.
+It also commits persisted task progress as the interrogation evolves.
+Detailed operating rules live [@src/jri/core/agents/interrogator.md](../src/jri/core/agents/interrogator.md).
 
 Besides, if the user ever realizes that they actually want to pivot or discard the idea, that's not a failure scenario; it's rather the contrary.
 
