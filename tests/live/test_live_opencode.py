@@ -10,7 +10,6 @@ from jri.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git, write_task
 
-
 pytestmark = pytest.mark.live
 
 

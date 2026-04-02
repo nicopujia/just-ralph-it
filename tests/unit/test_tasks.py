@@ -114,7 +114,9 @@ def test_parse_task_file_reads_frontmatter_and_body(tmp_path: Path) -> None:
     task_path = tmp_path / "build-readme.md"
     task_path.write_text(
         "---\n"
-        '{"title": "Build README", "priority": 1, "assignee": "Ralph", "depends_on": ["prep"], "acceptance_criteria": ["README exists"]}'
+        '{"title": "Build README", "priority": 1, '
+        '"assignee": "Ralph", "depends_on": ["prep"], '
+        '"acceptance_criteria": ["README exists"]}'
         "\n---\n\nWrite the README body.\n",
         encoding="utf-8",
     )

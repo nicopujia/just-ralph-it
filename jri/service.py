@@ -303,6 +303,9 @@ class JriService:
 
 
 def _build_ralph_prompt(task: Task) -> str:
+    acceptance_criteria = os.linesep.join(
+        f"- {criterion}" for criterion in task.metadata.acceptance_criteria
+    )
     return textwrap.dedent(
         f"""
         Work only on the task in `.jri/tasks/doing/{task.slug}.md`.
@@ -310,7 +313,7 @@ def _build_ralph_prompt(task: Task) -> str:
         Task title: {task.metadata.title}
         Task priority: {task.metadata.priority}
         Acceptance criteria:
-        {os.linesep.join(f"- {criterion}" for criterion in task.metadata.acceptance_criteria) or "- None provided"}
+        {acceptance_criteria or "- None provided"}
 
         Task description:
         {task.body.strip()}
@@ -321,8 +324,10 @@ def _build_ralph_prompt(task: Task) -> str:
         - Use up to 100 subagents when useful.
         - Test the software like a careful human developer would.
         - Commit useful progress on the current branch.
-        - If you discover a human-only blocker, create a new task assigned to Human and stop.
-        - If you discover follow-up work, write new draft tasks under `.jri/tasks/draft/`.
+        - If you discover a human-only blocker, create a new task assigned to
+          Human and stop.
+        - If you discover follow-up work, write new draft tasks under
+          `.jri/tasks/draft/`.
         - When this task is complete, stop.
         """
     ).strip()
@@ -339,9 +344,11 @@ def _interrogator_agent() -> str:
         You are the Interrogator for Just Ralph It.
 
         Ask many high-signal questions before proposing implementation work.
-        Convert the user's clarified intent into markdown tasks under `.jri/tasks/draft/`.
+        Convert the user's clarified intent into markdown tasks under
+        `.jri/tasks/draft/`.
         Never invent requirements the user did not agree with.
-        Once the draft tasks make up a coherent, implementation-ready set, promote them to `.jri/tasks/todo/`.
+        Once the draft tasks make up a coherent, implementation-ready set,
+        promote them to `.jri/tasks/todo/`.
         """
         ).strip()
         + "\n"

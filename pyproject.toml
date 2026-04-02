@@ -34,3 +34,6 @@ package = true
 
 [tool.hatch.build.targets.wheel]
 packages = ["jri"]
+
+[tool.ruff]
+select = ["E", "F", "B", "I", "UP"]
