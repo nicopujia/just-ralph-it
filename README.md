@@ -8,7 +8,7 @@
 - [Concept](https://nicolaspujia.com/ralph)
 - [Original article about the Ralph Wiggum technique, by Geoffrey Huntley](https://ghuntley.com/ralph)
 
-## Setup
+## Contributing
 
 ### Prerequisites
 
@@ -21,3 +21,14 @@ Mandatory:
 Recommended:
 
 - VPS or [Docker](https://docs.docker.com/get-started/get-docker/). VPS is preferred if you want to give as much power as possible to Ralph.
+
+### Setup
+
+```bash
+uv sync
+uv run pre-commit install
+```
+
+### Guidelines
+
+- Use `uv` for anything related to Python
