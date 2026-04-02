@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "description": "Tasks are Markdown files, and their YAML frontmatter contains their metadata. This is the schema for those frontmatters.",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Brief explanation of the task.",
+      "maxLength": 50
+    },
+    "priority": {
+      "type": "number",
+      "description": "Used to decide which task to tackle first after dependencies are solved. Urgent (0), High (1), Medium (2), or Low (4).",
+      "minimum": 0,
+      "maximum": 4
+    },
+    "assignee": {
+      "type": "string",
+      "description": "Who should solve this task.",
+      "enum": ["Ralph", "Human"]
+    },
+    "depends_on": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "Other tasks that need to be completed before this one can be started.",
+      "items": {
+        "type": "string",
+        "description": "Slug of the blocking task."
+      }
+    },
+    "acceptance_criteria": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": ""
+      }
+    }
+  }
+}

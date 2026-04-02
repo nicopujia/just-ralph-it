@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "iteration": {
+      "type": "object",
+      "properties": {
+        "number": {
+          "type": "integer",
+          "description": "Last successful iteration. Does not include the currently running iteration.",
+          "minimum": 0
+        },
+        "finished_at": {
+          "type": "integer",
+          "description": "Unix timestamp in seconds indicating the last time it finished an iteration."
+        },
+        "started_at": {
+          "type": "integer",
+          "description": "Unix timestamp in seconds indicating the last time it started an iteration."
+        }
+      }
+    },
+    "session": {
+      "type": "string",
+      "description": "OpenCode session ID pointing to the current project's interrogation."
+    }
+  }
+}
