@@ -22,8 +22,11 @@ class GitRepo:
         if result.returncode != 0 or result.stdout.strip() != "true":
             raise JriError("jri requires a git repository")
 
-    def status_short(self) -> str:
-        return self.run("status", "--short").stdout.strip()
+    def status_short(self, *paths: str) -> str:
+        args = ["status", "--short"]
+        if paths:
+            args.extend(["--", *paths])
+        return self.run(*args).stdout.strip()
 
     def ensure_clean(self) -> None:
         if self.status_short():
@@ -59,6 +62,17 @@ class GitRepo:
             return False
         self.add_all()
         self.commit(message)
+        return True
+
+    def commit_paths_if_needed(self, message: str, paths: list[str]) -> bool:
+        scoped_paths = list(dict.fromkeys(paths))
+        if not self.status_short(*scoped_paths):
+            return False
+
+        self.run("add", "-A", "--", *scoped_paths)
+        result = self.run("commit", "-m", message, "--", *scoped_paths, check=False)
+        if result.returncode != 0:
+            raise JriError(result.stderr.strip() or f"failed to commit: {message}")
         return True
 
     def merge_ff_only(self, branch: str) -> None:

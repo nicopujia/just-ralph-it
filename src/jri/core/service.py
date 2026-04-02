@@ -18,6 +18,11 @@ from .paths import JriPaths
 from .state import StateStore
 from .tasks import list_tasks, move_task, select_next_task
 
+_INIT_COMMIT_PATHS = (
+    ".jri",
+    ".opencode/agents/interrogator.md",
+    ".opencode/agents/ralph.md",
+)
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
 
 
@@ -40,7 +45,7 @@ class JriService:
             shutil.rmtree(self.paths.jri_dir)
 
         self._create_scaffold()
-        self.git.commit_all_if_needed(commit_message)
+        self.git.commit_paths_if_needed(commit_message, list(_INIT_COMMIT_PATHS))
 
     def chat(self, extra_args: list[str]) -> int:
         self.ensure_initialized()
