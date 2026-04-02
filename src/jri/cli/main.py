@@ -53,25 +53,101 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="jri")
-    subparsers = parser.add_subparsers(dest="command")
+    parser = argparse.ArgumentParser(
+        prog="jri",
+        description=(
+            "Manage a Just Ralph It project and run the Ralph task loop. "
+            "Use 'jri <command> --help' for command-specific details."
+        ),
+    )
+    subparsers = parser.add_subparsers(dest="command", metavar="command")
 
-    init_parser = subparsers.add_parser("init")
-    init_parser.add_argument("directory", nargs="?", default=".")
-    init_parser.add_argument("-f", "--force", action="store_true")
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Initialize JRI in the current git repo.",
+        description=(
+            "Create the .jri scaffold, bundled agent prompts, and initial "
+            "state for this project."
+        ),
+    )
+    init_parser.add_argument(
+        "directory",
+        nargs="?",
+        default=".",
+        help="Target project directory. Defaults to the current directory.",
+    )
+    init_parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="Reinitialize the project even if .jri already exists.",
+    )
 
-    subparsers.add_parser("chat")
+    subparsers.add_parser(
+        "chat",
+        help="Open an interactive chat session for this project.",
+        description=(
+            "Launch chat in the current project, reusing the saved session "
+            "when one is available."
+        ),
+    )
 
-    start_parser = subparsers.add_parser("start")
-    start_parser.add_argument("-n", "--iterations", type=int)
-    start_parser.add_argument("-d", "--detached", action="store_true")
-    start_parser.add_argument("-m", "--model")
+    start_parser = subparsers.add_parser(
+        "start",
+        help="Run Ralph on queued todo tasks.",
+        description=(
+            "Run the Ralph loop on eligible todo tasks until there are no "
+            "tasks left, the iteration limit is reached, or a stop is "
+            "requested."
+        ),
+    )
+    start_parser.add_argument(
+        "-n",
+        "--iterations",
+        type=int,
+        help="Maximum number of task iterations to run in this invocation.",
+    )
+    start_parser.add_argument(
+        "-d",
+        "--detached",
+        action="store_true",
+        help="Run the loop in the background and track it in .jri/state.json.",
+    )
+    start_parser.add_argument(
+        "-m",
+        "--model",
+        help="Override the OpenCode model for this start run only.",
+    )
 
-    stop_parser = subparsers.add_parser("stop")
-    stop_parser.add_argument("reason", nargs="?")
+    stop_parser = subparsers.add_parser(
+        "stop",
+        help="Ask Ralph to stop after the current iteration.",
+        description=(
+            "Write a stop signal that prevents the next Ralph iteration from starting."
+        ),
+    )
+    stop_parser.add_argument(
+        "reason",
+        nargs="?",
+        help="Optional text written into the stop signal file.",
+    )
 
-    subparsers.add_parser("halt")
-    subparsers.add_parser("reset")
+    subparsers.add_parser(
+        "halt",
+        help="Terminate the currently tracked Ralph process immediately.",
+        description=(
+            "Send SIGTERM to the tracked Ralph loop and clear its tracked "
+            "process state."
+        ),
+    )
+    subparsers.add_parser(
+        "reset",
+        help="Reset main back to the latest successful JRI iteration.",
+        description=(
+            "Check out main and hard-reset it to the latest successful JRI "
+            "iteration tag."
+        ),
+    )
     return parser
 
 
