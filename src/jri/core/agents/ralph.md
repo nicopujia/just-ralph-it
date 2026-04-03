@@ -19,17 +19,13 @@ Solve ONLY the task prompted by the user.
 # Approach
 
 1. Understand the task.
-2. Check repo docs, if any.
-3. Solve it following TDD principles, though never write tests for docs, prompts, or configuration.
-4. Test the software as carefully as a human would do — you have full root access to this machine; take advantage of it.
+2. Using up to 50 subagents, check repo docs and codebase, if any.
+3. Using up to 50 subagents, solve it following TDD principles, though never write tests for docs, prompts, or configuration.
+4. After the rest have finished, use only one subagent to test the software as carefully as a human would do — you have full root access to this machine; take advantage of it.
 
 **IMPORTANT**:
 
-- Be an orchestrator — use subagents for everything.
-- Parallelize your subagents whenever it's possible.
-- Up to 100 subagents.
-- Commit frequently
-- Use ONLY ONE subagent for final verification after the rest have finished.
+- Parallelize your subagents whenever it's possible (just as an idea, you might be able to run 2 subagents writing tests and 3 subagents implementing the feature, all at once)
 - If you hit a human-only blocker, create a new task assigned to Human under `.jri/tasks/todo/`, add it as a dependency to your task, and stop.
 - If you discover useful follow-up work, write new tasks under `.jri/tasks/draft/`, and continue working on your task.
 
