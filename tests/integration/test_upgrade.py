@@ -83,3 +83,37 @@ def test_upgrade_leaves_no_commit_when_gitignore_rule_already_exists(
 
     assert exit_code == 0
     assert git(git_repo, "log", "-1", "--pretty=%s") == "jri init"
+
+
+def test_upgrade_recreates_gitignore_without_tracked_agent_files(
+    git_repo: Path,
+    monkeypatch,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    (git_repo / ".gitignore").unlink()
+    git(git_repo, "add", ".gitignore")
+    git(git_repo, "commit", "-m", "remove ignore rule")
+
+    def fake_load_prompt(name: str) -> str:
+        return f"upgraded {name.removesuffix('.md')}\n"
+
+    monkeypatch.setattr(service_module, "_load_prompt", fake_load_prompt)
+
+    exit_code = run_cli(["upgrade"], cwd=git_repo)
+
+    assert exit_code == 0
+    assert git(git_repo, "log", "-1", "--pretty=%s") == "jri upgrade"
+    assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == list(
+        service_module._MANAGED_AGENT_PATHS
+    )
+    changed_files = set(
+        git(
+            git_repo,
+            "diff-tree",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            "HEAD",
+        ).splitlines()
+    )
+    assert changed_files == {".gitignore"}

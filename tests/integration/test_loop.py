@@ -55,7 +55,9 @@ class BlockedFakeOpenCodeClient(OpenCodeClient):
     ) -> OpenCodeRunResult:
         self.calls.append((prompt, log_path))
         log_path.write_text("fake blocked run\n", encoding="utf-8")
-        return OpenCodeRunResult(returncode=0, session_id="ses_blocked", outcome="blocked")
+        return OpenCodeRunResult(
+            returncode=0, session_id="ses_blocked", outcome="blocked"
+        )
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake_blocked"}\n', encoding="utf-8")

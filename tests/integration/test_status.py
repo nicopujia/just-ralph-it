@@ -10,10 +10,42 @@ def _init(repo: Path) -> None:
 
 def test_status_shows_counts_and_human_todos(git_repo: Path, capsys) -> None:
     _init(git_repo)
-    write_task(git_repo, status="todo", slug="human-task", title="Human task", priority=1, assignee="Human", body="do it")
-    write_task(git_repo, status="todo", slug="ralph-task", title="Ralph task", priority=0, assignee="Ralph", body="do it")
-    write_task(git_repo, status="done", slug="finished", title="Finished", priority=2, assignee="Ralph", body="done")
-    write_task(git_repo, status="todo", slug="another-human", title="Another human", priority=0, assignee="Human", body="do it")
+    write_task(
+        git_repo,
+        status="todo",
+        slug="human-task",
+        title="Human task",
+        priority=1,
+        assignee="Human",
+        body="do it",
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="ralph-task",
+        title="Ralph task",
+        priority=0,
+        assignee="Ralph",
+        body="do it",
+    )
+    write_task(
+        git_repo,
+        status="done",
+        slug="finished",
+        title="Finished",
+        priority=2,
+        assignee="Ralph",
+        body="done",
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="another-human",
+        title="Another human",
+        priority=0,
+        assignee="Human",
+        body="do it",
+    )
 
     rc = run_cli(["status"], cwd=git_repo)
     assert rc == 0
@@ -32,7 +64,15 @@ def test_status_shows_counts_and_human_todos(git_repo: Path, capsys) -> None:
 
 def test_status_no_human_todos(git_repo: Path, capsys) -> None:
     _init(git_repo)
-    write_task(git_repo, status="todo", slug="ralph-only", title="Ralph only", priority=0, assignee="Ralph", body="do it")
+    write_task(
+        git_repo,
+        status="todo",
+        slug="ralph-only",
+        title="Ralph only",
+        priority=0,
+        assignee="Ralph",
+        body="do it",
+    )
 
     rc = run_cli(["status"], cwd=git_repo)
     assert rc == 0

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import cast
 
 from .errors import JriError
-from .models import Outcome, OpenCodeRunResult
+from .models import OpenCodeRunResult, Outcome
 
 _COMPLETED_MARKER = "<!-- JRI:COMPLETED -->"
 _BLOCKED_MARKER = "<!-- JRI:BLOCKED -->"
@@ -148,9 +148,7 @@ class OpenCodeClient:
                     log_file.flush()
                     event, terminal_text = _parse_event_line(line)
                     if terminal_text is not None:
-                        last_outcome = _detect_outcome(
-                            terminal_text, last_outcome
-                        )
+                        last_outcome = _detect_outcome(terminal_text, last_outcome)
                     if terminal_text:
                         sys.stdout.write(terminal_text)
                         sys.stdout.flush()

@@ -115,7 +115,9 @@ class GitRepo:
                 self.run("stash", "pop", "--quiet", check=False)
         else:
             self.run("add", "-A", "--", *managed_paths)
-            result = self.run("commit", "-m", message, "--", *scoped_paths, check=False)
+            result = self.run(
+                "commit", "-m", message, "--", *managed_paths, check=False
+            )
         if result.returncode != 0:
             raise JriError(result.stderr.strip() or f"failed to commit: {message}")
         return True

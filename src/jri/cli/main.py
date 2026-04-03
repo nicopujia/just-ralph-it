@@ -65,7 +65,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     ),
                     key=lambda t: (t.metadata.priority, t.slug),
                 )
-                print(f"\nTodo tasks assigned to Human:\n")
+                print("\nTodo tasks assigned to Human:\n")
                 if human_todos:
                     for task in human_todos:
                         p = task.metadata.priority
