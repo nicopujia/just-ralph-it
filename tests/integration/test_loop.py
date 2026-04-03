@@ -38,6 +38,59 @@ class SuccessfulFakeOpenCodeClient(OpenCodeClient):
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
 
 
+class BlockedFakeOpenCodeClient(OpenCodeClient):
+    """Simulates Ralph hitting a blocker and outputting JRI:BLOCKED signal."""
+
+    def __init__(self) -> None:
+        super().__init__(model=None)
+        self.calls: list[tuple[str, Path]] = []
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        on_start: object | None = None,
+    ) -> OpenCodeRunResult:
+        self.calls.append((prompt, log_path))
+        log_path.write_text("fake blocked run\n", encoding="utf-8")
+        return OpenCodeRunResult(returncode=0, session_id="ses_blocked", outcome="blocked")
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        destination.write_text('{"session": "fake_blocked"}\n', encoding="utf-8")
+
+
+class BlockedThenSuccessfulFakeOpenCodeClient(OpenCodeClient):
+    """Returns blocked for the first call, successful for the second."""
+
+    def __init__(self) -> None:
+        super().__init__(model=None)
+        self.calls: list[tuple[str, Path]] = []
+        self._call_count = 0
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        on_start: object | None = None,
+    ) -> OpenCodeRunResult:
+        self.calls.append((prompt, log_path))
+        self._call_count += 1
+        log_path.write_text(f"fake run #{self._call_count}\n", encoding="utf-8")
+        if self._call_count == 1:
+            return OpenCodeRunResult(
+                returncode=0, session_id="ses_blocked", outcome="blocked"
+            )
+        (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
+        return OpenCodeRunResult(returncode=0, session_id="ses_ok", outcome="completed")
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        destination.write_text('{"session": "fake"}\n', encoding="utf-8")
+
+
 class MissingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
     def run_ralph_task(
         self,
@@ -240,3 +293,73 @@ def test_halt_terminates_tracked_process(git_repo: Path) -> None:
             os.kill(sleeper.pid, signal.SIGTERM)
 
     assert sleeper.returncode is not None
+
+
+def test_blocked_task_moves_back_to_todo(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="blocked-task",
+        title="Blocked task",
+        priority=0,
+        assignee="Ralph",
+        body="This will be blocked.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/blocked-task.md")
+    git(git_repo, "commit", "-m", "add blocked task")
+
+    service = JriService(git_repo, opencode_client=BlockedFakeOpenCodeClient())
+
+    completed = service.start(iterations=1)
+
+    assert completed == 0
+    assert (git_repo / ".jri" / "tasks" / "todo" / "blocked-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "blocked-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "blocked-task.md").exists()
+    assert git(git_repo, "branch", "--show-current") == "main"
+    # The feature branch should be deleted
+    branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
+    assert not any("ralph/" in b for b in branches)
+
+
+def test_blocked_then_successful_completes_one(git_repo: Path) -> None:
+    """Two tasks: first is blocked, loop continues and completes the second."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-a",
+        title="Task A (blocked)",
+        priority=0,
+        assignee="Ralph",
+        body="Will be blocked.",
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-b",
+        title="Task B (success)",
+        priority=1,
+        assignee="Ralph",
+        body="Will succeed.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/")
+    git(git_repo, "commit", "-m", "add two tasks")
+
+    client = BlockedThenSuccessfulFakeOpenCodeClient()
+    service = JriService(git_repo, opencode_client=client)
+
+    completed = service.start(iterations=2)
+
+    assert completed == 1
+    # Blocked task is back in todo
+    assert (git_repo / ".jri" / "tasks" / "todo" / "task-a.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
+    # Successful task is in done
+    assert (git_repo / ".jri" / "tasks" / "done" / "task-b.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "todo" / "task-b.md").exists()
+    # Only the successful branch remains
+    branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
+    assert not any("task-a" in b for b in branches)
+    assert git(git_repo, "branch", "--show-current") == "main"
