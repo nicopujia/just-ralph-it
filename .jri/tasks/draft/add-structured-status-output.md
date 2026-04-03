@@ -6,7 +6,7 @@ depends_on:
   - adopt-phase-ii-outcome-model
 acceptance_criteria:
   - A structured output mode exists for status inspection.
-  - The structured schema includes counts by state, blocked work, human-required work, and current run metadata.
+  - The structured schema includes counts by state, human-required work, and current run metadata.
   - Tests verify schema stability for representative states.
   - Documentation describes the intended consumers of the structured output.
 ---

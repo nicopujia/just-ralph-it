@@ -79,7 +79,7 @@ jri status
 
 - You can run JRI on itself
 - Tasks converge without manual rewriting
-- Failures produce new tasks, not confusion
+- Failures are visible and Ralph can ask for human help when needed
 - Loop is understandable and inspectable
 
 ## 2. Phase II — Loop Hardening
@@ -113,7 +113,6 @@ jri status
 Should clearly show:
 
 - counts by state
-- blocked tasks
 - human-required tasks
 
 ### 2.3 Control
