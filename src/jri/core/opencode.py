@@ -1,10 +1,55 @@
 import json
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 from .errors import JriError
 from .models import OpenCodeRunResult
+
+
+def _dict_value(payload: dict[str, object], key: str) -> dict[str, object] | None:
+    value = payload.get(key)
+    return cast(dict[str, object], value) if isinstance(value, dict) else None
+
+
+def _text_event_text(payload: dict[str, object]) -> str | None:
+    if payload.get("type") != "text":
+        return None
+    part = _dict_value(payload, "part")
+    if part is None:
+        return None
+    text = part.get("text")
+    return text if isinstance(text, str) else None
+
+
+def _tool_use_text(payload: dict[str, object]) -> str | None:
+    if payload.get("type") != "tool_use":
+        return None
+    part = _dict_value(payload, "part")
+    if part is None:
+        return None
+    state = _dict_value(part, "state")
+    if state is None:
+        return None
+    error = state.get("error")
+    if isinstance(error, str) and error:
+        return error
+    output = state.get("output")
+    return output if isinstance(output, str) and output else None
+
+
+def _parse_event_line(line: str) -> tuple[dict[str, object] | None, str | None]:
+    try:
+        payload = json.loads(line)
+    except json.JSONDecodeError:
+        return None, line
+
+    if not isinstance(payload, dict):
+        return None, None
+
+    return payload, _text_event_text(payload) or _tool_use_text(payload)
 
 
 class OpenCodeClient:
@@ -56,6 +101,7 @@ class OpenCodeClient:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                bufsize=1,
                 start_new_session=True,
             )
             if on_start is not None:
@@ -63,14 +109,30 @@ class OpenCodeClient:
 
             try:
                 assert process.stdout is not None
+                last_terminal_char = "\n"
                 for line in process.stdout:
                     log_file.write(line)
                     log_file.flush()
-                    try:
-                        event = json.loads(line)
-                    except json.JSONDecodeError:
+                    event, terminal_text = _parse_event_line(line)
+                    if terminal_text:
+                        sys.stdout.write(terminal_text)
+                        sys.stdout.flush()
+                        last_terminal_char = terminal_text[-1]
+                    elif event is None and line:
+                        last_terminal_char = line[-1]
+
+                    if (
+                        isinstance(event, dict)
+                        and event.get("type") == "step_finish"
+                        and last_terminal_char != "\n"
+                    ):
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
+                        last_terminal_char = "\n"
+
+                    if not isinstance(event, dict):
                         continue
-                    if session_id is None and isinstance(event, dict):
+                    if session_id is None:
                         candidate = event.get("sessionID")
                         if isinstance(candidate, str):
                             session_id = candidate
