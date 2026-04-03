@@ -118,6 +118,79 @@ class MissingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         )
 
 
+class MutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        on_start: object | None = None,
+    ) -> OpenCodeRunResult:
+        doing_path = root / ".jri" / "tasks" / "doing" / "implement-file.md"
+        doing_path.write_text(
+            doing_path.read_text(encoding="utf-8") + "\nMutated in place.\n",
+            encoding="utf-8",
+        )
+        return super().run_ralph_task(
+            root=root,
+            prompt=prompt,
+            log_path=log_path,
+            on_start=on_start,
+        )
+
+
+class CommittedMutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        on_start: object | None = None,
+    ) -> OpenCodeRunResult:
+        doing_path = root / ".jri" / "tasks" / "doing" / "implement-file.md"
+        doing_path.write_text(
+            doing_path.read_text(encoding="utf-8") + "\nCommitted mutation.\n",
+            encoding="utf-8",
+        )
+        git(root, "add", ".jri/tasks/doing/implement-file.md")
+        git(root, "commit", "-m", "mutate task in place")
+        return super().run_ralph_task(
+            root=root,
+            prompt=prompt,
+            log_path=log_path,
+            on_start=on_start,
+        )
+
+
+class FollowUpDraftOpenCodeClient(SuccessfulFakeOpenCodeClient):
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        on_start: object | None = None,
+    ) -> OpenCodeRunResult:
+        write_task(
+            root,
+            status="draft",
+            slug="follow-up-fix",
+            title="Follow up fix",
+            priority=1,
+            assignee="Ralph",
+            body="Capture the additive follow-up work.\n",
+            acceptance_criteria=["Follow-up task is triaged"],
+        )
+        return super().run_ralph_task(
+            root=root,
+            prompt=prompt,
+            log_path=log_path,
+            on_start=on_start,
+        )
+
+
 def test_start_uses_explicit_model_override(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
@@ -222,6 +295,79 @@ def test_start_fails_cleanly_when_doing_task_disappears(git_repo: Path) -> None:
 
     with pytest.raises(JriError, match="disappeared during Ralph run"):
         service.start(iterations=1)
+
+
+def test_start_rejects_in_place_mutation_of_doing_task(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    service = JriService(git_repo, opencode_client=MutatingDoingTaskOpenCodeClient())
+
+    with pytest.raises(JriError, match="modified in place"):
+        service.start(iterations=1)
+
+
+def test_start_rejects_committed_in_place_mutation_of_doing_task(
+    git_repo: Path,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    service = JriService(
+        git_repo,
+        opencode_client=CommittedMutatingDoingTaskOpenCodeClient(),
+    )
+
+    with pytest.raises(JriError, match="modified in place"):
+        service.start(iterations=1)
+
+
+def test_start_allows_additive_follow_up_draft_tasks(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    service = JriService(git_repo, opencode_client=FollowUpDraftOpenCodeClient())
+
+    completed = service.start(iterations=1)
+
+    assert completed == 1
+    assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
+    follow_up = parse_task_file(
+        git_repo / ".jri" / "tasks" / "draft" / "follow-up-fix.md"
+    )
+    assert follow_up.metadata.title == "Follow up fix"
+    assert "additive follow-up" in follow_up.body
 
 
 def test_start_refuses_when_task_is_already_doing(git_repo: Path) -> None:

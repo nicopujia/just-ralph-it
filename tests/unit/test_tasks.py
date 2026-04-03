@@ -4,13 +4,17 @@ from typing import Literal
 
 import pytest
 
+from jri.core.git import GitRepo
 from jri.core.models import Task, TaskMetadata
 from jri.core.tasks import (
+    list_tasks,
     parse_task_file,
     select_next_task,
     validate_state_payload,
     validate_task_metadata,
 )
+from tests.conftest import run_cli
+from tests.helpers import git, write_task
 
 
 def make_task(
@@ -192,3 +196,29 @@ def test_parse_task_file_allows_markdown_like_plain_scalars_in_frontmatter(
         "Automated tests cover at least: legal move rejection and "
         "perfect-play choices.",
     ]
+
+
+def test_list_tasks_allows_in_place_edits_for_draft_tasks(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="draft",
+        slug="clarify-scope",
+        title="Clarify scope",
+        priority=1,
+        assignee="Ralph",
+        body="Initial draft body.\n",
+    )
+    git(git_repo, "add", ".jri/tasks/draft/clarify-scope.md")
+    git(git_repo, "commit", "-m", "add draft task")
+
+    draft_path = git_repo / ".jri" / "tasks" / "draft" / "clarify-scope.md"
+    draft_path.write_text(
+        draft_path.read_text(encoding="utf-8") + "\nStill being clarified.\n",
+        encoding="utf-8",
+    )
+
+    tasks = list_tasks(draft_path.parent, git_repo=GitRepo(git_repo))
+
+    assert [task.slug for task in tasks] == ["clarify-scope"]
+    assert tasks[0].body.endswith("Still being clarified.\n")

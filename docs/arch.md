@@ -88,6 +88,8 @@ See prompt [@src/jri/core/agents/ralph.md](../src/jri/core/agents/ralph.md).
 ---
 
 Neither Ralph nor the user are intended to edit promoted tasks; draft-task editing is exclusive to the Interrogator, and draft-to-todo promotion requires explicit user confirmation.
+Once a task is promoted into `todo`, `doing`, or `done`, its committed git content becomes append-only.
+If the task needs correction, capture that as additive follow-up work in a new `draft` task instead of silently rewriting the promoted file in place.
 Likewise, the user never interacts directly with Ralph, only with Interrogator.
 
 ```

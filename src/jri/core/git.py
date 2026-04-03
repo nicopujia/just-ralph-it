@@ -8,6 +8,15 @@ class GitRepo:
     def __init__(self, root: Path) -> None:
         self.root = root
 
+    def relative_path(self, path: Path | str) -> str:
+        candidate = Path(path)
+        if candidate.is_absolute():
+            try:
+                candidate = candidate.relative_to(self.root)
+            except ValueError:
+                pass
+        return candidate.as_posix()
+
     def run(self, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
         return subprocess.run(
             ["git", *args],
@@ -18,9 +27,12 @@ class GitRepo:
         )
 
     def ensure_repo(self) -> None:
-        result = self.run("rev-parse", "--is-inside-work-tree", check=False)
-        if result.returncode != 0 or result.stdout.strip() != "true":
+        if not self.is_repo():
             raise JriError("jri requires a git repository")
+
+    def is_repo(self) -> bool:
+        result = self.run("rev-parse", "--is-inside-work-tree", check=False)
+        return result.returncode == 0 and result.stdout.strip() == "true"
 
     def status_short(self, *paths: str) -> str:
         args = ["status", "--short"]
@@ -125,6 +137,17 @@ class GitRepo:
     def is_tracked(self, path: str) -> bool:
         result = self.run("ls-files", "--error-unmatch", "--", path, check=False)
         return result.returncode == 0
+
+    def path_matches_head(self, path: Path | str) -> bool:
+        relative_path = self.relative_path(path)
+        if not self.is_tracked(relative_path):
+            return True
+        result = self.run("diff", "--quiet", "HEAD", "--", relative_path, check=False)
+        if result.returncode in (0, 1):
+            return result.returncode == 0
+        raise JriError(
+            result.stderr.strip() or f"failed to diff HEAD for {relative_path}"
+        )
 
     def merge_ff_only(self, branch: str) -> None:
         result = self.run("merge", "--ff-only", branch, check=False)

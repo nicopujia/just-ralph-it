@@ -137,10 +137,13 @@ class JriService:
 
     def status(self) -> dict[str, list[Task]]:
         self.ensure_initialized()
-        return {
-            status: list_tasks(self.paths.task_dir(status))
-            for status in _TRACKED_TASK_DIRS
-        }
+        try:
+            return {
+                status: list_tasks(self.paths.task_dir(status), git_repo=self.git)
+                for status in _TRACKED_TASK_DIRS
+            }
+        except ValueError as exc:
+            raise JriError(str(exc)) from exc
 
     def reset(self) -> None:
         self.ensure_initialized()
@@ -235,7 +238,7 @@ class JriService:
 
     def _run_loop(self, iterations: int | None) -> int:
         try:
-            doing = list_tasks(self.paths.task_dir("doing"))
+            doing = list_tasks(self.paths.task_dir("doing"), git_repo=self.git)
         except ValueError as exc:
             raise JriError(str(exc)) from exc
         if doing:
@@ -256,9 +259,9 @@ class JriService:
                     raise HaltRequested("Ralph halt requested")
 
                 try:
-                    todo_tasks = list_tasks(self.paths.task_dir("todo"))
-                    done_tasks = list_tasks(self.paths.task_dir("done"))
-                    doing_tasks = list_tasks(self.paths.task_dir("doing"))
+                    todo_tasks = list_tasks(self.paths.task_dir("todo"), git_repo=self.git)
+                    done_tasks = list_tasks(self.paths.task_dir("done"), git_repo=self.git)
+                    doing_tasks = list_tasks(self.paths.task_dir("doing"), git_repo=self.git)
                 except ValueError as exc:
                     raise JriError(str(exc)) from exc
                 next_task = select_next_task(
@@ -295,6 +298,7 @@ class JriService:
         self.git.checkout_new_branch(branch)
         doing_task = move_task(task, self.paths.task_dir("doing"))
         self.git.commit_all_if_needed(f"jri start: begin {task.slug}")
+        doing_task_baseline = doing_task.path.read_text(encoding="utf-8")
         self.state_store.save_process(
             loop_pid=os.getpid(),
             child_pid=None,
@@ -320,6 +324,17 @@ class JriService:
             raise JriError(f"OpenCode exited with status {result.returncode}")
 
         export_path = self._export_session_if_available(result.session_id)
+
+        if not doing_task.path.exists():
+            self._recover_failed_iteration(doing_task, branch)
+            relative_path = doing_task.path.relative_to(self.root)
+            raise JriError(f"task file `{relative_path}` disappeared during Ralph run")
+
+        try:
+            self._ensure_promoted_task_pristine(doing_task, baseline=doing_task_baseline)
+        except JriError:
+            self._recover_failed_iteration(doing_task, branch)
+            raise
 
         if result.outcome == "needs human":
             self._recover_needs_human_iteration(
@@ -490,6 +505,15 @@ class JriService:
         )
         self._write_task_file(task)
         return task
+
+    def _ensure_promoted_task_pristine(self, task: Task, *, baseline: str) -> None:
+        if task.path.read_text(encoding="utf-8") == baseline:
+            return
+        relative_path = self.git.relative_path(task.path)
+        raise JriError(
+            "promoted task file "
+            f"`{relative_path}` was modified in place; create a follow-up draft task instead"
+        )
 
     def _block_task_on_dependency(self, task: Task, dependency_slug: str) -> Task:
         depends_on = list(task.metadata.depends_on)

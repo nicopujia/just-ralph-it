@@ -9,7 +9,10 @@ import yaml
 from jsonschema import Draft202012Validator
 from yaml.events import DocumentEndEvent
 
+from .git import GitRepo
 from .models import Task, TaskMetadata
+
+_PROMOTED_TASK_STATUSES = frozenset({"todo", "doing", "done"})
 
 
 @cache
@@ -79,17 +82,30 @@ def parse_task_file(path: Path) -> Task:
     return Task(path=path, slug=slug, metadata=metadata, body=body)
 
 
-def list_tasks(directory: Path) -> list[Task]:
+def list_tasks(directory: Path, *, git_repo: GitRepo | None = None) -> list[Task]:
     if not directory.exists():
         return []
     tasks: list[Task] = []
+    enforce_append_only = directory.name in _PROMOTED_TASK_STATUSES
     for path in directory.glob("*.md"):
         try:
+            if git_repo is not None and enforce_append_only:
+                _ensure_append_only_promoted_task(path, git_repo)
             tasks.append(parse_task_file(path))
         except ValueError as exc:
             raise ValueError(f"malformed task file `{path.name}`: {exc}") from exc
     tasks.sort(key=lambda task: task.slug)
     return tasks
+
+
+def _ensure_append_only_promoted_task(path: Path, git_repo: GitRepo) -> None:
+    if git_repo.path_matches_head(path):
+        return
+    relative_path = git_repo.relative_path(path)
+    raise ValueError(
+        "promoted task file "
+        f"`{relative_path}` was modified in place; create a follow-up draft task instead"
+    )
 
 
 def select_next_task(

@@ -6,6 +6,7 @@ from pathlib import Path
 
 from jsonschema import Draft202012Validator, SchemaError
 
+from jri.core.git import GitRepo
 from jri.core.tasks import list_tasks, validate_state_payload
 
 _TASK_STATUSES = ("draft", "todo", "doing", "done")
@@ -41,9 +42,11 @@ def validate_packaged_schemas() -> None:
 def validate_task_tree(root: Path) -> None:
     task_root = root / ".jri" / "tasks"
     errors: list[str] = []
+    git_repo = GitRepo(root)
+    repo_for_tasks = git_repo if git_repo.is_repo() else None
     for status in _TASK_STATUSES:
         try:
-            list_tasks(task_root / status)
+            list_tasks(task_root / status, git_repo=repo_for_tasks)
         except ValueError as exc:
             errors.append(str(exc))
     if errors:

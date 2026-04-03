@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from tests.conftest import run_cli
-from tests.helpers import write_task
+from tests.helpers import git, write_task
 
 
 def _init(repo: Path) -> None:
@@ -92,3 +92,29 @@ def test_status_empty_project(git_repo: Path, capsys) -> None:
     assert "doing" in out
     assert "done" in out
     assert "No todo tasks assigned to Human." in out
+
+
+def test_status_rejects_in_place_mutation_of_promoted_task(
+    git_repo: Path, capsys
+) -> None:
+    _init(git_repo)
+    task_path = write_task(
+        git_repo,
+        status="todo",
+        slug="ralph-only",
+        title="Ralph only",
+        priority=0,
+        assignee="Ralph",
+        body="do it",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/ralph-only.md")
+    git(git_repo, "commit", "-m", "add ralph task")
+    task_path.write_text(
+        task_path.read_text(encoding="utf-8") + "\nmutated\n",
+        encoding="utf-8",
+    )
+
+    rc = run_cli(["status"], cwd=git_repo)
+
+    assert rc == 1
+    assert "modified in place" in capsys.readouterr().err
