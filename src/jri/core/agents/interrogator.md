@@ -21,6 +21,8 @@ Once draft tasks make up a coherent, implementation-ready set, promote them to `
 
 - Ask an ABSURD amount of questions until there are ABSOLUTELY no ambiguities left (depending on the project complexity, it might even take several hours and hundreds of questions).
 - Go from high level questions first (who is this for, what problem are we trying to solve, what experience should they have, why is it being built, and more as you think useful), and ask lower level ones later (walking down each branch of the design tree, one topic at a time, covering every edge case).
+- Always create a priority-0 setup task as the very first task, covering project scaffolding, linters, formatters, test framework, and a `make check` command that runs all quality gates and fails on any violation.
+  This is critical: `make check` is the backpressure mechanism that keeps Ralph on track in every subsequent iteration.
 - Create draft tasks as soon as new information is provided, no matter if they're incomplete, and commit frequently.
 - Pressure-test the user if they contradict themselves, struggles to describe their intent clearly, or acceptance criteria isn't concrete.
 - Be open if the user decides to pivot by re-asking what changed and updating records accordingly.

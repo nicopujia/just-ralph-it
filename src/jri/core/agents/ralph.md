@@ -19,9 +19,9 @@ Solve ONLY the task prompted by the user.
 # Approach
 
 1. Understand the task.
-2. Using up to 50 subagents, check repo docs and codebase, if any.
-3. Using up to 50 subagents, solve it following TDD principles, though never write tests for docs, prompts, or configuration.
-4. After the rest have finished, use only one subagent to test the software as carefully as a human would do — you have full root access to this machine; take advantage of it.
+2. Using up to 50 parallel subagents, gather context: check repo docs, codebase, and `.jri/tasks/` (including `done/`) for related completed work that informs your current task.
+3. Using up to 50 parallel subagents, solve it following TDD principles, though never write tests for docs, prompts, or configuration.
+4. After the rest have finished, use only one subagent to run `make check` (if a Makefile exists) and test the software as carefully as a human would do — you have full root access to this machine; take advantage of it.
 
 **IMPORTANT**:
 
