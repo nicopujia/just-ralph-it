@@ -122,57 +122,29 @@ def test_parse_event_line_preserves_plain_text_fallback() -> None:
     assert terminal_text == "plain text fallback\n"
 
 
-def test_parse_outcome_completed() -> None:
-    from jri.core.opencode import parse_outcome
+def test_detect_outcome_completed() -> None:
+    from jri.core.opencode import _detect_outcome
 
-    lines = [
-        _text_event("working on it..."),
-        _text_event("<!-- JRI:COMPLETED -->"),
-    ]
-    assert parse_outcome(lines) == "completed"
+    assert _detect_outcome("<!-- JRI:COMPLETED -->", "unknown") == "completed"
 
 
-def test_parse_outcome_blocked() -> None:
-    from jri.core.opencode import parse_outcome
+def test_detect_outcome_blocked() -> None:
+    from jri.core.opencode import _detect_outcome
 
-    lines = [
-        _text_event("hit a blocker"),
-        _text_event("<!-- JRI:BLOCKED -->"),
-    ]
-    assert parse_outcome(lines) == "blocked"
+    assert _detect_outcome("<!-- JRI:BLOCKED -->", "unknown") == "blocked"
 
 
-def test_parse_outcome_unknown_when_no_signal() -> None:
-    from jri.core.opencode import parse_outcome
+def test_detect_outcome_no_marker_preserves_current() -> None:
+    from jri.core.opencode import _detect_outcome
 
-    lines = [
-        _text_event("did some work"),
-        _text_event("all done"),
-    ]
-    assert parse_outcome(lines) == "unknown"
+    assert _detect_outcome("just some text", "unknown") == "unknown"
+    assert _detect_outcome("just some text", "completed") == "completed"
 
 
-def test_parse_outcome_last_signal_wins() -> None:
-    from jri.core.opencode import parse_outcome
+def test_detect_outcome_embedded_in_text() -> None:
+    from jri.core.opencode import _detect_outcome
 
-    lines = [
-        _text_event("<!-- JRI:COMPLETED -->"),
-        _text_event("actually blocked"),
-        _text_event("<!-- JRI:BLOCKED -->"),
-    ]
-    assert parse_outcome(lines) == "blocked"
-
-
-def test_parse_outcome_signal_embedded_in_text() -> None:
-    from jri.core.opencode import parse_outcome
-
-    lines = [
-        _text_event("some preamble <!-- JRI:COMPLETED --> trailing"),
-    ]
-    assert parse_outcome(lines) == "completed"
-
-
-def _text_event(text: str) -> str:
-    return json.dumps(
-        {"type": "text", "sessionID": "ses_1", "part": {"type": "text", "text": text}}
+    assert (
+        _detect_outcome("preamble <!-- JRI:COMPLETED --> trailing", "unknown")
+        == "completed"
     )

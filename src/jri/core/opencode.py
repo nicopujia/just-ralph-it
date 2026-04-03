@@ -55,18 +55,13 @@ def _parse_event_line(line: str) -> tuple[dict[str, object] | None, str | None]:
     return payload, _text_event_text(payload) or _tool_use_text(payload)
 
 
-def parse_outcome(event_lines: list[str]) -> Outcome:
-    """Scan event lines for JRI outcome markers. Last signal wins."""
-    outcome: Outcome = "unknown"
-    for line in event_lines:
-        _, text = _parse_event_line(line)
-        if text is None:
-            continue
-        if _BLOCKED_MARKER in text:
-            outcome = "blocked"
-        if _COMPLETED_MARKER in text:
-            outcome = "completed"
-    return outcome
+def _detect_outcome(text: str, current: Outcome) -> Outcome:
+    """Update outcome if *text* contains a JRI marker. Last signal wins."""
+    if _BLOCKED_MARKER in text:
+        return "blocked"
+    if _COMPLETED_MARKER in text:
+        return "completed"
+    return current
 
 
 class OpenCodeClient:
@@ -152,12 +147,10 @@ class OpenCodeClient:
                     log_file.write(line)
                     log_file.flush()
                     event, terminal_text = _parse_event_line(line)
-                    text_content = _text_event_text(event) if event else None
-                    if text_content is not None:
-                        if _COMPLETED_MARKER in text_content:
-                            last_outcome = "completed"
-                        if _BLOCKED_MARKER in text_content:
-                            last_outcome = "blocked"
+                    if terminal_text is not None:
+                        last_outcome = _detect_outcome(
+                            terminal_text, last_outcome
+                        )
                     if terminal_text:
                         sys.stdout.write(terminal_text)
                         sys.stdout.flush()

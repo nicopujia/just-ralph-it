@@ -11,7 +11,7 @@ from typing import Any
 
 from .errors import HaltRequested, JriError
 from .git import GitRepo
-from .models import State, Task
+from .models import Outcome, State, Task
 from .opencode import OpenCodeClient
 from .paths import JriPaths
 from .state import StateStore
@@ -274,7 +274,7 @@ class JriService:
 
         return completed
 
-    def _run_iteration(self, task: Task) -> str:
+    def _run_iteration(self, task: Task) -> Outcome:
         state = self.state_store.load()
         next_iteration = state.iteration_number + 1
         started_at = int(time.time())
