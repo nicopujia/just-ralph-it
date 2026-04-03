@@ -5,7 +5,7 @@ assignee: Ralph
 depends_on:
   - phase-1-2-quality-gate-foundation
 acceptance_criteria:
-  - The system rejects or flags direct mutation of promoted task files in `todo/`, `doing/`, or `done/`.
+  - The system rejects direct mutation of promoted task files in `todo/`, `doing/`, or `done/`.
   - The supported correction path is documented and uses additive follow-up work instead of silent task rewriting.
   - Tests cover at least one allowed additive correction flow and one rejected in-place mutation flow.
 ---

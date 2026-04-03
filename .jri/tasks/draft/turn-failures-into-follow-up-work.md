@@ -1,17 +1,16 @@
 ---
-title: Turn failures into explicit follow-up tasks
+title: Clarify roadmap wording for failure follow-up
 priority: 1
 assignee: Ralph
 depends_on:
   - phase-1-2-quality-gate-foundation
 acceptance_criteria:
-  - At least one supported failure path creates or preserves explicit task artifacts instead of only emitting logs.
-  - The resulting follow-up work is inspectable from the task system without reading raw agent transcripts.
-  - Tests cover the failure-to-follow-up behavior.
-  - Documentation explains which failure classes generate new tasks and which only change task status.
+  - The roadmap and implementation docs no longer imply that generic failures must always create new tasks.
+  - The documented rule makes clear when Ralph should ask for human help and how that appears in the task system.
+  - Tests and runtime behavior remain aligned with the clarified rule.
+  - No prompt or code path still claims that generic failures should automatically create new tasks unless that behavior is explicitly implemented.
 ---
 
-Phase I requires failures to produce new tasks rather than confusion.
+The roadmap currently overstates failure handling for Phase I.
 
-Make that behavior a repository-level guarantee instead of leaving it only to agent prompt compliance.
-If different failure classes need different handling, record those rules explicitly.
+Align the wording and implementation around the narrower rule agreed in planning: generic failures do not need to auto-create new tasks, but Ralph must be able to ask for human help in a visible, inspectable way.
