@@ -10,6 +10,7 @@ from jri.core.errors import JriError
 from jri.core.models import OpenCodeRunResult
 from jri.core.opencode import OpenCodeClient
 from jri.core.service import JriService
+from jri.core.tasks import list_tasks, parse_task_file
 from tests.conftest import run_cli
 from tests.helpers import git, read_json, write_task
 
@@ -305,7 +306,9 @@ def test_halt_terminates_tracked_process(git_repo: Path) -> None:
     assert sleeper.returncode is not None
 
 
-def test_needs_human_task_moves_back_to_todo(git_repo: Path) -> None:
+def test_needs_human_generates_human_followup_and_blocks_original_task(
+    git_repo: Path,
+) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -323,8 +326,30 @@ def test_needs_human_task_moves_back_to_todo(git_repo: Path) -> None:
 
     completed = service.start(iterations=1)
 
+    todo_tasks = list_tasks(git_repo / ".jri" / "tasks" / "todo")
+    original_task = parse_task_file(
+        git_repo / ".jri" / "tasks" / "todo" / "needs-human-task.md"
+    )
+    human_tasks = [task for task in todo_tasks if task.metadata.assignee == "Human"]
+
     assert completed == 0
-    assert (git_repo / ".jri" / "tasks" / "todo" / "needs-human-task.md").exists()
+    assert len(human_tasks) == 1
+    human_task = human_tasks[0]
+    assert human_task.metadata.priority == 0
+    assert original_task.metadata.depends_on == [human_task.slug]
+    assert "needs-human-task" in human_task.body
+    assert ".jri/tasks/todo/needs-human-task.md" in human_task.body
+    assert ".jri/logs/ralph/" in human_task.body
+    assert "ses_needs_human" in human_task.body
+    assert ".jri/logs/external/opencode/ses_needs_human.json" in human_task.body
+    assert (
+        git_repo
+        / ".jri"
+        / "logs"
+        / "external"
+        / "opencode"
+        / "ses_needs_human.json"
+    ).exists()
     assert not (git_repo / ".jri" / "tasks" / "doing" / "needs-human-task.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "done" / "needs-human-task.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
@@ -334,6 +359,31 @@ def test_needs_human_task_moves_back_to_todo(git_repo: Path) -> None:
     # The feature branch should be deleted
     branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
     assert not any("ralph/" in b for b in branches)
+
+
+def test_needs_human_block_is_durable_across_runs(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="needs-human-task",
+        title="Needs human task",
+        priority=0,
+        assignee="Ralph",
+        body="This will need human help.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/needs-human-task.md")
+    git(git_repo, "commit", "-m", "add needs human task")
+
+    service = JriService(git_repo, opencode_client=NeedsHumanFakeOpenCodeClient())
+
+    assert service.start(iterations=1) == 0
+
+    retry_client = SuccessfulFakeOpenCodeClient()
+    retry_service = JriService(git_repo, opencode_client=retry_client)
+
+    assert retry_service.start(iterations=1) == 0
+    assert retry_client.calls == []
 
 
 def test_needs_human_then_successful_completes_one(git_repo: Path) -> None:
@@ -365,8 +415,14 @@ def test_needs_human_then_successful_completes_one(git_repo: Path) -> None:
 
     completed = service.start(iterations=2)
 
+    todo_tasks = list_tasks(git_repo / ".jri" / "tasks" / "todo")
+    task_a = parse_task_file(git_repo / ".jri" / "tasks" / "todo" / "task-a.md")
+    human_tasks = [task for task in todo_tasks if task.metadata.assignee == "Human"]
+
     assert completed == 1
-    # Needs-human task is back in todo
+    assert len(human_tasks) == 1
+    assert task_a.metadata.depends_on == [human_tasks[0].slug]
+    # Needs-human task is back in todo, now blocked on a generated Human task
     assert (git_repo / ".jri" / "tasks" / "todo" / "task-a.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
     # Successful task is in done

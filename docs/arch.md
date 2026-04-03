@@ -78,7 +78,8 @@ Phase II gives Ralph exactly three runtime outcomes:
 - `failed` when the run did not complete successfully
 - `needs human` when progress requires human input or action
 
-When Ralph resolves to `needs human`, the current iteration aborts and recovery returns the Ralph task to `todo` so later work can decide how to represent that escalation durably.
+When Ralph resolves to `needs human`, the current iteration aborts and recovery creates a generated `Human` task in `todo` with the required context.
+The original Ralph task also returns to `todo` and is blocked via `depends_on` on that generated Human task until the human work is done.
 Besides, if Ralph, while solving the current task, finds new ones (e.g., a bug which should be fixed), it creates them.
 JRI moves the active task through `.jri/tasks/todo/`, `.jri/tasks/doing/`, and `.jri/tasks/done/`; Ralph must not edit or relocate the current task file in `doing`.
 

@@ -132,6 +132,7 @@ Ralph must always resolve into:
 Failed work is retried up to 3 times before it becomes `needs human`.
 
 When Ralph resolves to `needs human`, it creates a task assigned to `Human` with the required context and dependency link.
+The original Ralph task returns to `todo` and is blocked via `depends_on` on that generated Human task.
 
 Never silent failure.
 

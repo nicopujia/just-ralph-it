@@ -4,6 +4,7 @@ import signal
 import subprocess
 import sys
 import time
+from dataclasses import replace
 from importlib.resources import files
 from pathlib import Path
 from types import FrameType
@@ -11,11 +12,11 @@ from typing import Any
 
 from .errors import HaltRequested, JriError
 from .git import GitRepo
-from .models import Outcome, State, Task
+from .models import Outcome, State, Task, TaskMetadata
 from .opencode import OpenCodeClient
 from .paths import JriPaths
 from .state import StateStore
-from .tasks import list_tasks, move_task, select_next_task
+from .tasks import dump_task, list_tasks, move_task, parse_task_file, select_next_task
 
 _INIT_COMMIT_PATHS = (
     ".jri",
@@ -30,6 +31,7 @@ _MANAGED_AGENT_PATHS = tuple(
     f".opencode/agents/{name}" for name in _MANAGED_AGENT_FILENAMES
 )
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
+_MAX_TASK_TITLE_LENGTH = 50
 
 
 class JriService:
@@ -317,20 +319,21 @@ class JriService:
             self._recover_failed_iteration(doing_task, branch)
             raise JriError(f"OpenCode exited with status {result.returncode}")
 
+        export_path = self._export_session_if_available(result.session_id)
+
         if result.outcome == "needs human":
-            self._recover_failed_iteration(doing_task, branch)
+            self._recover_needs_human_iteration(
+                doing_task,
+                branch,
+                log_path=log_path,
+                session_id=result.session_id,
+                export_path=export_path,
+            )
             return "needs human"
 
         if result.outcome == "failed":
             self._recover_failed_iteration(doing_task, branch)
             return "failed"
-
-        if result.session_id is not None:
-            export_path = self.paths.external_opencode_dir / f"{result.session_id}.json"
-            try:
-                self.opencode_client.export_session(result.session_id, export_path)
-            except JriError:
-                pass  # session export is best-effort; don't fail the iteration
 
         default = self._default_branch()
         self.git.commit_all_if_needed(f"ralph: finalize {task.slug}")
@@ -401,6 +404,157 @@ class JriService:
             )
         except Exception:
             pass  # best-effort recovery; don't mask the original error
+
+    def _recover_needs_human_iteration(
+        self,
+        doing_task: Task,
+        branch: str,
+        *,
+        log_path: Path,
+        session_id: str | None,
+        export_path: Path | None,
+    ) -> None:
+        try:
+            default = self._default_branch()
+            self.git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
+            self.git.checkout(default)
+            self.git.delete_branch(branch)
+            todo_path = self.paths.task_path("todo", doing_task.slug)
+            if todo_path.exists():
+                todo_task = parse_task_file(todo_path)
+                human_task = self._create_needs_human_task(
+                    todo_task,
+                    log_path=log_path,
+                    session_id=session_id,
+                    export_path=export_path,
+                )
+                blocked_task = self._block_task_on_dependency(todo_task, human_task.slug)
+                self._write_task_file(blocked_task)
+                self.git.commit_all_if_needed(
+                    f"jri: escalate {doing_task.slug} for human help"
+                )
+            state = self.state_store.load()
+            self.state_store.save(
+                State(
+                    iteration_number=state.iteration_number,
+                    finished_at=state.finished_at,
+                    session=state.session,
+                    branch=state.branch,
+                )
+            )
+        except Exception:
+            pass  # best-effort recovery; don't mask the original error
+
+    def _export_session_if_available(self, session_id: str | None) -> Path | None:
+        if session_id is None:
+            return None
+        export_path = self.paths.external_opencode_dir / f"{session_id}.json"
+        try:
+            self.opencode_client.export_session(session_id, export_path)
+        except JriError:
+            return None
+        return export_path
+
+    def _create_needs_human_task(
+        self,
+        original_task: Task,
+        *,
+        log_path: Path,
+        session_id: str | None,
+        export_path: Path | None,
+    ) -> Task:
+        slug = self._allocate_needs_human_slug(original_task.slug)
+        task = Task(
+            path=self.paths.task_path("todo", slug),
+            slug=slug,
+            metadata=TaskMetadata(
+                title=self._needs_human_title(original_task),
+                priority=original_task.metadata.priority,
+                assignee="Human",
+                depends_on=[],
+                acceptance_criteria=[
+                    f"Provide the human input or action needed to unblock `{original_task.slug}`."
+                ],
+            ),
+            body=self._needs_human_body(
+                original_task,
+                log_path=log_path,
+                session_id=session_id,
+                export_path=export_path,
+            ),
+        )
+        self._write_task_file(task)
+        return task
+
+    def _block_task_on_dependency(self, task: Task, dependency_slug: str) -> Task:
+        depends_on = list(task.metadata.depends_on)
+        if dependency_slug not in depends_on:
+            depends_on.append(dependency_slug)
+        return replace(
+            task,
+            metadata=replace(task.metadata, depends_on=depends_on),
+        )
+
+    def _write_task_file(self, task: Task) -> None:
+        task.path.parent.mkdir(parents=True, exist_ok=True)
+        task.path.write_text(dump_task(task), encoding="utf-8")
+
+    def _allocate_needs_human_slug(self, original_slug: str) -> str:
+        base = f"{original_slug}--needs-human"
+        used = {
+            path.stem
+            for status in _TRACKED_TASK_DIRS
+            for path in self.paths.task_dir(status).glob("*.md")
+        }
+        if base not in used:
+            return base
+        suffix = 2
+        while f"{base}-{suffix}" in used:
+            suffix += 1
+        return f"{base}-{suffix}"
+
+    def _needs_human_title(self, original_task: Task) -> str:
+        candidate = f"Unblock {original_task.metadata.title}"
+        if len(candidate) <= _MAX_TASK_TITLE_LENGTH:
+            return candidate
+        return candidate[: _MAX_TASK_TITLE_LENGTH - 3].rstrip() + "..."
+
+    def _needs_human_body(
+        self,
+        original_task: Task,
+        *,
+        log_path: Path,
+        session_id: str | None,
+        export_path: Path | None,
+    ) -> str:
+        original_path = original_task.path.relative_to(self.root)
+        log_relative = log_path.relative_to(self.root)
+        export_relative = (
+            str(export_path.relative_to(self.root))
+            if export_path is not None and export_path.exists()
+            else "not available"
+        )
+        session_label = session_id or "not available"
+        return "\n".join(
+            (
+                f"Ralph reported `needs human` while working on `{original_path}`.",
+                "",
+                f"Complete this task to unblock `{original_task.slug}`.",
+                "",
+                "## Original Ralph task",
+                f"- Slug: `{original_task.slug}`",
+                f"- Title: {original_task.metadata.title}",
+                f"- Task file: `{original_path}`",
+                "",
+                "## Run artifacts",
+                f"- Ralph log: `{log_relative}`",
+                f"- OpenCode session: `{session_label}`",
+                f"- OpenCode export: `{export_relative}`",
+                "",
+                "## Ralph task description",
+                original_task.body,
+            )
+        ).rstrip() + "\n"
 
     def _install_signal_handlers(self) -> dict[signal.Signals, Any]:
         previous: dict[signal.Signals, Any] = {}
