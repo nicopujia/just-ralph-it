@@ -431,9 +431,7 @@ class JriService:
 
         if doing_tasks:
             reason = (
-                "dead-tracked-process"
-                if loop_pid is not None
-                else "no-tracked-process"
+                "dead-tracked-process" if loop_pid is not None else "no-tracked-process"
             )
             self._recover_stale_iteration(
                 doing_tasks[0],
@@ -445,9 +443,7 @@ class JriService:
 
         if process is not None:
             reason = (
-                "dead-tracked-process"
-                if loop_pid is not None
-                else "missing-loop-pid"
+                "dead-tracked-process" if loop_pid is not None else "missing-loop-pid"
             )
             self._record_recovery(
                 mode=mode,

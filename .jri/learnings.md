@@ -12,3 +12,5 @@
   Schema/status compare them against git-tracked content, and the run loop snapshots the active `doing` task so even committed in-place rewrites during a Ralph run are rejected; corrections belong in new draft follow-up tasks.
 - Promoted task files in `.jri/tasks/{todo,doing,done}` must also include a non-empty `acceptance_criteria` list.
   Draft tasks may omit it, `validate_repo()` and runtime task loading both enforce the rule, and `tests.helpers.write_task()` auto-fills promoted test fixtures unless a test sets criteria explicitly.
+- `jri start` now preflights stale runs before launching.
+  A lone `doing` task with a missing or dead tracked loop PID is moved back to `todo`, in-progress runtime state is cleared, and the recovery is recorded in `.jri/logs/recovery.log`; a live tracked loop PID still blocks a second start.
