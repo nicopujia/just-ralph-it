@@ -285,6 +285,7 @@ class JriService:
             ),
         )
         if result.returncode != 0:
+            self._recover_failed_iteration(doing_task, branch)
             raise JriError(f"OpenCode exited with status {result.returncode}")
 
         if result.session_id is not None:
@@ -313,6 +314,27 @@ class JriService:
             iteration_number=next_iteration,
             finished_at=int(time.time()),
         )
+
+    def _recover_failed_iteration(self, doing_task: Task, branch: str) -> None:
+        try:
+            default = self.git.default_branch()
+            self.git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
+            self.git.checkout(default)
+            if doing_task.path.exists():
+                move_task(doing_task, self.paths.task_dir("todo"))
+                self.git.commit_all_if_needed(
+                    f"jri: recover {doing_task.slug} after failed iteration"
+                )
+            state = self.state_store.load()
+            self.state_store.save(
+                State(
+                    iteration_number=state.iteration_number,
+                    finished_at=state.finished_at,
+                    session=state.session,
+                )
+            )
+        except Exception:
+            pass  # best-effort recovery; don't mask the original error
 
     def _install_signal_handlers(self) -> dict[signal.Signals, Any]:
         previous: dict[signal.Signals, Any] = {}
