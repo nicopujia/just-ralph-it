@@ -237,6 +237,7 @@ class JriService:
             self.paths.stop_signal_path.unlink()
 
         completed = 0
+        blocked_slugs: set[str] = set()
         self._halt_requested = False
         old_handlers = self._install_signal_handlers()
         try:
@@ -251,15 +252,18 @@ class JriService:
                 except ValueError as exc:
                     raise JriError(str(exc)) from exc
                 next_task = select_next_task(
-                    todo_tasks,
+                    [t for t in todo_tasks if t.slug not in blocked_slugs],
                     done_slugs={task.slug for task in done_tasks},
                     doing_tasks=doing_tasks,
                 )
                 if next_task is None:
                     break
 
-                self._run_iteration(next_task)
-                completed += 1
+                outcome = self._run_iteration(next_task)
+                if outcome == "completed":
+                    completed += 1
+                elif outcome == "blocked":
+                    blocked_slugs.add(next_task.slug)
 
                 if self.paths.stop_signal_path.exists():
                     self.paths.stop_signal_path.unlink()
@@ -270,7 +274,7 @@ class JriService:
 
         return completed
 
-    def _run_iteration(self, task: Task) -> None:
+    def _run_iteration(self, task: Task) -> str:
         state = self.state_store.load()
         next_iteration = state.iteration_number + 1
         started_at = int(time.time())
@@ -305,6 +309,10 @@ class JriService:
             self._recover_failed_iteration(doing_task, branch)
             raise JriError(f"OpenCode exited with status {result.returncode}")
 
+        if result.outcome == "blocked":
+            self._recover_failed_iteration(doing_task, branch)
+            return "blocked"
+
         if result.session_id is not None:
             export_path = self.paths.external_opencode_dir / f"{result.session_id}.json"
             try:
@@ -331,6 +339,7 @@ class JriService:
             iteration_number=next_iteration,
             finished_at=int(time.time()),
         )
+        return "completed"
 
     def _recover_failed_iteration(self, doing_task: Task, branch: str) -> None:
         try:
