@@ -53,3 +53,6 @@ acceptance_criteria:
 
 <Extended description in Markdown>
 ```
+
+`acceptance_criteria` may be omitted for `draft` tasks.
+Tasks in `todo`, `doing`, and `done` must include a non-empty `acceptance_criteria` list.

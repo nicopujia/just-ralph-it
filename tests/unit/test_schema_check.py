@@ -28,6 +28,25 @@ def test_validate_repo_accepts_valid_jri_tree(tmp_path: Path) -> None:
     validate_repo(tmp_path)
 
 
+def test_validate_repo_allows_draft_task_without_acceptance_criteria(
+    tmp_path: Path,
+) -> None:
+    task_path = tmp_path / ".jri" / "tasks" / "draft" / "clarify-scope.md"
+    task_path.parent.mkdir(parents=True)
+    task_path.write_text(
+        "---\n"
+        'title: "Clarify scope"\n'
+        "priority: 1\n"
+        'assignee: "Ralph"\n'
+        "depends_on: []\n"
+        "---\n\n"
+        "Draft the scope.\n",
+        encoding="utf-8",
+    )
+
+    validate_repo(tmp_path)
+
+
 def test_main_returns_nonzero_for_invalid_task_file(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -47,6 +66,47 @@ def test_main_returns_nonzero_for_invalid_task_file(
 
     assert main([str(tmp_path)]) == 1
     assert "schema check failed" in capsys.readouterr().err
+
+
+def test_validate_repo_rejects_promoted_task_without_acceptance_criteria(
+    tmp_path: Path,
+) -> None:
+    task_path = tmp_path / ".jri" / "tasks" / "todo" / "quality-gate.md"
+    task_path.parent.mkdir(parents=True)
+    task_path.write_text(
+        "---\n"
+        'title: "Add quality gate"\n'
+        "priority: 0\n"
+        'assignee: "Ralph"\n'
+        "depends_on: []\n"
+        "---\n\n"
+        "Implement the quality gate.\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="acceptance_criteria"):
+        validate_repo(tmp_path)
+
+
+def test_validate_repo_rejects_promoted_task_with_empty_acceptance_criteria(
+    tmp_path: Path,
+) -> None:
+    task_path = tmp_path / ".jri" / "tasks" / "todo" / "quality-gate.md"
+    task_path.parent.mkdir(parents=True)
+    task_path.write_text(
+        "---\n"
+        'title: "Add quality gate"\n'
+        "priority: 0\n"
+        'assignee: "Ralph"\n'
+        "depends_on: []\n"
+        "acceptance_criteria: []\n"
+        "---\n\n"
+        "Implement the quality gate.\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="acceptance_criteria"):
+        validate_repo(tmp_path)
 
 
 def test_validate_repo_rejects_in_place_mutation_of_promoted_task(

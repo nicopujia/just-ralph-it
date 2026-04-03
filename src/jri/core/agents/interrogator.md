@@ -56,6 +56,9 @@ acceptance_criteria:
 <Extended description in Markdown>
 ```
 
+`acceptance_criteria` may be omitted while a task is in `draft`.
+It becomes required and non-empty before promotion to `todo`, `doing`, or `done`.
+
 **IMPORTANT**: Each task must be an atomic unit of work.
 
 ## `README.md` contents

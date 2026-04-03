@@ -76,3 +76,7 @@ This produces a wheel and source distribution under `dist/`.
 - Follow TDD principles when writing code
 - Maintain docs concise
 - Split markdown lines at sentence boundaries
+
+Task metadata guidance:
+Draft tasks may omit `acceptance_criteria` while the work is still being clarified.
+Tasks promoted to `todo`, `doing`, or `done` must include a non-empty `acceptance_criteria` list.

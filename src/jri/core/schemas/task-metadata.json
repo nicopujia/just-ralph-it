@@ -31,6 +31,7 @@
     },
     "acceptance_criteria": {
       "type": "array",
+      "description": "Concrete ways to determine the task is done. Draft tasks may omit this field, but promoted tasks must provide a non-empty list.",
       "items": {
         "type": "string",
         "description": "Concrete ways to determine the task is done."
