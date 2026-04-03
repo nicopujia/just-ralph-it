@@ -114,11 +114,19 @@ class JriService:
         if state.process is None or state.process.loop_pid is None:
             raise JriError("no Ralph process is currently tracked")
 
+        own_pgid = os.getpgrp()
         seen: set[int] = set()
         for pid in (state.process.child_pid, state.process.loop_pid):
             if pid is None or pid in seen:
                 continue
             seen.add(pid)
+            try:
+                pgid = os.getpgid(pid)
+                if pgid != own_pgid:
+                    os.killpg(pgid, signal.SIGTERM)
+                    continue
+            except (ProcessLookupError, PermissionError):
+                pass
             try:
                 os.kill(pid, signal.SIGTERM)
             except ProcessLookupError:
@@ -225,6 +233,7 @@ class JriService:
             self.paths.stop_signal_path.unlink()
 
         completed = 0
+        self._halt_requested = False
         old_handlers = self._install_signal_handlers()
         try:
             while iterations is None or completed < iterations:
