@@ -1,5 +1,5 @@
-import os
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 
@@ -99,10 +99,14 @@ class StateStore:
 
         backup_text = self.backup_path.read_text(encoding="utf-8")
         try:
-            state = self._state_from_text(backup_text, file_label=self.backup_path.name)
+            state = self._state_from_text(
+                backup_text,
+                file_label=self.backup_path.name,
+            )
         except JriError as exc:
             raise JriError(
-                f"{primary_error}. Backup recovery from {self.backup_path.name} failed: {exc}"
+                f"{primary_error}. Backup recovery from "
+                f"{self.backup_path.name} failed: {exc}"
             ) from exc
 
         try:
