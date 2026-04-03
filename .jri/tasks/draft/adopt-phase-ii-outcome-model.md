@@ -5,7 +5,8 @@ assignee: Ralph
 depends_on:
   - phase-1-2-quality-gate-foundation
 acceptance_criteria:
-  - Runtime outcomes align with the roadmap: `completed`, `blocked`, `needs clarification`, and `needs human`.
+  - Runtime outcomes align with the roadmap: `completed`, `failed`, and `needs human`.
+  - Failed work is retried automatically up to 3 times before becoming human-required.
   - Silent or ambiguous fallback outcomes are eliminated or made impossible to miss.
   - The agent/result protocol, persistence, and tests all use the same outcome model.
   - Documentation explains what each outcome means and how the loop reacts.

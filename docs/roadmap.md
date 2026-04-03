@@ -126,9 +126,10 @@ Should clearly show:
 Ralph must always resolve into:
 
 - completed
-- blocked
-- needs clarification
+- failed
 - needs human
+
+Failed work is retried up to 3 times before it becomes human-required.
 
 Never silent failure.
 
