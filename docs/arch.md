@@ -70,7 +70,7 @@ Solves **only one** task.
 
 It has root access and all permissions allowed on the machine, so it will do all on its power to solve the task, making sure to test the software *just as a human developer would do*.
 It commits frequently and, when writing code, follows TDD principles. 
-It also acts as an orchestrator, spinning up to 100 subagents, rather than doing the work by itself; that way, it ensures to keep its context window lean.
+It also acts as an orchestrator, spinning up to 50 subagents for reads and up to 10 for implementation, rather than doing the work by itself; that way, it ensures to keep its context window lean.
 
 If Ralph truly cannot solve the task (e.g., if it requires human identification), it creates a new task assigned to `Human`, adds it as a dependency, and aborts, letting the next iteration continue with an unblocked task.
 Besides, if Ralph, while solving the current task, finds new ones (e.g., a bug which should be fixed), it creates them.
