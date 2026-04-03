@@ -343,12 +343,7 @@ def test_needs_human_generates_human_followup_and_blocks_original_task(
     assert "ses_needs_human" in human_task.body
     assert ".jri/logs/external/opencode/ses_needs_human.json" in human_task.body
     assert (
-        git_repo
-        / ".jri"
-        / "logs"
-        / "external"
-        / "opencode"
-        / "ses_needs_human.json"
+        git_repo / ".jri" / "logs" / "external" / "opencode" / "ses_needs_human.json"
     ).exists()
     assert not (git_repo / ".jri" / "tasks" / "doing" / "needs-human-task.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "done" / "needs-human-task.md").exists()

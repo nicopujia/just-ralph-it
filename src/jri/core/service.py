@@ -428,7 +428,9 @@ class JriService:
                     session_id=session_id,
                     export_path=export_path,
                 )
-                blocked_task = self._block_task_on_dependency(todo_task, human_task.slug)
+                blocked_task = self._block_task_on_dependency(
+                    todo_task, human_task.slug
+                )
                 self._write_task_file(blocked_task)
                 self.git.commit_all_if_needed(
                     f"jri: escalate {doing_task.slug} for human help"
@@ -473,7 +475,10 @@ class JriService:
                 assignee="Human",
                 depends_on=[],
                 acceptance_criteria=[
-                    f"Provide the human input or action needed to unblock `{original_task.slug}`."
+                    (
+                        "Provide the human input or action needed to unblock "
+                        f"`{original_task.slug}`."
+                    )
                 ],
             ),
             body=self._needs_human_body(
@@ -535,26 +540,29 @@ class JriService:
             else "not available"
         )
         session_label = session_id or "not available"
-        return "\n".join(
-            (
-                f"Ralph reported `needs human` while working on `{original_path}`.",
-                "",
-                f"Complete this task to unblock `{original_task.slug}`.",
-                "",
-                "## Original Ralph task",
-                f"- Slug: `{original_task.slug}`",
-                f"- Title: {original_task.metadata.title}",
-                f"- Task file: `{original_path}`",
-                "",
-                "## Run artifacts",
-                f"- Ralph log: `{log_relative}`",
-                f"- OpenCode session: `{session_label}`",
-                f"- OpenCode export: `{export_relative}`",
-                "",
-                "## Ralph task description",
-                original_task.body,
-            )
-        ).rstrip() + "\n"
+        return (
+            "\n".join(
+                (
+                    f"Ralph reported `needs human` while working on `{original_path}`.",
+                    "",
+                    f"Complete this task to unblock `{original_task.slug}`.",
+                    "",
+                    "## Original Ralph task",
+                    f"- Slug: `{original_task.slug}`",
+                    f"- Title: {original_task.metadata.title}",
+                    f"- Task file: `{original_path}`",
+                    "",
+                    "## Run artifacts",
+                    f"- Ralph log: `{log_relative}`",
+                    f"- OpenCode session: `{session_label}`",
+                    f"- OpenCode export: `{export_relative}`",
+                    "",
+                    "## Ralph task description",
+                    original_task.body,
+                )
+            ).rstrip()
+            + "\n"
+        )
 
     def _install_signal_handlers(self) -> dict[signal.Signals, Any]:
         previous: dict[signal.Signals, Any] = {}
