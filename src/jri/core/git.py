@@ -67,6 +67,9 @@ class GitRepo:
         if result.returncode != 0:
             raise JriError(result.stderr.strip() or f"failed to checkout {name}")
 
+    def delete_branch(self, name: str) -> None:
+        self.run("branch", "-D", name, check=False)
+
     def add_all(self) -> None:
         self.run("add", "-A")
 

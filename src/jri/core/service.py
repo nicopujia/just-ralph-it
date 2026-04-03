@@ -337,6 +337,7 @@ class JriService:
             default = self._default_branch()
             self.git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
             self.git.checkout(default)
+            self.git.delete_branch(branch)
             if doing_task.path.exists():
                 move_task(doing_task, self.paths.task_dir("todo"))
                 self.git.commit_all_if_needed(
