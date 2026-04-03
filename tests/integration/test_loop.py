@@ -165,7 +165,9 @@ def test_start_completes_single_iteration(git_repo: Path) -> None:
         "ralph/1/implement-file"
         in git(git_repo, "branch", "--format=%(refname:short)").splitlines()
     )
-    assert "jri/1" in git(git_repo, "tag").splitlines()
+    tags = git(git_repo, "tag").splitlines()
+    assert "jri/0" in tags
+    assert "jri/1" in tags
     iteration = read_json(git_repo / ".jri" / "state.json")["iteration"]
     iteration_payload = cast(dict[str, object], iteration)
     assert iteration_payload["number"] == 1
@@ -322,6 +324,9 @@ def test_blocked_task_moves_back_to_todo(git_repo: Path) -> None:
     assert not (git_repo / ".jri" / "tasks" / "doing" / "blocked-task.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "done" / "blocked-task.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
+    tags = git(git_repo, "tag").splitlines()
+    assert "jri/0" in tags
+    assert "jri/1" not in tags
     # The feature branch should be deleted
     branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
     assert not any("ralph/" in b for b in branches)

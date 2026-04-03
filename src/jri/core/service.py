@@ -240,6 +240,7 @@ class JriService:
             raise JriError("a task is already in progress")
         self.git.ensure_clean()
         self.git.ensure_default_branch(hint=self.state_store.load().branch)
+        self._ensure_initial_iteration_tag()
         if self.paths.stop_signal_path.exists():
             self.paths.stop_signal_path.unlink()
 
@@ -376,6 +377,11 @@ class JriService:
             finished_at=int(time.time()),
         )
         return "completed"
+
+    def _ensure_initial_iteration_tag(self) -> None:
+        state = self.state_store.load()
+        if state.iteration_number == 0 and not self.git.has_tag("jri/0"):
+            self.git.create_tag("jri/0")
 
     def _recover_failed_iteration(self, doing_task: Task, branch: str) -> None:
         try:
