@@ -102,12 +102,17 @@ class GitRepo:
         if not self.status_short(*scoped_paths):
             return False
 
-        self.run("add", "-A", "--", *managed_paths)
         tracked_paths = [path for path in untracked_paths if self.is_tracked(path)]
         if tracked_paths:
+            stashed = self.run("stash", "push", "--staged", "--quiet", check=False)
+            self.run("add", "-A", "--", *managed_paths)
             self.run("rm", "--cached", "--quiet", "--", *tracked_paths)
-
-        result = self.run("commit", "-m", message, "--", *scoped_paths, check=False)
+            result = self.run("commit", "-m", message, check=False)
+            if stashed.returncode == 0:
+                self.run("stash", "pop", "--quiet", check=False)
+        else:
+            self.run("add", "-A", "--", *managed_paths)
+            result = self.run("commit", "-m", message, "--", *scoped_paths, check=False)
         if result.returncode != 0:
             raise JriError(result.stderr.strip() or f"failed to commit: {message}")
         return True
