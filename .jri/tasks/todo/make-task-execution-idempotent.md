@@ -4,7 +4,7 @@ priority: 2
 assignee: Ralph
 depends_on:
   - implement-crash-safe-state-storage
-  - add-reliable-resume-and-stale-run-recovery
+  - add-start-recovery-and-stale-run-recovery
 acceptance_criteria:
   - Retrying an interrupted task does not duplicate finalization side effects.
   - The system records enough execution-attempt metadata to distinguish a retry from a first run.

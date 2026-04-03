@@ -117,7 +117,7 @@ Should clearly show:
 
 ### 2.3 Control
 
-- stop / halt / resume must be reliable
+- stop / halt / start recovery must be reliable
 - max iterations / time limits
 - clear loop boundaries
 
