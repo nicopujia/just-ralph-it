@@ -266,7 +266,7 @@ def _strip_inline_comment(value: str) -> str:
 def _should_quote_plain_scalar(value: str) -> bool:
     if not value:
         return False
-    if value[0] in "\"'" or value[0] in "[{":
+    if value[0] in "\"'" or value[0] in "[{" or value[0] in "&*":
         return False
     if re.fullmatch(r"[-+]?\d+(?:\.\d+)?", value):
         return False
