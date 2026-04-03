@@ -66,10 +66,10 @@ class OpenCodeClient:
                 capture_output=True,
                 text=True,
             )
-        except FileNotFoundError:
+        except FileNotFoundError as err:
             raise JriError(
                 f"could not find `{self.binary}` — is OpenCode installed?"
-            )
+            ) from err
         if result.returncode != 0:
             return []
         try:
@@ -89,10 +89,10 @@ class OpenCodeClient:
         command.extend(extra_args)
         try:
             return subprocess.run(command, cwd=root, check=False).returncode
-        except FileNotFoundError:
+        except FileNotFoundError as err:
             raise JriError(
                 f"could not find `{self.binary}` — is OpenCode installed?"
-            )
+            ) from err
 
     def run_ralph_task(
         self,
@@ -120,10 +120,10 @@ class OpenCodeClient:
                     bufsize=1,
                     start_new_session=True,
                 )
-            except FileNotFoundError:
+            except FileNotFoundError as err:
                 raise JriError(
                     f"could not find `{self.binary}` — is OpenCode installed?"
-                )
+                ) from err
             if on_start is not None:
                 on_start(process.pid)
 
