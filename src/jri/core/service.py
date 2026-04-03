@@ -5,6 +5,7 @@ import subprocess
 import sys
 import time
 from dataclasses import replace
+from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
 from types import FrameType
@@ -12,7 +13,7 @@ from typing import Any
 
 from .errors import HaltRequested, JriError
 from .git import GitRepo
-from .models import Outcome, State, Task, TaskMetadata
+from .models import Outcome, ProcessState, State, Task, TaskMetadata
 from .opencode import OpenCodeClient
 from .paths import JriPaths
 from .state import StateStore
@@ -94,6 +95,7 @@ class JriService:
         model: str | None = None,
     ) -> int:
         self.ensure_initialized()
+        self._recover_stale_start_state(mode="detached" if detached else "foreground")
         if detached:
             return self._start_detached(iterations, model)
 
@@ -410,6 +412,147 @@ class JriService:
         if state.iteration_number == 0 and not self.git.has_tag("jri/0"):
             self.git.create_tag("jri/0")
 
+    def _recover_stale_start_state(self, *, mode: str) -> None:
+        state = self.state_store.load()
+        try:
+            doing_tasks = list_tasks(self.paths.task_dir("doing"), git_repo=self.git)
+        except ValueError as exc:
+            raise JriError(str(exc)) from exc
+
+        if len(doing_tasks) > 1:
+            raise JriError("multiple tasks are already in progress")
+
+        process = state.process
+        loop_pid = process.loop_pid if process is not None else None
+        process_alive = loop_pid is not None and self._is_pid_alive(loop_pid)
+
+        if process_alive:
+            raise JriError("a Ralph process is already running")
+
+        if doing_tasks:
+            reason = (
+                "dead-tracked-process"
+                if loop_pid is not None
+                else "no-tracked-process"
+            )
+            self._recover_stale_iteration(
+                doing_tasks[0],
+                mode=mode,
+                reason=reason,
+                process=process,
+            )
+            return
+
+        if process is not None:
+            reason = (
+                "dead-tracked-process"
+                if loop_pid is not None
+                else "missing-loop-pid"
+            )
+            self._record_recovery(
+                mode=mode,
+                reason=reason,
+                task_slug=None,
+                process=process,
+            )
+            self._reset_runtime_state()
+            return
+
+        if state.started_at is not None:
+            self._record_recovery(
+                mode=mode,
+                reason="stale-iteration-state",
+                task_slug=None,
+                process=None,
+            )
+            self._reset_runtime_state()
+
+    def _is_pid_alive(self, pid: int) -> bool:
+        if pid <= 0:
+            return False
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def _recover_stale_iteration(
+        self,
+        doing_task: Task,
+        *,
+        mode: str,
+        reason: str,
+        process: ProcessState | None,
+    ) -> None:
+        default = self._default_branch()
+        state = self.state_store.load()
+        expected_branch = f"ralph/{state.iteration_number + 1}/{doing_task.slug}"
+        current_branch = self.git.current_branch()
+
+        if current_branch == default:
+            if self.git.status_short():
+                raise JriError("git working tree must be clean before stale recovery")
+        elif current_branch == expected_branch:
+            self.git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
+            self.git.checkout(default)
+        else:
+            raise JriError(f"jri start must begin from the {default} branch")
+
+        self.git.delete_branch(expected_branch)
+
+        move_task(doing_task, self.paths.task_dir("todo"))
+        self._record_recovery(
+            mode=mode,
+            reason=reason,
+            task_slug=doing_task.slug,
+            process=process,
+        )
+        self._reset_runtime_state()
+        self.git.commit_all_if_needed(f"jri: recover {doing_task.slug} after stale run")
+
+    def _reset_runtime_state(self) -> None:
+        state = self.state_store.load()
+        self.state_store.save(
+            State(
+                iteration_number=state.iteration_number,
+                finished_at=state.finished_at,
+                session=state.session,
+                branch=state.branch,
+            )
+        )
+
+    def _record_recovery(
+        self,
+        *,
+        mode: str,
+        reason: str,
+        task_slug: str | None,
+        process: ProcessState | None,
+    ) -> None:
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        loop_pid = process.loop_pid if process is not None else None
+        child_pid = process.child_pid if process is not None else None
+        detached = process.detached if process is not None else False
+        log_path = process.log_path if process is not None else None
+        line = " ".join(
+            (
+                timestamp,
+                "event=stale-run-recovery",
+                f"mode={mode}",
+                f"task={task_slug or '-'}",
+                f"reason={reason}",
+                f"loop_pid={loop_pid if loop_pid is not None else '-'}",
+                f"child_pid={child_pid if child_pid is not None else '-'}",
+                f"detached={'true' if detached else 'false'}",
+                f"log_path={log_path or '-'}",
+            )
+        )
+        self.paths.recovery_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.paths.recovery_log_path.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+
     def _recover_failed_iteration(self, doing_task: Task, branch: str) -> None:
         try:
             default = self._default_branch()
@@ -421,15 +564,7 @@ class JriService:
                 self.git.commit_all_if_needed(
                     f"jri: recover {doing_task.slug} after failed iteration"
                 )
-            state = self.state_store.load()
-            self.state_store.save(
-                State(
-                    iteration_number=state.iteration_number,
-                    finished_at=state.finished_at,
-                    session=state.session,
-                    branch=state.branch,
-                )
-            )
+            self._reset_runtime_state()
         except Exception:
             pass  # best-effort recovery; don't mask the original error
 
@@ -463,15 +598,7 @@ class JriService:
                 self.git.commit_all_if_needed(
                     f"jri: escalate {doing_task.slug} for human help"
                 )
-            state = self.state_store.load()
-            self.state_store.save(
-                State(
-                    iteration_number=state.iteration_number,
-                    finished_at=state.finished_at,
-                    session=state.session,
-                    branch=state.branch,
-                )
-            )
+            self._reset_runtime_state()
         except Exception:
             pass  # best-effort recovery; don't mask the original error
 

@@ -1,8 +1,9 @@
 import os
 import signal
 import subprocess
+import sys
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -191,6 +192,17 @@ class FollowUpDraftOpenCodeClient(SuccessfulFakeOpenCodeClient):
         )
 
 
+class FakeDetachedProcess:
+    def __init__(self, pid: int) -> None:
+        self.pid = pid
+
+
+def _dead_pid() -> int:
+    process = subprocess.Popen(["sleep", "0"])
+    process.wait(timeout=5)
+    return process.pid
+
+
 def test_start_uses_explicit_model_override(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
@@ -370,7 +382,7 @@ def test_start_allows_additive_follow_up_draft_tasks(git_repo: Path) -> None:
     assert "additive follow-up" in follow_up.body
 
 
-def test_start_refuses_when_task_is_already_doing(git_repo: Path) -> None:
+def test_start_refuses_when_tracked_process_is_still_alive(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -381,15 +393,225 @@ def test_start_refuses_when_task_is_already_doing(git_repo: Path) -> None:
         assignee="Ralph",
         body="Already running.",
     )
+    sleeper = subprocess.Popen(["sleep", "30"])
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.state_store.save_process(
+        loop_pid=sleeper.pid,
+        child_pid=None,
+        log_path=None,
+        detached=False,
+    )
+
+    try:
+        with pytest.raises(JriError, match="already running"):
+            service.start(iterations=1)
+    finally:
+        sleeper.terminate()
+        sleeper.wait(timeout=5)
+
+
+def test_start_recovers_clean_foreground_interruption(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="doing",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/doing/implement-file.md")
+    git(git_repo, "commit", "-m", "seed interrupted task")
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
-    try:
-        service.start(iterations=1)
-    except Exception as error:
-        assert "already in progress" in str(error)
-    else:
-        raise AssertionError("expected the loop to reject an existing doing task")
+    completed = service.start(iterations=1)
+
+    assert completed == 1
+    assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "implement-file.md").exists()
+    recovery_log = (git_repo / ".jri" / "logs" / "recovery.log").read_text(
+        encoding="utf-8"
+    )
+    assert "mode=foreground" in recovery_log
+    assert "task=implement-file" in recovery_log
+    assert "reason=no-tracked-process" in recovery_log
+    history = git(git_repo, "log", "--oneline", "--decorate=short", "-5")
+    assert "jri: recover implement-file after stale run" in history
+
+
+def test_start_recovers_stale_foreground_process(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="doing",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/doing/implement-file.md")
+    git(git_repo, "commit", "-m", "seed stale process task")
+    git(git_repo, "checkout", "-b", "ralph/1/implement-file")
+    git(git_repo, "checkout", "main")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.state_store.save_process(
+        loop_pid=_dead_pid(),
+        child_pid=None,
+        log_path=git_repo / ".jri" / "logs" / "ralph" / "stale.log",
+        detached=False,
+    )
+
+    completed = service.start(iterations=1)
+
+    assert completed == 1
+    assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
+    recovery_log = (git_repo / ".jri" / "logs" / "recovery.log").read_text(
+        encoding="utf-8"
+    )
+    assert "mode=foreground" in recovery_log
+    assert "task=implement-file" in recovery_log
+    assert "reason=dead-tracked-process" in recovery_log
+    history = git(git_repo, "log", "--oneline", "--decorate=short", "-6")
+    assert "jri: recover implement-file after stale run" in history
+
+
+def test_start_clears_stale_process_metadata_without_doing_task(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "seed stale process metadata")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.state_store.save_process(
+        loop_pid=_dead_pid(),
+        child_pid=None,
+        log_path=git_repo / ".jri" / "logs" / "ralph" / "orphaned.log",
+        detached=False,
+    )
+
+    assert service.start(iterations=1) == 1
+    recovery_log = (git_repo / ".jri" / "logs" / "recovery.log").read_text(
+        encoding="utf-8"
+    )
+    assert "task=-" in recovery_log
+    assert "reason=dead-tracked-process" in recovery_log
+
+
+def test_start_recovers_clean_detached_interruption(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="doing",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/doing/implement-file.md")
+    git(git_repo, "commit", "-m", "seed clean detached interruption")
+
+    popen_calls: list[list[str]] = []
+    original_popen = cast(Any, subprocess.Popen)
+    expected_command = [sys.executable, "-m", "jri", "start", "-n", "1"]
+
+    def fake_popen(*args: object, **kwargs: object) -> object:
+        command = cast(list[str], args[0])
+        if command != expected_command:
+            return original_popen(*args, **kwargs)
+        popen_calls.append(command)
+        assert kwargs["cwd"] == git_repo
+        assert kwargs["start_new_session"] is True
+        return FakeDetachedProcess(424242)
+
+    monkeypatch.setattr("jri.core.service.subprocess.Popen", fake_popen)
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+
+    assert service.start(iterations=1, detached=True) == 0
+    assert popen_calls == [expected_command]
+    assert (git_repo / ".jri" / "tasks" / "todo" / "implement-file.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "implement-file.md").exists()
+    process = cast(
+        dict[str, object], read_json(git_repo / ".jri" / "state.json")["process"]
+    )
+    assert process["loop_pid"] == 424242
+    assert process["detached"] is True
+    recovery_log = (git_repo / ".jri" / "logs" / "recovery.log").read_text(
+        encoding="utf-8"
+    )
+    assert "mode=detached" in recovery_log
+    assert "reason=no-tracked-process" in recovery_log
+
+
+def test_start_recovers_stale_detached_process(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="doing",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/doing/implement-file.md")
+    git(git_repo, "commit", "-m", "seed stale detached process")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.state_store.save_process(
+        loop_pid=_dead_pid(),
+        child_pid=None,
+        log_path=git_repo / ".jri" / "logs" / "ralph" / "stale-detached.log",
+        detached=True,
+    )
+
+    original_popen = cast(Any, subprocess.Popen)
+    expected_command = [sys.executable, "-m", "jri", "start", "-n", "1"]
+
+    def fake_popen(*args: object, **kwargs: object) -> object:
+        command = cast(list[str], args[0])
+        if command != expected_command:
+            return original_popen(*args, **kwargs)
+        assert kwargs["cwd"] == git_repo
+        assert kwargs["start_new_session"] is True
+        return FakeDetachedProcess(313131)
+
+    monkeypatch.setattr("jri.core.service.subprocess.Popen", fake_popen)
+
+    assert service.start(iterations=1, detached=True) == 0
+    assert (git_repo / ".jri" / "tasks" / "todo" / "implement-file.md").exists()
+    process = cast(
+        dict[str, object], read_json(git_repo / ".jri" / "state.json")["process"]
+    )
+    assert process["loop_pid"] == 313131
+    assert process["detached"] is True
+    recovery_log = (git_repo / ".jri" / "logs" / "recovery.log").read_text(
+        encoding="utf-8"
+    )
+    assert "mode=detached" in recovery_log
+    assert "reason=dead-tracked-process" in recovery_log
 
 
 def test_stop_creates_stop_signal(git_repo: Path) -> None:

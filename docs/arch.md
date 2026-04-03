@@ -24,6 +24,7 @@ Every project is initialized with the same base structure:
   It is deleted after that or when a loop starts.
 - **Logs** contain absolutely everything that happens related to JRI.
   OpenCode session exports are written under `.jri/logs/external/opencode/<session-id>.json`.
+  Stale-run recovery notes are appended to `.jri/logs/recovery.log`.
 - **State** is stored in `.jri/state.json`.
   JRI writes it through a same-directory temp file and keeps `.jri/state.json.bak` as the last readable recovery copy.
   If `state.json` is invalid or partially written, JRI falls back to the backup and rewrites the primary file when it can.
@@ -89,6 +90,13 @@ When Ralph resolves to `needs human`, the current iteration aborts and recovery 
 The original Ralph task also returns to `todo` and is blocked via `depends_on` on that generated Human task until the human work is done.
 Besides, if Ralph, while solving the current task, finds new ones (e.g., a bug which should be fixed), it creates them.
 JRI moves the active task through `.jri/tasks/todo/`, `.jri/tasks/doing/`, and `.jri/tasks/done/`; Ralph must not edit or relocate the current task file in `doing`.
+
+`jri start` also performs stale-run recovery before a new loop begins.
+If `.jri/tasks/doing/` contains exactly one task but the tracked loop PID is missing or dead, JRI treats the run as interrupted.
+It moves the task back to `todo`, clears in-progress runtime state (`started_at` and tracked process metadata), records the event in `.jri/logs/recovery.log`, and commits the task move as `jri: recover <slug> after stale run`.
+Foreground starts continue into the loop immediately after recovery.
+Detached starts recover first and then launch a fresh background loop.
+If the tracked loop PID is still alive, `jri start` refuses to start a second loop.
 
 See prompt [@src/jri/core/agents/ralph.md](../src/jri/core/agents/ralph.md).
 
