@@ -194,7 +194,8 @@ class JriService:
 
     def _write_managed_files(self) -> None:
         self.paths.gitignore_path.write_text(
-            "logs/\nsignals/\nstate.json\n", encoding="utf-8"
+            "logs/\nsignals/\nstate.json\nstate.json.bak\n.state.json.tmp\n.state.json.bak.tmp\n",
+            encoding="utf-8",
         )
         _ensure_ignore_entries(self.paths.root_gitignore_path, _MANAGED_AGENT_PATHS)
         self.paths.opencode_agents_dir.mkdir(parents=True, exist_ok=True)

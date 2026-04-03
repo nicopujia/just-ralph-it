@@ -1,3 +1,4 @@
+import os
 import json
 from dataclasses import replace
 from pathlib import Path
@@ -11,29 +12,24 @@ class StateStore:
     def __init__(self, path: Path) -> None:
         self.path = path
 
+    @property
+    def backup_path(self) -> Path:
+        return self.path.with_name(f"{self.path.name}.bak")
+
     def load(self) -> State:
         if not self.path.exists():
             return State()
 
-        text = self.path.read_text(encoding="utf-8")
         try:
-            payload = json.loads(text)
-        except json.JSONDecodeError as exc:
-            raise JriError(f"state.json is corrupted: {exc}") from exc
-        if not isinstance(payload, dict):
-            raise JriError("state.json must contain an object")
-        try:
-            validate_state_payload(payload)
-        except ValueError as exc:
-            raise JriError(f"state.json has invalid content: {exc}") from exc
-        return State.from_payload(payload)
+            return self._load_path(self.path)
+        except JriError as exc:
+            return self._load_backup(primary_error=exc)
 
     def save(self, state: State) -> None:
+        text = json.dumps(state.to_payload(), indent=2, sort_keys=True) + "\n"
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(
-            json.dumps(state.to_payload(), indent=2, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
+        self._write_text_atomically(self.path, text)
+        self._write_text_atomically(self.backup_path, text)
 
     def initialize(self, *, branch: str | None = None) -> None:
         self.save(State(branch=branch))
@@ -79,3 +75,57 @@ class StateStore:
                 finished_at=finished_at,
             )
         )
+
+    def _load_path(self, path: Path) -> State:
+        text = path.read_text(encoding="utf-8")
+        return self._state_from_text(text, file_label=path.name)
+
+    def _state_from_text(self, text: str, *, file_label: str) -> State:
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise JriError(f"{file_label} is corrupted: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise JriError(f"{file_label} must contain an object")
+        try:
+            validate_state_payload(payload)
+        except ValueError as exc:
+            raise JriError(f"{file_label} has invalid content: {exc}") from exc
+        return State.from_payload(payload)
+
+    def _load_backup(self, *, primary_error: JriError) -> State:
+        if not self.backup_path.exists():
+            raise primary_error
+
+        backup_text = self.backup_path.read_text(encoding="utf-8")
+        try:
+            state = self._state_from_text(backup_text, file_label=self.backup_path.name)
+        except JriError as exc:
+            raise JriError(
+                f"{primary_error}. Backup recovery from {self.backup_path.name} failed: {exc}"
+            ) from exc
+
+        try:
+            self._write_text_atomically(self.path, backup_text)
+        except OSError:
+            pass
+        return state
+
+    def _write_text_atomically(self, path: Path, text: str) -> None:
+        temp_path = self._temp_path_for(path)
+        with temp_path.open("w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, path)
+        self._fsync_directory(path.parent)
+
+    def _temp_path_for(self, path: Path) -> Path:
+        return path.with_name(f".{path.name}.tmp")
+
+    def _fsync_directory(self, directory: Path) -> None:
+        descriptor = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)

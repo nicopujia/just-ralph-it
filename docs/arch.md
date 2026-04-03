@@ -14,6 +14,7 @@ Every project is initialized with the same base structure:
     external/
     ralph/<iteration number>-<ISO 8601 start datetime>.log
   state.json
+  state.json.bak
   .gitignore
 ```
 
@@ -23,6 +24,9 @@ Every project is initialized with the same base structure:
   It is deleted after that or when a loop starts.
 - **Logs** contain absolutely everything that happens related to JRI.
   OpenCode session exports are written under `.jri/logs/external/opencode/<session-id>.json`.
+- **State** is stored in `.jri/state.json`.
+  JRI writes it through a same-directory temp file and keeps `.jri/state.json.bak` as the last readable recovery copy.
+  If `state.json` is invalid or partially written, JRI falls back to the backup and rewrites the primary file when it can.
 
 The following are `.gitignore`d:
 
@@ -30,6 +34,9 @@ The following are `.gitignore`d:
 logs/
 signals/
 state.json
+state.json.bak
+.state.json.tmp
+.state.json.bak.tmp
 ```
 
 See [@src/jri/core/schemas/](../src/jri/core/schemas) to understand the exact schema files used by runtime validation.
