@@ -244,7 +244,7 @@ class JriService:
             self.paths.stop_signal_path.unlink()
 
         completed = 0
-        blocked_slugs: set[str] = set()
+        failed_slugs: set[str] = set()
         self._halt_requested = False
         old_handlers = self._install_signal_handlers()
         try:
@@ -259,7 +259,7 @@ class JriService:
                 except ValueError as exc:
                     raise JriError(str(exc)) from exc
                 next_task = select_next_task(
-                    [t for t in todo_tasks if t.slug not in blocked_slugs],
+                    [t for t in todo_tasks if t.slug not in failed_slugs],
                     done_slugs={task.slug for task in done_tasks},
                     doing_tasks=doing_tasks,
                 )
@@ -270,7 +270,7 @@ class JriService:
                 if outcome == "completed":
                     completed += 1
                 elif outcome in ("blocked", "failed"):
-                    blocked_slugs.add(next_task.slug)
+                    failed_slugs.add(next_task.slug)
 
                 if self.paths.stop_signal_path.exists():
                     self.paths.stop_signal_path.unlink()
@@ -319,6 +319,14 @@ class JriService:
         if result.outcome == "blocked":
             self._recover_failed_iteration(doing_task, branch)
             return "blocked"
+
+        if result.outcome == "unknown":
+            print(
+                f"unknown outcome for {task.slug}; treating as failure",
+                file=sys.stderr,
+            )
+            self._recover_failed_iteration(doing_task, branch)
+            return "failed"
 
         if result.session_id is not None:
             export_path = self.paths.external_opencode_dir / f"{result.session_id}.json"

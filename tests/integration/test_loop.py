@@ -32,7 +32,9 @@ class SuccessfulFakeOpenCodeClient(OpenCodeClient):
         self.models_used.append(self.model)
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
-        return OpenCodeRunResult(returncode=0, session_id="ses_fake")
+        return OpenCodeRunResult(
+            returncode=0, session_id="ses_fake", outcome="completed"
+        )
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
@@ -385,10 +387,64 @@ class MakeCheckFailsFakeOpenCodeClient(OpenCodeClient):
         self.calls.append((prompt, log_path))
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
-        return OpenCodeRunResult(returncode=0, session_id="ses_fake")
+        return OpenCodeRunResult(
+            returncode=0, session_id="ses_fake", outcome="completed"
+        )
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
+
+
+class UnknownOutcomeFakeOpenCodeClient(OpenCodeClient):
+    """Simulates Ralph returning an unknown outcome (no JRI markers)."""
+
+    def __init__(self) -> None:
+        super().__init__(model=None)
+        self.calls: list[tuple[str, Path]] = []
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        on_start: object | None = None,
+    ) -> OpenCodeRunResult:
+        self.calls.append((prompt, log_path))
+        log_path.write_text("fake unknown run\n", encoding="utf-8")
+        return OpenCodeRunResult(
+            returncode=0, session_id="ses_unknown", outcome="unknown"
+        )
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        destination.write_text('{"session": "fake_unknown"}\n', encoding="utf-8")
+
+
+def test_unknown_outcome_triggers_recovery(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="mystery-task",
+        title="Mystery task",
+        priority=0,
+        assignee="Ralph",
+        body="This will have an unknown outcome.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/mystery-task.md")
+    git(git_repo, "commit", "-m", "add mystery task")
+
+    service = JriService(git_repo, opencode_client=UnknownOutcomeFakeOpenCodeClient())
+
+    completed = service.start(iterations=1)
+
+    assert completed == 0
+    assert (git_repo / ".jri" / "tasks" / "todo" / "mystery-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "mystery-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "mystery-task.md").exists()
+    assert git(git_repo, "branch", "--show-current") == "main"
+    branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
+    assert not any("ralph/" in b for b in branches)
 
 
 def test_make_check_runs_after_completion(git_repo: Path) -> None:
