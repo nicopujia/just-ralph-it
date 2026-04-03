@@ -133,6 +133,13 @@ class JriService:
                 continue
         self.state_store.clear_process()
 
+    def status(self) -> dict[str, list[Task]]:
+        self.ensure_initialized()
+        return {
+            status: list_tasks(self.paths.task_dir(status))
+            for status in _TRACKED_TASK_DIRS
+        }
+
     def reset(self) -> None:
         self.ensure_initialized()
         self.git.ensure_clean()

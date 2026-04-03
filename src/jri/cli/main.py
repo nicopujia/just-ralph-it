@@ -50,6 +50,29 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
             case "reset":
                 service.reset()
                 return 0
+            case "status":
+                tasks_by_status = service.status()
+                total = sum(len(t) for t in tasks_by_status.values())
+                print(f"Tasks: {total} total\n")
+                max_label = max(len(s) for s in tasks_by_status)
+                for status, tasks in tasks_by_status.items():
+                    print(f"  {status:<{max_label}}  {len(tasks)}")
+                human_todos = sorted(
+                    (
+                        t
+                        for t in tasks_by_status.get("todo", [])
+                        if t.metadata.assignee == "Human"
+                    ),
+                    key=lambda t: (t.metadata.priority, t.slug),
+                )
+                print(f"\nTodo tasks assigned to Human:\n")
+                if human_todos:
+                    for task in human_todos:
+                        p = task.metadata.priority
+                        print(f"  [P{p}] {task.slug} — {task.metadata.title}")
+                else:
+                    print("  No todo tasks assigned to Human.")
+                return 0
             case _:
                 parser.print_help()
                 return 1
@@ -178,6 +201,14 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Check out main and hard-reset it to the latest successful JRI "
             "iteration tag."
+        ),
+    )
+    subparsers.add_parser(
+        "status",
+        help="Show task counts by status and list human todo tasks.",
+        description=(
+            "Display the total number of tasks, broken down by status, "
+            "and list all todo tasks assigned to Human."
         ),
     )
     return parser
