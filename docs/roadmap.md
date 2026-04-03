@@ -125,9 +125,9 @@ Should clearly show:
 
 Ralph must always resolve into:
 
-- completed
-- failed
-- needs human
+- `completed`: Ralph finished the task and its required validation.
+- `failed`: Ralph attempted the task, but the run did not complete successfully.
+- `needs human`: Ralph cannot continue without human input or action.
 
 Failed work is retried up to 3 times before it becomes `needs human`.
 
@@ -221,7 +221,7 @@ Move from tool → system
 ### 5.1 Continuous Execution
 
 - run until no tasks left
-- or until the only ones left are human-blocked
+- or until the only ones left need human
 
 Requires crash-resistant outer loop around `jri start`
 

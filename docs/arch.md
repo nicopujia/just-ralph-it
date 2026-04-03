@@ -69,10 +69,16 @@ Only one Interrogator is spawned per project.
 Solves **only one** task.
 
 It has root access and all permissions allowed on the machine, so it will do all on its power to solve the task, making sure to test the software *just as a human developer would do*.
-It commits frequently and, when writing code, follows TDD principles. 
+It commits frequently and, when writing code, follows TDD principles.
 It also acts as an orchestrator, spinning up to 50 subagents for reads and up to 10 for implementation, rather than doing the work by itself; that way, it ensures to keep its context window lean.
 
-If Ralph truly cannot solve the task (e.g., if it requires human identification), it resolves the run as `needs human`, creates a new task assigned to `Human`, adds it as a dependency, and aborts, letting the next iteration continue with an unblocked task.
+Phase II gives Ralph exactly three runtime outcomes:
+
+- `completed` when the task is finished and validated
+- `failed` when the run did not complete successfully
+- `needs human` when progress requires human input or action
+
+When Ralph resolves to `needs human`, the current iteration aborts and recovery returns the Ralph task to `todo` so later work can decide how to represent that escalation durably.
 Besides, if Ralph, while solving the current task, finds new ones (e.g., a bug which should be fixed), it creates them.
 JRI moves the active task through `.jri/tasks/todo/`, `.jri/tasks/doing/`, and `.jri/tasks/done/`; Ralph must not edit or relocate the current task file in `doing`.
 

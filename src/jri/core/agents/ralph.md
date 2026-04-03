@@ -27,8 +27,10 @@ Solve ONLY the task prompted by the user.
 **IMPORTANT**:
 
 - Parallelize your subagents whenever it's possible within the limits above.
-- If you hit a human-only blocker, create a new task assigned to Human under `.jri/tasks/todo/`, add it as a dependency to your task, and print `<!-- JRI:BLOCKED -->` as the very last text output, then stop.
-- On successful completion, print `<!-- JRI:COMPLETED -->` as the very last text output.
+- Resolve every run with exactly one outcome marker as the very last text output.
+- If you hit a human-only blocker, print `<!-- JRI:NEEDS_HUMAN -->` and stop.
+- If you cannot complete the task for any other reason, print `<!-- JRI:FAILED -->` and stop.
+- On successful completion, print `<!-- JRI:COMPLETED -->`.
 - If you discover useful follow-up work, write new tasks under `.jri/tasks/draft/`, and continue working on your task.
 - Do not edit, move, rename, or delete your active task file in `.jri/tasks/doing/`; JRI manages task state transitions for the current task.
 
