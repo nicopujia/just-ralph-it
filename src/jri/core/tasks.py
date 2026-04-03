@@ -229,7 +229,7 @@ def _normalize_frontmatter_plain_scalars(metadata_text: str) -> str:
         if indent == 0 and not line.startswith(("{", "[")):
             key, separator, raw_value = line.partition(":")
             if separator:
-                value = raw_value.strip()
+                value = _strip_inline_comment(raw_value.strip())
                 list_key = key if not value else None
                 if value.startswith(("|", ">")):
                     block_scalar_indent = indent
@@ -242,7 +242,7 @@ def _normalize_frontmatter_plain_scalars(metadata_text: str) -> str:
                     continue
 
         if list_key is not None and line.startswith("  - "):
-            value = line[4:].rstrip("\r\n")
+            value = _strip_inline_comment(line[4:].rstrip("\r\n"))
             if _should_quote_plain_scalar(value):
                 normalized.append(
                     f"  - {_quote_yaml_string(value)}{_line_ending(line)}"
@@ -252,6 +252,15 @@ def _normalize_frontmatter_plain_scalars(metadata_text: str) -> str:
         normalized.append(line)
 
     return "".join(normalized)
+
+
+def _strip_inline_comment(value: str) -> str:
+    if not value or value[0] in "\"'":
+        return value
+    idx = value.find(" #")
+    if idx == -1:
+        return value
+    return value[:idx].rstrip()
 
 
 def _should_quote_plain_scalar(value: str) -> bool:
