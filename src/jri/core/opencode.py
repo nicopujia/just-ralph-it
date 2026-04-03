@@ -171,7 +171,19 @@ class OpenCodeClient:
                         candidate = event.get("sessionID")
                         if isinstance(candidate, str):
                             session_id = candidate
-                returncode = process.wait()
+                try:
+                    returncode = process.wait(timeout=14400)
+                except subprocess.TimeoutExpired:
+                    print(
+                        "opencode process timed out after 4 hours, terminating",
+                        file=sys.stderr,
+                    )
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    returncode = -1
             except BaseException:
                 process.terminate()
                 try:

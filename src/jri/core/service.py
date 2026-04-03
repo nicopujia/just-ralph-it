@@ -320,6 +320,11 @@ class JriService:
             self._recover_failed_iteration(doing_task, branch)
             return "blocked"
 
+        if result.outcome == "unknown":
+            print(f"ralph did not signal an outcome for {task.slug}", file=sys.stderr)
+            self._recover_failed_iteration(doing_task, branch)
+            return "failed"
+
         if result.session_id is not None:
             export_path = self.paths.external_opencode_dir / f"{result.session_id}.json"
             try:
