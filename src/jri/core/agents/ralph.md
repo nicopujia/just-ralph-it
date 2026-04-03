@@ -28,6 +28,7 @@ Solve ONLY the task prompted by the user.
 - Parallelize your subagents whenever it's possible (just as an idea, you might be able to run 2 subagents writing tests and 3 subagents implementing the feature, all at once)
 - If you hit a human-only blocker, create a new task assigned to Human under `.jri/tasks/todo/`, add it as a dependency to your task, and stop.
 - If you discover useful follow-up work, write new tasks under `.jri/tasks/draft/`, and continue working on your task.
+- Do not edit, move, rename, or delete your active task file in `.jri/tasks/doing/`; JRI manages task state transitions for the current task.
 
 # Context
 

@@ -4,6 +4,9 @@ import subprocess
 from pathlib import Path
 from typing import cast
 
+import pytest
+
+from jri.core.errors import JriError
 from jri.core.models import OpenCodeRunResult
 from jri.core.opencode import OpenCodeClient
 from jri.core.service import JriService
@@ -33,6 +36,24 @@ class SuccessfulFakeOpenCodeClient(OpenCodeClient):
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
+
+
+class MissingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        on_start: object | None = None,
+    ) -> OpenCodeRunResult:
+        (root / ".jri" / "tasks" / "doing" / "implement-file.md").unlink()
+        return super().run_ralph_task(
+            root=root,
+            prompt=prompt,
+            log_path=log_path,
+            on_start=on_start,
+        )
 
 
 def test_start_uses_explicit_model_override(git_repo: Path) -> None:
@@ -92,6 +113,51 @@ def test_start_completes_single_iteration(git_repo: Path) -> None:
     iteration_payload = cast(dict[str, object], iteration)
     assert iteration_payload["number"] == 1
     assert git(git_repo, "status", "--short") == ""
+
+
+def test_start_passes_doing_task_path_to_ralph(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    client = SuccessfulFakeOpenCodeClient()
+    service = JriService(git_repo, opencode_client=client)
+
+    assert service.start(iterations=1) == 1
+    assert len(client.calls) == 1
+    assert (
+        client.calls[0][0]
+        == "Solve `.jri/tasks/doing/implement-file.md`. Commit frequently."
+    )
+
+
+def test_start_fails_cleanly_when_doing_task_disappears(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    service = JriService(git_repo, opencode_client=MissingDoingTaskOpenCodeClient())
+
+    with pytest.raises(JriError, match="disappeared during Ralph run"):
+        service.start(iterations=1)
 
 
 def test_start_refuses_when_task_is_already_doing(git_repo: Path) -> None:

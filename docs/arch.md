@@ -74,6 +74,7 @@ It also acts as an orchestrator, spinning up to 100 subagents, rather than doing
 
 If Ralph truly cannot solve the task (e.g., if it requires human identification), it creates a new task assigned to `Human`, adds it as a dependency, and aborts, letting the next iteration continue with an unblocked task.
 Besides, if Ralph, while solving the current task, finds new ones (e.g., a bug which should be fixed), it creates them.
+JRI moves the active task through `.jri/tasks/todo/`, `.jri/tasks/doing/`, and `.jri/tasks/done/`; Ralph must not edit or relocate the current task file in `doing`.
 
 See prompt [@src/jri/core/agents/ralph.md](../src/jri/core/agents/ralph.md).
 

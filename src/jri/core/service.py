@@ -258,7 +258,7 @@ class JriService:
 
         self.state_store.mark_iteration_started(started_at=started_at)
         self.git.checkout_new_branch(branch)
-        move_task(task, self.paths.task_dir("doing"))
+        doing_task = move_task(task, self.paths.task_dir("doing"))
         self.git.commit_all_if_needed(f"jri start: begin {task.slug}")
         self.state_store.save_process(
             loop_pid=os.getpid(),
@@ -269,7 +269,9 @@ class JriService:
 
         result = self.opencode_client.run_ralph_task(
             root=self.root,
-            prompt=f"Solve `{task.path.relative_to(self.root)}`. Commit frequently.",
+            prompt=(
+                f"Solve `{doing_task.path.relative_to(self.root)}`. Commit frequently."
+            ),
             log_path=log_path,
             on_start=lambda child_pid: self.state_store.save_process(
                 loop_pid=os.getpid(),
@@ -289,11 +291,9 @@ class JriService:
         self.git.checkout("main")
         self.git.merge_ff_only(branch)
 
-        doing_task = next(
-            candidate
-            for candidate in list_tasks(self.paths.task_dir("doing"))
-            if candidate.slug == task.slug
-        )
+        if not doing_task.path.exists():
+            relative_path = doing_task.path.relative_to(self.root)
+            raise JriError(f"task file `{relative_path}` disappeared during Ralph run")
         move_task(doing_task, self.paths.task_dir("done"))
         self.git.commit_all_if_needed(f"jri start: complete {task.slug}")
         self.git.create_tag(f"jri/{next_iteration}")
