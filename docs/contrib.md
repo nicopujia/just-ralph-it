@@ -22,6 +22,7 @@ Set up the local environment:
 ```bash
 uv sync
 uv run pre-commit install
+uv run pre-commit install --hook-type pre-push
 uv run jri --help
 ```
 
@@ -38,7 +39,7 @@ uv tool uninstall jri           # remove later
 
 Source changes under `src/jri/` are picked up immediately with the editable install.
 
-Typical checks (linter, formatter, and testing) are already enforced via Git hooks (see [pre-commit config](../.pre-commit-config.yaml)).
+Typical checks (linter, formatter, typing, and testing) are already enforced via Git hooks (see [pre-commit config](../.pre-commit-config.yaml)).
 The opt-in live OpenCode test can be run with:
 
 ```bash
