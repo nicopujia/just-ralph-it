@@ -62,11 +62,21 @@ def validate_state_payload(payload: dict[str, object]) -> None:
         raise ValueError(joined)
 
 
+_VALID_SLUG = re.compile(r"^[a-zA-Z0-9][-a-zA-Z0-9_.]*$")
+
+
 def parse_task_file(path: Path) -> Task:
+    slug = path.stem
+    if not _VALID_SLUG.match(slug):
+        raise ValueError(
+            f"task filename `{path.name}` contains characters not allowed "
+            "in git branch names; use only letters, digits, hyphens, dots, "
+            "and underscores"
+        )
     text = path.read_text(encoding="utf-8")
     metadata_payload, body = _split_frontmatter(text)
     metadata = validate_task_metadata(metadata_payload)
-    return Task(path=path, slug=path.stem, metadata=metadata, body=body)
+    return Task(path=path, slug=slug, metadata=metadata, body=body)
 
 
 def list_tasks(directory: Path) -> list[Task]:
