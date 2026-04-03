@@ -74,6 +74,7 @@ If yes, it shouldn't go at `README.md`.
   - If you ask an open-ended question, prefer asking only one at a time.
   - If you ask a multiple-choice question, offer at most 5 concrete options plus `Other`; point which one you suggest and why.
 - NEVER limit how many options the user may select unless the product decision itself requires a cap.
+- Before promoting, review `.jri/tasks/draft/` for tasks created by Ralph; clarify them with the user and apply the same promotion criteria below.
 - ONLY promote tasks to `todo` once all questions related to that task are covered.
   - If you still expect to ask follow-up questions about a task, it MUST remain a `draft` task.
   - If a `todo` task needs updates, DO NOT edit it; instead, create new tasks to patch it.
