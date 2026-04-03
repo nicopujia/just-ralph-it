@@ -6,7 +6,10 @@ from pathlib import Path
 from typing import cast
 
 from .errors import JriError
-from .models import OpenCodeRunResult
+from .models import Outcome, OpenCodeRunResult
+
+_COMPLETED_MARKER = "<!-- JRI:COMPLETED -->"
+_BLOCKED_MARKER = "<!-- JRI:BLOCKED -->"
 
 
 def _dict_value(payload: dict[str, object], key: str) -> dict[str, object] | None:
@@ -50,6 +53,20 @@ def _parse_event_line(line: str) -> tuple[dict[str, object] | None, str | None]:
         return None, None
 
     return payload, _text_event_text(payload) or _tool_use_text(payload)
+
+
+def parse_outcome(event_lines: list[str]) -> Outcome:
+    """Scan event lines for JRI outcome markers. Last signal wins."""
+    outcome: Outcome = "unknown"
+    for line in event_lines:
+        _, text = _parse_event_line(line)
+        if text is None:
+            continue
+        if _BLOCKED_MARKER in text:
+            outcome = "blocked"
+        if _COMPLETED_MARKER in text:
+            outcome = "completed"
+    return outcome
 
 
 class OpenCodeClient:
@@ -109,6 +126,7 @@ class OpenCodeClient:
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
         session_id: str | None = None
+        last_outcome: Outcome = "unknown"
         with log_path.open("a", encoding="utf-8") as log_file:
             try:
                 process = subprocess.Popen(
@@ -134,6 +152,12 @@ class OpenCodeClient:
                     log_file.write(line)
                     log_file.flush()
                     event, terminal_text = _parse_event_line(line)
+                    text_content = _text_event_text(event) if event else None
+                    if text_content is not None:
+                        if _COMPLETED_MARKER in text_content:
+                            last_outcome = "completed"
+                        if _BLOCKED_MARKER in text_content:
+                            last_outcome = "blocked"
                     if terminal_text:
                         sys.stdout.write(terminal_text)
                         sys.stdout.flush()
@@ -165,7 +189,9 @@ class OpenCodeClient:
                     process.kill()
                 raise
 
-        return OpenCodeRunResult(returncode=returncode, session_id=session_id)
+        return OpenCodeRunResult(
+            returncode=returncode, session_id=session_id, outcome=last_outcome
+        )
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
