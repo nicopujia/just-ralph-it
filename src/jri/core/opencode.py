@@ -62,7 +62,7 @@ class OpenCodeClient:
             result = subprocess.run(
                 [self.binary, "session", "list", "--format", "json", "-n", str(limit)],
                 cwd=root,
-                check=True,
+                check=False,
                 capture_output=True,
                 text=True,
             )
@@ -70,7 +70,12 @@ class OpenCodeClient:
             raise JriError(
                 f"could not find `{self.binary}` — is OpenCode installed?"
             )
-        payload = json.loads(result.stdout or "[]")
+        if result.returncode != 0:
+            return []
+        try:
+            payload = json.loads(result.stdout or "[]")
+        except json.JSONDecodeError:
+            return []
         if not isinstance(payload, list):
             return []
         return [item for item in payload if isinstance(item, dict)]
