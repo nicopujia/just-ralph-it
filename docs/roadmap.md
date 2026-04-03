@@ -113,7 +113,7 @@ jri status
 Should clearly show:
 
 - counts by state
-- human-required tasks
+- needs-human tasks
 
 ### 2.3 Control
 
@@ -129,7 +129,9 @@ Ralph must always resolve into:
 - failed
 - needs human
 
-Failed work is retried up to 3 times before it becomes human-required.
+Failed work is retried up to 3 times before it becomes `needs human`.
+
+When Ralph resolves to `needs human`, it creates a task assigned to `Human` with the required context and dependency link.
 
 Never silent failure.
 

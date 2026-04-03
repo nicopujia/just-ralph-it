@@ -4,6 +4,7 @@ priority: 2
 assignee: Ralph
 depends_on:
   - adopt-phase-ii-outcome-model
+  - define-needs-human-representation
   - apply-failed-retry-and-escalation-policy
 acceptance_criteria:
   - `jri status` clearly shows counts by state.

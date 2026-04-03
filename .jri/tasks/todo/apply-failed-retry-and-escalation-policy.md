@@ -4,6 +4,9 @@ priority: 1
 assignee: Ralph
 depends_on:
   - adopt-phase-ii-outcome-model
+  - define-stale-run-recovery-for-jri-start
+  - make-task-execution-idempotent
+  - define-needs-human-representation
 acceptance_criteria:
   - Failed work is retried automatically up to 3 times before becoming `needs human`.
   - Retry-attempt data is persisted in inspectable state or task artifacts.
