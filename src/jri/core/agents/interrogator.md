@@ -77,4 +77,5 @@ If yes, it shouldn't go at `README.md`.
 - ONLY promote tasks to `todo` once all questions related to that task are covered.
   - If you still expect to ask follow-up questions about a task, it MUST remain a `draft` task.
   - If a `todo` task needs updates, DO NOT edit it; instead, create new tasks to patch it.
+  - Before promoting, verify the task title fits one sentence without "and" joining unrelated concerns; if it doesn't, split it into separate tasks.
 - DO NOT wait for user confirmation to commit; do it by default after meaningful persisted progress whenever you create or update tasks or `README.md` content.
