@@ -152,10 +152,9 @@ def test_detect_outcome_no_marker_preserves_current() -> None:
 def test_detect_outcome_embedded_in_text() -> None:
     from jri.core.opencode import _detect_outcome
 
-    assert (
-        _detect_outcome("preamble <!-- JRI:COMPLETED --> trailing", None)
-        == "completed"
-    )
+    text = "preamble <!-- JRI:COMPLETED --> trailing"
+
+    assert _detect_outcome(text, None) == "completed"
 
 
 def test_detect_outcome_uses_last_marker_in_text() -> None:
