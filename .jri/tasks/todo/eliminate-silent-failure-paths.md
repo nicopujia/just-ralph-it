@@ -5,6 +5,8 @@ assignee: Ralph
 depends_on:
   - adopt-phase-ii-outcome-model
   - add-execution-timeline
+  - protect-task-state-during-recovery
+  - add-structured-status-output
 acceptance_criteria:
   - All known failure paths produce inspectable artifacts or status-visible signals.
   - Suppressed best-effort failures are either removed or surfaced explicitly.

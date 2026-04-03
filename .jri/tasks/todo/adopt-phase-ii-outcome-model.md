@@ -1,17 +1,16 @@
 ---
-title: Adopt Phase II execution outcomes
+title: Adopt Phase II outcome vocabulary
 priority: 1
 assignee: Ralph
 depends_on:
   - phase-1-2-quality-gate-foundation
 acceptance_criteria:
   - Runtime outcomes align with the roadmap: `completed`, `failed`, and `needs human`.
-  - Failed work is retried automatically up to 3 times before becoming human-required.
   - Silent or ambiguous fallback outcomes are eliminated or made impossible to miss.
-  - The agent/result protocol, persistence, and tests all use the same outcome model.
-  - Documentation explains what each outcome means and how the loop reacts.
+  - The agent/result protocol, persistence, and tests all use the same outcome vocabulary.
+  - Documentation explains what each outcome means.
 ---
 
 Phase II defines the canonical failure semantics for Ralph.
 
-Update the implementation so roadmap outcomes are first-class and consistently represented across agent output parsing, task movement, state, status, and recovery behavior.
+Establish the canonical outcome vocabulary and adopt it consistently across agent output parsing, persistence, tests, and documentation.

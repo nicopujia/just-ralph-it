@@ -1,5 +1,5 @@
 ---
-title: Add start recovery and stale-run recovery
+title: Define stale-run recovery for jri start
 priority: 1
 assignee: Ralph
 depends_on:

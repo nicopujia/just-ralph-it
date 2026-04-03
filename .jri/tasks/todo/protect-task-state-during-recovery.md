@@ -1,9 +1,10 @@
 ---
 title: Protect task state during recovery
-priority: 2
+priority: 1
 assignee: Ralph
 depends_on:
   - implement-crash-safe-state-storage
+  - define-stale-run-recovery-for-jri-start
 acceptance_criteria:
   - Recovery paths do not silently swallow task-state corruption or leave ambiguous partial moves.
   - Recovery failures are persisted in inspectable artifacts.

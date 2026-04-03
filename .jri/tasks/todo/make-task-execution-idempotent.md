@@ -1,10 +1,11 @@
 ---
-title: Make task execution retries idempotent
-priority: 2
+title: Make interrupted task reruns idempotent
+priority: 1
 assignee: Ralph
 depends_on:
   - implement-crash-safe-state-storage
-  - add-start-recovery-and-stale-run-recovery
+  - define-stale-run-recovery-for-jri-start
+  - adopt-phase-ii-outcome-model
 acceptance_criteria:
   - Retrying an interrupted task does not duplicate finalization side effects.
   - The system records enough execution-attempt metadata to distinguish a retry from a first run.
