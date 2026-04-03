@@ -5,11 +5,16 @@ from tests.conftest import run_cli
 from tests.helpers import git, write_task
 
 
-def test_upgrade_refreshes_managed_files_and_commits_only_them(
+def test_upgrade_untracks_agent_files_from_older_repos(
     git_repo: Path,
     monkeypatch,
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
+    (git_repo / ".gitignore").unlink()
+    git(git_repo, "add", ".gitignore")
+    git(git_repo, "commit", "-m", "remove ignore rule")
+    git(git_repo, "add", "-f", *service_module._MANAGED_AGENT_PATHS)
+    git(git_repo, "commit", "-m", "track agent files")
 
     write_task(
         git_repo,
@@ -20,14 +25,13 @@ def test_upgrade_refreshes_managed_files_and_commits_only_them(
         assignee="Human",
         body="Persistent task body.",
     )
-    prompt_path = git_repo / ".opencode" / "agents" / "interrogator.md"
-    ralph_prompt_path = git_repo / ".opencode" / "agents" / "ralph.md"
+    prompt_paths = {
+        name: git_repo / ".opencode" / "agents" / name
+        for name in service_module._MANAGED_AGENT_FILENAMES
+    }
 
     def fake_load_prompt(name: str) -> str:
-        return {
-            "interrogator.md": "upgraded interrogator\n",
-            "ralph.md": "upgraded ralph\n",
-        }[name]
+        return f"upgraded {name.removesuffix('.md')}\n"
 
     monkeypatch.setattr(service_module, "_load_prompt", fake_load_prompt)
     (git_repo / "README.md").write_text("# changed\n", encoding="utf-8")
@@ -37,10 +41,13 @@ def test_upgrade_refreshes_managed_files_and_commits_only_them(
     exit_code = run_cli(["upgrade"], cwd=git_repo)
 
     assert exit_code == 0
-    assert prompt_path.read_text(encoding="utf-8") == "upgraded interrogator\n"
-    assert ralph_prompt_path.read_text(encoding="utf-8") == "upgraded ralph\n"
+    for name, path in prompt_paths.items():
+        assert path.read_text(encoding="utf-8") == fake_load_prompt(name)
     assert (git_repo / ".jri" / "tasks" / "todo" / "keep-me.md").exists()
     assert git(git_repo, "log", "-1", "--pretty=%s") == "jri upgrade"
+    assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == list(
+        service_module._MANAGED_AGENT_PATHS
+    )
 
     changed_files = set(
         git(
@@ -52,9 +59,27 @@ def test_upgrade_refreshes_managed_files_and_commits_only_them(
             "HEAD",
         ).splitlines()
     )
-    assert changed_files == {
-        ".opencode/agents/interrogator.md",
-        ".opencode/agents/ralph.md",
-    }
+    assert changed_files == {".gitignore", *service_module._MANAGED_AGENT_PATHS}
+    status_lines = git(git_repo, "status", "--short").splitlines()
+    for path in service_module._MANAGED_AGENT_PATHS:
+        assert f" M {path}" not in status_lines
+        assert f"?? {path}" not in status_lines
     assert "README.md" in git(git_repo, "diff", "--name-only").splitlines()
     assert "notes.txt" in git(git_repo, "diff", "--cached", "--name-only").splitlines()
+
+
+def test_upgrade_leaves_no_commit_when_gitignore_rule_already_exists(
+    git_repo: Path,
+    monkeypatch,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+
+    def fake_load_prompt(name: str) -> str:
+        return f"upgraded {name.removesuffix('.md')}\n"
+
+    monkeypatch.setattr(service_module, "_load_prompt", fake_load_prompt)
+
+    exit_code = run_cli(["upgrade"], cwd=git_repo)
+
+    assert exit_code == 0
+    assert git(git_repo, "log", "-1", "--pretty=%s") == "jri init"

@@ -75,6 +75,31 @@ class GitRepo:
             raise JriError(result.stderr.strip() or f"failed to commit: {message}")
         return True
 
+    def commit_upgrade_if_needed(
+        self,
+        message: str,
+        *,
+        managed_paths: list[str],
+        untracked_paths: list[str],
+    ) -> bool:
+        scoped_paths = list(dict.fromkeys([*managed_paths, *untracked_paths]))
+        if not self.status_short(*scoped_paths):
+            return False
+
+        self.run("add", "-A", "--", *managed_paths)
+        tracked_paths = [path for path in untracked_paths if self.is_tracked(path)]
+        if tracked_paths:
+            self.run("rm", "--cached", "--quiet", "--", *tracked_paths)
+
+        result = self.run("commit", "-m", message, "--", *scoped_paths, check=False)
+        if result.returncode != 0:
+            raise JriError(result.stderr.strip() or f"failed to commit: {message}")
+        return True
+
+    def is_tracked(self, path: str) -> bool:
+        result = self.run("ls-files", "--error-unmatch", "--", path, check=False)
+        return result.returncode == 0
+
     def merge_ff_only(self, branch: str) -> None:
         result = self.run("merge", "--ff-only", branch, check=False)
         if result.returncode != 0:

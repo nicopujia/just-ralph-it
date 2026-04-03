@@ -40,8 +40,8 @@ See [@src/jri/core/schemas/](../src/jri/core/schemas) to understand the exact sc
 ## Agents
 
 Their source templates live in `src/jri/core/agents/`.
-`jri init` writes those templates into `.opencode/agents/` for the current project.
-`jri upgrade` refreshes those generated agent files, along with other JRI-managed scaffold files such as `.jri/.gitignore`, without touching `.jri/tasks/`.
+`jri init` writes those templates into `.opencode/agents/` for the current project and adds ignore entries for JRI-managed agent files in the client repo `.gitignore`.
+`jri upgrade` refreshes those generated agent files, updates ignore rules as needed, and untracks previously committed agent files so client repos can keep them local.
 The dynamic per-task Ralph user prompt is assembled in `src/jri/core/service.py`.
 
 There are two agents:

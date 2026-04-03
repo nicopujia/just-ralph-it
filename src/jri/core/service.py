@@ -20,13 +20,15 @@ from .tasks import list_tasks, move_task, select_next_task
 
 _INIT_COMMIT_PATHS = (
     ".jri",
-    ".opencode/agents/interrogator.md",
-    ".opencode/agents/ralph.md",
+    ".gitignore",
 )
 _UPGRADE_COMMIT_PATHS = (
     ".jri/.gitignore",
-    ".opencode/agents/interrogator.md",
-    ".opencode/agents/ralph.md",
+    ".gitignore",
+)
+_MANAGED_AGENT_FILENAMES = ("interrogator.md", "ralph.md")
+_MANAGED_AGENT_PATHS = tuple(
+    f".opencode/agents/{name}" for name in _MANAGED_AGENT_FILENAMES
 )
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
 
@@ -49,13 +51,19 @@ class JriService:
                 raise JriError("project is already initialized")
             shutil.rmtree(self.paths.jri_dir)
 
-        self._create_scaffold()
-        self.git.commit_paths_if_needed(commit_message, list(_INIT_COMMIT_PATHS))
+        created_files = self._create_scaffold()
+        commit_paths = list(_INIT_COMMIT_PATHS)
+        commit_paths.extend(str(path.relative_to(self.root)) for path in created_files)
+        self.git.commit_paths_if_needed(commit_message, commit_paths)
 
     def upgrade(self, *, commit_message: str) -> None:
         self.ensure_initialized()
         self._write_managed_files()
-        self.git.commit_paths_if_needed(commit_message, list(_UPGRADE_COMMIT_PATHS))
+        self.git.commit_upgrade_if_needed(
+            commit_message,
+            managed_paths=list(_UPGRADE_COMMIT_PATHS),
+            untracked_paths=list(_MANAGED_AGENT_PATHS),
+        )
 
     def chat(self, extra_args: list[str]) -> int:
         self.ensure_initialized()
@@ -140,7 +148,13 @@ class JriService:
         if not self.paths.jri_dir.exists():
             raise JriError("project is not initialized; run `jri init`")
 
-    def _create_scaffold(self) -> None:
+    def _create_scaffold(self) -> list[Path]:
+        created_files: list[Path] = []
+        readme_path = self.paths.readme_path
+        if not readme_path.exists():
+            readme_path.write_text("", encoding="utf-8")
+            created_files.append(readme_path)
+
         for status in _TRACKED_TASK_DIRS:
             directory = self.paths.task_dir(status)
             directory.mkdir(parents=True, exist_ok=True)
@@ -152,20 +166,19 @@ class JriService:
         self.paths.external_opencode_dir.mkdir(parents=True, exist_ok=True)
         self._write_managed_files()
         self.state_store.initialize()
+        return created_files
 
     def _write_managed_files(self) -> None:
         self.paths.gitignore_path.write_text(
             "logs/\nsignals/\nstate.json\n", encoding="utf-8"
         )
+        _ensure_ignore_entries(self.paths.root_gitignore_path, _MANAGED_AGENT_PATHS)
         self.paths.opencode_agents_dir.mkdir(parents=True, exist_ok=True)
-        (self.paths.opencode_agents_dir / "interrogator.md").write_text(
-            _load_prompt("interrogator.md"),
-            encoding="utf-8",
-        )
-        (self.paths.opencode_agents_dir / "ralph.md").write_text(
-            _load_prompt("ralph.md"),
-            encoding="utf-8",
-        )
+        for name in _MANAGED_AGENT_FILENAMES:
+            (self.paths.opencode_agents_dir / name).write_text(
+                _load_prompt(name),
+                encoding="utf-8",
+            )
 
     def _start_detached(self, iterations: int | None, model: str | None) -> int:
         state = self.state_store.load()
@@ -365,3 +378,23 @@ def _build_ralph_prompt(task: Task) -> str:
 
 def _load_prompt(name: str) -> str:
     return files("jri.core.agents").joinpath(name).read_text(encoding="utf-8")
+
+
+def _ensure_ignore_entry(path: Path, entry: str) -> None:
+    _ensure_ignore_entries(path, (entry,))
+
+
+def _ensure_ignore_entries(path: Path, entries: tuple[str, ...]) -> None:
+    if path.exists():
+        lines = path.read_text(encoding="utf-8").splitlines()
+    else:
+        lines = []
+
+    missing_entries = [entry for entry in entries if entry not in lines]
+    if not missing_entries:
+        return
+
+    if lines and lines[-1] != "":
+        lines.append("")
+    lines.extend(missing_entries)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")

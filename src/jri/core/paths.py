@@ -47,6 +47,14 @@ class JriPaths:
         return self.jri_dir / ".gitignore"
 
     @property
+    def root_gitignore_path(self) -> Path:
+        return self.root / ".gitignore"
+
+    @property
+    def readme_path(self) -> Path:
+        return self.root / "README.md"
+
+    @property
     def stop_signal_path(self) -> Path:
         return self.signals_dir / "stop"
 
