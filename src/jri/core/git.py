@@ -35,9 +35,25 @@ class GitRepo:
     def current_branch(self) -> str:
         return self.run("branch", "--show-current").stdout.strip()
 
-    def ensure_main(self) -> None:
-        if self.current_branch() != "main":
-            raise JriError("jri start must begin from a clean main branch")
+    def default_branch(self) -> str:
+        result = self.run(
+            "rev-parse", "--verify", "--quiet", "refs/heads/main", check=False
+        )
+        if result.returncode == 0:
+            return "main"
+        result = self.run(
+            "rev-parse", "--verify", "--quiet", "refs/heads/master", check=False
+        )
+        if result.returncode == 0:
+            return "master"
+        return self.current_branch() or "main"
+
+    def ensure_default_branch(self) -> None:
+        default = self.default_branch()
+        if self.current_branch() != default:
+            raise JriError(
+                f"jri start must begin from the {default} branch"
+            )
 
     def checkout_new_branch(self, name: str) -> None:
         result = self.run("checkout", "-b", name, check=False)
@@ -114,8 +130,9 @@ class GitRepo:
         return bool(self.run("remote").stdout.strip())
 
     def push_iteration(self, *, branch: str, tag: str) -> None:
+        default = self.default_branch()
         for args in (
-            ("push", "origin", "main"),
+            ("push", "origin", default),
             ("push", "origin", branch),
             ("push", "origin", tag),
         ):

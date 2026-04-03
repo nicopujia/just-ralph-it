@@ -128,7 +128,8 @@ class JriService:
     def reset(self) -> None:
         self.ensure_initialized()
         self.git.ensure_clean()
-        self.git.checkout("main")
+        default = self.git.default_branch()
+        self.git.checkout(default)
         state = self.state_store.load()
         iteration_number = state.iteration_number
         if iteration_number < 1:
@@ -215,7 +216,7 @@ class JriService:
         if list_tasks(self.paths.task_dir("doing")):
             raise JriError("a task is already in progress")
         self.git.ensure_clean()
-        self.git.ensure_main()
+        self.git.ensure_default_branch()
         if self.paths.stop_signal_path.exists():
             self.paths.stop_signal_path.unlink()
 
@@ -293,8 +294,9 @@ class JriService:
             except JriError:
                 pass  # session export is best-effort; don't fail the iteration
 
+        default = self.git.default_branch()
         self.git.commit_all_if_needed(f"ralph: finalize {task.slug}")
-        self.git.checkout("main")
+        self.git.checkout(default)
         self.git.merge_ff_only(branch)
 
         if not doing_task.path.exists():
