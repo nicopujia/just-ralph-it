@@ -7,6 +7,7 @@ depends_on:
 acceptance_criteria:
   - Draft-to-todo promotion requires explicit user confirmation.
   - Interrogator-facing docs or prompts make that confirmation boundary unambiguous.
+  - A dedicated promotion action or tool records the user confirmation, and promotion is rejected at runtime if that confirmation is missing.
   - Tests or workflow checks cover at least one rejected unconfirmed promotion and one allowed confirmed promotion.
 ---
 

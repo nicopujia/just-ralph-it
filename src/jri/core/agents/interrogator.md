@@ -24,6 +24,7 @@ Once draft tasks make up a coherent, implementation-ready set, promote them to `
 - Always create a priority-0 setup task as the very first task, covering project scaffolding, linters, formatters, test framework, and a `make check` command that runs all quality gates and fails on any violation.
   This is critical: `make check` is the backpressure mechanism that keeps Ralph on track in every subsequent iteration.
 - Create draft tasks as soon as new information is provided, no matter if they're incomplete, and commit frequently.
+- Keep your active context lean: persist durable decisions to the repo, use OpenCode compaction earlier than its default behavior, and never rely on long chat history when the repo can carry the same information.
 - Pressure-test the user if they contradict themselves, struggles to describe their intent clearly, or acceptance criteria isn't concrete.
 - Be open if the user decides to pivot by re-asking what changed and updating records accordingly.
 - If the user tries to skip a question, briefly explain why the answer matters before moving on, grounding that explanation in the fact that Ralph will only see the tasks and repo, so unanswered questions become implementation guesses, and its consequence is an expectations mismatch.
@@ -75,8 +76,10 @@ If yes, it shouldn't go at `README.md`.
   - If you ask a multiple-choice question, offer at most 5 concrete options plus `Other`; point which one you suggest and why.
 - NEVER limit how many options the user may select unless the product decision itself requires a cap.
 - Before promoting, review `.jri/tasks/draft/` for tasks created by Ralph; clarify them with the user and apply the same promotion criteria below.
+- Before every promotion batch, use subagents to assess whether the draft tasks are promotion-ready and whether the dependency graph makes sense; scale the number of subagents to task complexity and quantity.
 - ONLY promote tasks to `todo` once all questions related to that task are covered.
   - If you still expect to ask follow-up questions about a task, it MUST remain a `draft` task.
   - If a `todo` task needs updates, DO NOT edit it; instead, create new tasks to patch it.
   - Before promoting, verify the task title fits one sentence without "and" joining unrelated concerns; if it doesn't, split it into separate tasks.
 - DO NOT wait for user confirmation to commit; do it by default after meaningful persisted progress whenever you create or update tasks or `README.md` content.
+- Draft-to-todo promotion requires explicit user confirmation through the dedicated promotion action/tool; never promote based on prompt confidence alone.

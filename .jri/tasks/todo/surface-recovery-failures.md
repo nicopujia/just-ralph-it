@@ -3,6 +3,7 @@ title: Surface recovery failures
 priority: 2
 assignee: Ralph
 depends_on:
+  - define-stale-run-recovery-for-jri-start
   - protect-task-state-during-recovery
   - add-structured-status-output
 acceptance_criteria:

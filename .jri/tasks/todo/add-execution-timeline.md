@@ -5,6 +5,7 @@ assignee: Ralph
 depends_on:
   - implement-crash-safe-state-storage
   - adopt-phase-ii-outcome-model
+  - define-stale-run-recovery-for-jri-start
 acceptance_criteria:
   - The system persists an execution timeline that records key per-iteration events.
   - The timeline is inspectable from the CLI or stable on-disk artifacts.
