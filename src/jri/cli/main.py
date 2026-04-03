@@ -1,4 +1,5 @@
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
@@ -53,6 +54,17 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 parser.print_help()
                 return 1
     except JriError as error:
+        print(str(error), file=sys.stderr)
+        return 1
+    except subprocess.CalledProcessError as error:
+        cmd = " ".join(error.cmd) if isinstance(error.cmd, list) else error.cmd
+        detail = (error.stderr or "").strip()
+        message = f"git command failed: {cmd}"
+        if detail:
+            message += f"\n{detail}"
+        print(message, file=sys.stderr)
+        return 1
+    except OSError as error:
         print(str(error), file=sys.stderr)
         return 1
 

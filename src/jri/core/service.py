@@ -225,7 +225,11 @@ class JriService:
         return 0
 
     def _run_loop(self, iterations: int | None) -> int:
-        if list_tasks(self.paths.task_dir("doing")):
+        try:
+            doing = list_tasks(self.paths.task_dir("doing"))
+        except ValueError as exc:
+            raise JriError(str(exc)) from exc
+        if doing:
             raise JriError("a task is already in progress")
         self.git.ensure_clean()
         self.git.ensure_default_branch(hint=self.state_store.load().branch)
