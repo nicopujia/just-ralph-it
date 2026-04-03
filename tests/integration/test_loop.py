@@ -363,3 +363,85 @@ def test_blocked_then_successful_completes_one(git_repo: Path) -> None:
     branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
     assert not any("task-a" in b for b in branches)
     assert git(git_repo, "branch", "--show-current") == "main"
+
+
+class MakeCheckFailsFakeOpenCodeClient(OpenCodeClient):
+    """Successful Ralph run, but the project has a failing make check."""
+
+    def __init__(self) -> None:
+        super().__init__(model=None)
+        self.calls: list[tuple[str, Path]] = []
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        on_start: object | None = None,
+    ) -> OpenCodeRunResult:
+        self.calls.append((prompt, log_path))
+        (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
+        log_path.write_text("fake run\n", encoding="utf-8")
+        return OpenCodeRunResult(returncode=0, session_id="ses_fake")
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        destination.write_text('{"session": "fake"}\n', encoding="utf-8")
+
+
+def test_make_check_runs_after_completion(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    # Create a Makefile with a passing check target
+    (git_repo / "Makefile").write_text("check:\n\t@echo ok\n", encoding="utf-8")
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "add", "Makefile")
+    git(git_repo, "commit", "-m", "add task and makefile")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+
+    completed = service.start(iterations=1)
+
+    assert completed == 1
+    assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
+    assert git(git_repo, "branch", "--show-current") == "main"
+
+
+def test_failing_make_check_triggers_recovery(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    # Create a Makefile with a failing check target
+    (git_repo / "Makefile").write_text("check:\n\texit 1\n", encoding="utf-8")
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "add", "Makefile")
+    git(git_repo, "commit", "-m", "add task and makefile")
+
+    service = JriService(git_repo, opencode_client=MakeCheckFailsFakeOpenCodeClient())
+
+    completed = service.start(iterations=1)
+
+    assert completed == 0
+    # Task should be back in todo after recovery
+    assert (git_repo / ".jri" / "tasks" / "todo" / "implement-file.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "implement-file.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
+    assert git(git_repo, "branch", "--show-current") == "main"
+    # The feature branch should be deleted
+    branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
+    assert not any("ralph/" in b for b in branches)

@@ -269,7 +269,7 @@ class JriService:
                 outcome = self._run_iteration(next_task)
                 if outcome == "completed":
                     completed += 1
-                elif outcome == "blocked":
+                elif outcome in ("blocked", "failed"):
                     blocked_slugs.add(next_task.slug)
 
                 if self.paths.stop_signal_path.exists():
@@ -329,6 +329,27 @@ class JriService:
 
         default = self._default_branch()
         self.git.commit_all_if_needed(f"ralph: finalize {task.slug}")
+
+        if (self.root / "Makefile").exists():
+            try:
+                check = subprocess.run(
+                    ["make", "check"],
+                    cwd=self.root,
+                    capture_output=True,
+                    text=True,
+                )
+            except FileNotFoundError:
+                print("make: command not found", file=sys.stderr)
+                self._recover_failed_iteration(doing_task, branch)
+                return "failed"
+            if check.returncode != 0:
+                print(
+                    f"make check failed for {task.slug}:\n{check.stderr}",
+                    file=sys.stderr,
+                )
+                self._recover_failed_iteration(doing_task, branch)
+                return "failed"
+
         self.git.checkout(default)
         self.git.merge_ff_only(branch)
 

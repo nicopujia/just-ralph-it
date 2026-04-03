@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Literal, Self, cast
 
 Assignee = Literal["Ralph", "Human"]
-Outcome = Literal["completed", "blocked", "unknown"]
+Outcome = Literal["completed", "blocked", "failed", "unknown"]
 
 
 @dataclass(frozen=True)
