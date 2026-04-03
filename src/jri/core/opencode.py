@@ -58,13 +58,18 @@ class OpenCodeClient:
         self.model = model
 
     def list_sessions(self, *, root: Path, limit: int = 20) -> list[dict[str, object]]:
-        result = subprocess.run(
-            [self.binary, "session", "list", "--format", "json", "-n", str(limit)],
-            cwd=root,
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        try:
+            result = subprocess.run(
+                [self.binary, "session", "list", "--format", "json", "-n", str(limit)],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            raise JriError(
+                f"could not find `{self.binary}` — is OpenCode installed?"
+            )
         payload = json.loads(result.stdout or "[]")
         if not isinstance(payload, list):
             return []
@@ -77,7 +82,12 @@ class OpenCodeClient:
         if session_id:
             command.extend(["--session", session_id])
         command.extend(extra_args)
-        return subprocess.run(command, cwd=root, check=False).returncode
+        try:
+            return subprocess.run(command, cwd=root, check=False).returncode
+        except FileNotFoundError:
+            raise JriError(
+                f"could not find `{self.binary}` — is OpenCode installed?"
+            )
 
     def run_ralph_task(
         self,
@@ -95,15 +105,20 @@ class OpenCodeClient:
 
         session_id: str | None = None
         with log_path.open("a", encoding="utf-8") as log_file:
-            process = subprocess.Popen(
-                command,
-                cwd=root,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                start_new_session=True,
-            )
+            try:
+                process = subprocess.Popen(
+                    command,
+                    cwd=root,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
+                    start_new_session=True,
+                )
+            except FileNotFoundError:
+                raise JriError(
+                    f"could not find `{self.binary}` — is OpenCode installed?"
+                )
             if on_start is not None:
                 on_start(process.pid)
 
