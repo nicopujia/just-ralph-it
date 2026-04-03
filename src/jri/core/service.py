@@ -3,7 +3,6 @@ import shutil
 import signal
 import subprocess
 import sys
-import textwrap
 import time
 from importlib.resources import files
 from pathlib import Path
@@ -270,7 +269,7 @@ class JriService:
 
         result = self.opencode_client.run_ralph_task(
             root=self.root,
-            prompt=_build_ralph_prompt(task),
+            prompt=f"Solve `{task.path.relative_to(self.root)}`. Commit frequently.",
             log_path=log_path,
             on_start=lambda child_pid: self.state_store.save_process(
                 loop_pid=os.getpid(),
@@ -343,37 +342,6 @@ class JriService:
             ):
                 return session_id
         return None
-
-
-def _build_ralph_prompt(task: Task) -> str:
-    acceptance_criteria = os.linesep.join(
-        f"- {criterion}" for criterion in task.metadata.acceptance_criteria
-    )
-    return textwrap.dedent(
-        f"""
-        Work only on the task in `.jri/tasks/doing/{task.slug}.md`.
-
-        Task title: {task.metadata.title}
-        Task priority: {task.metadata.priority}
-        Acceptance criteria:
-        {acceptance_criteria or "- None provided"}
-
-        Task description:
-        {task.body.strip()}
-
-        Rules:
-        - Solve only this one task.
-        - Search the codebase before assuming something is missing.
-        - Use up to 100 subagents when useful.
-        - Test the software like a careful human developer would.
-        - Commit useful progress on the current branch.
-        - If you discover a human-only blocker, create a new task assigned to
-          Human and stop.
-        - If you discover follow-up work, write new draft tasks under
-          `.jri/tasks/draft/`.
-        - When this task is complete, stop.
-        """
-    ).strip()
 
 
 def _load_prompt(name: str) -> str:
