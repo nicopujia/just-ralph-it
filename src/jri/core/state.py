@@ -2,6 +2,7 @@ import json
 from dataclasses import replace
 from pathlib import Path
 
+from .errors import JriError
 from .models import ProcessState, State
 from .tasks import validate_state_payload
 
@@ -14,10 +15,17 @@ class StateStore:
         if not self.path.exists():
             return State()
 
-        payload = json.loads(self.path.read_text(encoding="utf-8"))
+        text = self.path.read_text(encoding="utf-8")
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise JriError(f"state.json is corrupted: {exc}") from exc
         if not isinstance(payload, dict):
-            raise ValueError("state.json must contain an object")
-        validate_state_payload(payload)
+            raise JriError("state.json must contain an object")
+        try:
+            validate_state_payload(payload)
+        except ValueError as exc:
+            raise JriError(f"state.json has invalid content: {exc}") from exc
         return State.from_payload(payload)
 
     def save(self, state: State) -> None:

@@ -72,10 +72,14 @@ def parse_task_file(path: Path) -> Task:
 def list_tasks(directory: Path) -> list[Task]:
     if not directory.exists():
         return []
-    return sorted(
-        (parse_task_file(path) for path in directory.glob("*.md")),
-        key=lambda task: task.slug,
-    )
+    tasks: list[Task] = []
+    for path in directory.glob("*.md"):
+        try:
+            tasks.append(parse_task_file(path))
+        except ValueError as exc:
+            raise ValueError(f"malformed task file `{path.name}`: {exc}") from exc
+    tasks.sort(key=lambda task: task.slug)
+    return tasks
 
 
 def select_next_task(

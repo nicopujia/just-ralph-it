@@ -226,9 +226,12 @@ class JriService:
                 if self._halt_requested:
                     raise HaltRequested("Ralph halt requested")
 
-                todo_tasks = list_tasks(self.paths.task_dir("todo"))
-                done_tasks = list_tasks(self.paths.task_dir("done"))
-                doing_tasks = list_tasks(self.paths.task_dir("doing"))
+                try:
+                    todo_tasks = list_tasks(self.paths.task_dir("todo"))
+                    done_tasks = list_tasks(self.paths.task_dir("done"))
+                    doing_tasks = list_tasks(self.paths.task_dir("doing"))
+                except ValueError as exc:
+                    raise JriError(str(exc)) from exc
                 next_task = select_next_task(
                     todo_tasks,
                     done_slugs={task.slug for task in done_tasks},
