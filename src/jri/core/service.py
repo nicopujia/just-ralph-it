@@ -259,9 +259,18 @@ class JriService:
                     raise HaltRequested("Ralph halt requested")
 
                 try:
-                    todo_tasks = list_tasks(self.paths.task_dir("todo"), git_repo=self.git)
-                    done_tasks = list_tasks(self.paths.task_dir("done"), git_repo=self.git)
-                    doing_tasks = list_tasks(self.paths.task_dir("doing"), git_repo=self.git)
+                    todo_tasks = list_tasks(
+                        self.paths.task_dir("todo"),
+                        git_repo=self.git,
+                    )
+                    done_tasks = list_tasks(
+                        self.paths.task_dir("done"),
+                        git_repo=self.git,
+                    )
+                    doing_tasks = list_tasks(
+                        self.paths.task_dir("doing"),
+                        git_repo=self.git,
+                    )
                 except ValueError as exc:
                     raise JriError(str(exc)) from exc
                 next_task = select_next_task(
@@ -331,7 +340,10 @@ class JriService:
             raise JriError(f"task file `{relative_path}` disappeared during Ralph run")
 
         try:
-            self._ensure_promoted_task_pristine(doing_task, baseline=doing_task_baseline)
+            self._ensure_promoted_task_pristine(
+                doing_task,
+                baseline=doing_task_baseline,
+            )
         except JriError:
             self._recover_failed_iteration(doing_task, branch)
             raise
@@ -511,8 +523,8 @@ class JriService:
             return
         relative_path = self.git.relative_path(task.path)
         raise JriError(
-            "promoted task file "
-            f"`{relative_path}` was modified in place; create a follow-up draft task instead"
+            f"promoted task file `{relative_path}` was modified in place; "
+            "create a follow-up draft task instead"
         )
 
     def _block_task_on_dependency(self, task: Task, dependency_slug: str) -> Task:

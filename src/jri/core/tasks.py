@@ -103,8 +103,8 @@ def _ensure_append_only_promoted_task(path: Path, git_repo: GitRepo) -> None:
         return
     relative_path = git_repo.relative_path(path)
     raise ValueError(
-        "promoted task file "
-        f"`{relative_path}` was modified in place; create a follow-up draft task instead"
+        f"promoted task file `{relative_path}` was modified in place; "
+        "create a follow-up draft task instead"
     )
 
 
