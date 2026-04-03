@@ -2,6 +2,5 @@
 - Parallelize your subagents whenever it's possible
 - Use a single subagent for final verification
 - Up to 1000 subagents
-- Commit and push frequently
 - Never write tests for docs or prompts
 - Check @docs/contrib.md
