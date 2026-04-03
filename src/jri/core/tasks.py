@@ -99,14 +99,14 @@ def list_tasks(directory: Path, *, git_repo: GitRepo | None = None) -> list[Task
     return tasks
 
 
-def _validate_acceptance_criteria_for_status(path: Path, metadata: TaskMetadata) -> None:
+def _validate_acceptance_criteria_for_status(
+    path: Path, metadata: TaskMetadata
+) -> None:
     if path.parent.name not in _PROMOTED_TASK_STATUSES:
         return
     if metadata.acceptance_criteria:
         return
-    raise ValueError(
-        "promoted tasks must include non-empty acceptance_criteria"
-    )
+    raise ValueError("promoted tasks must include non-empty acceptance_criteria")
 
 
 def _ensure_append_only_promoted_task(path: Path, git_repo: GitRepo) -> None:

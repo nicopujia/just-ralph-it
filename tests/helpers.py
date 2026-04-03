@@ -31,15 +31,17 @@ def write_task(
     acceptance_criteria: list[str] | None = None,
 ) -> Path:
     depends_on = depends_on or []
-    acceptance_criteria = acceptance_criteria or []
     task_path = repo / ".jri" / "tasks" / status / f"{slug}.md"
     metadata = {
         "title": title,
         "priority": priority,
         "assignee": assignee,
         "depends_on": depends_on,
-        "acceptance_criteria": acceptance_criteria,
     }
+    if acceptance_criteria is not None:
+        metadata["acceptance_criteria"] = acceptance_criteria
+    elif status in {"todo", "doing", "done"}:
+        metadata["acceptance_criteria"] = ["task completion is verifiable"]
     task_path.write_text(
         "---\n" + json.dumps(metadata, indent=2) + "\n---\n\n" + body,
         encoding="utf-8",
