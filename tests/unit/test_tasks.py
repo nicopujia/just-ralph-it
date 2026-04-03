@@ -135,3 +135,60 @@ def test_parse_task_file_reads_frontmatter_and_body(tmp_path: Path) -> None:
     assert task.slug == "build-readme"
     assert task.metadata.depends_on == ["prep"]
     assert task.body == "Write the README body.\n"
+
+
+def test_parse_task_file_allows_fenced_code_in_frontmatter_block_scalars(
+    tmp_path: Path,
+) -> None:
+    task_path = tmp_path / "document-parser.md"
+    task_path.write_text(
+        "---\n"
+        'title: "Document ``parser``"\n'
+        "priority: 1\n"
+        'assignee: "Ralph"\n'
+        "notes: |\n"
+        "  ```yaml\n"
+        "  ---\n"
+        "  example: true\n"
+        "  ```\n"
+        "---\n\n"
+        "Explain the parser fix.\n",
+        encoding="utf-8",
+    )
+
+    task = parse_task_file(task_path)
+
+    assert task.slug == "document-parser"
+    assert task.metadata.title == "Document ``parser``"
+    assert task.body == "Explain the parser fix.\n"
+
+
+def test_parse_task_file_allows_markdown_like_plain_scalars_in_frontmatter(
+    tmp_path: Path,
+) -> None:
+    task_path = tmp_path / "implement-computer-ai.md"
+    task_path.write_text(
+        "---\n"
+        "title: Implement computer opponents\n"
+        "priority: 1\n"
+        "assignee: Ralph\n"
+        "depends_on:\n"
+        "  - implement-tripos-engine\n"
+        "acceptance_criteria:\n"
+        "  - The app exposes two computer difficulties: `Normal` and `Insane`.\n"
+        "  - Automated tests cover at least: legal move rejection and "
+        "perfect-play choices.\n"
+        "---\n\n"
+        "Implement the computer players.\n",
+        encoding="utf-8",
+    )
+
+    task = parse_task_file(task_path)
+
+    assert task.metadata.title == "Implement computer opponents"
+    assert task.metadata.depends_on == ["implement-tripos-engine"]
+    assert task.metadata.acceptance_criteria == [
+        "The app exposes two computer difficulties: `Normal` and `Insane`.",
+        "Automated tests cover at least: legal move rejection and "
+        "perfect-play choices.",
+    ]

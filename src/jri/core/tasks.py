@@ -1,4 +1,5 @@
 import json
+import re
 from functools import cache
 from importlib.resources import files
 from pathlib import Path
@@ -6,6 +7,7 @@ from typing import Any, cast
 
 import yaml
 from jsonschema import Draft202012Validator
+from yaml.events import DocumentEndEvent
 
 from .models import Task, TaskMetadata
 
@@ -118,19 +120,149 @@ def _split_frontmatter(text: str) -> tuple[dict[str, object], str]:
     if not text.startswith("---\n"):
         raise ValueError("task file must start with YAML frontmatter")
 
-    boundary = text.find("\n---\n", 4)
-    if boundary == -1:
+    boundary = _find_frontmatter_boundary(text)
+    if boundary is None:
         raise ValueError("task file must end frontmatter with ---")
 
     metadata_text = text[4:boundary]
-    body = text[boundary + len("\n---\n") :]
+    body = text[boundary + len("---\n") :]
     if body.startswith("\n"):
         body = body[1:]
 
-    loaded = yaml.safe_load(metadata_text)
+    loaded = _load_frontmatter(metadata_text)
     if not isinstance(loaded, dict):
         raise ValueError("task frontmatter must be an object")
     return cast(dict[str, object], loaded), body
+
+
+def _find_frontmatter_boundary(text: str) -> int | None:
+    try:
+        events = yaml.parse(text)
+        for event in events:
+            if isinstance(event, DocumentEndEvent):
+                boundary = event.start_mark.index
+                if text.startswith("---\n", boundary):
+                    return boundary
+                return None
+    except yaml.YAMLError:
+        pass
+
+    return _scan_frontmatter_boundary(text)
+
+
+def _load_frontmatter(metadata_text: str) -> object:
+    normalized = _normalize_frontmatter_plain_scalars(metadata_text)
+    if normalized != metadata_text:
+        try:
+            return yaml.safe_load(normalized)
+        except yaml.YAMLError:
+            pass
+    return yaml.safe_load(metadata_text)
+
+
+def _scan_frontmatter_boundary(text: str) -> int | None:
+    offset = 4
+    block_scalar_indent: int | None = None
+
+    while offset < len(text):
+        line_end = text.find("\n", offset)
+        if line_end == -1:
+            line = text[offset:]
+            next_offset = len(text)
+        else:
+            line = text[offset:line_end]
+            next_offset = line_end + 1
+
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip(" "))
+
+        if block_scalar_indent is not None:
+            if stripped and indent <= block_scalar_indent:
+                block_scalar_indent = None
+            else:
+                offset = next_offset
+                continue
+
+        if line == "---":
+            return offset
+
+        _, separator, raw_value = line.partition(":")
+        if separator and raw_value.strip().startswith(("|", ">")):
+            block_scalar_indent = indent
+
+        offset = next_offset
+
+    return None
+
+
+def _normalize_frontmatter_plain_scalars(metadata_text: str) -> str:
+    lines = metadata_text.splitlines(keepends=True)
+    normalized: list[str] = []
+    list_key: str | None = None
+    block_scalar_indent: int | None = None
+
+    for line in lines:
+        stripped = line.strip()
+        indent = len(line) - len(line.lstrip(" "))
+
+        if block_scalar_indent is not None:
+            if stripped and indent <= block_scalar_indent:
+                block_scalar_indent = None
+            else:
+                normalized.append(line)
+                continue
+
+        if indent == 0 and not line.startswith(("{", "[")):
+            key, separator, raw_value = line.partition(":")
+            if separator:
+                value = raw_value.strip()
+                list_key = key if not value else None
+                if value.startswith(("|", ">")):
+                    block_scalar_indent = indent
+                    normalized.append(line)
+                    continue
+                if value and _should_quote_plain_scalar(value):
+                    normalized.append(
+                        f"{key}: {_quote_yaml_string(value)}{_line_ending(line)}"
+                    )
+                    continue
+
+        if list_key is not None and line.startswith("  - "):
+            value = line[4:].rstrip("\r\n")
+            if _should_quote_plain_scalar(value):
+                normalized.append(
+                    f"  - {_quote_yaml_string(value)}{_line_ending(line)}"
+                )
+                continue
+
+        normalized.append(line)
+
+    return "".join(normalized)
+
+
+def _should_quote_plain_scalar(value: str) -> bool:
+    if not value:
+        return False
+    if value[0] in "\"'" or value[0] in "[{":
+        return False
+    if re.fullmatch(r"[-+]?\d+(?:\.\d+)?", value):
+        return False
+    if value.lower() in {"true", "false", "yes", "no", "on", "off", "null", "~"}:
+        return False
+    return True
+
+
+def _quote_yaml_string(value: str) -> str:
+    escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def _line_ending(line: str) -> str:
+    if line.endswith("\r\n"):
+        return "\r\n"
+    if line.endswith("\n"):
+        return "\n"
+    return ""
 
 
 def _format_error(path: Any, message: str) -> str:
