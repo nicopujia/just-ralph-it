@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Literal, Self, cast
 
 Assignee = Literal["Ralph", "Human"]
-Outcome = Literal["completed", "blocked", "failed", "unknown"]
+Outcome = Literal["completed", "failed", "needs human"]
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ class Task:
 class OpenCodeRunResult:
     returncode: int
     session_id: str | None = None
-    outcome: Outcome = "unknown"
+    outcome: Outcome = "failed"
 
 
 @dataclass(frozen=True)

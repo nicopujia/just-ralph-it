@@ -270,7 +270,7 @@ class JriService:
                 outcome = self._run_iteration(next_task)
                 if outcome == "completed":
                     completed += 1
-                elif outcome in ("blocked", "failed"):
+                elif outcome in ("failed", "needs human"):
                     failed_slugs.add(next_task.slug)
 
                 if self.paths.stop_signal_path.exists():
@@ -317,15 +317,11 @@ class JriService:
             self._recover_failed_iteration(doing_task, branch)
             raise JriError(f"OpenCode exited with status {result.returncode}")
 
-        if result.outcome == "blocked":
+        if result.outcome == "needs human":
             self._recover_failed_iteration(doing_task, branch)
-            return "blocked"
+            return "needs human"
 
-        if result.outcome == "unknown":
-            print(
-                f"unknown outcome for {task.slug}; treating as failure",
-                file=sys.stderr,
-            )
+        if result.outcome == "failed":
             self._recover_failed_iteration(doing_task, branch)
             return "failed"
 

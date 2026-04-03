@@ -40,8 +40,8 @@ class SuccessfulFakeOpenCodeClient(OpenCodeClient):
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
 
 
-class BlockedFakeOpenCodeClient(OpenCodeClient):
-    """Simulates Ralph hitting a blocker and outputting JRI:BLOCKED signal."""
+class NeedsHumanFakeOpenCodeClient(OpenCodeClient):
+    """Simulates Ralph resolving the task as needs human."""
 
     def __init__(self) -> None:
         super().__init__(model=None)
@@ -56,17 +56,19 @@ class BlockedFakeOpenCodeClient(OpenCodeClient):
         on_start: object | None = None,
     ) -> OpenCodeRunResult:
         self.calls.append((prompt, log_path))
-        log_path.write_text("fake blocked run\n", encoding="utf-8")
+        log_path.write_text("fake needs-human run\n", encoding="utf-8")
         return OpenCodeRunResult(
-            returncode=0, session_id="ses_blocked", outcome="blocked"
+            returncode=0,
+            session_id="ses_needs_human",
+            outcome="needs human",
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
-        destination.write_text('{"session": "fake_blocked"}\n', encoding="utf-8")
+        destination.write_text('{"session": "fake_needs_human"}\n', encoding="utf-8")
 
 
-class BlockedThenSuccessfulFakeOpenCodeClient(OpenCodeClient):
-    """Returns blocked for the first call, successful for the second."""
+class NeedsHumanThenSuccessfulFakeOpenCodeClient(OpenCodeClient):
+    """Returns needs human for the first call, successful for the second."""
 
     def __init__(self) -> None:
         super().__init__(model=None)
@@ -86,7 +88,9 @@ class BlockedThenSuccessfulFakeOpenCodeClient(OpenCodeClient):
         log_path.write_text(f"fake run #{self._call_count}\n", encoding="utf-8")
         if self._call_count == 1:
             return OpenCodeRunResult(
-                returncode=0, session_id="ses_blocked", outcome="blocked"
+                returncode=0,
+                session_id="ses_needs_human",
+                outcome="needs human",
             )
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         return OpenCodeRunResult(returncode=0, session_id="ses_ok", outcome="completed")
@@ -301,28 +305,28 @@ def test_halt_terminates_tracked_process(git_repo: Path) -> None:
     assert sleeper.returncode is not None
 
 
-def test_blocked_task_moves_back_to_todo(git_repo: Path) -> None:
+def test_needs_human_task_moves_back_to_todo(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
-        slug="blocked-task",
-        title="Blocked task",
+        slug="needs-human-task",
+        title="Needs human task",
         priority=0,
         assignee="Ralph",
-        body="This will be blocked.",
+        body="This will need human help.",
     )
-    git(git_repo, "add", ".jri/tasks/todo/blocked-task.md")
-    git(git_repo, "commit", "-m", "add blocked task")
+    git(git_repo, "add", ".jri/tasks/todo/needs-human-task.md")
+    git(git_repo, "commit", "-m", "add needs human task")
 
-    service = JriService(git_repo, opencode_client=BlockedFakeOpenCodeClient())
+    service = JriService(git_repo, opencode_client=NeedsHumanFakeOpenCodeClient())
 
     completed = service.start(iterations=1)
 
     assert completed == 0
-    assert (git_repo / ".jri" / "tasks" / "todo" / "blocked-task.md").exists()
-    assert not (git_repo / ".jri" / "tasks" / "doing" / "blocked-task.md").exists()
-    assert not (git_repo / ".jri" / "tasks" / "done" / "blocked-task.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "todo" / "needs-human-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "needs-human-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "needs-human-task.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
     tags = git(git_repo, "tag").splitlines()
     assert "jri/0" in tags
@@ -332,17 +336,17 @@ def test_blocked_task_moves_back_to_todo(git_repo: Path) -> None:
     assert not any("ralph/" in b for b in branches)
 
 
-def test_blocked_then_successful_completes_one(git_repo: Path) -> None:
-    """Two tasks: first is blocked, loop continues and completes the second."""
+def test_needs_human_then_successful_completes_one(git_repo: Path) -> None:
+    """Two tasks: first needs human, loop continues and completes the second."""
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
         slug="task-a",
-        title="Task A (blocked)",
+        title="Task A (needs human)",
         priority=0,
         assignee="Ralph",
-        body="Will be blocked.",
+        body="Will need human help.",
     )
     write_task(
         git_repo,
@@ -356,13 +360,13 @@ def test_blocked_then_successful_completes_one(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/")
     git(git_repo, "commit", "-m", "add two tasks")
 
-    client = BlockedThenSuccessfulFakeOpenCodeClient()
+    client = NeedsHumanThenSuccessfulFakeOpenCodeClient()
     service = JriService(git_repo, opencode_client=client)
 
     completed = service.start(iterations=2)
 
     assert completed == 1
-    # Blocked task is back in todo
+    # Needs-human task is back in todo
     assert (git_repo / ".jri" / "tasks" / "todo" / "task-a.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
     # Successful task is in done
@@ -400,8 +404,8 @@ class MakeCheckFailsFakeOpenCodeClient(OpenCodeClient):
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
 
 
-class UnknownOutcomeFakeOpenCodeClient(OpenCodeClient):
-    """Simulates Ralph returning an unknown outcome (no JRI markers)."""
+class FailedFakeOpenCodeClient(OpenCodeClient):
+    """Simulates Ralph explicitly returning a failed outcome."""
 
     def __init__(self) -> None:
         super().__init__(model=None)
@@ -416,37 +420,37 @@ class UnknownOutcomeFakeOpenCodeClient(OpenCodeClient):
         on_start: object | None = None,
     ) -> OpenCodeRunResult:
         self.calls.append((prompt, log_path))
-        log_path.write_text("fake unknown run\n", encoding="utf-8")
+        log_path.write_text("fake failed run\n", encoding="utf-8")
         return OpenCodeRunResult(
-            returncode=0, session_id="ses_unknown", outcome="unknown"
+            returncode=0, session_id="ses_failed", outcome="failed"
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
-        destination.write_text('{"session": "fake_unknown"}\n', encoding="utf-8")
+        destination.write_text('{"session": "fake_failed"}\n', encoding="utf-8")
 
 
-def test_unknown_outcome_triggers_recovery(git_repo: Path) -> None:
+def test_failed_outcome_triggers_recovery(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
-        slug="mystery-task",
-        title="Mystery task",
+        slug="failing-task",
+        title="Failing task",
         priority=0,
         assignee="Ralph",
-        body="This will have an unknown outcome.",
+        body="This will fail.",
     )
-    git(git_repo, "add", ".jri/tasks/todo/mystery-task.md")
-    git(git_repo, "commit", "-m", "add mystery task")
+    git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
+    git(git_repo, "commit", "-m", "add failing task")
 
-    service = JriService(git_repo, opencode_client=UnknownOutcomeFakeOpenCodeClient())
+    service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
 
     completed = service.start(iterations=1)
 
     assert completed == 0
-    assert (git_repo / ".jri" / "tasks" / "todo" / "mystery-task.md").exists()
-    assert not (git_repo / ".jri" / "tasks" / "doing" / "mystery-task.md").exists()
-    assert not (git_repo / ".jri" / "tasks" / "done" / "mystery-task.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "failing-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "failing-task.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
     branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
     assert not any("ralph/" in b for b in branches)

@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 from jri.core.opencode import _parse_event_line
 
 
@@ -125,19 +127,25 @@ def test_parse_event_line_preserves_plain_text_fallback() -> None:
 def test_detect_outcome_completed() -> None:
     from jri.core.opencode import _detect_outcome
 
-    assert _detect_outcome("<!-- JRI:COMPLETED -->", "unknown") == "completed"
+    assert _detect_outcome("<!-- JRI:COMPLETED -->", None) == "completed"
 
 
-def test_detect_outcome_blocked() -> None:
+def test_detect_outcome_failed() -> None:
     from jri.core.opencode import _detect_outcome
 
-    assert _detect_outcome("<!-- JRI:BLOCKED -->", "unknown") == "blocked"
+    assert _detect_outcome("<!-- JRI:FAILED -->", None) == "failed"
+
+
+def test_detect_outcome_needs_human() -> None:
+    from jri.core.opencode import _detect_outcome
+
+    assert _detect_outcome("<!-- JRI:NEEDS_HUMAN -->", None) == "needs human"
 
 
 def test_detect_outcome_no_marker_preserves_current() -> None:
     from jri.core.opencode import _detect_outcome
 
-    assert _detect_outcome("just some text", "unknown") == "unknown"
+    assert _detect_outcome("just some text", None) is None
     assert _detect_outcome("just some text", "completed") == "completed"
 
 
@@ -145,6 +153,30 @@ def test_detect_outcome_embedded_in_text() -> None:
     from jri.core.opencode import _detect_outcome
 
     assert (
-        _detect_outcome("preamble <!-- JRI:COMPLETED --> trailing", "unknown")
+        _detect_outcome("preamble <!-- JRI:COMPLETED --> trailing", None)
         == "completed"
+    )
+
+
+def test_detect_outcome_uses_last_marker_in_text() -> None:
+    from jri.core.opencode import _detect_outcome
+
+    assert (
+        _detect_outcome(
+            "<!-- JRI:COMPLETED --> then <!-- JRI:FAILED -->",
+            None,
+        )
+        == "failed"
+    )
+
+
+def test_finalize_outcome_missing_marker_treats_run_as_failed(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from jri.core.opencode import _finalize_outcome
+
+    assert _finalize_outcome(None, context="Ralph run") == "failed"
+    assert (
+        "missing JRI outcome marker for Ralph run; treating run as failed"
+        in capsys.readouterr().err
     )

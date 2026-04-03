@@ -9,7 +9,13 @@ from .errors import JriError
 from .models import OpenCodeRunResult, Outcome
 
 _COMPLETED_MARKER = "<!-- JRI:COMPLETED -->"
-_BLOCKED_MARKER = "<!-- JRI:BLOCKED -->"
+_FAILED_MARKER = "<!-- JRI:FAILED -->"
+_NEEDS_HUMAN_MARKER = "<!-- JRI:NEEDS_HUMAN -->"
+_OUTCOME_MARKERS: tuple[tuple[str, Outcome], ...] = (
+    (_COMPLETED_MARKER, "completed"),
+    (_FAILED_MARKER, "failed"),
+    (_NEEDS_HUMAN_MARKER, "needs human"),
+)
 
 
 def _dict_value(payload: dict[str, object], key: str) -> dict[str, object] | None:
@@ -55,13 +61,26 @@ def _parse_event_line(line: str) -> tuple[dict[str, object] | None, str | None]:
     return payload, _text_event_text(payload) or _tool_use_text(payload)
 
 
-def _detect_outcome(text: str, current: Outcome) -> Outcome:
+def _detect_outcome(text: str, current: Outcome | None) -> Outcome | None:
     """Update outcome if *text* contains a JRI marker. Last signal wins."""
-    if _BLOCKED_MARKER in text:
-        return "blocked"
-    if _COMPLETED_MARKER in text:
-        return "completed"
-    return current
+    latest_match = current
+    latest_index = -1
+    for marker, outcome in _OUTCOME_MARKERS:
+        marker_index = text.rfind(marker)
+        if marker_index > latest_index:
+            latest_index = marker_index
+            latest_match = outcome
+    return latest_match
+
+
+def _finalize_outcome(outcome: Outcome | None, *, context: str) -> Outcome:
+    if outcome is not None:
+        return outcome
+    print(
+        f"missing JRI outcome marker for {context}; treating run as failed",
+        file=sys.stderr,
+    )
+    return "failed"
 
 
 class OpenCodeClient:
@@ -121,7 +140,7 @@ class OpenCodeClient:
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
         session_id: str | None = None
-        last_outcome: Outcome = "unknown"
+        last_outcome: Outcome | None = None
         with log_path.open("a", encoding="utf-8") as log_file:
             try:
                 process = subprocess.Popen(
@@ -193,7 +212,9 @@ class OpenCodeClient:
                 raise
 
         return OpenCodeRunResult(
-            returncode=returncode, session_id=session_id, outcome=last_outcome
+            returncode=returncode,
+            session_id=session_id,
+            outcome=_finalize_outcome(last_outcome, context="Ralph run"),
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
