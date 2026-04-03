@@ -7,6 +7,7 @@
 Mandatory:
 
 - [Git](https://git-scm.com/install/)
+- `make`
 - [uv](https://docs.astral.sh/uv/getting-started/installation/)
 - [OpenCode](https://opencode.ai/docs/#install)
 
@@ -39,7 +40,15 @@ uv tool uninstall jri           # remove later
 
 Source changes under `src/jri/` are picked up immediately with the editable install.
 
-Typical checks (linter, formatter, typing, and testing) are already enforced via Git hooks (see [pre-commit config](../.pre-commit-config.yaml)).
+Run the canonical pre-merge validation suite with:
+
+```bash
+make check
+```
+
+`make check` runs the repo quality gates for linting, formatting, typing, schema validation, and tests.
+Git hooks remain useful guardrails (see [pre-commit config](../.pre-commit-config.yaml)), but `make check` is the canonical repo-wide validation command.
+
 The opt-in live OpenCode test can be run with:
 
 ```bash

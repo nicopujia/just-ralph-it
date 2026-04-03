@@ -137,7 +137,13 @@ class GitRepo:
             raise JriError(result.stderr.strip() or f"failed to create tag {name}")
 
     def has_tag(self, name: str) -> bool:
-        result = self.run("rev-parse", "--verify", "--quiet", f"refs/tags/{name}", check=False)
+        result = self.run(
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            f"refs/tags/{name}",
+            check=False,
+        )
         return result.returncode == 0
 
     def has_remote(self) -> bool:
