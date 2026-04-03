@@ -24,6 +24,10 @@
       "type": "string",
       "description": "OpenCode session ID pointing to the current project's interrogation."
     },
+    "branch": {
+      "type": "string",
+      "description": "Default branch name recorded at init time."
+    },
     "process": {
       "type": "object",
       "description": "Ephemeral runtime information for a currently running Ralph loop.",

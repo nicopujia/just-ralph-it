@@ -35,8 +35,8 @@ class StateStore:
             encoding="utf-8",
         )
 
-    def initialize(self) -> None:
-        self.save(State())
+    def initialize(self, *, branch: str | None = None) -> None:
+        self.save(State(branch=branch))
 
     def clear_process(self) -> None:
         state = self.load()

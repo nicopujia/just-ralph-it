@@ -35,7 +35,9 @@ class GitRepo:
     def current_branch(self) -> str:
         return self.run("branch", "--show-current").stdout.strip()
 
-    def default_branch(self) -> str:
+    def default_branch(self, *, hint: str | None = None) -> str:
+        if hint:
+            return hint
         result = self.run(
             "rev-parse", "--verify", "--quiet", "refs/heads/main", check=False
         )
@@ -48,8 +50,8 @@ class GitRepo:
             return "master"
         return self.current_branch() or "main"
 
-    def ensure_default_branch(self) -> None:
-        default = self.default_branch()
+    def ensure_default_branch(self, *, hint: str | None = None) -> None:
+        default = self.default_branch(hint=hint)
         if self.current_branch() != default:
             raise JriError(
                 f"jri start must begin from the {default} branch"

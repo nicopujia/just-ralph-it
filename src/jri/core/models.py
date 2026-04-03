@@ -43,6 +43,7 @@ class State:
     finished_at: int | None = None
     session: str | None = None
     process: ProcessState | None = None
+    branch: str | None = None
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {"iteration": {"number": self.iteration_number}}
@@ -54,6 +55,8 @@ class State:
             iteration["finished_at"] = self.finished_at
         if self.session is not None:
             payload["session"] = self.session
+        if self.branch is not None:
+            payload["branch"] = self.branch
         if self.process is not None:
             payload["process"] = {
                 "loop_pid": self.process.loop_pid,
@@ -88,6 +91,7 @@ class State:
             finished_at=_int_or_none(iteration_payload.get("finished_at")),
             session=_str_or_none(payload.get("session")),
             process=process,
+            branch=_str_or_none(payload.get("branch")),
         )
 
 

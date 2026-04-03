@@ -128,9 +128,9 @@ class JriService:
     def reset(self) -> None:
         self.ensure_initialized()
         self.git.ensure_clean()
-        default = self.git.default_branch()
-        self.git.checkout(default)
         state = self.state_store.load()
+        default = self.git.default_branch(hint=state.branch)
+        self.git.checkout(default)
         iteration_number = state.iteration_number
         if iteration_number < 1:
             raise JriError("no successful iteration exists yet")
@@ -140,6 +140,7 @@ class JriService:
                 iteration_number=iteration_number,
                 finished_at=state.finished_at,
                 session=state.session,
+                branch=state.branch,
             )
         )
 
@@ -147,6 +148,9 @@ class JriService:
         self.git.ensure_repo()
         if not self.paths.jri_dir.exists():
             raise JriError("project is not initialized; run `jri init`")
+
+    def _default_branch(self) -> str:
+        return self.git.default_branch(hint=self.state_store.load().branch)
 
     def _create_scaffold(self) -> list[Path]:
         created_files: list[Path] = []
@@ -165,7 +169,7 @@ class JriService:
         self.paths.external_logs_dir.mkdir(parents=True, exist_ok=True)
         self.paths.external_opencode_dir.mkdir(parents=True, exist_ok=True)
         self._write_managed_files()
-        self.state_store.initialize()
+        self.state_store.initialize(branch=self.git.current_branch() or None)
         return created_files
 
     def _write_managed_files(self) -> None:
@@ -216,7 +220,7 @@ class JriService:
         if list_tasks(self.paths.task_dir("doing")):
             raise JriError("a task is already in progress")
         self.git.ensure_clean()
-        self.git.ensure_default_branch()
+        self.git.ensure_default_branch(hint=self.state_store.load().branch)
         if self.paths.stop_signal_path.exists():
             self.paths.stop_signal_path.unlink()
 
@@ -295,7 +299,7 @@ class JriService:
             except JriError:
                 pass  # session export is best-effort; don't fail the iteration
 
-        default = self.git.default_branch()
+        default = self._default_branch()
         self.git.commit_all_if_needed(f"ralph: finalize {task.slug}")
         self.git.checkout(default)
         self.git.merge_ff_only(branch)
@@ -317,7 +321,7 @@ class JriService:
 
     def _recover_failed_iteration(self, doing_task: Task, branch: str) -> None:
         try:
-            default = self.git.default_branch()
+            default = self._default_branch()
             self.git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
             self.git.checkout(default)
             if doing_task.path.exists():
@@ -331,6 +335,7 @@ class JriService:
                     iteration_number=state.iteration_number,
                     finished_at=state.finished_at,
                     session=state.session,
+                    branch=state.branch,
                 )
             )
         except Exception:
