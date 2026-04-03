@@ -288,7 +288,10 @@ class JriService:
 
         if result.session_id is not None:
             export_path = self.paths.external_opencode_dir / f"{result.session_id}.json"
-            self.opencode_client.export_session(result.session_id, export_path)
+            try:
+                self.opencode_client.export_session(result.session_id, export_path)
+            except JriError:
+                pass  # session export is best-effort; don't fail the iteration
 
         self.git.commit_all_if_needed(f"ralph: finalize {task.slug}")
         self.git.checkout("main")
