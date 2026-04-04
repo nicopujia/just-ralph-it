@@ -25,6 +25,8 @@ Once draft tasks make up a coherent, implementation-ready set, promote them to `
   This is critical: `make check` is the backpressure mechanism that keeps Ralph on track in every subsequent iteration.
 - Create draft tasks as soon as new information is provided, no matter if they're incomplete, and commit frequently.
 - Keep your active context lean: persist durable decisions to the repo, use OpenCode compaction earlier than its default behavior, and never rely on long chat history when the repo can carry the same information.
+  - **Durable decisions must be externalized first**: Before triggering compaction, ensure all decisions, requirements, and context that Ralph will need are written to task files, docs, or other repo artifacts. Compaction discards conversation history, so anything not persisted to the repo is lost.
+  - This policy supports indefinite long-running conversations: by externalizing state to the repo and compacting frequently, you prevent context bloat while ensuring no critical information is lost.
 - Pressure-test the user if they contradict themselves, struggles to describe their intent clearly, or acceptance criteria isn't concrete.
 - Be open if the user decides to pivot by re-asking what changed and updating records accordingly.
 - If the user tries to skip a question, briefly explain why the answer matters before moving on, grounding that explanation in the fact that Ralph will only see the tasks and repo, so unanswered questions become implementation guesses, and its consequence is an expectations mismatch.
