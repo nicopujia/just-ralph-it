@@ -146,6 +146,52 @@ def move_task(task: Task, destination_dir: Path) -> Task:
     )
 
 
+def validate_draft_promotion(
+    tasks: list[Task],
+    *,
+    all_draft_slugs: set[str],
+    promoted_slugs: set[str],
+) -> None:
+    if not tasks:
+        raise ValueError("no draft tasks selected for promotion")
+
+    selected_slugs = {task.slug for task in tasks}
+    missing_criteria = sorted(
+        task.slug for task in tasks if not task.metadata.acceptance_criteria
+    )
+    if missing_criteria:
+        joined = ", ".join(missing_criteria)
+        raise ValueError(
+            "draft tasks must include non-empty acceptance_criteria before "
+            f"promotion: {joined}"
+        )
+
+    collisions = sorted(selected_slugs & promoted_slugs)
+    if collisions:
+        joined = ", ".join(collisions)
+        raise ValueError(f"draft tasks already exist in promoted states: {joined}")
+
+    blocked_dependencies: list[str] = []
+    unknown_dependencies: list[str] = []
+    for task in tasks:
+        for dependency in task.metadata.depends_on:
+            if dependency in selected_slugs or dependency in promoted_slugs:
+                continue
+            if dependency in all_draft_slugs:
+                blocked_dependencies.append(f"{task.slug} -> {dependency}")
+                continue
+            unknown_dependencies.append(f"{task.slug} -> {dependency}")
+    if blocked_dependencies:
+        joined = ", ".join(sorted(blocked_dependencies))
+        raise ValueError(
+            "draft promotion depends on draft tasks outside the promotion "
+            f"batch: {joined}"
+        )
+    if unknown_dependencies:
+        joined = ", ".join(sorted(unknown_dependencies))
+        raise ValueError(f"draft promotion has unknown dependency references: {joined}")
+
+
 def dump_task(task: Task) -> str:
     payload = {
         "title": task.metadata.title,

@@ -185,13 +185,11 @@ def _create_and_promote_tasks(repo: Path) -> None:
     git(repo, "add", ".jri/tasks/draft/")
     git(repo, "commit", "-m", "add draft tasks (idea phase)")
 
-    # Promotion: rewrite with acceptance criteria into todo
+    # Clarification: fill in the acceptance criteria while tasks are still drafts.
     for slug, title, priority, depends_on, body, criteria in _TASK_SPECS:
-        draft_path = repo / ".jri" / "tasks" / "draft" / f"{slug}.md"
-        assert draft_path.exists(), f"draft task {slug} must exist"
         write_task(
             repo,
-            status="todo",
+            status="draft",
             slug=slug,
             title=title,
             priority=priority,
@@ -200,9 +198,22 @@ def _create_and_promote_tasks(repo: Path) -> None:
             depends_on=depends_on,
             acceptance_criteria=criteria,
         )
-        draft_path.unlink()
-    git(repo, "add", ".jri/tasks/")
-    git(repo, "commit", "-m", "promote drafts to todo (task phase)")
+    git(repo, "add", ".jri/tasks/draft/")
+    git(repo, "commit", "-m", "refine draft tasks for promotion")
+
+    # Promotion: reject unconfirmed requests, then allow explicit confirmation.
+    assert run_cli(["promote", "implement-greet"], cwd=repo) == 1
+    assert run_cli(
+        [
+            "promote",
+            "implement-greet",
+            "add-greet-tests",
+            "update-changelog",
+            "--confirm",
+            "Yes, promote these tasks to todo.",
+        ],
+        cwd=repo,
+    ) == 0
 
 
 def _assert_convergence(repo: Path, completed: int) -> None:

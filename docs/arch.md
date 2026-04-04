@@ -31,6 +31,7 @@ Every project is initialized with the same base structure:
   It also keeps a minimal execution journal:
   `active_attempt` tracks the current Ralph task attempt, and `attempts` keeps the durable attempt history.
   Each attempt records the task slug, iteration number, branch, timestamps, Ralph log path, optional OpenCode session ID, and final outcome when known.
+  The latest explicit draft-to-todo promotion confirmation is also recorded there.
 
 The following are `.gitignore`d:
 
@@ -66,8 +67,9 @@ Makes you **a lot** of questions and creates tasks as the interrogation goes on.
 It's in charge of losslessly mapping the user's idea into tasks, making sure that there are no ambiguities left; that way, the end result will match the user's expectations.
 The conversation is as long as it needs to be to cover every detail—it may even take many hours.
 The agent starts high-level, goes deeper as needed, creates draft tasks as soon as new information appears, and promotes work to `.jri/tasks/todo/` once it is implementation-ready.
-If a task still has open questions, it stays in `draft`; if it was promoted too early, it should be moved back to `draft` until clarified.
+If a task still has open questions, it stays in `draft`; if a promoted task turns out incomplete, the fix should be captured as additive follow-up draft work instead of rewriting the promoted task.
 It also commits persisted task progress as the interrogation evolves.
+Promotion must go through `jri promote [slug ...] --confirm "<user confirmation>"`, which records the approval and rejects unconfirmed promotions.
 
 Besides, if the user ever realizes that they actually want to pivot or discard the idea, that's not a failure scenario; it's rather the contrary.
 

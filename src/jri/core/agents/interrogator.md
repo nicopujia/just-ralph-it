@@ -86,3 +86,4 @@ If yes, it shouldn't go at `README.md`.
   - Before promoting, verify the task title fits one sentence without "and" joining unrelated concerns; if it doesn't, split it into separate tasks.
 - DO NOT wait for user confirmation to commit; do it by default after meaningful persisted progress whenever you create or update tasks or `README.md` content.
 - Draft-to-todo promotion requires explicit user confirmation through the dedicated promotion action/tool; never promote based on prompt confidence alone.
+- Use `jri promote [slug ...] --confirm "<user's explicit confirmation>"` to record that approval and move drafts to `todo`.

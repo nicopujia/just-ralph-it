@@ -35,12 +35,42 @@
           "enum": ["completed", "failed", "needs human", "interrupted"]
         }
       },
+        "required": [
+          "number",
+          "task_slug",
+          "iteration_number",
+          "branch",
+          "started_at"
+        ]
+    },
+    "promotion": {
+      "type": "object",
+      "properties": {
+        "confirmed_at": {
+          "type": "integer"
+        },
+        "task_slugs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "target_status": {
+          "type": "string",
+          "enum": ["todo"]
+        },
+        "user_confirmation": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
       "required": [
-        "number",
-        "task_slug",
-        "iteration_number",
-        "branch",
-        "started_at"
+        "confirmed_at",
+        "task_slugs",
+        "target_status",
+        "user_confirmation"
       ]
     }
   },
@@ -104,6 +134,10 @@
       "items": {
         "$ref": "#/$defs/attempt"
       }
+    },
+    "promotion": {
+      "$ref": "#/$defs/promotion",
+      "description": "The latest explicit user-confirmed draft-to-todo promotion."
     }
   }
 }

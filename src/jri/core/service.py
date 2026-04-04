@@ -13,11 +13,26 @@ from typing import Any
 
 from .errors import HaltRequested, JriError
 from .git import GitRepo
-from .models import AttemptState, Outcome, ProcessState, State, Task, TaskMetadata
+from .models import (
+    AttemptState,
+    Outcome,
+    ProcessState,
+    PromotionRecord,
+    State,
+    Task,
+    TaskMetadata,
+)
 from .opencode import OpenCodeClient
 from .paths import JriPaths
 from .state import StateStore
-from .tasks import dump_task, list_tasks, move_task, parse_task_file, select_next_task
+from .tasks import (
+    dump_task,
+    list_tasks,
+    move_task,
+    parse_task_file,
+    select_next_task,
+    validate_draft_promotion,
+)
 
 _INIT_COMMIT_PATHS = (
     ".jri",
@@ -148,6 +163,47 @@ class JriService:
         except ValueError as exc:
             raise JriError(str(exc)) from exc
 
+    def promote_drafts(self, *, slugs: list[str], user_confirmation: str) -> list[Task]:
+        self.ensure_initialized()
+        confirmation = user_confirmation.strip()
+        if not confirmation:
+            raise JriError(
+                "draft promotion requires explicit user confirmation via "
+                "`jri promote --confirm \"...\"`"
+            )
+
+        draft_tasks = self._list_tasks("draft")
+        selected = self._select_draft_tasks(draft_tasks, slugs)
+        try:
+            validate_draft_promotion(
+                selected,
+                all_draft_slugs={task.slug for task in draft_tasks},
+                promoted_slugs=self._promoted_task_slugs(),
+            )
+        except ValueError as exc:
+            raise JriError(str(exc)) from exc
+
+        promoted_tasks: list[Task] = []
+        for task in selected:
+            promoted_task = move_task(task, self.paths.task_dir("todo"))
+            promoted_tasks.append(promoted_task)
+
+        self.state_store.save_promotion(
+            PromotionRecord(
+                confirmed_at=int(time.time()),
+                task_slugs=[task.slug for task in promoted_tasks],
+                user_confirmation=confirmation,
+            )
+        )
+        self.git.commit_paths_if_needed(
+            "jri promote: move drafts to todo",
+            [
+                self.git.relative_path(self.paths.task_dir("draft")),
+                self.git.relative_path(self.paths.task_dir("todo")),
+            ],
+        )
+        return promoted_tasks
+
     def reset(self) -> None:
         self.ensure_initialized()
         state = self.state_store.load()
@@ -174,6 +230,7 @@ class JriService:
                 session=state.session,
                 branch=state.branch,
                 attempts=state.attempts,
+                promotion=state.promotion,
             )
         )
 
@@ -181,6 +238,32 @@ class JriService:
         self.git.ensure_repo()
         if not self.paths.jri_dir.exists():
             raise JriError("project is not initialized; run `jri init`")
+
+    def _list_tasks(self, status: str) -> list[Task]:
+        try:
+            return list_tasks(self.paths.task_dir(status), git_repo=self.git)
+        except ValueError as exc:
+            raise JriError(str(exc)) from exc
+
+    def _select_draft_tasks(self, draft_tasks: list[Task], slugs: list[str]) -> list[Task]:
+        by_slug = {task.slug: task for task in draft_tasks}
+        if not slugs:
+            if not draft_tasks:
+                raise JriError("no draft tasks selected for promotion")
+            return draft_tasks
+
+        requested_slugs = list(dict.fromkeys(slugs))
+        missing = [slug for slug in requested_slugs if slug not in by_slug]
+        if missing:
+            joined = ", ".join(missing)
+            raise JriError(f"draft task not found: {joined}")
+        return sorted((by_slug[slug] for slug in requested_slugs), key=lambda task: task.slug)
+
+    def _promoted_task_slugs(self) -> set[str]:
+        slugs: set[str] = set()
+        for status in ("todo", "doing", "done"):
+            slugs.update(task.slug for task in self._list_tasks(status))
+        return slugs
 
     def _default_branch(self) -> str:
         return self.git.default_branch(hint=self.state_store.load().branch)

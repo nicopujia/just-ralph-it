@@ -73,6 +73,15 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 else:
                     print("  No todo tasks assigned to Human.")
                 return 0
+            case "promote":
+                promoted = service.promote_drafts(
+                    slugs=args.slugs,
+                    user_confirmation=args.confirm or "",
+                )
+                print(f"Promoted {len(promoted)} draft task(s) to todo.")
+                for task in promoted:
+                    print(f"  - {task.slug}")
+                return 0
             case _:
                 parser.print_help()
                 return 1
@@ -213,6 +222,23 @@ def _build_parser() -> argparse.ArgumentParser:
             "Display the total number of tasks, broken down by status, "
             "and list all todo tasks assigned to Human."
         ),
+    )
+    promote_parser = subparsers.add_parser(
+        "promote",
+        help="Promote draft tasks to todo after explicit user confirmation.",
+        description=(
+            "Move draft tasks into todo only when the user has explicitly "
+            "confirmed the promotion."
+        ),
+    )
+    promote_parser.add_argument(
+        "slugs",
+        nargs="*",
+        help="Draft task slugs to promote. Defaults to all draft tasks.",
+    )
+    promote_parser.add_argument(
+        "--confirm",
+        help="Explicit user confirmation text recorded for this promotion.",
     )
     return parser
 

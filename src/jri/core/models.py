@@ -88,6 +88,35 @@ class AttemptState:
 
 
 @dataclass(frozen=True)
+class PromotionRecord:
+    confirmed_at: int
+    task_slugs: list[str]
+    user_confirmation: str
+    target_status: Literal["todo"] = "todo"
+
+    def to_payload(self) -> dict[str, object]:
+        return {
+            "confirmed_at": self.confirmed_at,
+            "task_slugs": self.task_slugs,
+            "target_status": self.target_status,
+            "user_confirmation": self.user_confirmation,
+        }
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> Self:
+        task_slugs_raw = payload.get("task_slugs")
+        task_slugs = [
+            item for item in task_slugs_raw if isinstance(item, str)
+        ] if isinstance(task_slugs_raw, list) else []
+        return cls(
+            confirmed_at=_int_or_default(payload.get("confirmed_at"), default=0),
+            task_slugs=task_slugs,
+            target_status="todo",
+            user_confirmation=_str_or_none(payload.get("user_confirmation")) or "",
+        )
+
+
+@dataclass(frozen=True)
 class State:
     iteration_number: int = 0
     started_at: int | None = None
@@ -97,6 +126,7 @@ class State:
     branch: str | None = None
     active_attempt: AttemptState | None = None
     attempts: list[AttemptState] = field(default_factory=list)
+    promotion: PromotionRecord | None = None
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {"iteration": {"number": self.iteration_number}}
@@ -121,6 +151,8 @@ class State:
             payload["active_attempt"] = self.active_attempt.to_payload()
         if self.attempts:
             payload["attempts"] = [attempt.to_payload() for attempt in self.attempts]
+        if self.promotion is not None:
+            payload["promotion"] = self.promotion.to_payload()
         return payload
 
     @classmethod
@@ -157,6 +189,13 @@ class State:
                 if isinstance(item, dict)
             ]
 
+        promotion_raw = payload.get("promotion")
+        promotion = None
+        if isinstance(promotion_raw, dict):
+            promotion = PromotionRecord.from_payload(
+                cast(dict[str, object], promotion_raw)
+            )
+
         number = iteration_payload.get("number")
         return cls(
             iteration_number=number if isinstance(number, int) else 0,
@@ -167,6 +206,7 @@ class State:
             branch=_str_or_none(payload.get("branch")),
             active_attempt=active_attempt,
             attempts=attempts,
+            promotion=promotion,
         )
 
 

@@ -10,6 +10,7 @@ from jri.core.tasks import (
     list_tasks,
     parse_task_file,
     select_next_task,
+    validate_draft_promotion,
     validate_state_payload,
     validate_task_metadata,
 )
@@ -23,6 +24,7 @@ def make_task(
     priority: int = 1,
     assignee: Literal["Ralph", "Human"] = "Ralph",
     depends_on: list[str] | None = None,
+    acceptance_criteria: list[str] | None = None,
 ) -> Task:
     return Task(
         path=Path(f"/tmp/{slug}.md"),
@@ -32,7 +34,7 @@ def make_task(
             priority=priority,
             assignee=assignee,
             depends_on=depends_on or [],
-            acceptance_criteria=[],
+            acceptance_criteria=acceptance_criteria or [],
         ),
         body="body",
     )
@@ -111,6 +113,20 @@ def test_validate_state_payload_allows_runtime_process_metadata() -> None:
                 "child_pid": None,
                 "log_path": ".jri/logs/ralph/1.log",
                 "detached": True,
+            },
+        }
+    )
+
+
+def test_validate_state_payload_allows_promotion_record() -> None:
+    validate_state_payload(
+        {
+            "iteration": {"number": 1},
+            "promotion": {
+                "confirmed_at": 1,
+                "task_slugs": ["clarify-scope"],
+                "target_status": "todo",
+                "user_confirmation": "yes, promote it",
             },
         }
     )
@@ -222,3 +238,57 @@ def test_list_tasks_allows_in_place_edits_for_draft_tasks(git_repo: Path) -> Non
 
     assert [task.slug for task in tasks] == ["clarify-scope"]
     assert tasks[0].body.endswith("Still being clarified.\n")
+
+
+def test_validate_draft_promotion_rejects_missing_acceptance_criteria() -> None:
+    with pytest.raises(ValueError, match="acceptance_criteria"):
+        validate_draft_promotion(
+            [make_task("clarify-scope")],
+            all_draft_slugs={"clarify-scope"},
+            promoted_slugs=set(),
+        )
+
+
+def test_validate_draft_promotion_rejects_dependency_on_unpromoted_draft() -> None:
+    with pytest.raises(ValueError, match="outside the promotion batch"):
+        validate_draft_promotion(
+            [
+                make_task(
+                    "build-ui",
+                    depends_on=["clarify-scope"],
+                    acceptance_criteria=["UI exists"],
+                )
+            ],
+            all_draft_slugs={"clarify-scope", "build-ui"},
+            promoted_slugs=set(),
+        )
+
+
+def test_validate_draft_promotion_allows_batch_internal_dependencies() -> None:
+    validate_draft_promotion(
+        [
+            make_task("clarify-scope", acceptance_criteria=["scope is clear"]),
+            make_task(
+                "build-ui",
+                depends_on=["clarify-scope"],
+                acceptance_criteria=["UI exists"],
+            ),
+        ],
+        all_draft_slugs={"clarify-scope", "build-ui"},
+        promoted_slugs=set(),
+    )
+
+
+def test_validate_draft_promotion_rejects_unknown_dependencies() -> None:
+    with pytest.raises(ValueError, match="unknown dependency"):
+        validate_draft_promotion(
+            [
+                make_task(
+                    "build-ui",
+                    depends_on=["missing-task"],
+                    acceptance_criteria=["UI exists"],
+                )
+            ],
+            all_draft_slugs={"build-ui"},
+            promoted_slugs=set(),
+        )
