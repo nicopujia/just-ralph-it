@@ -1,5 +1,49 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "attempt": {
+      "type": "object",
+      "properties": {
+        "number": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "task_slug": {
+          "type": "string"
+        },
+        "iteration_number": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "branch": {
+          "type": "string"
+        },
+        "started_at": {
+          "type": "integer"
+        },
+        "finished_at": {
+          "type": "integer"
+        },
+        "log_path": {
+          "type": "string"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["completed", "failed", "needs human", "interrupted"]
+        }
+      },
+      "required": [
+        "number",
+        "task_slug",
+        "iteration_number",
+        "branch",
+        "started_at"
+      ]
+    }
+  },
   "type": "object",
   "properties": {
     "iteration": {
@@ -48,6 +92,17 @@
           "type": "boolean",
           "description": "Whether the loop was launched in detached mode."
         }
+      }
+    },
+    "active_attempt": {
+      "$ref": "#/$defs/attempt",
+      "description": "The currently active task attempt, if a run is in progress or final bookkeeping is pending."
+    },
+    "attempts": {
+      "type": "array",
+      "description": "Execution-attempt journal for Ralph task runs.",
+      "items": {
+        "$ref": "#/$defs/attempt"
       }
     }
   }

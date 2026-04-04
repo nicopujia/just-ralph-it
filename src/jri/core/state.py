@@ -4,7 +4,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from .errors import JriError
-from .models import ProcessState, State
+from .models import AttemptState, ProcessState, State
 from .tasks import validate_state_payload
 
 
@@ -58,6 +58,30 @@ class StateStore:
     def save_session(self, session_id: str | None) -> None:
         state = self.load()
         self.save(replace(state, session=session_id))
+
+    def start_attempt(self, attempt: AttemptState) -> None:
+        state = self.load()
+        self.save(
+            replace(
+                state,
+                active_attempt=attempt,
+                attempts=[*state.attempts, attempt],
+            )
+        )
+
+    def save_active_attempt(self, attempt: AttemptState) -> None:
+        state = self.load()
+        attempts = [
+            attempt if existing.number == attempt.number else existing
+            for existing in state.attempts
+        ]
+        if not any(existing.number == attempt.number for existing in state.attempts):
+            attempts.append(attempt)
+        self.save(replace(state, active_attempt=attempt, attempts=attempts))
+
+    def clear_active_attempt(self) -> None:
+        state = self.load()
+        self.save(replace(state, active_attempt=None))
 
     def mark_iteration_started(self, *, started_at: int) -> None:
         state = self.load()

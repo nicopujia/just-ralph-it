@@ -8,7 +8,7 @@ from typing import Any, cast
 import pytest
 
 from jri.core.errors import JriError
-from jri.core.models import OpenCodeRunResult
+from jri.core.models import AttemptState, OpenCodeRunResult, State
 from jri.core.opencode import OpenCodeClient
 from jri.core.service import JriService
 from jri.core.tasks import list_tasks, parse_task_file
@@ -261,6 +261,13 @@ def test_start_completes_single_iteration(git_repo: Path) -> None:
     iteration = read_json(git_repo / ".jri" / "state.json")["iteration"]
     iteration_payload = cast(dict[str, object], iteration)
     assert iteration_payload["number"] == 1
+    attempts = cast(list[dict[str, object]], read_json(git_repo / ".jri" / "state.json")["attempts"])
+    assert len(attempts) == 1
+    assert attempts[0]["number"] == 1
+    assert attempts[0]["task_slug"] == "implement-file"
+    assert attempts[0]["iteration_number"] == 1
+    assert attempts[0]["outcome"] == "completed"
+    assert attempts[0]["session_id"] == "ses_fake"
     assert git(git_repo, "status", "--short") == ""
 
 
@@ -443,6 +450,48 @@ def test_start_recovers_clean_foreground_interruption(git_repo: Path) -> None:
     assert "jri: recover implement-file after stale run" in history
 
 
+def test_start_records_retry_attempt_after_interrupted_run(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="doing",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/doing/implement-file.md")
+    git(git_repo, "commit", "-m", "seed interrupted attempt")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    interrupted_attempt = AttemptState(
+        number=1,
+        task_slug="implement-file",
+        iteration_number=1,
+        branch="ralph/1/implement-file",
+        started_at=123,
+        log_path=".jri/logs/ralph/1-interrupted.log",
+    )
+    service.state_store.save(
+        State(
+            started_at=123,
+            branch="main",
+            active_attempt=interrupted_attempt,
+            attempts=[interrupted_attempt],
+        )
+    )
+
+    completed = service.start(iterations=1)
+
+    assert completed == 1
+    attempts = cast(list[dict[str, object]], read_json(git_repo / ".jri" / "state.json")["attempts"])
+    assert [attempt["number"] for attempt in attempts] == [1, 2]
+    assert [attempt["task_slug"] for attempt in attempts] == ["implement-file", "implement-file"]
+    assert attempts[0]["outcome"] == "interrupted"
+    assert attempts[1]["outcome"] == "completed"
+
+
 def test_start_recovers_stale_foreground_process(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
@@ -612,6 +661,76 @@ def test_start_recovers_stale_detached_process(
     )
     assert "mode=detached" in recovery_log
     assert "reason=dead-tracked-process" in recovery_log
+
+
+def test_start_retries_after_interrupted_completion_without_rerunning_task(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="Complete task A.",
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-b",
+        title="Task B",
+        priority=1,
+        assignee="Ralph",
+        body="Complete task B.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo")
+    git(git_repo, "commit", "-m", "add retry tasks")
+
+    first_client = SuccessfulFakeOpenCodeClient()
+    first_service = JriService(git_repo, opencode_client=first_client)
+
+    def interrupted_mark_iteration_finished(*, iteration_number: int, finished_at: int) -> None:
+        raise KeyboardInterrupt("simulated interruption during completion")
+
+    monkeypatch.setattr(
+        first_service.state_store,
+        "mark_iteration_finished",
+        interrupted_mark_iteration_finished,
+    )
+
+    with pytest.raises(KeyboardInterrupt, match="simulated interruption"):
+        first_service.start(iterations=1)
+
+    interrupted_state = read_json(git_repo / ".jri" / "state.json")
+    interrupted_iteration = cast(dict[str, object], interrupted_state["iteration"])
+    interrupted_attempt = cast(dict[str, object], interrupted_state["active_attempt"])
+    assert interrupted_iteration["number"] == 0
+    assert interrupted_attempt["task_slug"] == "task-a"
+    assert interrupted_attempt["outcome"] == "completed"
+    assert (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "task-a.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "todo" / "task-b.md").exists()
+    assert git(git_repo, "branch", "--show-current") == "main"
+    assert "jri/1" in git(git_repo, "tag").splitlines()
+
+    retry_client = SuccessfulFakeOpenCodeClient()
+    retry_service = JriService(git_repo, opencode_client=retry_client)
+
+    assert retry_service.start(iterations=1) == 1
+    assert len(retry_client.calls) == 1
+    assert "task-b" in retry_client.calls[0][0]
+
+    final_state = read_json(git_repo / ".jri" / "state.json")
+    final_iteration = cast(dict[str, object], final_state["iteration"])
+    attempts = cast(list[dict[str, object]], final_state["attempts"])
+    assert final_iteration["number"] == 2
+    assert final_state.get("active_attempt") is None
+    assert [attempt["task_slug"] for attempt in attempts] == ["task-a", "task-b"]
+    assert attempts[0]["outcome"] == "completed"
+    assert attempts[1]["outcome"] == "completed"
+    assert (git_repo / ".jri" / "tasks" / "done" / "task-b.md").exists()
 
 
 def test_stop_creates_stop_signal(git_repo: Path) -> None:

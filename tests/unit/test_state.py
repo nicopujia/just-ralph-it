@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from jri.core.models import State
+from jri.core.models import AttemptState, State
 from jri.core.state import StateStore
 
 
@@ -80,3 +80,31 @@ def test_save_writes_backup_copy(tmp_path: Path) -> None:
     assert store.path.read_text(encoding="utf-8") == store.backup_path.read_text(
         encoding="utf-8"
     )
+
+
+def test_state_round_trips_attempt_metadata(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    attempt = AttemptState(
+        number=2,
+        task_slug="task-a",
+        iteration_number=3,
+        branch="ralph/3/task-a",
+        started_at=123,
+        finished_at=456,
+        log_path=".jri/logs/ralph/3.log",
+        session_id="ses_123",
+        outcome="interrupted",
+    )
+    expected = State(
+        iteration_number=2,
+        started_at=123,
+        finished_at=456,
+        session="ses_latest",
+        branch="main",
+        active_attempt=attempt,
+        attempts=[attempt],
+    )
+
+    store.save(expected)
+
+    assert store.load() == expected

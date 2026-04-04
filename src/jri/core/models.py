@@ -4,6 +4,7 @@ from typing import Literal, Self, cast
 
 Assignee = Literal["Ralph", "Human"]
 Outcome = Literal["completed", "failed", "needs human"]
+AttemptOutcome = Literal["completed", "failed", "needs human", "interrupted"]
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,51 @@ class ProcessState:
 
 
 @dataclass(frozen=True)
+class AttemptState:
+    number: int
+    task_slug: str
+    iteration_number: int
+    branch: str
+    started_at: int
+    finished_at: int | None = None
+    log_path: str | None = None
+    session_id: str | None = None
+    outcome: AttemptOutcome | None = None
+
+    def to_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "number": self.number,
+            "task_slug": self.task_slug,
+            "iteration_number": self.iteration_number,
+            "branch": self.branch,
+            "started_at": self.started_at,
+        }
+        if self.finished_at is not None:
+            payload["finished_at"] = self.finished_at
+        if self.log_path is not None:
+            payload["log_path"] = self.log_path
+        if self.session_id is not None:
+            payload["session_id"] = self.session_id
+        if self.outcome is not None:
+            payload["outcome"] = self.outcome
+        return payload
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> Self:
+        return cls(
+            number=_int_or_default(payload.get("number"), default=0),
+            task_slug=_str_or_none(payload.get("task_slug")) or "",
+            iteration_number=_int_or_default(payload.get("iteration_number"), default=0),
+            branch=_str_or_none(payload.get("branch")) or "",
+            started_at=_int_or_default(payload.get("started_at"), default=0),
+            finished_at=_int_or_none(payload.get("finished_at")),
+            log_path=_str_or_none(payload.get("log_path")),
+            session_id=_str_or_none(payload.get("session_id")),
+            outcome=_attempt_outcome_or_none(payload.get("outcome")),
+        )
+
+
+@dataclass(frozen=True)
 class State:
     iteration_number: int = 0
     started_at: int | None = None
@@ -46,6 +92,8 @@ class State:
     session: str | None = None
     process: ProcessState | None = None
     branch: str | None = None
+    active_attempt: AttemptState | None = None
+    attempts: list[AttemptState] = field(default_factory=list)
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {"iteration": {"number": self.iteration_number}}
@@ -66,6 +114,10 @@ class State:
                 "log_path": self.process.log_path,
                 "detached": self.process.detached,
             }
+        if self.active_attempt is not None:
+            payload["active_attempt"] = self.active_attempt.to_payload()
+        if self.attempts:
+            payload["attempts"] = [attempt.to_payload() for attempt in self.attempts]
         return payload
 
     @classmethod
@@ -86,6 +138,22 @@ class State:
                 detached=bool(process_payload.get("detached", False)),
             )
 
+        active_attempt_raw = payload.get("active_attempt")
+        active_attempt = None
+        if isinstance(active_attempt_raw, dict):
+            active_attempt = AttemptState.from_payload(
+                cast(dict[str, object], active_attempt_raw)
+            )
+
+        attempts_raw = payload.get("attempts")
+        attempts: list[AttemptState] = []
+        if isinstance(attempts_raw, list):
+            attempts = [
+                AttemptState.from_payload(cast(dict[str, object], item))
+                for item in attempts_raw
+                if isinstance(item, dict)
+            ]
+
         number = iteration_payload.get("number")
         return cls(
             iteration_number=number if isinstance(number, int) else 0,
@@ -94,6 +162,8 @@ class State:
             session=_str_or_none(payload.get("session")),
             process=process,
             branch=_str_or_none(payload.get("branch")),
+            active_attempt=active_attempt,
+            attempts=attempts,
         )
 
 
@@ -101,5 +171,15 @@ def _int_or_none(value: object) -> int | None:
     return value if isinstance(value, int) else None
 
 
+def _int_or_default(value: object, *, default: int) -> int:
+    return value if isinstance(value, int) else default
+
+
 def _str_or_none(value: object) -> str | None:
     return value if isinstance(value, str) else None
+
+
+def _attempt_outcome_or_none(value: object) -> AttemptOutcome | None:
+    if value in {"completed", "failed", "needs human", "interrupted"}:
+        return cast(AttemptOutcome, value)
+    return None

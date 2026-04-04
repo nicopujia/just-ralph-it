@@ -80,6 +80,16 @@ class GitRepo:
     def delete_branch(self, name: str) -> None:
         self.run("branch", "-D", name, check=False)
 
+    def has_local_branch(self, name: str) -> bool:
+        result = self.run(
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            f"refs/heads/{name}",
+            check=False,
+        )
+        return result.returncode == 0
+
     def add_all(self) -> None:
         self.run("add", "-A")
 
@@ -168,6 +178,21 @@ class GitRepo:
             check=False,
         )
         return result.returncode == 0
+
+    def is_ancestor(self, ancestor: str, descendant: str) -> bool:
+        result = self.run(
+            "merge-base",
+            "--is-ancestor",
+            ancestor,
+            descendant,
+            check=False,
+        )
+        if result.returncode in (0, 1):
+            return result.returncode == 0
+        raise JriError(
+            result.stderr.strip()
+            or f"failed to compare ancestry between {ancestor} and {descendant}"
+        )
 
     def has_remote(self) -> bool:
         return bool(self.run("remote").stdout.strip())

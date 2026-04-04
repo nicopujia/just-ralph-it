@@ -13,7 +13,7 @@ from typing import Any
 
 from .errors import HaltRequested, JriError
 from .git import GitRepo
-from .models import Outcome, ProcessState, State, Task, TaskMetadata
+from .models import AttemptState, Outcome, ProcessState, State, Task, TaskMetadata
 from .opencode import OpenCodeClient
 from .paths import JriPaths
 from .state import StateStore
@@ -163,6 +163,7 @@ class JriService:
                 finished_at=state.finished_at,
                 session=state.session,
                 branch=state.branch,
+                attempts=state.attempts,
             )
         )
 
@@ -306,6 +307,15 @@ class JriService:
         log_path = self.paths.ralph_log_path(next_iteration, started_at)
         branch = f"ralph/{next_iteration}/{task.slug}"
 
+        attempt = AttemptState(
+            number=len(state.attempts) + 1,
+            task_slug=task.slug,
+            iteration_number=next_iteration,
+            branch=branch,
+            started_at=started_at,
+            log_path=str(log_path),
+        )
+        self.state_store.start_attempt(attempt)
         self.state_store.mark_iteration_started(started_at=started_at)
         self.git.checkout_new_branch(branch)
         doing_task = move_task(task, self.paths.task_dir("doing"))
@@ -333,12 +343,16 @@ class JriService:
         )
         if result.returncode != 0:
             self._recover_failed_iteration(doing_task, branch)
+            self._finish_attempt(attempt, outcome="failed")
             raise JriError(f"OpenCode exited with status {result.returncode}")
 
         export_path = self._export_session_if_available(result.session_id)
+        attempt = replace(attempt, session_id=result.session_id)
+        self.state_store.save_active_attempt(attempt)
 
         if not doing_task.path.exists():
             self._recover_failed_iteration(doing_task, branch)
+            self._finish_attempt(attempt, outcome="failed")
             relative_path = doing_task.path.relative_to(self.root)
             raise JriError(f"task file `{relative_path}` disappeared during Ralph run")
 
@@ -349,6 +363,7 @@ class JriService:
             )
         except JriError:
             self._recover_failed_iteration(doing_task, branch)
+            self._finish_attempt(attempt, outcome="failed")
             raise
 
         if result.outcome == "needs human":
@@ -359,10 +374,12 @@ class JriService:
                 session_id=result.session_id,
                 export_path=export_path,
             )
+            self._finish_attempt(attempt, outcome="needs human")
             return "needs human"
 
         if result.outcome == "failed":
             self._recover_failed_iteration(doing_task, branch)
+            self._finish_attempt(attempt, outcome="failed")
             return "failed"
 
         default = self._default_branch()
@@ -379,6 +396,7 @@ class JriService:
             except FileNotFoundError:
                 print("make: command not found", file=sys.stderr)
                 self._recover_failed_iteration(doing_task, branch)
+                self._finish_attempt(attempt, outcome="failed")
                 return "failed"
             if check.returncode != 0:
                 print(
@@ -386,6 +404,7 @@ class JriService:
                     file=sys.stderr,
                 )
                 self._recover_failed_iteration(doing_task, branch)
+                self._finish_attempt(attempt, outcome="failed")
                 return "failed"
 
         self.git.checkout(default)
@@ -401,10 +420,14 @@ class JriService:
         if self.git.has_remote():
             self.git.push_iteration(branch=branch, tag=f"jri/{next_iteration}")
 
+        finished_at = int(time.time())
+        attempt = replace(attempt, finished_at=finished_at, outcome="completed")
+        self.state_store.save_active_attempt(attempt)
         self.state_store.mark_iteration_finished(
             iteration_number=next_iteration,
-            finished_at=int(time.time()),
+            finished_at=finished_at,
         )
+        self.state_store.clear_active_attempt()
         return "completed"
 
     def _ensure_initial_iteration_tag(self) -> None:
@@ -433,6 +456,19 @@ class JriService:
             reason = (
                 "dead-tracked-process" if loop_pid is not None else "no-tracked-process"
             )
+            active_attempt = state.active_attempt
+            if active_attempt is not None:
+                if not self._attempt_matches_task(active_attempt, doing_tasks[0]):
+                    raise JriError("active attempt does not match the task in progress")
+                if self._attempt_completion_applied(active_attempt):
+                    self._record_recovery(
+                        mode=mode,
+                        reason="resume-completed-attempt",
+                        task_slug=doing_tasks[0].slug,
+                        process=process,
+                    )
+                    self._complete_attempt(active_attempt, doing_task=doing_tasks[0])
+                    return
             self._recover_stale_iteration(
                 doing_tasks[0],
                 mode=mode,
@@ -440,6 +476,22 @@ class JriService:
                 process=process,
             )
             return
+
+        if state.active_attempt is not None:
+            active_attempt = state.active_attempt
+            if self._attempt_completion_applied(active_attempt):
+                self._record_recovery(
+                    mode=mode,
+                    reason="resume-completed-attempt",
+                    task_slug=active_attempt.task_slug,
+                    process=process,
+                )
+                self._complete_attempt(active_attempt, doing_task=None)
+                return
+            if active_attempt.outcome in {"failed", "needs human", "interrupted"}:
+                self._reset_runtime_state()
+                self.state_store.clear_active_attempt()
+                return
 
         if process is not None:
             reason = (
@@ -451,6 +503,7 @@ class JriService:
                 task_slug=None,
                 process=process,
             )
+            self._mark_active_attempt_interrupted()
             self._reset_runtime_state()
             return
 
@@ -461,6 +514,7 @@ class JriService:
                 task_slug=None,
                 process=None,
             )
+            self._mark_active_attempt_interrupted()
             self._reset_runtime_state()
 
     def _is_pid_alive(self, pid: int) -> bool:
@@ -505,6 +559,7 @@ class JriService:
             task_slug=doing_task.slug,
             process=process,
         )
+        self._mark_active_attempt_interrupted()
         self._reset_runtime_state()
         self.git.commit_all_if_needed(f"jri: recover {doing_task.slug} after stale run")
 
@@ -516,8 +571,79 @@ class JriService:
                 finished_at=state.finished_at,
                 session=state.session,
                 branch=state.branch,
+                active_attempt=state.active_attempt,
+                attempts=state.attempts,
             )
         )
+
+    def _finish_attempt(self, attempt: AttemptState, *, outcome: str) -> None:
+        finished_at = int(time.time())
+        self.state_store.save_active_attempt(
+            replace(attempt, finished_at=finished_at, outcome=outcome)
+        )
+        self.state_store.clear_active_attempt()
+
+    def _mark_active_attempt_interrupted(self) -> None:
+        state = self.state_store.load()
+        if state.active_attempt is None:
+            return
+        self.state_store.save_active_attempt(
+            replace(
+                state.active_attempt,
+                finished_at=state.active_attempt.finished_at or int(time.time()),
+                outcome="interrupted",
+            )
+        )
+        self.state_store.clear_active_attempt()
+
+    def _attempt_matches_task(self, attempt: AttemptState, task: Task) -> bool:
+        return (
+            attempt.task_slug == task.slug
+            and attempt.iteration_number == self.state_store.load().iteration_number + 1
+            and attempt.branch == f"ralph/{attempt.iteration_number}/{task.slug}"
+        )
+
+    def _attempt_completion_applied(self, attempt: AttemptState) -> bool:
+        if attempt.outcome == "completed":
+            return True
+        if not self.git.has_local_branch(attempt.branch):
+            return False
+        return self.git.is_ancestor(attempt.branch, self._default_branch())
+
+    def _complete_attempt(
+        self,
+        attempt: AttemptState,
+        *,
+        doing_task: Task | None,
+    ) -> None:
+        default = self._default_branch()
+        current_branch = self.git.current_branch()
+        if current_branch == attempt.branch:
+            if self.git.status_short():
+                self.git.commit_all_if_needed(f"ralph: partial work on {attempt.task_slug}")
+            self.git.checkout(default)
+        elif current_branch != default:
+            raise JriError(f"jri start must begin from the {default} branch")
+
+        if doing_task is not None and doing_task.path.exists():
+            move_task(doing_task, self.paths.task_dir("done"))
+        self.git.commit_all_if_needed(f"jri start: complete {attempt.task_slug}")
+        tag = f"jri/{attempt.iteration_number}"
+        if not self.git.has_tag(tag):
+            self.git.create_tag(tag)
+        if self.git.has_remote() and self.git.has_local_branch(attempt.branch):
+            self.git.push_iteration(branch=attempt.branch, tag=tag)
+
+        finished_at = attempt.finished_at or int(time.time())
+        self.state_store.save_active_attempt(
+            replace(attempt, finished_at=finished_at, outcome="completed")
+        )
+        self.state_store.mark_iteration_finished(
+            iteration_number=attempt.iteration_number,
+            finished_at=finished_at,
+        )
+        self.state_store.clear_process()
+        self.state_store.clear_active_attempt()
 
     def _record_recovery(
         self,
