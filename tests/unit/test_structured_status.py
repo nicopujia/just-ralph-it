@@ -144,7 +144,8 @@ class TestStructuredStatusWithTasks:
         needs_human = payload["tasks"]["needs_human"]
         assert len(needs_human) == 1
         entry = needs_human[0]
-        assert set(entry.keys()) == {"slug", "title", "priority", "status", "depends_on"}
+        expected_keys = {"slug", "title", "priority", "status", "depends_on"}
+        assert set(entry.keys()) == expected_keys
         assert entry["slug"] == "human-task"
         assert entry["title"] == "Human task"
         assert entry["priority"] == 1
@@ -214,7 +215,9 @@ class TestStructuredStatusWithRetryMetadata:
         assert entry["max_attempts"] == 3
         assert entry["escalated"] is False
 
-    def test_retry_escalation_shows_escalated_task(self, git_repo: Path, capsys) -> None:
+    def test_retry_escalation_shows_escalated_task(
+        self, git_repo: Path, capsys
+    ) -> None:
         _init(git_repo)
         write_task(
             git_repo,
