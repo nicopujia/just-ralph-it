@@ -176,8 +176,6 @@ def test_finalize_outcome_missing_marker_treats_run_as_failed(
 
     outcome, warnings = _finalize_outcome(None, context="Ralph run")
     assert outcome == "failed"
-    assert warnings == ["missing JRI outcome marker for Ralph run; treating run as failed"]
-    assert (
-        "missing JRI outcome marker for Ralph run; treating run as failed"
-        in capsys.readouterr().err
-    )
+    expected_warning = "missing JRI outcome marker for Ralph run; treating run as failed"
+    assert warnings == [expected_warning]
+    assert expected_warning in capsys.readouterr().err
