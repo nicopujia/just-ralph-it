@@ -26,3 +26,6 @@
   It force-checkouts to default, hard-resets to the last iteration tag, and deletes leftover `ralph/*` branches.
   The reset contract (restored, discarded, preserved) is documented in `docs/contrib.md`.
   `git reset --hard` does not remove untracked files; tests should only assert tracked state is clean.
+- The self-hosting proof test (`tests/live/test_self_hosting_proof.py`) uses the same opt-in pattern as the live OpenCode test: `--run-self-hosting-proof` flag, `pytestmark = pytest.mark.live`, skipped by default.
+  Fake `OpenCodeClient` subclasses need to override `list_sessions`, `launch_chat`, `run_ralph_task`, and `export_session`.
+  The `run_ralph_task` method receives keyword-only arguments (`*`, root, prompt, log_path, on_start).
