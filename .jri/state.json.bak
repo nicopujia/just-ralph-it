@@ -1,34 +1,26 @@
 {
   "active_attempt": {
-    "branch": "ralph/21/harden-stop-and-halt-semantics",
-    "iteration_number": 21,
-    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/21-2026-04-04T11-48-51Z.log",
+    "branch": "ralph/22/show-needs-human-work-in-status",
+    "iteration_number": 22,
+    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/22-2026-04-04T12-08-10Z.log",
     "number": 1,
-    "session_id": "ses_2a7ace710ffepw4A09mEza5KvO",
-    "started_at": 1775303331,
-    "task_slug": "harden-stop-and-halt-semantics"
+    "started_at": 1775304490,
+    "task_slug": "show-needs-human-work-in-status"
   },
   "attempts": [
     {
-      "branch": "ralph/21/harden-stop-and-halt-semantics",
-      "iteration_number": 21,
-      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/21-2026-04-04T11-48-51Z.log",
+      "branch": "ralph/22/show-needs-human-work-in-status",
+      "iteration_number": 22,
+      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/22-2026-04-04T12-08-10Z.log",
       "number": 1,
-      "session_id": "ses_2a7ace710ffepw4A09mEza5KvO",
-      "started_at": 1775303331,
-      "task_slug": "harden-stop-and-halt-semantics"
+      "started_at": 1775304490,
+      "task_slug": "show-needs-human-work-in-status"
     }
   ],
   "iteration": {
-    "finished_at": 1775302894,
-    "number": 20,
-    "started_at": 1775303331
-  },
-  "process": {
-    "child_pid": 586749,
-    "detached": false,
-    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/21-2026-04-04T11-48-51Z.log",
-    "loop_pid": 586683
+    "finished_at": 1775303947,
+    "number": 21,
+    "started_at": 1775304490
   },
   "session": "ses_2aafcab71ffeYv74dV9AXnjE5G"
 }
