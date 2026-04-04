@@ -1,78 +1,37 @@
 {
   "active_attempt": {
-    "branch": "ralph/16/add-structured-status-output",
-    "iteration_number": 16,
-    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/16-2026-04-04T06-46-51Z.log",
-    "number": 5,
-    "session_id": "ses_2a8c16323ffeLlueVhvIoF2wq2",
-    "started_at": 1775285211,
-    "task_slug": "add-structured-status-output"
+    "branch": "ralph/17/capture-per-task-diff-artifacts",
+    "iteration_number": 17,
+    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/17-2026-04-04T07-07-08Z.log",
+    "number": 2,
+    "started_at": 1775286428,
+    "task_slug": "capture-per-task-diff-artifacts"
   },
   "attempts": [
     {
-      "branch": "ralph/13/require-user-confirmation-for-promotion",
-      "finished_at": 1775281969,
-      "iteration_number": 13,
-      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/13-2026-04-04T05-37-44Z.log",
+      "branch": "ralph/17/add-execution-timeline",
+      "finished_at": 1775286428,
+      "iteration_number": 17,
+      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/17-2026-04-04T06-56-13Z.log",
       "number": 1,
-      "outcome": "completed",
-      "session_id": "ses_2a900ab1effel9C39baR0S7okA",
-      "started_at": 1775281064,
-      "task_slug": "require-user-confirmation-for-promotion"
-    },
-    {
-      "branch": "ralph/14/add-promotion-readiness-review",
-      "finished_at": 1775282779,
-      "iteration_number": 14,
-      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/14-2026-04-04T05-55-54Z.log",
-      "number": 2,
-      "outcome": "completed",
-      "session_id": "ses_2a8f00b66ffe1Hw6Xy2AhJdDdX",
-      "started_at": 1775282154,
-      "task_slug": "add-promotion-readiness-review"
-    },
-    {
-      "branch": "ralph/15/reject-cyclic-task-promotions",
-      "finished_at": 1775283579,
-      "iteration_number": 15,
-      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/15-2026-04-04T06-14-57Z.log",
-      "number": 3,
-      "outcome": "completed",
-      "session_id": "ses_2a8de969cffei7pDFlVC0mcrGJ",
-      "started_at": 1775283297,
-      "task_slug": "reject-cyclic-task-promotions"
-    },
-    {
-      "branch": "ralph/16/add-execution-timeline",
-      "finished_at": 1775285211,
-      "iteration_number": 16,
-      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/16-2026-04-04T06-28-32Z.log",
-      "number": 4,
-      "outcome": "needs human",
-      "session_id": "ses_2a8d229ebffe9FFkTJ3Br8lwVq",
-      "started_at": 1775284112,
+      "outcome": "failed",
+      "session_id": "ses_2a8b8d244ffevtrUb1lpXE9Z4H",
+      "started_at": 1775285773,
       "task_slug": "add-execution-timeline"
     },
     {
-      "branch": "ralph/16/add-structured-status-output",
-      "iteration_number": 16,
-      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/16-2026-04-04T06-46-51Z.log",
-      "number": 5,
-      "session_id": "ses_2a8c16323ffeLlueVhvIoF2wq2",
-      "started_at": 1775285211,
-      "task_slug": "add-structured-status-output"
+      "branch": "ralph/17/capture-per-task-diff-artifacts",
+      "iteration_number": 17,
+      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/17-2026-04-04T07-07-08Z.log",
+      "number": 2,
+      "started_at": 1775286428,
+      "task_slug": "capture-per-task-diff-artifacts"
     }
   ],
   "iteration": {
-    "finished_at": 1775283579,
-    "number": 15,
-    "started_at": 1775285211
-  },
-  "process": {
-    "child_pid": 491091,
-    "detached": false,
-    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/16-2026-04-04T06-46-51Z.log",
-    "loop_pid": 487248
+    "finished_at": 1775285671,
+    "number": 16,
+    "started_at": 1775286428
   },
   "session": "ses_2aafcab71ffeYv74dV9AXnjE5G"
 }
