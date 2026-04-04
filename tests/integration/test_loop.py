@@ -1668,3 +1668,199 @@ def test_timeline_cli_outputs_jsonl(
         parsed = json.loads(line)
         assert "ts" in parsed
         assert "event" in parsed
+
+
+def test_iteration_limit_stops_loop_after_n_tasks(git_repo: Path) -> None:
+    """Loop stops after completing the configured number of iterations."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="Complete task A.",
+        acceptance_criteria=["Task A is done"],
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-b",
+        title="Task B",
+        priority=1,
+        assignee="Ralph",
+        body="Complete task B.",
+        acceptance_criteria=["Task B is done"],
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-c",
+        title="Task C",
+        priority=2,
+        assignee="Ralph",
+        body="Complete task C.",
+        acceptance_criteria=["Task C is done"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo")
+    git(git_repo, "commit", "-m", "add three tasks")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+
+    # Only run 2 iterations even though there are 3 tasks
+    completed = service.start(iterations=2)
+
+    assert completed == 2
+    # First two tasks should be done
+    assert (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "done" / "task-b.md").exists()
+    # Third task should still be in todo
+    assert (git_repo / ".jri" / "tasks" / "todo" / "task-c.md").exists()
+
+
+def test_iteration_limit_records_timeline_event(git_repo: Path) -> None:
+    """Stopping due to iteration limit is recorded in timeline."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="Complete task A.",
+        acceptance_criteria=["Task A is done"],
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-b",
+        title="Task B",
+        priority=1,
+        assignee="Ralph",
+        body="Complete task B.",
+        acceptance_criteria=["Task B is done"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo")
+    git(git_repo, "commit", "-m", "add two tasks")
+
+    from jri.core.timeline import TimelineStore
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.start(iterations=1)
+
+    timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
+    store = TimelineStore(timeline_path)
+    events = store.read()
+
+    loop_stopped_events = [e for e in events if e.event == "loop_stopped"]
+    assert len(loop_stopped_events) == 1
+    assert loop_stopped_events[0].detail is not None
+    assert loop_stopped_events[0].detail.get("reason") == "iteration_limit"
+    assert loop_stopped_events[0].detail.get("limit") == 1
+
+
+class SlowFakeOpenCodeClient(OpenCodeClient):
+    """Simulates a task that takes a long time to complete."""
+
+    def __init__(self, delay_seconds: int = 0) -> None:
+        super().__init__(model=None)
+        self.calls: list[tuple[str, Path]] = []
+        self.delay_seconds = delay_seconds
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        on_start: object | None = None,
+    ) -> OpenCodeRunResult:
+        import time
+
+        self.calls.append((prompt, log_path))
+        if self.delay_seconds > 0:
+            time.sleep(self.delay_seconds)
+        (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
+        log_path.write_text("fake slow run\n", encoding="utf-8")
+        return OpenCodeRunResult(
+            returncode=0, session_id="ses_slow", outcome="completed"
+        )
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        destination.write_text('{"session": "slow"}\n', encoding="utf-8")
+
+
+def test_task_timeout_stops_slow_task(git_repo: Path) -> None:
+    """Task that exceeds timeout is stopped and marked as failed."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="slow-task",
+        title="Slow task",
+        priority=0,
+        assignee="Ralph",
+        body="This task takes too long.",
+        acceptance_criteria=["Task completes"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/slow-task.md")
+    git(git_repo, "commit", "-m", "add slow task")
+
+    # Task takes 2 seconds but timeout is 1 second
+    client = SlowFakeOpenCodeClient(delay_seconds=2)
+    service = JriService(git_repo, opencode_client=client)
+
+    completed = service.start(iterations=1, task_timeout=1)
+
+    # Task should not have completed successfully
+    assert completed == 0
+    # Task should be back in todo after timeout recovery
+    assert (git_repo / ".jri" / "tasks" / "todo" / "slow-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "slow-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "slow-task.md").exists()
+
+
+def test_task_timeout_records_timeline_event(git_repo: Path) -> None:
+    """Task timeout is recorded in timeline with limit information."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="slow-task",
+        title="Slow task",
+        priority=0,
+        assignee="Ralph",
+        body="This task takes too long.",
+        acceptance_criteria=["Task completes"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/slow-task.md")
+    git(git_repo, "commit", "-m", "add slow task")
+
+    from jri.core.timeline import TimelineStore
+
+    client = SlowFakeOpenCodeClient(delay_seconds=2)
+    service = JriService(git_repo, opencode_client=client)
+
+    service.start(iterations=1, task_timeout=1)
+
+    timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
+    store = TimelineStore(timeline_path)
+    events = store.read()
+
+    # Should have iteration_failed event with timeout reason
+    timeout_events = [
+        e for e in events if e.event == "iteration_failed"
+        and e.detail is not None
+        and e.detail.get("reason") == "task_timeout"
+    ]
+    assert len(timeout_events) == 1
+    assert timeout_events[0].detail.get("limit_seconds") == 1
+
+    # Should have loop_stopped event
+    loop_stopped_events = [e for e in events if e.event == "loop_stopped"]
+    assert len(loop_stopped_events) == 1
+    assert loop_stopped_events[0].detail is not None
+    assert loop_stopped_events[0].detail.get("reason") == "task_timeout"
+    assert loop_stopped_events[0].detail.get("limit_seconds") == 1
