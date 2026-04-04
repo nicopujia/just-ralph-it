@@ -4,3 +4,7 @@ class JriError(RuntimeError):
 
 class HaltRequested(JriError):
     pass
+
+
+class RecoveryError(JriError):
+    pass

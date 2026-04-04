@@ -550,32 +550,40 @@ class JriService:
         reason: str,
         process: ProcessState | None,
     ) -> None:
-        default = self._default_branch()
-        state = self.state_store.load()
-        expected_branch = f"ralph/{state.iteration_number + 1}/{doing_task.slug}"
-        current_branch = self.git.current_branch()
+        try:
+            default = self._default_branch()
+            state = self.state_store.load()
+            expected_branch = f"ralph/{state.iteration_number + 1}/{doing_task.slug}"
+            current_branch = self.git.current_branch()
 
-        if current_branch == default:
-            if self.git.status_short():
-                raise JriError("git working tree must be clean before stale recovery")
-        elif current_branch == expected_branch:
-            self.git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
-            self.git.checkout(default)
-        else:
-            raise JriError(f"jri start must begin from the {default} branch")
+            if current_branch == default:
+                if self.git.status_short():
+                    raise JriError("git working tree must be clean before stale recovery")
+            elif current_branch == expected_branch:
+                self.git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
+                self.git.checkout(default)
+            else:
+                raise JriError(f"jri start must begin from the {default} branch")
 
-        self.git.delete_branch(expected_branch)
+            self.git.delete_branch(expected_branch)
 
-        move_task(doing_task, self.paths.task_dir("todo"))
-        self._record_recovery(
-            mode=mode,
-            reason=reason,
-            task_slug=doing_task.slug,
-            process=process,
-        )
-        self._mark_active_attempt_interrupted()
-        self._reset_runtime_state()
-        self.git.commit_all_if_needed(f"jri: recover {doing_task.slug} after stale run")
+            move_task(doing_task, self.paths.task_dir("todo"))
+            self._record_recovery(
+                mode=mode,
+                reason=reason,
+                task_slug=doing_task.slug,
+                process=process,
+            )
+            self._mark_active_attempt_interrupted()
+            self._reset_runtime_state()
+            self.git.commit_all_if_needed(f"jri: recover {doing_task.slug} after stale run")
+        except Exception as recovery_error:
+            self._record_recovery_failure(
+                task_slug=doing_task.slug,
+                phase="recover-stale-iteration",
+                error=recovery_error,
+            )
+            raise
 
     def _reset_runtime_state(self) -> None:
         state = self.state_store.load()
@@ -691,6 +699,32 @@ class JriService:
         with self.paths.recovery_log_path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
 
+    def _record_recovery_failure(
+        self,
+        *,
+        task_slug: str | None,
+        phase: str,
+        error: Exception,
+    ) -> None:
+        timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        error_type = type(error).__name__
+        error_message = str(error).replace("\n", "\\n")
+        line = " ".join(
+            (
+                timestamp,
+                "event=recovery-failure",
+                f"task={task_slug or '-'}",
+                f"phase={phase}",
+                f"error_type={error_type}",
+                f"error_message={error_message}",
+            )
+        )
+        self.paths.recovery_failures_log_path.parent.mkdir(
+            parents=True, exist_ok=True
+        )
+        with self.paths.recovery_failures_log_path.open("a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+
     def _recover_failed_iteration(self, doing_task: Task, branch: str) -> None:
         try:
             default = self._default_branch()
@@ -703,8 +737,12 @@ class JriService:
                     f"jri: recover {doing_task.slug} after failed iteration"
                 )
             self._reset_runtime_state()
-        except Exception:
-            pass  # best-effort recovery; don't mask the original error
+        except Exception as recovery_error:
+            self._record_recovery_failure(
+                task_slug=doing_task.slug,
+                phase="recover-failed-iteration",
+                error=recovery_error,
+            )
 
     def _count_failed_attempts(self, task_slug: str) -> int:
         state = self.state_store.load()
@@ -779,8 +817,12 @@ class JriService:
                     f"jri: escalate {doing_task.slug} for human help"
                 )
             self._reset_runtime_state()
-        except Exception:
-            pass  # best-effort recovery; don't mask the original error
+        except Exception as recovery_error:
+            self._record_recovery_failure(
+                task_slug=doing_task.slug,
+                phase="recover-needs-human-iteration",
+                error=recovery_error,
+            )
 
     def _export_session_if_available(self, session_id: str | None) -> Path | None:
         if session_id is None:

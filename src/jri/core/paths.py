@@ -63,6 +63,10 @@ class JriPaths:
         return self.logs_dir / "recovery.log"
 
     @property
+    def recovery_failures_log_path(self) -> Path:
+        return self.logs_dir / "recovery-failures.log"
+
+    @property
     def opencode_agents_dir(self) -> Path:
         return self.root / ".opencode" / "agents"
 
