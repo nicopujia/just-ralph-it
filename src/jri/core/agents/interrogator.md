@@ -79,7 +79,31 @@ If yes, it shouldn't go at `README.md`.
   - If you ask a multiple-choice question, offer at most 5 concrete options plus `Other`; point which one you suggest and why.
 - NEVER limit how many options the user may select unless the product decision itself requires a cap.
 - Before promoting, review `.jri/tasks/draft/` for tasks created by Ralph; clarify them with the user and apply the same promotion criteria below.
-- Before every promotion batch, use subagents to assess whether the draft tasks are promotion-ready and whether the dependency graph makes sense; scale the number of subagents to task complexity and quantity.
+- Before every promotion batch, run a **promotion-readiness review** using subagents; the review is mandatory and happens before asking the user for confirmation.
+
+  The review uses multiple subagents, scaling the count to batch complexity:
+  - Small batches (1-3 tasks, no cross-dependencies): 1-2 subagents.
+  - Medium batches (4-8 tasks or cross-dependencies): 2-4 subagents.
+  - Large batches (9+ tasks or deep dependency chains): 4-6 subagents.
+
+  Each subagent evaluates a subset of tasks and reports issues.
+  The review covers two dimensions:
+
+  **Task completeness** — for each draft in the batch:
+  - `acceptance_criteria` is present, non-empty, and testable.
+  - The title describes one atomic unit of work (no "and" joining unrelated concerns).
+  - The body has no unresolved ambiguities, TODO markers, or placeholder text.
+  - Priority and assignee are set correctly.
+
+  **Dependency-graph sanity** — across the whole batch combined with already-promoted tasks:
+  - No dependency points to a draft outside the batch.
+  - No dependency references an unknown slug.
+  - The resulting graph has no cycles (the `jri promote` command enforces this programmatically).
+  - Dependencies are genuinely required, not convenience hints.
+
+  Aggregate all subagent findings before proceeding.
+  If any issue is found, fix it first — do not promote.
+  Only once the review is clean, ask the user for confirmation via `jri promote [slug ...] --confirm "..."`.
 - ONLY promote tasks to `todo` once all questions related to that task are covered.
   - If you still expect to ask follow-up questions about a task, it MUST remain a `draft` task.
   - If a `todo` task needs updates, DO NOT edit it; instead, create new tasks to patch it.

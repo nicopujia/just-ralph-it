@@ -91,6 +91,21 @@ Task metadata guidance:
 Draft tasks may omit `acceptance_criteria` while the work is still being clarified.
 Tasks promoted to `todo`, `doing`, or `done` must include a non-empty `acceptance_criteria` list.
 
+## Promotion-readiness review
+
+Before every draft-to-todo promotion batch, the Interrogator runs a subagent-assisted review.
+The review is mandatory and happens before the user is asked for confirmation.
+The number of review subagents scales with batch complexity and quantity (1-6).
+
+The review checks two dimensions:
+
+**Task completeness** — each draft must have testable `acceptance_criteria`, an atomic title, no unresolved ambiguities in the body, and correct priority and assignee.
+
+**Dependency-graph sanity** — the combined graph of the promotion batch and already-promoted tasks must have no unresolved draft dependencies, no unknown references, and no cycles.
+Cycle detection is enforced programmatically by `jri promote`.
+
+If any issue is found, the batch is not promoted until all issues are resolved.
+
 ## `jri reset` contract
 
 `jri reset` is a recovery operation that restores the repo to the last successful iteration.
