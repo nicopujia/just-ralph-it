@@ -9,7 +9,7 @@ format:
 	uv run ruff format --check .
 
 typecheck:
-	uv run ty check
+	RAYON_NUM_THREADS=1 uv run ty check
 
 schema-check:
 	uv run python -m jri.checks.schema
