@@ -130,3 +130,61 @@ Clients are the different ways the user has to interact with these agents.
 
 For now, there's only one client, the CLI (`jri`), and the way to see the tasks is to open the files in an editor.
 In the future, there will be a hosted web app.
+
+## Structured status output
+
+`jri status --json` prints a machine-readable JSON payload for programmatic consumption.
+The schema is designed to be stable across releases so that automation and UI layers can rely on it without scraping plain text.
+
+### Intended consumers
+
+- **CI/CD dashboards**: pipeline scripts that poll `jri status --json` to surface blocker counts or escalate stuck tasks.
+- **Web UI (Phase VIII)**: the future hosted interface will read this payload to render task state, human escalations, and retry health.
+- **Monitoring/alerting**: automated watchers that trigger on `retry_escalation.tasks_with_failures[].escalated` or non-null `run.process` to detect stuck loops.
+
+### Schema
+
+```json
+{
+  "tasks": {
+    "counts": { "draft": 0, "todo": 0, "doing": 0, "done": 0 },
+    "total": 0,
+    "needs_human": [
+      {
+        "slug": "string",
+        "title": "string",
+        "priority": 0,
+        "status": "todo | doing | done | draft",
+        "depends_on": ["string"]
+      }
+    ]
+  },
+  "retry_escalation": {
+    "tasks_with_failures": [
+      {
+        "slug": "string",
+        "failed_attempts": 0,
+        "max_attempts": 3,
+        "escalated": false
+      }
+    ]
+  },
+  "run": {
+    "iteration_number": 0,
+    "started_at": "unix timestamp | null",
+    "finished_at": "unix timestamp | null",
+    "active_attempt": "AttemptState payload | null",
+    "process": {
+      "loop_pid": "int | null",
+      "child_pid": "int | null",
+      "log_path": "string | null",
+      "detached": false
+    }
+  }
+}
+```
+
+- `tasks.counts` maps each tracked status to its task count.
+- `tasks.needs_human` lists every task assigned to `Human` across all statuses, including dependency links.
+- `retry_escalation.tasks_with_failures` aggregates per-task failure counts from the attempt journal and flags tasks that have exceeded the retry threshold.
+- `run` mirrors the current iteration and process state from `.jri/state.json`.
