@@ -40,4 +40,9 @@
   Only the bundled source files are tracked in git.
 - `jri status --json` outputs a machine-readable structured payload with three top-level sections: `tasks` (counts + needs-human list), `retry_escalation` (per-task failure aggregation from the attempt journal), and `run` (current iteration + process state).
   The schema is documented in `docs/arch.md` under "Structured status output".
-  Intended consumers: CI/CD dashboards, the future Web UI, and monitoring/alerting scripts.
+   Intended consumers: CI/CD dashboards, the future Web UI, and monitoring/alerting scripts.
+- Per-iteration diff artifacts are saved to `.jri/logs/diffs/<iteration>-<slug>.diff` after each successful iteration.
+  Each contains the unified diff between `jri/<iteration-1>` and `jri/<iteration>` tags.
+  Generated in both `_run_iteration` (normal success path) and `_complete_attempt` (recovery/resume path).
+  `GitRepo.diff(from_ref, to_ref)` returns unified diff output; `JriPaths.diff_artifact_path(iteration, slug)` resolves the path.
+  The `.jri/logs/diffs/` directory is covered by the existing `logs/` gitignore entry.
