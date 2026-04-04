@@ -558,9 +558,13 @@ class JriService:
 
             if current_branch == default:
                 if self.git.status_short():
-                    raise JriError("git working tree must be clean before stale recovery")
+                    raise JriError(
+                        "git working tree must be clean before stale recovery"
+                    )
             elif current_branch == expected_branch:
-                self.git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
+                self.git.commit_all_if_needed(
+                    f"ralph: partial work on {doing_task.slug}"
+                )
                 self.git.checkout(default)
             else:
                 raise JriError(f"jri start must begin from the {default} branch")
@@ -576,7 +580,9 @@ class JriService:
             )
             self._mark_active_attempt_interrupted()
             self._reset_runtime_state()
-            self.git.commit_all_if_needed(f"jri: recover {doing_task.slug} after stale run")
+            self.git.commit_all_if_needed(
+                f"jri: recover {doing_task.slug} after stale run"
+            )
         except Exception as recovery_error:
             self._record_recovery_failure(
                 task_slug=doing_task.slug,
@@ -719,10 +725,10 @@ class JriService:
                 f"error_message={error_message}",
             )
         )
-        self.paths.recovery_failures_log_path.parent.mkdir(
-            parents=True, exist_ok=True
-        )
-        with self.paths.recovery_failures_log_path.open("a", encoding="utf-8") as handle:
+        self.paths.recovery_failures_log_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.paths.recovery_failures_log_path.open(
+            "a", encoding="utf-8"
+        ) as handle:
             handle.write(line + "\n")
 
     def _recover_failed_iteration(self, doing_task: Task, branch: str) -> None:

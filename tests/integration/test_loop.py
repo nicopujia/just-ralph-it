@@ -1297,9 +1297,7 @@ def test_stale_iteration_recovery_logs_failure_and_propagates_error(
     monkeypatch.setattr(
         service_module,
         "move_task",
-        lambda *a, **kw: (_ for _ in ()).throw(
-            OSError("simulated move failure")
-        ),
+        lambda *a, **kw: (_ for _ in ()).throw(OSError("simulated move failure")),
     )
 
     with pytest.raises(OSError, match="simulated move failure"):
