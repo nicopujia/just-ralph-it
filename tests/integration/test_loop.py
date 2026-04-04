@@ -1858,6 +1858,7 @@ def test_task_timeout_records_timeline_event(git_repo: Path) -> None:
         and e.detail.get("reason") == "task_timeout"
     ]
     assert len(timeout_events) == 1
+    assert timeout_events[0].detail is not None
     assert timeout_events[0].detail.get("limit_seconds") == 1
 
     # Should have loop_stopped event
@@ -1911,6 +1912,7 @@ def test_successful_task_run_persists_logs(git_repo: Path) -> None:
     assert started_events[0].detail is not None
     assert "log_path" in started_events[0].detail
     log_path_in_event = started_events[0].detail["log_path"]
+    assert isinstance(log_path_in_event, str)
     assert "ralph" in log_path_in_event
     assert ".log" in log_path_in_event
 
@@ -2224,8 +2226,10 @@ def test_halt_clears_process_state(git_repo: Path) -> None:
 
     # Verify process state exists
     state_before = read_json(git_repo / ".jri" / "state.json")
+    assert state_before is not None
     assert state_before.get("process") is not None
-    assert state_before["process"]["loop_pid"] is not None
+    process_before = cast(dict[str, object], state_before["process"])
+    assert process_before["loop_pid"] is not None
 
     # Halt should clear the process state
     service.halt()
