@@ -1,34 +1,26 @@
 {
   "active_attempt": {
-    "branch": "ralph/19/enforce-loop-execution-bounds",
-    "iteration_number": 19,
-    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/19-2026-04-04T11-07-06Z.log",
+    "branch": "ralph/20/harden-per-task-logs",
+    "iteration_number": 20,
+    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/20-2026-04-04T11-29-35Z.log",
     "number": 1,
-    "session_id": "ses_2a7d32027ffe1jTCqxwMVfTX8L",
-    "started_at": 1775300826,
-    "task_slug": "enforce-loop-execution-bounds"
+    "started_at": 1775302175,
+    "task_slug": "harden-per-task-logs"
   },
   "attempts": [
     {
-      "branch": "ralph/19/enforce-loop-execution-bounds",
-      "iteration_number": 19,
-      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/19-2026-04-04T11-07-06Z.log",
+      "branch": "ralph/20/harden-per-task-logs",
+      "iteration_number": 20,
+      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/20-2026-04-04T11-29-35Z.log",
       "number": 1,
-      "session_id": "ses_2a7d32027ffe1jTCqxwMVfTX8L",
-      "started_at": 1775300826,
-      "task_slug": "enforce-loop-execution-bounds"
+      "started_at": 1775302175,
+      "task_slug": "harden-per-task-logs"
     }
   ],
   "iteration": {
-    "finished_at": 1775287943,
-    "number": 18,
-    "started_at": 1775300826
-  },
-  "process": {
-    "child_pid": 559176,
-    "detached": false,
-    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/19-2026-04-04T11-07-06Z.log",
-    "loop_pid": 559116
+    "finished_at": 1775301852,
+    "number": 19,
+    "started_at": 1775302175
   },
   "session": "ses_2aafcab71ffeYv74dV9AXnjE5G"
 }
