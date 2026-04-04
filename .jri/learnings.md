@@ -22,3 +22,7 @@
 - Recovery paths (`_recover_failed_iteration`, `_recover_needs_human_iteration`, `_recover_stale_iteration`) now log failures to `.jri/logs/recovery-failures.log` with timestamp, task slug, phase, error type, and error message.
   The first two swallow the error (don't mask the original), while `_recover_stale_iteration` logs then re-raises.
   `RecoveryError` is a new exception class in `errors.py` for callers that want to distinguish recovery-specific failures.
+- `jri reset` no longer requires a clean working tree and works from feature branches.
+  It force-checkouts to default, hard-resets to the last iteration tag, and deletes leftover `ralph/*` branches.
+  The reset contract (restored, discarded, preserved) is documented in `docs/contrib.md`.
+  `git reset --hard` does not remove untracked files; tests should only assert tracked state is clean.
