@@ -4,6 +4,7 @@
     "iteration_number": 18,
     "log_path": "/home/nico/justralph.it/.jri/logs/ralph/18-2026-04-04T07-20-31Z.log",
     "number": 1,
+    "session_id": "ses_2a8a2911ffferCD3UTS69VMS7v",
     "started_at": 1775287231,
     "task_slug": "add-execution-timeline"
   },
@@ -13,6 +14,7 @@
       "iteration_number": 18,
       "log_path": "/home/nico/justralph.it/.jri/logs/ralph/18-2026-04-04T07-20-31Z.log",
       "number": 1,
+      "session_id": "ses_2a8a2911ffferCD3UTS69VMS7v",
       "started_at": 1775287231,
       "task_slug": "add-execution-timeline"
     }
@@ -21,6 +23,12 @@
     "finished_at": 1775287009,
     "number": 17,
     "started_at": 1775287231
+  },
+  "process": {
+    "child_pid": 516566,
+    "detached": false,
+    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/18-2026-04-04T07-20-31Z.log",
+    "loop_pid": 516506
   },
   "session": "ses_2aafcab71ffeYv74dV9AXnjE5G"
 }
