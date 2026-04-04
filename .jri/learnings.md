@@ -16,3 +16,6 @@
   A lone `doing` task with a missing or dead tracked loop PID is moved back to `todo`, in-progress runtime state is cleared, and the recovery is recorded in `.jri/logs/recovery.log`; a live tracked loop PID still blocks a second start.
 - `.jri/state.json` now keeps a minimal execution-attempt journal via `active_attempt` and `attempts`.
   Recovery uses that metadata plus git state to tell first runs from retries and to finish already-applied completions without rerunning Ralph.
+- Failed tasks are retried automatically up to 3 times (`_MAX_FAILED_ATTEMPTS`) across `jri start` invocations, then auto-escalated to `needs human`.
+  The `_run_loop` uses both an in-memory `failed_slugs` set (prevents retrying within one loop invocation) and the persistent attempt count in `state.attempts` (crosses invocations).
+  After the third failure, `_escalate_failed_task` creates a Human follow-up task and blocks the original via `depends_on`, identical to the direct Ralph `needs human` outcome path.
