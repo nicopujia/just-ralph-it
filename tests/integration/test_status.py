@@ -8,7 +8,7 @@ def _init(repo: Path) -> None:
     run_cli(["init"], cwd=repo)
 
 
-def test_status_shows_counts_and_human_todos(git_repo: Path, capsys) -> None:
+def test_status_shows_counts_and_human_tasks(git_repo: Path, capsys) -> None:
     _init(git_repo)
     write_task(
         git_repo,
@@ -55,14 +55,14 @@ def test_status_shows_counts_and_human_todos(git_repo: Path, capsys) -> None:
     assert "3" in out  # 3 todo tasks
     assert "done" in out
     assert "1" in out  # 1 done task
-    # Human todos sorted by priority then slug
-    assert "[P0] another-human" in out
-    assert "[P1] human-task" in out
+    # Human tasks sorted by priority then status then slug
+    assert "[todo  ] [P0] another-human" in out
+    assert "[todo  ] [P1] human-task" in out
     # Ralph tasks NOT in human section
-    assert "ralph-task" not in out.split("Todo tasks assigned to Human")[1]
+    assert "ralph-task" not in out.split("Tasks assigned to Human")[1]
 
 
-def test_status_no_human_todos(git_repo: Path, capsys) -> None:
+def test_status_no_human_tasks(git_repo: Path, capsys) -> None:
     _init(git_repo)
     write_task(
         git_repo,
@@ -77,7 +77,7 @@ def test_status_no_human_todos(git_repo: Path, capsys) -> None:
     rc = run_cli(["status"], cwd=git_repo)
     assert rc == 0
     out = capsys.readouterr().out
-    assert "No todo tasks assigned to Human." in out
+    assert "No tasks assigned to Human." in out
 
 
 def test_status_empty_project(git_repo: Path, capsys) -> None:
@@ -91,7 +91,57 @@ def test_status_empty_project(git_repo: Path, capsys) -> None:
     assert "todo" in out
     assert "doing" in out
     assert "done" in out
-    assert "No todo tasks assigned to Human." in out
+    assert "No tasks assigned to Human." in out
+
+
+def test_status_shows_human_tasks_across_all_states(git_repo: Path, capsys) -> None:
+    """Human tasks in any state (draft, todo, doing, done) are shown."""
+    _init(git_repo)
+    write_task(
+        git_repo,
+        status="draft",
+        slug="human-draft",
+        title="Human draft",
+        priority=0,
+        assignee="Human",
+        body="draft",
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="human-todo",
+        title="Human todo",
+        priority=1,
+        assignee="Human",
+        body="todo",
+    )
+    write_task(
+        git_repo,
+        status="doing",
+        slug="human-doing",
+        title="Human doing",
+        priority=2,
+        assignee="Human",
+        body="doing",
+    )
+    write_task(
+        git_repo,
+        status="done",
+        slug="human-done",
+        title="Human done",
+        priority=3,
+        assignee="Human",
+        body="done",
+    )
+
+    rc = run_cli(["status"], cwd=git_repo)
+    assert rc == 0
+    out = capsys.readouterr().out
+    # All Human tasks should appear with their status
+    assert "[draft ] [P0] human-draft" in out
+    assert "[todo  ] [P1] human-todo" in out
+    assert "[doing ] [P2] human-doing" in out
+    assert "[done  ] [P3] human-done" in out
 
 
 def test_status_rejects_in_place_mutation_of_promoted_task(

@@ -64,21 +64,25 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 max_label = max(len(s) for s in tasks_by_status)
                 for status, tasks in tasks_by_status.items():
                     print(f"  {status:<{max_label}}  {len(tasks)}")
-                human_todos = sorted(
+
+                # Collect all tasks assigned to Human across all statuses
+                human_tasks = sorted(
                     (
-                        t
-                        for t in tasks_by_status.get("todo", [])
+                        (status, t)
+                        for status, tasks in tasks_by_status.items()
+                        for t in tasks
                         if t.metadata.assignee == "Human"
                     ),
-                    key=lambda t: (t.metadata.priority, t.slug),
+                    key=lambda x: (x[1].metadata.priority, x[0], x[1].slug),
                 )
-                print("\nTodo tasks assigned to Human:\n")
-                if human_todos:
-                    for task in human_todos:
+                print("\nTasks assigned to Human:\n")
+                if human_tasks:
+                    for status, task in human_tasks:
                         p = task.metadata.priority
-                        print(f"  [P{p}] {task.slug} — {task.metadata.title}")
+                        title = task.metadata.title
+                        print(f"  [{status:<6}] [P{p}] {task.slug} — {title}")
                 else:
-                    print("  No todo tasks assigned to Human.")
+                    print("  No tasks assigned to Human.")
                 return 0
             case "promote":
                 promoted = service.promote_drafts(

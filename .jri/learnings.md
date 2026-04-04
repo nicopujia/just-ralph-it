@@ -63,3 +63,6 @@
   `stop` creates a signal file that the loop checks at the end of each iteration, allowing graceful shutdown after the current task completes.
   `halt` sends SIGTERM to the tracked process and clears process state, requiring stale-run recovery if interrupted mid-task.
   Both compose cleanly with `jri start` recovery semantics; see `docs/arch.md` "Stop and Halt Semantics" for full details.
+- `jri status` in plain text mode now shows tasks assigned to Human across all states (draft, todo, doing, done).
+  The output includes the task status in brackets (e.g., `[todo  ] [P1] task-slug — Title`) sorted by priority, then status, then slug.
+  This mirrors the `needs_human` list in the structured JSON output.
