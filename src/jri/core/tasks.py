@@ -195,9 +195,7 @@ def validate_draft_promotion(
     cycle = _detect_cycle(tasks, promoted_slugs, promoted_deps or {})
     if cycle:
         joined = " -> ".join(cycle)
-        raise ValueError(
-            f"draft promotion introduces a cyclic dependency: {joined}"
-        )
+        raise ValueError(f"draft promotion introduces a cyclic dependency: {joined}")
 
 
 def _detect_cycle(
