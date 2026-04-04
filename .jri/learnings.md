@@ -28,6 +28,10 @@
   It force-checkouts to default, hard-resets to the last iteration tag, and deletes leftover `ralph/*` branches.
   The reset contract (restored, discarded, preserved) is documented in `docs/contrib.md`.
   `git reset --hard` does not remove untracked files; tests should only assert tracked state is clean.
+- `jri start` supports execution bounds via `--iterations` (max task iterations) and `--task-timeout SECONDS` (per-task time limit).
+  - When a task exceeds the timeout, it's marked as failed, recovered to todo, and the loop stops with a `loop_stopped` timeline event.
+  - When the iteration limit is reached, the loop stops gracefully with a `loop_stopped` timeline event containing the limit.
+  - Bounds are visible to operators through timeline events (`loop_stopped`, `iteration_failed` with `reason: task_timeout`).
 - The self-hosting proof test (`tests/live/test_self_hosting_proof.py`) uses the same opt-in pattern as the live OpenCode test: `--run-self-hosting-proof` flag, `pytestmark = pytest.mark.live`, skipped by default.
   Fake `OpenCodeClient` subclasses need to override `list_sessions`, `launch_chat`, `run_ralph_task`, and `export_session`.
   The `run_ralph_task` method receives keyword-only arguments (`*`, root, prompt, log_path, on_start).
