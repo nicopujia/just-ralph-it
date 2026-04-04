@@ -1189,3 +1189,185 @@ def test_task_escalates_to_needs_human_after_three_failures(git_repo: Path) -> N
     service4 = JriService(git_repo, opencode_client=success_client)
     assert service4.start(iterations=1) == 0
     assert success_client.calls == []
+
+
+def test_failed_iteration_recovery_logs_failure(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="failing-task",
+        title="Failing task",
+        priority=0,
+        assignee="Ralph",
+        body="This will fail.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
+    git(git_repo, "commit", "-m", "add failing task")
+
+    client = FailedFakeOpenCodeClient()
+    service = JriService(git_repo, opencode_client=client)
+
+    monkeypatch.setattr(
+        JriService,
+        "_reset_runtime_state",
+        lambda self_: (_ for _ in ()).throw(
+            OSError("simulated reset failure during recovery")
+        ),
+    )
+
+    completed = service.start(iterations=1)
+
+    assert completed == 0
+    assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
+
+    failure_log_path = git_repo / ".jri" / "logs" / "recovery-failures.log"
+    assert failure_log_path.exists()
+    failure_log = failure_log_path.read_text(encoding="utf-8")
+    assert "event=recovery-failure" in failure_log
+    assert "task=failing-task" in failure_log
+    assert "phase=recover-failed-iteration" in failure_log
+    assert "error_type=OSError" in failure_log
+    assert "simulated reset failure during recovery" in failure_log
+
+
+def test_needs_human_recovery_logs_failure(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="needs-human-task",
+        title="Needs human task",
+        priority=0,
+        assignee="Ralph",
+        body="This will need human help.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/needs-human-task.md")
+    git(git_repo, "commit", "-m", "add needs human task")
+
+    client = NeedsHumanFakeOpenCodeClient()
+    service = JriService(git_repo, opencode_client=client)
+
+    monkeypatch.setattr(
+        JriService,
+        "_reset_runtime_state",
+        lambda self_: (_ for _ in ()).throw(
+            OSError("simulated reset failure during recovery")
+        ),
+    )
+
+    completed = service.start(iterations=1)
+
+    assert completed == 0
+
+    failure_log_path = git_repo / ".jri" / "logs" / "recovery-failures.log"
+    assert failure_log_path.exists()
+    failure_log = failure_log_path.read_text(encoding="utf-8")
+    assert "event=recovery-failure" in failure_log
+    assert "task=needs-human-task" in failure_log
+    assert "phase=recover-needs-human-iteration" in failure_log
+    assert "error_type=OSError" in failure_log
+    assert "simulated reset failure during recovery" in failure_log
+
+
+def test_stale_iteration_recovery_logs_failure_and_propagates_error(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="doing",
+        slug="stale-task",
+        title="Stale task",
+        priority=0,
+        assignee="Ralph",
+        body="Was interrupted.",
+    )
+    git(git_repo, "add", ".jri/tasks/doing/stale-task.md")
+    git(git_repo, "commit", "-m", "seed stale task")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+
+    import jri.core.service as service_module
+
+    monkeypatch.setattr(
+        service_module,
+        "move_task",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            OSError("simulated move failure")
+        ),
+    )
+
+    with pytest.raises(OSError, match="simulated move failure"):
+        service.start(iterations=1)
+
+    failure_log_path = git_repo / ".jri" / "logs" / "recovery-failures.log"
+    assert failure_log_path.exists()
+    failure_log = failure_log_path.read_text(encoding="utf-8")
+    assert "event=recovery-failure" in failure_log
+    assert "task=stale-task" in failure_log
+    assert "phase=recover-stale-iteration" in failure_log
+    assert "error_type=OSError" in failure_log
+
+
+def test_state_is_understandable_after_partial_recovery_failure(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="failing-task",
+        title="Failing task",
+        priority=0,
+        assignee="Ralph",
+        body="This will fail.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
+    git(git_repo, "commit", "-m", "add failing task")
+
+    client = FailedFakeOpenCodeClient()
+    service = JriService(git_repo, opencode_client=client)
+
+    monkeypatch.setattr(
+        JriService,
+        "_reset_runtime_state",
+        lambda self_: (_ for _ in ()).throw(
+            OSError("simulated reset failure during recovery")
+        ),
+    )
+
+    completed = service.start(iterations=1)
+
+    assert completed == 0
+
+    # Task is back in todo (checkout and branch cleanup succeeded before reset)
+    assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "failing-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "failing-task.md").exists()
+
+    # Git is on default branch (checkout succeeded before reset)
+    assert git(git_repo, "branch", "--show-current") == "main"
+
+    # State is valid and loadable
+    state = read_json(git_repo / ".jri" / "state.json")
+    assert "iteration" in state
+    assert "attempts" in state
+
+    # Attempt records the failure
+    attempts = cast(list[dict[str, object]], state["attempts"])
+    assert len(attempts) == 1
+    assert attempts[0]["task_slug"] == "failing-task"
+    assert attempts[0]["outcome"] == "failed"
+
+    # Recovery failure log explains what happened
+    failure_log_path = git_repo / ".jri" / "logs" / "recovery-failures.log"
+    assert failure_log_path.exists()
+    failure_log = failure_log_path.read_text(encoding="utf-8")
+    assert "event=recovery-failure" in failure_log
+    assert "task=failing-task" in failure_log
+    assert "phase=recover-failed-iteration" in failure_log
