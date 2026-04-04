@@ -37,6 +37,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         iterations=args.iterations,
                         detached=args.detached,
                         model=args.model,
+                        task_timeout=args.task_timeout,
                     )
                     >= 0
                     else 1
@@ -193,8 +194,8 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run Ralph on queued todo tasks.",
         description=(
             "Run the Ralph loop on eligible todo tasks until there are no "
-            "tasks left, the iteration limit is reached, or a stop is "
-            "requested."
+            "tasks left, the iteration limit is reached, a task timeout "
+            "occurs, or a stop is requested."
         ),
     )
     start_parser.add_argument(
@@ -213,6 +214,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "-m",
         "--model",
         help="Override the OpenCode model for this start run only.",
+    )
+    start_parser.add_argument(
+        "--task-timeout",
+        type=int,
+        metavar="SECONDS",
+        help="Maximum seconds per task iteration (0 or unset = no limit).",
     )
 
     stop_parser = subparsers.add_parser(

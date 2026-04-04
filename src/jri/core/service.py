@@ -111,16 +111,17 @@ class JriService:
         iterations: int | None = None,
         detached: bool = False,
         model: str | None = None,
+        task_timeout: int | None = None,
     ) -> int:
         self.ensure_initialized()
         self._recover_stale_start_state(mode="detached" if detached else "foreground")
         if detached:
-            return self._start_detached(iterations, model)
+            return self._start_detached(iterations, model, task_timeout)
 
         previous_model = self.opencode_client.model
         self.opencode_client.model = model
         try:
-            return self._run_loop(iterations)
+            return self._run_loop(iterations, task_timeout=task_timeout)
         finally:
             self.opencode_client.model = previous_model
 
@@ -393,7 +394,9 @@ class JriService:
                 encoding="utf-8",
             )
 
-    def _start_detached(self, iterations: int | None, model: str | None) -> int:
+    def _start_detached(
+        self, iterations: int | None, model: str | None, task_timeout: int | None
+    ) -> int:
         state = self.state_store.load()
         if state.process and state.process.loop_pid:
             raise JriError("a Ralph process is already tracked")
@@ -403,6 +406,8 @@ class JriService:
             command.extend(["-n", str(iterations)])
         if model is not None:
             command.extend(["--model", model])
+        if task_timeout is not None:
+            command.extend(["--task-timeout", str(task_timeout)])
 
         log_path = self.paths.ralph_log_path(
             self.state_store.load().iteration_number + 1, int(time.time())
@@ -425,7 +430,7 @@ class JriService:
         )
         return 0
 
-    def _run_loop(self, iterations: int | None) -> int:
+    def _run_loop(self, iterations: int | None, task_timeout: int | None = None) -> int:
         try:
             doing = list_tasks(self.paths.task_dir("doing"), git_repo=self.git)
         except ValueError as exc:
@@ -440,6 +445,7 @@ class JriService:
 
         completed = 0
         failed_slugs: set[str] = set()
+        stop_reason: str | None = None
         self._halt_requested = False
         old_handlers = self._install_signal_handlers()
         try:
@@ -476,7 +482,12 @@ class JriService:
                 if next_task is None:
                     break
 
-                outcome = self._run_iteration(next_task)
+                # Check if we've reached the iteration limit before starting
+                if iterations is not None and completed >= iterations:
+                    stop_reason = "iteration_limit"
+                    break
+
+                outcome = self._run_iteration(next_task, task_timeout=task_timeout)
                 if outcome == "completed":
                     completed += 1
                 elif outcome == "failed":
@@ -488,22 +499,55 @@ class JriService:
                         self._escalate_failed_task(next_task)
                 elif outcome == "needs human":
                     failed_slugs.add(next_task.slug)
+                elif outcome == "timeout":
+                    failed_slugs.add(next_task.slug)
+                    stop_reason = "task_timeout"
+                    self.timeline.record(
+                        TimelineEvent(
+                            ts=TimelineStore.now_iso(),
+                            event="loop_stopped",
+                            iteration=self.state_store.load().iteration_number,
+                            task=next_task.slug,
+                            detail={"reason": "task_timeout", "limit_seconds": task_timeout},
+                        )
+                    )
+                    break
 
                 if self.paths.stop_signal_path.exists():
                     self.paths.stop_signal_path.unlink()
                     break
+
+            # Record if we stopped due to iteration limit
+            if iterations is not None and completed >= iterations:
+                stop_reason = "iteration_limit"
+                self.timeline.record(
+                    TimelineEvent(
+                        ts=TimelineStore.now_iso(),
+                        event="loop_stopped",
+                        iteration=self.state_store.load().iteration_number,
+                        task=None,
+                        detail={"reason": "iteration_limit", "limit": iterations},
+                    )
+                )
         finally:
             self._restore_signal_handlers(old_handlers)
             self.state_store.clear_process()
 
         return completed
 
-    def _run_iteration(self, task: Task) -> Outcome:
+    def _run_iteration(
+        self, task: Task, task_timeout: int | None = None
+    ) -> Outcome:
         state = self.state_store.load()
         next_iteration = state.iteration_number + 1
         started_at = int(time.time())
         log_path = self.paths.ralph_log_path(next_iteration, started_at)
         branch = f"ralph/{next_iteration}/{task.slug}"
+
+        # Calculate deadline if task_timeout is set
+        deadline: int | None = None
+        if task_timeout is not None and task_timeout > 0:
+            deadline = started_at + task_timeout
 
         attempt = AttemptState(
             number=len(state.attempts) + 1,
@@ -548,6 +592,28 @@ class JriService:
                 detached=False,
             ),
         )
+
+        # Check for task timeout
+        finished_at = int(time.time())
+        if deadline is not None and finished_at > deadline:
+            print(
+                f"Task {task.slug} exceeded timeout of {task_timeout}s "
+                f"(took {finished_at - started_at}s)",
+                file=sys.stderr,
+            )
+            self._recover_failed_iteration(doing_task, branch)
+            self._finish_attempt(attempt, outcome="failed")
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="iteration_failed",
+                    iteration=next_iteration,
+                    task=task.slug,
+                    detail={"reason": "task_timeout", "limit_seconds": task_timeout},
+                )
+            )
+            return "timeout"
+
         if result.returncode != 0:
             self._recover_failed_iteration(doing_task, branch)
             self._finish_attempt(attempt, outcome="failed")
