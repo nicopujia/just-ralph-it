@@ -2071,3 +2071,305 @@ def test_timeline_records_stderr_warnings(git_repo: Path) -> None:
     assert warning_events[0].task == "warning-test-task"
     assert warning_events[0].detail is not None
     assert warning_events[0].detail.get("message") == "Test warning message"
+
+
+class StopAfterFirstTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
+    """Client that creates a stop signal after completing the first task."""
+
+    def __init__(self, signals_dir: Path) -> None:
+        super().__init__()
+        self.signals_dir = signals_dir
+        self._call_count = 0
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        on_start: object | None = None,
+    ) -> OpenCodeRunResult:
+        self._call_count += 1
+        result = super().run_ralph_task(
+            root=root, prompt=prompt, log_path=log_path, on_start=on_start
+        )
+        # Create stop signal after first task completes
+        if self._call_count == 1:
+            self.signals_dir.mkdir(parents=True, exist_ok=True)
+            (self.signals_dir / "stop").write_text(
+                "stop after first task\n", encoding="utf-8"
+            )
+        return result
+
+
+def test_stop_during_active_work_stops_after_iteration(git_repo: Path) -> None:
+    """Stop signal created during iteration stops loop after current iteration."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="Complete task A.",
+        acceptance_criteria=["Task A is done"],
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-b",
+        title="Task B",
+        priority=1,
+        assignee="Ralph",
+        body="Complete task B.",
+        acceptance_criteria=["Task B is done"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo")
+    git(git_repo, "commit", "-m", "add two tasks")
+
+    signals_dir = git_repo / ".jri" / "signals"
+    service = JriService(
+        git_repo, opencode_client=StopAfterFirstTaskOpenCodeClient(signals_dir)
+    )
+
+    # Run the loop - client will create stop signal during first iteration
+    completed = service.start(iterations=10)
+
+    # Should have completed only 1 task before stopping
+    assert completed == 1
+    assert (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
+    # Second task should still be in todo
+    assert (git_repo / ".jri" / "tasks" / "todo" / "task-b.md").exists()
+    # Stop signal should be consumed (deleted)
+    assert not (git_repo / ".jri" / "signals" / "stop").exists()
+
+
+def test_stop_signal_consumed_on_start(git_repo: Path) -> None:
+    """Stop signal present at start is consumed immediately before processing."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    # Create stop signal file directly
+    signals_dir = git_repo / ".jri" / "signals"
+    signals_dir.mkdir(parents=True, exist_ok=True)
+    stop_signal = signals_dir / "stop"
+    stop_signal.write_text("pre-existing stop signal\n", encoding="utf-8")
+    assert stop_signal.exists()
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+
+    # Start the service - stop signal should be consumed at start
+    completed = service.start(iterations=1)
+
+    # Task should complete normally since stop signal is consumed at start
+    assert completed == 1
+    assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
+    # Stop signal should be deleted
+    assert not stop_signal.exists()
+
+
+def test_stop_reason_preserved_in_signal(git_repo: Path) -> None:
+    """Stop signal preserves the reason text provided."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+
+    # Create stop signal with a specific reason
+    reason = "Scheduled maintenance window at 2024-01-15 02:00 UTC"
+    service.stop(reason)
+
+    stop_signal = git_repo / ".jri" / "signals" / "stop"
+    assert stop_signal.exists()
+    # Verify the reason is preserved in the signal file
+    content = stop_signal.read_text(encoding="utf-8")
+    assert content == f"{reason}\n"
+
+
+def test_halt_raises_error_when_no_tracked_process(git_repo: Path) -> None:
+    """Halt raises JriError when no process is currently tracked."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+
+    # Verify halt raises error when no process is tracked
+    with pytest.raises(JriError, match="no Ralph process is currently tracked"):
+        service.halt()
+
+
+def test_halt_clears_process_state(git_repo: Path) -> None:
+    """Halt clears the process state from state.json after terminating."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+
+    # Save a fake process to state (simulating a running process)
+    service.state_store.save_process(
+        loop_pid=_dead_pid(),
+        child_pid=None,
+        log_path=git_repo / ".jri" / "logs" / "ralph" / "fake.log",
+        detached=True,
+    )
+
+    # Verify process state exists
+    state_before = read_json(git_repo / ".jri" / "state.json")
+    assert state_before.get("process") is not None
+    assert state_before["process"]["loop_pid"] is not None
+
+    # Halt should clear the process state
+    service.halt()
+
+    # Verify process state is cleared
+    state_after = read_json(git_repo / ".jri" / "state.json")
+    assert state_after.get("process") is None
+
+
+def test_stop_then_start_recovery_consistency(git_repo: Path) -> None:
+    """Stop during run allows clean recovery on next start."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="Complete task A.",
+        acceptance_criteria=["Task A is done"],
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-b",
+        title="Task B",
+        priority=1,
+        assignee="Ralph",
+        body="Complete task B.",
+        acceptance_criteria=["Task B is done"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo")
+    git(git_repo, "commit", "-m", "add two tasks")
+
+    signals_dir = git_repo / ".jri" / "signals"
+
+    # First service instance - client creates stop signal during first iteration
+    service1 = JriService(
+        git_repo, opencode_client=StopAfterFirstTaskOpenCodeClient(signals_dir)
+    )
+
+    # Run - completes one task then stops
+    completed1 = service1.start(iterations=10)
+    assert completed1 == 1
+    assert (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "todo" / "task-b.md").exists()
+
+    # Second service instance - should continue with remaining tasks
+    service2 = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    completed2 = service2.start(iterations=10)
+
+    # Should complete the second task
+    assert completed2 == 1
+    assert (git_repo / ".jri" / "tasks" / "done" / "task-b.md").exists()
+
+
+def test_halt_then_start_recovery_consistency(git_repo: Path) -> None:
+    """Halt during work allows recovery with interrupted attempt marked."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="doing",
+        slug="interrupted-task",
+        title="Interrupted task",
+        priority=0,
+        assignee="Ralph",
+        body="This task was interrupted.",
+        acceptance_criteria=["Task is done"],
+    )
+    git(git_repo, "add", ".jri/tasks/doing/interrupted-task.md")
+    git(git_repo, "commit", "-m", "seed interrupted task")
+
+    # Create an active attempt simulating interrupted work
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    interrupted_attempt = AttemptState(
+        number=1,
+        task_slug="interrupted-task",
+        iteration_number=1,
+        branch="ralph/1/interrupted-task",
+        started_at=1234567890,
+        log_path=".jri/logs/ralph/1-interrupted.log",
+    )
+    service.state_store.save(
+        State(
+            started_at=1234567890,
+            branch="main",
+            active_attempt=interrupted_attempt,
+            attempts=[interrupted_attempt],
+        )
+    )
+
+    # Start should recover the stale iteration and then continue with the task
+    # Recovery moves task back to todo and marks first attempt as interrupted
+    # Then the task is picked up and completed as a new attempt
+    completed = service.start(iterations=1)
+
+    # Task should be completed (recovered + new attempt = 2 total attempts, 1 completed)
+    assert completed == 1
+    assert (git_repo / ".jri" / "tasks" / "done" / "interrupted-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "interrupted-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "todo" / "interrupted-task.md").exists()
+
+    # Verify attempts - first is interrupted, second is completed
+    attempts = cast(
+        list[dict[str, object]],
+        read_json(git_repo / ".jri" / "state.json")["attempts"],
+    )
+    assert len(attempts) == 2
+    assert attempts[0]["outcome"] == "interrupted"
+    assert attempts[0]["task_slug"] == "interrupted-task"
+    assert attempts[1]["outcome"] == "completed"
+    assert attempts[1]["task_slug"] == "interrupted-task"
+
+
+def test_stop_signal_persists_across_invocations(git_repo: Path) -> None:
+    """Stop signal persists until consumed by a loop iteration."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="Complete task A.",
+        acceptance_criteria=["Task A is done"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/task-a.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    # Create service and stop signal
+    service1 = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service1.stop("persisted stop signal")
+
+    stop_signal = git_repo / ".jri" / "signals" / "stop"
+    assert stop_signal.exists()
+
+    # Create a new service instance (simulating new invocation)
+    # Stop signal should still exist
+    service2 = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    assert stop_signal.exists()
+
+    # Run loop - signal should be consumed
+    completed = service2.start(iterations=1)
+    assert completed == 1
+    assert not stop_signal.exists()

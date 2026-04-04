@@ -178,6 +178,26 @@ Likewise, the user never interacts directly with Ralph, only with Interrogator.
 User <-> Interrogator <-> Tasks <-> Ralph
 ```
 
+## Stop and Halt Semantics
+
+JRI provides two distinct mechanisms for terminating the loop: graceful stop and hard halt.
+
+### Graceful Stop (`jri stop`)
+
+The graceful stop command creates a signal file at `.jri/signals/stop`. The loop checks for this signal at the end of each iteration. If found, the loop stops gracefully after completing the current task. The signal file is deleted at the start of a new `jri start` invocation. Optional reason text can be provided when creating the stop signal and is preserved in the signal file for logging.
+
+### Hard Halt (`jri halt`)
+
+The hard halt command sends SIGTERM to the tracked Ralph process and clears process tracking state from `.jri/state.json`. It works on both foreground and detached runs. The command uses process group killing when possible to ensure child processes are terminated. If no process is currently tracked, a `JriError` is raised.
+
+### Edge Cases and Interactions
+
+The stop signal persists across `jri start` invocations until it is consumed by the loop. When a halt occurs during active work, signal handlers raise `HaltRequested` to allow for cleanup. Recovery after a halt follows the same stale-run recovery path as other interruptions. Stop and halt compose cleanly with `jri start` recovery semantics. A stopped loop can be resumed with `jri start`; a halted loop requires recovery if it was interrupted mid-task.
+
+### State Consistency Guarantees
+
+After a graceful stop, task state is clean—the doing task has been moved appropriately. After a halt, the task may remain in `doing` and will be recovered on the next `jri start`. The timeline records the stop reason for auditability.
+
 ## Clients
 
 Clients are the different ways the user has to interact with these agents. 
