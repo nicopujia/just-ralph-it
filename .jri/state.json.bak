@@ -4,6 +4,7 @@
     "iteration_number": 24,
     "log_path": "/home/nico/justralph.it/.jri/logs/ralph/24-2026-04-04T12-22-04Z.log",
     "number": 1,
+    "session_id": "ses_2a78e7f5effe7moMLtskp5EYGK",
     "started_at": 1775305324,
     "task_slug": "surface-recovery-failures"
   },
@@ -13,6 +14,7 @@
       "iteration_number": 24,
       "log_path": "/home/nico/justralph.it/.jri/logs/ralph/24-2026-04-04T12-22-04Z.log",
       "number": 1,
+      "session_id": "ses_2a78e7f5effe7moMLtskp5EYGK",
       "started_at": 1775305324,
       "task_slug": "surface-recovery-failures"
     }
@@ -21,6 +23,12 @@
     "finished_at": 1775305269,
     "number": 23,
     "started_at": 1775305324
+  },
+  "process": {
+    "child_pid": 629684,
+    "detached": false,
+    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/24-2026-04-04T12-22-04Z.log",
+    "loop_pid": 629624
   },
   "session": "ses_2aafcab71ffeYv74dV9AXnjE5G"
 }
