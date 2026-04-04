@@ -1444,3 +1444,227 @@ def test_diff_artifact_is_created_for_recovered_completion(
     assert diff_path.exists()
     diff_text = diff_path.read_text(encoding="utf-8")
     assert "implemented.txt" in diff_text
+
+
+def test_successful_iteration_records_timeline_events(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    from jri.core.timeline import TimelineStore
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+
+    completed = service.start(iterations=1)
+
+    assert completed == 1
+    timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
+    assert timeline_path.exists()
+    store = TimelineStore(timeline_path)
+    events = store.read()
+    event_types = [e.event for e in events]
+    assert "attempt_started" in event_types
+    assert "iteration_completed" in event_types
+    started_events = [e for e in events if e.event == "attempt_started"]
+    assert len(started_events) == 1
+    assert started_events[0].iteration == 1
+    assert started_events[0].task == "implement-file"
+    completed_events = [e for e in events if e.event == "iteration_completed"]
+    assert len(completed_events) == 1
+    assert completed_events[0].iteration == 1
+    assert completed_events[0].task == "implement-file"
+
+
+def test_failed_iteration_records_timeline_events(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="failing-task",
+        title="Failing task",
+        priority=0,
+        assignee="Ralph",
+        body="This will fail.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
+    git(git_repo, "commit", "-m", "add failing task")
+
+    from jri.core.timeline import TimelineStore
+
+    service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+
+    completed = service.start(iterations=1)
+
+    assert completed == 0
+    timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
+    assert timeline_path.exists()
+    store = TimelineStore(timeline_path)
+    events = store.read()
+    event_types = [e.event for e in events]
+    assert "attempt_started" in event_types
+    assert "iteration_failed" in event_types
+    assert "recovery_completed" in event_types
+    failed_events = [e for e in events if e.event == "iteration_failed"]
+    assert len(failed_events) == 1
+    assert failed_events[0].task == "failing-task"
+
+
+def test_needs_human_iteration_records_timeline_events(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="needs-human-task",
+        title="Needs human task",
+        priority=0,
+        assignee="Ralph",
+        body="This will need human help.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/needs-human-task.md")
+    git(git_repo, "commit", "-m", "add needs human task")
+
+    from jri.core.timeline import TimelineStore
+
+    service = JriService(git_repo, opencode_client=NeedsHumanFakeOpenCodeClient())
+
+    completed = service.start(iterations=1)
+
+    assert completed == 0
+    timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
+    assert timeline_path.exists()
+    store = TimelineStore(timeline_path)
+    events = store.read()
+    event_types = [e.event for e in events]
+    assert "attempt_started" in event_types
+    assert "iteration_needs_human" in event_types
+    assert "recovery_completed" in event_types
+
+
+def test_escalated_task_records_timeline_event(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="failing-task",
+        title="Failing task",
+        priority=0,
+        assignee="Ralph",
+        body="This will fail three times.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
+    git(git_repo, "commit", "-m", "add failing task")
+
+    from jri.core.timeline import TimelineStore
+
+    for _ in range(3):
+        service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+        service.start(iterations=1)
+
+    timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
+    store = TimelineStore(timeline_path)
+    events = store.read()
+    escalated_events = [e for e in events if e.event == "task_escalated"]
+    assert len(escalated_events) == 1
+    assert escalated_events[0].task == "failing-task"
+    assert escalated_events[0].detail is not None
+    assert escalated_events[0].detail.get("failed_attempts") == 3
+
+
+def test_timeline_cli_shows_events(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    assert service.start(iterations=1) == 1
+
+    rc = run_cli(["timeline"], cwd=git_repo)
+    assert rc == 0
+    output = capsys.readouterr().out
+    assert "attempt_started" in output
+    assert "iteration_completed" in output
+    assert "implement-file" in output
+
+
+def test_timeline_cli_filters_by_iteration(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    assert service.start(iterations=1) == 1
+
+    rc = run_cli(["timeline", "--iteration", "1"], cwd=git_repo)
+    assert rc == 0
+    output = capsys.readouterr().out
+    assert "attempt_started" in output
+
+    rc = run_cli(["timeline", "--iteration", "99"], cwd=git_repo)
+    assert rc == 0
+    output = capsys.readouterr().out
+    assert "attempt_started" not in output
+
+
+def test_timeline_cli_outputs_jsonl(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    assert service.start(iterations=1) == 1
+
+    rc = run_cli(["timeline", "--json"], cwd=git_repo)
+    assert rc == 0
+    output = capsys.readouterr().out
+    import json
+
+    for line in output.strip().splitlines():
+        parsed = json.loads(line)
+        assert "ts" in parsed
+        assert "event" in parsed

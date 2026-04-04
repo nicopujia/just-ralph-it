@@ -88,6 +88,32 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 for task in promoted:
                     print(f"  - {task.slug}")
                 return 0
+            case "timeline":
+                from ..core.timeline import TimelineStore
+
+                timeline = TimelineStore(service.paths.timeline_path)
+                events = timeline.read()
+                if args.iteration is not None:
+                    events = [e for e in events if e.iteration == args.iteration]
+                if args.task:
+                    events = [e for e in events if e.task == args.task]
+                if args.json:
+                    for event in events:
+                        print(event.to_jsonl())
+                else:
+                    for event in events:
+                        parts = [event.ts, event.event]
+                        if event.iteration is not None:
+                            parts.append(f"iter={event.iteration}")
+                        if event.task is not None:
+                            parts.append(f"task={event.task}")
+                        if event.detail:
+                            detail_str = " ".join(
+                                f"{k}={v}" for k, v in event.detail.items()
+                            )
+                            parts.append(detail_str)
+                        print(" ".join(parts))
+                return 0
             case _:
                 parser.print_help()
                 return 1
@@ -252,6 +278,31 @@ def _build_parser() -> argparse.ArgumentParser:
         "--confirm",
         help="Explicit user confirmation text recorded for this promotion.",
     )
+
+    timeline_parser = subparsers.add_parser(
+        "timeline",
+        help="Show the execution timeline for this project.",
+        description=(
+            "Read the execution timeline and display recorded events. "
+            "Each line represents a key event from the Ralph run loop."
+        ),
+    )
+    timeline_parser.add_argument(
+        "--iteration",
+        type=int,
+        help="Filter to events for a specific iteration number.",
+    )
+    timeline_parser.add_argument(
+        "--task",
+        help="Filter to events for a specific task slug.",
+    )
+    timeline_parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json",
+        help="Output raw JSONL instead of formatted text.",
+    )
+
     return parser
 
 

@@ -33,6 +33,7 @@ from .tasks import (
     select_next_task,
     validate_draft_promotion,
 )
+from .timeline import TimelineEvent, TimelineStore
 
 _INIT_COMMIT_PATHS = (
     ".jri",
@@ -59,6 +60,7 @@ class JriService:
         self.paths = JriPaths(self.root)
         self.git = GitRepo(self.root)
         self.state_store = StateStore(self.paths.state_path)
+        self.timeline = TimelineStore(self.paths.timeline_path)
         self.opencode_client = opencode_client or OpenCodeClient()
         self._halt_requested = False
 
@@ -513,6 +515,15 @@ class JriService:
         )
         self.state_store.start_attempt(attempt)
         self.state_store.mark_iteration_started(started_at=started_at)
+        self.timeline.record(
+            TimelineEvent(
+                ts=TimelineStore.now_iso(),
+                event="attempt_started",
+                iteration=next_iteration,
+                task=task.slug,
+                detail={"attempt": attempt.number, "branch": branch},
+            )
+        )
         self.git.checkout_new_branch(branch)
         doing_task = move_task(task, self.paths.task_dir("doing"))
         self.git.commit_all_if_needed(f"jri start: begin {task.slug}")
@@ -571,11 +582,28 @@ class JriService:
                 export_path=export_path,
             )
             self._finish_attempt(attempt, outcome="needs human")
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="iteration_needs_human",
+                    iteration=next_iteration,
+                    task=task.slug,
+                )
+            )
             return "needs human"
 
         if result.outcome == "failed":
             self._recover_failed_iteration(doing_task, branch)
             self._finish_attempt(attempt, outcome="failed")
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="iteration_failed",
+                    iteration=next_iteration,
+                    task=task.slug,
+                    detail={"reason": "ralph_outcome_failed"},
+                )
+            )
             return "failed"
 
         default = self._default_branch()
@@ -599,9 +627,26 @@ class JriService:
                     f"make check failed for {task.slug}:\n{check.stderr}",
                     file=sys.stderr,
                 )
+                self.timeline.record(
+                    TimelineEvent(
+                        ts=TimelineStore.now_iso(),
+                        event="make_check_failed",
+                        iteration=next_iteration,
+                        task=task.slug,
+                        detail={"stderr": check.stderr[:500] if check.stderr else ""},
+                    )
+                )
                 self._recover_failed_iteration(doing_task, branch)
                 self._finish_attempt(attempt, outcome="failed")
                 return "failed"
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="make_check_passed",
+                    iteration=next_iteration,
+                    task=task.slug,
+                )
+            )
 
         self.git.checkout(default)
         self.git.merge_ff_only(branch)
@@ -625,6 +670,14 @@ class JriService:
             finished_at=finished_at,
         )
         self.state_store.clear_active_attempt()
+        self.timeline.record(
+            TimelineEvent(
+                ts=TimelineStore.now_iso(),
+                event="iteration_completed",
+                iteration=next_iteration,
+                task=task.slug,
+            )
+        )
         return "completed"
 
     def _ensure_initial_iteration_tag(self) -> None:
@@ -760,6 +813,15 @@ class JriService:
                 reason=reason,
                 task_slug=doing_task.slug,
                 process=process,
+            )
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="recovery_completed",
+                    iteration=None,
+                    task=doing_task.slug,
+                    detail={"mode": mode, "reason": reason},
+                )
             )
             self._mark_active_attempt_interrupted()
             self._reset_runtime_state()
@@ -927,6 +989,14 @@ class JriService:
                     f"jri: recover {doing_task.slug} after failed iteration"
                 )
             self._reset_runtime_state()
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="recovery_completed",
+                    task=doing_task.slug,
+                    detail={"reason": "iteration_failed"},
+                )
+            )
         except Exception as recovery_error:
             self._record_recovery_failure(
                 task_slug=doing_task.slug,
@@ -957,6 +1027,14 @@ class JriService:
         return None
 
     def _escalate_failed_task(self, task: Task) -> None:
+        self.timeline.record(
+            TimelineEvent(
+                ts=TimelineStore.now_iso(),
+                event="task_escalated",
+                task=task.slug,
+                detail={"failed_attempts": self._count_failed_attempts(task.slug)},
+            )
+        )
         todo_path = self.paths.task_path("todo", task.slug)
         if not todo_path.exists():
             return
@@ -1007,6 +1085,14 @@ class JriService:
                     f"jri: escalate {doing_task.slug} for human help"
                 )
             self._reset_runtime_state()
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="recovery_completed",
+                    task=doing_task.slug,
+                    detail={"reason": "needs_human"},
+                )
+            )
         except Exception as recovery_error:
             self._record_recovery_failure(
                 task_slug=doing_task.slug,

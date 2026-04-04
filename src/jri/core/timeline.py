@@ -1,0 +1,74 @@
+import json
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Literal
+
+TimelineEventType = Literal[
+    "attempt_started",
+    "iteration_completed",
+    "iteration_failed",
+    "iteration_needs_human",
+    "make_check_passed",
+    "make_check_failed",
+    "recovery_started",
+    "recovery_completed",
+    "task_escalated",
+    "run_interrupted",
+]
+
+
+@dataclass(frozen=True)
+class TimelineEvent:
+    ts: str
+    event: TimelineEventType
+    iteration: int | None = None
+    task: str | None = None
+    detail: dict[str, object] | None = None
+
+    def to_jsonl(self) -> str:
+        payload: dict[str, object] = {"ts": self.ts, "event": self.event}
+        if self.iteration is not None:
+            payload["iteration"] = self.iteration
+        if self.task is not None:
+            payload["task"] = self.task
+        if self.detail is not None:
+            payload["detail"] = self.detail
+        return json.dumps(payload, sort_keys=True)
+
+
+@dataclass
+class TimelineStore:
+    path: Path
+
+    def record(self, event: TimelineEvent) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write(event.to_jsonl() + "\n")
+
+    def read(self) -> list[TimelineEvent]:
+        if not self.path.exists():
+            return []
+        events: list[TimelineEvent] = []
+        for line in self.path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            events.append(
+                TimelineEvent(
+                    ts=str(payload.get("ts", "")),
+                    event=payload.get("event", ""),
+                    iteration=payload.get("iteration"),
+                    task=payload.get("task"),
+                    detail=payload.get("detail"),
+                )
+            )
+        return events
+
+    @staticmethod
+    def now_iso() -> str:
+        return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")

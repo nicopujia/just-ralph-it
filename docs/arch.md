@@ -12,6 +12,7 @@ Every project is initialized with the same base structure:
   signals/
   logs/
     diffs/<iteration number>-<slug>.diff
+    timeline.jsonl
     external/
     ralph/<iteration number>-<ISO 8601 start datetime>.log
   state.json
@@ -30,6 +31,12 @@ Every project is initialized with the same base structure:
   Each file contains the unified diff between `jri/<iteration-1>` and `jri/<iteration>` tags,
   capturing all changes Ralph made during that iteration.
   Diff artifacts follow the same retention policy as other logs: they are gitignored and persist until manually cleaned.
+  The execution timeline is written to `.jri/logs/timeline.jsonl`.
+  Each line is a JSON object recording a key event: attempt starts, iteration completions,
+  failures, human escalations, make-check outcomes, and recovery actions.
+  Timeline data makes it easy to reconstruct what the loop did, in what order, and why
+  it stopped or escalated — without digging through multiple log files.
+  Use `jri timeline` to display events, or read the JSONL directly for programmatic consumption.
 - **State** is stored in `.jri/state.json`.
   JRI writes it through a same-directory temp file and keeps `.jri/state.json.bak` as the last readable recovery copy.
   If `state.json` is invalid or partially written, JRI falls back to the backup and rewrites the primary file when it can.
