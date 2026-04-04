@@ -80,3 +80,36 @@ This produces a wheel and source distribution under `dist/`.
 Task metadata guidance:
 Draft tasks may omit `acceptance_criteria` while the work is still being clarified.
 Tasks promoted to `todo`, `doing`, or `done` must include a non-empty `acceptance_criteria` list.
+
+## `jri reset` contract
+
+`jri reset` is a recovery operation that restores the repo to the last successful iteration.
+It works even when the working tree is dirty or a feature branch is checked out.
+
+### What is restored
+
+- The default branch is hard-reset to the `jri/<iteration_number>` tag.
+
+### What is discarded
+
+- All commits on the default branch after that tag.
+- Uncommitted changes to tracked files.
+- Any leftover `ralph/*` feature branches from failed or stale runs.
+- In-progress runtime state (`process`, `active_attempt`, `started_at` in `state.json`).
+
+### What is preserved
+
+- `iteration_number`, `finished_at`, `session`, and `branch` in `state.json`.
+- The full attempt history for diagnostics.
+
+### Preconditions
+
+- The project must be initialized (`jri init`).
+- At least one successful iteration must exist (`iteration_number >= 1`).
+
+### Postconditions
+
+- The default branch is checked out and points to `jri/<iteration_number>`.
+- The working tree matches the tag (tracked files are clean).
+- `state.json` has no `process`, `active_attempt`, or `started_at`.
+- Attempt history is preserved for diagnostics.

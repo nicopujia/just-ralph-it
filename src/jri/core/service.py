@@ -150,14 +150,21 @@ class JriService:
 
     def reset(self) -> None:
         self.ensure_initialized()
-        self.git.ensure_clean()
         state = self.state_store.load()
-        default = self.git.default_branch(hint=state.branch)
-        self.git.checkout(default)
         iteration_number = state.iteration_number
         if iteration_number < 1:
             raise JriError("no successful iteration exists yet")
+        default = self.git.default_branch(hint=state.branch)
+        current = self.git.current_branch()
+        if current != default:
+            self.git.run("checkout", "-f", default)
         self.git.reset_hard(f"jri/{iteration_number}")
+        branches = self.git.run(
+            "branch", "--format=%(refname:short)"
+        ).stdout.strip().splitlines()
+        for branch in branches:
+            if branch.startswith("ralph/"):
+                self.git.delete_branch(branch)
         self.state_store.save(
             State(
                 iteration_number=iteration_number,

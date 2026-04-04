@@ -197,10 +197,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subparsers.add_parser(
         "reset",
-        help="Reset main back to the latest successful JRI iteration.",
+        help="Reset the default branch to the latest successful iteration.",
         description=(
-            "Check out main and hard-reset it to the latest successful JRI "
-            "iteration tag."
+            "Hard-reset the default branch to the latest successful JRI "
+            "iteration tag. Discards all uncommitted changes, commits, "
+            "and task state since that iteration. Clears in-progress "
+            "runtime state (process tracking, active attempt). "
+            "Preserves iteration number, session, and attempt history."
         ),
     )
     subparsers.add_parser(
