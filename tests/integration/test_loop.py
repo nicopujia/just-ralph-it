@@ -1426,14 +1426,10 @@ def test_diff_artifact_is_created_for_recovered_completion(
     first_client = SuccessfulFakeOpenCodeClient()
     first_service = JriService(git_repo, opencode_client=first_client)
 
-    def interrupted_save_diff(
-        iteration: int, task_slug: str
-    ) -> None:
+    def interrupted_save_diff(iteration: int, task_slug: str) -> None:
         raise KeyboardInterrupt("simulated interruption during diff save")
 
-    monkeypatch.setattr(
-        first_service, "_save_diff_artifact", interrupted_save_diff
-    )
+    monkeypatch.setattr(first_service, "_save_diff_artifact", interrupted_save_diff)
 
     with pytest.raises(KeyboardInterrupt, match="simulated interruption"):
         first_service.start(iterations=1)

@@ -212,8 +212,7 @@ class GitRepo:
         result = self.run("diff", from_ref, to_ref, check=False)
         if result.returncode not in (0, 1):
             raise JriError(
-                result.stderr.strip()
-                or f"failed to diff {from_ref}..{to_ref}"
+                result.stderr.strip() or f"failed to diff {from_ref}..{to_ref}"
             )
         return result.stdout
 
