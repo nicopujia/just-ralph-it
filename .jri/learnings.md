@@ -51,7 +51,11 @@
   `GitRepo.diff(from_ref, to_ref)` returns unified diff output; `JriPaths.diff_artifact_path(iteration, slug)` resolves the path.
   The `.jri/logs/diffs/` directory is covered by the existing `logs/` gitignore entry.
 - An execution timeline is persisted as JSONL at `.jri/logs/timeline.jsonl`.
-  Each line records a key loop event (attempt_started, iteration_completed, iteration_failed, iteration_needs_human, make_check_passed/failed, recovery_completed, task_escalated) with ISO 8601 timestamp, iteration number, task slug, and optional detail dict.
-  `TimelineStore` in `src/jri/core/timeline.py` handles append-only writes and reads.
-  `jri timeline` displays events with optional `--iteration`, `--task`, and `--json` filters.
-  The timeline is covered by the existing `logs/` gitignore entry.
+   Each line records a key loop event (attempt_started, iteration_completed, iteration_failed, iteration_needs_human, make_check_passed/failed, recovery_completed, task_escalated) with ISO 8601 timestamp, iteration number, task slug, and optional detail dict.
+   `TimelineStore` in `src/jri/core/timeline.py` handles append-only writes and reads.
+   `jri timeline` displays events with optional `--iteration`, `--task`, and `--json` filters.
+   The timeline is covered by the existing `logs/` gitignore entry.
+- Timeline record failures fall back to stderr so events are not lost. `timeline.record()` wraps writes in try/except and emits the JSONL event to stderr on failure.
+- `stderr_warning` and `execution_notice` timeline events capture messages that would otherwise only appear on stderr (task timeout, missing make command, make check failures, missing outcome markers).
+- Per-task Ralph logs are captured at `.jri/logs/ralph/<iteration>-<timestamp>.log` and the path is recorded in the `attempt_started` timeline event detail.
+- `OpenCodeRunResult.warnings` captures diagnostic messages (like missing outcome markers) that the service layer records as timeline events.
