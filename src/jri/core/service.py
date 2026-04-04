@@ -641,7 +641,11 @@ class JriService:
             self._finish_attempt(attempt, outcome="failed")
             raise JriError(f"OpenCode exited with status {result.returncode}")
 
-        export_path = self._export_session_if_available(result.session_id)
+        export_path = self._export_session_if_available(
+            result.session_id,
+            iteration=next_iteration,
+            task_slug=task.slug,
+        )
         attempt = replace(attempt, session_id=result.session_id)
         self.state_store.save_active_attempt(attempt)
 
@@ -941,6 +945,18 @@ class JriService:
                 phase="recover-stale-iteration",
                 error=recovery_error,
             )
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="cleanup_failed",
+                    task=doing_task.slug,
+                    detail={
+                        "phase": "recover-stale-iteration",
+                        "error_type": type(recovery_error).__name__,
+                        "error": str(recovery_error),
+                    },
+                )
+            )
             raise
 
     def _reset_runtime_state(self) -> None:
@@ -1110,6 +1126,18 @@ class JriService:
                 phase="recover-failed-iteration",
                 error=recovery_error,
             )
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="cleanup_failed",
+                    task=doing_task.slug,
+                    detail={
+                        "phase": "recover-failed-iteration",
+                        "error_type": type(recovery_error).__name__,
+                        "error": str(recovery_error),
+                    },
+                )
+            )
 
     def _count_failed_attempts(self, task_slug: str) -> int:
         state = self.state_store.load()
@@ -1148,7 +1176,11 @@ class JriService:
         todo_task = parse_task_file(todo_path)
         log_path = self._last_attempt_log_path(todo_task.slug)
         session_id = self._last_attempt_session_id(todo_task.slug)
-        export_path = self._export_session_if_available(session_id)
+        export_path = self._export_session_if_available(
+            session_id,
+            iteration=None,
+            task_slug=task.slug,
+        )
         human_task = self._create_needs_human_task(
             todo_task,
             log_path=log_path,
@@ -1206,14 +1238,47 @@ class JriService:
                 phase="recover-needs-human-iteration",
                 error=recovery_error,
             )
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="cleanup_failed",
+                    task=doing_task.slug,
+                    detail={
+                        "phase": "recover-needs-human-iteration",
+                        "error_type": type(recovery_error).__name__,
+                        "error": str(recovery_error),
+                    },
+                )
+            )
 
-    def _export_session_if_available(self, session_id: str | None) -> Path | None:
+    def _export_session_if_available(
+        self,
+        session_id: str | None,
+        *,
+        iteration: int | None = None,
+        task_slug: str | None = None,
+    ) -> Path | None:
         if session_id is None:
             return None
         export_path = self.paths.external_opencode_dir / f"{session_id}.json"
         try:
             self.opencode_client.export_session(session_id, export_path)
-        except JriError:
+        except JriError as exc:
+            # Surface export failure to timeline and stderr
+            error_msg = f"Failed to export session {session_id}: {exc}"
+            print(error_msg, file=sys.stderr)
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="export_failed",
+                    iteration=iteration,
+                    task=task_slug,
+                    detail={
+                        "session_id": session_id,
+                        "error": str(exc),
+                    },
+                )
+            )
             return None
         return export_path
 

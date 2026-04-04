@@ -2373,3 +2373,130 @@ def test_stop_signal_persists_across_invocations(git_repo: Path) -> None:
     completed = service2.start(iterations=1)
     assert completed == 1
     assert not stop_signal.exists()
+
+
+class ExportFailingFakeOpenCodeClient(OpenCodeClient):
+    """Simulates export failures."""
+
+    def __init__(self) -> None:
+        super().__init__(model=None)
+        self.calls: list[tuple[str, Path]] = []
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        on_start: object | None = None,
+    ) -> OpenCodeRunResult:
+        self.calls.append((prompt, log_path))
+        (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
+        log_path.write_text("fake run\n", encoding="utf-8")
+        return OpenCodeRunResult(
+            returncode=0, session_id="ses_export_fail", outcome="completed"
+        )
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        raise JriError(f"Export failed for session {session_id}")
+
+
+def test_export_failure_is_visible_in_timeline(git_repo: Path) -> None:
+    """Export failures are recorded in timeline and not silently ignored."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="export-fail-task",
+        title="Export fail task",
+        priority=0,
+        assignee="Ralph",
+        body="Task where export will fail.",
+        acceptance_criteria=["Task completes despite export failure"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/export-fail-task.md")
+    git(git_repo, "commit", "-m", "add export fail task")
+
+    from jri.core.timeline import TimelineStore
+
+    client = ExportFailingFakeOpenCodeClient()
+    service = JriService(git_repo, opencode_client=client)
+
+    # Task should still complete even if export fails
+    completed = service.start(iterations=1)
+    assert completed == 1
+
+    # Verify timeline has export_failed event
+    timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
+    assert timeline_path.exists()
+    store = TimelineStore(timeline_path)
+    events = store.read()
+
+    export_failed_events = [e for e in events if e.event == "export_failed"]
+    assert len(export_failed_events) == 1
+    assert export_failed_events[0].task == "export-fail-task"
+    assert export_failed_events[0].detail is not None
+    assert export_failed_events[0].detail.get("session_id") == "ses_export_fail"
+    assert "Export failed" in str(export_failed_events[0].detail.get("error", ""))
+
+
+def test_export_failure_during_escalation_is_visible(git_repo: Path) -> None:
+    """Export failures during task escalation are recorded in timeline."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="failing-task",
+        title="Failing task",
+        priority=0,
+        assignee="Ralph",
+        body="This task will fail and escalate.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
+    git(git_repo, "commit", "-m", "add failing task")
+
+    from jri.core.timeline import TimelineStore
+
+    # Create a client that reports failed outcome AND fails on export
+    class FailingWithExportFail(OpenCodeClient):
+        def __init__(self) -> None:
+            super().__init__(model=None)
+            self.call_count = 0
+
+        def run_ralph_task(
+            self,
+            *,
+            root: Path,
+            prompt: str,
+            log_path: Path,
+            on_start: object | None = None,
+        ) -> OpenCodeRunResult:
+            self.call_count += 1
+            log_path.write_text(f"failed run #{self.call_count}\n", encoding="utf-8")
+            # returncode=0 means process succeeded, outcome="failed" means Ralph failed
+            return OpenCodeRunResult(
+                returncode=0,
+                session_id=f"ses_fail_{self.call_count}",
+                outcome="failed",
+            )
+
+        def export_session(self, session_id: str, destination: Path) -> None:
+            raise JriError(f"Export failed for {session_id}")
+
+    # Run three iterations to trigger escalation
+    for _ in range(3):
+        client = FailingWithExportFail()
+        service = JriService(git_repo, opencode_client=client)
+        service.start(iterations=1)
+
+    # Verify timeline has export_failed events during escalation
+    timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
+    store = TimelineStore(timeline_path)
+    events = store.read()
+
+    export_failed_events = [e for e in events if e.event == "export_failed"]
+    # Should have at least one export failure from escalation
+    assert len(export_failed_events) >= 1
+    # All export failures should be for the failing task
+    for event in export_failed_events:
+        assert event.task == "failing-task"

@@ -18,6 +18,8 @@ TimelineEventType = Literal[
     "run_interrupted",
     "stderr_warning",
     "execution_notice",
+    "export_failed",
+    "cleanup_failed",
 ]
 
 

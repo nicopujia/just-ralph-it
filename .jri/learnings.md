@@ -66,3 +66,7 @@
 - `jri status` in plain text mode now shows tasks assigned to Human across all states (draft, todo, doing, done).
   The output includes the task status in brackets (e.g., `[todo  ] [P1] task-slug — Title`) sorted by priority, then status, then slug.
   This mirrors the `needs_human` list in the structured JSON output.
+- Export and cleanup failures are now surfaced in the timeline, not silently ignored.
+  - `export_failed` events are recorded when session export fails, with `session_id` and error details.
+  - `cleanup_failed` events are recorded when recovery/cleanup operations fail, with phase and error details.
+  - Both event types include the task slug and appear in timeline output for visibility.
