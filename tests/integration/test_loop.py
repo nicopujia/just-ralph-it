@@ -1866,3 +1866,208 @@ def test_task_timeout_records_timeline_event(git_repo: Path) -> None:
     assert loop_stopped_events[0].detail is not None
     assert loop_stopped_events[0].detail.get("reason") == "task_timeout"
     assert loop_stopped_events[0].detail.get("limit_seconds") == 1
+
+
+def test_successful_task_run_persists_logs(git_repo: Path) -> None:
+    """Verify that a successful task run creates durable per-task logs."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="log-test-task",
+        title="Log test task",
+        priority=0,
+        assignee="Ralph",
+        body="Create a file to verify logs are persisted.",
+        acceptance_criteria=["log-test.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/log-test-task.md")
+    git(git_repo, "commit", "-m", "add log test task")
+
+    from jri.core.timeline import TimelineStore
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+
+    completed = service.start(iterations=1)
+
+    assert completed == 1
+
+    # Verify Ralph log file exists
+    ralph_logs_dir = git_repo / ".jri" / "logs" / "ralph"
+    assert ralph_logs_dir.exists()
+    log_files = list(ralph_logs_dir.glob("*.log"))
+    assert len(log_files) == 1
+    ralph_log = log_files[0]
+    assert ralph_log.read_text(encoding="utf-8") == "fake run\n"
+
+    # Verify timeline has attempt_started event with log_path
+    timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
+    assert timeline_path.exists()
+    store = TimelineStore(timeline_path)
+    events = store.read()
+
+    started_events = [e for e in events if e.event == "attempt_started"]
+    assert len(started_events) == 1
+    assert started_events[0].detail is not None
+    assert "log_path" in started_events[0].detail
+    log_path_in_event = started_events[0].detail["log_path"]
+    assert "ralph" in log_path_in_event
+    assert ".log" in log_path_in_event
+
+
+def test_failed_task_run_persists_logs(git_repo: Path) -> None:
+    """Verify that a failed task run creates durable per-task logs."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="failing-log-task",
+        title="Failing log task",
+        priority=0,
+        assignee="Ralph",
+        body="This will fail but logs should be persisted.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/failing-log-task.md")
+    git(git_repo, "commit", "-m", "add failing log task")
+
+    from jri.core.timeline import TimelineStore
+
+    service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+
+    completed = service.start(iterations=1)
+
+    assert completed == 0
+
+    # Verify Ralph log file exists even for failed run
+    ralph_logs_dir = git_repo / ".jri" / "logs" / "ralph"
+    assert ralph_logs_dir.exists()
+    log_files = list(ralph_logs_dir.glob("*.log"))
+    assert len(log_files) == 1
+    ralph_log = log_files[0]
+    assert "fake failed run" in ralph_log.read_text(encoding="utf-8")
+
+    # Verify timeline has both attempt_started and iteration_failed events
+    timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
+    assert timeline_path.exists()
+    store = TimelineStore(timeline_path)
+    events = store.read()
+
+    started_events = [e for e in events if e.event == "attempt_started"]
+    assert len(started_events) == 1
+    assert started_events[0].detail is not None
+    assert "log_path" in started_events[0].detail
+
+    failed_events = [e for e in events if e.event == "iteration_failed"]
+    assert len(failed_events) == 1
+    assert failed_events[0].task == "failing-log-task"
+
+    # Verify recovery was logged
+    recovery_events = [e for e in events if e.event == "recovery_completed"]
+    assert len(recovery_events) == 1
+
+
+def test_needs_human_task_run_persists_logs(git_repo: Path) -> None:
+    """Verify that a needs-human task run creates durable per-task logs."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="needs-human-log-task",
+        title="Needs human log task",
+        priority=0,
+        assignee="Ralph",
+        body="This will need human help but logs should be persisted.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/needs-human-log-task.md")
+    git(git_repo, "commit", "-m", "add needs human log task")
+
+    from jri.core.timeline import TimelineStore
+
+    service = JriService(git_repo, opencode_client=NeedsHumanFakeOpenCodeClient())
+
+    completed = service.start(iterations=1)
+
+    assert completed == 0
+
+    # Verify Ralph log file exists
+    ralph_logs_dir = git_repo / ".jri" / "logs" / "ralph"
+    assert ralph_logs_dir.exists()
+    log_files = list(ralph_logs_dir.glob("*.log"))
+    assert len(log_files) == 1
+    ralph_log = log_files[0]
+    assert "fake needs-human run" in ralph_log.read_text(encoding="utf-8")
+
+    # Verify timeline has attempt_started and iteration_needs_human events
+    timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
+    assert timeline_path.exists()
+    store = TimelineStore(timeline_path)
+    events = store.read()
+
+    started_events = [e for e in events if e.event == "attempt_started"]
+    assert len(started_events) == 1
+    assert started_events[0].detail is not None
+    assert "log_path" in started_events[0].detail
+
+    needs_human_events = [e for e in events if e.event == "iteration_needs_human"]
+    assert len(needs_human_events) == 1
+    assert needs_human_events[0].task == "needs-human-log-task"
+
+    # Verify the Human task references the log path
+    todo_tasks = list_tasks(git_repo / ".jri" / "tasks" / "todo")
+    human_tasks = [t for t in todo_tasks if t.metadata.assignee == "Human"]
+    assert len(human_tasks) == 1
+    assert ".jri/logs/ralph/" in human_tasks[0].body
+
+
+def test_timeline_records_stderr_warnings(git_repo: Path) -> None:
+    """Verify that stderr-only messages are captured as timeline events."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="warning-test-task",
+        title="Warning test task",
+        priority=0,
+        assignee="Ralph",
+        body="Test that warnings are captured.",
+        acceptance_criteria=["warning-test.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/warning-test-task.md")
+    git(git_repo, "commit", "-m", "add warning test task")
+
+    # Create a client that returns warnings
+    class WarningFakeOpenCodeClient(SuccessfulFakeOpenCodeClient):
+        def run_ralph_task(
+            self,
+            *,
+            root: Path,
+            prompt: str,
+            log_path: Path,
+            on_start: object | None = None,
+        ) -> OpenCodeRunResult:
+            result = super().run_ralph_task(
+                root=root, prompt=prompt, log_path=log_path, on_start=on_start
+            )
+            return OpenCodeRunResult(
+                returncode=result.returncode,
+                session_id=result.session_id,
+                outcome=result.outcome,
+                warnings=["Test warning message"],
+            )
+
+    from jri.core.timeline import TimelineStore
+
+    service = JriService(git_repo, opencode_client=WarningFakeOpenCodeClient())
+
+    service.start(iterations=1)
+
+    # Verify timeline has stderr_warning event
+    timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
+    store = TimelineStore(timeline_path)
+    events = store.read()
+
+    warning_events = [e for e in events if e.event == "stderr_warning"]
+    assert len(warning_events) == 1
+    assert warning_events[0].task == "warning-test-task"
+    assert warning_events[0].detail is not None
+    assert warning_events[0].detail.get("message") == "Test warning message"
