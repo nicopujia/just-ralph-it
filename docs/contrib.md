@@ -58,6 +58,16 @@ uv run pytest tests/live/test_live_opencode.py --run-live-opencode --opencode-mo
 You can specify any available model you want.
 I recommend using the [free models from OpenCode Zen](https://opencode.ai/docs/zen/#pricing).
 
+The opt-in self-hosting proof test can be run with:
+
+```bash
+uv run pytest tests/live/test_self_hosting_proof.py --run-self-hosting-proof
+```
+
+It demonstrates the full JRI lifecycle — idea to task to loop — against a
+repository shaped like this one, using a fake OpenCode client so it runs fast
+and deterministically.
+
 ### Build
 
 Build distribution artifacts with:
