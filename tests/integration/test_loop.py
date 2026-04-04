@@ -1170,9 +1170,7 @@ def test_task_escalates_to_needs_human_after_three_failures(git_repo: Path) -> N
     todo_tasks = list_tasks(git_repo / ".jri" / "tasks" / "todo")
     human_tasks = [t for t in todo_tasks if t.metadata.assignee == "Human"]
     assert len(human_tasks) == 1
-    original = parse_task_file(
-        git_repo / ".jri" / "tasks" / "todo" / "failing-task.md"
-    )
+    original = parse_task_file(git_repo / ".jri" / "tasks" / "todo" / "failing-task.md")
     assert original.metadata.depends_on == [human_tasks[0].slug]
     assert "failing-task" in human_tasks[0].slug
 

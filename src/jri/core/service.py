@@ -297,7 +297,10 @@ class JriService:
                     completed += 1
                 elif outcome == "failed":
                     failed_slugs.add(next_task.slug)
-                    if self._count_failed_attempts(next_task.slug) >= _MAX_FAILED_ATTEMPTS:
+                    if (
+                        self._count_failed_attempts(next_task.slug)
+                        >= _MAX_FAILED_ATTEMPTS
+                    ):
                         self._escalate_failed_task(next_task)
                 elif outcome == "needs human":
                     failed_slugs.add(next_task.slug)
