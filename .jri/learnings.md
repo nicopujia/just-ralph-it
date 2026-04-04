@@ -32,3 +32,9 @@
   Fake `OpenCodeClient` subclasses need to override `list_sessions`, `launch_chat`, `run_ralph_task`, and `export_session`.
   The `run_ralph_task` method receives keyword-only arguments (`*`, root, prompt, log_path, on_start).
   The proof now exercises both a rejected unconfirmed `jri promote` attempt and a successful confirmed promotion after draft tasks gain acceptance criteria.
+- `validate_draft_promotion` now detects cycles in the combined dependency graph of selected drafts and already-promoted tasks.
+  It accepts an optional `promoted_deps: dict[str, list[str]]` mapping promoted slugs to their `depends_on` lists; cycle detection traverses the full graph.
+  `_detect_cycle` uses iterative DFS and returns the cycle path (list of slugs) or `None`.
+  The `JriService.promote_drafts` call passes `_promoted_task_deps()` to populate this.
+- The `.opencode/agents/` directory is gitignored; deployed agent prompts are written by `jri init`/`jri upgrade` from bundled resources in `src/jri/core/agents/`.
+  Only the bundled source files are tracked in git.
