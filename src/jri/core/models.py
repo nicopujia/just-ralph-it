@@ -105,9 +105,11 @@ class PromotionRecord:
     @classmethod
     def from_payload(cls, payload: dict[str, object]) -> Self:
         task_slugs_raw = payload.get("task_slugs")
-        task_slugs = [
-            item for item in task_slugs_raw if isinstance(item, str)
-        ] if isinstance(task_slugs_raw, list) else []
+        task_slugs = (
+            [item for item in task_slugs_raw if isinstance(item, str)]
+            if isinstance(task_slugs_raw, list)
+            else []
+        )
         return cls(
             confirmed_at=_int_or_default(payload.get("confirmed_at"), default=0),
             task_slugs=task_slugs,

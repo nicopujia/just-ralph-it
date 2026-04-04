@@ -169,7 +169,7 @@ class JriService:
         if not confirmation:
             raise JriError(
                 "draft promotion requires explicit user confirmation via "
-                "`jri promote --confirm \"...\"`"
+                '`jri promote --confirm "..."`'
             )
 
         draft_tasks = self._list_tasks("draft")
@@ -245,7 +245,9 @@ class JriService:
         except ValueError as exc:
             raise JriError(str(exc)) from exc
 
-    def _select_draft_tasks(self, draft_tasks: list[Task], slugs: list[str]) -> list[Task]:
+    def _select_draft_tasks(
+        self, draft_tasks: list[Task], slugs: list[str]
+    ) -> list[Task]:
         by_slug = {task.slug: task for task in draft_tasks}
         if not slugs:
             if not draft_tasks:
@@ -257,7 +259,10 @@ class JriService:
         if missing:
             joined = ", ".join(missing)
             raise JriError(f"draft task not found: {joined}")
-        return sorted((by_slug[slug] for slug in requested_slugs), key=lambda task: task.slug)
+        return sorted(
+            (by_slug[slug] for slug in requested_slugs),
+            key=lambda task: task.slug,
+        )
 
     def _promoted_task_slugs(self) -> set[str]:
         slugs: set[str] = set()

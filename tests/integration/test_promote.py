@@ -85,12 +85,15 @@ def test_promote_moves_selected_drafts_and_records_confirmation(
         "target_status": "todo",
         "user_confirmation": "Yes, promote these tasks to todo.",
     }
-    assert "jri promote: move drafts to todo" in git(git_repo, "log", "-1", "--format=%s")
+    assert "jri promote: move drafts to todo" in git(
+        git_repo,
+        "log",
+        "-1",
+        "--format=%s",
+    )
 
 
-def test_promote_rejects_dependency_on_unselected_draft(
-    git_repo: Path, capsys
-) -> None:
+def test_promote_rejects_dependency_on_unselected_draft(git_repo: Path, capsys) -> None:
     _init(git_repo)
     write_task(
         git_repo,

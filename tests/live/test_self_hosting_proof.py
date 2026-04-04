@@ -203,17 +203,20 @@ def _create_and_promote_tasks(repo: Path) -> None:
 
     # Promotion: reject unconfirmed requests, then allow explicit confirmation.
     assert run_cli(["promote", "implement-greet"], cwd=repo) == 1
-    assert run_cli(
-        [
-            "promote",
-            "implement-greet",
-            "add-greet-tests",
-            "update-changelog",
-            "--confirm",
-            "Yes, promote these tasks to todo.",
-        ],
-        cwd=repo,
-    ) == 0
+    assert (
+        run_cli(
+            [
+                "promote",
+                "implement-greet",
+                "add-greet-tests",
+                "update-changelog",
+                "--confirm",
+                "Yes, promote these tasks to todo.",
+            ],
+            cwd=repo,
+        )
+        == 0
+    )
 
 
 def _assert_convergence(repo: Path, completed: int) -> None:
