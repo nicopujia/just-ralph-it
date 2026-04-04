@@ -1,34 +1,37 @@
 {
   "active_attempt": {
-    "branch": "ralph/13/require-user-confirmation-for-promotion",
-    "iteration_number": 13,
-    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/13-2026-04-04T05-37-44Z.log",
-    "number": 1,
-    "session_id": "ses_2a900ab1effel9C39baR0S7okA",
-    "started_at": 1775281064,
-    "task_slug": "require-user-confirmation-for-promotion"
+    "branch": "ralph/14/add-promotion-readiness-review",
+    "iteration_number": 14,
+    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/14-2026-04-04T05-55-54Z.log",
+    "number": 2,
+    "started_at": 1775282154,
+    "task_slug": "add-promotion-readiness-review"
   },
   "attempts": [
     {
       "branch": "ralph/13/require-user-confirmation-for-promotion",
+      "finished_at": 1775281969,
       "iteration_number": 13,
       "log_path": "/home/nico/justralph.it/.jri/logs/ralph/13-2026-04-04T05-37-44Z.log",
       "number": 1,
+      "outcome": "completed",
       "session_id": "ses_2a900ab1effel9C39baR0S7okA",
       "started_at": 1775281064,
       "task_slug": "require-user-confirmation-for-promotion"
+    },
+    {
+      "branch": "ralph/14/add-promotion-readiness-review",
+      "iteration_number": 14,
+      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/14-2026-04-04T05-55-54Z.log",
+      "number": 2,
+      "started_at": 1775282154,
+      "task_slug": "add-promotion-readiness-review"
     }
   ],
   "iteration": {
-    "finished_at": 1775277947,
-    "number": 12,
-    "started_at": 1775281064
-  },
-  "process": {
-    "child_pid": 455279,
-    "detached": false,
-    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/13-2026-04-04T05-37-44Z.log",
-    "loop_pid": 455219
+    "finished_at": 1775281969,
+    "number": 13,
+    "started_at": 1775282154
   },
   "session": "ses_2aafcab71ffeYv74dV9AXnjE5G"
 }
