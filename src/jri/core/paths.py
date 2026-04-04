@@ -39,6 +39,10 @@ class JriPaths:
         return self.external_logs_dir / "opencode"
 
     @property
+    def diffs_dir(self) -> Path:
+        return self.logs_dir / "diffs"
+
+    @property
     def state_path(self) -> Path:
         return self.jri_dir / "state.json"
 
@@ -78,3 +82,6 @@ class JriPaths:
             "%Y-%m-%dT%H-%M-%SZ"
         )
         return self.ralph_logs_dir / f"{iteration}-{timestamp}.log"
+
+    def diff_artifact_path(self, iteration: int, slug: str) -> Path:
+        return self.diffs_dir / f"{iteration}-{slug}.diff"

@@ -208,6 +208,15 @@ class GitRepo:
             if result.returncode != 0:
                 raise JriError(result.stderr.strip() or f"failed to {' '.join(args)}")
 
+    def diff(self, from_ref: str, to_ref: str) -> str:
+        result = self.run("diff", from_ref, to_ref, check=False)
+        if result.returncode not in (0, 1):
+            raise JriError(
+                result.stderr.strip()
+                or f"failed to diff {from_ref}..{to_ref}"
+            )
+        return result.stdout
+
     def reset_hard(self, ref: str) -> None:
         result = self.run("reset", "--hard", ref, check=False)
         if result.returncode != 0:

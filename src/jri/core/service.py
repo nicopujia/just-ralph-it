@@ -612,6 +612,7 @@ class JriService:
         move_task(doing_task, self.paths.task_dir("done"))
         self.git.commit_all_if_needed(f"jri start: complete {task.slug}")
         self.git.create_tag(f"jri/{next_iteration}")
+        self._save_diff_artifact(next_iteration, task.slug)
 
         if self.git.has_remote():
             self.git.push_iteration(branch=branch, tag=f"jri/{next_iteration}")
@@ -843,6 +844,7 @@ class JriService:
         tag = f"jri/{attempt.iteration_number}"
         if not self.git.has_tag(tag):
             self.git.create_tag(tag)
+        self._save_diff_artifact(attempt.iteration_number, attempt.task_slug)
         if self.git.has_remote() and self.git.has_local_branch(attempt.branch):
             self.git.push_iteration(branch=attempt.branch, tag=tag)
 
@@ -1055,6 +1057,14 @@ class JriService:
         )
         self._write_task_file(task)
         return task
+
+    def _save_diff_artifact(self, iteration: int, task_slug: str) -> None:
+        prev_tag = f"jri/{iteration - 1}"
+        curr_tag = f"jri/{iteration}"
+        diff_text = self.git.diff(prev_tag, curr_tag)
+        diff_path = self.paths.diff_artifact_path(iteration, task_slug)
+        diff_path.parent.mkdir(parents=True, exist_ok=True)
+        diff_path.write_text(diff_text, encoding="utf-8")
 
     def _ensure_promoted_task_pristine(self, task: Task, *, baseline: str) -> None:
         if task.path.read_text(encoding="utf-8") == baseline:

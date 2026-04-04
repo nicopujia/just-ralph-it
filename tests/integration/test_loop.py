@@ -1369,3 +1369,82 @@ def test_state_is_understandable_after_partial_recovery_failure(
     assert "event=recovery-failure" in failure_log
     assert "task=failing-task" in failure_log
     assert "phase=recover-failed-iteration" in failure_log
+
+
+def test_successful_iteration_saves_diff_artifact(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+
+    completed = service.start(iterations=1)
+
+    assert completed == 1
+    diff_path = git_repo / ".jri" / "logs" / "diffs" / "1-implement-file.diff"
+    assert diff_path.exists()
+    diff_text = diff_path.read_text(encoding="utf-8")
+    assert "implemented.txt" in diff_text
+    assert "+implemented" in diff_text
+
+
+def test_diff_artifact_is_created_for_recovered_completion(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="Complete task A.",
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-b",
+        title="Task B",
+        priority=1,
+        assignee="Ralph",
+        body="Complete task B.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo")
+    git(git_repo, "commit", "-m", "add retry tasks")
+
+    first_client = SuccessfulFakeOpenCodeClient()
+    first_service = JriService(git_repo, opencode_client=first_client)
+
+    def interrupted_save_diff(
+        iteration: int, task_slug: str
+    ) -> None:
+        raise KeyboardInterrupt("simulated interruption during diff save")
+
+    monkeypatch.setattr(
+        first_service, "_save_diff_artifact", interrupted_save_diff
+    )
+
+    with pytest.raises(KeyboardInterrupt, match="simulated interruption"):
+        first_service.start(iterations=1)
+
+    assert (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
+    diff_path = git_repo / ".jri" / "logs" / "diffs" / "1-task-a.diff"
+    assert not diff_path.exists()
+
+    retry_service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    assert retry_service.start(iterations=1) == 1
+
+    assert diff_path.exists()
+    diff_text = diff_path.read_text(encoding="utf-8")
+    assert "implemented.txt" in diff_text

@@ -11,6 +11,7 @@ Every project is initialized with the same base structure:
       <slug>.md
   signals/
   logs/
+    diffs/<iteration number>-<slug>.diff
     external/
     ralph/<iteration number>-<ISO 8601 start datetime>.log
   state.json
@@ -25,6 +26,10 @@ Every project is initialized with the same base structure:
 - **Logs** contain absolutely everything that happens related to JRI.
   OpenCode session exports are written under `.jri/logs/external/opencode/<session-id>.json`.
   Stale-run recovery notes are appended to `.jri/logs/recovery.log`.
+  Per-iteration diff artifacts are written to `.jri/logs/diffs/<iteration>-<slug>.diff`.
+  Each file contains the unified diff between `jri/<iteration-1>` and `jri/<iteration>` tags,
+  capturing all changes Ralph made during that iteration.
+  Diff artifacts follow the same retention policy as other logs: they are gitignored and persist until manually cleaned.
 - **State** is stored in `.jri/state.json`.
   JRI writes it through a same-directory temp file and keeps `.jri/state.json.bak` as the last readable recovery copy.
   If `state.json` is invalid or partially written, JRI falls back to the backup and rewrites the primary file when it can.
