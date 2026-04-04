@@ -4,6 +4,7 @@
     "iteration_number": 25,
     "log_path": "/home/nico/justralph.it/.jri/logs/ralph/25-2026-04-04T12-26-33Z.log",
     "number": 1,
+    "session_id": "ses_2a78a61f3ffeo9Py4r1UHjGfAn",
     "started_at": 1775305593,
     "task_slug": "trigger-early-opencode-compaction"
   },
@@ -13,6 +14,7 @@
       "iteration_number": 25,
       "log_path": "/home/nico/justralph.it/.jri/logs/ralph/25-2026-04-04T12-26-33Z.log",
       "number": 1,
+      "session_id": "ses_2a78a61f3ffeo9Py4r1UHjGfAn",
       "started_at": 1775305593,
       "task_slug": "trigger-early-opencode-compaction"
     }
@@ -21,6 +23,12 @@
     "finished_at": 1775305548,
     "number": 24,
     "started_at": 1775305593
+  },
+  "process": {
+    "child_pid": 644614,
+    "detached": false,
+    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/25-2026-04-04T12-26-33Z.log",
+    "loop_pid": 644554
   },
   "session": "ses_2aafcab71ffeYv74dV9AXnjE5G"
 }
