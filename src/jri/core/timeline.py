@@ -15,6 +15,7 @@ TimelineEventType = Literal[
     "recovery_started",
     "recovery_completed",
     "task_escalated",
+    "loop_stopped",
     "run_interrupted",
     "stderr_warning",
     "execution_notice",
