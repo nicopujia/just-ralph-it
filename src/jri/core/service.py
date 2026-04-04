@@ -445,7 +445,6 @@ class JriService:
 
         completed = 0
         failed_slugs: set[str] = set()
-        stop_reason: str | None = None
         self._halt_requested = False
         old_handlers = self._install_signal_handlers()
         try:
@@ -484,7 +483,6 @@ class JriService:
 
                 # Check if we've reached the iteration limit before starting
                 if iterations is not None and completed >= iterations:
-                    stop_reason = "iteration_limit"
                     break
 
                 outcome = self._run_iteration(next_task, task_timeout=task_timeout)
@@ -501,14 +499,16 @@ class JriService:
                     failed_slugs.add(next_task.slug)
                 elif outcome == "timeout":
                     failed_slugs.add(next_task.slug)
-                    stop_reason = "task_timeout"
                     self.timeline.record(
                         TimelineEvent(
                             ts=TimelineStore.now_iso(),
                             event="loop_stopped",
                             iteration=self.state_store.load().iteration_number,
                             task=next_task.slug,
-                            detail={"reason": "task_timeout", "limit_seconds": task_timeout},
+                            detail={
+                                "reason": "task_timeout",
+                                "limit_seconds": task_timeout,
+                            },
                         )
                     )
                     break
@@ -519,7 +519,6 @@ class JriService:
 
             # Record if we stopped due to iteration limit
             if iterations is not None and completed >= iterations:
-                stop_reason = "iteration_limit"
                 self.timeline.record(
                     TimelineEvent(
                         ts=TimelineStore.now_iso(),
@@ -535,9 +534,7 @@ class JriService:
 
         return completed
 
-    def _run_iteration(
-        self, task: Task, task_timeout: int | None = None
-    ) -> Outcome:
+    def _run_iteration(self, task: Task, task_timeout: int | None = None) -> Outcome:
         state = self.state_store.load()
         next_iteration = state.iteration_number + 1
         started_at = int(time.time())

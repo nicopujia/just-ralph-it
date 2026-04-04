@@ -1851,7 +1851,9 @@ def test_task_timeout_records_timeline_event(git_repo: Path) -> None:
 
     # Should have iteration_failed event with timeout reason
     timeout_events = [
-        e for e in events if e.event == "iteration_failed"
+        e
+        for e in events
+        if e.event == "iteration_failed"
         and e.detail is not None
         and e.detail.get("reason") == "task_timeout"
     ]
