@@ -38,3 +38,6 @@
   The `JriService.promote_drafts` call passes `_promoted_task_deps()` to populate this.
 - The `.opencode/agents/` directory is gitignored; deployed agent prompts are written by `jri init`/`jri upgrade` from bundled resources in `src/jri/core/agents/`.
   Only the bundled source files are tracked in git.
+- `jri status --json` outputs a machine-readable structured payload with three top-level sections: `tasks` (counts + needs-human list), `retry_escalation` (per-task failure aggregation from the attempt journal), and `run` (current iteration + process state).
+  The schema is documented in `docs/arch.md` under "Structured status output".
+  Intended consumers: CI/CD dashboards, the future Web UI, and monitoring/alerting scripts.
