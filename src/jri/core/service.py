@@ -937,15 +937,6 @@ class JriService:
                 task_slug=doing_task.slug,
                 process=process,
             )
-            self.timeline.record(
-                TimelineEvent(
-                    ts=TimelineStore.now_iso(),
-                    event="recovery_completed",
-                    iteration=None,
-                    task=doing_task.slug,
-                    detail={"mode": mode, "reason": reason},
-                )
-            )
             self._mark_active_attempt_interrupted()
             self._reset_runtime_state()
             self.git.commit_all_if_needed(
