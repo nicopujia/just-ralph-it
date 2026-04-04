@@ -7,8 +7,7 @@
     "adopt-phase-ii-outcome-model",
     "define-stale-run-recovery-for-jri-start",
     "make-task-execution-idempotent",
-    "define-needs-human-representation",
-    "apply-failed-retry-and-escalation-policy--needs-human"
+    "define-needs-human-representation"
   ],
   "acceptance_criteria": [
     "Failed work is retried automatically up to 3 times before becoming `needs human`.",
