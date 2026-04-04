@@ -59,3 +59,7 @@
 - `stderr_warning` and `execution_notice` timeline events capture messages that would otherwise only appear on stderr (task timeout, missing make command, make check failures, missing outcome markers).
 - Per-task Ralph logs are captured at `.jri/logs/ralph/<iteration>-<timestamp>.log` and the path is recorded in the `attempt_started` timeline event detail.
 - `OpenCodeRunResult.warnings` captures diagnostic messages (like missing outcome markers) that the service layer records as timeline events.
+- `jri stop` and `jri halt` provide distinct termination mechanisms with well-defined edge-case semantics.
+  `stop` creates a signal file that the loop checks at the end of each iteration, allowing graceful shutdown after the current task completes.
+  `halt` sends SIGTERM to the tracked process and clears process state, requiring stale-run recovery if interrupted mid-task.
+  Both compose cleanly with `jri start` recovery semantics; see `docs/arch.md` "Stop and Halt Semantics" for full details.
