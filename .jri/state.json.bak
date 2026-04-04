@@ -1,34 +1,26 @@
 {
   "active_attempt": {
-    "branch": "ralph/23/surface-export-and-cleanup-failures",
-    "iteration_number": 23,
-    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/23-2026-04-04T12-13-55Z.log",
+    "branch": "ralph/24/surface-recovery-failures",
+    "iteration_number": 24,
+    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/24-2026-04-04T12-22-04Z.log",
     "number": 1,
-    "session_id": "ses_2a795f406ffe8xEOkvSRRt6pYj",
-    "started_at": 1775304835,
-    "task_slug": "surface-export-and-cleanup-failures"
+    "started_at": 1775305324,
+    "task_slug": "surface-recovery-failures"
   },
   "attempts": [
     {
-      "branch": "ralph/23/surface-export-and-cleanup-failures",
-      "iteration_number": 23,
-      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/23-2026-04-04T12-13-55Z.log",
+      "branch": "ralph/24/surface-recovery-failures",
+      "iteration_number": 24,
+      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/24-2026-04-04T12-22-04Z.log",
       "number": 1,
-      "session_id": "ses_2a795f406ffe8xEOkvSRRt6pYj",
-      "started_at": 1775304835,
-      "task_slug": "surface-export-and-cleanup-failures"
+      "started_at": 1775305324,
+      "task_slug": "surface-recovery-failures"
     }
   ],
   "iteration": {
-    "finished_at": 1775304796,
-    "number": 22,
-    "started_at": 1775304835
-  },
-  "process": {
-    "child_pid": 617001,
-    "detached": false,
-    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/23-2026-04-04T12-13-55Z.log",
-    "loop_pid": 616941
+    "finished_at": 1775305269,
+    "number": 23,
+    "started_at": 1775305324
   },
   "session": "ses_2aafcab71ffeYv74dV9AXnjE5G"
 }
