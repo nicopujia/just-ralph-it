@@ -208,14 +208,12 @@ class OpenCodeClient:
                         if isinstance(candidate, str):
                             session_id = candidate
                 try:
-                    wait_timeout = timeout if timeout is not None else 14400
-                    returncode = process.wait(timeout=wait_timeout)
+                    returncode = process.wait(timeout=30)
                 except subprocess.TimeoutExpired:
                     print(
-                        f"opencode process timed out after {wait_timeout}s",
+                        "opencode process still alive 30s after stdout closed",
                         file=sys.stderr,
                     )
-                    timed_out = True
                     process.terminate()
                     try:
                         process.wait(timeout=5)
