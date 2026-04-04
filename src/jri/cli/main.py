@@ -51,6 +51,12 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 service.reset()
                 return 0
             case "status":
+                if args.json:
+                    import json
+
+                    payload = service.structured_status()
+                    print(json.dumps(payload, indent=2, sort_keys=True))
+                    return 0
                 tasks_by_status = service.status()
                 total = sum(len(t) for t in tasks_by_status.values())
                 print(f"Tasks: {total} total\n")
@@ -215,13 +221,19 @@ def _build_parser() -> argparse.ArgumentParser:
             "Preserves iteration number, session, and attempt history."
         ),
     )
-    subparsers.add_parser(
+    status_parser = subparsers.add_parser(
         "status",
         help="Show task counts by status and list human todo tasks.",
         description=(
             "Display the total number of tasks, broken down by status, "
             "and list all todo tasks assigned to Human."
         ),
+    )
+    status_parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json",
+        help="Output machine-readable structured JSON instead of plain text.",
     )
     promote_parser = subparsers.add_parser(
         "promote",

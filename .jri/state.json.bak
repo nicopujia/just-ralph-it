@@ -66,5 +66,11 @@
     "number": 15,
     "started_at": 1775285211
   },
+  "process": {
+    "child_pid": 491091,
+    "detached": false,
+    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/16-2026-04-04T06-46-51Z.log",
+    "loop_pid": 487248
+  },
   "session": "ses_2aafcab71ffeYv74dV9AXnjE5G"
 }
