@@ -1,3 +1,4 @@
 logs/
 signals/
 state.json
+state.json.bak
