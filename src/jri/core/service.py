@@ -159,9 +159,11 @@ class JriService:
         if current != default:
             self.git.run("checkout", "-f", default)
         self.git.reset_hard(f"jri/{iteration_number}")
-        branches = self.git.run(
-            "branch", "--format=%(refname:short)"
-        ).stdout.strip().splitlines()
+        branches = (
+            self.git.run("branch", "--format=%(refname:short)")
+            .stdout.strip()
+            .splitlines()
+        )
         for branch in branches:
             if branch.startswith("ralph/"):
                 self.git.delete_branch(branch)

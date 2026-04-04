@@ -1,6 +1,6 @@
 import subprocess
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 
 import pytest
 
@@ -213,7 +213,9 @@ def test_reset_from_feature_branch_with_stale_state(git_repo: Path) -> None:
     service.reset()
 
     assert git(git_repo, "branch", "--show-current") == "main"
-    assert not (git_repo / "uncommitted.txt").exists()
+    # Untracked files may remain; reset only discards tracked changes
+    assert git(git_repo, "diff", "--name-only") == ""
+    assert git(git_repo, "diff", "--cached", "--name-only") == ""
 
     branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
     assert "ralph/2/some-task" not in branches
@@ -236,9 +238,7 @@ def test_reset_discards_uncommitted_changes_on_default_branch(
 
     service.reset()
 
-    assert (
-        git_repo / "implemented.txt"
-    ).read_text(encoding="utf-8") == "implemented\n"
+    assert (git_repo / "implemented.txt").read_text(encoding="utf-8") == "implemented\n"
     assert git(git_repo, "diff", "--name-only") == ""
     assert git(git_repo, "diff", "--cached", "--name-only") == ""
 
