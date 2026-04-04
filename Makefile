@@ -1,6 +1,6 @@
 .PHONY: check lint format typecheck schema-check test
 
-check: lint format schema-check test
+check: lint format schema-check typecheck test
 
 lint:
 	uv run ruff check .

@@ -1085,6 +1085,15 @@ class JriService:
         self.paths.recovery_log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.paths.recovery_log_path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
+        self.timeline.record(
+            TimelineEvent(
+                ts=TimelineStore.now_iso(),
+                event="recovery_completed",
+                iteration=None,
+                task=task_slug,
+                detail={"mode": mode, "reason": reason, "message": line},
+            )
+        )
 
     def _record_recovery_failure(
         self,
