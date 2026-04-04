@@ -562,7 +562,11 @@ class JriService:
                 event="attempt_started",
                 iteration=next_iteration,
                 task=task.slug,
-                detail={"attempt": attempt.number, "branch": branch},
+                detail={
+                    "attempt": attempt.number,
+                    "branch": branch,
+                    "log_path": str(log_path),
+                },
             )
         )
         self.git.checkout_new_branch(branch)
@@ -593,10 +597,19 @@ class JriService:
         # Check for task timeout
         finished_at = int(time.time())
         if deadline is not None and finished_at > deadline:
-            print(
+            timeout_msg = (
                 f"Task {task.slug} exceeded timeout of {task_timeout}s "
-                f"(took {finished_at - started_at}s)",
-                file=sys.stderr,
+                f"(took {finished_at - started_at}s)"
+            )
+            print(timeout_msg, file=sys.stderr)
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="stderr_warning",
+                    iteration=next_iteration,
+                    task=task.slug,
+                    detail={"message": timeout_msg},
+                )
             )
             self._recover_failed_iteration(doing_task, branch)
             self._finish_attempt(attempt, outcome="failed")
@@ -610,6 +623,18 @@ class JriService:
                 )
             )
             return "timeout"
+
+        # Record any warnings from the OpenCode run (e.g., missing outcome marker)
+        for warning in result.warnings:
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="stderr_warning",
+                    iteration=next_iteration,
+                    task=task.slug,
+                    detail={"message": warning},
+                )
+            )
 
         if result.returncode != 0:
             self._recover_failed_iteration(doing_task, branch)
@@ -681,14 +706,33 @@ class JriService:
                     text=True,
                 )
             except FileNotFoundError:
-                print("make: command not found", file=sys.stderr)
+                make_msg = "make: command not found"
+                print(make_msg, file=sys.stderr)
+                self.timeline.record(
+                    TimelineEvent(
+                        ts=TimelineStore.now_iso(),
+                        event="stderr_warning",
+                        iteration=next_iteration,
+                        task=task.slug,
+                        detail={"message": make_msg},
+                    )
+                )
                 self._recover_failed_iteration(doing_task, branch)
                 self._finish_attempt(attempt, outcome="failed")
                 return "failed"
             if check.returncode != 0:
-                print(
-                    f"make check failed for {task.slug}:\n{check.stderr}",
-                    file=sys.stderr,
+                make_fail_msg = f"make check failed for {task.slug}:\n{check.stderr}"
+                print(make_fail_msg, file=sys.stderr)
+                self.timeline.record(
+                    TimelineEvent(
+                        ts=TimelineStore.now_iso(),
+                        event="stderr_warning",
+                        iteration=next_iteration,
+                        task=task.slug,
+                        detail={
+                            "message": make_fail_msg[:500] if make_fail_msg else ""
+                        },
+                    )
                 )
                 self.timeline.record(
                     TimelineEvent(

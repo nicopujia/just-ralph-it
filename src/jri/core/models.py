@@ -29,6 +29,7 @@ class OpenCodeRunResult:
     returncode: int
     session_id: str | None = None
     outcome: Outcome = "failed"
+    warnings: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

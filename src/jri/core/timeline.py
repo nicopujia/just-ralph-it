@@ -1,4 +1,5 @@
 import json
+import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +16,8 @@ TimelineEventType = Literal[
     "recovery_completed",
     "task_escalated",
     "run_interrupted",
+    "stderr_warning",
+    "execution_notice",
 ]
 
 
@@ -42,9 +45,21 @@ class TimelineStore:
     path: Path
 
     def record(self, event: TimelineEvent) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as handle:
-            handle.write(event.to_jsonl() + "\n")
+        """Record an event to the timeline, with fallback to stderr on failure.
+
+        This ensures that even if the timeline file cannot be written,
+        the event details are still visible to operators.
+        """
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.open("a", encoding="utf-8") as handle:
+                handle.write(event.to_jsonl() + "\n")
+        except Exception as exc:
+            # Fallback: emit to stderr so the event is not lost
+            print(
+                f"timeline write failed: {exc}. Event: {event.to_jsonl()}",
+                file=sys.stderr,
+            )
 
     def read(self) -> list[TimelineEvent]:
         if not self.path.exists():

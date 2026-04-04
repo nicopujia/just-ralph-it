@@ -73,14 +73,14 @@ def _detect_outcome(text: str, current: Outcome | None) -> Outcome | None:
     return latest_match
 
 
-def _finalize_outcome(outcome: Outcome | None, *, context: str) -> Outcome:
+def _finalize_outcome(
+    outcome: Outcome | None, *, context: str
+) -> tuple[Outcome, list[str]]:
     if outcome is not None:
-        return outcome
-    print(
-        f"missing JRI outcome marker for {context}; treating run as failed",
-        file=sys.stderr,
-    )
-    return "failed"
+        return outcome, []
+    warning = f"missing JRI outcome marker for {context}; treating run as failed"
+    print(warning, file=sys.stderr)
+    return "failed", [warning]
 
 
 class OpenCodeClient:
@@ -211,10 +211,12 @@ class OpenCodeClient:
                     process.kill()
                 raise
 
+        outcome, warnings = _finalize_outcome(last_outcome, context="Ralph run")
         return OpenCodeRunResult(
             returncode=returncode,
             session_id=session_id,
-            outcome=_finalize_outcome(last_outcome, context="Ralph run"),
+            outcome=outcome,
+            warnings=warnings,
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
