@@ -19,3 +19,6 @@
 - Failed tasks are retried automatically up to 3 times (`_MAX_FAILED_ATTEMPTS`) across `jri start` invocations, then auto-escalated to `needs human`.
   The `_run_loop` uses both an in-memory `failed_slugs` set (prevents retrying within one loop invocation) and the persistent attempt count in `state.attempts` (crosses invocations).
   After the third failure, `_escalate_failed_task` creates a Human follow-up task and blocks the original via `depends_on`, identical to the direct Ralph `needs human` outcome path.
+- Recovery paths (`_recover_failed_iteration`, `_recover_needs_human_iteration`, `_recover_stale_iteration`) now log failures to `.jri/logs/recovery-failures.log` with timestamp, task slug, phase, error type, and error message.
+  The first two swallow the error (don't mask the original), while `_recover_stale_iteration` logs then re-raises.
+  `RecoveryError` is a new exception class in `errors.py` for callers that want to distinguish recovery-specific failures.
