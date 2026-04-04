@@ -4,6 +4,7 @@
     "iteration_number": 13,
     "log_path": "/home/nico/justralph.it/.jri/logs/ralph/13-2026-04-04T05-37-44Z.log",
     "number": 1,
+    "session_id": "ses_2a900ab1effel9C39baR0S7okA",
     "started_at": 1775281064,
     "task_slug": "require-user-confirmation-for-promotion"
   },
@@ -13,6 +14,7 @@
       "iteration_number": 13,
       "log_path": "/home/nico/justralph.it/.jri/logs/ralph/13-2026-04-04T05-37-44Z.log",
       "number": 1,
+      "session_id": "ses_2a900ab1effel9C39baR0S7okA",
       "started_at": 1775281064,
       "task_slug": "require-user-confirmation-for-promotion"
     }
@@ -21,6 +23,12 @@
     "finished_at": 1775277947,
     "number": 12,
     "started_at": 1775281064
+  },
+  "process": {
+    "child_pid": 455279,
+    "detached": false,
+    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/13-2026-04-04T05-37-44Z.log",
+    "loop_pid": 455219
   },
   "session": "ses_2aafcab71ffeYv74dV9AXnjE5G"
 }
