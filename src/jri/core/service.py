@@ -639,6 +639,18 @@ class JriService:
         if result.returncode != 0:
             self._recover_failed_iteration(doing_task, branch)
             self._finish_attempt(attempt, outcome="failed")
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="iteration_failed",
+                    iteration=next_iteration,
+                    task=task.slug,
+                    detail={
+                        "reason": "nonzero_returncode",
+                        "returncode": result.returncode,
+                    },
+                )
+            )
             raise JriError(f"OpenCode exited with status {result.returncode}")
 
         export_path = self._export_session_if_available(
