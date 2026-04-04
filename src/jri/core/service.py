@@ -620,7 +620,9 @@ class JriService:
         current_branch = self.git.current_branch()
         if current_branch == attempt.branch:
             if self.git.status_short():
-                self.git.commit_all_if_needed(f"ralph: partial work on {attempt.task_slug}")
+                self.git.commit_all_if_needed(
+                    f"ralph: partial work on {attempt.task_slug}"
+                )
             self.git.checkout(default)
         elif current_branch != default:
             raise JriError(f"jri start must begin from the {default} branch")

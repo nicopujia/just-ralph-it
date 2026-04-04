@@ -74,7 +74,10 @@ class AttemptState:
         return cls(
             number=_int_or_default(payload.get("number"), default=0),
             task_slug=_str_or_none(payload.get("task_slug")) or "",
-            iteration_number=_int_or_default(payload.get("iteration_number"), default=0),
+            iteration_number=_int_or_default(
+                payload.get("iteration_number"),
+                default=0,
+            ),
             branch=_str_or_none(payload.get("branch")) or "",
             started_at=_int_or_default(payload.get("started_at"), default=0),
             finished_at=_int_or_none(payload.get("finished_at")),

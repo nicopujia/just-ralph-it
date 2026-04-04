@@ -261,7 +261,10 @@ def test_start_completes_single_iteration(git_repo: Path) -> None:
     iteration = read_json(git_repo / ".jri" / "state.json")["iteration"]
     iteration_payload = cast(dict[str, object], iteration)
     assert iteration_payload["number"] == 1
-    attempts = cast(list[dict[str, object]], read_json(git_repo / ".jri" / "state.json")["attempts"])
+    attempts = cast(
+        list[dict[str, object]],
+        read_json(git_repo / ".jri" / "state.json")["attempts"],
+    )
     assert len(attempts) == 1
     assert attempts[0]["number"] == 1
     assert attempts[0]["task_slug"] == "implement-file"
@@ -485,9 +488,15 @@ def test_start_records_retry_attempt_after_interrupted_run(git_repo: Path) -> No
     completed = service.start(iterations=1)
 
     assert completed == 1
-    attempts = cast(list[dict[str, object]], read_json(git_repo / ".jri" / "state.json")["attempts"])
+    attempts = cast(
+        list[dict[str, object]],
+        read_json(git_repo / ".jri" / "state.json")["attempts"],
+    )
     assert [attempt["number"] for attempt in attempts] == [1, 2]
-    assert [attempt["task_slug"] for attempt in attempts] == ["implement-file", "implement-file"]
+    assert [attempt["task_slug"] for attempt in attempts] == [
+        "implement-file",
+        "implement-file",
+    ]
     assert attempts[0]["outcome"] == "interrupted"
     assert attempts[1]["outcome"] == "completed"
 
@@ -691,7 +700,9 @@ def test_start_retries_after_interrupted_completion_without_rerunning_task(
     first_client = SuccessfulFakeOpenCodeClient()
     first_service = JriService(git_repo, opencode_client=first_client)
 
-    def interrupted_mark_iteration_finished(*, iteration_number: int, finished_at: int) -> None:
+    def interrupted_mark_iteration_finished(
+        *, iteration_number: int, finished_at: int
+    ) -> None:
         raise KeyboardInterrupt("simulated interruption during completion")
 
     monkeypatch.setattr(
