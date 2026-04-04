@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
@@ -132,6 +133,7 @@ class OpenCodeClient:
         prompt: str,
         log_path: Path,
         on_start: Callable[[int], None] | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         command = [self.binary, "run", "--format", "json", "--agent", "ralph"]
         if self.model:
@@ -141,6 +143,7 @@ class OpenCodeClient:
 
         session_id: str | None = None
         last_outcome: Outcome | None = None
+        timed_out = False
         with log_path.open("a", encoding="utf-8") as log_file:
             try:
                 process = subprocess.Popen(
@@ -158,6 +161,20 @@ class OpenCodeClient:
                 ) from err
             if on_start is not None:
                 on_start(process.pid)
+
+            def _watchdog() -> None:
+                nonlocal timed_out
+                timed_out = True
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+
+            timer: threading.Timer | None = None
+            if timeout is not None and timeout > 0:
+                timer = threading.Timer(timeout, _watchdog)
+                timer.start()
 
             try:
                 assert process.stdout is not None
@@ -191,12 +208,14 @@ class OpenCodeClient:
                         if isinstance(candidate, str):
                             session_id = candidate
                 try:
-                    returncode = process.wait(timeout=14400)
+                    wait_timeout = timeout if timeout is not None else 14400
+                    returncode = process.wait(timeout=wait_timeout)
                 except subprocess.TimeoutExpired:
                     print(
-                        "opencode process timed out after 4 hours",
+                        f"opencode process timed out after {wait_timeout}s",
                         file=sys.stderr,
                     )
+                    timed_out = True
                     process.terminate()
                     try:
                         process.wait(timeout=5)
@@ -210,7 +229,19 @@ class OpenCodeClient:
                 except subprocess.TimeoutExpired:
                     process.kill()
                 raise
+            finally:
+                if timer is not None:
+                    timer.cancel()
 
+        if timed_out:
+            msg = f"opencode process killed after {timeout}s timeout"
+            print(msg, file=sys.stderr)
+            return OpenCodeRunResult(
+                returncode=-1,
+                session_id=session_id,
+                outcome="timeout",
+                warnings=[msg],
+            )
         outcome, warnings = _finalize_outcome(last_outcome, context="Ralph run")
         return OpenCodeRunResult(
             returncode=returncode,

@@ -24,6 +24,7 @@ class SuccessfulFakeOpenCodeClient(OpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: object | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         self.calls.append((prompt, log_path))
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
@@ -48,6 +49,7 @@ class FailedFakeOpenCodeClient(OpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: object | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         self.calls.append((prompt, log_path))
         log_path.write_text("fake failed run\n", encoding="utf-8")

@@ -65,6 +65,7 @@ class _SelfHostingFakeClient(OpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: Callable[[int], None] | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         slug = _extract_slug(prompt)
         if slug in _TASK_ARTIFACTS:

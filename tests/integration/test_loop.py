@@ -29,6 +29,7 @@ class SuccessfulFakeOpenCodeClient(OpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: object | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         self.calls.append((prompt, log_path))
         self.models_used.append(self.model)
@@ -56,6 +57,7 @@ class NeedsHumanFakeOpenCodeClient(OpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: object | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         self.calls.append((prompt, log_path))
         log_path.write_text("fake needs-human run\n", encoding="utf-8")
@@ -84,6 +86,7 @@ class NeedsHumanThenSuccessfulFakeOpenCodeClient(OpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: object | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         self.calls.append((prompt, log_path))
         self._call_count += 1
@@ -109,6 +112,7 @@ class MissingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: object | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         (root / ".jri" / "tasks" / "doing" / "implement-file.md").unlink()
         return super().run_ralph_task(
@@ -116,6 +120,7 @@ class MissingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
             prompt=prompt,
             log_path=log_path,
             on_start=on_start,
+            timeout=timeout,
         )
 
 
@@ -127,6 +132,7 @@ class MutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: object | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         doing_path = root / ".jri" / "tasks" / "doing" / "implement-file.md"
         doing_path.write_text(
@@ -138,6 +144,7 @@ class MutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
             prompt=prompt,
             log_path=log_path,
             on_start=on_start,
+            timeout=timeout,
         )
 
 
@@ -149,6 +156,7 @@ class CommittedMutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: object | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         doing_path = root / ".jri" / "tasks" / "doing" / "implement-file.md"
         doing_path.write_text(
@@ -162,6 +170,7 @@ class CommittedMutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
             prompt=prompt,
             log_path=log_path,
             on_start=on_start,
+            timeout=timeout,
         )
 
 
@@ -173,6 +182,7 @@ class FollowUpDraftOpenCodeClient(SuccessfulFakeOpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: object | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         write_task(
             root,
@@ -189,6 +199,7 @@ class FollowUpDraftOpenCodeClient(SuccessfulFakeOpenCodeClient):
             prompt=prompt,
             log_path=log_path,
             on_start=on_start,
+            timeout=timeout,
         )
 
 
@@ -941,6 +952,7 @@ class MakeCheckFailsFakeOpenCodeClient(OpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: object | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         self.calls.append((prompt, log_path))
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
@@ -967,6 +979,7 @@ class FailedFakeOpenCodeClient(OpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: object | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         self.calls.append((prompt, log_path))
         log_path.write_text("fake failed run\n", encoding="utf-8")
@@ -1776,6 +1789,7 @@ class SlowFakeOpenCodeClient(OpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: object | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         import time
 
@@ -2046,9 +2060,14 @@ def test_timeline_records_stderr_warnings(git_repo: Path) -> None:
             prompt: str,
             log_path: Path,
             on_start: object | None = None,
+            timeout: int | None = None,
         ) -> OpenCodeRunResult:
             result = super().run_ralph_task(
-                root=root, prompt=prompt, log_path=log_path, on_start=on_start
+                root=root,
+                prompt=prompt,
+                log_path=log_path,
+                on_start=on_start,
+                timeout=timeout,
             )
             return OpenCodeRunResult(
                 returncode=result.returncode,
@@ -2090,10 +2109,15 @@ class StopAfterFirstTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: object | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         self._call_count += 1
         result = super().run_ralph_task(
-            root=root, prompt=prompt, log_path=log_path, on_start=on_start
+            root=root,
+            prompt=prompt,
+            log_path=log_path,
+            on_start=on_start,
+            timeout=timeout,
         )
         # Create stop signal after first task completes
         if self._call_count == 1:
@@ -2393,6 +2417,7 @@ class ExportFailingFakeOpenCodeClient(OpenCodeClient):
         prompt: str,
         log_path: Path,
         on_start: object | None = None,
+        timeout: int | None = None,
     ) -> OpenCodeRunResult:
         self.calls.append((prompt, log_path))
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
@@ -2474,6 +2499,7 @@ def test_export_failure_during_escalation_is_visible(git_repo: Path) -> None:
             prompt: str,
             log_path: Path,
             on_start: object | None = None,
+            timeout: int | None = None,
         ) -> OpenCodeRunResult:
             self.call_count += 1
             log_path.write_text(f"failed run #{self.call_count}\n", encoding="utf-8")

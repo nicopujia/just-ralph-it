@@ -592,6 +592,7 @@ class JriService:
                 log_path=log_path,
                 detached=False,
             ),
+            timeout=task_timeout,
         )
 
         # Check for task timeout
