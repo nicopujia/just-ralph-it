@@ -1,14 +1,8 @@
 {
   "iteration": {
-    "finished_at": 1775256567,
-    "number": 6,
-    "started_at": 1775256683
-  },
-  "process": {
-    "child_pid": 304519,
-    "detached": false,
-    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/7-2026-04-03T22-51-23Z.log",
-    "loop_pid": 304459
+    "finished_at": 1775257655,
+    "number": 7,
+    "started_at": 1775265880
   },
   "session": "ses_2aafcab71ffeYv74dV9AXnjE5G"
 }
