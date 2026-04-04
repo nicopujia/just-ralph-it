@@ -14,3 +14,5 @@
   Draft tasks may omit it, `validate_repo()` and runtime task loading both enforce the rule, and `tests.helpers.write_task()` auto-fills promoted test fixtures unless a test sets criteria explicitly.
 - `jri start` now preflights stale runs before launching.
   A lone `doing` task with a missing or dead tracked loop PID is moved back to `todo`, in-progress runtime state is cleared, and the recovery is recorded in `.jri/logs/recovery.log`; a live tracked loop PID still blocks a second start.
+- `.jri/state.json` now keeps a minimal execution-attempt journal via `active_attempt` and `attempts`.
+  Recovery uses that metadata plus git state to tell first runs from retries and to finish already-applied completions without rerunning Ralph.

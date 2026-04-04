@@ -28,6 +28,9 @@ Every project is initialized with the same base structure:
 - **State** is stored in `.jri/state.json`.
   JRI writes it through a same-directory temp file and keeps `.jri/state.json.bak` as the last readable recovery copy.
   If `state.json` is invalid or partially written, JRI falls back to the backup and rewrites the primary file when it can.
+  It also keeps a minimal execution journal:
+  `active_attempt` tracks the current Ralph task attempt, and `attempts` keeps the durable attempt history.
+  Each attempt records the task slug, iteration number, branch, timestamps, Ralph log path, optional OpenCode session ID, and final outcome when known.
 
 The following are `.gitignore`d:
 
@@ -93,7 +96,9 @@ JRI moves the active task through `.jri/tasks/todo/`, `.jri/tasks/doing/`, and `
 
 `jri start` also performs stale-run recovery before a new loop begins.
 If `.jri/tasks/doing/` contains exactly one task but the tracked loop PID is missing or dead, JRI treats the run as interrupted.
-It moves the task back to `todo`, clears in-progress runtime state (`started_at` and tracked process metadata), records the event in `.jri/logs/recovery.log`, and commits the task move as `jri: recover <slug> after stale run`.
+If the active attempt has not applied completion side effects yet, recovery moves the task back to `todo`, records that attempt as `interrupted`, clears in-progress runtime state (`started_at` and tracked process metadata), and commits the task move as `jri: recover <slug> after stale run`.
+If the repo already contains the completed result for that attempt, recovery finishes the remaining bookkeeping from the attempt record instead of rerunning Ralph.
+That is the idempotency contract for interrupted retries: retries may create a new attempt, but they must not duplicate already-applied completion side effects.
 Foreground starts continue into the loop immediately after recovery.
 Detached starts recover first and then launch a fresh background loop.
 If the tracked loop PID is still alive, `jri start` refuses to start a second loop.
