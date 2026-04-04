@@ -1,45 +1,26 @@
 {
   "active_attempt": {
-    "branch": "ralph/17/capture-per-task-diff-artifacts",
-    "iteration_number": 17,
-    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/17-2026-04-04T07-07-08Z.log",
-    "number": 2,
-    "session_id": "ses_2a8aed254ffeeO5NPv7OStBvzJ",
-    "started_at": 1775286428,
-    "task_slug": "capture-per-task-diff-artifacts"
+    "branch": "ralph/18/add-execution-timeline",
+    "iteration_number": 18,
+    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/18-2026-04-04T07-20-31Z.log",
+    "number": 1,
+    "started_at": 1775287231,
+    "task_slug": "add-execution-timeline"
   },
   "attempts": [
     {
-      "branch": "ralph/17/add-execution-timeline",
-      "finished_at": 1775286428,
-      "iteration_number": 17,
-      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/17-2026-04-04T06-56-13Z.log",
+      "branch": "ralph/18/add-execution-timeline",
+      "iteration_number": 18,
+      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/18-2026-04-04T07-20-31Z.log",
       "number": 1,
-      "outcome": "failed",
-      "session_id": "ses_2a8b8d244ffevtrUb1lpXE9Z4H",
-      "started_at": 1775285773,
+      "started_at": 1775287231,
       "task_slug": "add-execution-timeline"
-    },
-    {
-      "branch": "ralph/17/capture-per-task-diff-artifacts",
-      "iteration_number": 17,
-      "log_path": "/home/nico/justralph.it/.jri/logs/ralph/17-2026-04-04T07-07-08Z.log",
-      "number": 2,
-      "session_id": "ses_2a8aed254ffeeO5NPv7OStBvzJ",
-      "started_at": 1775286428,
-      "task_slug": "capture-per-task-diff-artifacts"
     }
   ],
   "iteration": {
-    "finished_at": 1775285671,
-    "number": 16,
-    "started_at": 1775286428
-  },
-  "process": {
-    "child_pid": 506097,
-    "detached": false,
-    "log_path": "/home/nico/justralph.it/.jri/logs/ralph/17-2026-04-04T07-07-08Z.log",
-    "loop_pid": 502820
+    "finished_at": 1775287009,
+    "number": 17,
+    "started_at": 1775287231
   },
   "session": "ses_2aafcab71ffeYv74dV9AXnjE5G"
 }
