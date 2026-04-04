@@ -37,6 +37,48 @@ Every project is initialized with the same base structure:
   Timeline data makes it easy to reconstruct what the loop did, in what order, and why
   it stopped or escalated — without digging through multiple log files.
   Use `jri timeline` to display events, or read the JSONL directly for programmatic consumption.
+  The timeline also captures `stderr_warning` events for messages that would otherwise
+  only appear on stderr, ensuring all diagnostic output is durably persisted.
+
+## Per-task Logs
+
+Every task execution produces durable logs that operators can inspect to understand what happened.
+
+### Where to Look
+
+| What Happened | Where to Look |
+|---------------|---------------|
+| Ralph's full output (stdout/stderr) | `.jri/logs/ralph/<iteration>-<timestamp>.log` |
+| Execution timeline (events in order) | `.jri/logs/timeline.jsonl` |
+| Recovery actions | `.jri/logs/recovery.log` |
+| Recovery failures | `.jri/logs/recovery-failures.log` |
+| Code changes made by Ralph | `.jri/logs/diffs/<iteration>-<slug>.diff` |
+| OpenCode session export | `.jri/logs/external/opencode/<session-id>.json` |
+
+### What Gets Logged
+
+**Normal execution** (task succeeds):
+- `attempt_started` event with `log_path` pointing to the Ralph log
+- `make_check_passed` event (if Makefile exists)
+- `iteration_completed` event
+- Diff artifact showing all changes
+
+**Failed execution** (task fails):
+- `attempt_started` event with `log_path`
+- `make_check_failed` or `iteration_failed` event with reason
+- `stderr_warning` events for any stderr-only messages
+- `recovery_completed` event
+- Ralph log with full output preserved
+
+**Needs human** (escalation):
+- `attempt_started` event with `log_path`
+- `iteration_needs_human` event
+- `task_escalated` event (after 3 failed attempts)
+- Human task body references the log path for investigation
+
+### Log Durability
+
+All log writes use the same crash-safe pattern as state storage: temp-file writes in the same directory followed by atomic rename. If the timeline cannot be written, the event is emitted to stderr so it is not lost. Ralph logs are opened in append mode at the start of each task and flushed after every line.
 - **State** is stored in `.jri/state.json`.
   JRI writes it through a same-directory temp file and keeps `.jri/state.json.bak` as the last readable recovery copy.
   If `state.json` is invalid or partially written, JRI falls back to the backup and rewrites the primary file when it can.
