@@ -4,6 +4,7 @@
     "iteration_number": 16,
     "log_path": "/home/nico/justralph.it/.jri/logs/ralph/16-2026-04-04T06-46-51Z.log",
     "number": 5,
+    "session_id": "ses_2a8c16323ffeLlueVhvIoF2wq2",
     "started_at": 1775285211,
     "task_slug": "add-structured-status-output"
   },
@@ -57,6 +58,7 @@
       "iteration_number": 16,
       "log_path": "/home/nico/justralph.it/.jri/logs/ralph/16-2026-04-04T06-46-51Z.log",
       "number": 5,
+      "session_id": "ses_2a8c16323ffeLlueVhvIoF2wq2",
       "started_at": 1775285211,
       "task_slug": "add-structured-status-output"
     }
