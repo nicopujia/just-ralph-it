@@ -292,3 +292,119 @@ def test_validate_draft_promotion_rejects_unknown_dependencies() -> None:
             all_draft_slugs={"build-ui"},
             promoted_slugs=set(),
         )
+
+
+def test_validate_draft_promotion_allows_acyclic_graph() -> None:
+    validate_draft_promotion(
+        [
+            make_task("setup", acceptance_criteria=["setup done"]),
+            make_task(
+                "build-ui",
+                depends_on=["setup"],
+                acceptance_criteria=["UI exists"],
+            ),
+            make_task(
+                "build-api",
+                depends_on=["setup"],
+                acceptance_criteria=["API exists"],
+            ),
+            make_task(
+                "integrate",
+                depends_on=["build-ui", "build-api"],
+                acceptance_criteria=["integrated"],
+            ),
+        ],
+        all_draft_slugs={"setup", "build-ui", "build-api", "integrate"},
+        promoted_slugs=set(),
+    )
+
+
+def test_validate_draft_promotion_rejects_direct_cycle() -> None:
+    with pytest.raises(ValueError, match="cyclic dependency"):
+        validate_draft_promotion(
+            [
+                make_task(
+                    "alpha",
+                    depends_on=["beta"],
+                    acceptance_criteria=["alpha done"],
+                ),
+                make_task(
+                    "beta",
+                    depends_on=["alpha"],
+                    acceptance_criteria=["beta done"],
+                ),
+            ],
+            all_draft_slugs={"alpha", "beta"},
+            promoted_slugs=set(),
+        )
+
+
+def test_validate_draft_promotion_rejects_transitive_cycle() -> None:
+    with pytest.raises(ValueError, match="cyclic dependency"):
+        validate_draft_promotion(
+            [
+                make_task(
+                    "alpha",
+                    depends_on=["gamma"],
+                    acceptance_criteria=["alpha done"],
+                ),
+                make_task(
+                    "beta",
+                    depends_on=["alpha"],
+                    acceptance_criteria=["beta done"],
+                ),
+                make_task(
+                    "gamma",
+                    depends_on=["beta"],
+                    acceptance_criteria=["gamma done"],
+                ),
+            ],
+            all_draft_slugs={"alpha", "beta", "gamma"},
+            promoted_slugs=set(),
+        )
+
+
+def test_validate_draft_promotion_rejects_cycle_spanning_promoted_tasks() -> None:
+    with pytest.raises(ValueError, match="cyclic dependency"):
+        validate_draft_promotion(
+            [
+                make_task(
+                    "new-task",
+                    depends_on=["existing-a"],
+                    acceptance_criteria=["new done"],
+                ),
+            ],
+            all_draft_slugs={"new-task"},
+            promoted_slugs={"existing-a"},
+            promoted_deps={"existing-a": ["new-task"]},
+        )
+
+
+def test_validate_draft_promotion_allows_new_task_depending_on_promoted() -> None:
+    validate_draft_promotion(
+        [
+            make_task(
+                "new-task",
+                depends_on=["existing-a"],
+                acceptance_criteria=["new done"],
+            ),
+        ],
+        all_draft_slugs={"new-task"},
+        promoted_slugs={"existing-a"},
+        promoted_deps={"existing-a": []},
+    )
+
+
+def test_validate_draft_promotion_rejects_self_dependency() -> None:
+    with pytest.raises(ValueError, match="cyclic dependency"):
+        validate_draft_promotion(
+            [
+                make_task(
+                    "recursive",
+                    depends_on=["recursive"],
+                    acceptance_criteria=["done"],
+                ),
+            ],
+            all_draft_slugs={"recursive"},
+            promoted_slugs=set(),
+        )

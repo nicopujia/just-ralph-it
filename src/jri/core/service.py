@@ -179,6 +179,7 @@ class JriService:
                 selected,
                 all_draft_slugs={task.slug for task in draft_tasks},
                 promoted_slugs=self._promoted_task_slugs(),
+                promoted_deps=self._promoted_task_deps(),
             )
         except ValueError as exc:
             raise JriError(str(exc)) from exc
@@ -269,6 +270,13 @@ class JriService:
         for status in ("todo", "doing", "done"):
             slugs.update(task.slug for task in self._list_tasks(status))
         return slugs
+
+    def _promoted_task_deps(self) -> dict[str, list[str]]:
+        deps: dict[str, list[str]] = {}
+        for status in ("todo", "doing", "done"):
+            for task in self._list_tasks(status):
+                deps[task.slug] = list(task.metadata.depends_on)
+        return deps
 
     def _default_branch(self) -> str:
         return self.git.default_branch(hint=self.state_store.load().branch)

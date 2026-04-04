@@ -151,6 +151,7 @@ def validate_draft_promotion(
     *,
     all_draft_slugs: set[str],
     promoted_slugs: set[str],
+    promoted_deps: dict[str, list[str]] | None = None,
 ) -> None:
     if not tasks:
         raise ValueError("no draft tasks selected for promotion")
@@ -190,6 +191,56 @@ def validate_draft_promotion(
     if unknown_dependencies:
         joined = ", ".join(sorted(unknown_dependencies))
         raise ValueError(f"draft promotion has unknown dependency references: {joined}")
+
+    cycle = _detect_cycle(tasks, promoted_slugs, promoted_deps or {})
+    if cycle:
+        joined = " -> ".join(cycle)
+        raise ValueError(
+            f"draft promotion introduces a cyclic dependency: {joined}"
+        )
+
+
+def _detect_cycle(
+    tasks: list[Task],
+    promoted_slugs: set[str],
+    promoted_deps: dict[str, list[str]],
+) -> list[str] | None:
+    """Return a cycle as a list of slugs, or None if the graph is acyclic."""
+    graph: dict[str, list[str]] = {}
+    for task in tasks:
+        graph[task.slug] = list(task.metadata.depends_on)
+    for slug in promoted_slugs:
+        if slug not in graph:
+            graph[slug] = promoted_deps.get(slug, [])
+
+    visited: set[str] = set()
+    in_stack: set[str] = set()
+    path: list[str] = []
+
+    def dfs(node: str) -> list[str] | None:
+        visited.add(node)
+        in_stack.add(node)
+        path.append(node)
+        for neighbor in graph.get(node, []):
+            if neighbor not in graph:
+                continue
+            if neighbor in in_stack:
+                cycle_start = path.index(neighbor)
+                return path[cycle_start:] + [neighbor]
+            if neighbor not in visited:
+                result = dfs(neighbor)
+                if result is not None:
+                    return result
+        path.pop()
+        in_stack.discard(node)
+        return None
+
+    for node in graph:
+        if node not in visited:
+            result = dfs(node)
+            if result is not None:
+                return result
+    return None
 
 
 def dump_task(task: Task) -> str:

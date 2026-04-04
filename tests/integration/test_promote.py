@@ -124,3 +124,37 @@ def test_promote_rejects_dependency_on_unselected_draft(git_repo: Path, capsys) 
 
     assert rc == 1
     assert "outside the promotion batch" in capsys.readouterr().err
+
+
+def test_promote_rejects_cyclic_dependencies(git_repo: Path, capsys) -> None:
+    _init(git_repo)
+    write_task(
+        git_repo,
+        status="draft",
+        slug="alpha",
+        title="Alpha",
+        priority=1,
+        assignee="Ralph",
+        body="Alpha task.\n",
+        depends_on=["beta"],
+        acceptance_criteria=["Alpha done."],
+    )
+    write_task(
+        git_repo,
+        status="draft",
+        slug="beta",
+        title="Beta",
+        priority=1,
+        assignee="Ralph",
+        body="Beta task.\n",
+        depends_on=["alpha"],
+        acceptance_criteria=["Beta done."],
+    )
+
+    rc = run_cli(
+        ["promote", "alpha", "beta", "--confirm", "Yes, promote them."],
+        cwd=git_repo,
+    )
+
+    assert rc == 1
+    assert "cyclic dependency" in capsys.readouterr().err
