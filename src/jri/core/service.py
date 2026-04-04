@@ -33,6 +33,7 @@ _MANAGED_AGENT_PATHS = tuple(
 )
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
 _MAX_TASK_TITLE_LENGTH = 50
+_MAX_FAILED_ATTEMPTS = 3
 
 
 class JriService:
@@ -277,8 +278,14 @@ class JriService:
                     )
                 except ValueError as exc:
                     raise JriError(str(exc)) from exc
+
+                def _is_eligible(task: Task) -> bool:
+                    if task.slug in failed_slugs:
+                        return False
+                    return self._count_failed_attempts(task.slug) < _MAX_FAILED_ATTEMPTS
+
                 next_task = select_next_task(
-                    [t for t in todo_tasks if t.slug not in failed_slugs],
+                    [t for t in todo_tasks if _is_eligible(t)],
                     done_slugs={task.slug for task in done_tasks},
                     doing_tasks=doing_tasks,
                 )
@@ -288,7 +295,11 @@ class JriService:
                 outcome = self._run_iteration(next_task)
                 if outcome == "completed":
                     completed += 1
-                elif outcome in ("failed", "needs human"):
+                elif outcome == "failed":
+                    failed_slugs.add(next_task.slug)
+                    if self._count_failed_attempts(next_task.slug) >= _MAX_FAILED_ATTEMPTS:
+                        self._escalate_failed_task(next_task)
+                elif outcome == "needs human":
                     failed_slugs.add(next_task.slug)
 
                 if self.paths.stop_signal_path.exists():
@@ -691,6 +702,48 @@ class JriService:
             self._reset_runtime_state()
         except Exception:
             pass  # best-effort recovery; don't mask the original error
+
+    def _count_failed_attempts(self, task_slug: str) -> int:
+        state = self.state_store.load()
+        return sum(
+            1
+            for attempt in state.attempts
+            if attempt.task_slug == task_slug and attempt.outcome == "failed"
+        )
+
+    def _last_attempt_log_path(self, task_slug: str) -> Path:
+        state = self.state_store.load()
+        for attempt in reversed(state.attempts):
+            if attempt.task_slug == task_slug and attempt.log_path is not None:
+                return Path(attempt.log_path)
+        return self.paths.ralph_log_path(0, 0)
+
+    def _last_attempt_session_id(self, task_slug: str) -> str | None:
+        state = self.state_store.load()
+        for attempt in reversed(state.attempts):
+            if attempt.task_slug == task_slug:
+                return attempt.session_id
+        return None
+
+    def _escalate_failed_task(self, task: Task) -> None:
+        todo_path = self.paths.task_path("todo", task.slug)
+        if not todo_path.exists():
+            return
+        todo_task = parse_task_file(todo_path)
+        log_path = self._last_attempt_log_path(todo_task.slug)
+        session_id = self._last_attempt_session_id(todo_task.slug)
+        export_path = self._export_session_if_available(session_id)
+        human_task = self._create_needs_human_task(
+            todo_task,
+            log_path=log_path,
+            session_id=session_id,
+            export_path=export_path,
+        )
+        blocked_task = self._block_task_on_dependency(todo_task, human_task.slug)
+        self._write_task_file(blocked_task)
+        self.git.commit_all_if_needed(
+            f"jri: escalate {task.slug} after {_MAX_FAILED_ATTEMPTS} failed attempts"
+        )
 
     def _recover_needs_human_iteration(
         self,

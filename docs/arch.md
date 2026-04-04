@@ -99,6 +99,12 @@ If `.jri/tasks/doing/` contains exactly one task but the tracked loop PID is mis
 If the active attempt has not applied completion side effects yet, recovery moves the task back to `todo`, records that attempt as `interrupted`, clears in-progress runtime state (`started_at` and tracked process metadata), and commits the task move as `jri: recover <slug> after stale run`.
 If the repo already contains the completed result for that attempt, recovery finishes the remaining bookkeeping from the attempt record instead of rerunning Ralph.
 That is the idempotency contract for interrupted retries: retries may create a new attempt, but they must not duplicate already-applied completion side effects.
+
+Failed work is automatically retried up to three times before escalating to `needs human`.
+Each failed attempt is persisted in the attempt journal as `outcome: "failed"`.
+When a task accumulates three failed attempts, the loop auto-escalates it: it creates a generated `Human` task, blocks the original task via `depends_on`, and skips it on subsequent runs until the human blocker is resolved.
+A failure stays retryable as long as the total failed attempt count for that task slug is below the threshold; once it reaches three, only manual intervention (resolving the generated Human task) can unblock it.
+
 Foreground starts continue into the loop immediately after recovery.
 Detached starts recover first and then launch a fresh background loop.
 If the tracked loop PID is still alive, `jri start` refuses to start a second loop.

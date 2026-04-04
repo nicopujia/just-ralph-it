@@ -1061,3 +1061,133 @@ def test_failing_make_check_triggers_recovery(git_repo: Path) -> None:
     # The feature branch should be deleted
     branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
     assert not any("ralph/" in b for b in branches)
+
+
+def test_failed_task_is_retried_after_first_failure(git_repo: Path) -> None:
+    """A task that fails once is retried on the next loop invocation."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="failing-task",
+        title="Failing task",
+        priority=0,
+        assignee="Ralph",
+        body="This will fail once.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
+    git(git_repo, "commit", "-m", "add failing task")
+
+    # First run fails
+    fail_client = FailedFakeOpenCodeClient()
+    fail_service = JriService(git_repo, opencode_client=fail_client)
+    completed = fail_service.start(iterations=1)
+
+    assert completed == 0
+    assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
+    # One failed attempt recorded
+    state = read_json(git_repo / ".jri" / "state.json")
+    attempts = cast(list[dict[str, object]], state["attempts"])
+    failed_for_task = [a for a in attempts if a["task_slug"] == "failing-task"]
+    assert len(failed_for_task) == 1
+    assert failed_for_task[0]["outcome"] == "failed"
+
+    # Second run succeeds (task is retried)
+    success_client = SuccessfulFakeOpenCodeClient()
+    success_service = JriService(git_repo, opencode_client=success_client)
+    completed = success_service.start(iterations=1)
+
+    assert completed == 1
+    assert (git_repo / ".jri" / "tasks" / "done" / "failing-task.md").exists()
+    assert len(success_client.calls) == 1
+    assert "failing-task" in success_client.calls[0][0]
+
+
+def test_failed_task_is_retried_up_to_three_times(git_repo: Path) -> None:
+    """A task that fails twice is still retryable on the next start."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="failing-task",
+        title="Failing task",
+        priority=0,
+        assignee="Ralph",
+        body="This will fail twice.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
+    git(git_repo, "commit", "-m", "add failing task")
+
+    # First run fails
+    service1 = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    assert service1.start(iterations=1) == 0
+
+    # Second run also fails
+    service2 = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    assert service2.start(iterations=1) == 0
+
+    # Task is still in todo, not escalated yet
+    assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
+
+    # Third run succeeds (task is still retryable)
+    success_client = SuccessfulFakeOpenCodeClient()
+    service3 = JriService(git_repo, opencode_client=success_client)
+    assert service3.start(iterations=1) == 1
+    assert (git_repo / ".jri" / "tasks" / "done" / "failing-task.md").exists()
+    assert len(success_client.calls) == 1
+
+
+def test_task_escalates_to_needs_human_after_three_failures(git_repo: Path) -> None:
+    """After 3 failed attempts the task is escalated to needs human."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="failing-task",
+        title="Failing task",
+        priority=0,
+        assignee="Ralph",
+        body="This will fail three times.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
+    git(git_repo, "commit", "-m", "add failing task")
+
+    # First failure
+    service1 = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    assert service1.start(iterations=1) == 0
+
+    # Second failure
+    service2 = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    assert service2.start(iterations=1) == 0
+
+    # Third failure triggers auto-escalation
+    fail_client3 = FailedFakeOpenCodeClient()
+    service3 = JriService(git_repo, opencode_client=fail_client3)
+    assert service3.start(iterations=1) == 0
+
+    # Original task is back in todo, now blocked on a generated Human task
+    assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
+    todo_tasks = list_tasks(git_repo / ".jri" / "tasks" / "todo")
+    human_tasks = [t for t in todo_tasks if t.metadata.assignee == "Human"]
+    assert len(human_tasks) == 1
+    original = parse_task_file(
+        git_repo / ".jri" / "tasks" / "todo" / "failing-task.md"
+    )
+    assert original.metadata.depends_on == [human_tasks[0].slug]
+    assert "failing-task" in human_tasks[0].slug
+
+    # Attempt history records three failures
+    state = read_json(git_repo / ".jri" / "state.json")
+    attempts = cast(list[dict[str, object]], state["attempts"])
+    failed_for_task = [
+        a
+        for a in attempts
+        if a.get("task_slug") == "failing-task" and a.get("outcome") == "failed"
+    ]
+    assert len(failed_for_task) == 3
+
+    # Subsequent start does not retry the escalated task
+    success_client = SuccessfulFakeOpenCodeClient()
+    service4 = JriService(git_repo, opencode_client=success_client)
+    assert service4.start(iterations=1) == 0
+    assert success_client.calls == []
