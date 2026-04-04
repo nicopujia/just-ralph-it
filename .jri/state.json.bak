@@ -4,6 +4,7 @@
     "iteration_number": 20,
     "log_path": "/home/nico/justralph.it/.jri/logs/ralph/20-2026-04-04T11-29-35Z.log",
     "number": 1,
+    "session_id": "ses_2a7be8b08ffe2MOvs61GPD7zpd",
     "started_at": 1775302175,
     "task_slug": "harden-per-task-logs"
   },
@@ -13,6 +14,7 @@
       "iteration_number": 20,
       "log_path": "/home/nico/justralph.it/.jri/logs/ralph/20-2026-04-04T11-29-35Z.log",
       "number": 1,
+      "session_id": "ses_2a7be8b08ffe2MOvs61GPD7zpd",
       "started_at": 1775302175,
       "task_slug": "harden-per-task-logs"
     }
