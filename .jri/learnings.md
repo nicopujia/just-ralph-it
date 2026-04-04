@@ -46,3 +46,8 @@
   Generated in both `_run_iteration` (normal success path) and `_complete_attempt` (recovery/resume path).
   `GitRepo.diff(from_ref, to_ref)` returns unified diff output; `JriPaths.diff_artifact_path(iteration, slug)` resolves the path.
   The `.jri/logs/diffs/` directory is covered by the existing `logs/` gitignore entry.
+- An execution timeline is persisted as JSONL at `.jri/logs/timeline.jsonl`.
+  Each line records a key loop event (attempt_started, iteration_completed, iteration_failed, iteration_needs_human, make_check_passed/failed, recovery_completed, task_escalated) with ISO 8601 timestamp, iteration number, task slug, and optional detail dict.
+  `TimelineStore` in `src/jri/core/timeline.py` handles append-only writes and reads.
+  `jri timeline` displays events with optional `--iteration`, `--task`, and `--json` filters.
+  The timeline is covered by the existing `logs/` gitignore entry.
