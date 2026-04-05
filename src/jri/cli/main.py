@@ -49,6 +49,40 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 service.halt()
                 return 0
             case "reset":
+                if not args.force:
+                    # Gather information for the confirmation prompt
+                    state = service.state_store.load()
+                    iteration_number = state.iteration_number
+                    if iteration_number < 1:
+                        print("Error: no successful iteration exists yet", file=sys.stderr)
+                        return 1
+
+                    target_tag = f"jri/{iteration_number}"
+                    has_uncommitted = bool(service.git.status_short())
+                    ralph_branches = [
+                        b
+                        for b in service.git.run(
+                            "branch", "--format=%(refname:short)"
+                        ).stdout.splitlines()
+                        if b.startswith("ralph/")
+                    ]
+
+                    # Build the confirmation message
+                    parts = [f"This will reset to {target_tag}."]
+                    if has_uncommitted:
+                        parts.append("Uncommitted changes will be discarded.")
+                    if ralph_branches:
+                        parts.append(
+                            f"{len(ralph_branches)} ralph/* branch(es) will be deleted."
+                        )
+                    parts.append("Are you sure? [y/N]")
+
+                    print(" ".join(parts))
+                    response = input().strip().lower()
+                    if response != "y":
+                        print("Reset aborted.", file=sys.stderr)
+                        return 1
+
                 service.reset()
                 return 0
             case "status":
@@ -247,7 +281,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "process state."
         ),
     )
-    subparsers.add_parser(
+    reset_parser = subparsers.add_parser(
         "reset",
         help="Reset the default branch to the latest successful iteration.",
         description=(
@@ -257,6 +291,12 @@ def _build_parser() -> argparse.ArgumentParser:
             "runtime state (process tracking, active attempt). "
             "Preserves iteration number, session, and attempt history."
         ),
+    )
+    reset_parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="Skip confirmation prompt and proceed with reset.",
     )
     status_parser = subparsers.add_parser(
         "status",
