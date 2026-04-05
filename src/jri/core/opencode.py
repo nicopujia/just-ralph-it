@@ -8,6 +8,7 @@ from typing import cast
 
 from .errors import JriError
 from .models import OpenCodeRunResult, Outcome
+from .ui import trim_tool_output
 
 _COMPLETED_MARKER = "<!-- JRI:COMPLETED -->"
 _FAILED_MARKER = "<!-- JRI:FAILED -->"
@@ -50,16 +51,25 @@ def _tool_use_text(payload: dict[str, object]) -> str | None:
     return output if isinstance(output, str) and output else None
 
 
-def _parse_event_line(line: str) -> tuple[dict[str, object] | None, str | None]:
+def _parse_event_line(line: str) -> tuple[dict[str, object] | None, str | None, bool]:
     try:
         payload = json.loads(line)
     except json.JSONDecodeError:
-        return None, line
+        return None, line, False
 
     if not isinstance(payload, dict):
-        return None, None
+        return None, None, False
 
-    return payload, _text_event_text(payload) or _tool_use_text(payload)
+    text = _text_event_text(payload)
+    if text is not None:
+        return payload, text, False
+
+    tool_text = _tool_use_text(payload)
+    if tool_text is not None:
+        trimmed = trim_tool_output(tool_text)
+        return payload, trimmed if trimmed is not None else tool_text, True
+
+    return payload, None, False
 
 
 def _detect_outcome(text: str, current: Outcome | None) -> Outcome | None:
@@ -182,7 +192,7 @@ class OpenCodeClient:
                 for line in process.stdout:
                     log_file.write(line)
                     log_file.flush()
-                    event, terminal_text = _parse_event_line(line)
+                    event, terminal_text, _is_tool = _parse_event_line(line)
                     if terminal_text is not None:
                         last_outcome = _detect_outcome(terminal_text, last_outcome)
                     if terminal_text:

@@ -17,7 +17,7 @@ def test_parse_event_line_extracts_terminal_text_from_text_event() -> None:
         }
     )
 
-    event, terminal_text = _parse_event_line(f"{line}\n")
+    event, terminal_text, is_tool = _parse_event_line(f"{line}\n")
 
     assert event == {
         "type": "text",
@@ -45,7 +45,7 @@ def test_parse_event_line_extracts_tool_output() -> None:
         }
     )
 
-    event, terminal_text = _parse_event_line(f"{line}\n")
+    event, terminal_text, is_tool = _parse_event_line(f"{line}\n")
 
     assert event == {
         "type": "tool_use",
@@ -77,7 +77,7 @@ def test_parse_event_line_prefers_tool_error_over_output() -> None:
         }
     )
 
-    event, terminal_text = _parse_event_line(f"{line}\n")
+    event, terminal_text, is_tool = _parse_event_line(f"{line}\n")
 
     assert event == {
         "type": "tool_use",
@@ -105,7 +105,7 @@ def test_parse_event_line_suppresses_non_display_json_events() -> None:
         }
     )
 
-    event, terminal_text = _parse_event_line(f"{line}\n")
+    event, terminal_text, is_tool = _parse_event_line(f"{line}\n")
 
     assert event == {
         "type": "step_start",
@@ -118,7 +118,7 @@ def test_parse_event_line_suppresses_non_display_json_events() -> None:
 
 
 def test_parse_event_line_preserves_plain_text_fallback() -> None:
-    event, terminal_text = _parse_event_line("plain text fallback\n")
+    event, terminal_text, is_tool = _parse_event_line("plain text fallback\n")
 
     assert event is None
     assert terminal_text == "plain text fallback\n"
@@ -179,3 +179,107 @@ def test_finalize_outcome_missing_marker_treats_run_as_failed(
     msg = "missing JRI outcome marker for Ralph run; treating run as failed"
     assert warnings == [msg]
     assert msg in capsys.readouterr().err
+
+
+def test_parse_event_line_returns_is_tool_false_for_text_event() -> None:
+    line = json.dumps(
+        {
+            "type": "text",
+            "sessionID": "ses_123",
+            "part": {
+                "type": "text",
+                "text": "hello",
+            },
+        }
+    )
+
+    _, _, is_tool = _parse_event_line(f"{line}\n")
+
+    assert is_tool is False
+
+
+def test_parse_event_line_returns_is_tool_true_for_tool_use_event() -> None:
+    line = json.dumps(
+        {
+            "type": "tool_use",
+            "sessionID": "ses_123",
+            "part": {
+                "type": "tool",
+                "tool": "read",
+                "state": {
+                    "output": "some output",
+                },
+            },
+        }
+    )
+
+    _, _, is_tool = _parse_event_line(f"{line}\n")
+
+    assert is_tool is True
+
+
+def test_parse_event_line_returns_is_tool_false_for_plain_text() -> None:
+    _, _, is_tool = _parse_event_line("plain text fallback\n")
+
+    assert is_tool is False
+
+
+def test_parse_event_line_returns_is_tool_false_for_non_display_json() -> None:
+    line = json.dumps(
+        {
+            "type": "step_start",
+            "sessionID": "ses_123",
+            "part": {
+                "type": "step-start",
+            },
+        }
+    )
+
+    _, _, is_tool = _parse_event_line(f"{line}\n")
+
+    assert is_tool is False
+
+
+def test_parse_event_line_trims_long_tool_output() -> None:
+    long_output = "\n".join(f"line {i}" for i in range(30))
+    line = json.dumps(
+        {
+            "type": "tool_use",
+            "sessionID": "ses_123",
+            "part": {
+                "type": "tool",
+                "tool": "read",
+                "state": {
+                    "output": long_output,
+                },
+            },
+        }
+    )
+
+    _, terminal_text, is_tool = _parse_event_line(f"{line}\n")
+
+    assert is_tool is True
+    assert terminal_text is not None
+    assert "lines trimmed" in terminal_text
+
+
+def test_parse_event_line_preserves_short_tool_output() -> None:
+    short_output = "line 0\nline 1\nline 2"
+    line = json.dumps(
+        {
+            "type": "tool_use",
+            "sessionID": "ses_123",
+            "part": {
+                "type": "tool",
+                "tool": "read",
+                "state": {
+                    "output": short_output,
+                },
+            },
+        }
+    )
+
+    _, terminal_text, is_tool = _parse_event_line(f"{line}\n")
+
+    assert is_tool is True
+    assert terminal_text == short_output
