@@ -88,3 +88,8 @@
 - `jri reset` now works when `iteration_number == 0` if `jri/0` tag exists (created by `_ensure_initial_iteration_tag` during `start()`).
   Only raises `JriError` when no iteration tag exists at all (meaning `jri start` was never called).
   The service code and CLI confirmation prompt both use the same tag-resolution logic.
+- `MetricsStore` in `src/jri/core/metrics.py` tracks `make check` pass/fail outcomes across iterations.
+  Storage is `.jri/metrics.json` (a JSON array, appended atomically via temp-file write, gitignored).
+  `MetricEntry` fields: iteration, task, ts, result ("pass"/"fail").
+  `jri status` shows a summary line like `metrics: 12 runs, 10 pass, 2 fail (83% pass rate)` when metrics exist.
+  The store is initialized in `JriService.__init__` at `self.metrics`, and recording happens in both make check success and failure branches of `_run_iteration`.
