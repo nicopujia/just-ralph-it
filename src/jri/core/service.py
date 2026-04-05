@@ -34,6 +34,7 @@ from .tasks import (
     validate_draft_promotion,
 )
 from .timeline import TimelineEvent, TimelineStore
+from .ui import iteration_footer, iteration_header
 
 _INIT_COMMIT_PATHS = (
     ".jri",
@@ -548,6 +549,8 @@ class JriService:
         started_at = int(time.time())
         log_path = self.paths.ralph_log_path(next_iteration, started_at)
         branch = f"ralph/{next_iteration}/{task.slug}"
+        print(iteration_header(next_iteration, task.slug))
+        sys.stdout.flush()
 
         # Calculate deadline if task_timeout is set
         deadline: int | None = None
@@ -631,6 +634,8 @@ class JriService:
                     detail={"reason": "task_timeout", "limit_seconds": task_timeout},
                 )
             )
+            print(iteration_footer("timeout"))
+            sys.stdout.flush()
             return "timeout"
 
         # Record any warnings from the OpenCode run (e.g., missing outcome marker)
@@ -660,6 +665,8 @@ class JriService:
                     },
                 )
             )
+            print(iteration_footer("failed"))
+            sys.stdout.flush()
             raise JriError(f"OpenCode exited with status {result.returncode}")
 
         export_path = self._export_session_if_available(
@@ -703,6 +710,8 @@ class JriService:
                     task=task.slug,
                 )
             )
+            print(iteration_footer("needs human"))
+            sys.stdout.flush()
             return "needs human"
 
         if result.outcome == "failed":
@@ -717,6 +726,8 @@ class JriService:
                     detail={"reason": "ralph_outcome_failed"},
                 )
             )
+            print(iteration_footer("failed"))
+            sys.stdout.flush()
             return "failed"
 
         default = self._default_branch()
@@ -744,6 +755,8 @@ class JriService:
                 )
                 self._recover_failed_iteration(doing_task, branch)
                 self._finish_attempt(attempt, outcome="failed")
+                print(iteration_footer("failed"))
+                sys.stdout.flush()
                 return "failed"
             if check.returncode != 0:
                 make_fail_msg = f"make check failed for {task.slug}:\n{check.stderr}"
@@ -770,6 +783,8 @@ class JriService:
                 )
                 self._recover_failed_iteration(doing_task, branch)
                 self._finish_attempt(attempt, outcome="failed")
+                print(iteration_footer("failed"))
+                sys.stdout.flush()
                 return "failed"
             self.timeline.record(
                 TimelineEvent(
@@ -810,6 +825,8 @@ class JriService:
                 task=task.slug,
             )
         )
+        print(iteration_footer("completed"))
+        sys.stdout.flush()
         return "completed"
 
     def _ensure_initial_iteration_tag(self) -> None:
