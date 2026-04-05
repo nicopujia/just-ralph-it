@@ -325,9 +325,7 @@ def test_reset_to_jri0_restores_pre_ralph_working_tree(
     # Start creates jri/0 tag, then the failed iteration runs.
     # The FailedFakeOpenCodeClient doesn't write any files, so add a
     # post-failure commit to prove reset discards it.
-    fail_service = JriService(
-        git_repo, opencode_client=FailedFakeOpenCodeClient()
-    )
+    fail_service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
     assert fail_service.start(iterations=1) == 0
 
     # Add a tracked file after the failed iteration

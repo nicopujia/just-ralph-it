@@ -298,9 +298,7 @@ class JriService:
         elif self.git.has_tag("jri/0"):
             target_tag = "jri/0"
         else:
-            raise JriError(
-                "no iteration tag found — run `jri start` first"
-            )
+            raise JriError("no iteration tag found — run `jri start` first")
         default = self.git.default_branch(hint=state.branch)
         current = self.git.current_branch()
         if current != default:
