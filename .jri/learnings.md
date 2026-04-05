@@ -84,4 +84,7 @@
   - `_MANAGED_CONFIG_FILENAMES` defines config files (vs `_MANAGED_AGENT_FILENAMES` for agent prompts).
   - Config files are written to the project root; agent prompts are written to `.opencode/agents/`.
   - `opencode.json` is included in `_INIT_COMMIT_PATHS` and `_UPGRADE_COMMIT_PATHS` so it's tracked in version control.
-  - Unlike agent prompts, `opencode.json` is NOT added to `.gitignore` — it should be committed so the team shares the same settings.
+   - Unlike agent prompts, `opencode.json` is NOT added to `.gitignore` — it should be committed so the team shares the same settings.
+- `jri reset` now works when `iteration_number == 0` if `jri/0` tag exists (created by `_ensure_initial_iteration_tag` during `start()`).
+  Only raises `JriError` when no iteration tag exists at all (meaning `jri start` was never called).
+  The service code and CLI confirmation prompt both use the same tag-resolution logic.
