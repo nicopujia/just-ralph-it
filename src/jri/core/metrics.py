@@ -40,9 +40,7 @@ class MetricsStore:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             payload = [e.to_dict() for e in entries]
             tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(
-                json.dumps(payload, indent=2) + "\n", encoding="utf-8"
-            )
+            tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
             tmp.replace(self.path)
         except Exception as exc:
             print(
@@ -88,8 +86,7 @@ class MetricsStore:
         failed = total - passed
         rate = round(passed / total * 100) if total > 0 else 0
         return (
-            f"metrics: {total} runs, {passed} pass, "
-            f"{failed} fail ({rate}% pass rate)"
+            f"metrics: {total} runs, {passed} pass, {failed} fail ({rate}% pass rate)"
         )
 
     @staticmethod

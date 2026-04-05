@@ -87,9 +87,7 @@ def test_metrics_store_read_skips_entries_with_wrong_types(tmp_path: Path) -> No
 def test_metrics_store_creates_parent_dirs(tmp_path: Path) -> None:
     path = tmp_path / "nested" / "dir" / "metrics.json"
     store = MetricsStore(path)
-    store.record(
-        MetricEntry(iteration=1, task="a", ts="t", result="pass")
-    )
+    store.record(MetricEntry(iteration=1, task="a", ts="t", result="pass"))
     assert path.exists()
 
 
@@ -97,9 +95,7 @@ def test_metrics_store_survives_corrupt_file(tmp_path: Path) -> None:
     path = tmp_path / "metrics.json"
     # Write a valid entry
     store = MetricsStore(path)
-    store.record(
-        MetricEntry(iteration=1, task="a", ts="t", result="pass")
-    )
+    store.record(MetricEntry(iteration=1, task="a", ts="t", result="pass"))
     # Corrupt the file
     path.write_text("corrupted{", encoding="utf-8")
     # Reading should return empty without crashing
@@ -110,15 +106,9 @@ def test_metrics_store_appends_not_overwrites(tmp_path: Path) -> None:
     path = tmp_path / "metrics.json"
     store = MetricsStore(path)
 
-    store.record(
-        MetricEntry(iteration=1, task="a", ts="t1", result="pass")
-    )
-    store.record(
-        MetricEntry(iteration=2, task="b", ts="t2", result="fail")
-    )
-    store.record(
-        MetricEntry(iteration=3, task="c", ts="t3", result="pass")
-    )
+    store.record(MetricEntry(iteration=1, task="a", ts="t1", result="pass"))
+    store.record(MetricEntry(iteration=2, task="b", ts="t2", result="fail"))
+    store.record(MetricEntry(iteration=3, task="c", ts="t3", result="pass"))
 
     entries = store.read()
     assert len(entries) == 3
