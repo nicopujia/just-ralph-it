@@ -4,10 +4,10 @@ priority: 2
 assignee: Ralph
 depends_on: []
 acceptance_criteria:
-  - "The constraint `offer at most 5 concrete options plus \`Other\`` is changed to `offer at most 5 concrete options` — OpenCode already shows a 'type your own answer' field, so `Other` is redundant."
-  - "The constraint `DO NOT wait for user confirmation to commit` is updated to clarify scope: the Interrogator should commit draft task files and README.md changes, but must NOT manually commit around `jri promote` — the CLI already handles promotion commits."
-  - "The deployed copy at `.opencode/agents/interrogator.md` (in this repo) is also updated to match."
-  - "`make check` passes."
+  - Line 81 of the Interrogator prompt no longer mentions 'plus Other' — just 'at most 5 concrete options'.
+  - Line 113 of the Interrogator prompt clarifies that commits are only for draft tasks and README.md, never around jri promote.
+  - The deployed copy at .opencode/agents/interrogator.md matches the source at src/jri/core/agents/interrogator.md.
+  - make check passes.
 ---
 
 Two inaccuracies in the Interrogator prompt need fixing:
