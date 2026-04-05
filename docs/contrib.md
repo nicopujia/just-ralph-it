@@ -46,8 +46,10 @@ Run the canonical pre-merge validation suite with:
 make check
 ```
 
-`make check` runs the repo quality gates for linting, formatting, typing, schema validation, and tests.
-Git hooks remain useful guardrails (see [pre-commit config](../.pre-commit-config.yaml)), but `make check` is the canonical repo-wide validation command.
+`make check` runs the repo quality gates for linting, formatting, schema validation, typing, and tests.
+Git hooks have full parity with `make check` — every gate `make check` runs is also covered by a hook.
+See [pre-commit config](../.pre-commit-config.yaml) for details.
+`make check` remains the canonical repo-wide validation command.
 
 The opt-in live OpenCode test can be run with:
 

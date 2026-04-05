@@ -13,6 +13,12 @@ repos:
         language: system
         types: [python]
 
+      - id: schema-check
+        name: schema-check
+        entry: uv run python -m jri.checks.schema
+        language: system
+        pass_filenames: false
+
       - id: ty
         name: typing
         entry: uv run ty check
