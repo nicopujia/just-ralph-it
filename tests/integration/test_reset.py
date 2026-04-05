@@ -1,4 +1,5 @@
 import subprocess
+import subprocess as subprocess_module
 from pathlib import Path
 from typing import cast
 
@@ -351,3 +352,151 @@ def test_reset_preserves_attempt_history(git_repo: Path) -> None:
     assert attempts[0]["outcome"] == "completed"
     assert attempts[1]["task_slug"] == "task-b"
     assert attempts[1]["outcome"] == "failed"
+
+
+def test_reset_cli_aborts_on_negative_confirmation(git_repo: Path) -> None:
+    """Test that reset aborts when user answers 'n' to confirmation prompt."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    service = _run_successful_iteration(git_repo)
+
+    (git_repo / "extra.txt").write_text("extra content\n", encoding="utf-8")
+    git(git_repo, "add", "extra.txt")
+    git(git_repo, "commit", "-m", "add extra file")
+
+    # Simulate user entering 'n' for the confirmation prompt
+    result = subprocess.run(
+        ["python", "-m", "jri", "reset"],
+        cwd=git_repo,
+        input="n\n",
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "Reset aborted" in result.stderr
+    # extra.txt should still exist because reset was aborted
+    assert (git_repo / "extra.txt").exists()
+
+
+def test_reset_cli_aborts_on_empty_confirmation(git_repo: Path) -> None:
+    """Test that reset aborts when user just presses Enter (default N)."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    service = _run_successful_iteration(git_repo)
+
+    (git_repo / "extra.txt").write_text("extra content\n", encoding="utf-8")
+    git(git_repo, "add", "extra.txt")
+    git(git_repo, "commit", "-m", "add extra file")
+
+    # Simulate user just pressing Enter
+    result = subprocess.run(
+        ["python", "-m", "jri", "reset"],
+        cwd=git_repo,
+        input="\n",
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "Reset aborted" in result.stderr
+    # extra.txt should still exist because reset was aborted
+    assert (git_repo / "extra.txt").exists()
+
+
+def test_reset_cli_force_skips_confirmation(git_repo: Path) -> None:
+    """Test that --force flag skips the confirmation prompt."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    service = _run_successful_iteration(git_repo)
+
+    (git_repo / "extra.txt").write_text("extra content\n", encoding="utf-8")
+    git(git_repo, "add", "extra.txt")
+    git(git_repo, "commit", "-m", "add extra file")
+
+    # Use --force flag, should not prompt
+    result = subprocess_module.run(
+        ["python", "-m", "jri", "reset", "--force"],
+        cwd=git_repo,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    # extra.txt should be gone because reset proceeded
+    assert not (git_repo / "extra.txt").exists()
+
+
+def test_reset_cli_prompt_includes_target_tag(git_repo: Path) -> None:
+    """Test that the confirmation prompt includes the target tag name."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    service = _run_successful_iteration(git_repo)
+
+    # Simulate user entering 'n' to see the prompt
+    result = subprocess_module.run(
+        ["python", "-m", "jri", "reset"],
+        cwd=git_repo,
+        input="n\n",
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    # The prompt should mention jri/1 (the target tag)
+    assert "jri/1" in result.stdout
+
+
+def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
+    """Test that the confirmation prompt mentions uncommitted changes."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    service = _run_successful_iteration(git_repo)
+
+    # Create an uncommitted change
+    (git_repo / "uncommitted.txt").write_text("uncommitted\n", encoding="utf-8")
+
+    # Simulate user entering 'n' to see the prompt
+    result = subprocess_module.run(
+        ["python", "-m", "jri", "reset"],
+        cwd=git_repo,
+        input="n\n",
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    # The prompt should mention uncommitted changes
+    assert "Uncommitted changes will be discarded" in result.stdout
+
+
+def test_reset_cli_prompt_shows_ralph_branches(git_repo: Path) -> None:
+    """Test that the confirmation prompt mentions ralph branches to be deleted."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    service = _run_successful_iteration(git_repo)
+
+    # Create a ralph branch
+    git(git_repo, "checkout", "-b", "ralph/test-branch")
+    git(git_repo, "checkout", "main")
+
+    # Simulate user entering 'n' to see the prompt
+    result = subprocess_module.run(
+        ["python", "-m", "jri", "reset"],
+        cwd=git_repo,
+        input="n\n",
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    # The prompt should mention ralph branches
+    assert "ralph/* branch(es) will be deleted" in result.stdout
+
+
+def test_reset_cli_help_shows_force_flag(git_repo: Path) -> None:
+    """Test that --help documents the --force flag."""
+    result = subprocess_module.run(
+        ["python", "-m", "jri", "reset", "--help"],
+        cwd=git_repo,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "--force" in result.stdout
+    assert "-f" in result.stdout
