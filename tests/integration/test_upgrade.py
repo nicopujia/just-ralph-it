@@ -29,9 +29,13 @@ def test_upgrade_untracks_agent_files_from_older_repos(
         name: git_repo / ".opencode" / "agents" / name
         for name in service_module._MANAGED_AGENT_FILENAMES
     }
+    config_paths = {
+        name: git_repo / name
+        for name in service_module._MANAGED_CONFIG_FILENAMES
+    }
 
     def fake_load_prompt(name: str) -> str:
-        return f"upgraded {name.removesuffix('.md')}\n"
+        return f"upgraded {name.removesuffix('.md') if name.endswith('.md') else name}\n"
 
     monkeypatch.setattr(service_module, "_load_prompt", fake_load_prompt)
     (git_repo / "README.md").write_text("# changed\n", encoding="utf-8")
@@ -42,6 +46,8 @@ def test_upgrade_untracks_agent_files_from_older_repos(
 
     assert exit_code == 0
     for name, path in prompt_paths.items():
+        assert path.read_text(encoding="utf-8") == fake_load_prompt(name)
+    for name, path in config_paths.items():
         assert path.read_text(encoding="utf-8") == fake_load_prompt(name)
     assert (git_repo / ".jri" / "tasks" / "todo" / "keep-me.md").exists()
     assert git(git_repo, "log", "-1", "--pretty=%s") == "jri upgrade"
@@ -59,7 +65,12 @@ def test_upgrade_untracks_agent_files_from_older_repos(
             "HEAD",
         ).splitlines()
     )
-    assert changed_files == {".gitignore", *service_module._MANAGED_AGENT_PATHS}
+    expected_changed = {
+        ".gitignore",
+        *service_module._MANAGED_AGENT_PATHS,
+        *service_module._MANAGED_CONFIG_FILENAMES,
+    }
+    assert changed_files == expected_changed
     status_lines = git(git_repo, "status", "--short").splitlines()
     for path in service_module._MANAGED_AGENT_PATHS:
         assert f" M {path}" not in status_lines

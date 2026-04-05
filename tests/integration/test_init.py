@@ -19,6 +19,8 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
     assert (git_repo / ".jri" / "state.json").exists()
     for name in service_module._MANAGED_AGENT_FILENAMES:
         assert (git_repo / ".opencode" / "agents" / name).exists()
+    for name in service_module._MANAGED_CONFIG_FILENAMES:
+        assert (git_repo / name).exists()
     assert git(git_repo, "log", "-1", "--pretty=%s") == "jri init"
     assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == list(
         service_module._MANAGED_AGENT_PATHS
