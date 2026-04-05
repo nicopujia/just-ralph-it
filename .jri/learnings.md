@@ -75,3 +75,9 @@
   - The confirmation prompt describes the target tag, uncommitted changes, and ralph/* branches to be deleted.
   - Use `jri reset --force` (or `-f`) to skip the confirmation prompt.
   - The confirmation logic is implemented at the CLI layer in `main.py`, not in `JriService.reset()`.
+- `jri init` and `jri upgrade` now deploy `opencode.json` to the project root with opinionated compaction settings.
+  - The template lives at `src/jri/core/agents/opencode.json` and is loaded via `importlib.resources`.
+  - `_MANAGED_CONFIG_FILENAMES` defines config files (vs `_MANAGED_AGENT_FILENAMES` for agent prompts).
+  - Config files are written to the project root; agent prompts are written to `.opencode/agents/`.
+  - `opencode.json` is included in `_INIT_COMMIT_PATHS` and `_UPGRADE_COMMIT_PATHS` so it's tracked in version control.
+  - Unlike agent prompts, `opencode.json` is NOT added to `.gitignore` — it should be committed so the team shares the same settings.
