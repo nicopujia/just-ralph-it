@@ -1,5 +1,8 @@
 # Learnings
 
+- `src/jri/core/ui.py` provides ANSI formatting helpers (`iteration_header`, `iteration_footer`, `trim_tool_output`, `supports_color`). Uses raw escape codes, no external deps. Respects `NO_COLOR` env var and `sys.stdout.isatty()`.
+- `_parse_event_line` in `opencode.py` now returns a 3-tuple `(event, terminal_text, is_tool)`; the third element indicates whether the text came from a tool (and may have been trimmed).
+- Iteration headers and footers are printed in `_run_iteration` from `service.py`, not from `opencode.py`. Tests that capture stdout and later parse JSON must flush `capsys.readouterr()` between `service.start()` and CLI calls to avoid the iteration header leaking into JSON output.
 - Interrogator agent instructions now include early compaction guidance: use OpenCode compaction earlier than default behavior, externalize durable decisions to repo artifacts first (task files, docs), and compact frequently to support indefinite long-running conversations without context bloat.
 - `make check` is the canonical repo-wide validation command.
   It runs `ruff check .`, `ruff format --check .`, `ty check`, `python -m jri.checks.schema`, and `pytest` through `uv run`.
