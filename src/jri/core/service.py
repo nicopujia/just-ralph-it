@@ -293,13 +293,19 @@ class JriService:
         self.ensure_initialized()
         state = self.state_store.load()
         iteration_number = state.iteration_number
-        if iteration_number < 1:
-            raise JriError("no successful iteration exists yet")
+        if iteration_number >= 1:
+            target_tag = f"jri/{iteration_number}"
+        elif self.git.has_tag("jri/0"):
+            target_tag = "jri/0"
+        else:
+            raise JriError(
+                "no iteration tag found — run `jri start` first"
+            )
         default = self.git.default_branch(hint=state.branch)
         current = self.git.current_branch()
         if current != default:
             self.git.run("checkout", "-f", default)
-        self.git.reset_hard(f"jri/{iteration_number}")
+        self.git.reset_hard(target_tag)
         branches = (
             self.git.run("branch", "--format=%(refname:short)")
             .stdout.strip()

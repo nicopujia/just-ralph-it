@@ -310,11 +310,6 @@ def test_reset_to_jri0_restores_pre_ralph_working_tree(
     """Reset-to-jri/0 removes tracked files added by a failed first iteration."""
     assert run_cli(["init"], cwd=git_repo) == 0
 
-    # Record what the repo looks like before any Ralph work
-    files_before = set(
-        git(git_repo, "ls-files").splitlines()
-    )
-
     write_task(
         git_repo,
         status="todo",
@@ -327,14 +322,15 @@ def test_reset_to_jri0_restores_pre_ralph_working_tree(
     git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
     git(git_repo, "commit", "-m", "add failing task")
 
-    # Start creates jri/0 tag, then the failed iteration adds extra files
-    # that get committed on the feature branch
+    # Start creates jri/0 tag, then the failed iteration runs.
+    # The FailedFakeOpenCodeClient doesn't write any files, so add a
+    # post-failure commit to prove reset discards it.
     fail_service = JriService(
         git_repo, opencode_client=FailedFakeOpenCodeClient()
     )
     assert fail_service.start(iterations=1) == 0
 
-    # The failed attempt may leave tracked files; add one to be sure
+    # Add a tracked file after the failed iteration
     (git_repo / "added-by-fail.txt").write_text("should be gone\n", encoding="utf-8")
     git(git_repo, "add", "added-by-fail.txt")
     git(git_repo, "commit", "-m", "added by failed iteration")
@@ -342,11 +338,15 @@ def test_reset_to_jri0_restores_pre_ralph_working_tree(
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
     service.reset()
 
-    # Only pre-Ralph tracked files should remain
-    files_after = set(
-        git(git_repo, "ls-files").splitlines()
-    )
-    assert files_after == files_before
+    # The extra file should be gone — reset restored to jri/0 state
+    assert not (git_repo / "added-by-fail.txt").exists()
+    # The task file was committed before start() and is part of jri/0
+    assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
+    assert git(git_repo, "branch", "--show-current") == "main"
+
+    state = read_json(git_repo / ".jri" / "state.json")
+    iteration = cast(dict[str, object], state["iteration"])
+    assert iteration["number"] == 0
 
 
 def test_reset_clears_active_attempt(git_repo: Path) -> None:

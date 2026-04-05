@@ -53,14 +53,17 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     # Gather information for the confirmation prompt
                     state = service.state_store.load()
                     iteration_number = state.iteration_number
-                    if iteration_number < 1:
+                    if iteration_number >= 1:
+                        target_tag = f"jri/{iteration_number}"
+                    elif service.git.has_tag("jri/0"):
+                        target_tag = "jri/0"
+                    else:
                         print(
-                            "Error: no successful iteration exists yet",
+                            "Error: no iteration tag found — run `jri start` first",
                             file=sys.stderr,
                         )
                         return 1
 
-                    target_tag = f"jri/{iteration_number}"
                     has_uncommitted = bool(service.git.status_short())
                     ralph_branches = [
                         b
@@ -286,10 +289,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     reset_parser = subparsers.add_parser(
         "reset",
-        help="Reset the default branch to the latest successful iteration.",
+        help="Reset the default branch to the latest iteration tag.",
         description=(
-            "Hard-reset the default branch to the latest successful JRI "
-            "iteration tag. Discards all uncommitted changes, commits, "
+            "Hard-reset the default branch to the latest JRI iteration tag. "
+            "If at least one iteration succeeded, resets to jri/{N}. "
+            "If no iteration succeeded but jri/0 exists (start was called), "
+            "resets to jri/0 to restore the pre-Ralph state. "
+            "Discards all uncommitted changes, commits, "
             "and task state since that iteration. Clears in-progress "
             "runtime state (process tracking, active attempt). "
             "Preserves iteration number, session, and attempt history."
