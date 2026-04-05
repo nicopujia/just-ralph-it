@@ -1048,8 +1048,6 @@ def test_make_check_pass_records_metric(git_repo: Path) -> None:
     """A passing make check records a pass metric entry."""
     import json
 
-    from jri.core.metrics import MetricsStore
-
     assert run_cli(["init"], cwd=git_repo) == 0
     (git_repo / "Makefile").write_text("check:\n\t@echo ok\n", encoding="utf-8")
     write_task(

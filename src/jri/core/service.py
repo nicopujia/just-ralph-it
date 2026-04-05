@@ -13,6 +13,7 @@ from typing import Any
 
 from .errors import HaltRequested, JriError
 from .git import GitRepo
+from .metrics import MetricEntry, MetricsStore
 from .models import (
     AttemptState,
     Outcome,
@@ -33,7 +34,6 @@ from .tasks import (
     select_next_task,
     validate_draft_promotion,
 )
-from .metrics import MetricEntry, MetricsStore
 from .timeline import TimelineEvent, TimelineStore
 from .ui import iteration_footer, iteration_header
 

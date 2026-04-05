@@ -4,7 +4,12 @@ from jri.core.metrics import MetricEntry, MetricsStore
 
 
 def test_metric_entry_to_dict_contains_all_fields(tmp_path: Path) -> None:
-    entry = MetricEntry(iteration=3, task="some-slug", ts="2026-04-05T14:30:00Z", result="pass")
+    entry = MetricEntry(
+        iteration=3,
+        task="some-slug",
+        ts="2026-04-05T14:30:00Z",
+        result="pass",
+    )
     d = entry.to_dict()
     assert d == {
         "iteration": 3,
@@ -26,10 +31,20 @@ def test_metrics_store_record_and_read(tmp_path: Path) -> None:
     store = MetricsStore(path)
 
     store.record(
-        MetricEntry(iteration=1, task="task-a", ts="2026-04-05T10:00:00Z", result="pass")
+        MetricEntry(
+            iteration=1,
+            task="task-a",
+            ts="2026-04-05T10:00:00Z",
+            result="pass",
+        )
     )
     store.record(
-        MetricEntry(iteration=2, task="task-b", ts="2026-04-05T11:00:00Z", result="fail")
+        MetricEntry(
+            iteration=2,
+            task="task-b",
+            ts="2026-04-05T11:00:00Z",
+            result="fail",
+        )
     )
 
     entries = store.read()

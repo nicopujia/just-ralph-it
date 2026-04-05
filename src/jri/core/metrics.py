@@ -87,7 +87,10 @@ class MetricsStore:
         passed = sum(1 for e in entries if e.result == "pass")
         failed = total - passed
         rate = round(passed / total * 100) if total > 0 else 0
-        return f"metrics: {total} runs, {passed} pass, {failed} fail ({rate}% pass rate)"
+        return (
+            f"metrics: {total} runs, {passed} pass, "
+            f"{failed} fail ({rate}% pass rate)"
+        )
 
     @staticmethod
     def now_iso() -> str:
