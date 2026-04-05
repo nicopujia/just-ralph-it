@@ -33,6 +33,7 @@ from .tasks import (
     select_next_task,
     validate_draft_promotion,
 )
+from .metrics import MetricEntry, MetricsStore
 from .timeline import TimelineEvent, TimelineStore
 from .ui import iteration_footer, iteration_header
 
@@ -65,6 +66,7 @@ class JriService:
         self.git = GitRepo(self.root)
         self.state_store = StateStore(self.paths.state_path)
         self.timeline = TimelineStore(self.paths.timeline_path)
+        self.metrics = MetricsStore(self.paths.metrics_path)
         self.opencode_client = opencode_client or OpenCodeClient()
         self._halt_requested = False
 
@@ -169,6 +171,10 @@ class JriService:
             }
         except ValueError as exc:
             raise JriError(str(exc)) from exc
+
+    def metrics_summary(self) -> str | None:
+        """Return a human-readable metrics summary, or None if no metrics."""
+        return self.metrics.summary()
 
     def structured_status(self) -> dict[str, object]:
         self.ensure_initialized()
@@ -391,7 +397,7 @@ class JriService:
 
     def _write_managed_files(self) -> None:
         self.paths.gitignore_path.write_text(
-            "logs/\nsignals/\nstate.json\nstate.json.bak\n.state.json.tmp\n.state.json.bak.tmp\n",
+            "logs/\nsignals/\nstate.json\nstate.json.bak\n.state.json.tmp\n.state.json.bak.tmp\nmetrics.json\n",
             encoding="utf-8",
         )
         _ensure_ignore_entries(self.paths.root_gitignore_path, _MANAGED_AGENT_PATHS)
@@ -758,6 +764,14 @@ class JriService:
                     )
                 )
                 self._recover_failed_iteration(doing_task, branch)
+                self.metrics.record(
+                    MetricEntry(
+                        iteration=next_iteration,
+                        task=task.slug,
+                        ts=MetricsStore.now_iso(),
+                        result="fail",
+                    )
+                )
                 self._finish_attempt(attempt, outcome="failed")
                 print(iteration_footer("failed"))
                 sys.stdout.flush()
@@ -786,6 +800,14 @@ class JriService:
                     )
                 )
                 self._recover_failed_iteration(doing_task, branch)
+                self.metrics.record(
+                    MetricEntry(
+                        iteration=next_iteration,
+                        task=task.slug,
+                        ts=MetricsStore.now_iso(),
+                        result="fail",
+                    )
+                )
                 self._finish_attempt(attempt, outcome="failed")
                 print(iteration_footer("failed"))
                 sys.stdout.flush()
@@ -796,6 +818,14 @@ class JriService:
                     event="make_check_passed",
                     iteration=next_iteration,
                     task=task.slug,
+                )
+            )
+            self.metrics.record(
+                MetricEntry(
+                    iteration=next_iteration,
+                    task=task.slug,
+                    ts=MetricsStore.now_iso(),
+                    result="pass",
                 )
             )
 

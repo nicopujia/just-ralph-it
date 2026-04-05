@@ -123,6 +123,9 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         print(f"  [{status:<6}] [P{p}] {task.slug} — {title}")
                 else:
                     print("  No tasks assigned to Human.")
+                metrics = service.metrics_summary()
+                if metrics:
+                    print(f"\n{metrics}")
                 return 0
             case "promote":
                 promoted = service.promote_drafts(

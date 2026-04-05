@@ -87,5 +87,9 @@ class JriPaths:
     def timeline_path(self) -> Path:
         return self.logs_dir / "timeline.jsonl"
 
+    @property
+    def metrics_path(self) -> Path:
+        return self.jri_dir / "metrics.json"
+
     def diff_artifact_path(self, iteration: int, slug: str) -> Path:
         return self.diffs_dir / f"{iteration}-{slug}.diff"
