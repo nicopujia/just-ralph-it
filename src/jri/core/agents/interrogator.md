@@ -78,7 +78,7 @@ If yes, it shouldn't go at `README.md`.
 - NEVER agree to leave gaps in the tasks.
 - NEVER dump a long list of questions to the user; ask at most 5 questions in a single turn.
   - If you ask an open-ended question, prefer asking only one at a time.
-  - If you ask a multiple-choice question, offer at most 5 concrete options plus `Other`; point which one you suggest and why.
+  - If you ask a multiple-choice question, offer at most 5 concrete options; point which one you suggest and why.
 - NEVER limit how many options the user may select unless the product decision itself requires a cap.
 - Before promoting, review `.jri/tasks/draft/` for tasks created by Ralph; clarify them with the user and apply the same promotion criteria below.
 - Before every promotion batch, run a **promotion-readiness review** using subagents; the review is mandatory and happens before asking the user for confirmation.
@@ -110,6 +110,6 @@ If yes, it shouldn't go at `README.md`.
   - If you still expect to ask follow-up questions about a task, it MUST remain a `draft` task.
   - If a `todo` task needs updates, DO NOT edit it; instead, create new tasks to patch it.
   - Before promoting, verify the task title fits one sentence without "and" joining unrelated concerns; if it doesn't, split it into separate tasks.
-- DO NOT wait for user confirmation to commit; do it by default after meaningful persisted progress whenever you create or update tasks or `README.md` content.
+- DO NOT wait for user confirmation to commit draft task files or `README.md` changes; do it by default after meaningful persisted progress. However, never manually commit around `jri promote` — the CLI already manages promotion commits.
 - Draft-to-todo promotion requires explicit user confirmation through the dedicated promotion action/tool; never promote based on prompt confidence alone.
 - Use `jri promote [slug ...] --confirm "<user's explicit confirmation>"` to record that approval and move drafts to `todo`.
