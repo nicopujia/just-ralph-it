@@ -38,15 +38,18 @@ from .timeline import TimelineEvent, TimelineStore
 _INIT_COMMIT_PATHS = (
     ".jri",
     ".gitignore",
+    "opencode.json",
 )
 _UPGRADE_COMMIT_PATHS = (
     ".jri/.gitignore",
     ".gitignore",
+    "opencode.json",
 )
 _MANAGED_AGENT_FILENAMES = ("interrogator.md", "ralph.md")
 _MANAGED_AGENT_PATHS = tuple(
     f".opencode/agents/{name}" for name in _MANAGED_AGENT_FILENAMES
 )
+_MANAGED_CONFIG_FILENAMES = ("opencode.json",)
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
 _MAX_TASK_TITLE_LENGTH = 50
 _MAX_FAILED_ATTEMPTS = 3
@@ -390,6 +393,11 @@ class JriService:
         self.paths.opencode_agents_dir.mkdir(parents=True, exist_ok=True)
         for name in _MANAGED_AGENT_FILENAMES:
             (self.paths.opencode_agents_dir / name).write_text(
+                _load_prompt(name),
+                encoding="utf-8",
+            )
+        for name in _MANAGED_CONFIG_FILENAMES:
+            (self.root / name).write_text(
                 _load_prompt(name),
                 encoding="utf-8",
             )
