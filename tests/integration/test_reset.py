@@ -250,13 +250,103 @@ def test_reset_discards_uncommitted_changes_on_default_branch(
     assert iteration["number"] == 1
 
 
-def test_reset_refuses_when_no_successful_iteration(git_repo: Path) -> None:
+def test_reset_succeeds_when_iteration_zero_and_jri0_tag_exists(
+    git_repo: Path,
+) -> None:
+    """When iteration_number == 0 and jri/0 tag exists, reset targets jri/0."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+
+    # Simulate a partial/failed first iteration: start creates jri/0 tag
+    write_task(
+        git_repo,
+        status="todo",
+        slug="failing-task",
+        title="Failing task",
+        priority=0,
+        assignee="Ralph",
+        body="This will fail.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
+    git(git_repo, "commit", "-m", "add failing task")
+
+    fail_service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    assert fail_service.start(iterations=1) == 0
+
+    # Now iteration_number is still 0 (no successful iteration) but jri/0 exists.
+    # Add some extra commits to prove reset discards them.
+    (git_repo / "extra-after-fail.txt").write_text("extra\n", encoding="utf-8")
+    git(git_repo, "add", "extra-after-fail.txt")
+    git(git_repo, "commit", "-m", "extra after failure")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.reset()
+
+    # extra file added after the failed iteration should be gone
+    assert not (git_repo / "extra-after-fail.txt").exists()
+    assert git(git_repo, "branch", "--show-current") == "main"
+
+    state = read_json(git_repo / ".jri" / "state.json")
+    iteration = cast(dict[str, object], state["iteration"])
+    assert iteration["number"] == 0
+    assert "process" not in state
+    assert "active_attempt" not in state
+
+
+def test_reset_refuses_when_iteration_zero_and_no_jri0_tag(
+    git_repo: Path,
+) -> None:
+    """When iteration_number == 0 and jri/0 tag does NOT exist, raise JriError."""
     assert run_cli(["init"], cwd=git_repo) == 0
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
-    with pytest.raises(JriError, match="no successful iteration"):
+    with pytest.raises(JriError, match="no iteration tag found.*jri start"):
         service.reset()
+
+
+def test_reset_to_jri0_restores_pre_ralph_working_tree(
+    git_repo: Path,
+) -> None:
+    """Reset-to-jri/0 removes tracked files added by a failed first iteration."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+
+    # Record what the repo looks like before any Ralph work
+    files_before = set(
+        git(git_repo, "ls-files").splitlines()
+    )
+
+    write_task(
+        git_repo,
+        status="todo",
+        slug="failing-task",
+        title="Failing task",
+        priority=0,
+        assignee="Ralph",
+        body="This will fail.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
+    git(git_repo, "commit", "-m", "add failing task")
+
+    # Start creates jri/0 tag, then the failed iteration adds extra files
+    # that get committed on the feature branch
+    fail_service = JriService(
+        git_repo, opencode_client=FailedFakeOpenCodeClient()
+    )
+    assert fail_service.start(iterations=1) == 0
+
+    # The failed attempt may leave tracked files; add one to be sure
+    (git_repo / "added-by-fail.txt").write_text("should be gone\n", encoding="utf-8")
+    git(git_repo, "add", "added-by-fail.txt")
+    git(git_repo, "commit", "-m", "added by failed iteration")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.reset()
+
+    # Only pre-Ralph tracked files should remain
+    files_after = set(
+        git(git_repo, "ls-files").splitlines()
+    )
+    assert files_after == files_before
 
 
 def test_reset_clears_active_attempt(git_repo: Path) -> None:
