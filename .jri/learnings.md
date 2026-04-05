@@ -71,3 +71,7 @@
   - `export_failed` events are recorded when session export fails, with `session_id` and error details.
   - `cleanup_failed` events are recorded when recovery/cleanup operations fail, with phase and error details.
   - Both event types include the task slug and appear in timeline output for visibility.
+- `jri reset` now requires interactive confirmation before proceeding.
+  - The confirmation prompt describes the target tag, uncommitted changes, and ralph/* branches to be deleted.
+  - Use `jri reset --force` (or `-f`) to skip the confirmation prompt.
+  - The confirmation logic is implemented at the CLI layer in `main.py`, not in `JriService.reset()`.
