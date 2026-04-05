@@ -168,3 +168,36 @@ def test_status_rejects_in_place_mutation_of_promoted_task(
 
     assert rc == 1
     assert "modified in place" in capsys.readouterr().err
+
+
+def test_status_shows_metrics_summary(git_repo: Path, capsys) -> None:
+    """Metrics summary is displayed when metrics exist."""
+    import json
+
+    _init(git_repo)
+    # Write a metrics file with some entries
+    metrics_path = git_repo / ".jri" / "metrics.json"
+    metrics_path.write_text(
+        json.dumps([
+            {"iteration": 1, "task": "a", "ts": "t1", "result": "pass"},
+            {"iteration": 2, "task": "b", "ts": "t2", "result": "pass"},
+            {"iteration": 3, "task": "c", "ts": "t3", "result": "fail"},
+        ])
+        + "\n",
+        encoding="utf-8",
+    )
+
+    rc = run_cli(["status"], cwd=git_repo)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "metrics: 3 runs, 2 pass, 1 fail (67% pass rate)" in out
+
+
+def test_status_hides_metrics_when_none(git_repo: Path, capsys) -> None:
+    """No metrics line is shown when metrics.json does not exist."""
+    _init(git_repo)
+
+    rc = run_cli(["status"], cwd=git_repo)
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "metrics:" not in out

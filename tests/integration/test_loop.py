@@ -1044,6 +1044,72 @@ def test_make_check_runs_after_completion(git_repo: Path) -> None:
     assert git(git_repo, "branch", "--show-current") == "main"
 
 
+def test_make_check_pass_records_metric(git_repo: Path) -> None:
+    """A passing make check records a pass metric entry."""
+    import json
+
+    from jri.core.metrics import MetricsStore
+
+    assert run_cli(["init"], cwd=git_repo) == 0
+    (git_repo / "Makefile").write_text("check:\n\t@echo ok\n", encoding="utf-8")
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "add", "Makefile")
+    git(git_repo, "commit", "-m", "add task and makefile")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    completed = service.start(iterations=1)
+
+    assert completed == 1
+    metrics_path = git_repo / ".jri" / "metrics.json"
+    assert metrics_path.exists()
+    entries = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert len(entries) == 1
+    assert entries[0]["result"] == "pass"
+    assert entries[0]["task"] == "implement-file"
+    assert entries[0]["iteration"] == 1
+
+
+def test_failing_make_check_records_metric(git_repo: Path) -> None:
+    """A failing make check records a fail metric entry."""
+    import json
+
+    assert run_cli(["init"], cwd=git_repo) == 0
+    (git_repo / "Makefile").write_text("check:\n\texit 1\n", encoding="utf-8")
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "add", "Makefile")
+    git(git_repo, "commit", "-m", "add task and makefile")
+
+    service = JriService(git_repo, opencode_client=MakeCheckFailsFakeOpenCodeClient())
+    completed = service.start(iterations=1)
+
+    assert completed == 0
+    metrics_path = git_repo / ".jri" / "metrics.json"
+    assert metrics_path.exists()
+    entries = json.loads(metrics_path.read_text(encoding="utf-8"))
+    assert len(entries) == 1
+    assert entries[0]["result"] == "fail"
+    assert entries[0]["task"] == "implement-file"
+    assert entries[0]["iteration"] == 1
+
+
 def test_failing_make_check_triggers_recovery(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     # Create a Makefile with a failing check target
