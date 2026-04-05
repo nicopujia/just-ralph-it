@@ -54,7 +54,10 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     state = service.state_store.load()
                     iteration_number = state.iteration_number
                     if iteration_number < 1:
-                        print("Error: no successful iteration exists yet", file=sys.stderr)
+                        print(
+                            "Error: no successful iteration exists yet",
+                            file=sys.stderr,
+                        )
                         return 1
 
                     target_tag = f"jri/{iteration_number}"

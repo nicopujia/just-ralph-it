@@ -357,7 +357,7 @@ def test_reset_preserves_attempt_history(git_repo: Path) -> None:
 def test_reset_cli_aborts_on_negative_confirmation(git_repo: Path) -> None:
     """Test that reset aborts when user answers 'n' to confirmation prompt."""
     assert run_cli(["init"], cwd=git_repo) == 0
-    service = _run_successful_iteration(git_repo)
+    _run_successful_iteration(git_repo)
 
     (git_repo / "extra.txt").write_text("extra content\n", encoding="utf-8")
     git(git_repo, "add", "extra.txt")
@@ -381,7 +381,7 @@ def test_reset_cli_aborts_on_negative_confirmation(git_repo: Path) -> None:
 def test_reset_cli_aborts_on_empty_confirmation(git_repo: Path) -> None:
     """Test that reset aborts when user just presses Enter (default N)."""
     assert run_cli(["init"], cwd=git_repo) == 0
-    service = _run_successful_iteration(git_repo)
+    _run_successful_iteration(git_repo)
 
     (git_repo / "extra.txt").write_text("extra content\n", encoding="utf-8")
     git(git_repo, "add", "extra.txt")
@@ -405,7 +405,7 @@ def test_reset_cli_aborts_on_empty_confirmation(git_repo: Path) -> None:
 def test_reset_cli_force_skips_confirmation(git_repo: Path) -> None:
     """Test that --force flag skips the confirmation prompt."""
     assert run_cli(["init"], cwd=git_repo) == 0
-    service = _run_successful_iteration(git_repo)
+    _run_successful_iteration(git_repo)
 
     (git_repo / "extra.txt").write_text("extra content\n", encoding="utf-8")
     git(git_repo, "add", "extra.txt")
@@ -427,7 +427,7 @@ def test_reset_cli_force_skips_confirmation(git_repo: Path) -> None:
 def test_reset_cli_prompt_includes_target_tag(git_repo: Path) -> None:
     """Test that the confirmation prompt includes the target tag name."""
     assert run_cli(["init"], cwd=git_repo) == 0
-    service = _run_successful_iteration(git_repo)
+    _run_successful_iteration(git_repo)
 
     # Simulate user entering 'n' to see the prompt
     result = subprocess_module.run(
@@ -446,7 +446,7 @@ def test_reset_cli_prompt_includes_target_tag(git_repo: Path) -> None:
 def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
     """Test that the confirmation prompt mentions uncommitted changes."""
     assert run_cli(["init"], cwd=git_repo) == 0
-    service = _run_successful_iteration(git_repo)
+    _run_successful_iteration(git_repo)
 
     # Create an uncommitted change
     (git_repo / "uncommitted.txt").write_text("uncommitted\n", encoding="utf-8")
@@ -468,7 +468,7 @@ def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
 def test_reset_cli_prompt_shows_ralph_branches(git_repo: Path) -> None:
     """Test that the confirmation prompt mentions ralph branches to be deleted."""
     assert run_cli(["init"], cwd=git_repo) == 0
-    service = _run_successful_iteration(git_repo)
+    _run_successful_iteration(git_repo)
 
     # Create a ralph branch
     git(git_repo, "checkout", "-b", "ralph/test-branch")
