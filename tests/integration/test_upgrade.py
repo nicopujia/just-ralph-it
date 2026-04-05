@@ -30,12 +30,12 @@ def test_upgrade_untracks_agent_files_from_older_repos(
         for name in service_module._MANAGED_AGENT_FILENAMES
     }
     config_paths = {
-        name: git_repo / name
-        for name in service_module._MANAGED_CONFIG_FILENAMES
+        name: git_repo / name for name in service_module._MANAGED_CONFIG_FILENAMES
     }
 
     def fake_load_prompt(name: str) -> str:
-        return f"upgraded {name.removesuffix('.md') if name.endswith('.md') else name}\n"
+        base = name.removesuffix(".md") if name.endswith(".md") else name
+        return f"upgraded {base}\n"
 
     monkeypatch.setattr(service_module, "_load_prompt", fake_load_prompt)
     (git_repo / "README.md").write_text("# changed\n", encoding="utf-8")
@@ -79,21 +79,34 @@ def test_upgrade_untracks_agent_files_from_older_repos(
     assert "notes.txt" in git(git_repo, "diff", "--cached", "--name-only").splitlines()
 
 
-def test_upgrade_leaves_no_commit_when_gitignore_rule_already_exists(
+def test_upgrade_commits_when_config_files_change(
     git_repo: Path,
     monkeypatch,
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
 
     def fake_load_prompt(name: str) -> str:
-        return f"upgraded {name.removesuffix('.md')}\n"
+        base = name.removesuffix(".md") if name.endswith(".md") else name
+        return f"upgraded {base}\n"
 
     monkeypatch.setattr(service_module, "_load_prompt", fake_load_prompt)
 
     exit_code = run_cli(["upgrade"], cwd=git_repo)
 
     assert exit_code == 0
-    assert git(git_repo, "log", "-1", "--pretty=%s") == "jri init"
+    # Upgrade creates a commit because config files have changed content
+    assert git(git_repo, "log", "-1", "--pretty=%s") == "jri upgrade"
+    changed_files = set(
+        git(
+            git_repo,
+            "diff-tree",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            "HEAD",
+        ).splitlines()
+    )
+    assert changed_files == set(service_module._MANAGED_CONFIG_FILENAMES)
 
 
 def test_upgrade_recreates_gitignore_without_tracked_agent_files(
@@ -106,7 +119,8 @@ def test_upgrade_recreates_gitignore_without_tracked_agent_files(
     git(git_repo, "commit", "-m", "remove ignore rule")
 
     def fake_load_prompt(name: str) -> str:
-        return f"upgraded {name.removesuffix('.md')}\n"
+        base = name.removesuffix(".md") if name.endswith(".md") else name
+        return f"upgraded {base}\n"
 
     monkeypatch.setattr(service_module, "_load_prompt", fake_load_prompt)
 
@@ -127,4 +141,4 @@ def test_upgrade_recreates_gitignore_without_tracked_agent_files(
             "HEAD",
         ).splitlines()
     )
-    assert changed_files == {".gitignore"}
+    assert changed_files == {".gitignore", *service_module._MANAGED_CONFIG_FILENAMES}
