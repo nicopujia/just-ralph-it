@@ -1672,6 +1672,9 @@ def test_timeline_cli_outputs_jsonl(
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
     assert service.start(iterations=1) == 1
 
+    # Flush iteration header/footer output before CLI call
+    capsys.readouterr()
+
     rc = run_cli(["timeline", "--json"], cwd=git_repo)
     assert rc == 0
     output = capsys.readouterr().out
