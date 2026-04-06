@@ -193,27 +193,12 @@ class JriService:
     def status(self) -> dict[str, list[Task]]:
         self.ensure_initialized()
         try:
-            result = {
+            return {
                 status: list_tasks(self.paths.task_dir(status), git_repo=self.git)
                 for status in _TRACKED_TASK_DIRS
             }
         except ValueError as exc:
             raise JriError(str(exc)) from exc
-        # When Ralph is mid-iteration, the doing task lives in the worktree
-        # (not the main repo). Surface it so jri status reflects reality.
-        wt_doing_dir = self.paths.worktree_dir / ".jri" / "tasks" / "doing"
-        if wt_doing_dir.exists():
-            try:
-                wt_doing = list_tasks(wt_doing_dir, git_repo=None)
-            except ValueError:
-                wt_doing = []
-            existing_slugs = {t.slug for t in result["doing"]}
-            for task in wt_doing:
-                if task.slug not in existing_slugs:
-                    result["doing"].append(task)
-                    # Pretend it left todo to avoid double-counting.
-                    result["todo"] = [t for t in result["todo"] if t.slug != task.slug]
-        return result
 
     def metrics_summary(self) -> str | None:
         """Return a human-readable metrics summary, or None if no metrics."""
@@ -670,7 +655,6 @@ class JriService:
             deadline = started_at + task_timeout
 
         wt_git, wt_paths = self._ensure_worktree()
-        self._sync_worktree(wt_git)
 
         attempt = AttemptState(
             number=len(state.attempts) + 1,
@@ -695,11 +679,18 @@ class JriService:
                 },
             )
         )
-        # Move task to doing in the worktree
-        wt_task_src = wt_paths.task_path("todo", task.slug)
-        doing_task = move_task(parse_task_file(wt_task_src), wt_paths.task_dir("doing"))
-        wt_git.commit_all_if_needed(f"jri start: begin {task.slug}")
+        # Move task to doing in the MAIN repo first, commit, then sync the
+        # worktree so it inherits the move via the default-branch reset.
+        # This keeps `jri status` and the task state machine in main.
+        main_doing_task = move_task(task, self.paths.task_dir("doing"))
+        self.git.commit_all_if_needed(f"jri start: begin {task.slug}")
+        self._sync_worktree(wt_git)
+        # Now read the same task from the worktree where Ralph will work.
+        wt_task_path = wt_paths.task_path("doing", task.slug)
+        doing_task = parse_task_file(wt_task_path)
         doing_task_baseline = doing_task.path.read_text(encoding="utf-8")
+        # Keep a reference to the main repo's path for later cleanup.
+        del main_doing_task
         self.state_store.save_process(
             loop_pid=os.getpid(),
             child_pid=None,
@@ -981,10 +972,7 @@ class JriService:
     def _recover_failed_iteration_wt(self, doing_task: Task, wt_git: GitRepo) -> None:
         """Recover from a failed iteration in the worktree."""
         try:
-            wt_git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
-            # Reset worktree to match default branch
-            self._sync_worktree(wt_git)
-            # Move task back to todo on main repo
+            # Move task back to todo on main repo first.
             main_doing = self.paths.task_path("doing", doing_task.slug)
             if main_doing.exists():
                 main_task = parse_task_file(main_doing)
@@ -992,6 +980,8 @@ class JriService:
                 self.git.commit_all_if_needed(
                     f"jri: recover {doing_task.slug} after failed iteration"
                 )
+            # Reset the worktree so it reflects main's new state.
+            self._sync_worktree(wt_git)
             self._reset_runtime_state()
             self.timeline.record(
                 TimelineEvent(
@@ -1463,10 +1453,17 @@ class JriService:
         export_path: Path | None,
     ) -> None:
         try:
-            # Commit partial work in worktree, then reset it
+            # Move task back from doing to todo in main first.
+            main_doing = self.paths.task_path("doing", doing_task.slug)
+            if main_doing.exists():
+                main_task = parse_task_file(main_doing)
+                move_task(main_task, self.paths.task_dir("todo"))
+                self.git.commit_all_if_needed(
+                    f"jri: recover {doing_task.slug} for needs-human"
+                )
+            # Reset the worktree to reflect main's new state.
             if self.paths.worktree_dir.exists():
                 wt_git = GitRepo(self.paths.worktree_dir)
-                wt_git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
                 self._sync_worktree(wt_git)
             todo_path = self.paths.task_path("todo", doing_task.slug)
             if todo_path.exists():
