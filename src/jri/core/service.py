@@ -536,6 +536,25 @@ class JriService:
         self.git.reset_branch("ralph", default_ref)
         wt_git.run("checkout", "--force", "ralph")
         wt_git.run("clean", "-fd")
+        self._copy_gitignored_files_to_worktree()
+
+    def _copy_gitignored_files_to_worktree(self) -> None:
+        """Copy gitignored managed files into the worktree."""
+        wt = self.paths.worktree_dir
+        for src_dir, filenames in (
+            (".opencode/agents", _MANAGED_AGENT_FILENAMES),
+            (".opencode/plugin", _MANAGED_PLUGIN_FILENAMES),
+        ):
+            dst_dir = wt / src_dir
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            for name in filenames:
+                src = self.root / src_dir / name
+                if src.exists():
+                    shutil.copy2(src, dst_dir / name)
+        # Copy opencode.json
+        src = self.root / "opencode.json"
+        if src.exists():
+            shutil.copy2(src, wt / "opencode.json")
 
     def _run_iteration(self, task: Task, task_timeout: int | None = None) -> Outcome:
         state = self.state_store.load()
