@@ -548,17 +548,15 @@ class OpenCodeServer:
                     log_file.write(json.dumps(event) + "\n")
                     log_file.flush()
 
-                    text_to_print, newline_after = self._render_event(
+                    text_to_print, newline_before = self._render_event(
                         event, session_id, seen_tool_calls
                     )
                     if text_to_print:
+                        if newline_before and last_terminal_char != "\n":
+                            sys.stdout.write("\n")
                         sys.stdout.write(text_to_print)
                         sys.stdout.flush()
                         last_terminal_char = text_to_print[-1]
-                    if newline_after and last_terminal_char != "\n":
-                        sys.stdout.write("\n")
-                        sys.stdout.flush()
-                        last_terminal_char = "\n"
 
                     if self._is_session_idle(event, session_id):
                         break
@@ -697,6 +695,6 @@ class OpenCodeServer:
                 label = f"⚙ {tool_name}"
                 if title:
                     label = f"{label}: {title}"
-                return _s(label, DIM) + "\n", False
+                return _s(label, DIM) + "\n", True
             return "", False
         return "", False
