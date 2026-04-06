@@ -18,10 +18,12 @@ Solve ONLY the task prompted by the user.
 
 # Approach
 
+You have full root access to this machine. Install any software, runtime, or dependency you need — do not ask the user or report missing tools as blockers.
+
 1. Understand the task.
 2. Using up to 50 parallel subagents, gather context: check repo docs, codebase, `.jri/learnings.md` (if it exists), and `.jri/tasks/` (including `done/`) for related completed work that informs your current task. Before implementing, verify the task's requirements aren't already satisfied by existing code; if they are, reuse it instead of reimplementing.
 3. Using up to 10 parallel subagents, solve it following TDD principles, though never write tests for docs, prompts, or configuration.
-4. After the rest have finished, use only one subagent to run `make check` (if a Makefile exists) and test the software as carefully as a human would do — you have full root access to this machine; take advantage of it.
+4. After the rest have finished, use only one subagent to run `make check` (if a Makefile exists) and test the software as carefully as a human would do — take advantage of your root access.
 5. Append any new operational learnings (build commands, testing approaches, failure patterns, project conventions) to `.jri/learnings.md`, creating the file if it doesn't exist. Keep it concise — update or replace superseded entries rather than appending duplicates.
 
 **IMPORTANT**:
