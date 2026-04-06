@@ -9,7 +9,7 @@ def _init(repo: Path) -> None:
     assert run_cli(["init"], cwd=repo) == 0
 
 
-def test_promote_requires_confirmation(git_repo: Path, capsys) -> None:
+def test_promote_aborts_on_no_response(git_repo: Path, capsys, monkeypatch) -> None:
     _init(git_repo)
     write_task(
         git_repo,
@@ -22,10 +22,11 @@ def test_promote_requires_confirmation(git_repo: Path, capsys) -> None:
         acceptance_criteria=["The scope is written down."],
     )
 
+    monkeypatch.setattr("builtins.input", lambda: "n")
     rc = run_cli(["promote", "clarify-scope"], cwd=git_repo)
 
     assert rc == 1
-    assert "explicit user confirmation" in capsys.readouterr().err
+    assert "Promotion aborted." in capsys.readouterr().err
     assert (git_repo / ".jri" / "tasks" / "draft" / "clarify-scope.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "todo" / "clarify-scope.md").exists()
 
@@ -61,8 +62,7 @@ def test_promote_moves_selected_drafts_and_records_confirmation(
             "promote",
             "clarify-scope",
             "build-ui",
-            "--confirm",
-            "Yes, promote these tasks to todo.",
+            "--force",
         ],
         cwd=git_repo,
     )
@@ -83,7 +83,6 @@ def test_promote_moves_selected_drafts_and_records_confirmation(
         "confirmed_at": promotion["confirmed_at"],
         "task_slugs": ["build-ui", "clarify-scope"],
         "target_status": "todo",
-        "user_confirmation": "Yes, promote these tasks to todo.",
     }
     assert "jri promote: move drafts to todo" in git(
         git_repo,
@@ -118,7 +117,7 @@ def test_promote_rejects_dependency_on_unselected_draft(git_repo: Path, capsys) 
     )
 
     rc = run_cli(
-        ["promote", "build-ui", "--confirm", "Yes, promote it."],
+        ["promote", "build-ui", "--force"],
         cwd=git_repo,
     )
 
@@ -152,7 +151,7 @@ def test_promote_rejects_cyclic_dependencies(git_repo: Path, capsys) -> None:
     )
 
     rc = run_cli(
-        ["promote", "alpha", "beta", "--confirm", "Yes, promote them."],
+        ["promote", "alpha", "beta", "--force"],
         cwd=git_repo,
     )
 

@@ -60,17 +60,12 @@
         "target_status": {
           "type": "string",
           "enum": ["todo"]
-        },
-        "user_confirmation": {
-          "type": "string",
-          "minLength": 1
         }
       },
       "required": [
         "confirmed_at",
         "task_slugs",
-        "target_status",
-        "user_confirmation"
+        "target_status"
       ]
     }
   },
@@ -137,7 +132,7 @@
     },
     "promotion": {
       "$ref": "#/$defs/promotion",
-      "description": "The latest explicit user-confirmed draft-to-todo promotion."
+      "description": "The latest draft-to-todo promotion."
     }
   }
 }

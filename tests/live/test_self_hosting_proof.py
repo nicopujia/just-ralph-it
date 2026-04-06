@@ -211,8 +211,7 @@ def _create_and_promote_tasks(repo: Path) -> None:
                 "implement-greet",
                 "add-greet-tests",
                 "update-changelog",
-                "--confirm",
-                "Yes, promote these tasks to todo.",
+                "--force",
             ],
             cwd=repo,
         )

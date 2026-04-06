@@ -92,7 +92,6 @@ class AttemptState:
 class PromotionRecord:
     confirmed_at: int
     task_slugs: list[str]
-    user_confirmation: str
     target_status: Literal["todo"] = "todo"
 
     def to_payload(self) -> dict[str, object]:
@@ -100,7 +99,6 @@ class PromotionRecord:
             "confirmed_at": self.confirmed_at,
             "task_slugs": self.task_slugs,
             "target_status": self.target_status,
-            "user_confirmation": self.user_confirmation,
         }
 
     @classmethod
@@ -115,7 +113,6 @@ class PromotionRecord:
             confirmed_at=_int_or_default(payload.get("confirmed_at"), default=0),
             task_slugs=task_slugs,
             target_status="todo",
-            user_confirmation=_str_or_none(payload.get("user_confirmation")) or "",
         )
 
 

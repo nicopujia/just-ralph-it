@@ -126,7 +126,6 @@ def test_validate_state_payload_allows_promotion_record() -> None:
                 "confirmed_at": 1,
                 "task_slugs": ["clarify-scope"],
                 "target_status": "todo",
-                "user_confirmation": "yes, promote it",
             },
         }
     )
