@@ -25,6 +25,15 @@ def _dict_value(payload: dict[str, object], key: str) -> dict[str, object] | Non
     return cast(dict[str, object], value) if isinstance(value, dict) else None
 
 
+def _is_thinking_event(payload: dict[str, object]) -> bool:
+    if payload.get("type") != "text":
+        return False
+    part = _dict_value(payload, "part")
+    if part is None:
+        return False
+    return part.get("type") == "thinking"
+
+
 def _text_event_text(payload: dict[str, object]) -> str | None:
     if payload.get("type") != "text":
         return None
@@ -192,10 +201,14 @@ class OpenCodeClient:
                 for line in process.stdout:
                     log_file.write(line)
                     log_file.flush()
-                    event, terminal_text, _is_tool = _parse_event_line(line)
+                    event, terminal_text, is_tool = _parse_event_line(line)
                     if terminal_text is not None:
                         last_outcome = _detect_outcome(terminal_text, last_outcome)
-                    if terminal_text:
+                    is_thinking = isinstance(event, dict) and _is_thinking_event(
+                        event
+                    )
+                    show = terminal_text and not is_tool and not is_thinking
+                    if show:
                         sys.stdout.write(terminal_text)
                         sys.stdout.flush()
                         last_terminal_char = terminal_text[-1]
