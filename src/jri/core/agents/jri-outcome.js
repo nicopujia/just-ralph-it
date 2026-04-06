@@ -1,5 +1,5 @@
-import { tool } from "@opencode-ai/plugin"
-import { writeFileSync } from "fs"
+import { tool } from "@opencode-ai/plugin";
+import { writeFileSync } from "fs";
 
 export default tool({
   description:
@@ -10,9 +10,9 @@ export default tool({
       .describe("The task outcome"),
   },
   async execute({ outcome }) {
-    const path = process.env.JRI_OUTCOME_PATH
-    if (!path) return "JRI_OUTCOME_PATH not set"
-    writeFileSync(path, outcome)
-    return `Outcome recorded: ${outcome}`
+    const path = process.env.JRI_OUTCOME_PATH;
+    if (!path) return "JRI_OUTCOME_PATH not set";
+    writeFileSync(path, outcome);
+    return `Outcome recorded: ${outcome}`;
   },
-})
+});

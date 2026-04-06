@@ -51,11 +51,11 @@ _MANAGED_AGENT_FILENAMES = ("interrogator.md", "ralph.md")
 _MANAGED_AGENT_PATHS = tuple(
     f".opencode/agents/{name}" for name in _MANAGED_AGENT_FILENAMES
 )
-_MANAGED_PLUGIN_FILENAMES = ("prune-tool-calls.ts",)
+_MANAGED_PLUGIN_FILENAMES = ("prune-tool-calls.js",)
 _MANAGED_PLUGIN_PATHS = tuple(
     f".opencode/plugin/{name}" for name in _MANAGED_PLUGIN_FILENAMES
 )
-_MANAGED_TOOL_FILENAMES = ("jri-outcome.ts",)
+_MANAGED_TOOL_FILENAMES = ("jri-outcome.js",)
 _MANAGED_TOOL_PATHS = tuple(
     f".opencode/tools/{name}" for name in _MANAGED_TOOL_FILENAMES
 )
