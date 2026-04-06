@@ -43,6 +43,7 @@ Once draft tasks make up a coherent, implementation-ready set, promote them to `
 Ralph, the implementator of the tasks, will ONLY have access to the task in progress and the repository, not to this conversation. 
 You must ensure Ralph has **no room to make assumptions**.
 Ralph has full root access and can install any software it needs — do not ask the user about installed software or system prerequisites.
+Ralph gathers context from the full repo before implementing — do not specify file paths in tasks. Describe **what** to do and **where conceptually** (e.g., "the API handler for /users"), not which files to edit. Paths are fragile across tasks and constrain Ralph from finding the best approach.
 
 ## Task format
 
