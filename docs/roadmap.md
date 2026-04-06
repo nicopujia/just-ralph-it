@@ -153,19 +153,7 @@ Abstract execution away from local machine
 - baseline
 - direct execution
 
-### 3.2 Docker Backend
-
-```bash
-jri start --backend docker
-```
-
-Capabilities:
-
-- reproducible environment
-- isolation
-- dependency control
-
-### 3.3 Backend Interface
+### 3.2 Backend Interface
 
 All backends must support:
 
@@ -177,7 +165,7 @@ All backends must support:
 
 ### Success Criteria
 
-- Same behavior across local and Docker
+- Consistent behavior across backends
 - No model drift between environments
 
 ## 4. Phase IV — Remote Execution (VPS)
@@ -347,7 +335,6 @@ Turn system into a product
 ### Execution
 
 - local
-- docker
 - vps
 
 ### Control
@@ -414,7 +401,7 @@ And essentially:
 Build order:
 
 ```
-Core → CLI → Reliability → Docker → VPS → Autonomy → Reconciliation → UI → Product
+Core → CLI → Reliability → VPS → Autonomy → Reconciliation → UI → Product
 ```
 
 If you violate this order, you keep rebuilding it from scratch.
