@@ -8,3 +8,6 @@ dist/
 
 .opencode/agents/interrogator.md
 .opencode/agents/ralph.md
+
+.opencode/plugin/prune-tool-calls.ts
+.opencode/tools/jri-outcome.ts
