@@ -51,10 +51,6 @@ _MANAGED_AGENT_FILENAMES = ("interrogator.md", "ralph.md")
 _MANAGED_AGENT_PATHS = tuple(
     f".opencode/agents/{name}" for name in _MANAGED_AGENT_FILENAMES
 )
-_MANAGED_PLUGIN_FILENAMES = ("prune-tool-calls.js",)
-_MANAGED_PLUGIN_PATHS = tuple(
-    f".opencode/plugin/{name}" for name in _MANAGED_PLUGIN_FILENAMES
-)
 _MANAGED_TOOL_FILENAMES = ("jri-outcome.js",)
 _MANAGED_TOOL_PATHS = tuple(
     f".opencode/tools/{name}" for name in _MANAGED_TOOL_FILENAMES
@@ -380,18 +376,11 @@ class JriService:
         )
         _ensure_ignore_entries(
             self.paths.root_gitignore_path,
-            (*_MANAGED_AGENT_PATHS, *_MANAGED_PLUGIN_PATHS, *_MANAGED_TOOL_PATHS),
+            (*_MANAGED_AGENT_PATHS, *_MANAGED_TOOL_PATHS),
         )
         self.paths.opencode_agents_dir.mkdir(parents=True, exist_ok=True)
         for name in _MANAGED_AGENT_FILENAMES:
             (self.paths.opencode_agents_dir / name).write_text(
-                _load_prompt(name),
-                encoding="utf-8",
-            )
-        plugin_dir = self.root / ".opencode" / "plugin"
-        plugin_dir.mkdir(parents=True, exist_ok=True)
-        for name in _MANAGED_PLUGIN_FILENAMES:
-            (plugin_dir / name).write_text(
                 _load_prompt(name),
                 encoding="utf-8",
             )
@@ -613,12 +602,7 @@ class JriService:
         self._copy_gitignored_files_to_worktree()
 
     def _copy_gitignored_files_to_worktree(self) -> None:
-        """Copy gitignored managed files into the worktree.
-
-        The prune-tool-calls plugin is intentionally NOT copied: it would
-        strip Ralph's tool call history every turn, making the model forget
-        every file it has read. The plugin is for the Interrogator only.
-        """
+        """Copy gitignored managed files into the worktree."""
         wt = self.paths.worktree_dir
         for src_dir, filenames in (
             (".opencode/agents", _MANAGED_AGENT_FILENAMES),
