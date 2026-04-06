@@ -497,6 +497,7 @@ class OpenCodeServer:
 
         timed_out = False
         deadline = time.monotonic() + timeout if timeout and timeout > 0 else None
+        seen_tool_calls: set[str] = set()
 
         # 3. Send prompt
         prompt_body: dict[str, object] = {
@@ -547,7 +548,9 @@ class OpenCodeServer:
                     log_file.write(json.dumps(event) + "\n")
                     log_file.flush()
 
-                    text_to_print, newline_after = self._render_event(event, session_id)
+                    text_to_print, newline_after = self._render_event(
+                        event, session_id, seen_tool_calls
+                    )
                     if text_to_print:
                         sys.stdout.write(text_to_print)
                         sys.stdout.flush()
@@ -634,7 +637,10 @@ class OpenCodeServer:
         return status == "idle"
 
     def _render_event(
-        self, event: dict[str, object], session_id: str
+        self,
+        event: dict[str, object],
+        session_id: str,
+        seen_tool_calls: set[str],
     ) -> tuple[str, bool]:
         """Return (text_to_print, force_newline_after)."""
         event = self._unwrap(event)
@@ -651,12 +657,11 @@ class OpenCodeServer:
         if part_type == "reasoning":
             return "", False
         if part_type == "text":
+            # Only print streaming deltas (assistant output).
+            # Full-text events without delta are user-message echoes.
             delta = properties.get("delta")
             if isinstance(delta, str) and delta:
                 return delta, False
-            text = part.get("text")
-            if isinstance(text, str) and text:
-                return text, False
             return "", False
         if part_type == "tool":
             state = part.get("state")
@@ -664,6 +669,11 @@ class OpenCodeServer:
                 return "", False
             status = state.get("status")
             if status == "running":
+                call_id = part.get("callID") or part.get("id")
+                if isinstance(call_id, str):
+                    if call_id in seen_tool_calls:
+                        return "", False
+                    seen_tool_calls.add(call_id)
                 tool_name = part.get("tool") or state.get("tool") or "tool"
                 title = ""
                 input_obj = state.get("input")
