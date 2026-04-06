@@ -492,9 +492,13 @@ class JriService:
                 self.opencode_server = OpenCodeServer(model=self.opencode_client.model)
             outcome_path = self.paths.jri_dir / "ralph-outcome"
             outcome_path.parent.mkdir(parents=True, exist_ok=True)
+            # Ensure the worktree exists before the server starts so Ralph's
+            # tools resolve paths against the worktree, not the main repo.
+            wt_git, _ = self._ensure_worktree()
+            self._sync_worktree(wt_git)
             self.opencode_server.start(
                 env={"JRI_OUTCOME_PATH": str(outcome_path)},
-                cwd=self.root,
+                cwd=self.paths.worktree_dir,
             )
             server_started_here = True
         try:
