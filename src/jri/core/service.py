@@ -176,91 +176,8 @@ class JriService:
         """Return a human-readable metrics summary, or None if no metrics."""
         return self.metrics.summary()
 
-    def structured_status(self) -> dict[str, object]:
+    def promote_drafts(self, *, slugs: list[str]) -> list[Task]:
         self.ensure_initialized()
-        try:
-            tasks_by_status = {
-                status: list_tasks(self.paths.task_dir(status), git_repo=self.git)
-                for status in _TRACKED_TASK_DIRS
-            }
-        except ValueError as exc:
-            raise JriError(str(exc)) from exc
-
-        state = self.state_store.load()
-
-        counts = {status: len(tasks) for status, tasks in tasks_by_status.items()}
-        total = sum(counts.values())
-
-        needs_human: list[dict[str, object]] = []
-        for status in _TRACKED_TASK_DIRS:
-            for task in tasks_by_status[status]:
-                if task.metadata.assignee == "Human":
-                    needs_human.append(
-                        {
-                            "slug": task.slug,
-                            "title": task.metadata.title,
-                            "priority": task.metadata.priority,
-                            "status": status,
-                            "depends_on": list(task.metadata.depends_on),
-                        }
-                    )
-
-        retry_escalation_tasks: list[dict[str, object]] = []
-        task_slugs_with_failures: dict[str, int] = {}
-        for attempt in state.attempts:
-            if attempt.outcome == "failed":
-                task_slugs_with_failures[attempt.task_slug] = (
-                    task_slugs_with_failures.get(attempt.task_slug, 0) + 1
-                )
-        for slug, failed_count in sorted(task_slugs_with_failures.items()):
-            retry_escalation_tasks.append(
-                {
-                    "slug": slug,
-                    "failed_attempts": failed_count,
-                    "max_attempts": _MAX_FAILED_ATTEMPTS,
-                    "escalated": failed_count >= _MAX_FAILED_ATTEMPTS,
-                }
-            )
-
-        run: dict[str, object] = {
-            "iteration_number": state.iteration_number,
-            "started_at": state.started_at,
-            "finished_at": state.finished_at,
-            "active_attempt": (
-                state.active_attempt.to_payload() if state.active_attempt else None
-            ),
-            "process": (
-                {
-                    "loop_pid": state.process.loop_pid,
-                    "child_pid": state.process.child_pid,
-                    "log_path": state.process.log_path,
-                    "detached": state.process.detached,
-                }
-                if state.process
-                else None
-            ),
-        }
-
-        return {
-            "tasks": {
-                "counts": counts,
-                "total": total,
-                "needs_human": needs_human,
-            },
-            "retry_escalation": {
-                "tasks_with_failures": retry_escalation_tasks,
-            },
-            "run": run,
-        }
-
-    def promote_drafts(self, *, slugs: list[str], user_confirmation: str) -> list[Task]:
-        self.ensure_initialized()
-        confirmation = user_confirmation.strip()
-        if not confirmation:
-            raise JriError(
-                "draft promotion requires explicit user confirmation via "
-                '`jri promote --confirm "..."`'
-            )
 
         draft_tasks = self._list_tasks("draft")
         selected = self._select_draft_tasks(draft_tasks, slugs)
@@ -283,7 +200,6 @@ class JriService:
             PromotionRecord(
                 confirmed_at=int(time.time()),
                 task_slugs=[task.slug for task in promoted_tasks],
-                user_confirmation=confirmation,
             )
         )
         self.git.commit_paths_if_needed(
@@ -397,7 +313,7 @@ class JriService:
 
     def _write_managed_files(self) -> None:
         self.paths.gitignore_path.write_text(
-            "logs/\nsignals/\nstate.json\nstate.json.bak\n.state.json.tmp\n.state.json.bak.tmp\nmetrics.json\n",
+            "logs/\nsignals/\n*state.json*\nmetrics.json\n",
             encoding="utf-8",
         )
         _ensure_ignore_entries(self.paths.root_gitignore_path, _MANAGED_AGENT_PATHS)

@@ -30,10 +30,7 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
     ).splitlines() == [
         "logs/",
         "signals/",
-        "state.json",
-        "state.json.bak",
-        ".state.json.tmp",
-        ".state.json.bak.tmp",
+        "*state.json*",
         "metrics.json",
     ]
     assert git(git_repo, "status", "--short") == ""
