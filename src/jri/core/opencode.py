@@ -623,6 +623,7 @@ class OpenCodeServer:
         properties = unwrapped.get("properties")
         if not isinstance(properties, dict):
             return
+        properties = cast(dict[str, object], properties)
         request_id = properties.get("id")
         if not isinstance(request_id, str):
             return
@@ -640,6 +641,7 @@ class OpenCodeServer:
         """Extract a one-line detail (file path, command, etc.) from tool input."""
         if not isinstance(input_obj, dict):
             return ""
+        input_obj = cast(dict[str, object], input_obj)
 
         def _rel(path: str) -> str:
             # Strip the worktree prefix first (most specific) so paths
@@ -680,7 +682,7 @@ class OpenCodeServer:
         """Unwrap the {directory, payload} envelope from /global/event."""
         payload = event.get("payload")
         if isinstance(payload, dict):
-            return payload
+            return cast(dict[str, object], payload)
         return event
 
     def _is_session_idle(self, event: dict[str, object], session_id: str) -> bool:
@@ -690,11 +692,13 @@ class OpenCodeServer:
         properties = event.get("properties")
         if not isinstance(properties, dict):
             return False
+        properties = cast(dict[str, object], properties)
         sid = properties.get("sessionID") or properties.get("session_id")
         if sid != session_id:
             return False
         status = properties.get("status")
         if isinstance(status, dict):
+            status = cast(dict[str, object], status)
             return status.get("type") == "idle"
         return status == "idle"
 
@@ -712,6 +716,7 @@ class OpenCodeServer:
             properties = event.get("properties")
             if not isinstance(properties, dict):
                 return "", False
+            properties = cast(dict[str, object], properties)
             if properties.get("field") != "text":
                 return "", False
             delta = properties.get("delta")
@@ -723,9 +728,11 @@ class OpenCodeServer:
         properties = event.get("properties")
         if not isinstance(properties, dict):
             return "", False
+        properties = cast(dict[str, object], properties)
         part = properties.get("part")
         if not isinstance(part, dict):
             return "", False
+        part = cast(dict[str, object], part)
         part_type = part.get("type")
         if part_type == "reasoning":
             return "", False
@@ -738,6 +745,7 @@ class OpenCodeServer:
             state = part.get("state")
             if not isinstance(state, dict):
                 return "", False
+            state = cast(dict[str, object], state)
             status = state.get("status")
             if status == "running":
                 call_id = part.get("callID") or part.get("id")
@@ -745,7 +753,7 @@ class OpenCodeServer:
                     if call_id in seen_tool_calls:
                         return "", False
                     seen_tool_calls.add(call_id)
-                tool_name = part.get("tool") or state.get("tool") or "tool"
+                tool_name = cast(str, part.get("tool") or state.get("tool") or "tool")
                 input_obj = state.get("input")
                 detail = self._tool_detail(tool_name, input_obj)
                 label = f"⚙ {tool_name}"
