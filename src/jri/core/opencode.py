@@ -431,6 +431,8 @@ class OpenCodeServer:
         outcome_path.parent.mkdir(parents=True, exist_ok=True)
         if outcome_path.exists():
             outcome_path.unlink()
+        # Used by _tool_detail to display paths relative to the worktree.
+        self._cwd_hint = str(root).rstrip("/") + "/"
 
         if on_start is not None and self._process is not None:
             on_start(self._process.pid)
@@ -640,13 +642,11 @@ class OpenCodeServer:
             return ""
 
         def _rel(path: str) -> str:
-            # Strip the worktree prefix if present for cleaner display.
-            for prefix in (
-                "/home/nico/",
-                str(self._cwd_hint) if hasattr(self, "_cwd_hint") else "",
-            ):
-                if prefix and path.startswith(prefix):
-                    return path[len(prefix) :]
+            # Strip the worktree prefix first (most specific) so paths
+            # render relative to where Ralph actually works.
+            cwd = getattr(self, "_cwd_hint", "")
+            if cwd and path.startswith(cwd):
+                return path[len(cwd) :] or "."
             return path
 
         candidates_by_tool: dict[str, tuple[str, ...]] = {
