@@ -645,6 +645,17 @@ class OpenCodeServer:
         """Return (text_to_print, force_newline_after)."""
         event = self._unwrap(event)
         etype = event.get("type")
+        # Streaming text deltas come as message.part.delta events.
+        if etype == "message.part.delta":
+            properties = event.get("properties")
+            if not isinstance(properties, dict):
+                return "", False
+            if properties.get("field") != "text":
+                return "", False
+            delta = properties.get("delta")
+            if isinstance(delta, str) and delta:
+                return delta, False
+            return "", False
         if etype != "message.part.updated":
             return "", False
         properties = event.get("properties")
@@ -657,11 +668,7 @@ class OpenCodeServer:
         if part_type == "reasoning":
             return "", False
         if part_type == "text":
-            # Only print streaming deltas (assistant output).
-            # Full-text events without delta are user-message echoes.
-            delta = properties.get("delta")
-            if isinstance(delta, str) and delta:
-                return delta, False
+            # Skip — text streaming arrives via message.part.delta.
             return "", False
         if part_type == "tool":
             state = part.get("state")
