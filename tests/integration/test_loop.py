@@ -8,6 +8,7 @@ from typing import Any, cast
 import pytest
 
 from jri.core.errors import JriError
+from jri.core.git import MSG_RECOVER_STALE
 from jri.core.models import AttemptState, OpenCodeRunResult, State
 from jri.core.opencode import OpenCodeClient
 from jri.core.service import JriService
@@ -478,7 +479,7 @@ def test_start_recovers_clean_foreground_interruption(git_repo: Path) -> None:
     assert "task=implement-file" in recovery_log
     assert "reason=no-tracked-process" in recovery_log
     history = git(git_repo, "log", "--oneline", "--decorate=short", "-5")
-    assert "jri: recover implement-file after stale run" in history
+    assert MSG_RECOVER_STALE.format(slug="implement-file") in history
 
 
 def test_start_records_retry_attempt_after_interrupted_run(git_repo: Path) -> None:
@@ -563,7 +564,7 @@ def test_start_recovers_stale_foreground_process(git_repo: Path) -> None:
     assert "task=implement-file" in recovery_log
     assert "reason=dead-tracked-process" in recovery_log
     history = git(git_repo, "log", "--oneline", "--decorate=short", "-6")
-    assert "jri: recover implement-file after stale run" in history
+    assert MSG_RECOVER_STALE.format(slug="implement-file") in history
 
 
 def test_start_clears_stale_process_metadata_without_doing_task(git_repo: Path) -> None:

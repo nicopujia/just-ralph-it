@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import jri.core.git as git_module
 import jri.core.service as service_module
 from tests.conftest import run_cli
 from tests.helpers import git
@@ -21,7 +22,7 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
         assert (git_repo / ".opencode" / "agents" / name).exists()
     for name in service_module._MANAGED_CONFIG_FILENAMES:
         assert (git_repo / name).exists()
-    assert git(git_repo, "log", "-1", "--pretty=%s") == "jri init"
+    assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_INIT
     assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
         *service_module._MANAGED_AGENT_PATHS,
         *service_module._MANAGED_TOOL_PATHS,

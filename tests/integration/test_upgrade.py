@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import jri.core.git as git_module
 import jri.core.service as service_module
 from tests.conftest import run_cli
 from tests.helpers import git, write_task
@@ -50,7 +51,7 @@ def test_upgrade_untracks_agent_files_from_older_repos(
     for name, path in config_paths.items():
         assert path.read_text(encoding="utf-8") == fake_load_prompt(name)
     assert (git_repo / ".jri" / "tasks" / "todo" / "keep-me.md").exists()
-    assert git(git_repo, "log", "-1", "--pretty=%s") == "jri upgrade"
+    assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
     assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
         *service_module._MANAGED_AGENT_PATHS,
         *service_module._MANAGED_TOOL_PATHS,
@@ -95,8 +96,7 @@ def test_upgrade_commits_when_config_files_change(
     exit_code = run_cli(["upgrade"], cwd=git_repo)
 
     assert exit_code == 0
-    # Upgrade creates a commit because config files have changed content
-    assert git(git_repo, "log", "-1", "--pretty=%s") == "jri upgrade"
+    assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
     changed_files = set(
         git(
             git_repo,
@@ -128,7 +128,7 @@ def test_upgrade_recreates_gitignore_without_tracked_agent_files(
     exit_code = run_cli(["upgrade"], cwd=git_repo)
 
     assert exit_code == 0
-    assert git(git_repo, "log", "-1", "--pretty=%s") == "jri upgrade"
+    assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
     assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
         *service_module._MANAGED_AGENT_PATHS,
         *service_module._MANAGED_TOOL_PATHS,

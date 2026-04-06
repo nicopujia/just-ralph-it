@@ -8,4 +8,4 @@ dist/
 
 .opencode/agents/interrogator.md
 .opencode/agents/ralph.md
-.opencode/tools/jri-outcome.js
+.opencode/tools/result.js

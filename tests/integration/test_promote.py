@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import cast
 
+import jri.core.git as git_module
 from tests.conftest import run_cli
 from tests.helpers import git, read_json, write_task
 
@@ -84,7 +85,7 @@ def test_promote_moves_selected_drafts_and_records_confirmation(
         "task_slugs": ["build-ui", "clarify-scope"],
         "target_status": "todo",
     }
-    assert "jri promote: move drafts to todo" in git(
+    assert git_module.MSG_PROMOTE in git(
         git_repo,
         "log",
         "-1",

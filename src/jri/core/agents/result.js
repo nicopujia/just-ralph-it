@@ -2,6 +2,7 @@ import { tool } from "@opencode-ai/plugin";
 import { writeFileSync } from "fs";
 
 export default tool({
+  name: "result",
   description:
     "Report the final outcome of this task. Call exactly once as your very last action.",
   args: {

@@ -12,7 +12,20 @@ from types import FrameType
 from typing import Any
 
 from .errors import HaltRequested, JriError
-from .git import GitRepo
+from .git import (
+    MSG_ESCALATE_FAILED,
+    MSG_ESCALATE_HUMAN,
+    MSG_PROMOTE,
+    MSG_RALPH_FINALIZE,
+    MSG_RALPH_PARTIAL,
+    MSG_RECOVER_FAILED,
+    MSG_RECOVER_NEEDS_HUMAN,
+    MSG_RECOVER_STALE,
+    MSG_START_BEGIN,
+    MSG_START_COMPLETE,
+    MSG_UPGRADE_AUTO,
+    GitRepo,
+)
 from .metrics import MetricEntry, MetricsStore
 from .models import (
     AttemptState,
@@ -51,7 +64,7 @@ _MANAGED_AGENT_FILENAMES = ("interrogator.md", "ralph.md")
 _MANAGED_AGENT_PATHS = tuple(
     f".opencode/agents/{name}" for name in _MANAGED_AGENT_FILENAMES
 )
-_MANAGED_TOOL_FILENAMES = ("jri-outcome.js",)
+_MANAGED_TOOL_FILENAMES = ("result.js",)
 _MANAGED_TOOL_PATHS = tuple(
     f".opencode/tools/{name}" for name in _MANAGED_TOOL_FILENAMES
 )
@@ -227,7 +240,7 @@ class JriService:
             )
         )
         self.git.commit_paths_if_needed(
-            "jri promote: move drafts to todo",
+            MSG_PROMOTE,
             [
                 self.git.relative_path(self.paths.task_dir("draft")),
                 self.git.relative_path(self.paths.task_dir("todo")),
@@ -367,7 +380,7 @@ class JriService:
 
     def _auto_upgrade_if_needed(self) -> None:
         if self.needs_upgrade():
-            self.upgrade(commit_message="jri upgrade (auto)")
+            self.upgrade(commit_message=MSG_UPGRADE_AUTO)
 
     def _write_managed_files(self) -> None:
         self.paths.gitignore_path.write_text(
@@ -479,7 +492,7 @@ class JriService:
         if not self._client_injected:
             if self.opencode_server is None:
                 self.opencode_server = OpenCodeServer(model=self.opencode_client.model)
-            outcome_path = self.paths.jri_dir / "ralph-outcome"
+            outcome_path = self.paths.jri_dir / "signals" / "result"
             outcome_path.parent.mkdir(parents=True, exist_ok=True)
             # Ensure the worktree exists before the server starts so Ralph's
             # tools resolve paths against the worktree, not the main repo.
@@ -667,7 +680,7 @@ class JriService:
         # worktree so it inherits the move via the default-branch reset.
         # This keeps `jri status` and the task state machine in main.
         main_doing_task = move_task(task, self.paths.task_dir("doing"))
-        self.git.commit_all_if_needed(f"jri start: begin {task.slug}")
+        self.git.commit_all_if_needed(MSG_START_BEGIN.format(slug=task.slug))
         self._sync_worktree(wt_git)
         # Now read the same task from the worktree where Ralph will work.
         wt_task_path = wt_paths.task_path("doing", task.slug)
@@ -692,7 +705,7 @@ class JriService:
             detached=False,
         )
         if self.opencode_server is not None and not self._client_injected:
-            outcome_path = self.paths.jri_dir / "ralph-outcome"
+            outcome_path = self.paths.jri_dir / "signals" / "result"
             result = self.opencode_server.run_ralph_task(
                 root=wt_paths.root,
                 prompt=prompt_text,
@@ -830,7 +843,7 @@ class JriService:
             sys.stdout.flush()
             return "failed"
 
-        wt_git.commit_all_if_needed(f"ralph: finalize {task.slug}")
+        wt_git.commit_all_if_needed(MSG_RALPH_FINALIZE.format(slug=task.slug))
 
         if (wt_paths.root / "Makefile").exists():
             try:
@@ -926,7 +939,7 @@ class JriService:
             raise JriError(f"task file `{relative_path}` disappeared during Ralph run")
         doing_on_main = parse_task_file(self.paths.task_path("doing", task.slug))
         move_task(doing_on_main, self.paths.task_dir("done"))
-        self.git.commit_all_if_needed(f"jri start: complete {task.slug}")
+        self.git.commit_all_if_needed(MSG_START_COMPLETE.format(slug=task.slug))
         self.git.create_tag(f"jri/{next_iteration}")
         self._save_diff_artifact(next_iteration, task.slug)
 
@@ -962,7 +975,7 @@ class JriService:
                 main_task = parse_task_file(main_doing)
                 move_task(main_task, self.paths.task_dir("todo"))
                 self.git.commit_all_if_needed(
-                    f"jri: recover {doing_task.slug} after failed iteration"
+                    MSG_RECOVER_FAILED.format(slug=doing_task.slug)
                 )
             # Reset the worktree so it reflects main's new state.
             self._sync_worktree(wt_git)
@@ -1166,7 +1179,7 @@ class JriService:
                     )
             elif current_branch == "ralph":
                 self.git.commit_all_if_needed(
-                    f"ralph: partial work on {doing_task.slug}"
+                    MSG_RALPH_PARTIAL.format(slug=doing_task.slug)
                 )
                 self.git.checkout(default)
             else:
@@ -1175,7 +1188,7 @@ class JriService:
                 expected = f"ralph/{state.iteration_number + 1}/{doing_task.slug}"
                 if current_branch == expected:
                     self.git.commit_all_if_needed(
-                        f"ralph: partial work on {doing_task.slug}"
+                        MSG_RALPH_PARTIAL.format(slug=doing_task.slug)
                     )
                     self.git.checkout(default)
                     self.git.delete_branch(expected)
@@ -1197,7 +1210,7 @@ class JriService:
             self._mark_active_attempt_interrupted()
             self._reset_runtime_state()
             self.git.commit_all_if_needed(
-                f"jri: recover {doing_task.slug} after stale run"
+                MSG_RECOVER_STALE.format(slug=doing_task.slug)
             )
         except Exception as recovery_error:
             self._record_recovery_failure(
@@ -1281,7 +1294,7 @@ class JriService:
         if current_branch == attempt.branch:
             if self.git.status_short():
                 self.git.commit_all_if_needed(
-                    f"ralph: partial work on {attempt.task_slug}"
+                    MSG_RALPH_PARTIAL.format(slug=attempt.task_slug)
                 )
             self.git.checkout(default)
         elif current_branch != default:
@@ -1289,7 +1302,7 @@ class JriService:
 
         if doing_task is not None and doing_task.path.exists():
             move_task(doing_task, self.paths.task_dir("done"))
-        self.git.commit_all_if_needed(f"jri start: complete {attempt.task_slug}")
+        self.git.commit_all_if_needed(MSG_START_COMPLETE.format(slug=attempt.task_slug))
         tag = f"jri/{attempt.iteration_number}"
         if not self.git.has_tag(tag):
             self.git.create_tag(tag)
@@ -1424,7 +1437,7 @@ class JriService:
         blocked_task = self._block_task_on_dependency(todo_task, human_task.slug)
         self._write_task_file(blocked_task)
         self.git.commit_all_if_needed(
-            f"jri: escalate {task.slug} after {_MAX_FAILED_ATTEMPTS} failed attempts"
+            MSG_ESCALATE_FAILED.format(slug=task.slug, n=_MAX_FAILED_ATTEMPTS)
         )
 
     def _recover_needs_human_iteration(
@@ -1443,7 +1456,7 @@ class JriService:
                 main_task = parse_task_file(main_doing)
                 move_task(main_task, self.paths.task_dir("todo"))
                 self.git.commit_all_if_needed(
-                    f"jri: recover {doing_task.slug} for needs-human"
+                    MSG_RECOVER_NEEDS_HUMAN.format(slug=doing_task.slug)
                 )
             # Reset the worktree to reflect main's new state.
             if self.paths.worktree_dir.exists():
@@ -1463,7 +1476,7 @@ class JriService:
                 )
                 self._write_task_file(blocked_task)
                 self.git.commit_all_if_needed(
-                    f"jri: escalate {doing_task.slug} for human help"
+                    MSG_ESCALATE_HUMAN.format(slug=doing_task.slug)
                 )
             self._reset_runtime_state()
             self.timeline.record(

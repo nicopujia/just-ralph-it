@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 
 from ..core.errors import JriError
+from ..core.git import MSG_INIT, MSG_UPGRADE
 from ..core.service import JriService
 
 
@@ -19,14 +20,12 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
             case "init":
                 directory = (working_directory / args.directory).resolve()
                 init_service = JriService(directory)
-                init_service.init(
-                    force=args.force, commit_message=_command_message(argv)
-                )
+                init_service.init(force=args.force, commit_message=MSG_INIT)
                 return 0
             case "upgrade":
                 directory = (working_directory / args.directory).resolve()
                 upgrade_service = JriService(directory)
-                upgrade_service.upgrade(commit_message=_command_message(argv))
+                upgrade_service.upgrade(commit_message=MSG_UPGRADE)
                 return 0
             case "chat":
                 return service.chat(unknown)
@@ -364,7 +363,3 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     return parser
-
-
-def _command_message(argv: list[str]) -> str:
-    return " ".join(["jri", *argv])
