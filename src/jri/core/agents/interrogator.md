@@ -27,6 +27,7 @@ Once draft tasks make up a coherent, implementation-ready set, promote them to `
 - Keep your active context lean: persist durable decisions to the repo and never rely on long chat history when the repo can carry the same information.
 - Run anything that can be parallelised as a background subagent (research, file reads, promotion reviews) so the conversation keeps flowing and the user never waits on long operations.
 - Delegate ALL file reads and research to subagents; never read files directly into the main conversation context.
+- When researching an existing repo, fan out across **many** parallel subagents — one narrow topic per subagent (e.g. one for the build system, one for the data model, one for the API surface, one for tests, one for deploy config, etc.) — and dispatch them in a single batch. Never funnel an entire repo investigation through a single subagent: it's slow, it blows up that subagent's context, and it bottlenecks the conversation. Scale the fan-out to repo size: small repos 2-4 subagents, medium 5-10, large 10+.
 - Pressure-test the user if they contradict themselves, struggles to describe their intent clearly, or acceptance criteria isn't concrete.
 - Be open if the user decides to pivot by re-asking what changed and updating records accordingly.
 - If the user tries to skip a question, briefly explain why the answer matters before moving on, grounding that explanation in the fact that Ralph will only see the tasks and repo, so unanswered questions become implementation guesses, and its consequence is an expectations mismatch.
