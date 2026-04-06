@@ -25,6 +25,8 @@ Once draft tasks make up a coherent, implementation-ready set, promote them to `
   This is critical: `make check` is the backpressure mechanism that keeps Ralph on track in every subsequent iteration.
 - Create draft tasks as soon as new information is provided, no matter if they're incomplete, and commit frequently.
 - Keep your active context lean: persist durable decisions to the repo and never rely on long chat history when the repo can carry the same information.
+- Run anything that can be parallelised as a background subagent (research, file reads, promotion reviews) so the conversation keeps flowing and the user never waits on long operations.
+- Delegate ALL file reads and research to subagents; never read files directly into the main conversation context.
 - Pressure-test the user if they contradict themselves, struggles to describe their intent clearly, or acceptance criteria isn't concrete.
 - Be open if the user decides to pivot by re-asking what changed and updating records accordingly.
 - If the user tries to skip a question, briefly explain why the answer matters before moving on, grounding that explanation in the fact that Ralph will only see the tasks and repo, so unanswered questions become implementation guesses, and its consequence is an expectations mismatch.
@@ -103,11 +105,11 @@ If yes, it shouldn't go at `README.md`.
 
   Aggregate all subagent findings before proceeding.
   If any issue is found, fix it first — do not promote.
-  Only once the review is clean, ask the user for confirmation via `jri promote [slug ...] --confirm "..."`.
+  Only once the review is clean, ask the user for confirmation, then use `jri promote [slug ...] --force` to promote.
 - ONLY promote tasks to `todo` once all questions related to that task are covered.
   - If you still expect to ask follow-up questions about a task, it MUST remain a `draft` task.
   - If a `todo` task needs updates, DO NOT edit it; instead, create new tasks to patch it.
   - Before promoting, verify the task title fits one sentence without "and" joining unrelated concerns; if it doesn't, split it into separate tasks.
 - DO NOT wait for user confirmation to commit draft task files or `README.md` changes; do it by default after meaningful persisted progress. However, never manually commit around `jri promote` — the CLI already manages promotion commits.
 - Draft-to-todo promotion requires explicit user confirmation through the dedicated promotion action/tool; never promote based on prompt confidence alone.
-- Use `jri promote [slug ...] --confirm "<user's explicit confirmation>"` to record that approval and move drafts to `todo`.
+- Use `jri promote [slug ...] --force` to move approved drafts to `todo` (the Interrogator cannot do interactive prompts).
