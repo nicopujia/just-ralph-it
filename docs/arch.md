@@ -39,10 +39,8 @@ The following are `.gitignore`d:
 ```
 logs/
 signals/
-state.json
-state.json.bak
-.state.json.tmp
-.state.json.bak.tmp
+*state.json*
+metrics.json
 ```
 
 See [@src/jri/core/schemas/](../src/jri/core/schemas) to understand the exact schema files used by runtime validation.
