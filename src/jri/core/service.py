@@ -325,9 +325,21 @@ class JriService:
         self.state_store.initialize(branch=self.git.current_branch() or None)
         return created_files
 
+    _GITIGNORE_CONTENT = "logs/\nsignals/\n*state.json*\nmetrics.json\nworktree/\n"
+
+    def _refresh_gitignore(self) -> None:
+        """Ensure .jri/.gitignore is up to date (handles pre-worktree projects)."""
+        current = ""
+        if self.paths.gitignore_path.exists():
+            current = self.paths.gitignore_path.read_text(encoding="utf-8")
+        if current != self._GITIGNORE_CONTENT:
+            self.paths.gitignore_path.write_text(
+                self._GITIGNORE_CONTENT, encoding="utf-8"
+            )
+
     def _write_managed_files(self) -> None:
         self.paths.gitignore_path.write_text(
-            "logs/\nsignals/\n*state.json*\nmetrics.json\nworktree/\n",
+            self._GITIGNORE_CONTENT,
             encoding="utf-8",
         )
         _ensure_ignore_entries(
@@ -419,6 +431,7 @@ class JriService:
             raise JriError(str(exc)) from exc
         if doing:
             raise JriError("a task is already in progress")
+        self._refresh_gitignore()
         self._handle_dirty_workdir(force=force)
         self._handle_wrong_branch(force=force)
         self._ensure_initial_iteration_tag()
