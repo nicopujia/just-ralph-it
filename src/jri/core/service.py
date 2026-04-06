@@ -609,11 +609,15 @@ class JriService:
         self._copy_gitignored_files_to_worktree()
 
     def _copy_gitignored_files_to_worktree(self) -> None:
-        """Copy gitignored managed files into the worktree."""
+        """Copy gitignored managed files into the worktree.
+
+        The prune-tool-calls plugin is intentionally NOT copied: it would
+        strip Ralph's tool call history every turn, making the model forget
+        every file it has read. The plugin is for the Interrogator only.
+        """
         wt = self.paths.worktree_dir
         for src_dir, filenames in (
             (".opencode/agents", _MANAGED_AGENT_FILENAMES),
-            (".opencode/plugin", _MANAGED_PLUGIN_FILENAMES),
             (".opencode/tools", _MANAGED_TOOL_FILENAMES),
         ):
             dst_dir = wt / src_dir
@@ -622,6 +626,11 @@ class JriService:
                 src = self.root / src_dir / name
                 if src.exists():
                     shutil.copy2(src, dst_dir / name)
+        # Remove any plugin dir left over from earlier versions — the
+        # pruning plugin must NOT exist in Ralph's worktree.
+        wt_plugin_dir = wt / ".opencode" / "plugin"
+        if wt_plugin_dir.exists():
+            shutil.rmtree(wt_plugin_dir)
         # Copy opencode.json
         src = self.root / "opencode.json"
         if src.exists():

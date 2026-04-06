@@ -612,6 +612,48 @@ class OpenCodeServer:
         except Exception:
             pass
 
+    def _tool_detail(self, tool_name: str, input_obj: object) -> str:
+        """Extract a one-line detail (file path, command, etc.) from tool input."""
+        if not isinstance(input_obj, dict):
+            return ""
+
+        def _rel(path: str) -> str:
+            # Strip the worktree prefix if present for cleaner display.
+            for prefix in (
+                "/home/nico/",
+                str(self._cwd_hint) if hasattr(self, "_cwd_hint") else "",
+            ):
+                if prefix and path.startswith(prefix):
+                    return path[len(prefix) :]
+            return path
+
+        candidates_by_tool: dict[str, tuple[str, ...]] = {
+            "read": ("filePath",),
+            "write": ("filePath",),
+            "edit": ("filePath",),
+            "multiedit": ("filePath",),
+            "glob": ("pattern",),
+            "grep": ("pattern",),
+            "list": ("path",),
+            "ls": ("path",),
+            "bash": ("description", "command"),
+            "webfetch": ("url",),
+            "task": ("description",),
+            "todowrite": ("",),
+        }
+        keys = candidates_by_tool.get(tool_name, ("filePath", "path", "description"))
+        for key in keys:
+            if not key:
+                continue
+            value = input_obj.get(key)
+            if isinstance(value, str) and value:
+                if key in ("filePath", "path"):
+                    value = _rel(value)
+                if len(value) > 80:
+                    value = value[:77] + "..."
+                return value
+        return ""
+
     def _unwrap(self, event: dict[str, object]) -> dict[str, object]:
         """Unwrap the {directory, payload} envelope from /global/event."""
         payload = event.get("payload")
@@ -682,21 +724,11 @@ class OpenCodeServer:
                         return "", False
                     seen_tool_calls.add(call_id)
                 tool_name = part.get("tool") or state.get("tool") or "tool"
-                title = ""
                 input_obj = state.get("input")
-                if isinstance(input_obj, dict):
-                    raw_title = input_obj.get("title")
-                    if isinstance(raw_title, str):
-                        title = raw_title
-                if not title:
-                    metadata = state.get("metadata")
-                    if isinstance(metadata, dict):
-                        raw_title = metadata.get("title")
-                        if isinstance(raw_title, str):
-                            title = raw_title
+                detail = self._tool_detail(tool_name, input_obj)
                 label = f"⚙ {tool_name}"
-                if title:
-                    label = f"{label}: {title}"
+                if detail:
+                    label = f"{label} {detail}"
                 return _s(label, DIM) + "\n", True
             return "", False
         return "", False
