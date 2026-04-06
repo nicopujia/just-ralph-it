@@ -38,6 +38,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         detached=args.detached,
                         model=args.model,
                         task_timeout=args.task_timeout,
+                        force=args.force,
                     )
                     >= 0
                     else 1
@@ -261,6 +262,12 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         metavar="SECONDS",
         help="Maximum seconds per task iteration (0 or unset = no limit).",
+    )
+    start_parser.add_argument(
+        "-f",
+        "--force",
+        action="store_true",
+        help="Auto-resolve pre-flight checks without interactive prompts.",
     )
 
     stop_parser = subparsers.add_parser(

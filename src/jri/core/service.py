@@ -123,16 +123,19 @@ class JriService:
         detached: bool = False,
         model: str | None = None,
         task_timeout: int | None = None,
+        force: bool = False,
     ) -> int:
         self.ensure_initialized()
-        self._recover_stale_start_state(mode="detached" if detached else "foreground")
+        self._recover_stale_start_state(
+            mode="detached" if detached else "foreground", force=force
+        )
         if detached:
             return self._start_detached(iterations, model, task_timeout)
 
         previous_model = self.opencode_client.model
         self.opencode_client.model = model
         try:
-            return self._run_loop(iterations, task_timeout=task_timeout)
+            return self._run_loop(iterations, task_timeout=task_timeout, force=force)
         finally:
             self.opencode_client.model = previous_model
 
@@ -404,15 +407,20 @@ class JriService:
         )
         return 0
 
-    def _run_loop(self, iterations: int | None, task_timeout: int | None = None) -> int:
+    def _run_loop(
+        self,
+        iterations: int | None,
+        task_timeout: int | None = None,
+        force: bool = False,
+    ) -> int:
         try:
             doing = list_tasks(self.paths.task_dir("doing"), git_repo=self.git)
         except ValueError as exc:
             raise JriError(str(exc)) from exc
         if doing:
             raise JriError("a task is already in progress")
-        self.git.ensure_clean()
-        self.git.ensure_default_branch(hint=self.state_store.load().branch)
+        self._handle_dirty_workdir(force=force)
+        self._handle_wrong_branch(force=force)
         self._ensure_initial_iteration_tag()
         if self.paths.stop_signal_path.exists():
             self.paths.stop_signal_path.unlink()
@@ -891,7 +899,52 @@ class JriService:
         if state.iteration_number == 0 and not self.git.has_tag("jri/0"):
             self.git.create_tag("jri/0")
 
-    def _recover_stale_start_state(self, *, mode: str) -> None:
+    def _handle_dirty_workdir(self, *, force: bool) -> None:
+        """Handle uncommitted changes before starting the loop."""
+        status = self.git.status_short()
+        if not status:
+            return
+        if force:
+            self.git.run("stash")
+            return
+        sys.stdout.write("Uncommitted changes detected:\n")
+        for line in status.splitlines():
+            sys.stdout.write(f"  {line}\n")
+        sys.stdout.write("\n")
+        sys.stdout.write("  [s] Stash and continue\n")
+        sys.stdout.write("  [d] Discard and continue\n")
+        sys.stdout.write("  [a] Abort\n")
+        sys.stdout.write("Choice [s/d/a]: ")
+        sys.stdout.flush()
+        choice = input().strip().lower()
+        if choice == "s":
+            self.git.run("stash")
+        elif choice == "d":
+            self.git.run("checkout", ".")
+            self.git.run("clean", "-fd")
+        else:
+            raise JriError("aborted by user")
+
+    def _handle_wrong_branch(self, *, force: bool) -> None:
+        """Handle being on the wrong branch before starting the loop."""
+        state = self.state_store.load()
+        default = self.git.default_branch(hint=state.branch)
+        current = self.git.current_branch()
+        if current == default:
+            return
+        if force:
+            self.git.run("checkout", default)
+            return
+        sys.stdout.write(f'Currently on branch "{current}", expected "{default}".\n')
+        sys.stdout.write("Switch to main? [Y/n] ")
+        sys.stdout.flush()
+        choice = input().strip().lower()
+        if choice in ("", "y"):
+            self.git.run("checkout", default)
+        else:
+            raise JriError("aborted by user")
+
+    def _recover_stale_start_state(self, *, mode: str, force: bool = False) -> None:
         state = self.state_store.load()
         try:
             doing_tasks = list_tasks(self.paths.task_dir("doing"), git_repo=self.git)
@@ -909,6 +962,16 @@ class JriService:
             raise JriError("a Ralph process is already running")
 
         if doing_tasks:
+            if not force:
+                slug = doing_tasks[0].slug
+                sys.stdout.write(
+                    f'Task "{slug}" has incomplete work from a crashed iteration.\n'
+                )
+                sys.stdout.write("Reset and move back to todo? [Y/n] ")
+                sys.stdout.flush()
+                choice = input().strip().lower()
+                if choice not in ("", "y"):
+                    raise JriError("aborted by user")
             reason = (
                 "dead-tracked-process" if loop_pid is not None else "no-tracked-process"
             )

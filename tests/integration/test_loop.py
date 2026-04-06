@@ -231,7 +231,9 @@ def test_start_uses_explicit_model_override(git_repo: Path) -> None:
     client = SuccessfulFakeOpenCodeClient()
     service = JriService(git_repo, opencode_client=client)
 
-    completed = service.start(iterations=1, model="opencode/qwen3.6-plus-free")
+    completed = service.start(
+        iterations=1, model="opencode/qwen3.6-plus-free", force=True
+    )
 
     assert completed == 1
     assert client.models_used == ["opencode/qwen3.6-plus-free"]
@@ -255,7 +257,7 @@ def test_start_completes_single_iteration(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 1
     assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
@@ -298,7 +300,7 @@ def test_start_passes_doing_task_path_to_ralph(git_repo: Path) -> None:
     client = SuccessfulFakeOpenCodeClient()
     service = JriService(git_repo, opencode_client=client)
 
-    assert service.start(iterations=1) == 1
+    assert service.start(iterations=1, force=True) == 1
     assert len(client.calls) == 1
     assert (
         client.calls[0][0]
@@ -323,7 +325,7 @@ def test_start_fails_cleanly_when_doing_task_disappears(git_repo: Path) -> None:
     service = JriService(git_repo, opencode_client=MissingDoingTaskOpenCodeClient())
 
     with pytest.raises(JriError, match="disappeared during Ralph run"):
-        service.start(iterations=1)
+        service.start(iterations=1, force=True)
 
 
 def test_start_rejects_in_place_mutation_of_doing_task(git_repo: Path) -> None:
@@ -343,7 +345,7 @@ def test_start_rejects_in_place_mutation_of_doing_task(git_repo: Path) -> None:
     service = JriService(git_repo, opencode_client=MutatingDoingTaskOpenCodeClient())
 
     with pytest.raises(JriError, match="modified in place"):
-        service.start(iterations=1)
+        service.start(iterations=1, force=True)
 
 
 def test_start_rejects_committed_in_place_mutation_of_doing_task(
@@ -368,7 +370,7 @@ def test_start_rejects_committed_in_place_mutation_of_doing_task(
     )
 
     with pytest.raises(JriError, match="modified in place"):
-        service.start(iterations=1)
+        service.start(iterations=1, force=True)
 
 
 def test_start_allows_additive_follow_up_draft_tasks(git_repo: Path) -> None:
@@ -388,7 +390,7 @@ def test_start_allows_additive_follow_up_draft_tasks(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=FollowUpDraftOpenCodeClient())
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 1
     assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
@@ -422,7 +424,7 @@ def test_start_refuses_when_tracked_process_is_still_alive(git_repo: Path) -> No
 
     try:
         with pytest.raises(JriError, match="already running"):
-            service.start(iterations=1)
+            service.start(iterations=1, force=True)
     finally:
         sleeper.terminate()
         sleeper.wait(timeout=5)
@@ -445,7 +447,7 @@ def test_start_recovers_clean_foreground_interruption(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 1
     assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
@@ -492,7 +494,7 @@ def test_start_records_retry_attempt_after_interrupted_run(git_repo: Path) -> No
         )
     )
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 1
     attempts = cast(
@@ -531,7 +533,7 @@ def test_start_recovers_stale_foreground_process(git_repo: Path) -> None:
         detached=False,
     )
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 1
     assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
@@ -568,7 +570,7 @@ def test_start_clears_stale_process_metadata_without_doing_task(git_repo: Path) 
         detached=False,
     )
 
-    assert service.start(iterations=1) == 1
+    assert service.start(iterations=1, force=True) == 1
     recovery_log = (git_repo / ".jri" / "logs" / "recovery.log").read_text(
         encoding="utf-8"
     )
@@ -609,7 +611,7 @@ def test_start_recovers_clean_detached_interruption(
     monkeypatch.setattr("jri.core.service.subprocess.Popen", fake_popen)
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
-    assert service.start(iterations=1, detached=True) == 0
+    assert service.start(iterations=1, detached=True, force=True) == 0
     assert popen_calls == [expected_command]
     assert (git_repo / ".jri" / "tasks" / "todo" / "implement-file.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "doing" / "implement-file.md").exists()
@@ -663,7 +665,7 @@ def test_start_recovers_stale_detached_process(
 
     monkeypatch.setattr("jri.core.service.subprocess.Popen", fake_popen)
 
-    assert service.start(iterations=1, detached=True) == 0
+    assert service.start(iterations=1, detached=True, force=True) == 0
     assert (git_repo / ".jri" / "tasks" / "todo" / "implement-file.md").exists()
     process = cast(
         dict[str, object], read_json(git_repo / ".jri" / "state.json")["process"]
@@ -717,7 +719,7 @@ def test_start_retries_after_interrupted_completion_without_rerunning_task(
     )
 
     with pytest.raises(KeyboardInterrupt, match="simulated interruption"):
-        first_service.start(iterations=1)
+        first_service.start(iterations=1, force=True)
 
     interrupted_state = read_json(git_repo / ".jri" / "state.json")
     interrupted_iteration = cast(dict[str, object], interrupted_state["iteration"])
@@ -734,7 +736,7 @@ def test_start_retries_after_interrupted_completion_without_rerunning_task(
     retry_client = SuccessfulFakeOpenCodeClient()
     retry_service = JriService(git_repo, opencode_client=retry_client)
 
-    assert retry_service.start(iterations=1) == 1
+    assert retry_service.start(iterations=1, force=True) == 1
     assert len(retry_client.calls) == 1
     assert "task-b" in retry_client.calls[0][0]
 
@@ -774,7 +776,7 @@ def test_reset_returns_repo_to_last_successful_iteration(git_repo: Path) -> None
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
-    assert service.start(iterations=1) == 1
+    assert service.start(iterations=1, force=True) == 1
     service.state_store.save_session("ses_interrogation")
 
     (git_repo / "extra.txt").write_text("later\n", encoding="utf-8")
@@ -827,7 +829,7 @@ def test_needs_human_generates_human_followup_and_blocks_original_task(
 
     service = JriService(git_repo, opencode_client=NeedsHumanFakeOpenCodeClient())
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     todo_tasks = list_tasks(git_repo / ".jri" / "tasks" / "todo")
     original_task = parse_task_file(
@@ -875,12 +877,12 @@ def test_needs_human_block_is_durable_across_runs(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=NeedsHumanFakeOpenCodeClient())
 
-    assert service.start(iterations=1) == 0
+    assert service.start(iterations=1, force=True) == 0
 
     retry_client = SuccessfulFakeOpenCodeClient()
     retry_service = JriService(git_repo, opencode_client=retry_client)
 
-    assert retry_service.start(iterations=1) == 0
+    assert retry_service.start(iterations=1, force=True) == 0
     assert retry_client.calls == []
 
 
@@ -911,7 +913,7 @@ def test_needs_human_then_successful_completes_one(git_repo: Path) -> None:
     client = NeedsHumanThenSuccessfulFakeOpenCodeClient()
     service = JriService(git_repo, opencode_client=client)
 
-    completed = service.start(iterations=2)
+    completed = service.start(iterations=2, force=True)
 
     todo_tasks = list_tasks(git_repo / ".jri" / "tasks" / "todo")
     task_a = parse_task_file(git_repo / ".jri" / "tasks" / "todo" / "task-a.md")
@@ -1001,7 +1003,7 @@ def test_failed_outcome_triggers_recovery(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 0
     assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
@@ -1031,7 +1033,7 @@ def test_make_check_runs_after_completion(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 1
     assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
@@ -1058,7 +1060,7 @@ def test_make_check_pass_records_metric(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "add task and makefile")
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 1
     metrics_path = git_repo / ".jri" / "metrics.json"
@@ -1090,7 +1092,7 @@ def test_failing_make_check_records_metric(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "add task and makefile")
 
     service = JriService(git_repo, opencode_client=MakeCheckFailsFakeOpenCodeClient())
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 0
     metrics_path = git_repo / ".jri" / "metrics.json"
@@ -1121,7 +1123,7 @@ def test_failing_make_check_triggers_recovery(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=MakeCheckFailsFakeOpenCodeClient())
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 0
     # Task should be back in todo after recovery
@@ -1152,7 +1154,7 @@ def test_failed_task_is_retried_after_first_failure(git_repo: Path) -> None:
     # First run fails
     fail_client = FailedFakeOpenCodeClient()
     fail_service = JriService(git_repo, opencode_client=fail_client)
-    completed = fail_service.start(iterations=1)
+    completed = fail_service.start(iterations=1, force=True)
 
     assert completed == 0
     assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
@@ -1166,7 +1168,7 @@ def test_failed_task_is_retried_after_first_failure(git_repo: Path) -> None:
     # Second run succeeds (task is retried)
     success_client = SuccessfulFakeOpenCodeClient()
     success_service = JriService(git_repo, opencode_client=success_client)
-    completed = success_service.start(iterations=1)
+    completed = success_service.start(iterations=1, force=True)
 
     assert completed == 1
     assert (git_repo / ".jri" / "tasks" / "done" / "failing-task.md").exists()
@@ -1191,11 +1193,11 @@ def test_failed_task_is_retried_up_to_three_times(git_repo: Path) -> None:
 
     # First run fails
     service1 = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
-    assert service1.start(iterations=1) == 0
+    assert service1.start(iterations=1, force=True) == 0
 
     # Second run also fails
     service2 = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
-    assert service2.start(iterations=1) == 0
+    assert service2.start(iterations=1, force=True) == 0
 
     # Task is still in todo, not escalated yet
     assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
@@ -1203,7 +1205,7 @@ def test_failed_task_is_retried_up_to_three_times(git_repo: Path) -> None:
     # Third run succeeds (task is still retryable)
     success_client = SuccessfulFakeOpenCodeClient()
     service3 = JriService(git_repo, opencode_client=success_client)
-    assert service3.start(iterations=1) == 1
+    assert service3.start(iterations=1, force=True) == 1
     assert (git_repo / ".jri" / "tasks" / "done" / "failing-task.md").exists()
     assert len(success_client.calls) == 1
 
@@ -1225,16 +1227,16 @@ def test_task_escalates_to_needs_human_after_three_failures(git_repo: Path) -> N
 
     # First failure
     service1 = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
-    assert service1.start(iterations=1) == 0
+    assert service1.start(iterations=1, force=True) == 0
 
     # Second failure
     service2 = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
-    assert service2.start(iterations=1) == 0
+    assert service2.start(iterations=1, force=True) == 0
 
     # Third failure triggers auto-escalation
     fail_client3 = FailedFakeOpenCodeClient()
     service3 = JriService(git_repo, opencode_client=fail_client3)
-    assert service3.start(iterations=1) == 0
+    assert service3.start(iterations=1, force=True) == 0
 
     # Original task is back in todo, now blocked on a generated Human task
     assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
@@ -1258,7 +1260,7 @@ def test_task_escalates_to_needs_human_after_three_failures(git_repo: Path) -> N
     # Subsequent start does not retry the escalated task
     success_client = SuccessfulFakeOpenCodeClient()
     service4 = JriService(git_repo, opencode_client=success_client)
-    assert service4.start(iterations=1) == 0
+    assert service4.start(iterations=1, force=True) == 0
     assert success_client.calls == []
 
 
@@ -1289,7 +1291,7 @@ def test_failed_iteration_recovery_logs_failure(
         ),
     )
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 0
     assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
@@ -1331,7 +1333,7 @@ def test_needs_human_recovery_logs_failure(
         ),
     )
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 0
 
@@ -1372,7 +1374,7 @@ def test_stale_iteration_recovery_logs_failure_and_propagates_error(
     )
 
     with pytest.raises(OSError, match="simulated move failure"):
-        service.start(iterations=1)
+        service.start(iterations=1, force=True)
 
     failure_log_path = git_repo / ".jri" / "logs" / "recovery-failures.log"
     assert failure_log_path.exists()
@@ -1410,7 +1412,7 @@ def test_state_is_understandable_after_partial_recovery_failure(
         ),
     )
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 0
 
@@ -1459,7 +1461,7 @@ def test_successful_iteration_saves_diff_artifact(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 1
     diff_path = git_repo / ".jri" / "logs" / "diffs" / "1-implement-file.diff"
@@ -1503,14 +1505,14 @@ def test_diff_artifact_is_created_for_recovered_completion(
     monkeypatch.setattr(first_service, "_save_diff_artifact", interrupted_save_diff)
 
     with pytest.raises(KeyboardInterrupt, match="simulated interruption"):
-        first_service.start(iterations=1)
+        first_service.start(iterations=1, force=True)
 
     assert (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
     diff_path = git_repo / ".jri" / "logs" / "diffs" / "1-task-a.diff"
     assert not diff_path.exists()
 
     retry_service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
-    assert retry_service.start(iterations=1) == 1
+    assert retry_service.start(iterations=1, force=True) == 1
 
     assert diff_path.exists()
     diff_text = diff_path.read_text(encoding="utf-8")
@@ -1536,7 +1538,7 @@ def test_successful_iteration_records_timeline_events(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 1
     timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
@@ -1574,7 +1576,7 @@ def test_failed_iteration_records_timeline_events(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 0
     timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
@@ -1608,7 +1610,7 @@ def test_needs_human_iteration_records_timeline_events(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=NeedsHumanFakeOpenCodeClient())
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 0
     timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
@@ -1639,7 +1641,7 @@ def test_escalated_task_records_timeline_event(git_repo: Path) -> None:
 
     for _ in range(3):
         service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
-        service.start(iterations=1)
+        service.start(iterations=1, force=True)
 
     timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
     store = TimelineStore(timeline_path)
@@ -1669,7 +1671,7 @@ def test_timeline_cli_shows_events(
     git(git_repo, "commit", "-m", "add task")
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
-    assert service.start(iterations=1) == 1
+    assert service.start(iterations=1, force=True) == 1
 
     rc = run_cli(["timeline"], cwd=git_repo)
     assert rc == 0
@@ -1697,7 +1699,7 @@ def test_timeline_cli_filters_by_iteration(
     git(git_repo, "commit", "-m", "add task")
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
-    assert service.start(iterations=1) == 1
+    assert service.start(iterations=1, force=True) == 1
 
     rc = run_cli(["timeline", "--iteration", "1"], cwd=git_repo)
     assert rc == 0
@@ -1728,7 +1730,7 @@ def test_timeline_cli_outputs_jsonl(
     git(git_repo, "commit", "-m", "add task")
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
-    assert service.start(iterations=1) == 1
+    assert service.start(iterations=1, force=True) == 1
 
     # Flush iteration header/footer output before CLI call
     capsys.readouterr()
@@ -1783,7 +1785,7 @@ def test_iteration_limit_stops_loop_after_n_tasks(git_repo: Path) -> None:
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
     # Only run 2 iterations even though there are 3 tasks
-    completed = service.start(iterations=2)
+    completed = service.start(iterations=2, force=True)
 
     assert completed == 2
     # First two tasks should be done
@@ -1822,7 +1824,7 @@ def test_iteration_limit_records_timeline_event(git_repo: Path) -> None:
     from jri.core.timeline import TimelineStore
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
-    service.start(iterations=1)
+    service.start(iterations=1, force=True)
 
     timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
     store = TimelineStore(timeline_path)
@@ -1887,7 +1889,7 @@ def test_task_timeout_stops_slow_task(git_repo: Path) -> None:
     client = SlowFakeOpenCodeClient(delay_seconds=2)
     service = JriService(git_repo, opencode_client=client)
 
-    completed = service.start(iterations=1, task_timeout=1)
+    completed = service.start(iterations=1, task_timeout=1, force=True)
 
     # Task should not have completed successfully
     assert completed == 0
@@ -1918,7 +1920,7 @@ def test_task_timeout_records_timeline_event(git_repo: Path) -> None:
     client = SlowFakeOpenCodeClient(delay_seconds=2)
     service = JriService(git_repo, opencode_client=client)
 
-    service.start(iterations=1, task_timeout=1)
+    service.start(iterations=1, task_timeout=1, force=True)
 
     timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
     store = TimelineStore(timeline_path)
@@ -1964,7 +1966,7 @@ def test_successful_task_run_persists_logs(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 1
 
@@ -2011,7 +2013,7 @@ def test_failed_task_run_persists_logs(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 0
 
@@ -2062,7 +2064,7 @@ def test_needs_human_task_run_persists_logs(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=NeedsHumanFakeOpenCodeClient())
 
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     assert completed == 0
 
@@ -2141,7 +2143,7 @@ def test_timeline_records_stderr_warnings(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=WarningFakeOpenCodeClient())
 
-    service.start(iterations=1)
+    service.start(iterations=1, force=True)
 
     # Verify timeline has stderr_warning event
     timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
@@ -2221,7 +2223,7 @@ def test_stop_during_active_work_stops_after_iteration(git_repo: Path) -> None:
     )
 
     # Run the loop - client will create stop signal during first iteration
-    completed = service.start(iterations=10)
+    completed = service.start(iterations=10, force=True)
 
     # Should have completed only 1 task before stopping
     assert completed == 1
@@ -2258,7 +2260,7 @@ def test_stop_signal_consumed_on_start(git_repo: Path) -> None:
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
     # Start the service - stop signal should be consumed at start
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     # Task should complete normally since stop signal is consumed at start
     assert completed == 1
@@ -2358,14 +2360,14 @@ def test_stop_then_start_recovery_consistency(git_repo: Path) -> None:
     )
 
     # Run - completes one task then stops
-    completed1 = service1.start(iterations=10)
+    completed1 = service1.start(iterations=10, force=True)
     assert completed1 == 1
     assert (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
     assert (git_repo / ".jri" / "tasks" / "todo" / "task-b.md").exists()
 
     # Second service instance - should continue with remaining tasks
     service2 = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
-    completed2 = service2.start(iterations=10)
+    completed2 = service2.start(iterations=10, force=True)
 
     # Should complete the second task
     assert completed2 == 1
@@ -2410,7 +2412,7 @@ def test_halt_then_start_recovery_consistency(git_repo: Path) -> None:
     # Start should recover the stale iteration and then continue with the task
     # Recovery moves task back to todo and marks first attempt as interrupted
     # Then the task is picked up and completed as a new attempt
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
 
     # Task should be completed (recovered + new attempt = 2 total attempts, 1 completed)
     assert completed == 1
@@ -2459,7 +2461,7 @@ def test_stop_signal_persists_across_invocations(git_repo: Path) -> None:
     assert stop_signal.exists()
 
     # Run loop - signal should be consumed
-    completed = service2.start(iterations=1)
+    completed = service2.start(iterations=1, force=True)
     assert completed == 1
     assert not stop_signal.exists()
 
@@ -2513,7 +2515,7 @@ def test_export_failure_is_visible_in_timeline(git_repo: Path) -> None:
     service = JriService(git_repo, opencode_client=client)
 
     # Task should still complete even if export fails
-    completed = service.start(iterations=1)
+    completed = service.start(iterations=1, force=True)
     assert completed == 1
 
     # Verify timeline has export_failed event
@@ -2578,7 +2580,7 @@ def test_export_failure_during_escalation_is_visible(git_repo: Path) -> None:
     for _ in range(3):
         client = FailingWithExportFail()
         service = JriService(git_repo, opencode_client=client)
-        service.start(iterations=1)
+        service.start(iterations=1, force=True)
 
     # Verify timeline has export_failed events during escalation
     timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
@@ -2591,3 +2593,61 @@ def test_export_failure_during_escalation_is_visible(git_repo: Path) -> None:
     # All export failures should be for the failing task
     for event in export_failed_events:
         assert event.task == "failing-task"
+
+
+# ---------------------------------------------------------------------------
+# Pre-flight check tests
+# ---------------------------------------------------------------------------
+
+
+def test_start_stashes_dirty_workdir_with_force(git_repo: Path) -> None:
+    """With force=True, dirty workdir is auto-stashed before the loop runs."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    # Dirty the workdir
+    (git_repo / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+    git(git_repo, "add", "dirty.txt")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    completed = service.start(iterations=1, force=True)
+
+    assert completed == 1
+    # The stash should have captured dirty.txt; verify stash list is non-empty
+    stash_list = git(git_repo, "stash", "list")
+    assert "stash@{0}" in stash_list
+
+
+def test_start_switches_branch_with_force(git_repo: Path) -> None:
+    """With force=True, wrong branch is auto-switched before the loop runs."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    # Switch to a feature branch
+    git(git_repo, "checkout", "-b", "feature/x")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    completed = service.start(iterations=1, force=True)
+
+    assert completed == 1
+    assert git(git_repo, "branch", "--show-current") == "main"
