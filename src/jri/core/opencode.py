@@ -548,6 +548,7 @@ class OpenCodeServer:
                     log_file.write(json.dumps(event) + "\n")
                     log_file.flush()
 
+                    self._handle_permission(event)
                     text_to_print, newline_before = self._render_event(
                         event, session_id, seen_tool_calls
                     )
@@ -607,6 +608,27 @@ class OpenCodeServer:
             _http_request(
                 "DELETE",
                 f"{self._base_url}/session/{session_id}",
+                timeout=5.0,
+            )
+        except Exception:
+            pass
+
+    def _handle_permission(self, event: dict[str, object]) -> None:
+        """Auto-approve any permission.asked event."""
+        unwrapped = self._unwrap(event)
+        if unwrapped.get("type") != "permission.asked":
+            return
+        properties = unwrapped.get("properties")
+        if not isinstance(properties, dict):
+            return
+        request_id = properties.get("id")
+        if not isinstance(request_id, str):
+            return
+        try:
+            _http_request(
+                "POST",
+                f"{self._base_url}/permission/{request_id}/reply",
+                body={"reply": "always"},
                 timeout=5.0,
             )
         except Exception:
