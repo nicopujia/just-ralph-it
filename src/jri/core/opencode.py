@@ -665,6 +665,8 @@ class OpenCodeServer:
         part_type = part.get("type")
         if part_type == "reasoning":
             return "", False
+        if part_type == "step-finish":
+            return "\n", False
         if part_type == "text":
             # Skip — text streaming arrives via message.part.delta.
             return "", False
