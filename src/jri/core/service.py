@@ -51,6 +51,10 @@ _MANAGED_AGENT_FILENAMES = ("interrogator.md", "ralph.md")
 _MANAGED_AGENT_PATHS = tuple(
     f".opencode/agents/{name}" for name in _MANAGED_AGENT_FILENAMES
 )
+_MANAGED_PLUGIN_FILENAMES = ("prune-tool-calls.ts",)
+_MANAGED_PLUGIN_PATHS = tuple(
+    f".opencode/plugin/{name}" for name in _MANAGED_PLUGIN_FILENAMES
+)
 _MANAGED_CONFIG_FILENAMES = ("opencode.json",)
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
 _MAX_TASK_TITLE_LENGTH = 50
@@ -93,6 +97,7 @@ class JriService:
 
     def chat(self, extra_args: list[str]) -> int:
         self.ensure_initialized()
+        self._update_compaction_reserved()
         before = {
             session_id
             for session in self.opencode_client.list_sessions(root=self.root)
@@ -322,10 +327,20 @@ class JriService:
             "logs/\nsignals/\n*state.json*\nmetrics.json\nworktree/\n",
             encoding="utf-8",
         )
-        _ensure_ignore_entries(self.paths.root_gitignore_path, _MANAGED_AGENT_PATHS)
+        _ensure_ignore_entries(
+            self.paths.root_gitignore_path,
+            (*_MANAGED_AGENT_PATHS, *_MANAGED_PLUGIN_PATHS),
+        )
         self.paths.opencode_agents_dir.mkdir(parents=True, exist_ok=True)
         for name in _MANAGED_AGENT_FILENAMES:
             (self.paths.opencode_agents_dir / name).write_text(
+                _load_prompt(name),
+                encoding="utf-8",
+            )
+        plugin_dir = self.root / ".opencode" / "plugin"
+        plugin_dir.mkdir(parents=True, exist_ok=True)
+        for name in _MANAGED_PLUGIN_FILENAMES:
+            (plugin_dir / name).write_text(
                 _load_prompt(name),
                 encoding="utf-8",
             )
@@ -334,6 +349,24 @@ class JriService:
                 _load_prompt(name),
                 encoding="utf-8",
             )
+
+    def _update_compaction_reserved(self) -> None:
+        """Update opencode.json reserved tokens based on the model context window."""
+        config_path = self.root / "opencode.json"
+        if not config_path.exists():
+            return
+        try:
+            import json
+
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            reserved = _compute_reserved()
+            if reserved is not None and isinstance(config.get("compaction"), dict):
+                config["compaction"]["reserved"] = reserved
+                config_path.write_text(
+                    json.dumps(config, indent=2) + "\n", encoding="utf-8"
+                )
+        except Exception:
+            pass  # Non-critical — fall back to template default
 
     def _start_detached(
         self, iterations: int | None, model: str | None, task_timeout: int | None
@@ -1489,6 +1522,47 @@ class JriService:
             ):
                 return session_id
         return None
+
+
+_MODELS_DEV_URL = "https://models.dev/api.json"
+_MAX_RESERVED_TOKENS = 500_000
+_RESERVED_RATIO = 0.4
+
+
+def _compute_reserved(model: str | None = None) -> int | None:
+    """Compute compaction reserved tokens from the model context window.
+
+    Fetches context-window size from models.dev and returns
+    ``min(0.4 * context, 500_000)``.  Returns ``None`` on any failure.
+    """
+    import json
+    import urllib.request
+
+    try:
+        req = urllib.request.Request(
+            _MODELS_DEV_URL, headers={"User-Agent": "jri/0.1"}
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            registry = json.loads(resp.read())
+    except Exception:
+        return None
+
+    # Search all providers for the model
+    target = model or "claude-sonnet-4-20250514"
+    for provider in registry.values():
+        if not isinstance(provider, dict):
+            continue
+        models = provider.get("models")
+        if not isinstance(models, dict):
+            continue
+        entry = models.get(target)
+        if isinstance(entry, dict):
+            limit = entry.get("limit")
+            if isinstance(limit, dict):
+                context = limit.get("context")
+                if isinstance(context, int) and context > 0:
+                    return min(int(context * _RESERVED_RATIO), _MAX_RESERVED_TOKENS)
+    return None
 
 
 def _load_prompt(name: str) -> str:

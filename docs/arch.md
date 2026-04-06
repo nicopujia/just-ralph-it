@@ -41,6 +41,7 @@ logs/
 signals/
 *state.json*
 metrics.json
+worktree/
 ```
 
 See [@src/jri/core/schemas/](../src/jri/core/schemas) to understand the exact schema files used by runtime validation.

@@ -51,9 +51,10 @@ def test_upgrade_untracks_agent_files_from_older_repos(
         assert path.read_text(encoding="utf-8") == fake_load_prompt(name)
     assert (git_repo / ".jri" / "tasks" / "todo" / "keep-me.md").exists()
     assert git(git_repo, "log", "-1", "--pretty=%s") == "jri upgrade"
-    assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == list(
-        service_module._MANAGED_AGENT_PATHS
-    )
+    assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
+        *service_module._MANAGED_AGENT_PATHS,
+        *service_module._MANAGED_PLUGIN_PATHS,
+    ]
 
     changed_files = set(
         git(
@@ -128,9 +129,10 @@ def test_upgrade_recreates_gitignore_without_tracked_agent_files(
 
     assert exit_code == 0
     assert git(git_repo, "log", "-1", "--pretty=%s") == "jri upgrade"
-    assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == list(
-        service_module._MANAGED_AGENT_PATHS
-    )
+    assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
+        *service_module._MANAGED_AGENT_PATHS,
+        *service_module._MANAGED_PLUGIN_PATHS,
+    ]
     changed_files = set(
         git(
             git_repo,

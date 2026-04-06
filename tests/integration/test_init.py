@@ -22,9 +22,10 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
     for name in service_module._MANAGED_CONFIG_FILENAMES:
         assert (git_repo / name).exists()
     assert git(git_repo, "log", "-1", "--pretty=%s") == "jri init"
-    assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == list(
-        service_module._MANAGED_AGENT_PATHS
-    )
+    assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
+        *service_module._MANAGED_AGENT_PATHS,
+        *service_module._MANAGED_PLUGIN_PATHS,
+    ]
     assert (git_repo / ".jri" / ".gitignore").read_text(
         encoding="utf-8"
     ).splitlines() == [
@@ -75,6 +76,7 @@ def test_init_appends_agent_ignore_rule_to_existing_gitignore(git_repo: Path) ->
         "dist/",
         "",
         *service_module._MANAGED_AGENT_PATHS,
+        *service_module._MANAGED_PLUGIN_PATHS,
     ]
 
 
