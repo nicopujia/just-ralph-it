@@ -328,7 +328,12 @@ def test_start_fails_cleanly_when_doing_task_disappears(git_repo: Path) -> None:
         service.start(iterations=1, force=True)
 
 
-def test_start_rejects_in_place_mutation_of_doing_task(git_repo: Path) -> None:
+def test_start_restores_in_place_mutation_of_doing_task(git_repo: Path) -> None:
+    """In-place modifications to the doing task file are silently restored.
+
+    Project tooling (prettier, eslint, etc.) may touch the task file as a
+    side effect. JRI restores it to baseline rather than failing the run.
+    """
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -338,19 +343,29 @@ def test_start_rejects_in_place_mutation_of_doing_task(git_repo: Path) -> None:
         priority=0,
         assignee="Ralph",
         body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
     )
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
 
     service = JriService(git_repo, opencode_client=MutatingDoingTaskOpenCodeClient())
 
-    with pytest.raises(JriError, match="modified in place"):
-        service.start(iterations=1, force=True)
+    completed = service.start(iterations=1, force=True)
+    assert completed == 1
+    # Task file is in done/ with original content (mutation was restored)
+    done_path = git_repo / ".jri" / "tasks" / "done" / "implement-file.md"
+    assert done_path.exists()
+    assert "Create implemented.txt" in done_path.read_text(encoding="utf-8")
 
 
-def test_start_rejects_committed_in_place_mutation_of_doing_task(
+def test_start_restores_committed_in_place_mutation_of_doing_task(
     git_repo: Path,
 ) -> None:
+    """Same as above, but the mutation was committed by Ralph.
+
+    JRI restores the working-tree file to baseline; the committed
+    mutation is harmless because the file gets overwritten.
+    """
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -360,6 +375,7 @@ def test_start_rejects_committed_in_place_mutation_of_doing_task(
         priority=0,
         assignee="Ralph",
         body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
     )
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
@@ -369,8 +385,11 @@ def test_start_rejects_committed_in_place_mutation_of_doing_task(
         opencode_client=CommittedMutatingDoingTaskOpenCodeClient(),
     )
 
-    with pytest.raises(JriError, match="modified in place"):
-        service.start(iterations=1, force=True)
+    completed = service.start(iterations=1, force=True)
+    assert completed == 1
+    done_path = git_repo / ".jri" / "tasks" / "done" / "implement-file.md"
+    assert done_path.exists()
+    assert "Create implemented.txt" in done_path.read_text(encoding="utf-8")
 
 
 def test_start_allows_additive_follow_up_draft_tasks(git_repo: Path) -> None:

@@ -797,15 +797,11 @@ class JriService:
             relative_path = doing_task.path.relative_to(wt_paths.root)
             raise JriError(f"task file `{relative_path}` disappeared during Ralph run")
 
-        try:
-            self._ensure_promoted_task_pristine(
-                doing_task,
-                baseline=doing_task_baseline,
-            )
-        except JriError:
-            self._recover_failed_iteration_wt(doing_task, wt_git)
-            self._finish_attempt(attempt, outcome="failed")
-            raise
+        # If a project tool (like prettier) modified the task file in
+        # place, restore it to baseline rather than failing the whole
+        # iteration. Ralph's actual work is still valid.
+        if doing_task.path.read_text(encoding="utf-8") != doing_task_baseline:
+            doing_task.path.write_text(doing_task_baseline, encoding="utf-8")
 
         if result.outcome == "needs human":
             self._recover_needs_human_iteration(

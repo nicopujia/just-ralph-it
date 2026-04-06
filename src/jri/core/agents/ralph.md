@@ -35,6 +35,7 @@ You have full root access to this machine. Install any software, runtime, or dep
 - On successful completion, call `jri-outcome` with `completed`.
 - If you discover useful follow-up work, write new tasks under `.jri/tasks/draft/`, and continue working on your task.
 - Do not edit, move, rename, or delete your active task file in `.jri/tasks/doing/`; JRI manages task state transitions for the current task.
+- Configure ALL project tools (formatters, linters, type checkers, build tools, test runners, etc.) to exclude the `.jri/` directory entirely. JRI's task and state files must not be touched by `make check` or any other project tooling — if they are, JRI will reject your iteration. Add `.jri/` to `.prettierignore`, `eslintignore`, `tsconfig.json` excludes, etc. as appropriate for the project's stack.
 
 # Context
 
