@@ -611,7 +611,15 @@ class OpenCodeServer:
         except Exception:
             pass
 
+    def _unwrap(self, event: dict[str, object]) -> dict[str, object]:
+        """Unwrap the {directory, payload} envelope from /global/event."""
+        payload = event.get("payload")
+        if isinstance(payload, dict):
+            return payload
+        return event
+
     def _is_session_idle(self, event: dict[str, object], session_id: str) -> bool:
+        event = self._unwrap(event)
         if event.get("type") != "session.status":
             return False
         properties = event.get("properties")
@@ -629,6 +637,7 @@ class OpenCodeServer:
         self, event: dict[str, object], session_id: str
     ) -> tuple[str, bool]:
         """Return (text_to_print, force_newline_after)."""
+        event = self._unwrap(event)
         etype = event.get("type")
         if etype != "message.part.updated":
             return "", False
