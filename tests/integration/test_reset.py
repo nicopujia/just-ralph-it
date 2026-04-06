@@ -1,5 +1,6 @@
 import subprocess
 import subprocess as subprocess_module
+import sys
 from pathlib import Path
 from typing import cast
 
@@ -174,7 +175,7 @@ def test_reset_from_feature_branch_with_stale_state(git_repo: Path) -> None:
     assert service.start(iterations=1) == 1
     prior_state = service.state_store.load()
 
-    git(git_repo, "checkout", "-b", "ralph/2/some-task")
+    # Simulate a stale doing task on main (as if a worktree iteration crashed)
     write_task(
         git_repo,
         status="doing",
@@ -185,13 +186,13 @@ def test_reset_from_feature_branch_with_stale_state(git_repo: Path) -> None:
         body="Work in progress.",
     )
     git(git_repo, "add", ".jri/tasks/doing/some-task.md")
-    git(git_repo, "commit", "-m", "start some-task on feature branch")
+    git(git_repo, "commit", "-m", "simulate stale doing task")
 
     stale_attempt = AttemptState(
         number=len(prior_state.attempts) + 1,
         task_slug="some-task",
         iteration_number=2,
-        branch="ralph/2/some-task",
+        branch="ralph",
         started_at=999,
     )
     service.state_store.save(
@@ -221,7 +222,7 @@ def test_reset_from_feature_branch_with_stale_state(git_repo: Path) -> None:
     assert git(git_repo, "diff", "--cached", "--name-only") == ""
 
     branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
-    assert "ralph/2/some-task" not in branches
+    assert "ralph" not in branches
 
     state = read_json(git_repo / ".jri" / "state.json")
     iteration = cast(dict[str, object], state["iteration"])
@@ -356,7 +357,7 @@ def test_reset_clears_active_attempt(git_repo: Path) -> None:
         number=len(prior_state.attempts) + 1,
         task_slug="stale-task",
         iteration_number=2,
-        branch="ralph/2/stale-task",
+        branch="ralph",
         started_at=1234,
     )
     service.state_store.save(
@@ -453,7 +454,7 @@ def test_reset_cli_aborts_on_negative_confirmation(git_repo: Path) -> None:
 
     # Simulate user entering 'n' for the confirmation prompt
     result = subprocess.run(
-        ["python", "-m", "jri", "reset"],
+        [sys.executable, "-m", "jri", "reset"],
         cwd=git_repo,
         input="n\n",
         capture_output=True,
@@ -477,7 +478,7 @@ def test_reset_cli_aborts_on_empty_confirmation(git_repo: Path) -> None:
 
     # Simulate user just pressing Enter
     result = subprocess.run(
-        ["python", "-m", "jri", "reset"],
+        [sys.executable, "-m", "jri", "reset"],
         cwd=git_repo,
         input="\n",
         capture_output=True,
@@ -501,7 +502,7 @@ def test_reset_cli_force_skips_confirmation(git_repo: Path) -> None:
 
     # Use --force flag, should not prompt
     result = subprocess_module.run(
-        ["python", "-m", "jri", "reset", "--force"],
+        [sys.executable, "-m", "jri", "reset", "--force"],
         cwd=git_repo,
         capture_output=True,
         text=True,
@@ -519,7 +520,7 @@ def test_reset_cli_prompt_includes_target_tag(git_repo: Path) -> None:
 
     # Simulate user entering 'n' to see the prompt
     result = subprocess_module.run(
-        ["python", "-m", "jri", "reset"],
+        [sys.executable, "-m", "jri", "reset"],
         cwd=git_repo,
         input="n\n",
         capture_output=True,
@@ -541,7 +542,7 @@ def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
 
     # Simulate user entering 'n' to see the prompt
     result = subprocess_module.run(
-        ["python", "-m", "jri", "reset"],
+        [sys.executable, "-m", "jri", "reset"],
         cwd=git_repo,
         input="n\n",
         capture_output=True,
@@ -553,18 +554,14 @@ def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
     assert "Uncommitted changes will be discarded" in result.stdout
 
 
-def test_reset_cli_prompt_shows_ralph_branches(git_repo: Path) -> None:
-    """Test that the confirmation prompt mentions ralph branches to be deleted."""
+def test_reset_cli_prompt_shows_ralph_branch(git_repo: Path) -> None:
+    """Test that the confirmation prompt mentions the ralph branch to be deleted."""
     assert run_cli(["init"], cwd=git_repo) == 0
     _run_successful_iteration(git_repo)
 
-    # Create a ralph branch
-    git(git_repo, "checkout", "-b", "ralph/test-branch")
-    git(git_repo, "checkout", "main")
-
     # Simulate user entering 'n' to see the prompt
     result = subprocess_module.run(
-        ["python", "-m", "jri", "reset"],
+        [sys.executable, "-m", "jri", "reset"],
         cwd=git_repo,
         input="n\n",
         capture_output=True,
@@ -572,14 +569,14 @@ def test_reset_cli_prompt_shows_ralph_branches(git_repo: Path) -> None:
     )
 
     assert result.returncode == 1
-    # The prompt should mention ralph branches
-    assert "ralph/* branch(es) will be deleted" in result.stdout
+    # The prompt should mention the ralph branch and worktree
+    assert "The ralph branch and worktree will be deleted." in result.stdout
 
 
 def test_reset_cli_help_shows_force_flag(git_repo: Path) -> None:
     """Test that --help documents the --force flag."""
     result = subprocess_module.run(
-        ["python", "-m", "jri", "reset", "--help"],
+        [sys.executable, "-m", "jri", "reset", "--help"],
         cwd=git_repo,
         capture_output=True,
         text=True,

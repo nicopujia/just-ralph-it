@@ -226,6 +226,12 @@ class JriService:
         if current != default:
             self.git.run("checkout", "-f", default)
         self.git.reset_hard(target_tag)
+        # Clean up worktree and ralph branch
+        if self.paths.worktree_dir.exists():
+            self.git.remove_worktree(self.paths.worktree_dir)
+        if self.git.has_local_branch("ralph"):
+            self.git.delete_branch("ralph")
+        # Also clean up any legacy ralph/* branches
         branches = (
             self.git.run("branch", "--format=%(refname:short)")
             .stdout.strip()
@@ -313,7 +319,7 @@ class JriService:
 
     def _write_managed_files(self) -> None:
         self.paths.gitignore_path.write_text(
-            "logs/\nsignals/\n*state.json*\nmetrics.json\n",
+            "logs/\nsignals/\n*state.json*\nmetrics.json\nworktree/\n",
             encoding="utf-8",
         )
         _ensure_ignore_entries(self.paths.root_gitignore_path, _MANAGED_AGENT_PATHS)
@@ -469,12 +475,33 @@ class JriService:
 
         return completed
 
+    def _ensure_worktree(self) -> tuple[GitRepo, JriPaths]:
+        """Ensure the persistent ``ralph`` worktree exists and return helpers."""
+        wt_dir = self.paths.worktree_dir
+        branch = "ralph"
+
+        if not self.git.has_local_branch(branch):
+            default_ref = self.git.rev_parse(self._default_branch())
+            self.git.run("branch", branch, default_ref)
+
+        if not wt_dir.exists():
+            self.git.add_worktree(wt_dir, branch)
+
+        return GitRepo(wt_dir), JriPaths(wt_dir)
+
+    def _sync_worktree(self, wt_git: GitRepo) -> None:
+        """Reset the ``ralph`` branch to the default-branch tip."""
+        default_ref = self.git.rev_parse(self._default_branch())
+        self.git.reset_branch("ralph", default_ref)
+        wt_git.run("checkout", "--force", "ralph")
+        wt_git.run("clean", "-fd")
+
     def _run_iteration(self, task: Task, task_timeout: int | None = None) -> Outcome:
         state = self.state_store.load()
         next_iteration = state.iteration_number + 1
         started_at = int(time.time())
         log_path = self.paths.ralph_log_path(next_iteration, started_at)
-        branch = f"ralph/{next_iteration}/{task.slug}"
+        branch = "ralph"
         print(iteration_header(next_iteration, task.slug))
         sys.stdout.flush()
 
@@ -482,6 +509,9 @@ class JriService:
         deadline: int | None = None
         if task_timeout is not None and task_timeout > 0:
             deadline = started_at + task_timeout
+
+        wt_git, wt_paths = self._ensure_worktree()
+        self._sync_worktree(wt_git)
 
         attempt = AttemptState(
             number=len(state.attempts) + 1,
@@ -506,9 +536,12 @@ class JriService:
                 },
             )
         )
-        self.git.checkout_new_branch(branch)
-        doing_task = move_task(task, self.paths.task_dir("doing"))
-        self.git.commit_all_if_needed(f"jri start: begin {task.slug}")
+        # Move task to doing in the worktree
+        wt_task_src = wt_paths.task_path("todo", task.slug)
+        doing_task = move_task(
+            parse_task_file(wt_task_src), wt_paths.task_dir("doing")
+        )
+        wt_git.commit_all_if_needed(f"jri start: begin {task.slug}")
         doing_task_baseline = doing_task.path.read_text(encoding="utf-8")
         self.state_store.save_process(
             loop_pid=os.getpid(),
@@ -518,9 +551,9 @@ class JriService:
         )
 
         result = self.opencode_client.run_ralph_task(
-            root=self.root,
+            root=wt_paths.root,
             prompt=(
-                f"Solve `{doing_task.path.relative_to(self.root)}`. Commit frequently."
+                f"Solve `{doing_task.path.relative_to(wt_paths.root)}`. Commit frequently."
             ),
             log_path=log_path,
             on_start=lambda child_pid: self.state_store.save_process(
@@ -549,7 +582,7 @@ class JriService:
                     detail={"message": timeout_msg},
                 )
             )
-            self._recover_failed_iteration(doing_task, branch)
+            self._recover_failed_iteration_wt(doing_task, wt_git)
             self._finish_attempt(attempt, outcome="failed")
             self.timeline.record(
                 TimelineEvent(
@@ -577,7 +610,7 @@ class JriService:
             )
 
         if result.returncode != 0:
-            self._recover_failed_iteration(doing_task, branch)
+            self._recover_failed_iteration_wt(doing_task, wt_git)
             self._finish_attempt(attempt, outcome="failed")
             self.timeline.record(
                 TimelineEvent(
@@ -604,9 +637,9 @@ class JriService:
         self.state_store.save_active_attempt(attempt)
 
         if not doing_task.path.exists():
-            self._recover_failed_iteration(doing_task, branch)
+            self._recover_failed_iteration_wt(doing_task, wt_git)
             self._finish_attempt(attempt, outcome="failed")
-            relative_path = doing_task.path.relative_to(self.root)
+            relative_path = doing_task.path.relative_to(wt_paths.root)
             raise JriError(f"task file `{relative_path}` disappeared during Ralph run")
 
         try:
@@ -615,7 +648,7 @@ class JriService:
                 baseline=doing_task_baseline,
             )
         except JriError:
-            self._recover_failed_iteration(doing_task, branch)
+            self._recover_failed_iteration_wt(doing_task, wt_git)
             self._finish_attempt(attempt, outcome="failed")
             raise
 
@@ -641,7 +674,7 @@ class JriService:
             return "needs human"
 
         if result.outcome == "failed":
-            self._recover_failed_iteration(doing_task, branch)
+            self._recover_failed_iteration_wt(doing_task, wt_git)
             self._finish_attempt(attempt, outcome="failed")
             self.timeline.record(
                 TimelineEvent(
@@ -656,14 +689,13 @@ class JriService:
             sys.stdout.flush()
             return "failed"
 
-        default = self._default_branch()
-        self.git.commit_all_if_needed(f"ralph: finalize {task.slug}")
+        wt_git.commit_all_if_needed(f"ralph: finalize {task.slug}")
 
-        if (self.root / "Makefile").exists():
+        if (wt_paths.root / "Makefile").exists():
             try:
                 check = subprocess.run(
                     ["make", "check"],
-                    cwd=self.root,
+                    cwd=wt_paths.root,
                     capture_output=True,
                     text=True,
                 )
@@ -679,7 +711,7 @@ class JriService:
                         detail={"message": make_msg},
                     )
                 )
-                self._recover_failed_iteration(doing_task, branch)
+                self._recover_failed_iteration_wt(doing_task, wt_git)
                 self.metrics.record(
                     MetricEntry(
                         iteration=next_iteration,
@@ -715,7 +747,7 @@ class JriService:
                         detail={"stderr": check.stderr[:500] if check.stderr else ""},
                     )
                 )
-                self._recover_failed_iteration(doing_task, branch)
+                self._recover_failed_iteration_wt(doing_task, wt_git)
                 self.metrics.record(
                     MetricEntry(
                         iteration=next_iteration,
@@ -745,13 +777,15 @@ class JriService:
                 )
             )
 
-        self.git.checkout(default)
+        # Merge worktree branch into default
+        default = self._default_branch()
         self.git.merge_ff_only(branch)
 
-        if not doing_task.path.exists():
-            relative_path = doing_task.path.relative_to(self.root)
+        if not (self.paths.task_path("doing", task.slug)).exists():
+            relative_path = f".jri/tasks/doing/{task.slug}.md"
             raise JriError(f"task file `{relative_path}` disappeared during Ralph run")
-        move_task(doing_task, self.paths.task_dir("done"))
+        doing_on_main = parse_task_file(self.paths.task_path("doing", task.slug))
+        move_task(doing_on_main, self.paths.task_dir("done"))
         self.git.commit_all_if_needed(f"jri start: complete {task.slug}")
         self.git.create_tag(f"jri/{next_iteration}")
         self._save_diff_artifact(next_iteration, task.slug)
@@ -778,6 +812,50 @@ class JriService:
         print(iteration_footer("completed"))
         sys.stdout.flush()
         return "completed"
+
+    def _recover_failed_iteration_wt(
+        self, doing_task: Task, wt_git: GitRepo
+    ) -> None:
+        """Recover from a failed iteration in the worktree."""
+        try:
+            wt_git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
+            # Reset worktree to match default branch
+            self._sync_worktree(wt_git)
+            # Move task back to todo on main repo
+            main_doing = self.paths.task_path("doing", doing_task.slug)
+            if main_doing.exists():
+                main_task = parse_task_file(main_doing)
+                move_task(main_task, self.paths.task_dir("todo"))
+                self.git.commit_all_if_needed(
+                    f"jri: recover {doing_task.slug} after failed iteration"
+                )
+            self._reset_runtime_state()
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="recovery_completed",
+                    task=doing_task.slug,
+                    detail={"reason": "iteration_failed"},
+                )
+            )
+        except Exception as recovery_error:
+            self._record_recovery_failure(
+                task_slug=doing_task.slug,
+                phase="recover-failed-iteration",
+                error=recovery_error,
+            )
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="cleanup_failed",
+                    task=doing_task.slug,
+                    detail={
+                        "phase": "recover-failed-iteration",
+                        "error_type": type(recovery_error).__name__,
+                        "error": str(recovery_error),
+                    },
+                )
+            )
 
     def _ensure_initial_iteration_tag(self) -> None:
         state = self.state_store.load()
@@ -887,8 +965,6 @@ class JriService:
     ) -> None:
         try:
             default = self._default_branch()
-            state = self.state_store.load()
-            expected_branch = f"ralph/{state.iteration_number + 1}/{doing_task.slug}"
             current_branch = self.git.current_branch()
 
             if current_branch == default:
@@ -896,15 +972,30 @@ class JriService:
                     raise JriError(
                         "git working tree must be clean before stale recovery"
                     )
-            elif current_branch == expected_branch:
+            elif current_branch == "ralph":
                 self.git.commit_all_if_needed(
                     f"ralph: partial work on {doing_task.slug}"
                 )
                 self.git.checkout(default)
             else:
-                raise JriError(f"jri start must begin from the {default} branch")
+                # Legacy ralph/{N}/{slug} branch support
+                state = self.state_store.load()
+                expected = f"ralph/{state.iteration_number + 1}/{doing_task.slug}"
+                if current_branch == expected:
+                    self.git.commit_all_if_needed(
+                        f"ralph: partial work on {doing_task.slug}"
+                    )
+                    self.git.checkout(default)
+                    self.git.delete_branch(expected)
+                else:
+                    raise JriError(
+                        f"jri start must begin from the {default} branch"
+                    )
 
-            self.git.delete_branch(expected_branch)
+            # Reset worktree if it exists
+            if self.paths.worktree_dir.exists():
+                wt_git = GitRepo(self.paths.worktree_dir)
+                self._sync_worktree(wt_git)
 
             move_task(doing_task, self.paths.task_dir("todo"))
             self._record_recovery(
@@ -972,10 +1063,14 @@ class JriService:
         self.state_store.clear_active_attempt()
 
     def _attempt_matches_task(self, attempt: AttemptState, task: Task) -> bool:
+        expected_iter = self.state_store.load().iteration_number + 1
+        branch_ok = attempt.branch == "ralph" or attempt.branch == (
+            f"ralph/{attempt.iteration_number}/{task.slug}"
+        )
         return (
             attempt.task_slug == task.slug
-            and attempt.iteration_number == self.state_store.load().iteration_number + 1
-            and attempt.branch == f"ralph/{attempt.iteration_number}/{task.slug}"
+            and attempt.iteration_number == expected_iter
+            and branch_ok
         )
 
     def _attempt_completion_applied(self, attempt: AttemptState) -> bool:
@@ -1088,45 +1183,6 @@ class JriService:
         ) as handle:
             handle.write(line + "\n")
 
-    def _recover_failed_iteration(self, doing_task: Task, branch: str) -> None:
-        try:
-            default = self._default_branch()
-            self.git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
-            self.git.checkout(default)
-            self.git.delete_branch(branch)
-            if doing_task.path.exists():
-                move_task(doing_task, self.paths.task_dir("todo"))
-                self.git.commit_all_if_needed(
-                    f"jri: recover {doing_task.slug} after failed iteration"
-                )
-            self._reset_runtime_state()
-            self.timeline.record(
-                TimelineEvent(
-                    ts=TimelineStore.now_iso(),
-                    event="recovery_completed",
-                    task=doing_task.slug,
-                    detail={"reason": "iteration_failed"},
-                )
-            )
-        except Exception as recovery_error:
-            self._record_recovery_failure(
-                task_slug=doing_task.slug,
-                phase="recover-failed-iteration",
-                error=recovery_error,
-            )
-            self.timeline.record(
-                TimelineEvent(
-                    ts=TimelineStore.now_iso(),
-                    event="cleanup_failed",
-                    task=doing_task.slug,
-                    detail={
-                        "phase": "recover-failed-iteration",
-                        "error_type": type(recovery_error).__name__,
-                        "error": str(recovery_error),
-                    },
-                )
-            )
-
     def _count_failed_attempts(self, task_slug: str) -> int:
         state = self.state_store.load()
         return sum(
@@ -1191,10 +1247,13 @@ class JriService:
         export_path: Path | None,
     ) -> None:
         try:
-            default = self._default_branch()
-            self.git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
-            self.git.checkout(default)
-            self.git.delete_branch(branch)
+            # Commit partial work in worktree, then reset it
+            if self.paths.worktree_dir.exists():
+                wt_git = GitRepo(self.paths.worktree_dir)
+                wt_git.commit_all_if_needed(
+                    f"ralph: partial work on {doing_task.slug}"
+                )
+                self._sync_worktree(wt_git)
             todo_path = self.paths.task_path("todo", doing_task.slug)
             if todo_path.exists():
                 todo_task = parse_task_file(todo_path)

@@ -262,10 +262,6 @@ def test_start_completes_single_iteration(git_repo: Path) -> None:
     assert not (git_repo / ".jri" / "tasks" / "todo" / "implement-file.md").exists()
     assert (git_repo / "implemented.txt").read_text(encoding="utf-8") == "implemented\n"
     assert git(git_repo, "branch", "--show-current") == "main"
-    assert (
-        "ralph/1/implement-file"
-        in git(git_repo, "branch", "--format=%(refname:short)").splitlines()
-    )
     tags = git(git_repo, "tag").splitlines()
     assert "jri/0" in tags
     assert "jri/1" in tags
@@ -483,7 +479,7 @@ def test_start_records_retry_attempt_after_interrupted_run(git_repo: Path) -> No
         number=1,
         task_slug="implement-file",
         iteration_number=1,
-        branch="ralph/1/implement-file",
+        branch="ralph",
         started_at=123,
         log_path=".jri/logs/ralph/1-interrupted.log",
     )
@@ -526,8 +522,6 @@ def test_start_recovers_stale_foreground_process(git_repo: Path) -> None:
     )
     git(git_repo, "add", ".jri/tasks/doing/implement-file.md")
     git(git_repo, "commit", "-m", "seed stale process task")
-    git(git_repo, "checkout", "-b", "ralph/1/implement-file")
-    git(git_repo, "checkout", "main")
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
     service.state_store.save_process(
@@ -2400,7 +2394,7 @@ def test_halt_then_start_recovery_consistency(git_repo: Path) -> None:
         number=1,
         task_slug="interrupted-task",
         iteration_number=1,
-        branch="ralph/1/interrupted-task",
+        branch="ralph",
         started_at=1234567890,
         log_path=".jri/logs/ralph/1-interrupted.log",
     )

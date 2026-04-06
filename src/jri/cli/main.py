@@ -65,22 +65,14 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         return 1
 
                     has_uncommitted = bool(service.git.status_short())
-                    ralph_branches = [
-                        b
-                        for b in service.git.run(
-                            "branch", "--format=%(refname:short)"
-                        ).stdout.splitlines()
-                        if b.startswith("ralph/")
-                    ]
+                    has_ralph = service.git.has_local_branch("ralph")
 
                     # Build the confirmation message
                     parts = [f"This will reset to {target_tag}."]
                     if has_uncommitted:
                         parts.append("Uncommitted changes will be discarded.")
-                    if ralph_branches:
-                        parts.append(
-                            f"{len(ralph_branches)} ralph/* branch(es) will be deleted."
-                        )
+                    if has_ralph:
+                        parts.append("The ralph branch and worktree will be deleted.")
                     parts.append("Are you sure? [y/N]")
 
                     print(" ".join(parts))
@@ -92,12 +84,6 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 service.reset()
                 return 0
             case "status":
-                if args.json:
-                    import json
-
-                    payload = service.structured_status()
-                    print(json.dumps(payload, indent=2, sort_keys=True))
-                    return 0
                 tasks_by_status = service.status()
                 total = sum(len(t) for t in tasks_by_status.values())
                 print(f"Tasks: {total} total\n")
@@ -128,10 +114,18 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     print(f"\n{metrics}")
                 return 0
             case "promote":
-                promoted = service.promote_drafts(
-                    slugs=args.slugs,
-                    user_confirmation=args.confirm or "",
-                )
+                if not args.force:
+                    draft_tasks = service._list_tasks("draft")
+                    selected = service._select_draft_tasks(draft_tasks, args.slugs)
+                    n = len(selected)
+                    slugs_preview = ", ".join(t.slug for t in selected)
+                    print(f"Will promote: {slugs_preview}")
+                    print(f"Promote {n} draft(s) to todo? [y/N] ", end="", flush=True)
+                    response = input().strip().lower()
+                    if response != "y":
+                        print("Promotion aborted.", file=sys.stderr)
+                        return 1
+                promoted = service.promote_drafts(slugs=args.slugs)
                 print(f"Promoted {len(promoted)} draft task(s) to todo.")
                 for task in promoted:
                     print(f"  - {task.slug}")
@@ -310,7 +304,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Skip confirmation prompt and proceed with reset.",
     )
-    status_parser = subparsers.add_parser(
+    subparsers.add_parser(
         "status",
         help="Show task counts by status and list human todo tasks.",
         description=(
@@ -318,18 +312,12 @@ def _build_parser() -> argparse.ArgumentParser:
             "and list all todo tasks assigned to Human."
         ),
     )
-    status_parser.add_argument(
-        "--json",
-        action="store_true",
-        dest="json",
-        help="Output machine-readable structured JSON instead of plain text.",
-    )
     promote_parser = subparsers.add_parser(
         "promote",
-        help="Promote draft tasks to todo after explicit user confirmation.",
+        help="Promote draft tasks to todo.",
         description=(
-            "Move draft tasks into todo only when the user has explicitly "
-            "confirmed the promotion."
+            "Show what will be promoted, ask for confirmation, then move "
+            "draft tasks into todo. Use --force to skip the prompt."
         ),
     )
     promote_parser.add_argument(
@@ -338,8 +326,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Draft task slugs to promote. Defaults to all draft tasks.",
     )
     promote_parser.add_argument(
-        "--confirm",
-        help="Explicit user confirmation text recorded for this promotion.",
+        "-f",
+        "--force",
+        action="store_true",
+        help="Skip the interactive confirmation prompt and promote immediately.",
     )
 
     timeline_parser = subparsers.add_parser(

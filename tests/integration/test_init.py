@@ -32,6 +32,7 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
         "signals/",
         "*state.json*",
         "metrics.json",
+        "worktree/",
     ]
     assert git(git_repo, "status", "--short") == ""
 
