@@ -1,14 +1,20 @@
 import json
+import os
+import queue
 import subprocess
 import sys
 import threading
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
 from .errors import JriError
 from .models import OpenCodeRunResult, Outcome
-from .ui import trim_tool_output
+from .ui import DIM, _s, trim_tool_output
 
 _COMPLETED_MARKER = "<!-- JRI:COMPLETED -->"
 _FAILED_MARKER = "<!-- JRI:FAILED -->"
@@ -283,3 +289,388 @@ class OpenCodeClient:
                 result.stderr.strip() or f"failed to export session {session_id}"
             )
         destination.write_text(result.stdout, encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# HTTP server-based client (opencode serve)
+# ---------------------------------------------------------------------------
+
+
+_SERVER_HEALTH_TIMEOUT = 30.0
+_SERVER_HEALTH_INTERVAL = 0.25
+
+
+def _http_request(
+    method: str,
+    url: str,
+    *,
+    body: object | None = None,
+    timeout: float = 10.0,
+) -> tuple[int, bytes]:
+    data: bytes | None = None
+    headers = {"Accept": "application/json"}
+    if body is not None:
+        data = json.dumps(body).encode("utf-8")
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(url, data=data, method=method, headers=headers)
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return resp.status, resp.read()
+    except urllib.error.HTTPError as err:
+        return err.code, err.read() if err.fp is not None else b""
+
+
+class OpenCodeServer:
+    """Manages an opencode serve process and drives Ralph sessions via HTTP."""
+
+    def __init__(
+        self,
+        *,
+        binary: str = "opencode",
+        port: int = 4096,
+        model: str | None = None,
+    ) -> None:
+        self.binary = binary
+        self.port = port
+        self.model = model
+        self._process: subprocess.Popen[bytes] | None = None
+        self._base_url = f"http://127.0.0.1:{port}"
+
+    # -- lifecycle ---------------------------------------------------------
+
+    def start(
+        self,
+        *,
+        env: dict[str, str] | None = None,
+        cwd: Path | None = None,
+    ) -> None:
+        if self._process is not None and self._process.poll() is None:
+            return
+        merged_env = os.environ.copy()
+        if env:
+            merged_env.update(env)
+        try:
+            self._process = subprocess.Popen(
+                [self.binary, "serve", "--port", str(self.port)],
+                cwd=str(cwd) if cwd is not None else None,
+                env=merged_env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+        except FileNotFoundError as err:
+            raise JriError(
+                f"could not find `{self.binary}` — is OpenCode installed?"
+            ) from err
+
+        deadline = time.monotonic() + _SERVER_HEALTH_TIMEOUT
+        while time.monotonic() < deadline:
+            if self._process.poll() is not None:
+                self._process = None
+                raise JriError("opencode serve exited before becoming healthy")
+            if self.is_healthy():
+                return
+            time.sleep(_SERVER_HEALTH_INTERVAL)
+        self.stop()
+        raise JriError(
+            f"opencode serve did not become healthy within {_SERVER_HEALTH_TIMEOUT}s"
+        )
+
+    def stop(self) -> None:
+        process = self._process
+        if process is None:
+            return
+        self._process = None
+        if process.poll() is not None:
+            return
+        try:
+            process.terminate()
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+        except Exception:
+            pass
+
+    def is_healthy(self) -> bool:
+        try:
+            status, _ = _http_request(
+                "GET", f"{self._base_url}/global/health", timeout=2.0
+            )
+        except (urllib.error.URLError, ConnectionError, OSError):
+            return False
+        return status == 200
+
+    # -- model formatting --------------------------------------------------
+
+    def _model_payload(self) -> dict[str, str] | None:
+        if not self.model:
+            return None
+        if "/" in self.model:
+            provider_id, model_id = self.model.split("/", 1)
+            return {"providerID": provider_id, "modelID": model_id}
+        return {"modelID": self.model}
+
+    # -- ralph task --------------------------------------------------------
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        outcome_path: Path,
+        on_start: Callable[[int], None] | None = None,
+        timeout: int | None = None,
+    ) -> OpenCodeRunResult:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        outcome_path.parent.mkdir(parents=True, exist_ok=True)
+        if outcome_path.exists():
+            outcome_path.unlink()
+
+        if on_start is not None and self._process is not None:
+            on_start(self._process.pid)
+
+        # 1. Create session
+        try:
+            status, body = _http_request(
+                "POST",
+                f"{self._base_url}/session?directory={urllib.parse.quote(str(root))}",
+                body={},
+                timeout=15.0,
+            )
+        except Exception as err:  # noqa: BLE001
+            raise JriError(f"failed to create opencode session: {err}") from err
+        if status >= 400:
+            raise JriError(
+                f"failed to create opencode session (HTTP {status}): "
+                f"{body.decode('utf-8', errors='replace')}"
+            )
+        try:
+            session = json.loads(body)
+        except json.JSONDecodeError as err:
+            raise JriError(f"invalid session response: {err}") from err
+        session_id = session.get("id") if isinstance(session, dict) else None
+        if not isinstance(session_id, str):
+            raise JriError("opencode session response missing id")
+
+        # 2. Open SSE stream and process events
+        events: queue.Queue[dict[str, object] | None] = queue.Queue()
+        stop_event = threading.Event()
+
+        def _sse_reader() -> None:
+            try:
+                req = urllib.request.Request(
+                    f"{self._base_url}/global/event",
+                    headers={"Accept": "text/event-stream"},
+                )
+                with urllib.request.urlopen(req, timeout=None) as resp:
+                    data_buf: list[str] = []
+                    for raw in resp:
+                        if stop_event.is_set():
+                            break
+                        line = raw.decode("utf-8", errors="replace").rstrip("\n")
+                        if line == "":
+                            if data_buf:
+                                payload = "".join(data_buf)
+                                data_buf = []
+                                try:
+                                    obj = json.loads(payload)
+                                except json.JSONDecodeError:
+                                    continue
+                                if isinstance(obj, dict):
+                                    events.put(obj)
+                            continue
+                        if line.startswith("data:"):
+                            data_buf.append(line[5:].lstrip())
+            except Exception:
+                pass
+            finally:
+                events.put(None)
+
+        sse_thread = threading.Thread(target=_sse_reader, daemon=True)
+        sse_thread.start()
+
+        timed_out = False
+        deadline = time.monotonic() + timeout if timeout and timeout > 0 else None
+
+        # 3. Send prompt
+        prompt_body: dict[str, object] = {
+            "agent": "ralph",
+            "parts": [{"type": "text", "text": prompt}],
+        }
+        model_payload = self._model_payload()
+        if model_payload is not None:
+            prompt_body["model"] = model_payload
+        try:
+            p_status, p_body = _http_request(
+                "POST",
+                f"{self._base_url}/session/{session_id}/prompt_async",
+                body=prompt_body,
+                timeout=30.0,
+            )
+        except Exception as err:  # noqa: BLE001
+            stop_event.set()
+            self._delete_session(session_id)
+            raise JriError(f"failed to start ralph prompt: {err}") from err
+        if p_status >= 400:
+            stop_event.set()
+            self._delete_session(session_id)
+            raise JriError(
+                f"failed to start ralph prompt (HTTP {p_status}): "
+                f"{p_body.decode('utf-8', errors='replace')}"
+            )
+
+        # 4. Drive event loop
+        last_terminal_char = "\n"
+        try:
+            with log_path.open("a", encoding="utf-8") as log_file:
+                while True:
+                    if deadline is not None and time.monotonic() > deadline:
+                        timed_out = True
+                        break
+                    poll_timeout = 0.5
+                    if deadline is not None:
+                        poll_timeout = min(
+                            poll_timeout, max(0.05, deadline - time.monotonic())
+                        )
+                    try:
+                        event = events.get(timeout=poll_timeout)
+                    except queue.Empty:
+                        continue
+                    if event is None:
+                        break
+                    log_file.write(json.dumps(event) + "\n")
+                    log_file.flush()
+
+                    text_to_print, newline_after = self._render_event(event, session_id)
+                    if text_to_print:
+                        sys.stdout.write(text_to_print)
+                        sys.stdout.flush()
+                        last_terminal_char = text_to_print[-1]
+                    if newline_after and last_terminal_char != "\n":
+                        sys.stdout.write("\n")
+                        sys.stdout.flush()
+                        last_terminal_char = "\n"
+
+                    if self._is_session_idle(event, session_id):
+                        break
+        finally:
+            stop_event.set()
+
+        # 5. Read outcome
+        outcome: Outcome
+        warnings: list[str] = []
+        if timed_out:
+            outcome = "timeout"
+            msg = f"opencode prompt killed after {timeout}s timeout"
+            print(msg, file=sys.stderr)
+            warnings.append(msg)
+        elif outcome_path.exists():
+            raw = outcome_path.read_text(encoding="utf-8").strip()
+            if raw == "completed":
+                outcome = "completed"
+            elif raw == "needs_human":
+                outcome = "needs human"
+            elif raw == "failed":
+                outcome = "failed"
+            else:
+                warning = f"unrecognized JRI outcome `{raw}`; treating run as failed"
+                print(warning, file=sys.stderr)
+                warnings.append(warning)
+                outcome = "failed"
+        else:
+            warning = "missing JRI outcome marker for Ralph run; treating run as failed"
+            print(warning, file=sys.stderr)
+            warnings.append(warning)
+            outcome = "failed"
+
+        # 6. Cleanup session
+        self._delete_session(session_id)
+
+        return OpenCodeRunResult(
+            returncode=0 if not timed_out else -1,
+            session_id=session_id,
+            outcome=outcome,
+            warnings=warnings,
+        )
+
+    # -- helpers -----------------------------------------------------------
+
+    def _delete_session(self, session_id: str) -> None:
+        try:
+            _http_request(
+                "DELETE",
+                f"{self._base_url}/session/{session_id}",
+                timeout=5.0,
+            )
+        except Exception:
+            pass
+
+    def _is_session_idle(self, event: dict[str, object], session_id: str) -> bool:
+        if event.get("type") != "session.status":
+            return False
+        properties = event.get("properties")
+        if not isinstance(properties, dict):
+            return False
+        sid = properties.get("sessionID") or properties.get("session_id")
+        if sid != session_id:
+            return False
+        status = properties.get("status")
+        if isinstance(status, dict):
+            return status.get("type") == "idle"
+        return status == "idle"
+
+    def _render_event(
+        self, event: dict[str, object], session_id: str
+    ) -> tuple[str, bool]:
+        """Return (text_to_print, force_newline_after)."""
+        etype = event.get("type")
+        if etype != "message.part.updated":
+            return "", False
+        properties = event.get("properties")
+        if not isinstance(properties, dict):
+            return "", False
+        part = properties.get("part")
+        if not isinstance(part, dict):
+            return "", False
+        part_type = part.get("type")
+        if part_type == "reasoning":
+            return "", False
+        if part_type == "text":
+            delta = properties.get("delta")
+            if isinstance(delta, str) and delta:
+                return delta, False
+            text = part.get("text")
+            if isinstance(text, str) and text:
+                return text, False
+            return "", False
+        if part_type == "tool":
+            state = part.get("state")
+            if not isinstance(state, dict):
+                return "", False
+            status = state.get("status")
+            if status == "running":
+                tool_name = part.get("tool") or state.get("tool") or "tool"
+                title = ""
+                input_obj = state.get("input")
+                if isinstance(input_obj, dict):
+                    raw_title = input_obj.get("title")
+                    if isinstance(raw_title, str):
+                        title = raw_title
+                if not title:
+                    metadata = state.get("metadata")
+                    if isinstance(metadata, dict):
+                        raw_title = metadata.get("title")
+                        if isinstance(raw_title, str):
+                            title = raw_title
+                label = f"⚙ {tool_name}"
+                if title:
+                    label = f"{label}: {title}"
+                return _s(label, DIM) + "\n", False
+            return "", False
+        return "", False

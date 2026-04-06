@@ -23,7 +23,7 @@ from .models import (
     Task,
     TaskMetadata,
 )
-from .opencode import OpenCodeClient
+from .opencode import OpenCodeClient, OpenCodeServer
 from .paths import JriPaths
 from .state import StateStore
 from .tasks import (
@@ -55,6 +55,10 @@ _MANAGED_PLUGIN_FILENAMES = ("prune-tool-calls.ts",)
 _MANAGED_PLUGIN_PATHS = tuple(
     f".opencode/plugin/{name}" for name in _MANAGED_PLUGIN_FILENAMES
 )
+_MANAGED_TOOL_FILENAMES = ("jri-outcome.ts",)
+_MANAGED_TOOL_PATHS = tuple(
+    f".opencode/tools/{name}" for name in _MANAGED_TOOL_FILENAMES
+)
 _MANAGED_CONFIG_FILENAMES = ("opencode.json",)
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
 _MAX_TASK_TITLE_LENGTH = 50
@@ -63,7 +67,11 @@ _MAX_FAILED_ATTEMPTS = 3
 
 class JriService:
     def __init__(
-        self, root: Path, *, opencode_client: OpenCodeClient | None = None
+        self,
+        root: Path,
+        *,
+        opencode_client: OpenCodeClient | None = None,
+        opencode_server: OpenCodeServer | None = None,
     ) -> None:
         self.root = root.resolve()
         self.paths = JriPaths(self.root)
@@ -71,7 +79,12 @@ class JriService:
         self.state_store = StateStore(self.paths.state_path)
         self.timeline = TimelineStore(self.paths.timeline_path)
         self.metrics = MetricsStore(self.paths.metrics_path)
+        # Tests inject opencode_client to bypass the server entirely.
+        # Production code uses opencode_server for Ralph runs and the
+        # client only for `chat`/`list_sessions`/`export_session`.
+        self._client_injected = opencode_client is not None
         self.opencode_client = opencode_client or OpenCodeClient()
+        self.opencode_server = opencode_server
         self._halt_requested = False
 
     def init(self, *, force: bool, commit_message: str) -> None:
@@ -135,10 +148,16 @@ class JriService:
 
         previous_model = self.opencode_client.model
         self.opencode_client.model = model
+        previous_server_model: str | None = None
+        if self.opencode_server is not None:
+            previous_server_model = self.opencode_server.model
+            self.opencode_server.model = model
         try:
             return self._run_loop(iterations, task_timeout=task_timeout, force=force)
         finally:
             self.opencode_client.model = previous_model
+            if self.opencode_server is not None:
+                self.opencode_server.model = previous_server_model
 
     def stop(self, reason: str | None = None) -> None:
         self.ensure_initialized()
@@ -341,6 +360,13 @@ class JriService:
                 return True
             if path.read_text(encoding="utf-8") != _load_prompt(name):
                 return True
+        tool_dir = self.root / ".opencode" / "tools"
+        for name in _MANAGED_TOOL_FILENAMES:
+            path = tool_dir / name
+            if not path.exists():
+                return True
+            if path.read_text(encoding="utf-8") != _load_prompt(name):
+                return True
         return False
 
     def _auto_upgrade_if_needed(self) -> None:
@@ -354,7 +380,7 @@ class JriService:
         )
         _ensure_ignore_entries(
             self.paths.root_gitignore_path,
-            (*_MANAGED_AGENT_PATHS, *_MANAGED_PLUGIN_PATHS),
+            (*_MANAGED_AGENT_PATHS, *_MANAGED_PLUGIN_PATHS, *_MANAGED_TOOL_PATHS),
         )
         self.paths.opencode_agents_dir.mkdir(parents=True, exist_ok=True)
         for name in _MANAGED_AGENT_FILENAMES:
@@ -366,6 +392,13 @@ class JriService:
         plugin_dir.mkdir(parents=True, exist_ok=True)
         for name in _MANAGED_PLUGIN_FILENAMES:
             (plugin_dir / name).write_text(
+                _load_prompt(name),
+                encoding="utf-8",
+            )
+        tool_dir = self.root / ".opencode" / "tools"
+        tool_dir.mkdir(parents=True, exist_ok=True)
+        for name in _MANAGED_TOOL_FILENAMES:
+            (tool_dir / name).write_text(
                 _load_prompt(name),
                 encoding="utf-8",
             )
@@ -452,6 +485,18 @@ class JriService:
         failed_slugs: set[str] = set()
         self._halt_requested = False
         old_handlers = self._install_signal_handlers()
+        # Start the opencode server unless tests injected a fake client.
+        server_started_here = False
+        if not self._client_injected:
+            if self.opencode_server is None:
+                self.opencode_server = OpenCodeServer(model=self.opencode_client.model)
+            outcome_path = self.paths.jri_dir / "ralph-outcome"
+            outcome_path.parent.mkdir(parents=True, exist_ok=True)
+            self.opencode_server.start(
+                env={"JRI_OUTCOME_PATH": str(outcome_path)},
+                cwd=self.root,
+            )
+            server_started_here = True
         try:
             while iterations is None or completed < iterations:
                 if self._halt_requested:
@@ -534,6 +579,8 @@ class JriService:
                     )
                 )
         finally:
+            if server_started_here and self.opencode_server is not None:
+                self.opencode_server.stop()
             self._restore_signal_handlers(old_handlers)
             self.state_store.clear_process()
 
@@ -567,6 +614,7 @@ class JriService:
         for src_dir, filenames in (
             (".opencode/agents", _MANAGED_AGENT_FILENAMES),
             (".opencode/plugin", _MANAGED_PLUGIN_FILENAMES),
+            (".opencode/tools", _MANAGED_TOOL_FILENAMES),
         ):
             dst_dir = wt / src_dir
             dst_dir.mkdir(parents=True, exist_ok=True)
@@ -631,21 +679,33 @@ class JriService:
             detached=False,
         )
 
-        result = self.opencode_client.run_ralph_task(
-            root=wt_paths.root,
-            prompt=(
-                f"Solve `{doing_task.path.relative_to(wt_paths.root)}`."
-                " Commit frequently."
-            ),
-            log_path=log_path,
-            on_start=lambda child_pid: self.state_store.save_process(
-                loop_pid=os.getpid(),
-                child_pid=child_pid,
-                log_path=log_path,
-                detached=False,
-            ),
-            timeout=task_timeout,
+        prompt_text = (
+            f"Solve `{doing_task.path.relative_to(wt_paths.root)}`. Commit frequently."
         )
+        on_start_cb = lambda child_pid: self.state_store.save_process(  # noqa: E731
+            loop_pid=os.getpid(),
+            child_pid=child_pid,
+            log_path=log_path,
+            detached=False,
+        )
+        if self.opencode_server is not None and not self._client_injected:
+            outcome_path = self.paths.jri_dir / "ralph-outcome"
+            result = self.opencode_server.run_ralph_task(
+                root=wt_paths.root,
+                prompt=prompt_text,
+                log_path=log_path,
+                outcome_path=outcome_path,
+                on_start=on_start_cb,
+                timeout=task_timeout,
+            )
+        else:
+            result = self.opencode_client.run_ralph_task(
+                root=wt_paths.root,
+                prompt=prompt_text,
+                log_path=log_path,
+                on_start=on_start_cb,
+                timeout=task_timeout,
+            )
 
         # Check for task timeout
         finished_at = int(time.time())

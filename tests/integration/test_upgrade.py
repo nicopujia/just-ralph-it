@@ -54,6 +54,7 @@ def test_upgrade_untracks_agent_files_from_older_repos(
     assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
         *service_module._MANAGED_AGENT_PATHS,
         *service_module._MANAGED_PLUGIN_PATHS,
+        *service_module._MANAGED_TOOL_PATHS,
     ]
 
     changed_files = set(
@@ -132,6 +133,7 @@ def test_upgrade_recreates_gitignore_without_tracked_agent_files(
     assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
         *service_module._MANAGED_AGENT_PATHS,
         *service_module._MANAGED_PLUGIN_PATHS,
+        *service_module._MANAGED_TOOL_PATHS,
     ]
     changed_files = set(
         git(

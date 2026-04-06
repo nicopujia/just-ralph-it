@@ -29,10 +29,10 @@ You have full root access to this machine. Install any software, runtime, or dep
 **IMPORTANT**:
 
 - Parallelize your subagents whenever it's possible within the limits above.
-- Resolve every run with exactly one outcome marker as the very last text output.
-- If you hit a human-only blocker, print `<!-- JRI:NEEDS_HUMAN -->` and stop.
-- If you cannot complete the task for any other reason, print `<!-- JRI:FAILED -->` and stop.
-- On successful completion, print `<!-- JRI:COMPLETED -->`.
+- Call the `jri-outcome` tool with the appropriate outcome as your very last action. The outcome must be exactly one of: `completed`, `failed`, `needs_human`. Call this tool exactly once per run.
+- If you hit a human-only blocker, call `jri-outcome` with `needs_human` and stop.
+- If you cannot complete the task for any other reason, call `jri-outcome` with `failed` and stop.
+- On successful completion, call `jri-outcome` with `completed`.
 - If you discover useful follow-up work, write new tasks under `.jri/tasks/draft/`, and continue working on your task.
 - Do not edit, move, rename, or delete your active task file in `.jri/tasks/doing/`; JRI manages task state transitions for the current task.
 
