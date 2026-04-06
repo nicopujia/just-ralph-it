@@ -571,9 +571,7 @@ class JriService:
         )
         # Move task to doing in the worktree
         wt_task_src = wt_paths.task_path("todo", task.slug)
-        doing_task = move_task(
-            parse_task_file(wt_task_src), wt_paths.task_dir("doing")
-        )
+        doing_task = move_task(parse_task_file(wt_task_src), wt_paths.task_dir("doing"))
         wt_git.commit_all_if_needed(f"jri start: begin {task.slug}")
         doing_task_baseline = doing_task.path.read_text(encoding="utf-8")
         self.state_store.save_process(
@@ -586,7 +584,8 @@ class JriService:
         result = self.opencode_client.run_ralph_task(
             root=wt_paths.root,
             prompt=(
-                f"Solve `{doing_task.path.relative_to(wt_paths.root)}`. Commit frequently."
+                f"Solve `{doing_task.path.relative_to(wt_paths.root)}`."
+                " Commit frequently."
             ),
             log_path=log_path,
             on_start=lambda child_pid: self.state_store.save_process(
@@ -811,7 +810,6 @@ class JriService:
             )
 
         # Merge worktree branch into default
-        default = self._default_branch()
         self.git.merge_ff_only(branch)
 
         if not (self.paths.task_path("doing", task.slug)).exists():
@@ -846,9 +844,7 @@ class JriService:
         sys.stdout.flush()
         return "completed"
 
-    def _recover_failed_iteration_wt(
-        self, doing_task: Task, wt_git: GitRepo
-    ) -> None:
+    def _recover_failed_iteration_wt(self, doing_task: Task, wt_git: GitRepo) -> None:
         """Recover from a failed iteration in the worktree."""
         try:
             wt_git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
@@ -1021,9 +1017,7 @@ class JriService:
                     self.git.checkout(default)
                     self.git.delete_branch(expected)
                 else:
-                    raise JriError(
-                        f"jri start must begin from the {default} branch"
-                    )
+                    raise JriError(f"jri start must begin from the {default} branch")
 
             # Reset worktree if it exists
             if self.paths.worktree_dir.exists():
@@ -1283,9 +1277,7 @@ class JriService:
             # Commit partial work in worktree, then reset it
             if self.paths.worktree_dir.exists():
                 wt_git = GitRepo(self.paths.worktree_dir)
-                wt_git.commit_all_if_needed(
-                    f"ralph: partial work on {doing_task.slug}"
-                )
+                wt_git.commit_all_if_needed(f"ralph: partial work on {doing_task.slug}")
                 self._sync_worktree(wt_git)
             todo_path = self.paths.task_path("todo", doing_task.slug)
             if todo_path.exists():
@@ -1539,9 +1531,7 @@ def _compute_reserved(model: str | None = None) -> int | None:
     import urllib.request
 
     try:
-        req = urllib.request.Request(
-            _MODELS_DEV_URL, headers={"User-Agent": "jri/0.1"}
-        )
+        req = urllib.request.Request(_MODELS_DEV_URL, headers={"User-Agent": "jri/0.1"})
         with urllib.request.urlopen(req, timeout=5) as resp:
             registry = json.loads(resp.read())
     except Exception:

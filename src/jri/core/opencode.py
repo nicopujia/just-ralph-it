@@ -204,11 +204,10 @@ class OpenCodeClient:
                     event, terminal_text, is_tool = _parse_event_line(line)
                     if terminal_text is not None:
                         last_outcome = _detect_outcome(terminal_text, last_outcome)
-                    is_thinking = isinstance(event, dict) and _is_thinking_event(
-                        event
-                    )
+                    is_thinking = isinstance(event, dict) and _is_thinking_event(event)
                     show = terminal_text and not is_tool and not is_thinking
                     if show:
+                        assert terminal_text is not None
                         sys.stdout.write(terminal_text)
                         sys.stdout.flush()
                         last_terminal_char = terminal_text[-1]

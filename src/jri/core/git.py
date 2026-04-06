@@ -225,26 +225,21 @@ class GitRepo:
         result = self.run("update-ref", f"refs/heads/{branch}", ref, check=False)
         if result.returncode != 0:
             raise JriError(
-                result.stderr.strip()
-                or f"failed to reset branch {branch} to {ref}"
+                result.stderr.strip() or f"failed to reset branch {branch} to {ref}"
             )
 
     def add_worktree(self, path: Path, branch: str) -> None:
-        result = self.run(
-            "worktree", "add", str(path), branch, check=False
-        )
+        result = self.run("worktree", "add", str(path), branch, check=False)
         if result.returncode != 0:
             raise JriError(
-                result.stderr.strip()
-                or f"failed to create worktree at {path}"
+                result.stderr.strip() or f"failed to create worktree at {path}"
             )
 
     def remove_worktree(self, path: Path) -> None:
         result = self.run("worktree", "remove", str(path), "--force", check=False)
         if result.returncode != 0 and path.exists():
             raise JriError(
-                result.stderr.strip()
-                or f"failed to remove worktree at {path}"
+                result.stderr.strip() or f"failed to remove worktree at {path}"
             )
 
     def rev_parse(self, ref: str) -> str:
