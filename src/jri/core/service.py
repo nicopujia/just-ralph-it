@@ -97,6 +97,7 @@ class JriService:
 
     def chat(self, extra_args: list[str]) -> int:
         self.ensure_initialized()
+        self._auto_upgrade_if_needed()
         self._update_compaction_reserved()
         before = {
             session_id
@@ -327,15 +328,24 @@ class JriService:
 
     _GITIGNORE_CONTENT = "logs/\nsignals/\n*state.json*\nmetrics.json\nworktree/\n"
 
-    def _refresh_gitignore(self) -> None:
-        """Ensure .jri/.gitignore is up to date (handles pre-worktree projects)."""
-        current = ""
-        if self.paths.gitignore_path.exists():
-            current = self.paths.gitignore_path.read_text(encoding="utf-8")
+    def needs_upgrade(self) -> bool:
+        """Check if managed files are outdated."""
+        if not self.paths.gitignore_path.exists():
+            return True
+        current = self.paths.gitignore_path.read_text(encoding="utf-8")
         if current != self._GITIGNORE_CONTENT:
-            self.paths.gitignore_path.write_text(
-                self._GITIGNORE_CONTENT, encoding="utf-8"
-            )
+            return True
+        for name in _MANAGED_AGENT_FILENAMES:
+            path = self.paths.opencode_agents_dir / name
+            if not path.exists():
+                return True
+            if path.read_text(encoding="utf-8") != _load_prompt(name):
+                return True
+        return False
+
+    def _auto_upgrade_if_needed(self) -> None:
+        if self.needs_upgrade():
+            self.upgrade(commit_message="jri upgrade (auto)")
 
     def _write_managed_files(self) -> None:
         self.paths.gitignore_path.write_text(
@@ -431,7 +441,7 @@ class JriService:
             raise JriError(str(exc)) from exc
         if doing:
             raise JriError("a task is already in progress")
-        self._refresh_gitignore()
+        self._auto_upgrade_if_needed()
         self._handle_dirty_workdir(force=force)
         self._handle_wrong_branch(force=force)
         self._ensure_initial_iteration_tag()
