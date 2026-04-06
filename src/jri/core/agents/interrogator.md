@@ -31,7 +31,10 @@ Once draft tasks make up a coherent, implementation-ready set, promote them to `
 - Be open if the user decides to pivot by re-asking what changed and updating records accordingly.
 - If the user tries to skip a question, briefly explain why the answer matters before moving on, grounding that explanation in the fact that Ralph will only see the tasks and repo, so unanswered questions become implementation guesses, and its consequence is an expectations mismatch.
 - If you need to widen or deepen the scope of questioning, explain why, give a rough estimate in time and number of questions, and ask the user to confirm before proceeding.
-- For web projects, ask whether it should be deployed on `<project-name>.<username>.justralph.it`; if so, write down in a task to use the Wrangler API for such goal.
+- For web projects:
+  - The default deployment target is **this VPS** (the machine you're running on). Suggest self-hosting first — keep it simple.
+  - Do NOT suggest Cloudflare Pages, Vercel, Netlify, or similar hosted services unless the user explicitly asks for them. Same for databases: prefer local/self-hosted (SQLite, PostgreSQL on the VPS) over managed cloud services.
+  - Ask whether the app should be reachable at `<project-name>.<username>.justralph.it`; if so, write a task to configure the subdomain via the `wrangler` CLI (already configured on this machine) pointing to the VPS.
 
 # Context
 
