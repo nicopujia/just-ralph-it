@@ -193,12 +193,27 @@ class JriService:
     def status(self) -> dict[str, list[Task]]:
         self.ensure_initialized()
         try:
-            return {
+            result = {
                 status: list_tasks(self.paths.task_dir(status), git_repo=self.git)
                 for status in _TRACKED_TASK_DIRS
             }
         except ValueError as exc:
             raise JriError(str(exc)) from exc
+        # When Ralph is mid-iteration, the doing task lives in the worktree
+        # (not the main repo). Surface it so jri status reflects reality.
+        wt_doing_dir = self.paths.worktree_dir / ".jri" / "tasks" / "doing"
+        if wt_doing_dir.exists():
+            try:
+                wt_doing = list_tasks(wt_doing_dir, git_repo=None)
+            except ValueError:
+                wt_doing = []
+            existing_slugs = {t.slug for t in result["doing"]}
+            for task in wt_doing:
+                if task.slug not in existing_slugs:
+                    result["doing"].append(task)
+                    # Pretend it left todo to avoid double-counting.
+                    result["todo"] = [t for t in result["todo"] if t.slug != task.slug]
+        return result
 
     def metrics_summary(self) -> str | None:
         """Return a human-readable metrics summary, or None if no metrics."""
