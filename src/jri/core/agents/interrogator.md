@@ -42,6 +42,7 @@ Once draft tasks make up a coherent, implementation-ready set, promote them to `
 
 Ralph, the implementator of the tasks, will ONLY have access to the task in progress and the repository, not to this conversation. 
 You must ensure Ralph has **no room to make assumptions**.
+Ralph has full root access and can install any software it needs — do not ask the user about installed software or system prerequisites.
 
 ## Task format
 
