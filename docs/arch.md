@@ -70,7 +70,7 @@ The conversation is as long as it needs to be to cover every detail—it may eve
 The agent starts high-level, goes deeper as needed, creates draft tasks as soon as new information appears, and promotes work to `.jri/tasks/todo/` once it is implementation-ready.
 If a task still has open questions, it stays in `draft`; if a promoted task turns out incomplete, the fix should be captured as additive follow-up draft work instead of rewriting the promoted task.
 It also commits persisted task progress as the interrogation evolves.
-Promotion must go through `jri promote [slug ...] --confirm "<user confirmation>"`, which records the approval and rejects unconfirmed promotions.
+Promotion goes through `jri promote [slug ...]`, which shows the tasks to be promoted and asks for `y/N` confirmation (use `--force` to skip the prompt).
 
 Besides, if the user ever realizes that they actually want to pivot or discard the idea, that's not a failure scenario; it's rather the contrary.
 
@@ -139,60 +139,9 @@ The hard halt command sends SIGTERM to the tracked Ralph process and clears proc
 
 After a graceful stop, task state is clean. After a halt, the doing task may remain and will be recovered on the next `jri start`. Both compose cleanly with start recovery semantics.
 
-## Structured status output
+## Status command
 
-`jri status --json` prints a machine-readable JSON payload for programmatic consumption.
-The schema is designed to be stable across releases so that automation and UI layers can rely on it without scraping plain text.
+`jri status` prints a plain-text summary of task counts by status and lists all tasks assigned to Human.
 
-### Intended consumers
-
-- **CI/CD dashboards**: pipeline scripts that poll `jri status --json` to surface blocker counts or escalate stuck tasks.
-- **Web UI (Phase VIII)**: the future hosted interface will read this payload to render task state, human escalations, and retry health.
-- **Monitoring/alerting**: automated watchers that trigger on `retry_escalation.tasks_with_failures[].escalated` or non-null `run.process` to detect stuck loops.
-
-### Schema
-
-```json
-{
-  "tasks": {
-    "counts": { "draft": 0, "todo": 0, "doing": 0, "done": 0 },
-    "total": 0,
-    "needs_human": [
-      {
-        "slug": "string",
-        "title": "string",
-        "priority": 0,
-        "status": "todo | doing | done | draft",
-        "depends_on": ["string"]
-      }
-    ]
-  },
-  "retry_escalation": {
-    "tasks_with_failures": [
-      {
-        "slug": "string",
-        "failed_attempts": 0,
-        "max_attempts": 3,
-        "escalated": false
-      }
-    ]
-  },
-  "run": {
-    "iteration_number": 0,
-    "started_at": "unix timestamp | null",
-    "finished_at": "unix timestamp | null",
-    "active_attempt": "AttemptState payload | null",
-    "process": {
-      "loop_pid": "int | null",
-      "child_pid": "int | null",
-      "log_path": "string | null",
-      "detached": false
-    }
-  }
-}
-```
-
-- `tasks.counts` maps each tracked status to its task count.
-- `tasks.needs_human` lists every task assigned to `Human` across all statuses, including dependency links.
-- `retry_escalation.tasks_with_failures` aggregates per-task failure counts from the attempt journal and flags tasks that have exceeded the retry threshold.
-- `run` mirrors the current iteration and process state from `.jri/state.json`.
+The future web UI (Phase VIII) will access project state by importing `jri.core` directly, not by parsing CLI output.
+No CLI output format is considered stable at this point.
