@@ -149,9 +149,13 @@ class JriService:
         opencode_gitignore = str(
             (self.root / ".opencode" / ".gitignore").relative_to(self.root)
         )
-        # Stage all paths first, then commit
+        # Stage all paths first
         self.git.run("add", "-A", "--", *commit_paths)
         self.git.run("add", "-f", "--", opencode_gitignore)
+        # Check if there's anything to commit before committing
+        all_paths = [*commit_paths, opencode_gitignore]
+        if not self.git.status_short(*all_paths):
+            return
         self.git.run(
             "commit", "-m", commit_message, "--", *commit_paths, opencode_gitignore
         )
@@ -164,8 +168,16 @@ class JriService:
             (self.root / ".opencode" / ".gitignore").relative_to(self.root)
         )
         self.git.run("add", "-f", "--", opencode_gitignore)
-        # Check if there's anything to commit (just the managed paths, not agent files)
-        commit_paths = list(_UPGRADE_COMMIT_PATHS) + [opencode_gitignore]
+        # Stage agent files only if they were previously tracked
+        tracked_agent_paths = [
+            path for path in _MANAGED_AGENT_PATHS if self.git.is_tracked(path)
+        ]
+        if tracked_agent_paths:
+            self.git.run("add", "-f", "--", *tracked_agent_paths)
+        # Check if there's anything to commit
+        commit_paths = (
+            list(_UPGRADE_COMMIT_PATHS) + [opencode_gitignore] + tracked_agent_paths
+        )
         if not self.git.status_short(*commit_paths):
             return
         # Stage regular paths
