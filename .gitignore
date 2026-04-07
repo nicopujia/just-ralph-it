@@ -6,6 +6,9 @@ __pycache__/
 dist/
 .ruff_cache/
 
+.opencode/
+!.opencode/.gitignore
+
 .opencode/agents/interrogator.md
 .opencode/agents/ralph.md
-.opencode/tools/result.js
+.opencode/tools/ralph-result.js
