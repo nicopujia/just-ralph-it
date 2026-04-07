@@ -28,12 +28,12 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 upgrade_service.upgrade(commit_message=MSG_UPGRADE)
                 return 0
             case "chat":
-                return service.chat(unknown)
+                return service.chat(unknown, fresh=args.fresh)
             case "start":
                 return (
                     0
                     if service.start(
-                        iterations=args.iterations,
+                        max_tasks=args.max_tasks,
                         detached=args.detached,
                         model=args.model,
                         task_timeout=args.task_timeout,
@@ -51,18 +51,17 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
             case "reset":
                 if not args.force:
                     # Gather information for the confirmation prompt
-                    state = service.state_store.load()
-                    iteration_number = state.iteration_number
-                    if iteration_number >= 1:
-                        target_tag = f"jri/{iteration_number}"
-                    elif service.git.has_tag("jri/0"):
-                        target_tag = "jri/0"
-                    else:
-                        print(
-                            "Error: no iteration tag found — run `jri start` first",
-                            file=sys.stderr,
-                        )
-                        return 1
+                    target_tag = service._find_latest_end_tag()
+                    if target_tag is None:
+                        # Fall back to jri/0 for backward compatibility
+                        if service.git.has_tag("jri/0"):
+                            target_tag = "jri/0"
+                        else:
+                            print(
+                                "Error: no task tag found — run `jri start` first",
+                                file=sys.stderr,
+                            )
+                            return 1
 
                     has_uncommitted = bool(service.git.status_short())
                     has_ralph = service.git.has_local_branch("ralph")
@@ -81,7 +80,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         print("Reset aborted.", file=sys.stderr)
                         return 1
 
-                service.reset()
+                service.reset(target_task=args.task)
                 return 0
             case "status":
                 tasks_by_status = service.status()
@@ -135,8 +134,6 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
 
                 timeline = TimelineStore(service.paths.timeline_path)
                 events = timeline.read()
-                if args.iteration is not None:
-                    events = [e for e in events if e.iteration == args.iteration]
                 if args.task:
                     events = [e for e in events if e.task == args.task]
                 if args.json:
@@ -203,7 +200,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "-f",
         "--force",
         action="store_true",
-        help="Reinitialize the project even if .jri already exists.",
+        help="Skip prompts and overwrite existing .jri/ and .opencode/ directories.",
     )
 
     upgrade_parser = subparsers.add_parser(
@@ -221,7 +218,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Target project directory. Defaults to the current directory.",
     )
 
-    subparsers.add_parser(
+    chat_parser = subparsers.add_parser(
         "chat",
         help="Open an interactive chat session for this project.",
         description=(
@@ -229,21 +226,27 @@ def _build_parser() -> argparse.ArgumentParser:
             "when one is available."
         ),
     )
+    chat_parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Clear the existing interrogator session and start fresh.",
+    )
 
     start_parser = subparsers.add_parser(
         "start",
         help="Run Ralph on queued todo tasks.",
         description=(
             "Run the Ralph loop on eligible todo tasks until there are no "
-            "tasks left, the iteration limit is reached, a task timeout "
+            "tasks left, the task limit is reached, a task timeout "
             "occurs, or a stop is requested."
         ),
     )
     start_parser.add_argument(
         "-n",
-        "--iterations",
+        "--tasks",
         type=int,
-        help="Maximum number of task iterations to run in this invocation.",
+        dest="max_tasks",
+        help="Maximum number of tasks to run in this invocation.",
     )
     start_parser.add_argument(
         "-d",
@@ -260,7 +263,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--task-timeout",
         type=int,
         metavar="SECONDS",
-        help="Maximum seconds per task iteration (0 or unset = no limit).",
+        help="Maximum seconds per task (0 or unset = no limit).",
     )
     start_parser.add_argument(
         "-f",
@@ -271,9 +274,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
     stop_parser = subparsers.add_parser(
         "stop",
-        help="Ask Ralph to stop after the current iteration.",
+        help="Ask Ralph to stop after the current task.",
         description=(
-            "Write a stop signal that prevents the next Ralph iteration from starting."
+            "Write a stop signal that prevents the next Ralph task from starting."
         ),
     )
     stop_parser.add_argument(
@@ -292,17 +295,22 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     reset_parser = subparsers.add_parser(
         "reset",
-        help="Reset the default branch to the latest iteration tag.",
+        help="Reset the default branch to the latest task tag.",
         description=(
-            "Hard-reset the default branch to the latest JRI iteration tag. "
-            "If at least one iteration succeeded, resets to jri/{N}. "
-            "If no iteration succeeded but jri/0 exists (start was called), "
-            "resets to jri/0 to restore the pre-Ralph state. "
+            "Hard-reset the default branch to the latest JRI task tag. "
+            "By default, resets to the most recent jri/end/{task} tag. "
+            "If no end tags exist but jri/0 exists, resets to jri/0. "
+            "Optionally specify a task slug to reset to a specific task's end tag. "
             "Discards all uncommitted changes, commits, "
-            "and task state since that iteration. Clears in-progress "
+            "and task state since that task. Clears in-progress "
             "runtime state (process tracking, active attempt). "
-            "Preserves iteration number, session, and attempt history."
+            "Preserves session and attempt history."
         ),
+    )
+    reset_parser.add_argument(
+        "task",
+        nargs="?",
+        help="Optional task slug to reset to a specific task's end tag.",
     )
     reset_parser.add_argument(
         "-f",
@@ -346,11 +354,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "Each line represents a key event from the Ralph run loop."
         ),
     )
-    timeline_parser.add_argument(
-        "--iteration",
-        type=int,
-        help="Filter to events for a specific iteration number.",
-    )
+
     timeline_parser.add_argument(
         "--task",
         help="Filter to events for a specific task slug.",
