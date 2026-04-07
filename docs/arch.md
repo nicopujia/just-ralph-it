@@ -10,6 +10,7 @@ Every project is initialized with the same base structure:
     <status: "draft" | "todo" | "doing" | "done">/
       <slug>.md
   signals/
+  worktree/
   logs/
     diffs/<iteration number>-<slug>.diff
     timeline.jsonl
@@ -33,6 +34,7 @@ Every project is initialized with the same base structure:
   `active_attempt` tracks the current Ralph task attempt, and `attempts` keeps the durable attempt history.
   Each attempt records the task slug, iteration number, branch, timestamps, Ralph log path, optional OpenCode session ID, and final outcome when known.
   The latest explicit draft-to-todo promotion confirmation is also recorded there.
+- **Worktree** is where Ralph works.
 
 The following are `.gitignore`d:
 
