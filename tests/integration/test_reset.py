@@ -82,7 +82,7 @@ def _run_successful_iteration(repo: Path) -> JriService:
     git(repo, "add", ".jri/tasks/todo/implement-file.md")
     git(repo, "commit", "-m", "add task")
     service = JriService(repo, opencode_client=SuccessfulFakeOpenCodeClient())
-    assert service.start(iterations=1) == 1
+    assert service.start(max_tasks=1) == 1
     return service
 
 
@@ -102,9 +102,7 @@ def test_reset_after_successful_iteration(git_repo: Path) -> None:
     assert git(git_repo, "branch", "--show-current") == "main"
 
     state = read_json(git_repo / ".jri" / "state.json")
-    iteration = cast(dict[str, object], state["iteration"])
-    assert iteration["number"] == 1
-    assert "finished_at" in iteration
+    assert "finished_at" in state
     assert state["session"] == "ses_reset_test"
     assert "process" not in state
     assert "active_attempt" not in state
@@ -125,7 +123,7 @@ def test_reset_after_failed_iteration(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "add task-a")
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
-    assert service.start(iterations=1) == 1
+    assert service.start(max_tasks=1) == 1
 
     write_task(
         git_repo,
@@ -140,7 +138,7 @@ def test_reset_after_failed_iteration(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "add task-b")
 
     fail_service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
-    assert fail_service.start(iterations=1) == 0
+    assert fail_service.start(max_tasks=1) == 0
 
     (git_repo / "extra-after-fail.txt").write_text("extra\n", encoding="utf-8")
     git(git_repo, "add", "extra-after-fail.txt")
@@ -151,10 +149,6 @@ def test_reset_after_failed_iteration(git_repo: Path) -> None:
     assert not (git_repo / "extra-after-fail.txt").exists()
     assert (git_repo / "implemented.txt").read_text(encoding="utf-8") == "implemented\n"
     assert git(git_repo, "branch", "--show-current") == "main"
-
-    state = read_json(git_repo / ".jri" / "state.json")
-    iteration = cast(dict[str, object], state["iteration"])
-    assert iteration["number"] == 1
 
 
 def test_reset_from_feature_branch_with_stale_state(git_repo: Path) -> None:
@@ -172,7 +166,7 @@ def test_reset_from_feature_branch_with_stale_state(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "add first task")
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
-    assert service.start(iterations=1) == 1
+    assert service.start(max_tasks=1) == 1
     prior_state = service.state_store.load()
 
     # Simulate a stale doing task on main (as if a worktree iteration crashed)
@@ -191,13 +185,11 @@ def test_reset_from_feature_branch_with_stale_state(git_repo: Path) -> None:
     stale_attempt = AttemptState(
         number=len(prior_state.attempts) + 1,
         task_slug="some-task",
-        iteration_number=2,
         branch="ralph",
         started_at=999,
     )
     service.state_store.save(
         State(
-            iteration_number=prior_state.iteration_number,
             finished_at=prior_state.finished_at,
             session=prior_state.session,
             branch=prior_state.branch,
@@ -225,8 +217,6 @@ def test_reset_from_feature_branch_with_stale_state(git_repo: Path) -> None:
     assert "ralph" not in branches
 
     state = read_json(git_repo / ".jri" / "state.json")
-    iteration = cast(dict[str, object], state["iteration"])
-    assert iteration["number"] == 1
     assert "process" not in state
     assert "active_attempt" not in state
 
@@ -246,18 +236,14 @@ def test_reset_discards_uncommitted_changes_on_default_branch(
     assert git(git_repo, "diff", "--name-only") == ""
     assert git(git_repo, "diff", "--cached", "--name-only") == ""
 
-    state = read_json(git_repo / ".jri" / "state.json")
-    iteration = cast(dict[str, object], state["iteration"])
-    assert iteration["number"] == 1
-
 
 def test_reset_succeeds_when_iteration_zero_and_jri0_tag_exists(
     git_repo: Path,
 ) -> None:
-    """When iteration_number == 0 and jri/0 tag exists, reset targets jri/0."""
+    """When no tasks completed and jri/init tag exists, reset targets jri/init."""
     assert run_cli(["init"], cwd=git_repo) == 0
 
-    # Simulate a partial/failed first iteration: start creates jri/0 tag
+    # Simulate a partial/failed first task: start creates jri/init tag
     write_task(
         git_repo,
         status="todo",
@@ -271,9 +257,9 @@ def test_reset_succeeds_when_iteration_zero_and_jri0_tag_exists(
     git(git_repo, "commit", "-m", "add failing task")
 
     fail_service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
-    assert fail_service.start(iterations=1) == 0
+    assert fail_service.start(max_tasks=1) == 0
 
-    # Now iteration_number is still 0 (no successful iteration) but jri/0 exists.
+    # Now no tasks completed but jri/init exists.
     # Add some extra commits to prove reset discards them.
     (git_repo / "extra-after-fail.txt").write_text("extra\n", encoding="utf-8")
     git(git_repo, "add", "extra-after-fail.txt")
@@ -287,16 +273,14 @@ def test_reset_succeeds_when_iteration_zero_and_jri0_tag_exists(
     assert git(git_repo, "branch", "--show-current") == "main"
 
     state = read_json(git_repo / ".jri" / "state.json")
-    iteration = cast(dict[str, object], state["iteration"])
-    assert iteration["number"] == 0
     assert "process" not in state
     assert "active_attempt" not in state
 
 
-def test_reset_refuses_when_iteration_zero_and_no_jri0_tag(
+def test_reset_refuses_when_no_task_tag(
     git_repo: Path,
 ) -> None:
-    """When iteration_number == 0 and jri/0 tag does NOT exist, raise JriError."""
+    """When no task completed and jri/init tag does NOT exist, raise JriError."""
     assert run_cli(["init"], cwd=git_repo) == 0
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
@@ -308,7 +292,7 @@ def test_reset_refuses_when_iteration_zero_and_no_jri0_tag(
 def test_reset_to_jri0_restores_pre_ralph_working_tree(
     git_repo: Path,
 ) -> None:
-    """Reset-to-jri/0 removes tracked files added by a failed first iteration."""
+    """Reset-to-jri/init removes tracked files added by a failed first task."""
     assert run_cli(["init"], cwd=git_repo) == 0
 
     write_task(
@@ -323,11 +307,11 @@ def test_reset_to_jri0_restores_pre_ralph_working_tree(
     git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
     git(git_repo, "commit", "-m", "add failing task")
 
-    # Start creates jri/0 tag, then the failed iteration runs.
+    # Start creates jri/init tag, then the failed task runs.
     # The FailedFakeOpenCodeClient doesn't write any files, so add a
     # post-failure commit to prove reset discards it.
     fail_service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
-    assert fail_service.start(iterations=1) == 0
+    assert fail_service.start(max_tasks=1) == 0
 
     # Add a tracked file after the failed iteration
     (git_repo / "added-by-fail.txt").write_text("should be gone\n", encoding="utf-8")
@@ -337,15 +321,11 @@ def test_reset_to_jri0_restores_pre_ralph_working_tree(
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
     service.reset()
 
-    # The extra file should be gone — reset restored to jri/0 state
+    # The extra file should be gone — reset restored to jri/init state
     assert not (git_repo / "added-by-fail.txt").exists()
-    # The task file was committed before start() and is part of jri/0
+    # The task file was committed before start() and is part of jri/init
     assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
-
-    state = read_json(git_repo / ".jri" / "state.json")
-    iteration = cast(dict[str, object], state["iteration"])
-    assert iteration["number"] == 0
 
 
 def test_reset_clears_active_attempt(git_repo: Path) -> None:
@@ -356,13 +336,11 @@ def test_reset_clears_active_attempt(git_repo: Path) -> None:
     fake_attempt = AttemptState(
         number=len(prior_state.attempts) + 1,
         task_slug="stale-task",
-        iteration_number=2,
         branch="ralph",
         started_at=1234,
     )
     service.state_store.save(
         State(
-            iteration_number=prior_state.iteration_number,
             finished_at=prior_state.finished_at,
             session=prior_state.session,
             branch=prior_state.branch,
@@ -415,7 +393,7 @@ def test_reset_preserves_attempt_history(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "add task-a")
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
-    assert service.start(iterations=1) == 1
+    assert service.start(max_tasks=1) == 1
 
     write_task(
         git_repo,
@@ -430,7 +408,7 @@ def test_reset_preserves_attempt_history(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "add task-b")
 
     fail_service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
-    assert fail_service.start(iterations=1) == 0
+    assert fail_service.start(max_tasks=1) == 0
 
     service.reset()
 
@@ -528,8 +506,8 @@ def test_reset_cli_prompt_includes_target_tag(git_repo: Path) -> None:
     )
 
     assert result.returncode == 1
-    # The prompt should mention jri/1 (the target tag)
-    assert "jri/1" in result.stdout
+    # The prompt should mention the end tag for the completed task
+    assert "jri/end/implement-file" in result.stdout
 
 
 def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
