@@ -23,7 +23,7 @@ def test_validate_repo_accepts_valid_jri_tree(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     state_path = tmp_path / ".jri" / "state.json"
-    state_path.write_text('{"iteration": {"number": 1}}\n', encoding="utf-8")
+    state_path.write_text('{"attempts": []}\n', encoding="utf-8")
 
     validate_repo(tmp_path)
 

@@ -142,8 +142,6 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 else:
                     for event in events:
                         parts = [event.ts, event.event]
-                        if event.iteration is not None:
-                            parts.append(f"iter={event.iteration}")
                         if event.task is not None:
                             parts.append(f"task={event.task}")
                         if event.detail:

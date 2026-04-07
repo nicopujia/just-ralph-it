@@ -294,7 +294,7 @@ class JriService:
 
         If target_task is provided, reset to jri/end/{target_task}.
         Otherwise, find the most recent end tag and reset to it.
-        Falls back to jri/0 for backward compatibility.
+        Falls back to jri/init for backward compatibility.
         """
         self.ensure_initialized()
         state = self.state_store.load()
@@ -309,11 +309,11 @@ class JriService:
             # Find the most recent end tag
             target_tag = self._find_latest_end_tag()
             if target_tag is None:
-                # Fall back to jri/0 for backward compatibility
-                if self.git.has_tag("jri/0"):
-                    target_tag = "jri/0"
+                # Fall back to jri/init for backward compatibility
+                if self.git.has_tag("jri/init"):
+                    target_tag = "jri/init"
                 else:
-                    raise JriError("no iteration tag found — run `jri start` first")
+                    raise JriError("no task tag found — run `jri start` first")
 
         default = self.git.default_branch(hint=state.branch)
         current = self.git.current_branch()
@@ -882,7 +882,7 @@ class JriService:
 
         # If a project tool (like prettier) modified the task file in
         # place, restore it to baseline rather than failing the whole
-        # iteration. Ralph's actual work is still valid.
+        # task. Ralph's actual work is still valid.
         if doing_task.path.read_text(encoding="utf-8") != doing_task_baseline:
             doing_task.path.write_text(doing_task_baseline, encoding="utf-8")
 
@@ -1215,7 +1215,7 @@ class JriService:
         if state.started_at is not None:
             self._record_recovery(
                 mode=mode,
-                reason="stale-iteration-state",
+                reason="stale-task-state",
                 task_slug=None,
                 process=None,
             )

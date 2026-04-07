@@ -69,7 +69,7 @@ def _dead_pid() -> int:
     return process.pid
 
 
-def _run_successful_iteration(repo: Path) -> JriService:
+def _run_successful_task(repo: Path) -> JriService:
     write_task(
         repo,
         status="todo",
@@ -86,9 +86,9 @@ def _run_successful_iteration(repo: Path) -> JriService:
     return service
 
 
-def test_reset_after_successful_iteration(git_repo: Path) -> None:
+def test_reset_after_successful_task(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
-    service = _run_successful_iteration(git_repo)
+    service = _run_successful_task(git_repo)
     service.state_store.save_session("ses_reset_test")
 
     (git_repo / "extra.txt").write_text("extra content\n", encoding="utf-8")
@@ -108,7 +108,7 @@ def test_reset_after_successful_iteration(git_repo: Path) -> None:
     assert "active_attempt" not in state
 
 
-def test_reset_after_failed_iteration(git_repo: Path) -> None:
+def test_reset_after_failed_task(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -225,7 +225,7 @@ def test_reset_discards_uncommitted_changes_on_default_branch(
     git_repo: Path,
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
-    service = _run_successful_iteration(git_repo)
+    service = _run_successful_task(git_repo)
 
     (git_repo / "untracked-new.txt").write_text("brand new\n", encoding="utf-8")
     (git_repo / "implemented.txt").write_text("modified!\n", encoding="utf-8")
@@ -237,7 +237,7 @@ def test_reset_discards_uncommitted_changes_on_default_branch(
     assert git(git_repo, "diff", "--cached", "--name-only") == ""
 
 
-def test_reset_succeeds_when_iteration_zero_and_jri0_tag_exists(
+def test_reset_succeeds_when_no_tasks_and_jri0_tag_exists(
     git_repo: Path,
 ) -> None:
     """When no tasks completed and jri/init tag exists, reset targets jri/init."""
@@ -285,7 +285,7 @@ def test_reset_refuses_when_no_task_tag(
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
-    with pytest.raises(JriError, match="no iteration tag found.*jri start"):
+    with pytest.raises(JriError, match="no task tag found.*jri start"):
         service.reset()
 
 
@@ -330,7 +330,7 @@ def test_reset_to_jri0_restores_pre_ralph_working_tree(
 
 def test_reset_clears_active_attempt(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
-    service = _run_successful_iteration(git_repo)
+    service = _run_successful_task(git_repo)
 
     prior_state = service.state_store.load()
     fake_attempt = AttemptState(
@@ -360,7 +360,7 @@ def test_reset_clears_active_attempt(git_repo: Path) -> None:
 
 def test_reset_clears_tracked_process(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
-    service = _run_successful_iteration(git_repo)
+    service = _run_successful_task(git_repo)
 
     service.state_store.save_process(
         loop_pid=_dead_pid(),
@@ -424,7 +424,7 @@ def test_reset_preserves_attempt_history(git_repo: Path) -> None:
 def test_reset_cli_aborts_on_negative_confirmation(git_repo: Path) -> None:
     """Test that reset aborts when user answers 'n' to confirmation prompt."""
     assert run_cli(["init"], cwd=git_repo) == 0
-    _run_successful_iteration(git_repo)
+    _run_successful_task(git_repo)
 
     (git_repo / "extra.txt").write_text("extra content\n", encoding="utf-8")
     git(git_repo, "add", "extra.txt")
@@ -448,7 +448,7 @@ def test_reset_cli_aborts_on_negative_confirmation(git_repo: Path) -> None:
 def test_reset_cli_aborts_on_empty_confirmation(git_repo: Path) -> None:
     """Test that reset aborts when user just presses Enter (default N)."""
     assert run_cli(["init"], cwd=git_repo) == 0
-    _run_successful_iteration(git_repo)
+    _run_successful_task(git_repo)
 
     (git_repo / "extra.txt").write_text("extra content\n", encoding="utf-8")
     git(git_repo, "add", "extra.txt")
@@ -472,7 +472,7 @@ def test_reset_cli_aborts_on_empty_confirmation(git_repo: Path) -> None:
 def test_reset_cli_force_skips_confirmation(git_repo: Path) -> None:
     """Test that --force flag skips the confirmation prompt."""
     assert run_cli(["init"], cwd=git_repo) == 0
-    _run_successful_iteration(git_repo)
+    _run_successful_task(git_repo)
 
     (git_repo / "extra.txt").write_text("extra content\n", encoding="utf-8")
     git(git_repo, "add", "extra.txt")
@@ -494,7 +494,7 @@ def test_reset_cli_force_skips_confirmation(git_repo: Path) -> None:
 def test_reset_cli_prompt_includes_target_tag(git_repo: Path) -> None:
     """Test that the confirmation prompt includes the target tag name."""
     assert run_cli(["init"], cwd=git_repo) == 0
-    _run_successful_iteration(git_repo)
+    _run_successful_task(git_repo)
 
     # Simulate user entering 'n' to see the prompt
     result = subprocess_module.run(
@@ -513,7 +513,7 @@ def test_reset_cli_prompt_includes_target_tag(git_repo: Path) -> None:
 def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
     """Test that the confirmation prompt mentions uncommitted changes."""
     assert run_cli(["init"], cwd=git_repo) == 0
-    _run_successful_iteration(git_repo)
+    _run_successful_task(git_repo)
 
     # Create an uncommitted change
     (git_repo / "uncommitted.txt").write_text("uncommitted\n", encoding="utf-8")
@@ -535,7 +535,7 @@ def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
 def test_reset_cli_prompt_shows_ralph_branch(git_repo: Path) -> None:
     """Test that the confirmation prompt mentions the ralph branch to be deleted."""
     assert run_cli(["init"], cwd=git_repo) == 0
-    _run_successful_iteration(git_repo)
+    _run_successful_task(git_repo)
 
     # Simulate user entering 'n' to see the prompt
     result = subprocess_module.run(
