@@ -6,7 +6,7 @@
 
 ### Prerequisites
 
-- **Mandatory**: [Git](https://git-scm.com/install/), [make](https://www.gnu.org/software/make/), [uv](https://docs.astral.sh/uv/getting-started/installation/), [OpenCode](https://opencode.ai/docs/#install)
+- **Mandatory**: [Git](https://git-scm.com/install/), [Make](https://www.gnu.org/software/make/), [uv](https://docs.astral.sh/uv/getting-started/installation/), [OpenCode](https://opencode.ai/docs/#install)
 - **Recommended**: VPS or [Docker](https://docs.docker.com/get-started/get-docker/)
 
 ### Install and run
