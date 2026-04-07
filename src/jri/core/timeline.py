@@ -7,9 +7,9 @@ from typing import Literal
 
 TimelineEventType = Literal[
     "attempt_started",
-    "iteration_completed",
-    "iteration_failed",
-    "iteration_needs_human",
+    "task_completed",
+    "task_failed",
+    "task_needs_human",
     "make_check_passed",
     "make_check_failed",
     "recovery_started",

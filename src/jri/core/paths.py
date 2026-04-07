@@ -77,11 +77,11 @@ class JriPaths:
     def task_path(self, status: str, slug: str) -> Path:
         return self.task_dir(status) / f"{slug}.md"
 
-    def ralph_log_path(self, iteration: int, started_at: int) -> Path:
+    def ralph_log_path(self, task_slug: str, started_at: int) -> Path:
         timestamp = datetime.fromtimestamp(started_at, UTC).strftime(
             "%Y-%m-%dT%H-%M-%SZ"
         )
-        return self.ralph_logs_dir / f"{iteration}-{timestamp}.log"
+        return self.ralph_logs_dir / f"{task_slug}-{timestamp}.log"
 
     @property
     def timeline_path(self) -> Path:
@@ -95,5 +95,5 @@ class JriPaths:
     def worktree_dir(self) -> Path:
         return self.jri_dir / "worktree"
 
-    def diff_artifact_path(self, iteration: int, slug: str) -> Path:
-        return self.diffs_dir / f"{iteration}-{slug}.diff"
+    def diff_artifact_path(self, slug: str) -> Path:
+        return self.diffs_dir / f"{slug}.diff"

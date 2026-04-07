@@ -99,19 +99,18 @@ def test_validate_task_metadata_rejects_invalid_values() -> None:
         )
 
 
-def test_validate_state_payload_rejects_negative_iteration() -> None:
-    with pytest.raises(ValueError, match="iteration"):
-        validate_state_payload({"iteration": {"number": -1}})
+def test_validate_state_payload_accepts_empty() -> None:
+    validate_state_payload({})
 
 
 def test_validate_state_payload_allows_runtime_process_metadata() -> None:
     validate_state_payload(
         {
-            "iteration": {"number": 1},
+            "started_at": 1234567890,
             "process": {
                 "loop_pid": 123,
                 "child_pid": None,
-                "log_path": ".jri/logs/ralph/1.log",
+                "log_path": ".jri/logs/ralph/task.log",
                 "detached": True,
             },
         }
@@ -121,7 +120,7 @@ def test_validate_state_payload_allows_runtime_process_metadata() -> None:
 def test_validate_state_payload_allows_promotion_record() -> None:
     validate_state_payload(
         {
-            "iteration": {"number": 1},
+            "started_at": 1234567890,
             "promotion": {
                 "confirmed_at": 1,
                 "task_slugs": ["clarify-scope"],

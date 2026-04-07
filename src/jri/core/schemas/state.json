@@ -11,10 +11,6 @@
         "task_slug": {
           "type": "string"
         },
-        "iteration_number": {
-          "type": "integer",
-          "minimum": 0
-        },
         "branch": {
           "type": "string"
         },
@@ -35,13 +31,12 @@
           "enum": ["completed", "failed", "needs human", "interrupted"]
         }
       },
-        "required": [
-          "number",
-          "task_slug",
-          "iteration_number",
-          "branch",
-          "started_at"
-        ]
+      "required": [
+        "number",
+        "task_slug",
+        "branch",
+        "started_at"
+      ]
     },
     "promotion": {
       "type": "object",
@@ -71,23 +66,13 @@
   },
   "type": "object",
   "properties": {
-    "iteration": {
-      "type": "object",
-      "properties": {
-        "number": {
-          "type": "integer",
-          "description": "Last successful iteration. Does not include the currently running iteration.",
-          "minimum": 0
-        },
-        "finished_at": {
-          "type": "integer",
-          "description": "Unix timestamp in seconds indicating the last time it finished an iteration."
-        },
-        "started_at": {
-          "type": "integer",
-          "description": "Unix timestamp in seconds indicating the last time it started an iteration."
-        }
-      }
+    "started_at": {
+      "type": "integer",
+      "description": "Unix timestamp in seconds indicating the last time a task was started."
+    },
+    "finished_at": {
+      "type": "integer",
+      "description": "Unix timestamp in seconds indicating the last time a task was finished."
     },
     "session": {
       "type": "string",
@@ -96,6 +81,10 @@
     "branch": {
       "type": "string",
       "description": "Default branch name recorded at init time."
+    },
+    "current_task": {
+      "type": "string",
+      "description": "The slug of the currently running task, if any."
     },
     "process": {
       "type": "object",

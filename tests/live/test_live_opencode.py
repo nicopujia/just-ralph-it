@@ -43,7 +43,7 @@ def test_start_with_real_opencode_completes_trivial_task(
         opencode_client=OpenCodeClient(model=opencode_model),
     )
 
-    completed = service.start(iterations=1)
+    completed = service.start(max_tasks=1)
 
     assert completed == 1
     assert (git_repo / "live-proof.txt").read_text(encoding="utf-8") == "live test ok\n"

@@ -87,20 +87,18 @@ class StateStore:
         state = self.load()
         self.save(replace(state, active_attempt=None))
 
-    def mark_iteration_started(self, *, started_at: int) -> None:
+    def mark_task_started(self, *, task_slug: str, started_at: int) -> None:
         state = self.load()
-        self.save(replace(state, started_at=started_at))
+        self.save(replace(state, current_task=task_slug, started_at=started_at))
 
-    def mark_iteration_finished(
-        self, *, iteration_number: int, finished_at: int
-    ) -> None:
+    def mark_task_finished(self, *, task_slug: str, finished_at: int) -> None:
         state = self.load()
         self.save(
             replace(
                 state,
-                iteration_number=iteration_number,
                 started_at=None,
                 finished_at=finished_at,
+                current_task=None,
             )
         )
 

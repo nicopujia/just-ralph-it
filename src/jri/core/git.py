@@ -9,13 +9,47 @@ MSG_UPGRADE_AUTO = "jri upgrade (auto)"
 MSG_START_BEGIN = "jri start: begin {slug}"
 MSG_START_COMPLETE = "jri start: complete {slug}"
 MSG_PROMOTE = "jri promote: move drafts to todo"
-MSG_RECOVER_FAILED = "jri: recover {slug} after failed iteration"
+MSG_RECOVER_FAILED = "jri: recover {slug} after failed task"
 MSG_RECOVER_STALE = "jri: recover {slug} after stale run"
 MSG_RECOVER_NEEDS_HUMAN = "jri: recover {slug} for needs-human"
 MSG_ESCALATE_FAILED = "jri: escalate {slug} after {n} failed attempts"
 MSG_ESCALATE_HUMAN = "jri: escalate {slug} for human help"
 MSG_RALPH_FINALIZE = "ralph: finalize {slug}"
 MSG_RALPH_PARTIAL = "ralph: partial work on {slug}"
+
+
+def tag_name(slug: str, suffix: str) -> str:
+    """Generate a JRI tag name with begin/end suffix.
+
+    Args:
+        slug: The task slug
+        suffix: Either 'begin' or 'end'
+
+    Returns:
+        Tag name in format jri/{suffix}/{slug}
+    """
+    return f"jri/{suffix}/{slug}"
+
+
+def parse_tag_name(tag: str) -> tuple[str, str] | None:
+    """Parse a JRI tag name into (suffix, slug) tuple.
+
+    Args:
+        tag: The tag name to parse
+
+    Returns:
+        Tuple of (suffix, slug) if it's a JRI tag, None otherwise.
+        Suffix is either 'begin' or 'end'.
+    """
+    if not tag.startswith("jri/"):
+        return None
+    parts = tag.split("/")
+    if len(parts) != 3:
+        return None
+    _, suffix, slug = parts
+    if suffix not in ("begin", "end"):
+        return None
+    return (suffix, slug)
 
 
 class GitRepo:
@@ -211,7 +245,7 @@ class GitRepo:
     def has_remote(self) -> bool:
         return bool(self.run("remote").stdout.strip())
 
-    def push_iteration(self, *, branch: str, tag: str) -> None:
+    def push_task_refs(self, *, branch: str, tag: str) -> None:
         default = self.default_branch()
         for args in (
             ("push", "origin", default),

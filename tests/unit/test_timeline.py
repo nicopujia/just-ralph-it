@@ -25,7 +25,7 @@ def test_timeline_event_to_jsonl_omits_none_fields(tmp_path: Path) -> None:
 def test_timeline_event_to_jsonl_includes_optional_fields(tmp_path: Path) -> None:
     event = TimelineEvent(
         ts="2025-01-01T00:00:00Z",
-        event="iteration_failed",
+        event="task_failed",
         iteration=3,
         task="my-task",
         detail={"reason": "make_check"},
@@ -52,7 +52,7 @@ def test_timeline_store_record_and_read(tmp_path: Path) -> None:
     store.record(
         TimelineEvent(
             ts="2025-01-01T00:01:00Z",
-            event="iteration_completed",
+            event="task_completed",
             iteration=1,
             task="task-a",
         )
@@ -62,7 +62,7 @@ def test_timeline_store_record_and_read(tmp_path: Path) -> None:
     assert len(events) == 2
     assert events[0].event == "attempt_started"
     assert events[0].iteration == 1
-    assert events[1].event == "iteration_completed"
+    assert events[1].event == "task_completed"
 
 
 def test_timeline_store_read_empty(tmp_path: Path) -> None:

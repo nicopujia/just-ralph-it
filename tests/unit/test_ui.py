@@ -3,44 +3,43 @@ from unittest.mock import patch
 import pytest
 
 from jri.core.ui import (
-    iteration_footer,
-    iteration_header,
     supports_color,
+    task_footer,
+    task_header,
     trim_tool_output,
 )
 
 
-def test_iteration_header_contains_iteration_and_slug() -> None:
-    result = iteration_header(3, "my-task")
-    assert "3" in result
+def test_task_header_contains_slug() -> None:
+    result = task_header("my-task")
     assert "my-task" in result
 
 
-def test_iteration_header_has_box_drawing_chars() -> None:
-    result = iteration_header(1, "slug")
+def test_task_header_has_box_drawing_chars() -> None:
+    result = task_header("slug")
     assert "───" in result
 
 
-def test_iteration_footer_completed() -> None:
-    result = iteration_footer("completed")
+def test_task_footer_completed() -> None:
+    result = task_footer("completed")
     assert "completed" in result
     assert "✓" in result
 
 
-def test_iteration_footer_failed() -> None:
-    result = iteration_footer("failed")
+def test_task_footer_failed() -> None:
+    result = task_footer("failed")
     assert "failed" in result
     assert "✗" in result
 
 
-def test_iteration_footer_needs_human() -> None:
-    result = iteration_footer("needs human")
+def test_task_footer_needs_human() -> None:
+    result = task_footer("needs human")
     assert "needs human" in result
     assert "⚠" in result
 
 
-def test_iteration_footer_timeout() -> None:
-    result = iteration_footer("timeout")
+def test_task_footer_timeout() -> None:
+    result = task_footer("timeout")
     assert "timeout" in result
     assert "⏱" in result
 

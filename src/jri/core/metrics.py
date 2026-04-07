@@ -10,14 +10,12 @@ MetricResult = Literal["pass", "fail"]
 
 @dataclass(frozen=True)
 class MetricEntry:
-    iteration: int
     task: str
     ts: str
     result: MetricResult
 
     def to_dict(self) -> dict[str, object]:
         return {
-            "iteration": self.iteration,
             "task": self.task,
             "ts": self.ts,
             "result": self.result,
@@ -61,14 +59,12 @@ class MetricsStore:
         for item in payload:
             if (
                 isinstance(item, dict)
-                and isinstance(item.get("iteration"), int)
                 and isinstance(item.get("task"), str)
                 and isinstance(item.get("ts"), str)
                 and item.get("result") in ("pass", "fail")
             ):
                 entries.append(
                     MetricEntry(
-                        iteration=item["iteration"],
                         task=item["task"],
                         ts=item["ts"],
                         result=item["result"],
