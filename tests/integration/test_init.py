@@ -103,11 +103,14 @@ def test_init_creates_empty_readme_when_missing(git_repo: Path) -> None:
     assert "README.md" in changed_files
 
 
-def test_init_refuses_to_overwrite_without_force(git_repo: Path) -> None:
+def test_init_prompts_on_existing_dirs_and_aborts_when_no_input(git_repo: Path) -> None:
+    """When run non-interactively (no stdin), init should abort when dirs exist."""
     assert run_cli(["init"], cwd=git_repo) == 0
 
+    # Second init without force should abort when there's no input
     exit_code = run_cli(["init"], cwd=git_repo)
 
+    # In non-interactive mode (EOFError), it should abort with exit code 1
     assert exit_code == 1
 
 
@@ -120,3 +123,20 @@ def test_init_force_recreates_structure(git_repo: Path) -> None:
 
     assert exit_code == 0
     assert not extra.exists()
+
+
+def test_init_force_removes_opencode_dir(git_repo: Path) -> None:
+    """Force flag should also remove .opencode/ directory."""
+    assert run_cli(["init"], cwd=git_repo) == 0
+
+    # Add a custom file to .opencode/
+    custom_file = git_repo / ".opencode" / "custom.txt"
+    custom_file.write_text("custom content", encoding="utf-8")
+
+    # Force reinit should remove .opencode/ entirely
+    exit_code = run_cli(["init", "--force"], cwd=git_repo)
+
+    assert exit_code == 0
+    assert not custom_file.exists()
+    # Managed files should be recreated
+    assert (git_repo / ".opencode" / "agents" / "interrogator.md").exists()
