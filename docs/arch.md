@@ -4,29 +4,43 @@
 
 Every project is initialized with the same base structure:
 
-```
-<project_root>/.jri/
-  tasks/
-    <status: "draft" | "todo" | "doing" | "done">/
-      <slug>.md
-  signals/
-  worktree/
-  logs/
-    diffs/<iteration number>-<slug>.diff
-    timeline.jsonl
-    external/
-    ralph/<iteration number>-<ISO 8601 start datetime>.log
-  state.json
-  state.json.bak
-  .gitignore
+```toml
+<project-root>/
+    .opencode/
+        agents/
+            interrogator.md
+            ralph.md
+        tools/
+            result.js
+        .gitignore
+    .jri/
+        tasks/
+            <status: "draft" | "todo" | "doing" | "done">/
+                <slug>.md
+        signals/
+            stop
+            result
+        worktree/
+        logs/
+            diffs/
+                <iteration number>-<slug>.diff
+            external/
+            ralph/
+                <iteration number>-<ISO 8601 start datetime>.log
+            timeline.jsonl
+        .gitignore
+        state.json
+        state.json.bak
+    README.md
+    opencode.json
 ```
 
 - **Tasks** are markdown files whose frontmatter is the metadata and the body is the description.
 - **Signals** are files that, if present, tell the loop what to do, and whose optional contents indicate the reason which will be logged.
   - `stop`: makes the loop stop at the end of the current iteration.
   It is deleted after that or when a loop starts.
-- **Logs** live under `.jri/logs/` — Ralph output, execution timeline, diffs, recovery notes, and OpenCode session exports.
-  See [ops.md](./ops.md#log-locations) for the full location reference.
+- **Logs** include all JRI's observability.
+  See [Operations](./ops.md) for the full location reference.
 - **State** is stored in `.jri/state.json`.
   JRI writes it through a same-directory temp file and keeps `.jri/state.json.bak` as the last readable recovery copy.
   If `state.json` is invalid or partially written, JRI falls back to the backup and rewrites the primary file when it can.
@@ -35,16 +49,6 @@ Every project is initialized with the same base structure:
   Each attempt records the task slug, iteration number, branch, timestamps, Ralph log path, optional OpenCode session ID, and final outcome when known.
   The latest explicit draft-to-todo promotion confirmation is also recorded there.
 - **Worktree** is where Ralph works.
-
-The following are `.gitignore`d:
-
-```
-logs/
-signals/
-*state.json*
-metrics.json
-worktree/
-```
 
 See [@src/jri/core/schemas/](../src/jri/core/schemas) to understand the exact schema files used by runtime validation.
 
