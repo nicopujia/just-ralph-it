@@ -593,9 +593,6 @@ class OpenCodeServer:
             warnings.append(warning)
             outcome = "failed"
 
-        # 6. Cleanup session
-        self._delete_session(session_id)
-
         return OpenCodeRunResult(
             returncode=0 if not timed_out else -1,
             session_id=session_id,

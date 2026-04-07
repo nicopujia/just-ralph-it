@@ -794,6 +794,14 @@ class JriService:
         attempt = replace(attempt, session_id=result.session_id)
         self.state_store.save_active_attempt(attempt)
 
+        # Cleanup session after export (only for OpenCodeServer, not fake clients)
+        if (
+            self.opencode_server is not None
+            and not self._client_injected
+            and result.session_id is not None
+        ):
+            self.opencode_server._delete_session(result.session_id)
+
         if not doing_task.path.exists():
             self._recover_failed_iteration_wt(doing_task, wt_git)
             self._finish_attempt(attempt, outcome="failed")
