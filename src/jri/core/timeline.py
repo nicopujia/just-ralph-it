@@ -28,14 +28,11 @@ TimelineEventType = Literal[
 class TimelineEvent:
     ts: str
     event: TimelineEventType
-    iteration: int | None = None
     task: str | None = None
     detail: dict[str, object] | None = None
 
     def to_jsonl(self) -> str:
         payload: dict[str, object] = {"ts": self.ts, "event": self.event}
-        if self.iteration is not None:
-            payload["iteration"] = self.iteration
         if self.task is not None:
             payload["task"] = self.task
         if self.detail is not None:
@@ -80,7 +77,6 @@ class TimelineStore:
                 TimelineEvent(
                     ts=str(payload.get("ts", "")),
                     event=payload.get("event", ""),
-                    iteration=payload.get("iteration"),
                     task=payload.get("task"),
                     detail=payload.get("detail"),
                 )

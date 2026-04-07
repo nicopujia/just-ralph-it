@@ -180,9 +180,9 @@ def test_status_shows_metrics_summary(git_repo: Path, capsys) -> None:
     metrics_path.write_text(
         json.dumps(
             [
-                {"iteration": 1, "task": "a", "ts": "t1", "result": "pass"},
-                {"iteration": 2, "task": "b", "ts": "t2", "result": "pass"},
-                {"iteration": 3, "task": "c", "ts": "t3", "result": "fail"},
+                {"task": "a", "ts": "t1", "result": "pass"},
+                {"task": "b", "ts": "t2", "result": "pass"},
+                {"task": "c", "ts": "t3", "result": "fail"},
             ]
         )
         + "\n",

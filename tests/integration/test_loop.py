@@ -241,7 +241,7 @@ def test_start_uses_explicit_model_override(git_repo: Path) -> None:
     assert client.model is None
 
 
-def test_start_completes_single_iteration(git_repo: Path) -> None:
+def test_start_completes_single_task(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -269,9 +269,6 @@ def test_start_completes_single_iteration(git_repo: Path) -> None:
     assert "jri/init" in tags
     assert "jri/begin/implement-file" in tags
     assert "jri/end/implement-file" in tags
-    iteration = read_json(git_repo / ".jri" / "state.json")["iteration"]
-    iteration_payload = cast(dict[str, object], iteration)
-    assert iteration_payload["number"] == 1
     attempts = cast(
         list[dict[str, object]],
         read_json(git_repo / ".jri" / "state.json")["attempts"],
@@ -726,13 +723,13 @@ def test_start_retries_after_interrupted_completion_without_rerunning_task(
     first_client = SuccessfulFakeOpenCodeClient()
     first_service = JriService(git_repo, opencode_client=first_client)
 
-    def interrupted_mark_iteration_finished(*, finished_at: int) -> None:
+    def interrupted_mark_task_finished(*, task_slug: str, finished_at: int) -> None:
         raise KeyboardInterrupt("simulated interruption during completion")
 
     monkeypatch.setattr(
         first_service.state_store,
-        "mark_iteration_finished",
-        interrupted_mark_iteration_finished,
+        "mark_task_finished",
+        interrupted_mark_task_finished,
     )
 
     with pytest.raises(KeyboardInterrupt, match="simulated interruption"):
@@ -775,7 +772,7 @@ def test_stop_creates_stop_signal(git_repo: Path) -> None:
     ) == "maintenance window\n"
 
 
-def test_reset_returns_repo_to_last_successful_iteration(git_repo: Path) -> None:
+def test_reset_returns_repo_to_last_successful_task(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -799,11 +796,9 @@ def test_reset_returns_repo_to_last_successful_iteration(git_repo: Path) -> None
     service.reset()
 
     assert not (git_repo / "extra.txt").exists()
-    iteration = read_json(git_repo / ".jri" / "state.json")["iteration"]
-    iteration_payload = cast(dict[str, object], iteration)
-    assert iteration_payload["number"] == 1
-    assert read_json(git_repo / ".jri" / "state.json")["session"] == "ses_interrogation"
-    assert "finished_at" in iteration_payload
+    state = read_json(git_repo / ".jri" / "state.json")
+    assert state["session"] == "ses_interrogation"
+    assert "finished_at" in state
 
 
 def test_halt_terminates_tracked_process(git_repo: Path) -> None:
@@ -1082,7 +1077,6 @@ def test_make_check_pass_records_metric(git_repo: Path) -> None:
     assert len(entries) == 1
     assert entries[0]["result"] == "pass"
     assert entries[0]["task"] == "implement-file"
-    assert entries[0]["iteration"] == 1
 
 
 def test_failing_make_check_records_metric(git_repo: Path) -> None:
@@ -1114,7 +1108,6 @@ def test_failing_make_check_records_metric(git_repo: Path) -> None:
     assert len(entries) == 1
     assert entries[0]["result"] == "fail"
     assert entries[0]["task"] == "implement-file"
-    assert entries[0]["iteration"] == 1
 
 
 def test_failing_make_check_triggers_recovery(git_repo: Path) -> None:
@@ -1277,7 +1270,7 @@ def test_task_escalates_to_needs_human_after_three_failures(git_repo: Path) -> N
     assert success_client.calls == []
 
 
-def test_failed_iteration_recovery_logs_failure(
+def test_failed_task_recovery_logs_failure(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
@@ -1314,7 +1307,7 @@ def test_failed_iteration_recovery_logs_failure(
     failure_log = failure_log_path.read_text(encoding="utf-8")
     assert "event=recovery-failure" in failure_log
     assert "task=failing-task" in failure_log
-    assert "phase=recover-failed-iteration" in failure_log
+    assert "phase=recover-failed-task" in failure_log
     assert "error_type=OSError" in failure_log
     assert "simulated reset failure during recovery" in failure_log
 
@@ -1355,12 +1348,12 @@ def test_needs_human_recovery_logs_failure(
     failure_log = failure_log_path.read_text(encoding="utf-8")
     assert "event=recovery-failure" in failure_log
     assert "task=needs-human-task" in failure_log
-    assert "phase=recover-needs-human-iteration" in failure_log
+    assert "phase=recover-needs-human-task" in failure_log
     assert "error_type=OSError" in failure_log
     assert "simulated reset failure during recovery" in failure_log
 
 
-def test_stale_iteration_recovery_logs_failure_and_propagates_error(
+def test_stale_task_recovery_logs_failure_and_propagates_error(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
@@ -1394,7 +1387,7 @@ def test_stale_iteration_recovery_logs_failure_and_propagates_error(
     failure_log = failure_log_path.read_text(encoding="utf-8")
     assert "event=recovery-failure" in failure_log
     assert "task=stale-task" in failure_log
-    assert "phase=recover-stale-iteration" in failure_log
+    assert "phase=recover-stale-task" in failure_log
     assert "error_type=OSError" in failure_log
 
 
@@ -1439,7 +1432,6 @@ def test_state_is_understandable_after_partial_recovery_failure(
 
     # State is valid and loadable
     state = read_json(git_repo / ".jri" / "state.json")
-    assert "iteration" in state
     assert "attempts" in state
 
     # Attempt records the failure
@@ -1454,10 +1446,10 @@ def test_state_is_understandable_after_partial_recovery_failure(
     failure_log = failure_log_path.read_text(encoding="utf-8")
     assert "event=recovery-failure" in failure_log
     assert "task=failing-task" in failure_log
-    assert "phase=recover-failed-iteration" in failure_log
+    assert "phase=recover-failed-task" in failure_log
 
 
-def test_successful_iteration_saves_diff_artifact(git_repo: Path) -> None:
+def test_successful_task_saves_diff_artifact(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -1477,7 +1469,7 @@ def test_successful_iteration_saves_diff_artifact(git_repo: Path) -> None:
     completed = service.start(max_tasks=1, force=True)
 
     assert completed == 1
-    diff_path = git_repo / ".jri" / "logs" / "diffs" / "1-implement-file.diff"
+    diff_path = git_repo / ".jri" / "logs" / "diffs" / "implement-file.diff"
     assert diff_path.exists()
     diff_text = diff_path.read_text(encoding="utf-8")
     assert "implemented.txt" in diff_text
@@ -1512,7 +1504,7 @@ def test_diff_artifact_is_created_for_recovered_completion(
     first_client = SuccessfulFakeOpenCodeClient()
     first_service = JriService(git_repo, opencode_client=first_client)
 
-    def interrupted_save_diff(iteration: int, task_slug: str) -> None:
+    def interrupted_save_diff(task_slug: str) -> None:
         raise KeyboardInterrupt("simulated interruption during diff save")
 
     monkeypatch.setattr(first_service, "_save_diff_artifact", interrupted_save_diff)
@@ -1521,7 +1513,7 @@ def test_diff_artifact_is_created_for_recovered_completion(
         first_service.start(max_tasks=1, force=True)
 
     assert (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
-    diff_path = git_repo / ".jri" / "logs" / "diffs" / "1-task-a.diff"
+    diff_path = git_repo / ".jri" / "logs" / "diffs" / "task-a.diff"
     assert not diff_path.exists()
 
     retry_service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
@@ -1532,7 +1524,7 @@ def test_diff_artifact_is_created_for_recovered_completion(
     assert "implemented.txt" in diff_text
 
 
-def test_successful_iteration_records_timeline_events(git_repo: Path) -> None:
+def test_successful_task_records_timeline_events(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -1560,18 +1552,16 @@ def test_successful_iteration_records_timeline_events(git_repo: Path) -> None:
     events = store.read()
     event_types = [e.event for e in events]
     assert "attempt_started" in event_types
-    assert "iteration_completed" in event_types
+    assert "task_completed" in event_types
     started_events = [e for e in events if e.event == "attempt_started"]
     assert len(started_events) == 1
-    assert started_events[0].iteration == 1
     assert started_events[0].task == "implement-file"
-    completed_events = [e for e in events if e.event == "iteration_completed"]
+    completed_events = [e for e in events if e.event == "task_completed"]
     assert len(completed_events) == 1
-    assert completed_events[0].iteration == 1
     assert completed_events[0].task == "implement-file"
 
 
-def test_failed_iteration_records_timeline_events(git_repo: Path) -> None:
+def test_failed_task_records_timeline_events(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -1598,14 +1588,14 @@ def test_failed_iteration_records_timeline_events(git_repo: Path) -> None:
     events = store.read()
     event_types = [e.event for e in events]
     assert "attempt_started" in event_types
-    assert "iteration_failed" in event_types
+    assert "task_failed" in event_types
     assert "recovery_completed" in event_types
-    failed_events = [e for e in events if e.event == "iteration_failed"]
+    failed_events = [e for e in events if e.event == "task_failed"]
     assert len(failed_events) == 1
     assert failed_events[0].task == "failing-task"
 
 
-def test_needs_human_iteration_records_timeline_events(git_repo: Path) -> None:
+def test_needs_human_task_records_timeline_events(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -1632,7 +1622,7 @@ def test_needs_human_iteration_records_timeline_events(git_repo: Path) -> None:
     events = store.read()
     event_types = [e.event for e in events]
     assert "attempt_started" in event_types
-    assert "iteration_needs_human" in event_types
+    assert "task_needs_human" in event_types
     assert "recovery_completed" in event_types
 
 
@@ -1690,7 +1680,7 @@ def test_timeline_cli_shows_events(
     assert rc == 0
     output = capsys.readouterr().out
     assert "attempt_started" in output
-    assert "iteration_completed" in output
+    assert "task_completed" in output
     assert "implement-file" in output
 
 
@@ -1714,7 +1704,7 @@ def test_timeline_cli_outputs_jsonl(
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
     assert service.start(max_tasks=1, force=True) == 1
 
-    # Flush iteration header/footer output before CLI call
+    # Flush task header/footer output before CLI call
     capsys.readouterr()
 
     rc = run_cli(["timeline", "--json"], cwd=git_repo)
@@ -1728,8 +1718,8 @@ def test_timeline_cli_outputs_jsonl(
         assert "event" in parsed
 
 
-def test_iteration_limit_stops_loop_after_n_tasks(git_repo: Path) -> None:
-    """Loop stops after completing the configured number of iterations."""
+def test_task_limit_stops_loop_after_n_tasks(git_repo: Path) -> None:
+    """Loop stops after completing the configured number of tasks."""
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -1766,7 +1756,7 @@ def test_iteration_limit_stops_loop_after_n_tasks(git_repo: Path) -> None:
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
-    # Only run 2 iterations even though there are 3 tasks
+    # Only run 2 tasks even though there are 3 tasks
     completed = service.start(max_tasks=2, force=True)
 
     assert completed == 2
@@ -1777,8 +1767,8 @@ def test_iteration_limit_stops_loop_after_n_tasks(git_repo: Path) -> None:
     assert (git_repo / ".jri" / "tasks" / "todo" / "task-c.md").exists()
 
 
-def test_iteration_limit_records_timeline_event(git_repo: Path) -> None:
-    """Stopping due to iteration limit is recorded in timeline."""
+def test_task_limit_records_timeline_event(git_repo: Path) -> None:
+    """Stopping due to task limit is recorded in timeline."""
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -1815,7 +1805,7 @@ def test_iteration_limit_records_timeline_event(git_repo: Path) -> None:
     loop_stopped_events = [e for e in events if e.event == "loop_stopped"]
     assert len(loop_stopped_events) == 1
     assert loop_stopped_events[0].detail is not None
-    assert loop_stopped_events[0].detail.get("reason") == "iteration_limit"
+    assert loop_stopped_events[0].detail.get("reason") == "task_limit"
     assert loop_stopped_events[0].detail.get("limit") == 1
 
 
@@ -1908,11 +1898,11 @@ def test_task_timeout_records_timeline_event(git_repo: Path) -> None:
     store = TimelineStore(timeline_path)
     events = store.read()
 
-    # Should have iteration_failed event with timeout reason
+    # Should have task_failed event with timeout reason
     timeout_events = [
         e
         for e in events
-        if e.event == "iteration_failed"
+        if e.event == "task_failed"
         and e.detail is not None
         and e.detail.get("reason") == "task_timeout"
     ]
@@ -2007,7 +1997,7 @@ def test_failed_task_run_persists_logs(git_repo: Path) -> None:
     ralph_log = log_files[0]
     assert "fake failed run" in ralph_log.read_text(encoding="utf-8")
 
-    # Verify timeline has both attempt_started and iteration_failed events
+    # Verify timeline has both attempt_started and task_failed events
     timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
     assert timeline_path.exists()
     store = TimelineStore(timeline_path)
@@ -2018,7 +2008,7 @@ def test_failed_task_run_persists_logs(git_repo: Path) -> None:
     assert started_events[0].detail is not None
     assert "log_path" in started_events[0].detail
 
-    failed_events = [e for e in events if e.event == "iteration_failed"]
+    failed_events = [e for e in events if e.event == "task_failed"]
     assert len(failed_events) == 1
     assert failed_events[0].task == "failing-log-task"
 
@@ -2058,7 +2048,7 @@ def test_needs_human_task_run_persists_logs(git_repo: Path) -> None:
     ralph_log = log_files[0]
     assert "fake needs-human run" in ralph_log.read_text(encoding="utf-8")
 
-    # Verify timeline has attempt_started and iteration_needs_human events
+    # Verify timeline has attempt_started and task_needs_human events
     timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
     assert timeline_path.exists()
     store = TimelineStore(timeline_path)
@@ -2069,7 +2059,7 @@ def test_needs_human_task_run_persists_logs(git_repo: Path) -> None:
     assert started_events[0].detail is not None
     assert "log_path" in started_events[0].detail
 
-    needs_human_events = [e for e in events if e.event == "iteration_needs_human"]
+    needs_human_events = [e for e in events if e.event == "task_needs_human"]
     assert len(needs_human_events) == 1
     assert needs_human_events[0].task == "needs-human-log-task"
 
@@ -2173,7 +2163,7 @@ class StopAfterFirstTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         return result
 
 
-def test_stop_during_active_work_stops_after_iteration(git_repo: Path) -> None:
+def test_stop_during_active_work_stops_after_task(git_repo: Path) -> None:
     """Stop signal created during iteration stops loop after current iteration."""
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(

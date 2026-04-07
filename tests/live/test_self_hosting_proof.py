@@ -220,9 +220,9 @@ def _create_and_promote_tasks(repo: Path) -> None:
 
 
 def _assert_convergence(repo: Path, completed: int) -> None:
-    """Verify the loop converged: all tasks done, iterations tagged."""
-    # All three iterations completed
-    assert completed == 3, f"expected 3 completed iterations, got {completed}"
+    """Verify the loop converged: all tasks done, task tags created."""
+    # All three tasks completed
+    assert completed == 3, f"expected 3 completed tasks, got {completed}"
 
     # Every task landed in done/
     for slug, _title, _pri, _deps, _body, _criteria in _TASK_SPECS:
@@ -237,23 +237,24 @@ def _assert_convergence(repo: Path, completed: int) -> None:
     ]
     assert todo_files == [], f"unexpected todo tasks: {todo_files}"
 
-    # Iteration tags: jri/0 (initial) through jri/3
+    # Task tags: jri/begin/{slug} and jri/end/{slug} for each task
     tags = git(repo, "tag").splitlines()
-    for i in range(4):
-        assert f"jri/{i}" in tags, f"tag jri/{i} should exist"
+    assert "jri/init" in tags, "tag jri/init should exist"
+    for slug, _title, _pri, _deps, _body, _criteria in _TASK_SPECS:
+        assert f"jri/begin/{slug}" in tags, f"tag jri/begin/{slug} should exist"
+        assert f"jri/end/{slug}" in tags, f"tag jri/end/{slug} should exist"
 
-    # State records the final iteration number
+    # State has attempts recorded
     state = read_json(repo / ".jri" / "state.json")
-    iteration = cast(dict[str, object], state.get("iteration"))
-    assert isinstance(iteration.get("number"), int)
-    assert iteration["number"] == 3
+    attempts = cast(list[dict[str, object]], state.get("attempts", []))
+    assert len(attempts) == 3, f"expected 3 attempts, got {len(attempts)}"
 
-    # Artifacts from each iteration exist on disk
+    # Artifacts from each task exist on disk
     assert (repo / "src" / "greet.py").exists()
     assert (repo / "tests" / "test_greet.py").exists()
     assert (repo / "CHANGELOG.md").exists()
 
-    # Git history shows clean iteration completions
+    # Git history shows clean task completions
     log = git(repo, "log", "--oneline").splitlines()
     completion_commits = [line for line in log if "jri start: complete" in line]
     assert len(completion_commits) == 3

@@ -132,4 +132,3 @@ def test_chat_fresh_does_not_affect_other_state(initialized_repo: Path) -> None:
     # Verify only session is cleared, other state remains
     state = read_json(service.paths.state_path)
     assert state.get("session") is None
-    # iteration_number should still be 0 (default)
