@@ -22,8 +22,8 @@ def _s(text: str, *codes: str) -> str:
     return "".join(codes) + text + RESET
 
 
-def iteration_header(iteration: int, task_slug: str) -> str:
-    label = f" iteration {iteration}: {task_slug} "
+def task_header(task_slug: str) -> str:
+    label = f" task: {task_slug} "
     width = 60
     if len(label) >= width:
         inner = label
@@ -43,7 +43,7 @@ _OUTCOME_CFG: dict[str, tuple[str, str, str]] = {
 }
 
 
-def iteration_footer(outcome: str) -> str:
+def task_footer(outcome: str) -> str:
     text, color, _ = _OUTCOME_CFG[outcome]
     return _s(text, color, BOLD)
 
