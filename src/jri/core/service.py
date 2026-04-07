@@ -59,6 +59,7 @@ _UPGRADE_COMMIT_PATHS = (
     ".jri/.gitignore",
     ".gitignore",
     "opencode.json",
+    ".opencode/.gitignore",
 )
 _MANAGED_AGENT_FILENAMES = ("interrogator.md", "ralph.md")
 _MANAGED_AGENT_PATHS = tuple(
@@ -69,6 +70,10 @@ _MANAGED_TOOL_PATHS = tuple(
     f".opencode/tools/{name}" for name in _MANAGED_TOOL_FILENAMES
 )
 _MANAGED_CONFIG_FILENAMES = ("opencode.json",)
+_MANAGED_OPENCODE_GITIGNORE_PATHS = (
+    ".opencode/.gitignore",
+)
+_OPENCODE_DIR_IGNORE = ".opencode/"
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
 _MAX_TASK_TITLE_LENGTH = 50
 _MAX_FAILED_ATTEMPTS = 3
@@ -95,6 +100,24 @@ class JriService:
         self.opencode_client = opencode_client or OpenCodeClient()
         self.opencode_server = opencode_server
         self._halt_requested = False
+
+    def has_jri_files(self) -> list[str]:
+        existing: list[str] = []
+        if self.paths.jri_dir.exists():
+            existing.append(".jri/")
+        if (self.root / ".opencode").exists():
+            existing.append(".opencode/")
+        if self.paths.root_gitignore_path.exists():
+            gitignore_lines = set(
+                self.paths.root_gitignore_path.read_text(encoding="utf-8").splitlines()
+            )
+            for entry in (*_MANAGED_AGENT_PATHS, *_MANAGED_TOOL_PATHS):
+                if entry in gitignore_lines:
+                    existing.append(f".gitignore entry: {entry}")
+                    break
+        if (self.root / "opencode.json").exists():
+            existing.append("opencode.json")
+        return existing
 
     def init(self, *, force: bool, commit_message: str) -> None:
         self.git.ensure_repo()
@@ -289,6 +312,16 @@ class JriService:
         )
 
     def ensure_initialized(self) -> None:
+        existing_files = self.has_jri_files()
+        if existing_files:
+            if force:
+                if self.paths.jri_dir.exists():
+                    shutil.rmtree(self.paths.jri_dir)
+                if (self.root / ".opencode").exists():
+                    shutil.rmtree(self.root / ".opencode")
+            else:
+                raise JriError("project is already initialized; use --force to overwrite")
+
         self.git.ensure_repo()
         if not self.paths.jri_dir.exists():
             raise JriError("project is not initialized; run `jri init`")
