@@ -3,7 +3,12 @@ title: Investigate "Session not found" error after task completion
 priority: 2
 assignee: Ralph
 depends_on: []
-acceptance_criteria: []
+acceptance_criteria:
+  - "Root cause of 'Session not found' error is identified and documented in the task file"
+  - "If reproducible: fix is implemented and tested"
+  - "If not reproducible: investigation findings are documented and monitoring/logging is improved"
+  - "All existing tests pass"
+  - "`make check` passes"
 ---
 
 Investigate and fix a bug where `jri start` completes a task successfully but then reports "Error: Session not found".
@@ -45,10 +50,3 @@ Investigate and fix a bug where `jri start` completes a task successfully but th
 - `src/jri/core/state.py` (session ID storage)
 - `src/jri/core/opencode.py` (OpenCode client session handling)
 - `.jri/state.json` (check for corruption patterns)
-
-## Acceptance criteria
-
-- [ ] Root cause identified
-- [ ] Fix implemented (if reproducible)
-- [ ] Test added to prevent regression
-- [ ] `make check` passes

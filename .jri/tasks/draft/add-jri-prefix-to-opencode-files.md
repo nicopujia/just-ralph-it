@@ -3,7 +3,13 @@ title: Add jri- prefix to .opencode/ files
 priority: 2
 assignee: Ralph
 depends_on: []
-acceptance_criteria: []
+acceptance_criteria:
+  - "`jri init` creates `.opencode/agents/jri-interrogator.md`, `.opencode/agents/jri-ralph.md`, and `.opencode/tools/jri-result.js` (old names no longer used)"
+  - "`jri upgrade` on an existing project renames old files to new prefixed names and commits the change"
+  - "`.gitignore` references the new prefixed filenames instead of old ones"
+  - "Running `jri chat` after `jri init` or `jri upgrade` works correctly with the new agent/tool filenames"
+  - "All existing tests pass"
+  - "`make check` passes"
 ---
 
 Rename JRI-managed files inside `.opencode/` to have a `jri-` prefix, making it clear they're managed by JRI and not user-editable.

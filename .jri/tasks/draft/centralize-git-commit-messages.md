@@ -3,7 +3,13 @@ title: Centralize all git commit messages in git.py
 priority: 2
 assignee: Ralph
 depends_on: []
-acceptance_criteria: []
+acceptance_criteria:
+  - "All git commit calls in the codebase use constants from `src/jri/core/git.py` (no inline strings)"
+  - "Any previously-uncentralized commit messages now have corresponding constants in `git.py`"
+  - "Grep for `git.commit(` or `.commit(` shows only calls that use constants from `git.py`"
+  - "All existing tests pass"
+  - "`make check` passes"
+  - "Git history shows no change in commit message content (refactoring only)"
 ---
 
 Investigate all places where `jri` makes git commits and ensure all commit messages flow through constants defined in `src/jri/core/git.py`.

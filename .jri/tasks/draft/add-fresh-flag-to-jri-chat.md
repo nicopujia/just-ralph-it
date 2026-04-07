@@ -3,7 +3,13 @@ title: Add --fresh flag to jri chat
 priority: 2
 assignee: Ralph
 depends_on: []
-acceptance_criteria: []
+acceptance_criteria:
+  - "`jri chat --help` documents the `--fresh` flag"
+  - "`jri chat --fresh` clears the session ID from `.jri/state.json` before launching OpenCode"
+  - "`jri chat` without `--fresh` reuses the saved session ID (existing behavior unchanged)"
+  - "After `jri chat --fresh`, a new session ID is saved to `.jri/state.json`"
+  - "All existing tests pass"
+  - "`make check` passes"
 ---
 
 Add a `--fresh` flag to `jri chat` that starts a new OpenCode session instead of reusing the saved one.
