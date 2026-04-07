@@ -1,5 +1,5 @@
 ---
-title: Investigate "Session not found" error after task completion
+title: Investigate session not found error
 priority: 2
 assignee: Ralph
 depends_on: []
