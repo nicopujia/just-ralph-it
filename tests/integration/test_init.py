@@ -23,7 +23,14 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
     for name in service_module._MANAGED_CONFIG_FILENAMES:
         assert (git_repo / name).exists()
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_INIT
+    # Root .gitignore should have .opencode/ entry
     assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
+        ".opencode/",
+    ]
+    # .opencode/.gitignore should have managed file entries
+    assert (git_repo / ".opencode" / ".gitignore").read_text(
+        encoding="utf-8"
+    ).splitlines() == [
         *service_module._MANAGED_AGENT_PATHS,
         *service_module._MANAGED_TOOL_PATHS,
     ]
@@ -67,15 +74,23 @@ def test_init_commits_only_scaffold_when_unrelated_changes_exist(
     assert "notes.txt" in git(git_repo, "diff", "--cached", "--name-only").splitlines()
 
 
-def test_init_appends_agent_ignore_rule_to_existing_gitignore(git_repo: Path) -> None:
+def test_init_appends_opencode_to_existing_gitignore(git_repo: Path) -> None:
+    """Root .gitignore should have .opencode/ appended if missing."""
     (git_repo / ".gitignore").write_text("dist/\n", encoding="utf-8")
 
     exit_code = run_cli(["init"], cwd=git_repo)
 
     assert exit_code == 0
+    # Root .gitignore should have .opencode/ appended
     assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
         "dist/",
         "",
+        ".opencode/",
+    ]
+    # .opencode/.gitignore should have managed file entries
+    assert (git_repo / ".opencode" / ".gitignore").read_text(
+        encoding="utf-8"
+    ).splitlines() == [
         *service_module._MANAGED_AGENT_PATHS,
         *service_module._MANAGED_TOOL_PATHS,
     ]

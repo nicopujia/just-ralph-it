@@ -52,7 +52,14 @@ def test_upgrade_untracks_agent_files_from_older_repos(
         assert path.read_text(encoding="utf-8") == fake_load_prompt(name)
     assert (git_repo / ".jri" / "tasks" / "todo" / "keep-me.md").exists()
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
+    # Root .gitignore should have .opencode/ entry
     assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
+        ".opencode/",
+    ]
+    # .opencode/.gitignore should have managed file entries
+    assert (git_repo / ".opencode" / ".gitignore").read_text(
+        encoding="utf-8"
+    ).splitlines() == [
         *service_module._MANAGED_AGENT_PATHS,
         *service_module._MANAGED_TOOL_PATHS,
     ]
@@ -69,6 +76,7 @@ def test_upgrade_untracks_agent_files_from_older_repos(
     )
     expected_changed = {
         ".gitignore",
+        ".opencode/.gitignore",
         *service_module._MANAGED_AGENT_PATHS,
         *service_module._MANAGED_CONFIG_FILENAMES,
     }
@@ -129,7 +137,14 @@ def test_upgrade_recreates_gitignore_without_tracked_agent_files(
 
     assert exit_code == 0
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
+    # Root .gitignore should have .opencode/ entry
     assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
+        ".opencode/",
+    ]
+    # .opencode/.gitignore should have managed file entries
+    assert (git_repo / ".opencode" / ".gitignore").read_text(
+        encoding="utf-8"
+    ).splitlines() == [
         *service_module._MANAGED_AGENT_PATHS,
         *service_module._MANAGED_TOOL_PATHS,
     ]
@@ -143,4 +158,8 @@ def test_upgrade_recreates_gitignore_without_tracked_agent_files(
             "HEAD",
         ).splitlines()
     )
-    assert changed_files == {".gitignore", *service_module._MANAGED_CONFIG_FILENAMES}
+    assert changed_files == {
+        ".gitignore",
+        ".opencode/.gitignore",
+        *service_module._MANAGED_CONFIG_FILENAMES,
+    }

@@ -145,16 +145,38 @@ class JriService:
         created_files = self._create_scaffold()
         commit_paths = list(_INIT_COMMIT_PATHS)
         commit_paths.extend(str(path.relative_to(self.root)) for path in created_files)
-        self.git.commit_paths_if_needed(commit_message, commit_paths)
+        # Handle .opencode/.gitignore separately since .opencode/ is ignored
+        opencode_gitignore = str(
+            (self.root / ".opencode" / ".gitignore").relative_to(self.root)
+        )
+        # Stage all paths first, then commit
+        self.git.run("add", "-A", "--", *commit_paths)
+        self.git.run("add", "-f", "--", opencode_gitignore)
+        self.git.run(
+            "commit", "-m", commit_message, "--", *commit_paths, opencode_gitignore
+        )
 
     def upgrade(self, *, commit_message: str) -> None:
         self.ensure_initialized()
         self._write_managed_files()
-        self.git.commit_upgrade_if_needed(
-            commit_message,
-            managed_paths=list(_UPGRADE_COMMIT_PATHS),
-            untracked_paths=list(_MANAGED_AGENT_PATHS),
+        # Handle .opencode/.gitignore separately since .opencode/ is ignored
+        opencode_gitignore = str(
+            (self.root / ".opencode" / ".gitignore").relative_to(self.root)
         )
+        self.git.run("add", "-f", "--", opencode_gitignore)
+        # Check if there's anything to commit (just the managed paths, not agent files)
+        commit_paths = list(_UPGRADE_COMMIT_PATHS) + [opencode_gitignore]
+        if not self.git.status_short(*commit_paths):
+            return
+        # Stage regular paths
+        self.git.run("add", "-A", "--", *_UPGRADE_COMMIT_PATHS)
+        result = self.git.run(
+            "commit", "-m", commit_message, "--", *commit_paths, check=False
+        )
+        if result.returncode != 0:
+            raise JriError(
+                result.stderr.strip() or f"failed to commit: {commit_message}"
+            )
 
     def chat(self, extra_args: list[str], *, fresh: bool = False) -> int:
         self.ensure_initialized()
@@ -465,8 +487,20 @@ class JriService:
             self._GITIGNORE_CONTENT,
             encoding="utf-8",
         )
+        # Ensure root .gitignore exists with .opencode/ ignore
+        # Note: we don't commit .opencode/.gitignore separately - it's inside .opencode/
+        # which is ignored, so we use force-add when committing
         _ensure_ignore_entries(
             self.paths.root_gitignore_path,
+            (".opencode/",),
+        )
+        # Ensure .opencode directory exists before writing its .gitignore
+        opencode_dir = self.root / ".opencode"
+        opencode_dir.mkdir(parents=True, exist_ok=True)
+        # Write managed file entries to .opencode/.gitignore
+        opencode_gitignore = opencode_dir / ".gitignore"
+        _ensure_ignore_entries(
+            opencode_gitignore,
             (*_MANAGED_AGENT_PATHS, *_MANAGED_TOOL_PATHS),
         )
         self.paths.opencode_agents_dir.mkdir(parents=True, exist_ok=True)
