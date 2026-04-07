@@ -1,6 +1,1 @@
-- Be an orchestrator — use subagents for everything
-- Parallelize your subagents whenever it's possible
-- Use a single subagent for final verification
-- Use many subagents for reads/searches (up to 50), few for writes/implementation (up to 10)
-- Never write tests for docs or prompts
-- Check @docs/contrib.md
+Check @docs/contrib.md. Note: never write tests for docs or prompts.
