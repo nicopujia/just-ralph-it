@@ -15,17 +15,20 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
     working_directory = cwd or Path.cwd()
     service = JriService(working_directory)
 
+    if args.command != "chat" and unknown:
+        parser.error(f"unrecognized arguments: {' '.join(unknown)}")
+
     try:
         match args.command:
             case "init":
                 directory = (working_directory / args.directory).resolve()
                 init_service = JriService(directory)
-                init_service.init(force=args.force, commit_message=MSG_INIT)
-                return 0
-            case "upgrade":
-                directory = (working_directory / args.directory).resolve()
-                upgrade_service = JriService(directory)
-                upgrade_service.upgrade(commit_message=MSG_UPGRADE)
+                init_service.init(
+                    delete=args.delete,
+                    upgrade=args.upgrade,
+                    commit_message=MSG_INIT,
+                    upgrade_commit_message=MSG_UPGRADE,
+                )
                 return 0
             case "chat":
                 return service.chat(unknown, fresh=args.fresh)
@@ -194,26 +197,19 @@ def _build_parser() -> argparse.ArgumentParser:
         default=".",
         help="Target project directory. Defaults to the current directory.",
     )
-    init_parser.add_argument(
+    init_modes = init_parser.add_mutually_exclusive_group()
+    init_modes.add_argument(
         "-f",
         "--force",
+        "--delete",
         action="store_true",
+        dest="delete",
         help="Skip prompts and overwrite existing .jri/ and .opencode/ directories.",
     )
-
-    upgrade_parser = subparsers.add_parser(
-        "upgrade",
-        help="Refresh JRI-managed generated files for this project.",
-        description=(
-            "Update bundled agent prompts and other JRI-managed generated "
-            "files without touching project tasks."
-        ),
-    )
-    upgrade_parser.add_argument(
-        "directory",
-        nargs="?",
-        default=".",
-        help="Target project directory. Defaults to the current directory.",
+    init_modes.add_argument(
+        "--upgrade",
+        action="store_true",
+        help="Refresh only JRI-managed files without deleting project tasks.",
     )
 
     chat_parser = subparsers.add_parser(

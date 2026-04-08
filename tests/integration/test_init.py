@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 import jri.core.git as git_module
 import jri.core.service as service_module
 from tests.conftest import run_cli
@@ -134,12 +136,12 @@ def test_init_prompts_on_existing_dirs_and_aborts_when_no_input(git_repo: Path) 
     assert exit_code == 1
 
 
-def test_init_force_recreates_structure(git_repo: Path) -> None:
+def test_init_delete_recreates_structure(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     extra = git_repo / ".jri" / "tasks" / "todo" / "extra.md"
     extra.write_text("temporary", encoding="utf-8")
 
-    exit_code = run_cli(["init", "--force"], cwd=git_repo)
+    exit_code = run_cli(["init", "--delete"], cwd=git_repo)
 
     assert exit_code == 0
     assert not extra.exists()
@@ -160,3 +162,60 @@ def test_init_force_removes_opencode_dir(git_repo: Path) -> None:
     assert not custom_file.exists()
     # Managed files should be recreated
     assert (git_repo / ".opencode" / "agents" / "interrogator.md").exists()
+
+
+def test_init_upgrade_refreshes_managed_files_without_deleting_tasks(
+    git_repo: Path,
+    monkeypatch,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    extra = git_repo / ".jri" / "tasks" / "todo" / "extra.md"
+    extra.write_text("temporary task", encoding="utf-8")
+
+    def fake_load_prompt(name: str) -> str:
+        base = name.removesuffix(".md") if name.endswith(".md") else name
+        return f"upgraded {base}\n"
+
+    monkeypatch.setattr(service_module, "_load_prompt", fake_load_prompt)
+
+    exit_code = run_cli(["init", "--upgrade"], cwd=git_repo)
+
+    assert exit_code == 0
+    assert extra.exists()
+    assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
+
+
+def test_init_prompt_upgrade_refreshes_managed_files(
+    git_repo: Path,
+    monkeypatch,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    extra = git_repo / ".jri" / "tasks" / "todo" / "prompt-upgrade.md"
+    extra.write_text("keep me", encoding="utf-8")
+
+    def fake_load_prompt(name: str) -> str:
+        base = name.removesuffix(".md") if name.endswith(".md") else name
+        return f"prompt-upgraded {base}\n"
+
+    monkeypatch.setattr(service_module, "_load_prompt", fake_load_prompt)
+    monkeypatch.setattr("builtins.input", lambda: "u")
+
+    exit_code = run_cli(["init"], cwd=git_repo)
+
+    assert exit_code == 0
+    assert extra.exists()
+    assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
+
+
+@pytest.mark.parametrize(
+    "args",
+    [["upgrade"], ["init", "--bogus"]],
+)
+def test_init_rejects_removed_upgrade_command_and_unknown_flags(
+    git_repo: Path,
+    args: list[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        run_cli(args, cwd=git_repo)
+
+    assert exc_info.value.code == 2

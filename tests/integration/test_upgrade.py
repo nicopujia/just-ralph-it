@@ -6,7 +6,7 @@ from tests.conftest import run_cli
 from tests.helpers import git, write_task
 
 
-def test_upgrade_untracks_agent_files_from_older_repos(
+def test_init_upgrade_untracks_agent_files_from_older_repos(
     git_repo: Path,
     monkeypatch,
 ) -> None:
@@ -47,7 +47,7 @@ def test_upgrade_untracks_agent_files_from_older_repos(
     (git_repo / "notes.txt").write_text("keep staged\n", encoding="utf-8")
     git(git_repo, "add", "notes.txt")
 
-    exit_code = run_cli(["upgrade"], cwd=git_repo)
+    exit_code = run_cli(["init", "--upgrade"], cwd=git_repo)
 
     assert exit_code == 0
     for name, path in prompt_paths.items():
@@ -94,7 +94,7 @@ def test_upgrade_untracks_agent_files_from_older_repos(
     assert "notes.txt" in git(git_repo, "diff", "--cached", "--name-only").splitlines()
 
 
-def test_upgrade_commits_when_config_files_change(
+def test_init_upgrade_commits_when_config_files_change(
     git_repo: Path,
     monkeypatch,
 ) -> None:
@@ -106,7 +106,7 @@ def test_upgrade_commits_when_config_files_change(
 
     monkeypatch.setattr(service_module, "_load_prompt", fake_load_prompt)
 
-    exit_code = run_cli(["upgrade"], cwd=git_repo)
+    exit_code = run_cli(["init", "--upgrade"], cwd=git_repo)
 
     assert exit_code == 0
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
@@ -123,7 +123,7 @@ def test_upgrade_commits_when_config_files_change(
     assert changed_files == set(service_module._MANAGED_CONFIG_FILENAMES)
 
 
-def test_upgrade_recreates_gitignore_without_tracked_agent_files(
+def test_init_upgrade_recreates_gitignore_without_tracked_agent_files(
     git_repo: Path,
     monkeypatch,
 ) -> None:
@@ -138,7 +138,7 @@ def test_upgrade_recreates_gitignore_without_tracked_agent_files(
 
     monkeypatch.setattr(service_module, "_load_prompt", fake_load_prompt)
 
-    exit_code = run_cli(["upgrade"], cwd=git_repo)
+    exit_code = run_cli(["init", "--upgrade"], cwd=git_repo)
 
     assert exit_code == 0
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
