@@ -1066,7 +1066,7 @@ class MakeCheckFailsFakeOpenCodeClient(OpenCodeClient):
 
 
 class FailedFakeOpenCodeClient(OpenCodeClient):
-    """Simulates Ralph explicitly returning a failed result."""
+    """Simulates a JRI-level failed run after Ralph does not produce a valid result."""
 
     def __init__(self) -> None:
         super().__init__(model=None)
@@ -2706,7 +2706,7 @@ def test_export_failure_during_failed_recovery_is_visible(git_repo: Path) -> Non
 
     from jri.core.timeline import TimelineStore
 
-    # Create a client that reports failed result AND fails on export
+    # Create a client that fails at the JRI level and also fails on export
     class FailingWithExportFail(OpenCodeClient):
         def __init__(self) -> None:
             super().__init__(model=None)
@@ -2723,7 +2723,7 @@ def test_export_failure_during_failed_recovery_is_visible(git_repo: Path) -> Non
         ) -> OpenCodeRunResult:
             self.call_count += 1
             log_path.write_text(f"failed run #{self.call_count}\n", encoding="utf-8")
-            # returncode=0 means process succeeded, result="failed" means Ralph failed
+            # Process exited cleanly, but JRI marked the run failed.
             return OpenCodeRunResult(
                 returncode=0,
                 session_id=f"ses_fail_{self.call_count}",

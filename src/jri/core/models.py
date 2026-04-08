@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Literal, Self, cast
 
 Assignee = Literal["Ralph", "Human"]
+RalphResult = Literal["completed", "incomplete", "needs_human"]
 Result = Literal["completed", "incomplete", "needs_human", "failed", "timeout"]
 AttemptResult = Literal[
     "completed",
@@ -48,7 +49,7 @@ class HumanTaskPayload:
 
 @dataclass(frozen=True)
 class RalphResultPayload:
-    result: Result
+    result: RalphResult
     summary: str | None = None
     learnings: list[str] = field(default_factory=list)
     blocker: str | None = None
@@ -71,7 +72,7 @@ class RalphResultPayload:
         human_task_raw = payload.get("human_task")
         learnings = payload.get("learnings")
         return cls(
-            result=cast(Result, payload.get("result")),
+            result=cast(RalphResult, payload.get("result")),
             summary=_str_or_none(payload.get("summary")),
             learnings=(
                 [item for item in learnings if isinstance(item, str)]

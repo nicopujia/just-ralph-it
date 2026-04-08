@@ -8,12 +8,13 @@ Generates/refines tasks. Asks many questions, creates `draft` tasks, promotes to
 
 ### [Ralph](../src/jri/core/agents/ralph.md)
 
-Solves exactly one task. Acts as orchestrator, spawning subagents instead of doing the work itself. Four results:
+Solves exactly one task. Acts as orchestrator, spawning subagents instead of doing the work itself. Ralph can report three outcomes:
 
 - `completed`: task finished and validated
 - `incomplete`: task is retryable later
-- `failed`: task run failed and is retryable later
 - `needs_human`: blocked, generates a Human task from Ralph's structured payload
+
+Missing or invalid `ralph-result` payloads are treated as JRI-level `failed` runs.
 
 ## Flow
 

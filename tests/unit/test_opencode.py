@@ -80,7 +80,7 @@ class _DelayedIdleResultSSEStream(_FakeSSEStream):
             if index == self._split_index:
                 time.sleep(self._delay)
                 self._result_path.write_text(
-                    _result_payload("failed"), encoding="utf-8"
+                    _result_payload("incomplete"), encoding="utf-8"
                 )
             yield chunk
 
@@ -343,10 +343,10 @@ def test_detect_result_completed() -> None:
     assert _detect_result("<!-- JRI:COMPLETED -->", None) == "completed"
 
 
-def test_detect_result_failed() -> None:
+def test_detect_result_incomplete() -> None:
     from jri.core.opencode import _detect_result
 
-    assert _detect_result("<!-- JRI:FAILED -->", None) == "failed"
+    assert _detect_result("<!-- JRI:INCOMPLETE -->", None) == "incomplete"
 
 
 def test_detect_result_needs_human() -> None:
@@ -375,10 +375,10 @@ def test_detect_result_uses_last_marker_in_text() -> None:
 
     assert (
         _detect_result(
-            "<!-- JRI:COMPLETED --> then <!-- JRI:FAILED -->",
+            "<!-- JRI:COMPLETED --> then <!-- JRI:INCOMPLETE -->",
             None,
         )
-        == "failed"
+        == "incomplete"
     )
 
 
@@ -441,6 +441,21 @@ def test_parse_result_payload_rejects_malformed_needs_human_human_task(
         "`human_task.title` must be a non-empty string"
     ]
     assert "`human_task.title` must be a non-empty string" in capsys.readouterr().err
+
+
+def test_parse_result_payload_rejects_failed_result(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from jri.core.opencode import _parse_result_payload
+
+    payload, warnings = _parse_result_payload(_result_payload("failed"))
+
+    assert payload is None
+    assert warnings == [
+        "invalid JRI result payload; treating run as failed: "
+        "missing or unknown `result`"
+    ]
+    assert "missing or unknown `result`" in capsys.readouterr().err
 
 
 def test_parse_event_line_returns_is_tool_false_for_text_event() -> None:
@@ -915,7 +930,7 @@ def test_run_ralph_task_waits_for_idle_after_terminal_result_tool(
         timeout=1,
     )
 
-    assert result.result == "failed"
+    assert result.result == "incomplete"
     assert result.returncode == 0
     assert result.warnings == []
 
@@ -1029,7 +1044,7 @@ def test_run_ralph_task_prefers_outcome_file_over_result_tool_outcome(
         return _ResultWritingSSEStream(
             events,
             result_path=outcome_path,
-            result_text=_result_payload("failed"),
+            result_text=_result_payload("incomplete"),
             write_index=2,
         )
 
@@ -1043,7 +1058,7 @@ def test_run_ralph_task_prefers_outcome_file_over_result_tool_outcome(
         result_path=outcome_path,
     )
 
-    assert result.result == "failed"
+    assert result.result == "incomplete"
     assert result.warnings == []
 
 
