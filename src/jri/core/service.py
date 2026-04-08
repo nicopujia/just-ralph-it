@@ -822,8 +822,8 @@ class JriService:
             log_path=log_path,
             detached=False,
         )
+        result_path = self.paths.jri_dir / "signals" / "result"
         if self.opencode_server is not None and not self._client_injected:
-            result_path = self.paths.jri_dir / "signals" / "result"
             result = self.opencode_server.run_ralph_task(
                 root=wt_paths.root,
                 prompt=prompt_text,
@@ -837,6 +837,7 @@ class JriService:
                 root=wt_paths.root,
                 prompt=prompt_text,
                 log_path=log_path,
+                result_path=result_path,
                 on_start=on_start_cb,
                 timeout=task_timeout,
             )
@@ -871,7 +872,7 @@ class JriService:
             sys.stdout.flush()
             return "timeout"
 
-        # Record any warnings from the OpenCode run (e.g., missing result marker)
+        # Record any warnings from the OpenCode run (e.g., missing result payload)
         for warning in result.warnings:
             self.timeline.record(
                 TimelineEvent(

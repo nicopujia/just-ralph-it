@@ -59,6 +59,7 @@ class _SelfHostingFakeClient(OpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: Callable[[int], None] | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
