@@ -30,6 +30,10 @@ def test_upgrade_untracks_agent_files_from_older_repos(
         name: git_repo / ".opencode" / "agents" / name
         for name in service_module._MANAGED_AGENT_FILENAMES
     }
+    tool_paths = {
+        name: git_repo / ".opencode" / "tools" / name
+        for name in service_module._MANAGED_TOOL_FILENAMES
+    }
     config_paths = {
         name: git_repo / name for name in service_module._MANAGED_CONFIG_FILENAMES
     }
@@ -47,6 +51,8 @@ def test_upgrade_untracks_agent_files_from_older_repos(
 
     assert exit_code == 0
     for name, path in prompt_paths.items():
+        assert path.read_text(encoding="utf-8") == fake_load_prompt(name)
+    for name, path in tool_paths.items():
         assert path.read_text(encoding="utf-8") == fake_load_prompt(name)
     for name, path in config_paths.items():
         assert path.read_text(encoding="utf-8") == fake_load_prompt(name)

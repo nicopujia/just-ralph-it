@@ -1,3 +1,6 @@
+import json
+import shutil
+import subprocess
 from importlib.resources import files
 from pathlib import Path
 from typing import Literal
@@ -17,6 +20,69 @@ from jri.core.tasks import (
 )
 from tests.conftest import run_cli
 from tests.helpers import git, write_task
+
+
+def run_create_task_tool(cwd: Path, tmp_path: Path, payload: dict[str, object]) -> str:
+    node = shutil.which("node")
+    assert node is not None, "node is required to run create-task tool tests"
+
+    harness = tmp_path / "create_task_harness"
+    harness.mkdir(parents=True, exist_ok=True)
+    (harness / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
+    (harness / "plugin.mjs").write_text(
+        "function schemaBuilder() {\n"
+        "  const schema = {};\n"
+        "  schema.describe = () => schema;\n"
+        "  schema.optional = () => schema;\n"
+        "  schema.int = () => schema;\n"
+        "  schema.min = () => schema;\n"
+        "  schema.max = () => schema;\n"
+        "  schema.array = () => schemaBuilder();\n"
+        "  return schema;\n"
+        "}\n"
+        "export function tool(definition) { return definition; }\n"
+        "tool.schema = {\n"
+        "  string: () => schemaBuilder(),\n"
+        "  enum: () => schemaBuilder(),\n"
+        "  number: () => schemaBuilder(),\n"
+        "  array: () => schemaBuilder(),\n"
+        "};\n",
+        encoding="utf-8",
+    )
+
+    module_path = harness / "create-task.mjs"
+    source = (
+        files("jri.core.agents").joinpath("create-task.js").read_text(encoding="utf-8")
+    )
+    module_path.write_text(
+        source.replace(
+            'import { tool } from "@opencode-ai/plugin";',
+            'import { tool } from "./plugin.mjs";',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    script = (
+        "const [, modulePath, payloadText] = process.argv;\n"
+        "const mod = await import(modulePath);\n"
+        "const result = await mod.default.execute(JSON.parse(payloadText));\n"
+        "process.stdout.write(result);\n"
+    )
+    result = subprocess.run(
+        [
+            node,
+            "--input-type=module",
+            "--eval",
+            script,
+            module_path.as_uri(),
+            json.dumps(payload),
+        ],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return result.stdout
 
 
 def make_task(
@@ -136,6 +202,162 @@ def test_packaged_schemas_are_available() -> None:
     assert files("jri.core.schemas").joinpath("state.json").is_file()
     assert files("jri.core.agents").joinpath("interrogator.md").is_file()
     assert files("jri.core.agents").joinpath("ralph.md").is_file()
+    assert files("jri.core.agents").joinpath("create-task.js").is_file()
+    assert files("jri.core.agents").joinpath("ralph-result.js").is_file()
+
+
+def test_create_task_tool_writes_parseable_draft_and_overwrites(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".jri" / "tasks").mkdir(parents=True)
+
+    created = run_create_task_tool(
+        repo,
+        tmp_path,
+        {
+            "title": "Clarify scope",
+            "body": "Draft the scope.\n",
+            "assignee": "Ralph",
+            "priority": 1,
+            "depends_on": ["setup"],
+        },
+    )
+
+    assert created == "created draft task: .jri/tasks/draft/clarify-scope.md"
+    task_path = repo / ".jri" / "tasks" / "draft" / "clarify-scope.md"
+    assert task_path.read_text(encoding="utf-8").startswith("---\n{\n")
+
+    created_task = parse_task_file(task_path)
+    assert created_task.slug == "clarify-scope"
+    assert created_task.metadata.title == "Clarify scope"
+    assert created_task.metadata.depends_on == ["setup"]
+    assert created_task.metadata.acceptance_criteria == []
+    assert created_task.body == "Draft the scope.\n"
+
+    updated = run_create_task_tool(
+        repo,
+        tmp_path,
+        {
+            "title": "Clarify scope",
+            "slug": "clarify-scope",
+            "body": "Refined draft.\n",
+            "assignee": "Human",
+            "priority": 0,
+            "depends_on": [],
+            "acceptance_criteria": ["Scope is approved"],
+        },
+    )
+
+    assert updated == "updated draft task: .jri/tasks/draft/clarify-scope.md"
+    updated_task = parse_task_file(task_path)
+    assert updated_task.metadata.assignee == "Human"
+    assert updated_task.metadata.priority == 0
+    assert updated_task.metadata.acceptance_criteria == ["Scope is approved"]
+    assert updated_task.body == "Refined draft.\n"
+
+
+def test_create_task_tool_rejects_invalid_slug(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    with pytest.raises(
+        subprocess.CalledProcessError,
+        match="returned non-zero exit status",
+    ):
+        run_create_task_tool(
+            repo,
+            tmp_path,
+            {
+                "title": "Clarify scope",
+                "slug": "../escape",
+                "body": "Draft the scope.\n",
+                "assignee": "Ralph",
+                "priority": 1,
+            },
+        )
+
+
+def test_create_task_tool_rejects_symlinked_draft_dir(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (repo / ".jri" / "tasks").mkdir(parents=True)
+    (repo / ".jri" / "tasks" / "draft").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(
+        subprocess.CalledProcessError,
+        match="returned non-zero exit status",
+    ):
+        run_create_task_tool(
+            repo,
+            tmp_path,
+            {
+                "title": "Clarify scope",
+                "body": "Draft the scope.\n",
+                "assignee": "Ralph",
+                "priority": 1,
+            },
+        )
+
+    assert list(outside.iterdir()) == []
+
+
+@pytest.mark.parametrize("symlink_path", [".jri", ".jri/tasks"])
+def test_create_task_tool_rejects_symlinked_parent_dir(
+    tmp_path: Path, symlink_path: str
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    target = repo / symlink_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(
+        subprocess.CalledProcessError,
+        match="returned non-zero exit status",
+    ):
+        run_create_task_tool(
+            repo,
+            tmp_path,
+            {
+                "title": "Clarify scope",
+                "body": "Draft the scope.\n",
+                "assignee": "Ralph",
+                "priority": 1,
+            },
+        )
+
+    assert list(outside.iterdir()) == []
+
+
+def test_create_task_tool_rejects_symlinked_draft_file(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside\n", encoding="utf-8")
+    draft_dir = repo / ".jri" / "tasks" / "draft"
+    draft_dir.mkdir(parents=True)
+    (draft_dir / "clarify-scope.md").symlink_to(outside)
+
+    with pytest.raises(
+        subprocess.CalledProcessError,
+        match="returned non-zero exit status",
+    ):
+        run_create_task_tool(
+            repo,
+            tmp_path,
+            {
+                "title": "Clarify scope",
+                "slug": "clarify-scope",
+                "body": "Draft the scope.\n",
+                "assignee": "Ralph",
+                "priority": 1,
+            },
+        )
+
+    assert outside.read_text(encoding="utf-8") == "outside\n"
 
 
 def test_parse_task_file_reads_frontmatter_and_body(tmp_path: Path) -> None:

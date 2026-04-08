@@ -4,7 +4,7 @@
 
 ### [Interrogator](../src/jri/core/agents/interrogator.md)
 
-Generates/refines tasks. Asks many questions, creates `draft` tasks, promotes to `todo` once ready. One per project.
+Generates/refines tasks. Asks many questions, creates `draft` tasks via `create-task`, promotes to `todo` once ready. One per project.
 
 ### [Ralph](../src/jri/core/agents/ralph.md)
 
@@ -80,6 +80,7 @@ Corrections go in new draft tasks.
 │   │   ├── interrogator.md
 │   │   └── ralph.md
 │   └── tools/
+│       ├── create-task.js
 │       └── ralph-result.js
 ├── opencode.json
 ├── .gitignore
