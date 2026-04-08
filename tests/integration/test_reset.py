@@ -1,6 +1,7 @@
 import subprocess
 import subprocess as subprocess_module
 import sys
+import time
 from pathlib import Path
 from typing import cast
 
@@ -167,7 +168,9 @@ def test_reset_prefers_latest_end_tag_over_jri_init_fallback(
 
     service = JriService(git_repo, opencode_client=DistinctFileFakeOpenCodeClient())
 
-    assert service.start(max_tasks=2, force=True) == 2
+    assert service.start(max_tasks=1, force=True) == 1
+    time.sleep(1)
+    assert service.start(max_tasks=1, force=True) == 1
 
     (git_repo / "extra.txt").write_text("extra\n", encoding="utf-8")
     git(git_repo, "add", "extra.txt")
