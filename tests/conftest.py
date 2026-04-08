@@ -7,12 +7,14 @@ from tests.helpers import git
 
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
+        "-L",
         "--run-live-opencode",
         action="store_true",
         default=False,
         help="run live tests that call the real OpenCode CLI",
     )
     parser.addoption(
+        "-M",
         "--opencode-model",
         default="opencode/qwen3.6-plus-free",
         help="model to use for live OpenCode tests",
