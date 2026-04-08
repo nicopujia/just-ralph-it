@@ -11,6 +11,7 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
 
     assert exit_code == 0
     assert (git_repo / "README.md").read_text(encoding="utf-8") == "# temp repo\n"
+    assert (git_repo / ".jri" / "learnings.md").read_text(encoding="utf-8") == ""
     assert (git_repo / ".jri" / "tasks" / "draft" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "tasks" / "todo" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "tasks" / "doing" / ".gitkeep").exists()
@@ -107,6 +108,7 @@ def test_init_creates_empty_readme_when_missing(git_repo: Path) -> None:
 
     assert exit_code == 0
     assert (git_repo / "README.md").read_text(encoding="utf-8") == ""
+    assert (git_repo / ".jri" / "learnings.md").read_text(encoding="utf-8") == ""
     changed_files = set(
         git(
             git_repo,
@@ -118,6 +120,7 @@ def test_init_creates_empty_readme_when_missing(git_repo: Path) -> None:
         ).splitlines()
     )
     assert "README.md" in changed_files
+    assert ".jri/learnings.md" in changed_files
 
 
 def test_init_prompts_on_existing_dirs_and_aborts_when_no_input(git_repo: Path) -> None:

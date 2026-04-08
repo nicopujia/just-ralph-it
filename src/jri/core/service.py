@@ -454,6 +454,13 @@ class JriService:
             readme_path.write_text("", encoding="utf-8")
             created_files.append(readme_path)
 
+        self.paths.jri_dir.mkdir(parents=True, exist_ok=True)
+
+        learnings_path = self.paths.learnings_path
+        if not learnings_path.exists():
+            learnings_path.write_text("", encoding="utf-8")
+            created_files.append(learnings_path)
+
         for status in _TRACKED_TASK_DIRS:
             directory = self.paths.task_dir(status)
             directory.mkdir(parents=True, exist_ok=True)

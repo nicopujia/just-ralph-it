@@ -92,6 +92,10 @@ class JriPaths:
         return self.jri_dir / "metrics.json"
 
     @property
+    def learnings_path(self) -> Path:
+        return self.jri_dir / "learnings.md"
+
+    @property
     def attempts_dir(self) -> Path:
         return self.jri_dir / "attempts"
 
