@@ -209,6 +209,6 @@ def _str_or_none(value: object) -> str | None:
 
 
 def _attempt_outcome_or_none(value: object) -> AttemptOutcome | None:
-    if value in {"completed", "failed", "needs human", "interrupted"}:
+    if value in {"completed", "failed", "needs human", "interrupted", "timeout"}:
         return cast(AttemptOutcome, value)
     return None

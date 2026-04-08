@@ -7,6 +7,7 @@ import pytest
 from jri.core.git import GitRepo
 from jri.core.models import Task, TaskMetadata
 from jri.core.tasks import (
+    dump_task,
     list_tasks,
     parse_task_file,
     select_next_task,
@@ -155,6 +156,22 @@ def test_parse_task_file_reads_frontmatter_and_body(tmp_path: Path) -> None:
     assert task.body == "Write the README body.\n"
 
 
+def test_parse_task_file_rejects_missing_frontmatter_start(tmp_path: Path) -> None:
+    task_path = tmp_path / "broken-task.md"
+    task_path.write_text("title: Broken\n---\n\nBody\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must start with YAML frontmatter"):
+        parse_task_file(task_path)
+
+
+def test_parse_task_file_rejects_non_object_frontmatter(tmp_path: Path) -> None:
+    task_path = tmp_path / "broken-task.md"
+    task_path.write_text("---\n- not-an-object\n---\n\nBody\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="frontmatter must be an object"):
+        parse_task_file(task_path)
+
+
 def test_parse_task_file_allows_fenced_code_in_frontmatter_block_scalars(
     tmp_path: Path,
 ) -> None:
@@ -210,6 +227,28 @@ def test_parse_task_file_allows_markdown_like_plain_scalars_in_frontmatter(
         "Automated tests cover at least: legal move rejection and "
         "perfect-play choices.",
     ]
+
+
+def test_parse_task_file_round_trips_dump_task_output(tmp_path: Path) -> None:
+    task_path = tmp_path / "round-trip.md"
+    task = Task(
+        path=task_path,
+        slug="round-trip",
+        metadata=TaskMetadata(
+            title='Quote "and" slash \\ test',
+            priority=2,
+            assignee="Ralph",
+            depends_on=["setup"],
+            acceptance_criteria=["It round-trips"],
+        ),
+        body="First line\n\nSecond line\n",
+    )
+
+    task_path.write_text(dump_task(task), encoding="utf-8")
+
+    parsed = parse_task_file(task_path)
+
+    assert parsed == task
 
 
 def test_list_tasks_allows_in_place_edits_for_draft_tasks(git_repo: Path) -> None:
