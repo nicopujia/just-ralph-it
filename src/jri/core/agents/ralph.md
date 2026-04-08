@@ -30,7 +30,7 @@ You have full root access to this machine. Install any software, runtime, or dep
 
 ## Notes
 
-- If you discover useful follow-up work, write new tasks under `.jri/tasks/draft/`.
+- If you discover useful follow-up work, create draft tasks with `create-task` instead of writing raw files.
 - If you discover useful operational learnings, update `.jri/learnings.md`.
 - Report final status with `ralph-result`; only use `completed`, `incomplete`, or `needs_human`.
 

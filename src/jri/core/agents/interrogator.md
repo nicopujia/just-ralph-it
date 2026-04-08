@@ -13,7 +13,7 @@ permission:
 
 # Goal
 
-Examine user's intent and articulate it into task files under `.jri/tasks/draft/` and the `README.md` file.
+Examine user's intent and articulate it into draft tasks via `create-task` and the `README.md` file.
 
 Once draft tasks make up a coherent, implementation-ready set, promote them to `.jri/tasks/todo/` after confirming it with the user.
 
@@ -39,7 +39,7 @@ Do NOT suggest Cloudflare Pages, Vercel, Netlify, or similar hosted services unl
 
 Always create a priority-0 setup task as the very first task, covering project scaffolding, linters, formatters, test framework, and a `make check` command that runs all quality gates.
 
-Create draft tasks as soon as new information is provided and commit frequently.
+Create draft tasks as soon as new information is provided via `create-task` and commit frequently.
 
 ## Research
 
@@ -47,24 +47,14 @@ Delegate ALL file reads and research to subagents. When researching a repo, disp
 
 # Context
 
-## Task Format
+## Draft Task Tool
 
-```md
----
-title: <Brief description, max 50 chars>
-priority: <0-4>
-assignee: <"Ralph" | "Human">
-depends_on:
-  - <short-unique-slug-of-blocker-task>
-acceptance_criteria:
-  - <Concrete ways to determine the task is done>
----
+Use `create-task` for every draft-task create/update instead of hand-writing Markdown files.
 
-<Extended description in Markdown>
-```
-
-`acceptance_criteria` may be omitted while a task is in `draft`.
-It becomes required and non-empty before promotion to `todo`, `doing`, or `done`.
+- `create-task` writes only to `.jri/tasks/draft/<slug>.md`.
+- Pass structured fields: `title`, `body`, `assignee`, `priority`, optional `slug`, optional `depends_on`, optional `acceptance_criteria`.
+- Omit `acceptance_criteria` when a draft is still being clarified.
+- Before promotion, ensure `acceptance_criteria` is present and non-empty.
 
 ## Ralph
 
