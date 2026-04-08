@@ -8,11 +8,12 @@ Generates/refines tasks. Asks many questions, creates `draft` tasks, promotes to
 
 ### [Ralph](../src/jri/core/agents/ralph.md)
 
-Solves exactly one task. Acts as orchestrator, spawning subagents instead of doing the work itself. Three outcomes:
+Solves exactly one task. Acts as orchestrator, spawning subagents instead of doing the work itself. Four results:
 
 - `completed`: task finished and validated
-- `failed`: retryable (up to 3 attempts, then escalates)
-- `needs human`: blocked, generates Human task
+- `incomplete`: task is retryable later
+- `failed`: task run failed and is retryable later
+- `needs_human`: blocked, generates a Human task from Ralph's structured payload
 
 ## Flow
 
@@ -25,6 +26,8 @@ The user doesn't interact directly with the tasks nor with Ralph.
 ### Git History
 
 Each iteration commits its changes and tags the commit. The tag marks a recoverable snapshot; `jri reset` rolls back to the latest tag. Ralph works in a separate git worktree to keep the main branch clean between iterations.
+
+Attempt history is persisted on the main branch under `.jri/attempts/<task-slug>.json` before JRI clears Ralph's runtime state.
 
 ### Task Lifecycle
 
@@ -53,9 +56,11 @@ Corrections go in new draft tasks.
 │   │   └── done/
 │   │       ├── .gitkeep
 │   │       └── <slug>.md
+│   ├── attempts/
+│   │   └── <task-slug>.json            # committed attempt history per task
 │   ├── signals/
 │   │   ├── stop                        # stop gracefully after current iteration
-│   │   └── result                      # outcome of last Ralph run
+│   │   └── result                      # structured result of the active Ralph run
 │   ├── logs/
 │   │   ├── ralph/                      # Ralph stdout/stderr per iteration
 │   │   │   └── <slug>.log
@@ -74,7 +79,7 @@ Corrections go in new draft tasks.
 │   │   ├── interrogator.md
 │   │   └── ralph.md
 │   └── tools/
-│       └── result.js
+│       └── ralph-result.js
 ├── opencode.json
 ├── .gitignore
 ├── Makefile                            # check target (fails by default)

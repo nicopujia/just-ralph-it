@@ -75,7 +75,7 @@ class _SelfHostingFakeClient(OpenCodeClient):
             target.write_text(content, encoding="utf-8")
         return OpenCodeRunResult(
             returncode=0,
-            outcome="completed",
+            result="completed",
             session_id=f"ses_proof_{slug}",
         )
 

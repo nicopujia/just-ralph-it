@@ -33,7 +33,7 @@ class SuccessfulFakeOpenCodeClient(OpenCodeClient):
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
         return OpenCodeRunResult(
-            returncode=0, session_id="ses_fake", outcome="completed"
+            returncode=0, session_id="ses_fake", result="completed"
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
@@ -56,9 +56,7 @@ class FailedFakeOpenCodeClient(OpenCodeClient):
     ) -> OpenCodeRunResult:
         self.calls.append((prompt, log_path))
         log_path.write_text("fake failed run\n", encoding="utf-8")
-        return OpenCodeRunResult(
-            returncode=0, session_id="ses_failed", outcome="failed"
-        )
+        return OpenCodeRunResult(returncode=0, session_id="ses_failed", result="failed")
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake_failed"}\n', encoding="utf-8")
@@ -87,13 +85,11 @@ class DistinctFileFakeOpenCodeClient(OpenCodeClient):
         return OpenCodeRunResult(
             returncode=0,
             session_id=f"ses_{len(self.calls)}",
-            outcome="completed",
+            result="completed",
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
-        destination.write_text(
-            f'{{"session": "{session_id}"}}\n', encoding="utf-8"
-        )
+        destination.write_text(f'{{"session": "{session_id}"}}\n', encoding="utf-8")
 
 
 def _dead_pid() -> int:
@@ -492,9 +488,9 @@ def test_reset_preserves_attempt_history(git_repo: Path) -> None:
     attempts = cast(list[dict[str, object]], state["attempts"])
     assert len(attempts) == 2
     assert attempts[0]["task_slug"] == "task-a"
-    assert attempts[0]["outcome"] == "completed"
+    assert attempts[0]["result"] == "completed"
     assert attempts[1]["task_slug"] == "task-b"
-    assert attempts[1]["outcome"] == "failed"
+    assert attempts[1]["result"] == "failed"
 
 
 def test_reset_cli_aborts_on_negative_confirmation(git_repo: Path) -> None:

@@ -10,6 +10,12 @@ from jri.core.errors import JriError
 from jri.core.opencode import OpenCodeServer, _parse_event_line
 
 
+def _result_payload(result: str = "completed", **extra: object) -> str:
+    payload: dict[str, object] = {"result": result}
+    payload.update(extra)
+    return json.dumps(payload) + "\n"
+
+
 class _FakeSSEStream:
     def __init__(self, chunks: list[bytes]) -> None:
         self._chunks = chunks
@@ -24,24 +30,24 @@ class _FakeSSEStream:
         return iter(self._chunks)
 
 
-class _OutcomeWritingSSEStream(_FakeSSEStream):
+class _ResultWritingSSEStream(_FakeSSEStream):
     def __init__(
         self,
         chunks: list[bytes],
         *,
-        outcome_path: Path,
-        outcome: str = "completed\n",
+        result_path: Path,
+        result_text: str = _result_payload(),
         write_index: int = 4,
     ) -> None:
         super().__init__(chunks)
-        self._outcome_path = outcome_path
-        self._outcome = outcome
+        self._result_path = result_path
+        self._result_text = result_text
         self._write_index = write_index
 
     def __iter__(self) -> Iterator[bytes]:
         for index, chunk in enumerate(self._chunks):
             if index == self._write_index:
-                self._outcome_path.write_text(self._outcome, encoding="utf-8")
+                self._result_path.write_text(self._result_text, encoding="utf-8")
             yield chunk
 
 
@@ -55,17 +61,17 @@ class _HangingAfterChunksSSEStream(_FakeSSEStream):
         time.sleep(self._delay)
 
 
-class _DelayedIdleOutcomeSSEStream(_FakeSSEStream):
+class _DelayedIdleResultSSEStream(_FakeSSEStream):
     def __init__(
         self,
         chunks: list[bytes],
         *,
-        outcome_path: Path,
+        result_path: Path,
         delay: float,
         split_index: int,
     ) -> None:
         super().__init__(chunks)
-        self._outcome_path = outcome_path
+        self._result_path = result_path
         self._delay = delay
         self._split_index = split_index
 
@@ -73,7 +79,9 @@ class _DelayedIdleOutcomeSSEStream(_FakeSSEStream):
         for index, chunk in enumerate(self._chunks):
             if index == self._split_index:
                 time.sleep(self._delay)
-                self._outcome_path.write_text("failed\n", encoding="utf-8")
+                self._result_path.write_text(
+                    _result_payload("failed"), encoding="utf-8"
+                )
             yield chunk
 
 
@@ -115,9 +123,7 @@ def test_start_uses_new_free_port_on_each_auto_start(
     def fake_pick_free_local_port() -> int:
         return next(ports)
 
-    def fake_popen(
-        args: list[str], **kwargs: object
-    ) -> _FakeProcess:
+    def fake_popen(args: list[str], **kwargs: object) -> _FakeProcess:
         assert kwargs["cwd"] == str(tmp_path)
         commands.append(args)
         process = _FakeProcess(pid=1000 + len(commands))
@@ -198,7 +204,7 @@ def test_run_ralph_task_rejects_session_for_different_root(
             root=tmp_path,
             prompt="Solve the task",
             log_path=tmp_path / "ralph.log",
-            outcome_path=tmp_path / "result.txt",
+            result_path=tmp_path / "result.txt",
         )
 
     assert deleted == ["ses_123"]
@@ -331,44 +337,44 @@ def test_parse_event_line_returns_plain_text_for_malformed_json() -> None:
     assert is_tool is False
 
 
-def test_detect_outcome_completed() -> None:
-    from jri.core.opencode import _detect_outcome
+def test_detect_result_completed() -> None:
+    from jri.core.opencode import _detect_result
 
-    assert _detect_outcome("<!-- JRI:COMPLETED -->", None) == "completed"
-
-
-def test_detect_outcome_failed() -> None:
-    from jri.core.opencode import _detect_outcome
-
-    assert _detect_outcome("<!-- JRI:FAILED -->", None) == "failed"
+    assert _detect_result("<!-- JRI:COMPLETED -->", None) == "completed"
 
 
-def test_detect_outcome_needs_human() -> None:
-    from jri.core.opencode import _detect_outcome
+def test_detect_result_failed() -> None:
+    from jri.core.opencode import _detect_result
 
-    assert _detect_outcome("<!-- JRI:NEEDS_HUMAN -->", None) == "needs human"
-
-
-def test_detect_outcome_no_marker_preserves_current() -> None:
-    from jri.core.opencode import _detect_outcome
-
-    assert _detect_outcome("just some text", None) is None
-    assert _detect_outcome("just some text", "completed") == "completed"
+    assert _detect_result("<!-- JRI:FAILED -->", None) == "failed"
 
 
-def test_detect_outcome_embedded_in_text() -> None:
-    from jri.core.opencode import _detect_outcome
+def test_detect_result_needs_human() -> None:
+    from jri.core.opencode import _detect_result
+
+    assert _detect_result("<!-- JRI:NEEDS_HUMAN -->", None) == "needs_human"
+
+
+def test_detect_result_no_marker_preserves_current() -> None:
+    from jri.core.opencode import _detect_result
+
+    assert _detect_result("just some text", None) is None
+    assert _detect_result("just some text", "completed") == "completed"
+
+
+def test_detect_result_embedded_in_text() -> None:
+    from jri.core.opencode import _detect_result
 
     text = "preamble <!-- JRI:COMPLETED --> trailing"
 
-    assert _detect_outcome(text, None) == "completed"
+    assert _detect_result(text, None) == "completed"
 
 
-def test_detect_outcome_uses_last_marker_in_text() -> None:
-    from jri.core.opencode import _detect_outcome
+def test_detect_result_uses_last_marker_in_text() -> None:
+    from jri.core.opencode import _detect_result
 
     assert (
-        _detect_outcome(
+        _detect_result(
             "<!-- JRI:COMPLETED --> then <!-- JRI:FAILED -->",
             None,
         )
@@ -376,23 +382,23 @@ def test_detect_outcome_uses_last_marker_in_text() -> None:
     )
 
 
-def test_finalize_outcome_missing_marker_treats_run_as_failed(
+def test_finalize_result_missing_marker_treats_run_as_failed(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    from jri.core.opencode import _finalize_outcome
+    from jri.core.opencode import _finalize_result
 
-    outcome, warnings = _finalize_outcome(None, context="Ralph run")
-    assert outcome == "failed"
-    msg = "missing JRI outcome marker for Ralph run; treating run as failed"
+    result, warnings = _finalize_result(None, context="Ralph run")
+    assert result == "failed"
+    msg = "missing JRI result marker for Ralph run; treating run as failed"
     assert warnings == [msg]
     assert msg in capsys.readouterr().err
 
 
-def test_detect_result_tool_outcome_reads_server_tool_input() -> None:
-    from jri.core.opencode import _detect_result_tool_outcome
+def test_detect_result_tool_result_reads_server_tool_input() -> None:
+    from jri.core.opencode import _detect_result_tool_result
 
     assert (
-        _detect_result_tool_outcome(
+        _detect_result_tool_result(
             {
                 "type": "message.part.updated",
                 "properties": {
@@ -400,7 +406,7 @@ def test_detect_result_tool_outcome_reads_server_tool_input() -> None:
                         "type": "tool",
                         "tool": "ralph-result",
                         "state": {
-                            "input": {"outcome": "completed"},
+                            "input": {"result": "completed"},
                         },
                     }
                 },
@@ -408,6 +414,33 @@ def test_detect_result_tool_outcome_reads_server_tool_input() -> None:
         )
         == "completed"
     )
+
+
+def test_parse_result_payload_rejects_malformed_needs_human_human_task(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from jri.core.opencode import _parse_result_payload
+
+    payload, warnings = _parse_result_payload(
+        json.dumps(
+            {
+                "result": "needs_human",
+                "blocker": "Waiting on human input",
+                "human_task": {
+                    "title": 123,
+                    "body": "Please help",
+                    "acceptance_criteria": ["done"],
+                },
+            }
+        )
+    )
+
+    assert payload is None
+    assert warnings == [
+        "invalid JRI result payload; treating run as failed: "
+        "`human_task.title` must be a non-empty string"
+    ]
+    assert "`human_task.title` must be a non-empty string" in capsys.readouterr().err
 
 
 def test_parse_event_line_returns_is_tool_false_for_text_event() -> None:
@@ -492,7 +525,7 @@ def test_run_ralph_task_raises_on_session_create_http_error(
             root=tmp_path,
             prompt="Solve the task",
             log_path=tmp_path / "ralph.log",
-            outcome_path=tmp_path / "result.txt",
+            result_path=tmp_path / "result.txt",
         )
 
 
@@ -530,7 +563,7 @@ def test_run_ralph_task_cleans_up_session_on_prompt_http_failure(
             root=tmp_path,
             prompt="Solve the task",
             log_path=tmp_path / "ralph.log",
-            outcome_path=tmp_path / "result.txt",
+            result_path=tmp_path / "result.txt",
         )
 
     assert calls[0][0] == "POST"
@@ -585,7 +618,7 @@ def test_run_ralph_task_ignores_stale_idle_until_run_becomes_active(
         return 201, b'{"id": "ses_123"}'
 
     def fake_urlopen(*args: object, **kwargs: object) -> object:
-        return _OutcomeWritingSSEStream(events, outcome_path=outcome_path)
+        return _ResultWritingSSEStream(events, result_path=outcome_path)
 
     monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
     monkeypatch.setattr("jri.core.opencode.urllib.request.urlopen", fake_urlopen)
@@ -594,10 +627,10 @@ def test_run_ralph_task_ignores_stale_idle_until_run_becomes_active(
         root=tmp_path,
         prompt="Solve the task",
         log_path=tmp_path / "ralph.log",
-        outcome_path=outcome_path,
+        result_path=outcome_path,
     )
 
-    assert result.outcome == "completed"
+    assert result.result == "completed"
     assert result.warnings == []
 
 
@@ -657,7 +690,7 @@ def test_run_ralph_task_ignores_idle_after_non_running_pre_prompt_status(
         return 201, b'{"id": "ses_123"}'
 
     def fake_urlopen(*args: object, **kwargs: object) -> object:
-        return _OutcomeWritingSSEStream(events, outcome_path=outcome_path)
+        return _ResultWritingSSEStream(events, result_path=outcome_path)
 
     monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
     monkeypatch.setattr("jri.core.opencode.urllib.request.urlopen", fake_urlopen)
@@ -666,10 +699,10 @@ def test_run_ralph_task_ignores_idle_after_non_running_pre_prompt_status(
         root=tmp_path,
         prompt="Solve the task",
         log_path=tmp_path / "ralph.log",
-        outcome_path=outcome_path,
+        result_path=outcome_path,
     )
 
-    assert result.outcome == "completed"
+    assert result.result == "completed"
     assert result.warnings == []
 
 
@@ -720,7 +753,7 @@ def test_run_ralph_task_treats_busy_as_active_for_idle_termination(
         return 201, b'{"id": "ses_123"}'
 
     def fake_urlopen(*args: object, **kwargs: object) -> object:
-        return _OutcomeWritingSSEStream(events, outcome_path=outcome_path)
+        return _ResultWritingSSEStream(events, result_path=outcome_path)
 
     monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
     monkeypatch.setattr("jri.core.opencode.urllib.request.urlopen", fake_urlopen)
@@ -729,11 +762,11 @@ def test_run_ralph_task_treats_busy_as_active_for_idle_termination(
         root=tmp_path,
         prompt="Solve the task",
         log_path=tmp_path / "ralph.log",
-        outcome_path=outcome_path,
+        result_path=outcome_path,
         timeout=1,
     )
 
-    assert result.outcome == "completed"
+    assert result.result == "completed"
     assert result.returncode == 0
     assert result.warnings == []
 
@@ -762,8 +795,8 @@ def test_run_ralph_task_falls_back_to_result_tool_outcome_when_file_missing(
                         "tool": "ralph-result",
                         "state": {
                             "status": "completed",
-                            "input": {"outcome": "completed"},
-                            "output": "JRI_OUTCOME_PATH not set",
+                            "input": {"result": "completed"},
+                            "output": "JRI_RESULT_PATH not set",
                         },
                     }
                 },
@@ -801,12 +834,14 @@ def test_run_ralph_task_falls_back_to_result_tool_outcome_when_file_missing(
         root=tmp_path,
         prompt="Solve the task",
         log_path=tmp_path / "ralph.log",
-        outcome_path=outcome_path,
+        result_path=outcome_path,
     )
 
     assert not outcome_path.exists()
-    assert result.outcome == "completed"
-    assert result.warnings == []
+    assert result.result == "failed"
+    assert result.warnings == [
+        "missing JRI result marker for Ralph run; treating run as failed"
+    ]
 
 
 def test_run_ralph_task_waits_for_idle_after_terminal_result_tool(
@@ -833,7 +868,7 @@ def test_run_ralph_task_waits_for_idle_after_terminal_result_tool(
                         "tool": "ralph-result",
                         "state": {
                             "status": "completed",
-                            "input": {"outcome": "completed"},
+                            "input": {"result": "completed"},
                         },
                     }
                 },
@@ -862,9 +897,9 @@ def test_run_ralph_task_waits_for_idle_after_terminal_result_tool(
         return 201, b'{"id": "ses_123"}'
 
     def fake_urlopen(*args: object, **kwargs: object) -> object:
-        return _DelayedIdleOutcomeSSEStream(
+        return _DelayedIdleResultSSEStream(
             events,
-            outcome_path=outcome_path,
+            result_path=outcome_path,
             delay=0.05,
             split_index=4,
         )
@@ -876,11 +911,11 @@ def test_run_ralph_task_waits_for_idle_after_terminal_result_tool(
         root=tmp_path,
         prompt="Solve the task",
         log_path=tmp_path / "ralph.log",
-        outcome_path=outcome_path,
+        result_path=outcome_path,
         timeout=1,
     )
 
-    assert result.outcome == "failed"
+    assert result.result == "failed"
     assert result.returncode == 0
     assert result.warnings == []
 
@@ -909,7 +944,7 @@ def test_run_ralph_task_times_out_after_terminal_result_tool_without_idle(
                         "tool": "ralph-result",
                         "state": {
                             "status": "completed",
-                            "input": {"outcome": "completed"},
+                            "input": {"result": "completed"},
                         },
                     }
                 },
@@ -938,11 +973,11 @@ def test_run_ralph_task_times_out_after_terminal_result_tool_without_idle(
         root=tmp_path,
         prompt="Solve the task",
         log_path=tmp_path / "ralph.log",
-        outcome_path=outcome_path,
+        result_path=outcome_path,
         timeout=1,
     )
 
-    assert result.outcome == "timeout"
+    assert result.result == "timeout"
     assert result.returncode == -1
     assert result.warnings == ["opencode prompt killed after 1s timeout"]
 
@@ -971,7 +1006,7 @@ def test_run_ralph_task_prefers_outcome_file_over_result_tool_outcome(
                         "tool": "ralph-result",
                         "state": {
                             "status": "completed",
-                            "input": {"outcome": "completed"},
+                            "input": {"result": "completed"},
                         },
                     }
                 },
@@ -991,10 +1026,10 @@ def test_run_ralph_task_prefers_outcome_file_over_result_tool_outcome(
         return 201, b'{"id": "ses_123"}'
 
     def fake_urlopen(*args: object, **kwargs: object) -> object:
-        return _OutcomeWritingSSEStream(
+        return _ResultWritingSSEStream(
             events,
-            outcome_path=outcome_path,
-            outcome="failed\n",
+            result_path=outcome_path,
+            result_text=_result_payload("failed"),
             write_index=2,
         )
 
@@ -1005,10 +1040,10 @@ def test_run_ralph_task_prefers_outcome_file_over_result_tool_outcome(
         root=tmp_path,
         prompt="Solve the task",
         log_path=tmp_path / "ralph.log",
-        outcome_path=outcome_path,
+        result_path=outcome_path,
     )
 
-    assert result.outcome == "failed"
+    assert result.result == "failed"
     assert result.warnings == []
 
 

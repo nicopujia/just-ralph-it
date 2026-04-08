@@ -33,8 +33,8 @@ def test_task_footer_failed() -> None:
 
 
 def test_task_footer_needs_human() -> None:
-    result = task_footer("needs human")
-    assert "needs human" in result
+    result = task_footer("needs_human")
+    assert "needs_human" in result
     assert "⚠" in result
 
 

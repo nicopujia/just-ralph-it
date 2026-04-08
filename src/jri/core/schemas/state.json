@@ -26,9 +26,16 @@
         "session_id": {
           "type": "string"
         },
-        "outcome": {
+        "result": {
           "type": "string",
-          "enum": ["completed", "failed", "needs human", "interrupted", "timeout"]
+          "enum": [
+            "completed",
+            "incomplete",
+            "needs_human",
+            "failed",
+            "interrupted",
+            "timeout"
+          ]
         }
       },
       "required": [
