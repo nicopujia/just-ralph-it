@@ -19,6 +19,23 @@ def test_load_restores_from_backup_when_primary_is_invalid(tmp_path: Path) -> No
     assert store.load() == expected
 
 
+def test_load_recovers_primary_from_valid_backup_and_repairs_primary_file(
+    tmp_path: Path,
+) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    expected = State(finished_at=123, session="ses_123")
+
+    store.save(expected)
+    store.path.write_text('{"invalid": json}', encoding="utf-8")
+
+    recovered = store.load()
+
+    assert recovered == expected
+    assert store.path.read_text(encoding="utf-8") == store.backup_path.read_text(
+        encoding="utf-8"
+    )
+
+
 def test_save_interruption_preserves_previous_readable_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -102,6 +119,25 @@ def test_state_round_trips_attempt_metadata(tmp_path: Path) -> None:
         active_attempt=attempt,
         attempts=[attempt],
     )
+
+    store.save(expected)
+
+    assert store.load() == expected
+
+
+def test_state_round_trips_attempt_timeout_outcome(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    attempt = AttemptState(
+        number=1,
+        task_slug="task-a",
+        branch="ralph",
+        started_at=123,
+        finished_at=456,
+        log_path=".jri/logs/ralph/task-a-123.log",
+        session_id="ses_123",
+        outcome="timeout",
+    )
+    expected = State(active_attempt=attempt, attempts=[attempt])
 
     store.save(expected)
 

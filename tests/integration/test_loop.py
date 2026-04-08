@@ -447,6 +447,69 @@ def test_start_refuses_when_tracked_process_is_still_alive(git_repo: Path) -> No
         sleeper.wait(timeout=5)
 
 
+def test_start_rejects_multiple_doing_tasks_at_start(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    for slug in ("task-a", "task-b"):
+        write_task(
+            git_repo,
+            status="doing",
+            slug=slug,
+            title=slug.replace("-", " ").title(),
+            priority=0,
+            assignee="Ralph",
+            body="In progress.",
+            acceptance_criteria=["Task is ready to continue"],
+        )
+    git(git_repo, "add", ".jri/tasks/doing")
+    git(git_repo, "commit", "-m", "seed multiple doing tasks")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+
+    with pytest.raises(JriError, match="multiple tasks are already in progress"):
+        service.start(max_tasks=1, force=True)
+
+
+def test_start_rejects_active_attempt_task_slug_mismatch(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="doing",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/doing/implement-file.md")
+    git(git_repo, "commit", "-m", "seed mismatched active attempt")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.state_store.save(
+        State(
+            active_attempt=AttemptState(
+                number=1,
+                task_slug="other-task",
+                branch="ralph",
+                started_at=123,
+            ),
+            attempts=[
+                AttemptState(
+                    number=1,
+                    task_slug="other-task",
+                    branch="ralph",
+                    started_at=123,
+                )
+            ],
+        )
+    )
+
+    with pytest.raises(
+        JriError, match="active attempt does not match the task in progress"
+    ):
+        service.start(max_tasks=1, force=True)
+
+
 def test_start_recovers_clean_foreground_interruption(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(

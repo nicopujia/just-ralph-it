@@ -1,8 +1,11 @@
 import json
+from pathlib import Path
+from urllib.error import URLError
 
 import pytest
 
-from jri.core.opencode import _parse_event_line
+from jri.core.errors import JriError
+from jri.core.opencode import OpenCodeServer, _parse_event_line
 
 
 def test_parse_event_line_extracts_terminal_text_from_text_event() -> None:
@@ -124,6 +127,14 @@ def test_parse_event_line_preserves_plain_text_fallback() -> None:
     assert terminal_text == "plain text fallback\n"
 
 
+def test_parse_event_line_returns_plain_text_for_malformed_json() -> None:
+    event, terminal_text, is_tool = _parse_event_line("{not json}\n")
+
+    assert event is None
+    assert terminal_text == "{not json}\n"
+    assert is_tool is False
+
+
 def test_detect_outcome_completed() -> None:
     from jri.core.opencode import _detect_outcome
 
@@ -238,6 +249,75 @@ def test_parse_event_line_returns_is_tool_false_for_non_display_json() -> None:
     _, _, is_tool = _parse_event_line(f"{line}\n")
 
     assert is_tool is False
+
+
+def test_run_ralph_task_raises_on_session_create_http_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = OpenCodeServer(binary="opencode")
+
+    def fake_http_request(
+        method: str,
+        url: str,
+        *,
+        body: object | None = None,
+        timeout: float = 10.0,
+    ) -> tuple[int, bytes]:
+        return 500, b"boom"
+
+    monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
+
+    with pytest.raises(
+        JriError, match=r"failed to create opencode session \(HTTP 500\): boom"
+    ):
+        server.run_ralph_task(
+            root=tmp_path,
+            prompt="Solve the task",
+            log_path=tmp_path / "ralph.log",
+            outcome_path=tmp_path / "result.txt",
+        )
+
+
+def test_run_ralph_task_cleans_up_session_on_prompt_http_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = OpenCodeServer(binary="opencode")
+    deleted: list[str] = []
+    calls: list[tuple[str, str]] = []
+
+    def fake_http_request(
+        method: str,
+        url: str,
+        *,
+        body: object | None = None,
+        timeout: float = 10.0,
+    ) -> tuple[int, bytes]:
+        calls.append((method, url))
+        if len(calls) == 1:
+            return 201, b'{"id": "ses_123"}'
+        return 500, b"prompt failed"
+
+    def fake_urlopen(*args: object, **kwargs: object) -> object:
+        raise URLError("offline")
+
+    def fake_delete_session(session_id: str) -> None:
+        deleted.append(session_id)
+
+    monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr(server, "_delete_session", fake_delete_session)
+
+    with pytest.raises(JriError, match="failed to start ralph prompt"):
+        server.run_ralph_task(
+            root=tmp_path,
+            prompt="Solve the task",
+            log_path=tmp_path / "ralph.log",
+            outcome_path=tmp_path / "result.txt",
+        )
+
+    assert calls[0][0] == "POST"
+    assert "/session?directory=" in calls[0][1]
+    assert deleted == ["ses_123"]
 
 
 def test_parse_event_line_trims_long_tool_output() -> None:

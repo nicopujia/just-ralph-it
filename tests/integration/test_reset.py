@@ -63,6 +63,38 @@ class FailedFakeOpenCodeClient(OpenCodeClient):
         destination.write_text('{"session": "fake_failed"}\n', encoding="utf-8")
 
 
+class DistinctFileFakeOpenCodeClient(OpenCodeClient):
+    def __init__(self) -> None:
+        super().__init__(model=None)
+        self.calls: list[tuple[str, Path]] = []
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        on_start: object | None = None,
+        timeout: int | None = None,
+    ) -> OpenCodeRunResult:
+        self.calls.append((prompt, log_path))
+        filename = "first.txt" if len(self.calls) == 1 else "second.txt"
+        (root / filename).write_text(f"{filename}\n", encoding="utf-8")
+        git(root, "add", filename)
+        git(root, "commit", "-m", f"add {filename}")
+        log_path.write_text(f"fake {filename} run\n", encoding="utf-8")
+        return OpenCodeRunResult(
+            returncode=0,
+            session_id=f"ses_{len(self.calls)}",
+            outcome="completed",
+        )
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        destination.write_text(
+            f'{{"session": "{session_id}"}}\n', encoding="utf-8"
+        )
+
+
 def _dead_pid() -> int:
     process = subprocess.Popen(["sleep", "0"])
     process.wait(timeout=5)
@@ -106,6 +138,47 @@ def test_reset_after_successful_task(git_repo: Path) -> None:
     assert state["session"] == "ses_reset_test"
     assert "process" not in state
     assert "active_attempt" not in state
+
+
+def test_reset_prefers_latest_end_tag_over_jri_init_fallback(
+    git_repo: Path,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="Complete task A.",
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-b",
+        title="Task B",
+        priority=0,
+        assignee="Ralph",
+        body="Complete task B.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo")
+    git(git_repo, "commit", "-m", "add two tasks")
+
+    service = JriService(git_repo, opencode_client=DistinctFileFakeOpenCodeClient())
+
+    assert service.start(max_tasks=2, force=True) == 2
+
+    (git_repo / "extra.txt").write_text("extra\n", encoding="utf-8")
+    git(git_repo, "add", "extra.txt")
+    git(git_repo, "commit", "-m", "add extra file")
+
+    service.reset()
+
+    assert (git_repo / "first.txt").exists()
+    assert (git_repo / "second.txt").exists()
+    assert not (git_repo / "extra.txt").exists()
+    assert git(git_repo, "branch", "--show-current") == "main"
 
 
 def test_reset_after_failed_task(git_repo: Path) -> None:
