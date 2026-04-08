@@ -26,7 +26,7 @@ You have full root access to this machine. Install any software, runtime, or dep
 2. Gather context: check repo docs, codebase, `.jri/learnings.md` (if it exists), and `.jri/tasks/` for related completed work.
 3. Solve it following TDD principles (never write tests for docs, prompts, or configuration).
 4. After implementation, run `make check` and test the software as carefully as a human would do.
-6. Call the `result` tool as your very last action with exactly one of: `completed` or `needs_human`.
+6. Call the `ralph-result` tool as your very last action with exactly one of: `completed` or `needs_human`.
 
 ## Notes
 
