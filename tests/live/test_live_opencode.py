@@ -2,12 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from jri.core.opencode import OpenCodeClient
 from jri.core.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git, write_task
 
 pytestmark = pytest.mark.live
+
+_LIVE_TASK_TIMEOUT_SECONDS = 300
 
 
 def test_start_with_real_opencode_completes_trivial_task(
@@ -38,14 +39,18 @@ def test_start_with_real_opencode_completes_trivial_task(
     git(git_repo, "add", ".jri/tasks/todo/live-proof.md")
     git(git_repo, "commit", "-m", "add live task")
 
-    service = JriService(
-        git_repo,
-        opencode_client=OpenCodeClient(model=opencode_model),
-    )
+    service = JriService(git_repo)
 
-    completed = service.start(max_tasks=1)
+    completed = service.start(
+        max_tasks=1,
+        model=opencode_model,
+        task_timeout=_LIVE_TASK_TIMEOUT_SECONDS,
+    )
 
     assert completed == 1
     assert (git_repo / "live-proof.txt").read_text(encoding="utf-8") == "live test ok\n"
     assert (git_repo / ".jri" / "tasks" / "done" / "live-proof.md").exists()
-    assert "jri/1" in git(git_repo, "tag").splitlines()
+    tags = git(git_repo, "tag").splitlines()
+    assert "jri/init" in tags
+    assert "jri/begin/live-proof" in tags
+    assert "jri/end/live-proof" in tags
