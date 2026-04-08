@@ -17,8 +17,8 @@ uv run pre-commit install --hook-type pre-push
 # Verify things work
 make check
 
-# [Optional] E2E test
-uv run pytest tests/live/test_live_opencode.py --run-live-opencode --opencode-model opencode/qwen3.6-plus-free
+# [Optional] Live integration tests
+pytest tests/live -L -M opencode/minimax-m2.5
 ```
 
 ## Build
