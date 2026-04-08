@@ -20,11 +20,13 @@ const humanTaskSchema = tool.schema.object({
 export default tool({
   name: "ralph-result",
   description:
-    "Report the final result of this task. Call exactly once as your very last action.",
+    "Report the final result of this task. Call exactly once as your very last action. Use only completed, incomplete, or needs_human. Missing or invalid payloads are treated as JRI-level failures.",
   args: {
     result: tool.schema
-      .enum(["completed", "incomplete", "needs_human", "failed"])
-      .describe("The task result"),
+      .enum(["completed", "incomplete", "needs_human"])
+      .describe(
+        "Final task status: completed when validated, incomplete when more autonomous work remains, needs_human when blocked on a specific human action"
+      ),
     summary: tool.schema
       .string()
       .optional()
@@ -36,10 +38,14 @@ export default tool({
     blocker: tool.schema
       .string()
       .optional()
-      .describe("Why the task is blocked when result is needs_human"),
+      .describe(
+        "Required when result is needs_human: concise explanation of what is blocking progress"
+      ),
     human_task: humanTaskSchema
       .optional()
-      .describe("Structured Human task payload when result is needs_human"),
+      .describe(
+        "Required when result is needs_human: structured Human task with title, body, acceptance_criteria, and optional priority"
+      ),
   },
   async execute({ result, summary, learnings, blocker, human_task }) {
     if (result === "needs_human" && (!blocker || !human_task)) {

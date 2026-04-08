@@ -14,29 +14,27 @@ from pathlib import Path
 from typing import cast
 
 from .errors import JriError
-from .models import OpenCodeRunResult, RalphResultPayload, Result
+from .models import OpenCodeRunResult, RalphResult, RalphResultPayload, Result
 from .ui import DIM, _s, trim_tool_output
 
 _COMPLETED_MARKER = "<!-- JRI:COMPLETED -->"
-_FAILED_MARKER = "<!-- JRI:FAILED -->"
+_INCOMPLETE_MARKER = "<!-- JRI:INCOMPLETE -->"
 _NEEDS_HUMAN_MARKER = "<!-- JRI:NEEDS_HUMAN -->"
-_RESULT_MARKERS: tuple[tuple[str, Result], ...] = (
+_RESULT_MARKERS: tuple[tuple[str, RalphResult], ...] = (
     (_COMPLETED_MARKER, "completed"),
-    (_FAILED_MARKER, "failed"),
+    (_INCOMPLETE_MARKER, "incomplete"),
     (_NEEDS_HUMAN_MARKER, "needs_human"),
 )
 _RESULT_TOOL_NAMES = ("ralph-result",)
 
 
-def _normalize_result(raw: str) -> Result | None:
+def _normalize_result(raw: str) -> RalphResult | None:
     if raw == "completed":
         return "completed"
     if raw == "needs_human":
         return "needs_human"
     if raw == "incomplete":
         return "incomplete"
-    if raw == "failed":
-        return "failed"
     return None
 
 
@@ -101,7 +99,7 @@ def _parse_event_line(line: str) -> tuple[dict[str, object] | None, str | None, 
     return payload, None, False
 
 
-def _detect_result(text: str, current: Result | None) -> Result | None:
+def _detect_result(text: str, current: RalphResult | None) -> RalphResult | None:
     """Update result if *text* contains a JRI marker. Last signal wins."""
     latest_match = current
     latest_index = -1
