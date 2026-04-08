@@ -99,21 +99,32 @@ class JriService:
         self.opencode_server = opencode_server
         self._halt_requested = False
 
-    def init(self, *, force: bool, commit_message: str) -> None:
+    def init(
+        self,
+        *,
+        delete: bool,
+        upgrade: bool,
+        commit_message: str,
+        upgrade_commit_message: str,
+    ) -> None:
         self.git.ensure_repo()
 
         # Check for existing directories
         jri_exists = self.paths.jri_dir.exists()
         opencode_exists = (self.root / ".opencode").exists()
 
+        if upgrade and jri_exists:
+            self.upgrade(commit_message=upgrade_commit_message)
+            return
+
         if jri_exists or opencode_exists:
-            if force:
-                # Force mode: remove existing directories without prompting
+            if delete:
+                # Delete mode: remove existing directories without prompting
                 if jri_exists:
                     shutil.rmtree(self.paths.jri_dir)
                 if opencode_exists:
                     shutil.rmtree(self.root / ".opencode")
-            else:
+            elif not upgrade:
                 # Interactive mode: ask user what to do
                 existing = []
                 if jri_exists:
@@ -123,9 +134,10 @@ class JriService:
 
                 existing_str = " and ".join(existing)
                 print(f"Existing {existing_str} directories found.")
-                print("  [o] Overwrite - remove existing and reinitialize")
+                print("  [d] Delete - remove existing and reinitialize")
+                print("  [u] Upgrade - refresh JRI-managed files only")
                 print("  [a] Abort - cancel initialization")
-                print("Choice [o/a]: ", end="", flush=True)
+                print("Choice [d/u/a]: ", end="", flush=True)
 
                 try:
                     choice = input().strip().lower()
@@ -133,12 +145,17 @@ class JriService:
                     # Non-interactive environment (e.g., CI)
                     choice = "a"
 
-                if choice == "o":
-                    # User chose to overwrite
+                if choice == "d":
+                    # User chose to delete and reinitialize
                     if jri_exists:
                         shutil.rmtree(self.paths.jri_dir)
                     if opencode_exists:
                         shutil.rmtree(self.root / ".opencode")
+                elif choice == "u":
+                    # User chose to upgrade managed files only
+                    if jri_exists:
+                        self.upgrade(commit_message=upgrade_commit_message)
+                        return
                 else:
                     # User chose abort or invalid input
                     raise JriError("initialization aborted by user")
