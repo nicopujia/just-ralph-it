@@ -17,12 +17,6 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         default="opencode/qwen3.6-plus-free",
         help="model to use for live OpenCode tests",
     )
-    parser.addoption(
-        "--run-self-hosting-proof",
-        action="store_true",
-        default=False,
-        help="run the end-to-end self-hosting proof test",
-    )
 
 
 def run_cli(args: list[str], cwd: Path) -> int:
@@ -41,11 +35,6 @@ def opencode_model(request: pytest.FixtureRequest) -> str:
     value = request.config.getoption("opencode_model")
     assert isinstance(value, str)
     return value
-
-
-@pytest.fixture
-def run_self_hosting_proof(request: pytest.FixtureRequest) -> bool:
-    return bool(request.config.getoption("run_self_hosting_proof"))
 
 
 @pytest.fixture

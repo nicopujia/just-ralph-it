@@ -1,14 +1,13 @@
-"""End-to-end self-hosting proof: JRI manages a repo shaped like this one.
+"""Integration self-hosting proof for a JRI-shaped repository.
 
-Demonstrates the full JRI lifecycle — idea to task to loop — against a
-repository that mirrors this project's own structure.  Three tasks with a
+Demonstrates the full JRI lifecycle - idea to task to loop - against a
+repository that mirrors this project's own structure. Three tasks with a
 dependency chain are promoted from draft to todo, then the Ralph loop
 executes them all without manual intervention.
 
-The proof is skipped by default to keep the normal test suite fast.
 Run with:
 
-    uv run pytest tests/live/test_self_hosting_proof.py --run-self-hosting-proof
+    uv run pytest tests/integration/test_self_hosting_proof.py
 """
 
 from __future__ import annotations
@@ -18,15 +17,11 @@ from pathlib import Path
 from re import search
 from typing import cast
 
-import pytest
-
 from jri.core.models import OpenCodeRunResult
 from jri.core.opencode import OpenCodeClient
 from jri.core.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git, read_json, write_task
-
-pytestmark = pytest.mark.live
 
 # -- Per-task file implementations the fake Ralph agent "writes" ---------------
 
@@ -93,13 +88,7 @@ def _extract_slug(prompt: str) -> str:
 # -- Test ----------------------------------------------------------------------
 
 
-def test_self_hosting_proof_idea_to_convergence(
-    git_repo: Path,
-    run_self_hosting_proof: bool,
-) -> None:
-    if not run_self_hosting_proof:
-        pytest.skip("pass --run-self-hosting-proof to enable self-hosting proof tests")
-
+def test_self_hosting_proof_idea_to_convergence(git_repo: Path) -> None:
     # Phase 1: scaffold a repo that mirrors this project's shape
     _setup_project_structure(git_repo)
 
