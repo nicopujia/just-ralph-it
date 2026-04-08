@@ -20,7 +20,7 @@ const humanTaskSchema = tool.schema.object({
 export default tool({
   name: "ralph-result",
   description:
-    "Report the final result of this task. Call exactly once as your very last action. Use only completed, incomplete, or needs_human. Missing or invalid payloads are treated as JRI-level failures.",
+    "Write the final structured result payload for this task to JRI_RESULT_PATH. Call exactly once as your very last action. Use only completed, incomplete, or needs_human. Missing or invalid payloads are treated as JRI-level failures.",
   args: {
     result: tool.schema
       .enum(["completed", "incomplete", "needs_human"])

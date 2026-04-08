@@ -26,6 +26,7 @@ class SuccessfulFakeOpenCodeClient(OpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -51,6 +52,7 @@ class FailedFakeOpenCodeClient(OpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -73,6 +75,7 @@ class DistinctFileFakeOpenCodeClient(OpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:

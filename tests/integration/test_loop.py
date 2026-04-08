@@ -35,6 +35,7 @@ class SuccessfulFakeOpenCodeClient(OpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -63,6 +64,7 @@ class NeedsHumanFakeOpenCodeClient(OpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -101,6 +103,7 @@ class NeedsHumanThenSuccessfulFakeOpenCodeClient(OpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -136,6 +139,7 @@ class MissingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -144,6 +148,7 @@ class MissingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
             root=root,
             prompt=prompt,
             log_path=log_path,
+            result_path=result_path,
             on_start=on_start,
             timeout=timeout,
         )
@@ -156,6 +161,7 @@ class MutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -168,6 +174,7 @@ class MutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
             root=root,
             prompt=prompt,
             log_path=log_path,
+            result_path=result_path,
             on_start=on_start,
             timeout=timeout,
         )
@@ -180,6 +187,7 @@ class CommittedMutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -194,6 +202,7 @@ class CommittedMutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
             root=root,
             prompt=prompt,
             log_path=log_path,
+            result_path=result_path,
             on_start=on_start,
             timeout=timeout,
         )
@@ -206,6 +215,7 @@ class FollowUpDraftOpenCodeClient(SuccessfulFakeOpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -223,6 +233,7 @@ class FollowUpDraftOpenCodeClient(SuccessfulFakeOpenCodeClient):
             root=root,
             prompt=prompt,
             log_path=log_path,
+            result_path=result_path,
             on_start=on_start,
             timeout=timeout,
         )
@@ -1051,6 +1062,7 @@ class MakeCheckFailsFakeOpenCodeClient(OpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -1078,6 +1090,7 @@ class FailedFakeOpenCodeClient(OpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -1102,6 +1115,7 @@ class IncompleteFakeOpenCodeClient(OpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -1127,6 +1141,7 @@ class MalformedNeedsHumanFakeOpenCodeClient(OpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -2008,6 +2023,7 @@ class SlowFakeOpenCodeClient(OpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -2279,6 +2295,7 @@ def test_timeline_records_stderr_warnings(git_repo: Path) -> None:
             root: Path,
             prompt: str,
             log_path: Path,
+            result_path: Path,
             on_start: object | None = None,
             timeout: int | None = None,
         ) -> OpenCodeRunResult:
@@ -2286,6 +2303,7 @@ def test_timeline_records_stderr_warnings(git_repo: Path) -> None:
                 root=root,
                 prompt=prompt,
                 log_path=log_path,
+                result_path=result_path,
                 on_start=on_start,
                 timeout=timeout,
             )
@@ -2329,6 +2347,7 @@ class StopAfterFirstTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -2337,6 +2356,7 @@ class StopAfterFirstTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
             root=root,
             prompt=prompt,
             log_path=log_path,
+            result_path=result_path,
             on_start=on_start,
             timeout=timeout,
         )
@@ -2636,6 +2656,7 @@ class ExportFailingFakeOpenCodeClient(OpenCodeClient):
         root: Path,
         prompt: str,
         log_path: Path,
+        result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
@@ -2718,6 +2739,7 @@ def test_export_failure_during_failed_recovery_is_visible(git_repo: Path) -> Non
             root: Path,
             prompt: str,
             log_path: Path,
+            result_path: Path,
             on_start: object | None = None,
             timeout: int | None = None,
         ) -> OpenCodeRunResult:
