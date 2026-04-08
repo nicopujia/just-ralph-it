@@ -1,6 +1,7 @@
 import json
 import os
 import queue
+import socket
 import subprocess
 import sys
 import threading
@@ -24,6 +25,17 @@ _OUTCOME_MARKERS: tuple[tuple[str, Outcome], ...] = (
     (_FAILED_MARKER, "failed"),
     (_NEEDS_HUMAN_MARKER, "needs human"),
 )
+_RESULT_TOOL_NAMES = ("ralph-result", "result")
+
+
+def _normalize_outcome(raw: str) -> Outcome | None:
+    if raw == "completed":
+        return "completed"
+    if raw == "needs_human":
+        return "needs human"
+    if raw == "failed":
+        return "failed"
+    return None
 
 
 def _dict_value(payload: dict[str, object], key: str) -> dict[str, object] | None:
@@ -107,6 +119,34 @@ def _finalize_outcome(
     warning = f"missing JRI outcome marker for {context}; treating run as failed"
     print(warning, file=sys.stderr)
     return "failed", [warning]
+
+
+def _detect_result_tool_outcome(event: dict[str, object]) -> Outcome | None:
+    if event.get("type") != "message.part.updated":
+        return None
+    properties = event.get("properties")
+    if not isinstance(properties, dict):
+        return None
+    properties = cast(dict[str, object], properties)
+    part = properties.get("part")
+    if not isinstance(part, dict):
+        return None
+    part = cast(dict[str, object], part)
+    if part.get("type") != "tool":
+        return None
+    state = part.get("state")
+    if not isinstance(state, dict):
+        return None
+    state = cast(dict[str, object], state)
+    tool_name = part.get("tool") or state.get("tool")
+    if tool_name not in _RESULT_TOOL_NAMES:
+        return None
+    input_obj = state.get("input")
+    if not isinstance(input_obj, dict):
+        return None
+    input_obj = cast(dict[str, object], input_obj)
+    raw = input_obj.get("outcome")
+    return _normalize_outcome(raw) if isinstance(raw, str) else None
 
 
 class OpenCodeClient:
@@ -300,6 +340,12 @@ _SERVER_HEALTH_TIMEOUT = 30.0
 _SERVER_HEALTH_INTERVAL = 0.25
 
 
+def _pick_free_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return cast(int, sock.getsockname()[1])
+
+
 def _http_request(
     method: str,
     url: str,
@@ -327,14 +373,17 @@ class OpenCodeServer:
         self,
         *,
         binary: str = "opencode",
-        port: int = 4096,
+        port: int | None = None,
         model: str | None = None,
     ) -> None:
         self.binary = binary
-        self.port = port
+        self._configured_port = port
+        self.port: int | None = port
         self.model = model
         self._process: subprocess.Popen[bytes] | None = None
-        self._base_url = f"http://127.0.0.1:{port}"
+        self._base_url = (
+            f"http://127.0.0.1:{port}" if port is not None else "http://127.0.0.1"
+        )
 
     # -- lifecycle ---------------------------------------------------------
 
@@ -349,9 +398,12 @@ class OpenCodeServer:
         merged_env = os.environ.copy()
         if env:
             merged_env.update(env)
+        port = self._configured_port if self._configured_port is not None else _pick_free_local_port()
+        self.port = port
+        self._base_url = f"http://127.0.0.1:{port}"
         try:
             self._process = subprocess.Popen(
-                [self.binary, "serve", "--port", str(self.port)],
+                [self.binary, "serve", "--port", str(port)],
                 cwd=str(cwd) if cwd is not None else None,
                 env=merged_env,
                 stdout=subprocess.DEVNULL,
@@ -459,6 +511,11 @@ class OpenCodeServer:
         session_id = session.get("id") if isinstance(session, dict) else None
         if not isinstance(session_id, str):
             raise JriError("opencode session response missing id")
+        if isinstance(session, dict) and not self._session_matches_root(session, root):
+            self._delete_session(session_id)
+            raise JriError(
+                "opencode session was created for a different root than requested"
+            )
 
         # 2. Open SSE stream and process events
         events: queue.Queue[dict[str, object] | None] = queue.Queue()
@@ -500,6 +557,8 @@ class OpenCodeServer:
         timed_out = False
         deadline = time.monotonic() + timeout if timeout and timeout > 0 else None
         seen_tool_calls: set[str] = set()
+        saw_active_status = False
+        last_outcome: Outcome | None = None
 
         # 3. Send prompt
         prompt_body: dict[str, object] = {
@@ -551,6 +610,11 @@ class OpenCodeServer:
                     log_file.flush()
 
                     self._handle_permission(event)
+                    result_tool_outcome = _detect_result_tool_outcome(
+                        self._unwrap(event)
+                    )
+                    if result_tool_outcome is not None:
+                        last_outcome = result_tool_outcome
                     text_to_print, newline_before = self._render_event(
                         event, session_id, seen_tool_calls
                     )
@@ -561,7 +625,10 @@ class OpenCodeServer:
                         sys.stdout.flush()
                         last_terminal_char = text_to_print[-1]
 
-                    if self._is_session_idle(event, session_id):
+                    status_type = self._session_status_type(event, session_id)
+                    if status_type in {"running", "busy"}:
+                        saw_active_status = True
+                    if status_type == "idle" and saw_active_status:
                         break
         finally:
             stop_event.set()
@@ -576,22 +643,16 @@ class OpenCodeServer:
             warnings.append(msg)
         elif outcome_path.exists():
             raw = outcome_path.read_text(encoding="utf-8").strip()
-            if raw == "completed":
-                outcome = "completed"
-            elif raw == "needs_human":
-                outcome = "needs human"
-            elif raw == "failed":
-                outcome = "failed"
+            normalized = _normalize_outcome(raw)
+            if normalized is not None:
+                outcome = normalized
             else:
                 warning = f"unrecognized JRI outcome `{raw}`; treating run as failed"
                 print(warning, file=sys.stderr)
                 warnings.append(warning)
                 outcome = "failed"
         else:
-            warning = "missing JRI outcome marker for Ralph run; treating run as failed"
-            print(warning, file=sys.stderr)
-            warnings.append(warning)
-            outcome = "failed"
+            outcome, warnings = _finalize_outcome(last_outcome, context="Ralph run")
 
         return OpenCodeRunResult(
             returncode=0 if not timed_out else -1,
@@ -633,6 +694,16 @@ class OpenCodeServer:
             )
         except Exception:
             pass
+
+    def _session_matches_root(self, session: dict[str, object], root: Path) -> bool:
+        expected_root = str(root.resolve())
+        candidate_keys = ("directory", "cwd", "root", "worktree", "path")
+        candidates = [
+            str(Path(value).resolve())
+            for key in candidate_keys
+            if isinstance(value := session.get(key), str) and value
+        ]
+        return not candidates or expected_root in candidates
 
     def _tool_detail(self, tool_name: str, input_obj: object) -> str:
         """Extract a one-line detail (file path, command, etc.) from tool input."""
@@ -682,22 +753,24 @@ class OpenCodeServer:
             return cast(dict[str, object], payload)
         return event
 
-    def _is_session_idle(self, event: dict[str, object], session_id: str) -> bool:
+    def _session_status_type(
+        self, event: dict[str, object], session_id: str
+    ) -> str | None:
         event = self._unwrap(event)
         if event.get("type") != "session.status":
-            return False
+            return None
         properties = event.get("properties")
         if not isinstance(properties, dict):
-            return False
+            return None
         properties = cast(dict[str, object], properties)
         sid = properties.get("sessionID") or properties.get("session_id")
         if sid != session_id:
-            return False
+            return None
         status = properties.get("status")
         if isinstance(status, dict):
             status = cast(dict[str, object], status)
-            return status.get("type") == "idle"
-        return status == "idle"
+            status = status.get("type")
+        return status if isinstance(status, str) else None
 
     def _render_event(
         self,
