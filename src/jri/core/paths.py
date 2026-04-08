@@ -92,8 +92,15 @@ class JriPaths:
         return self.jri_dir / "metrics.json"
 
     @property
+    def attempts_dir(self) -> Path:
+        return self.jri_dir / "attempts"
+
+    @property
     def worktree_dir(self) -> Path:
         return self.jri_dir / "worktree"
 
     def diff_artifact_path(self, slug: str) -> Path:
         return self.diffs_dir / f"{slug}.diff"
+
+    def attempt_history_path(self, slug: str) -> Path:
+        return self.attempts_dir / f"{slug}.json"

@@ -9,7 +9,13 @@ import pytest
 
 from jri.core.errors import JriError
 from jri.core.git import MSG_RECOVER_STALE
-from jri.core.models import AttemptState, OpenCodeRunResult, State
+from jri.core.models import (
+    AttemptState,
+    HumanTaskPayload,
+    OpenCodeRunResult,
+    RalphResultPayload,
+    State,
+)
 from jri.core.opencode import OpenCodeClient
 from jri.core.service import JriService
 from jri.core.tasks import list_tasks, parse_task_file
@@ -37,7 +43,7 @@ class SuccessfulFakeOpenCodeClient(OpenCodeClient):
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
         return OpenCodeRunResult(
-            returncode=0, session_id="ses_fake", outcome="completed"
+            returncode=0, session_id="ses_fake", result="completed"
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
@@ -65,7 +71,16 @@ class NeedsHumanFakeOpenCodeClient(OpenCodeClient):
         return OpenCodeRunResult(
             returncode=0,
             session_id="ses_needs_human",
-            outcome="needs human",
+            result="needs_human",
+            payload=RalphResultPayload(
+                result="needs_human",
+                blocker="A human action is required.",
+                human_task=HumanTaskPayload(
+                    title="Provide missing input",
+                    body="A human must provide the missing input.",
+                    acceptance_criteria=["Required input is provided"],
+                ),
+            ),
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
@@ -96,10 +111,19 @@ class NeedsHumanThenSuccessfulFakeOpenCodeClient(OpenCodeClient):
             return OpenCodeRunResult(
                 returncode=0,
                 session_id="ses_needs_human",
-                outcome="needs human",
+                result="needs_human",
+                payload=RalphResultPayload(
+                    result="needs_human",
+                    blocker="A human action is required.",
+                    human_task=HumanTaskPayload(
+                        title="Provide missing input",
+                        body="A human must provide the missing input.",
+                        acceptance_criteria=["Required input is provided"],
+                    ),
+                ),
             )
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
-        return OpenCodeRunResult(returncode=0, session_id="ses_ok", outcome="completed")
+        return OpenCodeRunResult(returncode=0, session_id="ses_ok", result="completed")
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
@@ -276,8 +300,11 @@ def test_start_completes_single_task(git_repo: Path) -> None:
     assert len(attempts) == 1
     assert attempts[0]["number"] == 1
     assert attempts[0]["task_slug"] == "implement-file"
-    assert attempts[0]["outcome"] == "completed"
+    assert attempts[0]["result"] == "completed"
     assert attempts[0]["session_id"] == "ses_fake"
+    attempt_history = read_json(git_repo / ".jri" / "attempts" / "implement-file.json")
+    assert attempt_history["task_slug"] == "implement-file"
+    assert len(cast(list[dict[str, object]], attempt_history["attempts"])) == 1
     assert git(git_repo, "status", "--short") == ""
 
 
@@ -585,8 +612,8 @@ def test_start_records_retry_attempt_after_interrupted_run(git_repo: Path) -> No
         "implement-file",
         "implement-file",
     ]
-    assert attempts[0]["outcome"] == "interrupted"
-    assert attempts[1]["outcome"] == "completed"
+    assert attempts[0]["result"] == "interrupted"
+    assert attempts[1]["result"] == "completed"
 
 
 def test_start_recovers_stale_foreground_process(git_repo: Path) -> None:
@@ -801,7 +828,7 @@ def test_start_retries_after_interrupted_completion_without_rerunning_task(
     interrupted_state = read_json(git_repo / ".jri" / "state.json")
     interrupted_attempt = cast(dict[str, object], interrupted_state["active_attempt"])
     assert interrupted_attempt["task_slug"] == "task-a"
-    assert interrupted_attempt["outcome"] == "completed"
+    assert interrupted_attempt["result"] == "completed"
     assert (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "doing" / "task-a.md").exists()
     assert (git_repo / ".jri" / "tasks" / "todo" / "task-b.md").exists()
@@ -819,8 +846,8 @@ def test_start_retries_after_interrupted_completion_without_rerunning_task(
     attempts = cast(list[dict[str, object]], final_state["attempts"])
     assert final_state.get("active_attempt") is None
     assert [attempt["task_slug"] for attempt in attempts] == ["task-a", "task-b"]
-    assert attempts[0]["outcome"] == "completed"
-    assert attempts[1]["outcome"] == "completed"
+    assert attempts[0]["result"] == "completed"
+    assert attempts[1]["result"] == "completed"
     assert (git_repo / ".jri" / "tasks" / "done" / "task-b.md").exists()
 
 
@@ -911,8 +938,14 @@ def test_needs_human_generates_human_followup_and_blocks_original_task(
     assert completed == 0
     assert len(human_tasks) == 1
     human_task = human_tasks[0]
+    assert human_task.metadata.title == "Provide missing input"
     assert human_task.metadata.priority == 0
+    assert human_task.metadata.acceptance_criteria == ["Required input is provided"]
     assert original_task.metadata.depends_on == [human_task.slug]
+    assert "## Blocker" in human_task.body
+    assert "A human action is required." in human_task.body
+    assert "## Requested human work" in human_task.body
+    assert "A human must provide the missing input." in human_task.body
     assert "needs-human-task" in human_task.body
     assert ".jri/tasks/todo/needs-human-task.md" in human_task.body
     assert ".jri/logs/ralph/" in human_task.body
@@ -1025,7 +1058,7 @@ class MakeCheckFailsFakeOpenCodeClient(OpenCodeClient):
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
         return OpenCodeRunResult(
-            returncode=0, session_id="ses_fake", outcome="completed"
+            returncode=0, session_id="ses_fake", result="completed"
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
@@ -1033,7 +1066,7 @@ class MakeCheckFailsFakeOpenCodeClient(OpenCodeClient):
 
 
 class FailedFakeOpenCodeClient(OpenCodeClient):
-    """Simulates Ralph explicitly returning a failed outcome."""
+    """Simulates Ralph explicitly returning a failed result."""
 
     def __init__(self) -> None:
         super().__init__(model=None)
@@ -1050,12 +1083,68 @@ class FailedFakeOpenCodeClient(OpenCodeClient):
     ) -> OpenCodeRunResult:
         self.calls.append((prompt, log_path))
         log_path.write_text("fake failed run\n", encoding="utf-8")
-        return OpenCodeRunResult(
-            returncode=0, session_id="ses_failed", outcome="failed"
-        )
+        return OpenCodeRunResult(returncode=0, session_id="ses_failed", result="failed")
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake_failed"}\n', encoding="utf-8")
+
+
+class IncompleteFakeOpenCodeClient(OpenCodeClient):
+    """Simulates Ralph returning an incomplete result."""
+
+    def __init__(self) -> None:
+        super().__init__(model=None)
+        self.calls: list[tuple[str, Path]] = []
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        on_start: object | None = None,
+        timeout: int | None = None,
+    ) -> OpenCodeRunResult:
+        self.calls.append((prompt, log_path))
+        log_path.write_text("fake incomplete run\n", encoding="utf-8")
+        return OpenCodeRunResult(
+            returncode=0, session_id="ses_incomplete", result="incomplete"
+        )
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        destination.write_text('{"session": "fake_incomplete"}\n', encoding="utf-8")
+
+
+class MalformedNeedsHumanFakeOpenCodeClient(OpenCodeClient):
+    """Simulates a malformed structured needs_human payload from Ralph."""
+
+    def __init__(self) -> None:
+        super().__init__(model=None)
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        on_start: object | None = None,
+        timeout: int | None = None,
+    ) -> OpenCodeRunResult:
+        log_path.write_text("fake malformed needs-human run\n", encoding="utf-8")
+        return OpenCodeRunResult(
+            returncode=0,
+            session_id="ses_bad_needs_human",
+            result="failed",
+            warnings=[
+                "invalid JRI result payload; treating run as failed: "
+                "`human_task.title` must be a non-empty string"
+            ],
+        )
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        destination.write_text(
+            '{"session": "fake_bad_needs_human"}\n', encoding="utf-8"
+        )
 
 
 def test_failed_outcome_triggers_recovery(git_repo: Path) -> None:
@@ -1083,6 +1172,68 @@ def test_failed_outcome_triggers_recovery(git_repo: Path) -> None:
     assert git(git_repo, "branch", "--show-current") == "main"
     branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
     assert not any("ralph/" in b for b in branches)
+
+
+def test_incomplete_result_triggers_retryable_recovery(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="incomplete-task",
+        title="Incomplete task",
+        priority=0,
+        assignee="Ralph",
+        body="This will be left incomplete.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/incomplete-task.md")
+    git(git_repo, "commit", "-m", "add incomplete task")
+
+    service = JriService(git_repo, opencode_client=IncompleteFakeOpenCodeClient())
+
+    completed = service.start(max_tasks=1, force=True)
+
+    assert completed == 0
+    assert (git_repo / ".jri" / "tasks" / "todo" / "incomplete-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "incomplete-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "incomplete-task.md").exists()
+    state = read_json(git_repo / ".jri" / "state.json")
+    attempts = cast(list[dict[str, object]], state["attempts"])
+    assert attempts[0]["result"] == "incomplete"
+    assert [
+        t
+        for t in list_tasks(git_repo / ".jri" / "tasks" / "todo")
+        if t.metadata.assignee == "Human"
+    ] == []
+
+
+def test_malformed_needs_human_payload_is_treated_as_failed(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="bad-needs-human-task",
+        title="Bad needs human task",
+        priority=0,
+        assignee="Ralph",
+        body="This returns a malformed needs_human payload.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/bad-needs-human-task.md")
+    git(git_repo, "commit", "-m", "add malformed needs human task")
+
+    service = JriService(
+        git_repo,
+        opencode_client=MalformedNeedsHumanFakeOpenCodeClient(),
+    )
+
+    completed = service.start(max_tasks=1, force=True)
+
+    assert completed == 0
+    assert (git_repo / ".jri" / "tasks" / "todo" / "bad-needs-human-task.md").exists()
+    todo_tasks = list_tasks(git_repo / ".jri" / "tasks" / "todo")
+    assert [task for task in todo_tasks if task.metadata.assignee == "Human"] == []
+    state = read_json(git_repo / ".jri" / "state.json")
+    attempts = cast(list[dict[str, object]], state["attempts"])
+    assert attempts[0]["result"] == "failed"
 
 
 def test_make_check_runs_after_completion(git_repo: Path) -> None:
@@ -1232,7 +1383,9 @@ def test_failed_task_is_retried_after_first_failure(git_repo: Path) -> None:
     attempts = cast(list[dict[str, object]], state["attempts"])
     failed_for_task = [a for a in attempts if a["task_slug"] == "failing-task"]
     assert len(failed_for_task) == 1
-    assert failed_for_task[0]["outcome"] == "failed"
+    assert failed_for_task[0]["result"] == "failed"
+    history = read_json(git_repo / ".jri" / "attempts" / "failing-task.json")
+    assert len(cast(list[dict[str, object]], history["attempts"])) == 1
 
     # Second run succeeds (task is retried)
     success_client = SuccessfulFakeOpenCodeClient()
@@ -1279,8 +1432,8 @@ def test_failed_task_is_retried_up_to_three_times(git_repo: Path) -> None:
     assert len(success_client.calls) == 1
 
 
-def test_task_escalates_to_needs_human_after_three_failures(git_repo: Path) -> None:
-    """After 3 failed attempts the task is escalated to needs human."""
+def test_failed_task_can_keep_retrying_without_escalation(git_repo: Path) -> None:
+    """Repeated failures keep the task in todo until a later successful retry."""
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -1302,19 +1455,18 @@ def test_task_escalates_to_needs_human_after_three_failures(git_repo: Path) -> N
     service2 = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
     assert service2.start(max_tasks=1, force=True) == 0
 
-    # Third failure triggers auto-escalation
+    # Third failure still leaves the task retryable later
     fail_client3 = FailedFakeOpenCodeClient()
     service3 = JriService(git_repo, opencode_client=fail_client3)
     assert service3.start(max_tasks=1, force=True) == 0
 
-    # Original task is back in todo, now blocked on a generated Human task
+    # Original task is back in todo and no Human task was generated
     assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
     todo_tasks = list_tasks(git_repo / ".jri" / "tasks" / "todo")
     human_tasks = [t for t in todo_tasks if t.metadata.assignee == "Human"]
-    assert len(human_tasks) == 1
+    assert human_tasks == []
     original = parse_task_file(git_repo / ".jri" / "tasks" / "todo" / "failing-task.md")
-    assert original.metadata.depends_on == [human_tasks[0].slug]
-    assert "failing-task" in human_tasks[0].slug
+    assert original.metadata.depends_on == []
 
     # Attempt history records three failures
     state = read_json(git_repo / ".jri" / "state.json")
@@ -1322,15 +1474,15 @@ def test_task_escalates_to_needs_human_after_three_failures(git_repo: Path) -> N
     failed_for_task = [
         a
         for a in attempts
-        if a.get("task_slug") == "failing-task" and a.get("outcome") == "failed"
+        if a.get("task_slug") == "failing-task" and a.get("result") == "failed"
     ]
     assert len(failed_for_task) == 3
 
-    # Subsequent start does not retry the escalated task
+    # Subsequent start still retries the task
     success_client = SuccessfulFakeOpenCodeClient()
     service4 = JriService(git_repo, opencode_client=success_client)
-    assert service4.start(max_tasks=1, force=True) == 0
-    assert success_client.calls == []
+    assert service4.start(max_tasks=1, force=True) == 1
+    assert len(success_client.calls) == 1
 
 
 def test_failed_task_recovery_logs_failure(
@@ -1501,7 +1653,7 @@ def test_state_is_understandable_after_partial_recovery_failure(
     attempts = cast(list[dict[str, object]], state["attempts"])
     assert len(attempts) == 1
     assert attempts[0]["task_slug"] == "failing-task"
-    assert attempts[0]["outcome"] == "failed"
+    assert attempts[0]["result"] == "failed"
 
     # Recovery failure log explains what happened
     failure_log_path = git_repo / ".jri" / "logs" / "recovery-failures.log"
@@ -1689,36 +1841,6 @@ def test_needs_human_task_records_timeline_events(git_repo: Path) -> None:
     assert "recovery_completed" in event_types
 
 
-def test_escalated_task_records_timeline_event(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
-    write_task(
-        git_repo,
-        status="todo",
-        slug="failing-task",
-        title="Failing task",
-        priority=0,
-        assignee="Ralph",
-        body="This will fail three times.",
-    )
-    git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
-    git(git_repo, "commit", "-m", "add failing task")
-
-    from jri.core.timeline import TimelineStore
-
-    for _ in range(3):
-        service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
-        service.start(max_tasks=1, force=True)
-
-    timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
-    store = TimelineStore(timeline_path)
-    events = store.read()
-    escalated_events = [e for e in events if e.event == "task_escalated"]
-    assert len(escalated_events) == 1
-    assert escalated_events[0].task == "failing-task"
-    assert escalated_events[0].detail is not None
-    assert escalated_events[0].detail.get("failed_attempts") == 3
-
-
 def test_timeline_cli_shows_events(
     git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1897,7 +2019,7 @@ class SlowFakeOpenCodeClient(OpenCodeClient):
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake slow run\n", encoding="utf-8")
         return OpenCodeRunResult(
-            returncode=0, session_id="ses_slow", outcome="completed"
+            returncode=0, session_id="ses_slow", result="completed"
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
@@ -2170,7 +2292,8 @@ def test_timeline_records_stderr_warnings(git_repo: Path) -> None:
             return OpenCodeRunResult(
                 returncode=result.returncode,
                 session_id=result.session_id,
-                outcome=result.outcome,
+                result=result.result,
+                payload=result.payload,
                 warnings=["Test warning message"],
             )
 
@@ -2460,9 +2583,9 @@ def test_halt_then_start_recovery_consistency(git_repo: Path) -> None:
         read_json(git_repo / ".jri" / "state.json")["attempts"],
     )
     assert len(attempts) == 2
-    assert attempts[0]["outcome"] == "interrupted"
+    assert attempts[0]["result"] == "interrupted"
     assert attempts[0]["task_slug"] == "interrupted-task"
-    assert attempts[1]["outcome"] == "completed"
+    assert attempts[1]["result"] == "completed"
     assert attempts[1]["task_slug"] == "interrupted-task"
 
 
@@ -2520,7 +2643,7 @@ class ExportFailingFakeOpenCodeClient(OpenCodeClient):
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
         return OpenCodeRunResult(
-            returncode=0, session_id="ses_export_fail", outcome="completed"
+            returncode=0, session_id="ses_export_fail", result="completed"
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
@@ -2566,8 +2689,8 @@ def test_export_failure_is_visible_in_timeline(git_repo: Path) -> None:
     assert "Export failed" in str(export_failed_events[0].detail.get("error", ""))
 
 
-def test_export_failure_during_escalation_is_visible(git_repo: Path) -> None:
-    """Export failures during task escalation are recorded in timeline."""
+def test_export_failure_during_failed_recovery_is_visible(git_repo: Path) -> None:
+    """Export failures during failed-task recovery are recorded in timeline."""
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -2576,14 +2699,14 @@ def test_export_failure_during_escalation_is_visible(git_repo: Path) -> None:
         title="Failing task",
         priority=0,
         assignee="Ralph",
-        body="This task will fail and escalate.",
+        body="This task will fail.",
     )
     git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
     git(git_repo, "commit", "-m", "add failing task")
 
     from jri.core.timeline import TimelineStore
 
-    # Create a client that reports failed outcome AND fails on export
+    # Create a client that reports failed result AND fails on export
     class FailingWithExportFail(OpenCodeClient):
         def __init__(self) -> None:
             super().__init__(model=None)
@@ -2600,31 +2723,27 @@ def test_export_failure_during_escalation_is_visible(git_repo: Path) -> None:
         ) -> OpenCodeRunResult:
             self.call_count += 1
             log_path.write_text(f"failed run #{self.call_count}\n", encoding="utf-8")
-            # returncode=0 means process succeeded, outcome="failed" means Ralph failed
+            # returncode=0 means process succeeded, result="failed" means Ralph failed
             return OpenCodeRunResult(
                 returncode=0,
                 session_id=f"ses_fail_{self.call_count}",
-                outcome="failed",
+                result="failed",
             )
 
         def export_session(self, session_id: str, destination: Path) -> None:
             raise JriError(f"Export failed for {session_id}")
 
-    # Run three iterations to trigger escalation
-    for _ in range(3):
-        client = FailingWithExportFail()
-        service = JriService(git_repo, opencode_client=client)
-        service.start(max_tasks=1, force=True)
+    client = FailingWithExportFail()
+    service = JriService(git_repo, opencode_client=client)
+    service.start(max_tasks=1, force=True)
 
-    # Verify timeline has export_failed events during escalation
+    # Verify timeline has export_failed events during recovery
     timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
     store = TimelineStore(timeline_path)
     events = store.read()
 
     export_failed_events = [e for e in events if e.event == "export_failed"]
-    # Should have at least one export failure from escalation
-    assert len(export_failed_events) >= 1
-    # All export failures should be for the failing task
+    assert len(export_failed_events) == 1
     for event in export_failed_events:
         assert event.task == "failing-task"
 

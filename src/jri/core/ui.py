@@ -35,16 +35,17 @@ def task_header(task_slug: str) -> str:
     return _s(inner, BOLD, CYAN)
 
 
-_OUTCOME_CFG: dict[str, tuple[str, str, str]] = {
+_RESULT_CFG: dict[str, tuple[str, str, str]] = {
     "completed": ("✓ completed", GREEN, ""),
+    "incomplete": ("… incomplete", YELLOW, ""),
     "failed": ("✗ failed", RED, ""),
-    "needs human": ("⚠ needs human", YELLOW, ""),
+    "needs_human": ("⚠ needs_human", YELLOW, ""),
     "timeout": ("⏱ timeout", RED, ""),
 }
 
 
-def task_footer(outcome: str) -> str:
-    text, color, _ = _OUTCOME_CFG[outcome]
+def task_footer(result: str) -> str:
+    text, color, _ = _RESULT_CFG[result]
     return _s(text, color, BOLD)
 
 

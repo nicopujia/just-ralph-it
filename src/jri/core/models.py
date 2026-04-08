@@ -3,8 +3,88 @@ from pathlib import Path
 from typing import Literal, Self, cast
 
 Assignee = Literal["Ralph", "Human"]
-Outcome = Literal["completed", "failed", "needs human", "timeout"]
-AttemptOutcome = Literal["completed", "failed", "needs human", "interrupted", "timeout"]
+Result = Literal["completed", "incomplete", "needs_human", "failed", "timeout"]
+AttemptResult = Literal[
+    "completed",
+    "incomplete",
+    "needs_human",
+    "failed",
+    "interrupted",
+    "timeout",
+]
+
+
+@dataclass(frozen=True)
+class HumanTaskPayload:
+    title: str
+    body: str
+    acceptance_criteria: list[str]
+    priority: int | None = None
+
+    def to_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "title": self.title,
+            "body": self.body,
+            "acceptance_criteria": self.acceptance_criteria,
+        }
+        if self.priority is not None:
+            payload["priority"] = self.priority
+        return payload
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> Self:
+        criteria = payload.get("acceptance_criteria")
+        return cls(
+            title=_str_or_none(payload.get("title")) or "",
+            body=_str_or_none(payload.get("body")) or "",
+            acceptance_criteria=(
+                [item for item in criteria if isinstance(item, str)]
+                if isinstance(criteria, list)
+                else []
+            ),
+            priority=_int_or_none(payload.get("priority")),
+        )
+
+
+@dataclass(frozen=True)
+class RalphResultPayload:
+    result: Result
+    summary: str | None = None
+    learnings: list[str] = field(default_factory=list)
+    blocker: str | None = None
+    human_task: HumanTaskPayload | None = None
+
+    def to_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {"result": self.result}
+        if self.summary is not None:
+            payload["summary"] = self.summary
+        if self.learnings:
+            payload["learnings"] = self.learnings
+        if self.blocker is not None:
+            payload["blocker"] = self.blocker
+        if self.human_task is not None:
+            payload["human_task"] = self.human_task.to_payload()
+        return payload
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> Self:
+        human_task_raw = payload.get("human_task")
+        learnings = payload.get("learnings")
+        return cls(
+            result=cast(Result, payload.get("result")),
+            summary=_str_or_none(payload.get("summary")),
+            learnings=(
+                [item for item in learnings if isinstance(item, str)]
+                if isinstance(learnings, list)
+                else []
+            ),
+            blocker=_str_or_none(payload.get("blocker")),
+            human_task=(
+                HumanTaskPayload.from_payload(cast(dict[str, object], human_task_raw))
+                if isinstance(human_task_raw, dict)
+                else None
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -28,7 +108,8 @@ class Task:
 class OpenCodeRunResult:
     returncode: int
     session_id: str | None = None
-    outcome: Outcome = "failed"
+    result: Result = "failed"
+    payload: RalphResultPayload | None = None
     warnings: list[str] = field(default_factory=list)
 
 
@@ -49,7 +130,7 @@ class AttemptState:
     finished_at: int | None = None
     log_path: str | None = None
     session_id: str | None = None
-    outcome: AttemptOutcome | None = None
+    result: AttemptResult | None = None
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -64,8 +145,8 @@ class AttemptState:
             payload["log_path"] = self.log_path
         if self.session_id is not None:
             payload["session_id"] = self.session_id
-        if self.outcome is not None:
-            payload["outcome"] = self.outcome
+        if self.result is not None:
+            payload["result"] = self.result
         return payload
 
     @classmethod
@@ -78,7 +159,7 @@ class AttemptState:
             finished_at=_int_or_none(payload.get("finished_at")),
             log_path=_str_or_none(payload.get("log_path")),
             session_id=_str_or_none(payload.get("session_id")),
-            outcome=_attempt_outcome_or_none(payload.get("outcome")),
+            result=_attempt_result_or_none(payload.get("result")),
         )
 
 
@@ -208,7 +289,14 @@ def _str_or_none(value: object) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _attempt_outcome_or_none(value: object) -> AttemptOutcome | None:
-    if value in {"completed", "failed", "needs human", "interrupted", "timeout"}:
-        return cast(AttemptOutcome, value)
+def _attempt_result_or_none(value: object) -> AttemptResult | None:
+    if value in {
+        "completed",
+        "incomplete",
+        "needs_human",
+        "failed",
+        "interrupted",
+        "timeout",
+    }:
+        return cast(AttemptResult, value)
     return None

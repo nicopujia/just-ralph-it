@@ -109,7 +109,7 @@ def test_state_round_trips_attempt_metadata(tmp_path: Path) -> None:
         finished_at=456,
         log_path=".jri/logs/ralph/task-a-123.log",
         session_id="ses_123",
-        outcome="interrupted",
+        result="interrupted",
     )
     expected = State(
         started_at=123,
@@ -125,7 +125,7 @@ def test_state_round_trips_attempt_metadata(tmp_path: Path) -> None:
     assert store.load() == expected
 
 
-def test_state_round_trips_attempt_timeout_outcome(tmp_path: Path) -> None:
+def test_state_round_trips_attempt_timeout_result(tmp_path: Path) -> None:
     store = StateStore(tmp_path / ".jri" / "state.json")
     attempt = AttemptState(
         number=1,
@@ -135,7 +135,7 @@ def test_state_round_trips_attempt_timeout_outcome(tmp_path: Path) -> None:
         finished_at=456,
         log_path=".jri/logs/ralph/task-a-123.log",
         session_id="ses_123",
-        outcome="timeout",
+        result="timeout",
     )
     expected = State(active_attempt=attempt, attempts=[attempt])
 

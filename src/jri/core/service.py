@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import signal
@@ -13,7 +14,6 @@ from typing import Any
 
 from .errors import HaltRequested, JriError
 from .git import (
-    MSG_ESCALATE_FAILED,
     MSG_ESCALATE_HUMAN,
     MSG_PROMOTE,
     MSG_RALPH_FINALIZE,
@@ -31,9 +31,11 @@ from .git import (
 from .metrics import MetricEntry, MetricsStore
 from .models import (
     AttemptState,
-    Outcome,
+    HumanTaskPayload,
     ProcessState,
     PromotionRecord,
+    RalphResultPayload,
+    Result,
     State,
     Task,
     TaskMetadata,
@@ -73,7 +75,6 @@ _MANAGED_TOOL_PATHS = tuple(
 _MANAGED_CONFIG_FILENAMES = ("opencode.json",)
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
 _MAX_TASK_TITLE_LENGTH = 50
-_MAX_FAILED_ATTEMPTS = 3
 
 
 class JriService:
@@ -459,6 +460,7 @@ class JriService:
             (directory / ".gitkeep").write_text("", encoding="utf-8")
 
         self.paths.signals_dir.mkdir(parents=True, exist_ok=True)
+        self.paths.attempts_dir.mkdir(parents=True, exist_ok=True)
         self.paths.ralph_logs_dir.mkdir(parents=True, exist_ok=True)
         self.paths.external_logs_dir.mkdir(parents=True, exist_ok=True)
         self.paths.external_opencode_dir.mkdir(parents=True, exist_ok=True)
@@ -614,14 +616,14 @@ class JriService:
         if not self._client_injected:
             if self.opencode_server is None:
                 self.opencode_server = OpenCodeServer(model=self.opencode_client.model)
-            outcome_path = self.paths.jri_dir / "signals" / "result"
-            outcome_path.parent.mkdir(parents=True, exist_ok=True)
+            result_path = self.paths.jri_dir / "signals" / "result"
+            result_path.parent.mkdir(parents=True, exist_ok=True)
             # Ensure the worktree exists before the server starts so Ralph's
             # tools resolve paths against the worktree, not the main repo.
             wt_git, _ = self._ensure_worktree()
             self._sync_worktree(wt_git)
             self.opencode_server.start(
-                env={"JRI_OUTCOME_PATH": str(outcome_path)},
+                env={"JRI_RESULT_PATH": str(result_path)},
                 cwd=self.paths.worktree_dir,
             )
             server_started_here = True
@@ -647,9 +649,7 @@ class JriService:
                     raise JriError(str(exc)) from exc
 
                 def _is_eligible(task: Task) -> bool:
-                    if task.slug in failed_slugs:
-                        return False
-                    return self._count_failed_attempts(task.slug) < _MAX_FAILED_ATTEMPTS
+                    return task.slug not in failed_slugs
 
                 next_task = select_next_task(
                     [t for t in todo_tasks if _is_eligible(t)],
@@ -663,19 +663,14 @@ class JriService:
                 if max_tasks is not None and completed >= max_tasks:
                     break
 
-                outcome = self._run_task(next_task, task_timeout=task_timeout)
-                if outcome == "completed":
+                result = self._run_task(next_task, task_timeout=task_timeout)
+                if result == "completed":
                     completed += 1
-                elif outcome == "failed":
+                elif result in {"failed", "incomplete"}:
                     failed_slugs.add(next_task.slug)
-                    if (
-                        self._count_failed_attempts(next_task.slug)
-                        >= _MAX_FAILED_ATTEMPTS
-                    ):
-                        self._escalate_failed_task(next_task)
-                elif outcome == "needs human":
+                elif result == "needs_human":
                     failed_slugs.add(next_task.slug)
-                elif outcome == "timeout":
+                elif result == "timeout":
                     failed_slugs.add(next_task.slug)
                     self.timeline.record(
                         TimelineEvent(
@@ -757,7 +752,7 @@ class JriService:
         if src.exists():
             shutil.copy2(src, wt / "opencode.json")
 
-    def _run_task(self, task: Task, task_timeout: int | None = None) -> Outcome:
+    def _run_task(self, task: Task, task_timeout: int | None = None) -> Result:
         state = self.state_store.load()
         started_at = int(time.time())
         log_path = self.paths.ralph_log_path(task.slug, started_at)
@@ -828,12 +823,12 @@ class JriService:
             detached=False,
         )
         if self.opencode_server is not None and not self._client_injected:
-            outcome_path = self.paths.jri_dir / "signals" / "result"
+            result_path = self.paths.jri_dir / "signals" / "result"
             result = self.opencode_server.run_ralph_task(
                 root=wt_paths.root,
                 prompt=prompt_text,
                 log_path=log_path,
-                outcome_path=outcome_path,
+                result_path=result_path,
                 on_start=on_start_cb,
                 timeout=task_timeout,
             )
@@ -863,7 +858,7 @@ class JriService:
                 )
             )
             self._recover_failed_task_wt(doing_task, wt_git)
-            self._finish_attempt(attempt, outcome="failed")
+            self._finish_attempt(attempt, result="failed")
             self.timeline.record(
                 TimelineEvent(
                     ts=TimelineStore.now_iso(),
@@ -876,7 +871,7 @@ class JriService:
             sys.stdout.flush()
             return "timeout"
 
-        # Record any warnings from the OpenCode run (e.g., missing outcome marker)
+        # Record any warnings from the OpenCode run (e.g., missing result marker)
         for warning in result.warnings:
             self.timeline.record(
                 TimelineEvent(
@@ -889,7 +884,7 @@ class JriService:
 
         if result.returncode != 0:
             self._recover_failed_task_wt(doing_task, wt_git)
-            self._finish_attempt(attempt, outcome="failed")
+            self._finish_attempt(attempt, result="failed")
             self.timeline.record(
                 TimelineEvent(
                     ts=TimelineStore.now_iso(),
@@ -922,7 +917,7 @@ class JriService:
 
         if not doing_task.path.exists():
             self._recover_failed_task_wt(doing_task, wt_git)
-            self._finish_attempt(attempt, outcome="failed")
+            self._finish_attempt(attempt, result="failed")
             relative_path = doing_task.path.relative_to(wt_paths.root)
             raise JriError(f"task file `{relative_path}` disappeared during Ralph run")
 
@@ -932,15 +927,15 @@ class JriService:
         if doing_task.path.read_text(encoding="utf-8") != doing_task_baseline:
             doing_task.path.write_text(doing_task_baseline, encoding="utf-8")
 
-        if result.outcome == "needs human":
+        if result.result == "needs_human":
             self._recover_needs_human_task(
                 doing_task,
-                branch,
+                result.payload,
                 log_path=log_path,
                 session_id=result.session_id,
                 export_path=export_path,
             )
-            self._finish_attempt(attempt, outcome="needs human")
+            self._finish_attempt(attempt, result="needs_human")
             self.timeline.record(
                 TimelineEvent(
                     ts=TimelineStore.now_iso(),
@@ -948,24 +943,24 @@ class JriService:
                     task=task.slug,
                 )
             )
-            print(task_footer("needs human"))
+            print(task_footer("needs_human"))
             sys.stdout.flush()
-            return "needs human"
+            return "needs_human"
 
-        if result.outcome == "failed":
+        if result.result in {"failed", "incomplete"}:
             self._recover_failed_task_wt(doing_task, wt_git)
-            self._finish_attempt(attempt, outcome="failed")
+            self._finish_attempt(attempt, result=result.result)
             self.timeline.record(
                 TimelineEvent(
                     ts=TimelineStore.now_iso(),
                     event="task_failed",
                     task=task.slug,
-                    detail={"reason": "ralph_outcome_failed"},
+                    detail={"reason": f"ralph_result_{result.result}"},
                 )
             )
-            print(task_footer("failed"))
+            print(task_footer(result.result))
             sys.stdout.flush()
-            return "failed"
+            return result.result
 
         wt_git.commit_all_if_needed(MSG_RALPH_FINALIZE.format(slug=task.slug))
 
@@ -996,7 +991,7 @@ class JriService:
                         result="fail",
                     )
                 )
-                self._finish_attempt(attempt, outcome="failed")
+                self._finish_attempt(attempt, result="failed")
                 print(task_footer("failed"))
                 sys.stdout.flush()
                 return "failed"
@@ -1029,7 +1024,7 @@ class JriService:
                         result="fail",
                     )
                 )
-                self._finish_attempt(attempt, outcome="failed")
+                self._finish_attempt(attempt, result="failed")
                 print(task_footer("failed"))
                 sys.stdout.flush()
                 return "failed"
@@ -1068,8 +1063,9 @@ class JriService:
             self.git.push_task_refs(branch=branch, tag=end_tag)
 
         finished_at = int(time.time())
-        attempt = replace(attempt, finished_at=finished_at, outcome="completed")
+        attempt = replace(attempt, finished_at=finished_at, result="completed")
         self.state_store.save_active_attempt(attempt)
+        self._persist_attempt_history(attempt)
         self.state_store.mark_task_finished(
             task_slug=task.slug,
             finished_at=finished_at,
@@ -1239,7 +1235,12 @@ class JriService:
                 )
                 self._complete_attempt(active_attempt, doing_task=None)
                 return
-            if active_attempt.outcome in {"failed", "needs human", "interrupted"}:
+            if active_attempt.result in {
+                "failed",
+                "incomplete",
+                "needs_human",
+                "interrupted",
+            }:
                 self._reset_runtime_state()
                 self.state_store.clear_active_attempt()
                 return
@@ -1362,24 +1363,24 @@ class JriService:
             )
         )
 
-    def _finish_attempt(self, attempt: AttemptState, *, outcome: str) -> None:
+    def _finish_attempt(self, attempt: AttemptState, *, result: str) -> None:
         finished_at = int(time.time())
-        self.state_store.save_active_attempt(
-            replace(attempt, finished_at=finished_at, outcome=outcome)
-        )
+        attempt = replace(attempt, finished_at=finished_at, result=result)
+        self.state_store.save_active_attempt(attempt)
+        self._persist_attempt_history(attempt)
         self.state_store.clear_active_attempt()
 
     def _mark_active_attempt_interrupted(self) -> None:
         state = self.state_store.load()
         if state.active_attempt is None:
             return
-        self.state_store.save_active_attempt(
-            replace(
-                state.active_attempt,
-                finished_at=state.active_attempt.finished_at or int(time.time()),
-                outcome="interrupted",
-            )
+        attempt = replace(
+            state.active_attempt,
+            finished_at=state.active_attempt.finished_at or int(time.time()),
+            result="interrupted",
         )
+        self.state_store.save_active_attempt(attempt)
+        self._persist_attempt_history(attempt)
         self.state_store.clear_active_attempt()
 
     def _attempt_matches_task(self, attempt: AttemptState, task: Task) -> bool:
@@ -1387,7 +1388,7 @@ class JriService:
         return attempt.task_slug == task.slug and branch_ok
 
     def _attempt_completion_applied(self, attempt: AttemptState) -> bool:
-        if attempt.outcome == "completed":
+        if attempt.result == "completed":
             return True
         if not self.git.has_local_branch(attempt.branch):
             return False
@@ -1423,9 +1424,9 @@ class JriService:
             self.git.push_task_refs(branch=attempt.branch, tag=end_tag)
 
         finished_at = attempt.finished_at or int(time.time())
-        self.state_store.save_active_attempt(
-            replace(attempt, finished_at=finished_at, outcome="completed")
-        )
+        attempt = replace(attempt, finished_at=finished_at, result="completed")
+        self.state_store.save_active_attempt(attempt)
+        self._persist_attempt_history(attempt)
         self.state_store.mark_task_finished(
             task_slug=attempt.task_slug,
             finished_at=finished_at,
@@ -1497,63 +1498,46 @@ class JriService:
         ) as handle:
             handle.write(line + "\n")
 
-    def _count_failed_attempts(self, task_slug: str) -> int:
-        state = self.state_store.load()
-        return sum(
-            1
-            for attempt in state.attempts
-            if attempt.task_slug == task_slug and attempt.outcome == "failed"
-        )
-
-    def _last_attempt_log_path(self, task_slug: str) -> Path:
-        state = self.state_store.load()
-        for attempt in reversed(state.attempts):
-            if attempt.task_slug == task_slug and attempt.log_path is not None:
-                return Path(attempt.log_path)
-        return self.paths.ralph_log_path("unknown", 0)
-
-    def _last_attempt_session_id(self, task_slug: str) -> str | None:
-        state = self.state_store.load()
-        for attempt in reversed(state.attempts):
-            if attempt.task_slug == task_slug:
-                return attempt.session_id
-        return None
-
-    def _escalate_failed_task(self, task: Task) -> None:
-        self.timeline.record(
-            TimelineEvent(
-                ts=TimelineStore.now_iso(),
-                event="task_escalated",
-                task=task.slug,
-                detail={"failed_attempts": self._count_failed_attempts(task.slug)},
+    def _persist_attempt_history(self, attempt: AttemptState) -> None:
+        history_path = self.paths.attempt_history_path(attempt.task_slug)
+        history_path.parent.mkdir(parents=True, exist_ok=True)
+        if history_path.exists():
+            payload = json.loads(history_path.read_text(encoding="utf-8"))
+            attempts = payload.get("attempts") if isinstance(payload, dict) else None
+            history = (
+                [item for item in attempts if isinstance(item, dict)]
+                if isinstance(attempts, list)
+                else []
             )
+        else:
+            history = []
+        serialized = attempt.to_payload()
+        updated = False
+        for index, existing in enumerate(history):
+            if existing.get("number") == attempt.number:
+                history[index] = serialized
+                updated = True
+                break
+        if not updated:
+            history.append(serialized)
+        history_path.write_text(
+            json.dumps(
+                {"task_slug": attempt.task_slug, "attempts": history},
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
         )
-        todo_path = self.paths.task_path("todo", task.slug)
-        if not todo_path.exists():
-            return
-        todo_task = parse_task_file(todo_path)
-        log_path = self._last_attempt_log_path(todo_task.slug)
-        session_id = self._last_attempt_session_id(todo_task.slug)
-        export_path = self._export_session_if_available(
-            session_id,
-            task_slug=task.slug,
-        )
-        human_task = self._create_needs_human_task(
-            todo_task,
-            log_path=log_path,
-            session_id=session_id,
-            export_path=export_path,
-        )
-        blocked_task = self._block_task_on_dependency(todo_task, human_task.slug)
-        self._write_task_file(blocked_task)
-        self.git.commit_all_if_needed(
-            MSG_ESCALATE_FAILED.format(slug=task.slug, n=_MAX_FAILED_ATTEMPTS)
+        self.git.commit_paths_if_needed(
+            f"jri: record attempt history for {attempt.task_slug}",
+            [self.git.relative_path(history_path)],
         )
 
     def _recover_needs_human_task(
         self,
         doing_task: Task,
-        branch: str,
+        result_payload: RalphResultPayload | None,
         *,
         log_path: Path,
         session_id: str | None,
@@ -1577,6 +1561,7 @@ class JriService:
                 todo_task = parse_task_file(todo_path)
                 human_task = self._create_needs_human_task(
                     todo_task,
+                    result_payload,
                     log_path=log_path,
                     session_id=session_id,
                     export_path=export_path,
@@ -1648,29 +1633,34 @@ class JriService:
     def _create_needs_human_task(
         self,
         original_task: Task,
+        result_payload: RalphResultPayload | None,
         *,
         log_path: Path,
         session_id: str | None,
         export_path: Path | None,
     ) -> Task:
+        if result_payload is None or result_payload.human_task is None:
+            raise JriError("needs_human result is missing human_task payload")
         slug = self._allocate_needs_human_slug(original_task.slug)
+        human_task = result_payload.human_task
         task = Task(
             path=self.paths.task_path("todo", slug),
             slug=slug,
             metadata=TaskMetadata(
-                title=self._needs_human_title(original_task),
-                priority=original_task.metadata.priority,
+                title=human_task.title[:_MAX_TASK_TITLE_LENGTH].rstrip(),
+                priority=(
+                    human_task.priority
+                    if human_task.priority is not None
+                    else original_task.metadata.priority
+                ),
                 assignee="Human",
                 depends_on=[],
-                acceptance_criteria=[
-                    (
-                        "Provide the human input or action needed to unblock "
-                        f"`{original_task.slug}`."
-                    )
-                ],
+                acceptance_criteria=human_task.acceptance_criteria,
             ),
             body=self._needs_human_body(
                 original_task,
+                result_payload=result_payload,
+                human_task=human_task,
                 log_path=log_path,
                 session_id=session_id,
                 export_path=export_path,
@@ -1728,16 +1718,12 @@ class JriService:
             suffix += 1
         return f"{base}-{suffix}"
 
-    def _needs_human_title(self, original_task: Task) -> str:
-        candidate = f"Unblock {original_task.metadata.title}"
-        if len(candidate) <= _MAX_TASK_TITLE_LENGTH:
-            return candidate
-        return candidate[: _MAX_TASK_TITLE_LENGTH - 3].rstrip() + "..."
-
     def _needs_human_body(
         self,
         original_task: Task,
         *,
+        result_payload: RalphResultPayload,
+        human_task: HumanTaskPayload,
         log_path: Path,
         session_id: str | None,
         export_path: Path | None,
@@ -1753,14 +1739,23 @@ class JriService:
         return (
             "\n".join(
                 (
-                    f"Ralph reported `needs human` while working on `{original_path}`.",
+                    f"Ralph reported `needs_human` while working on `{original_path}`.",
                     "",
                     f"Complete this task to unblock `{original_task.slug}`.",
+                    "",
+                    "## Blocker",
+                    result_payload.blocker or "Not provided.",
+                    "",
+                    "## Requested human work",
+                    human_task.body,
                     "",
                     "## Original Ralph task",
                     f"- Slug: `{original_task.slug}`",
                     f"- Title: {original_task.metadata.title}",
                     f"- Task file: `{original_path}`",
+                    "",
+                    "## Ralph summary",
+                    result_payload.summary or "Not provided.",
                     "",
                     "## Run artifacts",
                     f"- Ralph log: `{log_relative}`",

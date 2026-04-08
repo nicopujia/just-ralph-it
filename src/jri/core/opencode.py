@@ -14,25 +14,27 @@ from pathlib import Path
 from typing import cast
 
 from .errors import JriError
-from .models import OpenCodeRunResult, Outcome
+from .models import OpenCodeRunResult, RalphResultPayload, Result
 from .ui import DIM, _s, trim_tool_output
 
 _COMPLETED_MARKER = "<!-- JRI:COMPLETED -->"
 _FAILED_MARKER = "<!-- JRI:FAILED -->"
 _NEEDS_HUMAN_MARKER = "<!-- JRI:NEEDS_HUMAN -->"
-_OUTCOME_MARKERS: tuple[tuple[str, Outcome], ...] = (
+_RESULT_MARKERS: tuple[tuple[str, Result], ...] = (
     (_COMPLETED_MARKER, "completed"),
     (_FAILED_MARKER, "failed"),
-    (_NEEDS_HUMAN_MARKER, "needs human"),
+    (_NEEDS_HUMAN_MARKER, "needs_human"),
 )
-_RESULT_TOOL_NAMES = ("ralph-result", "result")
+_RESULT_TOOL_NAMES = ("ralph-result",)
 
 
-def _normalize_outcome(raw: str) -> Outcome | None:
+def _normalize_result(raw: str) -> Result | None:
     if raw == "completed":
         return "completed"
     if raw == "needs_human":
-        return "needs human"
+        return "needs_human"
+    if raw == "incomplete":
+        return "incomplete"
     if raw == "failed":
         return "failed"
     return None
@@ -99,29 +101,29 @@ def _parse_event_line(line: str) -> tuple[dict[str, object] | None, str | None, 
     return payload, None, False
 
 
-def _detect_outcome(text: str, current: Outcome | None) -> Outcome | None:
-    """Update outcome if *text* contains a JRI marker. Last signal wins."""
+def _detect_result(text: str, current: Result | None) -> Result | None:
+    """Update result if *text* contains a JRI marker. Last signal wins."""
     latest_match = current
     latest_index = -1
-    for marker, outcome in _OUTCOME_MARKERS:
+    for marker, result in _RESULT_MARKERS:
         marker_index = text.rfind(marker)
         if marker_index > latest_index:
             latest_index = marker_index
-            latest_match = outcome
+            latest_match = result
     return latest_match
 
 
-def _finalize_outcome(
-    outcome: Outcome | None, *, context: str
-) -> tuple[Outcome, list[str]]:
-    if outcome is not None:
-        return outcome, []
-    warning = f"missing JRI outcome marker for {context}; treating run as failed"
+def _finalize_result(
+    result: Result | None, *, context: str
+) -> tuple[Result, list[str]]:
+    if result is not None:
+        return result, []
+    warning = f"missing JRI result marker for {context}; treating run as failed"
     print(warning, file=sys.stderr)
     return "failed", [warning]
 
 
-def _detect_result_tool_outcome(event: dict[str, object]) -> Outcome | None:
+def _detect_result_tool_result(event: dict[str, object]) -> Result | None:
     if event.get("type") != "message.part.updated":
         return None
     properties = event.get("properties")
@@ -145,8 +147,79 @@ def _detect_result_tool_outcome(event: dict[str, object]) -> Outcome | None:
     if not isinstance(input_obj, dict):
         return None
     input_obj = cast(dict[str, object], input_obj)
-    raw = input_obj.get("outcome")
-    return _normalize_outcome(raw) if isinstance(raw, str) else None
+    raw = input_obj.get("result")
+    return _normalize_result(raw) if isinstance(raw, str) else None
+
+
+def _parse_result_payload(text: str) -> tuple[RalphResultPayload | None, list[str]]:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError as exc:
+        warning = f"invalid JRI result payload; treating run as failed: {exc}"
+        print(warning, file=sys.stderr)
+        return None, [warning]
+    if not isinstance(payload, dict):
+        warning = "invalid JRI result payload; treating run as failed: expected object"
+        print(warning, file=sys.stderr)
+        return None, [warning]
+    result = payload.get("result")
+    normalized = _normalize_result(result) if isinstance(result, str) else None
+    if normalized is None:
+        warning = (
+            "invalid JRI result payload; treating run as failed: "
+            "missing or unknown `result`"
+        )
+        print(warning, file=sys.stderr)
+        return None, [warning]
+    parsed = RalphResultPayload.from_payload(cast(dict[str, object], payload))
+    if parsed.result == "needs_human":
+        if not parsed.blocker or parsed.human_task is None:
+            warning = (
+                "invalid JRI result payload; treating run as failed: "
+                "`needs_human` requires `blocker` and `human_task`"
+            )
+            print(warning, file=sys.stderr)
+            return None, [warning]
+        validation_error = _validate_human_task_payload(payload)
+        if validation_error is not None:
+            warning = (
+                "invalid JRI result payload; treating run as failed: "
+                f"{validation_error}"
+            )
+            print(warning, file=sys.stderr)
+            return None, [warning]
+    return parsed, []
+
+
+def _validate_human_task_payload(payload: dict[str, object]) -> str | None:
+    human_task = payload.get("human_task")
+    if not isinstance(human_task, dict):
+        return "`human_task` must be an object"
+    human_task = cast(dict[str, object], human_task)
+
+    title = human_task.get("title")
+    if not isinstance(title, str) or not title.strip():
+        return "`human_task.title` must be a non-empty string"
+
+    body = human_task.get("body")
+    if not isinstance(body, str) or not body.strip():
+        return "`human_task.body` must be a non-empty string"
+
+    acceptance = human_task.get("acceptance_criteria")
+    if not isinstance(acceptance, list) or not acceptance:
+        return "`human_task.acceptance_criteria` must be a non-empty string list"
+    if not all(isinstance(item, str) and item.strip() for item in acceptance):
+        return "`human_task.acceptance_criteria` must be a non-empty string list"
+
+    priority = human_task.get("priority")
+    if priority is not None and (
+        not isinstance(priority, int)
+        or isinstance(priority, bool)
+        or not 0 <= priority <= 4
+    ):
+        return "`human_task.priority` must be an integer between 0 and 4"
+
+    return None
 
 
 class OpenCodeClient:
@@ -207,7 +280,7 @@ class OpenCodeClient:
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
         session_id: str | None = None
-        last_outcome: Outcome | None = None
+        last_result: Result | None = None
         timed_out = False
         with log_path.open("a", encoding="utf-8") as log_file:
             try:
@@ -249,7 +322,7 @@ class OpenCodeClient:
                     log_file.flush()
                     event, terminal_text, is_tool = _parse_event_line(line)
                     if terminal_text is not None:
-                        last_outcome = _detect_outcome(terminal_text, last_outcome)
+                        last_result = _detect_result(terminal_text, last_result)
                     is_thinking = isinstance(event, dict) and _is_thinking_event(event)
                     show = terminal_text and not is_tool and not is_thinking
                     if show:
@@ -305,14 +378,14 @@ class OpenCodeClient:
             return OpenCodeRunResult(
                 returncode=-1,
                 session_id=session_id,
-                outcome="timeout",
+                result="timeout",
                 warnings=[msg],
             )
-        outcome, warnings = _finalize_outcome(last_outcome, context="Ralph run")
+        result, warnings = _finalize_result(last_result, context="Ralph run")
         return OpenCodeRunResult(
             returncode=returncode,
             session_id=session_id,
-            outcome=outcome,
+            result=result,
             warnings=warnings,
         )
 
@@ -398,7 +471,11 @@ class OpenCodeServer:
         merged_env = os.environ.copy()
         if env:
             merged_env.update(env)
-        port = self._configured_port if self._configured_port is not None else _pick_free_local_port()
+        port = (
+            self._configured_port
+            if self._configured_port is not None
+            else _pick_free_local_port()
+        )
         self.port = port
         self._base_url = f"http://127.0.0.1:{port}"
         try:
@@ -475,14 +552,14 @@ class OpenCodeServer:
         root: Path,
         prompt: str,
         log_path: Path,
-        outcome_path: Path,
+        result_path: Path,
         on_start: Callable[[int], None] | None = None,
         timeout: int | None = None,
     ) -> OpenCodeRunResult:
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        outcome_path.parent.mkdir(parents=True, exist_ok=True)
-        if outcome_path.exists():
-            outcome_path.unlink()
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        if result_path.exists():
+            result_path.unlink()
         # Used by _tool_detail to display paths relative to the worktree.
         self._cwd_hint = str(root).rstrip("/") + "/"
 
@@ -558,8 +635,6 @@ class OpenCodeServer:
         deadline = time.monotonic() + timeout if timeout and timeout > 0 else None
         seen_tool_calls: set[str] = set()
         saw_active_status = False
-        last_outcome: Outcome | None = None
-
         # 3. Send prompt
         prompt_body: dict[str, object] = {
             "agent": "ralph",
@@ -610,11 +685,7 @@ class OpenCodeServer:
                     log_file.flush()
 
                     self._handle_permission(event)
-                    result_tool_outcome = _detect_result_tool_outcome(
-                        self._unwrap(event)
-                    )
-                    if result_tool_outcome is not None:
-                        last_outcome = result_tool_outcome
+                    _detect_result_tool_result(self._unwrap(event))
                     text_to_print, newline_before = self._render_event(
                         event, session_id, seen_tool_calls
                     )
@@ -633,31 +704,28 @@ class OpenCodeServer:
         finally:
             stop_event.set()
 
-        # 5. Read outcome
-        outcome: Outcome
+        # 5. Read result
+        result: Result
+        payload: RalphResultPayload | None = None
         warnings: list[str] = []
         if timed_out:
-            outcome = "timeout"
+            result = "timeout"
             msg = f"opencode prompt killed after {timeout}s timeout"
             print(msg, file=sys.stderr)
             warnings.append(msg)
-        elif outcome_path.exists():
-            raw = outcome_path.read_text(encoding="utf-8").strip()
-            normalized = _normalize_outcome(raw)
-            if normalized is not None:
-                outcome = normalized
-            else:
-                warning = f"unrecognized JRI outcome `{raw}`; treating run as failed"
-                print(warning, file=sys.stderr)
-                warnings.append(warning)
-                outcome = "failed"
+        elif result_path.exists():
+            payload, warnings = _parse_result_payload(
+                result_path.read_text(encoding="utf-8")
+            )
+            result = payload.result if payload is not None else "failed"
         else:
-            outcome, warnings = _finalize_outcome(last_outcome, context="Ralph run")
+            result, warnings = _finalize_result(None, context="Ralph run")
 
         return OpenCodeRunResult(
             returncode=0 if not timed_out else -1,
             session_id=session_id,
-            outcome=outcome,
+            result=result,
+            payload=payload,
             warnings=warnings,
         )
 
