@@ -51,6 +51,5 @@ def test_start_with_real_opencode_completes_trivial_task(
     assert (git_repo / "live-proof.txt").read_text(encoding="utf-8") == "live test ok\n"
     assert (git_repo / ".jri" / "tasks" / "done" / "live-proof.md").exists()
     tags = git(git_repo, "tag").splitlines()
-    assert "jri/init" in tags
     assert "jri/begin/live-proof" in tags
     assert "jri/end/live-proof" in tags

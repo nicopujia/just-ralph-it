@@ -301,7 +301,6 @@ def test_start_completes_single_task(git_repo: Path) -> None:
     assert (git_repo / "implemented.txt").read_text(encoding="utf-8") == "implemented\n"
     assert git(git_repo, "branch", "--show-current") == "main"
     tags = git(git_repo, "tag").splitlines()
-    assert "jri/init" in tags
     assert "jri/begin/implement-file" in tags
     assert "jri/end/implement-file" in tags
     attempts = cast(
@@ -969,7 +968,6 @@ def test_needs_human_generates_human_followup_and_blocks_original_task(
     assert not (git_repo / ".jri" / "tasks" / "done" / "needs-human-task.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
     tags = git(git_repo, "tag").splitlines()
-    assert "jri/init" in tags
     assert "jri/1" not in tags
     # The feature branch should be deleted
     branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()

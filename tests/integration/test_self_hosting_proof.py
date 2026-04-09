@@ -229,7 +229,6 @@ def _assert_convergence(repo: Path, completed: int) -> None:
 
     # Task tags: jri/begin/{slug} and jri/end/{slug} for each task
     tags = git(repo, "tag").splitlines()
-    assert "jri/init" in tags, "tag jri/init should exist"
     for slug, _title, _pri, _deps, _body, _criteria in _TASK_SPECS:
         assert f"jri/begin/{slug}" in tags, f"tag jri/begin/{slug} should exist"
         assert f"jri/end/{slug}" in tags, f"tag jri/end/{slug} should exist"

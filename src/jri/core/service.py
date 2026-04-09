@@ -158,22 +158,9 @@ class JriService:
                     # User chose abort or invalid input
                     raise JriError("initialization aborted by user")
 
-        root_gitignore = self.paths.root_gitignore_path
-        root_gitignore_had_opencode_entry = False
-        if root_gitignore.exists():
-            root_gitignore_had_opencode_entry = (
-                ".opencode/" in root_gitignore.read_text(encoding="utf-8").splitlines()
-            )
-        legacy_opencode_gitignore = self.root / ".opencode" / ".gitignore"
-        legacy_opencode_gitignore_exists = legacy_opencode_gitignore.exists()
-
         created_files = self._create_scaffold()
         commit_paths = list(_INIT_COMMIT_PATHS)
         commit_paths.extend(str(path.relative_to(self.root)) for path in created_files)
-        if root_gitignore_had_opencode_entry:
-            commit_paths.append(str(root_gitignore.relative_to(self.root)))
-        if legacy_opencode_gitignore_exists:
-            commit_paths.append(str(legacy_opencode_gitignore.relative_to(self.root)))
         commit_paths.extend(_MANAGED_AGENT_PATHS)
         commit_paths.extend(_MANAGED_TOOL_PATHS)
         # Stage all paths first
@@ -185,20 +172,8 @@ class JriService:
 
     def upgrade(self, *, commit_message: str) -> None:
         self.ensure_initialized()
-        root_gitignore = self.paths.root_gitignore_path
-        root_gitignore_had_opencode_entry = False
-        if root_gitignore.exists():
-            root_gitignore_had_opencode_entry = (
-                ".opencode/" in root_gitignore.read_text(encoding="utf-8").splitlines()
-            )
-        legacy_opencode_gitignore = self.root / ".opencode" / ".gitignore"
-        legacy_opencode_gitignore_exists = legacy_opencode_gitignore.exists()
         self._write_managed_files()
         commit_paths = list(_UPGRADE_COMMIT_PATHS)
-        if root_gitignore_had_opencode_entry:
-            commit_paths.append(str(root_gitignore.relative_to(self.root)))
-        if legacy_opencode_gitignore_exists:
-            commit_paths.append(str(legacy_opencode_gitignore.relative_to(self.root)))
         commit_paths.extend(_MANAGED_AGENT_PATHS)
         commit_paths.extend(_MANAGED_TOOL_PATHS)
         # Check if there's anything to commit
@@ -348,11 +323,10 @@ class JriService:
         return promoted_tasks
 
     def reset(self, target_task: str | None = None) -> None:
-        """Reset the repository to a specific tag.
+        """Reset the repository to a specific task tag.
 
         If target_task is provided, reset to jri/end/{target_task}.
         Otherwise, find the most recent end tag and reset to it.
-        Falls back to jri/init for backward compatibility.
         """
         self.ensure_initialized()
         state = self.state_store.load()
@@ -367,11 +341,7 @@ class JriService:
             # Find the most recent end tag
             target_tag = self._find_latest_end_tag()
             if target_tag is None:
-                # Fall back to jri/init for backward compatibility
-                if self.git.has_tag("jri/init"):
-                    target_tag = "jri/init"
-                else:
-                    raise JriError("no task tag found — run `jri start` first")
+                raise JriError("no task tag found — run `jri start` first")
 
         default = self.git.default_branch(hint=state.branch)
         current = self.git.current_branch()
@@ -383,15 +353,6 @@ class JriService:
             self.git.remove_worktree(self.paths.worktree_dir)
         if self.git.has_local_branch("ralph"):
             self.git.delete_branch("ralph")
-        # Also clean up any legacy ralph/* branches
-        branches = (
-            self.git.run("branch", "--format=%(refname:short)")
-            .stdout.strip()
-            .splitlines()
-        )
-        for branch in branches:
-            if branch.startswith("ralph/"):
-                self.git.delete_branch(branch)
         self.state_store.save(
             State(
                 finished_at=state.finished_at,
@@ -507,13 +468,6 @@ class JriService:
         current = self.paths.gitignore_path.read_text(encoding="utf-8")
         if current != self._GITIGNORE_CONTENT:
             return True
-        if (self.root / ".opencode" / ".gitignore").exists():
-            return True
-        root_gitignore = self.paths.root_gitignore_path
-        if root_gitignore.exists():
-            root_lines = root_gitignore.read_text(encoding="utf-8").splitlines()
-            if ".opencode/" in root_lines:
-                return True
         for name in _MANAGED_AGENT_FILENAMES:
             path = self.paths.opencode_agents_dir / name
             if not path.exists():
@@ -538,11 +492,6 @@ class JriService:
             self._GITIGNORE_CONTENT,
             encoding="utf-8",
         )
-        _remove_ignore_entry(self.paths.root_gitignore_path, ".opencode/")
-        legacy_opencode_gitignore = self.root / ".opencode" / ".gitignore"
-        if legacy_opencode_gitignore.exists():
-            legacy_opencode_gitignore.unlink()
-        # Ensure .opencode directory exists before writing managed files
         opencode_dir = self.root / ".opencode"
         opencode_dir.mkdir(parents=True, exist_ok=True)
         self.paths.opencode_agents_dir.mkdir(parents=True, exist_ok=True)
@@ -631,7 +580,6 @@ class JriService:
         self._auto_upgrade_if_needed()
         self._handle_dirty_workdir(force=force)
         self._handle_wrong_branch(force=force)
-        self._ensure_initial_tag()
         if self.paths.stop_signal_path.exists():
             self.paths.stop_signal_path.unlink()
 
@@ -1152,10 +1100,6 @@ class JriService:
                 )
             )
 
-    def _ensure_initial_tag(self) -> None:
-        if not self.git.has_tag("jri/init"):
-            self.git.create_tag("jri/init")
-
     def _handle_dirty_workdir(self, *, force: bool) -> None:
         """Handle uncommitted changes before starting the loop."""
         status = self.git.status_short()
@@ -1332,16 +1276,7 @@ class JriService:
                 )
                 self.git.checkout(default)
             else:
-                # Legacy ralph/{slug} branch support
-                expected = f"ralph/{doing_task.slug}"
-                if current_branch == expected:
-                    self.git.commit_all_if_needed(
-                        MSG_RALPH_PARTIAL.format(slug=doing_task.slug)
-                    )
-                    self.git.checkout(default)
-                    self.git.delete_branch(expected)
-                else:
-                    raise JriError(f"jri start must begin from the {default} branch")
+                raise JriError(f"jri start must begin from the {default} branch")
 
             # Reset worktree if it exists
             if self.paths.worktree_dir.exists():
@@ -1877,16 +1812,3 @@ def _compute_reserved(model: str | None = None) -> int | None:
 
 def _load_prompt(name: str) -> str:
     return files("jri.core.agents").joinpath(name).read_text(encoding="utf-8")
-
-
-def _remove_ignore_entry(path: Path, entry: str) -> bool:
-    if not path.exists():
-        return False
-
-    lines = path.read_text(encoding="utf-8").splitlines()
-    if entry not in lines:
-        return False
-
-    lines = [line for line in lines if line != entry]
-    path.write_text(("\n".join(lines) + "\n") if lines else "", encoding="utf-8")
-    return True

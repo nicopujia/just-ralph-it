@@ -56,15 +56,11 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     # Gather information for the confirmation prompt
                     target_tag = service._find_latest_end_tag()
                     if target_tag is None:
-                        # Fall back to jri/0 for backward compatibility
-                        if service.git.has_tag("jri/0"):
-                            target_tag = "jri/0"
-                        else:
-                            print(
-                                "Error: no task tag found — run `jri start` first",
-                                file=sys.stderr,
-                            )
-                            return 1
+                        print(
+                            "Error: no task tag found — run `jri start` first",
+                            file=sys.stderr,
+                        )
+                        return 1
 
                     has_uncommitted = bool(service.git.status_short())
                     has_ralph = service.git.has_local_branch("ralph")
@@ -293,7 +289,6 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Hard-reset the default branch to the latest JRI task tag. "
             "By default, resets to the most recent jri/end/{task} tag. "
-            "If no end tags exist but jri/0 exists, resets to jri/0. "
             "Optionally specify a task slug to reset to a specific task's end tag. "
             "Discards all uncommitted changes, commits, "
             "and task state since that task. Clears in-progress "
