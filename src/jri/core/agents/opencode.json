@@ -26,7 +26,7 @@
       "permission": {
         "write": "deny",
         "edit": "deny",
-        "bash": "deny",
+        "bash": "allow",
         "ralph-*": "deny",
         "interrogator-*": "deny",
         "task": {
