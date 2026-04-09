@@ -87,7 +87,10 @@ def test_init_upgrade_untracks_agent_files_from_older_repos(
     }
     assert changed_files == expected_changed
     status_lines = git(git_repo, "status", "--short").splitlines()
-    for path in (*service_module._MANAGED_AGENT_PATHS, *service_module._MANAGED_TOOL_PATHS):
+    for path in (
+        *service_module._MANAGED_AGENT_PATHS,
+        *service_module._MANAGED_TOOL_PATHS,
+    ):
         assert f" M {path}" not in status_lines
         assert f"?? {path}" not in status_lines
     assert "README.md" in git(git_repo, "diff", "--name-only").splitlines()

@@ -161,9 +161,9 @@ class JriService:
         root_gitignore = self.paths.root_gitignore_path
         root_gitignore_had_opencode_entry = False
         if root_gitignore.exists():
-            root_gitignore_had_opencode_entry = ".opencode/" in root_gitignore.read_text(
-                encoding="utf-8"
-            ).splitlines()
+            root_gitignore_had_opencode_entry = (
+                ".opencode/" in root_gitignore.read_text(encoding="utf-8").splitlines()
+            )
         legacy_opencode_gitignore = self.root / ".opencode" / ".gitignore"
         legacy_opencode_gitignore_exists = legacy_opencode_gitignore.exists()
 
@@ -188,9 +188,9 @@ class JriService:
         root_gitignore = self.paths.root_gitignore_path
         root_gitignore_had_opencode_entry = False
         if root_gitignore.exists():
-            root_gitignore_had_opencode_entry = ".opencode/" in root_gitignore.read_text(
-                encoding="utf-8"
-            ).splitlines()
+            root_gitignore_had_opencode_entry = (
+                ".opencode/" in root_gitignore.read_text(encoding="utf-8").splitlines()
+            )
         legacy_opencode_gitignore = self.root / ".opencode" / ".gitignore"
         legacy_opencode_gitignore_exists = legacy_opencode_gitignore.exists()
         self._write_managed_files()
