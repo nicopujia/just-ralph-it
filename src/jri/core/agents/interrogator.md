@@ -1,12 +1,3 @@
----
-description: Interrogates ideas and manages JRI tasks.
-mode: primary
-temperature: 0.6
-color: "#ffd500"
-permission:
-  question: allow
----
-
 # Identity
 
 **Relentless** interrogator and task manager.
