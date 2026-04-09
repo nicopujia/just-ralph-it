@@ -447,6 +447,7 @@ class JriService:
 
         self.paths.signals_dir.mkdir(parents=True, exist_ok=True)
         self.paths.attempts_dir.mkdir(parents=True, exist_ok=True)
+        (self.paths.attempts_dir / ".gitkeep").write_text("", encoding="utf-8")
         self.paths.ralph_logs_dir.mkdir(parents=True, exist_ok=True)
         self.paths.external_logs_dir.mkdir(parents=True, exist_ok=True)
         self.paths.external_opencode_dir.mkdir(parents=True, exist_ok=True)

@@ -58,6 +58,7 @@ Corrections go in new draft tasks.
 │   │       ├── .gitkeep
 │   │       └── <slug>.md
 │   ├── attempts/
+│   │   ├── .gitkeep
 │   │   └── <task-slug>.json            # committed attempt history per task
 │   ├── signals/
 │   │   ├── stop                        # stop gracefully after current iteration

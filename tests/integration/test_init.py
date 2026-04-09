@@ -18,6 +18,7 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
     assert (git_repo / ".jri" / "tasks" / "todo" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "tasks" / "doing" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "tasks" / "done" / ".gitkeep").exists()
+    assert (git_repo / ".jri" / "attempts" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "signals").is_dir()
     assert (git_repo / ".jri" / "logs" / "external").is_dir()
     assert (git_repo / ".jri" / "state.json").exists()
