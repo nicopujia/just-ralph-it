@@ -83,7 +83,6 @@ Corrections go in new draft tasks.
 │       ├── create-task.js
 │       └── ralph-result.js
 ├── opencode.json
-├── .gitignore
 ├── Makefile                            # check target (fails by default)
 └── README.md                           # empty (created by init)
 ```
