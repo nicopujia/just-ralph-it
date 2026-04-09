@@ -18,7 +18,7 @@ uv run pre-commit install --hook-type pre-push
 make check
 
 # [Optional] Live integration tests
-pytest tests/live -L -M opencode/minimax-m2.5
+uv run pytest tests/live -L -M opencode/minimax-m2.5
 ```
 
 ## Build
