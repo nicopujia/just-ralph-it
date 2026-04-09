@@ -5,6 +5,3 @@ __pycache__/
 .venv/
 dist/
 .ruff_cache/
-
-.opencode/
-!.opencode/.gitignore
