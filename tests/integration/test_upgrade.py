@@ -3,21 +3,30 @@ from pathlib import Path
 import jri.core.git as git_module
 import jri.core.service as service_module
 from tests.conftest import run_cli
-from tests.helpers import git, write_task
+from tests.helpers import git, seed_task_and_commit
 
 
 def test_init_upgrade_untracks_agent_files_from_older_repos(
-    git_repo: Path,
+    initialized_git_repo: Path,
     monkeypatch,
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
-    (git_repo / ".gitignore").unlink()
+    git_repo = initialized_git_repo
+    (git_repo / ".gitignore").write_text("dist/\n.opencode/\n", encoding="utf-8")
+    (git_repo / ".opencode" / ".gitignore").write_text(
+        "\n".join(
+            [
+                *service_module._MANAGED_AGENT_PATHS,
+                *service_module._MANAGED_TOOL_PATHS,
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     git(git_repo, "add", ".gitignore")
-    git(git_repo, "commit", "-m", "remove ignore rule")
-    git(git_repo, "add", "-f", *service_module._MANAGED_AGENT_PATHS)
-    git(git_repo, "commit", "-m", "track agent files")
+    git(git_repo, "add", "-f", ".opencode/.gitignore")
+    git(git_repo, "commit", "-m", "add legacy ignore files")
 
-    write_task(
+    seed_task_and_commit(
         git_repo,
         status="todo",
         slug="keep-me",
@@ -58,17 +67,6 @@ def test_init_upgrade_untracks_agent_files_from_older_repos(
         assert path.read_text(encoding="utf-8") == fake_load_prompt(name)
     assert (git_repo / ".jri" / "tasks" / "todo" / "keep-me.md").exists()
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
-    # Root .gitignore should have .opencode/ entry
-    assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
-        ".opencode/",
-    ]
-    # .opencode/.gitignore should have managed file entries
-    assert (git_repo / ".opencode" / ".gitignore").read_text(
-        encoding="utf-8"
-    ).splitlines() == [
-        *service_module._MANAGED_AGENT_PATHS,
-        *service_module._MANAGED_TOOL_PATHS,
-    ]
 
     changed_files = set(
         git(
@@ -82,12 +80,14 @@ def test_init_upgrade_untracks_agent_files_from_older_repos(
     )
     expected_changed = {
         ".gitignore",
+        ".opencode/.gitignore",
         *service_module._MANAGED_AGENT_PATHS,
+        *service_module._MANAGED_TOOL_PATHS,
         *service_module._MANAGED_CONFIG_FILENAMES,
     }
     assert changed_files == expected_changed
     status_lines = git(git_repo, "status", "--short").splitlines()
-    for path in service_module._MANAGED_AGENT_PATHS:
+    for path in (*service_module._MANAGED_AGENT_PATHS, *service_module._MANAGED_TOOL_PATHS):
         assert f" M {path}" not in status_lines
         assert f"?? {path}" not in status_lines
     assert "README.md" in git(git_repo, "diff", "--name-only").splitlines()
@@ -95,10 +95,10 @@ def test_init_upgrade_untracks_agent_files_from_older_repos(
 
 
 def test_init_upgrade_commits_when_config_files_change(
-    git_repo: Path,
+    initialized_git_repo: Path,
     monkeypatch,
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    git_repo = initialized_git_repo
 
     def fake_load_prompt(name: str) -> str:
         base = name.removesuffix(".md") if name.endswith(".md") else name
@@ -120,39 +120,38 @@ def test_init_upgrade_commits_when_config_files_change(
             "HEAD",
         ).splitlines()
     )
-    assert changed_files == set(service_module._MANAGED_CONFIG_FILENAMES)
+    assert changed_files == {
+        *service_module._MANAGED_AGENT_PATHS,
+        *service_module._MANAGED_TOOL_PATHS,
+        *service_module._MANAGED_CONFIG_FILENAMES,
+    }
 
 
-def test_init_upgrade_recreates_gitignore_without_tracked_agent_files(
-    git_repo: Path,
-    monkeypatch,
+def test_init_upgrade_cleans_legacy_gitignore_without_other_changes(
+    initialized_git_repo: Path,
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
-    (git_repo / ".gitignore").unlink()
+    git_repo = initialized_git_repo
+    (git_repo / ".gitignore").write_text(".opencode/\n", encoding="utf-8")
+    (git_repo / ".opencode" / ".gitignore").write_text(
+        "\n".join(
+            [
+                *service_module._MANAGED_AGENT_PATHS,
+                *service_module._MANAGED_TOOL_PATHS,
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
     git(git_repo, "add", ".gitignore")
-    git(git_repo, "commit", "-m", "remove ignore rule")
-
-    def fake_load_prompt(name: str) -> str:
-        base = name.removesuffix(".md") if name.endswith(".md") else name
-        return f"upgraded {base}\n"
-
-    monkeypatch.setattr(service_module, "_load_prompt", fake_load_prompt)
+    git(git_repo, "add", "-f", ".opencode/.gitignore")
+    git(git_repo, "commit", "-m", "add legacy ignore files")
 
     exit_code = run_cli(["init", "--upgrade"], cwd=git_repo)
 
     assert exit_code == 0
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
-    # Root .gitignore should have .opencode/ entry
-    assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
-        ".opencode/",
-    ]
-    # .opencode/.gitignore should have managed file entries
-    assert (git_repo / ".opencode" / ".gitignore").read_text(
-        encoding="utf-8"
-    ).splitlines() == [
-        *service_module._MANAGED_AGENT_PATHS,
-        *service_module._MANAGED_TOOL_PATHS,
-    ]
+    assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == []
+    assert not (git_repo / ".opencode" / ".gitignore").exists()
     changed_files = set(
         git(
             git_repo,
@@ -165,5 +164,5 @@ def test_init_upgrade_recreates_gitignore_without_tracked_agent_files(
     )
     assert changed_files == {
         ".gitignore",
-        *service_module._MANAGED_CONFIG_FILENAMES,
+        ".opencode/.gitignore",
     }

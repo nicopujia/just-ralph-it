@@ -21,6 +21,7 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
     assert (git_repo / ".jri" / "signals").is_dir()
     assert (git_repo / ".jri" / "logs" / "external").is_dir()
     assert (git_repo / ".jri" / "state.json").exists()
+    assert not (git_repo / ".gitignore").exists()
     for name in service_module._MANAGED_AGENT_FILENAMES:
         assert (git_repo / ".opencode" / "agents" / name).exists()
     for name in service_module._MANAGED_TOOL_FILENAMES:
@@ -28,17 +29,20 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
     for name in service_module._MANAGED_CONFIG_FILENAMES:
         assert (git_repo / name).exists()
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_INIT
-    # Root .gitignore should have .opencode/ entry
-    assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
-        ".opencode/",
-    ]
-    # .opencode/.gitignore should have managed file entries
-    assert (git_repo / ".opencode" / ".gitignore").read_text(
-        encoding="utf-8"
-    ).splitlines() == [
-        *service_module._MANAGED_AGENT_PATHS,
-        *service_module._MANAGED_TOOL_PATHS,
-    ]
+    changed_files = set(
+        git(
+            git_repo,
+            "diff-tree",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            "HEAD",
+        ).splitlines()
+    )
+    assert set(service_module._MANAGED_AGENT_PATHS).issubset(changed_files)
+    assert set(service_module._MANAGED_TOOL_PATHS).issubset(changed_files)
+    assert set(service_module._MANAGED_CONFIG_FILENAMES).issubset(changed_files)
+    assert ".opencode/.gitignore" not in changed_files
     assert (git_repo / ".jri" / ".gitignore").read_text(
         encoding="utf-8"
     ).splitlines() == [
@@ -74,31 +78,25 @@ def test_init_commits_only_scaffold_when_unrelated_changes_exist(
     assert "README.md" not in changed_files
     assert "notes.txt" not in changed_files
     assert ".jri/.gitignore" in changed_files
-    assert ".gitignore" in changed_files
+    assert ".gitignore" not in changed_files
     assert "README.md" in git(git_repo, "diff", "--name-only").splitlines()
     assert "notes.txt" in git(git_repo, "diff", "--cached", "--name-only").splitlines()
 
 
-def test_init_appends_opencode_to_existing_gitignore(git_repo: Path) -> None:
-    """Root .gitignore should have .opencode/ appended if missing."""
-    (git_repo / ".gitignore").write_text("dist/\n", encoding="utf-8")
+def test_init_removes_opencode_from_existing_gitignore(git_repo: Path) -> None:
+    """Root .gitignore should drop the legacy .opencode/ entry."""
+    (git_repo / ".gitignore").write_text("dist/\n.opencode/\n", encoding="utf-8")
+    git(git_repo, "add", ".gitignore")
+    git(git_repo, "commit", "-m", "add gitignore")
 
     exit_code = run_cli(["init"], cwd=git_repo)
 
     assert exit_code == 0
-    # Root .gitignore should have .opencode/ appended
     assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
         "dist/",
-        "",
-        ".opencode/",
     ]
-    # .opencode/.gitignore should have managed file entries
-    assert (git_repo / ".opencode" / ".gitignore").read_text(
-        encoding="utf-8"
-    ).splitlines() == [
-        *service_module._MANAGED_AGENT_PATHS,
-        *service_module._MANAGED_TOOL_PATHS,
-    ]
+    assert not (git_repo / ".opencode" / ".gitignore").exists()
+    assert git(git_repo, "status", "--short") == ""
 
 
 def test_init_creates_empty_readme_when_missing(git_repo: Path) -> None:

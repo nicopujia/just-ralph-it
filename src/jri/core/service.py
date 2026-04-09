@@ -56,12 +56,10 @@ from .ui import task_footer, task_header
 
 _INIT_COMMIT_PATHS = (
     ".jri",
-    ".gitignore",
     "opencode.json",
 )
 _UPGRADE_COMMIT_PATHS = (
     ".jri/.gitignore",
-    ".gitignore",
     "opencode.json",
 )
 _MANAGED_AGENT_FILENAMES = ("interrogator.md", "ralph.md")
@@ -160,46 +158,54 @@ class JriService:
                     # User chose abort or invalid input
                     raise JriError("initialization aborted by user")
 
+        root_gitignore = self.paths.root_gitignore_path
+        root_gitignore_had_opencode_entry = False
+        if root_gitignore.exists():
+            root_gitignore_had_opencode_entry = ".opencode/" in root_gitignore.read_text(
+                encoding="utf-8"
+            ).splitlines()
+        legacy_opencode_gitignore = self.root / ".opencode" / ".gitignore"
+        legacy_opencode_gitignore_exists = legacy_opencode_gitignore.exists()
+
         created_files = self._create_scaffold()
         commit_paths = list(_INIT_COMMIT_PATHS)
         commit_paths.extend(str(path.relative_to(self.root)) for path in created_files)
-        # Handle .opencode/.gitignore separately since .opencode/ is ignored
-        opencode_gitignore = str(
-            (self.root / ".opencode" / ".gitignore").relative_to(self.root)
-        )
+        if root_gitignore_had_opencode_entry:
+            commit_paths.append(str(root_gitignore.relative_to(self.root)))
+        if legacy_opencode_gitignore_exists:
+            commit_paths.append(str(legacy_opencode_gitignore.relative_to(self.root)))
+        commit_paths.extend(_MANAGED_AGENT_PATHS)
+        commit_paths.extend(_MANAGED_TOOL_PATHS)
         # Stage all paths first
         self.git.run("add", "-A", "--", *commit_paths)
-        self.git.run("add", "-f", "--", opencode_gitignore)
         # Check if there's anything to commit before committing
-        all_paths = [*commit_paths, opencode_gitignore]
-        if not self.git.status_short(*all_paths):
+        if not self.git.status_short(*commit_paths):
             return
-        self.git.run(
-            "commit", "-m", commit_message, "--", *commit_paths, opencode_gitignore
-        )
+        self.git.run("commit", "-m", commit_message, "--", *commit_paths)
 
     def upgrade(self, *, commit_message: str) -> None:
         self.ensure_initialized()
+        root_gitignore = self.paths.root_gitignore_path
+        root_gitignore_had_opencode_entry = False
+        if root_gitignore.exists():
+            root_gitignore_had_opencode_entry = ".opencode/" in root_gitignore.read_text(
+                encoding="utf-8"
+            ).splitlines()
+        legacy_opencode_gitignore = self.root / ".opencode" / ".gitignore"
+        legacy_opencode_gitignore_exists = legacy_opencode_gitignore.exists()
         self._write_managed_files()
-        # Handle .opencode/.gitignore separately since .opencode/ is ignored
-        opencode_gitignore = str(
-            (self.root / ".opencode" / ".gitignore").relative_to(self.root)
-        )
-        self.git.run("add", "-f", "--", opencode_gitignore)
-        # Stage agent files only if they were previously tracked
-        tracked_agent_paths = [
-            path for path in _MANAGED_AGENT_PATHS if self.git.is_tracked(path)
-        ]
-        if tracked_agent_paths:
-            self.git.run("add", "-f", "--", *tracked_agent_paths)
+        commit_paths = list(_UPGRADE_COMMIT_PATHS)
+        if root_gitignore_had_opencode_entry:
+            commit_paths.append(str(root_gitignore.relative_to(self.root)))
+        if legacy_opencode_gitignore_exists:
+            commit_paths.append(str(legacy_opencode_gitignore.relative_to(self.root)))
+        commit_paths.extend(_MANAGED_AGENT_PATHS)
+        commit_paths.extend(_MANAGED_TOOL_PATHS)
         # Check if there's anything to commit
-        commit_paths = (
-            list(_UPGRADE_COMMIT_PATHS) + [opencode_gitignore] + tracked_agent_paths
-        )
         if not self.git.status_short(*commit_paths):
             return
-        # Stage regular paths
-        self.git.run("add", "-A", "--", *_UPGRADE_COMMIT_PATHS)
+        # Stage all paths now that .opencode files are tracked normally
+        self.git.run("add", "-A", "--", *commit_paths)
         result = self.git.run(
             "commit", "-m", commit_message, "--", *commit_paths, check=False
         )
@@ -501,6 +507,13 @@ class JriService:
         current = self.paths.gitignore_path.read_text(encoding="utf-8")
         if current != self._GITIGNORE_CONTENT:
             return True
+        if (self.root / ".opencode" / ".gitignore").exists():
+            return True
+        root_gitignore = self.paths.root_gitignore_path
+        if root_gitignore.exists():
+            root_lines = root_gitignore.read_text(encoding="utf-8").splitlines()
+            if ".opencode/" in root_lines:
+                return True
         for name in _MANAGED_AGENT_FILENAMES:
             path = self.paths.opencode_agents_dir / name
             if not path.exists():
@@ -525,22 +538,13 @@ class JriService:
             self._GITIGNORE_CONTENT,
             encoding="utf-8",
         )
-        # Ensure root .gitignore exists with .opencode/ ignore
-        # Note: we don't commit .opencode/.gitignore separately - it's inside .opencode/
-        # which is ignored, so we use force-add when committing
-        _ensure_ignore_entries(
-            self.paths.root_gitignore_path,
-            (".opencode/",),
-        )
-        # Ensure .opencode directory exists before writing its .gitignore
+        _remove_ignore_entry(self.paths.root_gitignore_path, ".opencode/")
+        legacy_opencode_gitignore = self.root / ".opencode" / ".gitignore"
+        if legacy_opencode_gitignore.exists():
+            legacy_opencode_gitignore.unlink()
+        # Ensure .opencode directory exists before writing managed files
         opencode_dir = self.root / ".opencode"
         opencode_dir.mkdir(parents=True, exist_ok=True)
-        # Write managed file entries to .opencode/.gitignore
-        opencode_gitignore = opencode_dir / ".gitignore"
-        _ensure_ignore_entries(
-            opencode_gitignore,
-            (*_MANAGED_AGENT_PATHS, *_MANAGED_TOOL_PATHS),
-        )
         self.paths.opencode_agents_dir.mkdir(parents=True, exist_ok=True)
         for name in _MANAGED_AGENT_FILENAMES:
             (self.paths.opencode_agents_dir / name).write_text(
@@ -1875,21 +1879,14 @@ def _load_prompt(name: str) -> str:
     return files("jri.core.agents").joinpath(name).read_text(encoding="utf-8")
 
 
-def _ensure_ignore_entry(path: Path, entry: str) -> None:
-    _ensure_ignore_entries(path, (entry,))
+def _remove_ignore_entry(path: Path, entry: str) -> bool:
+    if not path.exists():
+        return False
 
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if entry not in lines:
+        return False
 
-def _ensure_ignore_entries(path: Path, entries: tuple[str, ...]) -> None:
-    if path.exists():
-        lines = path.read_text(encoding="utf-8").splitlines()
-    else:
-        lines = []
-
-    missing_entries = [entry for entry in entries if entry not in lines]
-    if not missing_entries:
-        return
-
-    if lines and lines[-1] != "":
-        lines.append("")
-    lines.extend(missing_entries)
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    lines = [line for line in lines if line != entry]
+    path.write_text(("\n".join(lines) + "\n") if lines else "", encoding="utf-8")
+    return True
