@@ -2,6 +2,3 @@ node_modules
 package.json
 bun.lock
 .gitignore
-agents/interrogator.md
-agents/ralph.md
-tools/ralph-result.js
