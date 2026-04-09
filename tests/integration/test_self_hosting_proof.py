@@ -18,7 +18,6 @@ from re import search
 from typing import cast
 
 from jri.core.models import OpenCodeRunResult
-from jri.core.opencode import OpenCodeClient
 from jri.core.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git, read_json, write_task
@@ -42,16 +41,14 @@ _TASK_ARTIFACTS: dict[str, tuple[str, str]] = {
 }
 
 
-class _SelfHostingFakeClient(OpenCodeClient):
+class _SelfHostingFakeClient:
     """Simulates Ralph completing tasks on a JRI-shaped repository."""
+
+    def __init__(self) -> None:
+        self.model: str | None = None
 
     def list_sessions(self, *, root: Path, limit: int = 20) -> list[dict[str, object]]:
         return []
-
-    def launch_chat(
-        self, *, root: Path, session_id: str | None, extra_args: list[str]
-    ) -> int:
-        return 0
 
     def run_ralph_task(
         self,

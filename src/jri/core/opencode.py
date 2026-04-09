@@ -11,7 +11,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
-from typing import cast
+from typing import Protocol, cast
 
 from .errors import JriError
 from .models import OpenCodeRunResult, RalphResult, RalphResultPayload, Result
@@ -166,47 +166,12 @@ def _validate_human_task_payload(payload: dict[str, object]) -> str | None:
     return None
 
 
-class OpenCodeClient:
-    def __init__(self, *, binary: str = "opencode", model: str | None = None) -> None:
-        self.binary = binary
-        self.model = model
+class OpenCodeProgrammatic(Protocol):
+    model: str | None
 
-    def list_sessions(self, *, root: Path, limit: int = 20) -> list[dict[str, object]]:
-        try:
-            result = subprocess.run(
-                [self.binary, "session", "list", "--format", "json", "-n", str(limit)],
-                cwd=root,
-                check=False,
-                capture_output=True,
-                text=True,
-            )
-        except FileNotFoundError as err:
-            raise JriError(
-                f"could not find `{self.binary}` — is OpenCode installed?"
-            ) from err
-        if result.returncode != 0:
-            return []
-        try:
-            payload = json.loads(result.stdout or "[]")
-        except json.JSONDecodeError:
-            return []
-        if not isinstance(payload, list):
-            return []
-        return [item for item in payload if isinstance(item, dict)]
-
-    def launch_chat(
-        self, *, root: Path, session_id: str | None, extra_args: list[str]
-    ) -> int:
-        command = [self.binary, str(root), "--agent", "interrogator"]
-        if session_id:
-            command.extend(["--session", session_id])
-        command.extend(extra_args)
-        try:
-            return subprocess.run(command, cwd=root, check=False).returncode
-        except FileNotFoundError as err:
-            raise JriError(
-                f"could not find `{self.binary}` — is OpenCode installed?"
-            ) from err
+    def list_sessions(
+        self, *, root: Path, limit: int = 20
+    ) -> list[dict[str, object]]: ...
 
     def run_ralph_task(
         self,
@@ -217,149 +182,26 @@ class OpenCodeClient:
         result_path: Path,
         on_start: Callable[[int], None] | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
-        command = [self.binary, "run", "--format", "json", "--agent", "ralph"]
-        if self.model:
-            command.extend(["-m", self.model])
-        command.append(prompt)
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        result_path.parent.mkdir(parents=True, exist_ok=True)
-        if result_path.exists():
-            result_path.unlink()
-        env = os.environ.copy()
-        env["JRI_RESULT_PATH"] = str(result_path)
+    ) -> OpenCodeRunResult: ...
 
-        session_id: str | None = None
-        timed_out = False
-        with log_path.open("a", encoding="utf-8") as log_file:
-            try:
-                process = subprocess.Popen(
-                    command,
-                    cwd=root,
-                    env=env,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    start_new_session=True,
-                )
-            except FileNotFoundError as err:
-                raise JriError(
-                    f"could not find `{self.binary}` — is OpenCode installed?"
-                ) from err
-            if on_start is not None:
-                on_start(process.pid)
+    def export_session(self, session_id: str, destination: Path) -> None: ...
 
-            def _watchdog() -> None:
-                nonlocal timed_out
-                timed_out = True
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
 
-            timer: threading.Timer | None = None
-            if timeout is not None and timeout > 0:
-                timer = threading.Timer(timeout, _watchdog)
-                timer.start()
-
-            try:
-                assert process.stdout is not None
-                last_terminal_char = "\n"
-                for line in process.stdout:
-                    log_file.write(line)
-                    log_file.flush()
-                    event, terminal_text, is_tool = _parse_event_line(line)
-                    is_thinking = isinstance(event, dict) and _is_thinking_event(event)
-                    show = terminal_text and not is_tool and not is_thinking
-                    if show:
-                        assert terminal_text is not None
-                        sys.stdout.write(terminal_text)
-                        sys.stdout.flush()
-                        last_terminal_char = terminal_text[-1]
-                    elif event is None and line:
-                        last_terminal_char = line[-1]
-
-                    if (
-                        isinstance(event, dict)
-                        and event.get("type") == "step_finish"
-                        and last_terminal_char != "\n"
-                    ):
-                        sys.stdout.write("\n")
-                        sys.stdout.flush()
-                        last_terminal_char = "\n"
-
-                    if not isinstance(event, dict):
-                        continue
-                    if session_id is None:
-                        candidate = event.get("sessionID")
-                        if isinstance(candidate, str):
-                            session_id = candidate
-                try:
-                    returncode = process.wait(timeout=30)
-                except subprocess.TimeoutExpired:
-                    print(
-                        "opencode process still alive 30s after stdout closed",
-                        file=sys.stderr,
-                    )
-                    process.terminate()
-                    try:
-                        process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        process.kill()
-                    returncode = -1
-            except BaseException:
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                raise
-            finally:
-                if timer is not None:
-                    timer.cancel()
-
-        if timed_out:
-            msg = f"opencode process killed after {timeout}s timeout"
-            print(msg, file=sys.stderr)
-            return OpenCodeRunResult(
-                returncode=-1,
-                session_id=session_id,
-                result="timeout",
-                warnings=[msg],
-            )
-
-        payload: RalphResultPayload | None = None
-        warnings: list[str] = []
-        if result_path.exists():
-            payload, warnings = _parse_result_payload(
-                result_path.read_text(encoding="utf-8")
-            )
-            result = payload.result if payload is not None else "failed"
-        else:
-            result, warnings = _missing_result_payload(context="Ralph run")
-        return OpenCodeRunResult(
-            returncode=returncode,
-            session_id=session_id,
-            result=result,
-            payload=payload,
-            warnings=warnings,
-        )
-
-    def export_session(self, session_id: str, destination: Path) -> None:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        result = subprocess.run(
-            [self.binary, "export", session_id],
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            raise JriError(
-                result.stderr.strip() or f"failed to export session {session_id}"
-            )
-        destination.write_text(result.stdout, encoding="utf-8")
+def launch_chat(
+    *,
+    root: Path,
+    session_id: str | None,
+    extra_args: list[str],
+    binary: str = "opencode",
+) -> int:
+    command = [binary, str(root), "--agent", "interrogator"]
+    if session_id:
+        command.extend(["--session", session_id])
+    command.extend(extra_args)
+    try:
+        return subprocess.run(command, cwd=root, check=False).returncode
+    except FileNotFoundError as err:
+        raise JriError(f"could not find `{binary}` — is OpenCode installed?") from err
 
 
 # ---------------------------------------------------------------------------
@@ -501,6 +343,72 @@ class OpenCodeServer:
             provider_id, model_id = self.model.split("/", 1)
             return {"providerID": provider_id, "modelID": model_id}
         return {"modelID": self.model}
+
+    # -- session APIs ------------------------------------------------------
+
+    def list_sessions(self, *, root: Path, limit: int = 20) -> list[dict[str, object]]:
+        try:
+            status, body = _http_request(
+                "GET",
+                f"{self._base_url}/session?limit={limit}",
+                timeout=10.0,
+            )
+        except Exception as err:  # noqa: BLE001
+            raise JriError(f"failed to list opencode sessions: {err}") from err
+        if status >= 400:
+            raise JriError(
+                f"failed to list opencode sessions (HTTP {status}): "
+                f"{body.decode('utf-8', errors='replace')}"
+            )
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError as err:
+            raise JriError(f"invalid session list response: {err}") from err
+        if not isinstance(payload, list):
+            raise JriError("invalid session list response: expected array")
+        sessions = [item for item in payload if isinstance(item, dict)]
+        return [
+            session for session in sessions if self._session_matches_root(session, root)
+        ]
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            session_status, session_body = _http_request(
+                "GET",
+                f"{self._base_url}/session/{session_id}",
+                timeout=10.0,
+            )
+            messages_status, messages_body = _http_request(
+                "GET",
+                f"{self._base_url}/session/{session_id}/message?limit=1000",
+                timeout=15.0,
+            )
+        except Exception as err:  # noqa: BLE001
+            raise JriError(f"failed to export session {session_id}: {err}") from err
+        if session_status >= 400:
+            raise JriError(
+                f"failed to export session {session_id} (HTTP {session_status}): "
+                f"{session_body.decode('utf-8', errors='replace')}"
+            )
+        if messages_status >= 400:
+            raise JriError(
+                f"failed to export session {session_id} messages "
+                f"(HTTP {messages_status}): "
+                f"{messages_body.decode('utf-8', errors='replace')}"
+            )
+        try:
+            session = json.loads(session_body)
+        except json.JSONDecodeError as err:
+            raise JriError(f"invalid session export response: {err}") from err
+        try:
+            messages = json.loads(messages_body)
+        except json.JSONDecodeError as err:
+            raise JriError(f"invalid session message export response: {err}") from err
+        destination.write_text(
+            json.dumps({"session": session, "messages": messages}, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
     # -- ralph task --------------------------------------------------------
 
