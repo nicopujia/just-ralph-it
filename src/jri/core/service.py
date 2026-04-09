@@ -5,6 +5,7 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import replace
 from datetime import UTC, datetime
 from importlib.resources import files
@@ -40,7 +41,7 @@ from .models import (
     Task,
     TaskMetadata,
 )
-from .opencode import OpenCodeClient, OpenCodeServer
+from .opencode import OpenCodeProgrammatic, OpenCodeServer, launch_chat
 from .paths import JriPaths
 from .state import StateStore
 from .tasks import (
@@ -80,8 +81,7 @@ class JriService:
         self,
         root: Path,
         *,
-        opencode_client: OpenCodeClient | None = None,
-        opencode_server: OpenCodeServer | None = None,
+        opencode_client: OpenCodeProgrammatic | None = None,
     ) -> None:
         self.root = root.resolve()
         self.paths = JriPaths(self.root)
@@ -89,12 +89,7 @@ class JriService:
         self.state_store = StateStore(self.paths.state_path)
         self.timeline = TimelineStore(self.paths.timeline_path)
         self.metrics = MetricsStore(self.paths.metrics_path)
-        # Tests inject opencode_client to bypass the server entirely.
-        # Production code uses opencode_server for Ralph runs and the
-        # client only for `chat`/`list_sessions`/`export_session`.
-        self._client_injected = opencode_client is not None
-        self.opencode_client = opencode_client or OpenCodeClient()
-        self.opencode_server = opencode_server
+        self.opencode = opencode_client or OpenCodeServer()
         self._halt_requested = False
 
     def init(
@@ -197,17 +192,23 @@ class JriService:
             self.state_store.save_session(None)
         before = {
             session_id
-            for session in self.opencode_client.list_sessions(root=self.root)
+            for session in self._list_sessions()
             if isinstance((session_id := session.get("id")), str)
         }
         state = self.state_store.load()
-        returncode = self.opencode_client.launch_chat(
+        binary = (
+            self.opencode.binary
+            if isinstance(self.opencode, OpenCodeServer)
+            else "opencode"
+        )
+        returncode = launch_chat(
             root=self.root,
             session_id=state.session,
             extra_args=extra_args,
+            binary=binary,
         )
         if state.session is None:
-            after = self.opencode_client.list_sessions(root=self.root)
+            after = self._list_sessions()
             session_id = self._detect_latest_session(before, after)
             if session_id is not None:
                 self.state_store.save_session(session_id)
@@ -229,18 +230,12 @@ class JriService:
         if detached:
             return self._start_detached(max_tasks, model, task_timeout)
 
-        previous_model = self.opencode_client.model
-        self.opencode_client.model = model
-        previous_server_model: str | None = None
-        if self.opencode_server is not None:
-            previous_server_model = self.opencode_server.model
-            self.opencode_server.model = model
+        previous_model = self.opencode.model
+        self.opencode.model = model
         try:
             return self._run_loop(max_tasks, task_timeout=task_timeout, force=force)
         finally:
-            self.opencode_client.model = previous_model
-            if self.opencode_server is not None:
-                self.opencode_server.model = previous_server_model
+            self.opencode.model = previous_model
 
     def stop(self, reason: str | None = None) -> None:
         self.ensure_initialized()
@@ -587,18 +582,15 @@ class JriService:
         failed_slugs: set[str] = set()
         self._halt_requested = False
         old_handlers = self._install_signal_handlers()
-        # Start the opencode server unless tests injected a fake client.
         server_started_here = False
-        if not self._client_injected:
-            if self.opencode_server is None:
-                self.opencode_server = OpenCodeServer(model=self.opencode_client.model)
+        if isinstance(self.opencode, OpenCodeServer):
             result_path = self.paths.jri_dir / "signals" / "result"
             result_path.parent.mkdir(parents=True, exist_ok=True)
             # Ensure the worktree exists before the server starts so Ralph's
             # tools resolve paths against the worktree, not the main repo.
             wt_git, _ = self._ensure_worktree()
             self._sync_worktree(wt_git)
-            self.opencode_server.start(
+            self.opencode.start(
                 env={"JRI_RESULT_PATH": str(result_path)},
                 cwd=self.paths.worktree_dir,
             )
@@ -676,8 +668,8 @@ class JriService:
                     )
                 )
         finally:
-            if server_started_here and self.opencode_server is not None:
-                self.opencode_server.stop()
+            if server_started_here and isinstance(self.opencode, OpenCodeServer):
+                self.opencode.stop()
             self._restore_signal_handlers(old_handlers)
             self.state_store.clear_process()
 
@@ -799,24 +791,14 @@ class JriService:
             detached=False,
         )
         result_path = self.paths.jri_dir / "signals" / "result"
-        if self.opencode_server is not None and not self._client_injected:
-            result = self.opencode_server.run_ralph_task(
-                root=wt_paths.root,
-                prompt=prompt_text,
-                log_path=log_path,
-                result_path=result_path,
-                on_start=on_start_cb,
-                timeout=task_timeout,
-            )
-        else:
-            result = self.opencode_client.run_ralph_task(
-                root=wt_paths.root,
-                prompt=prompt_text,
-                log_path=log_path,
-                result_path=result_path,
-                on_start=on_start_cb,
-                timeout=task_timeout,
-            )
+        result = self.opencode.run_ralph_task(
+            root=wt_paths.root,
+            prompt=prompt_text,
+            log_path=log_path,
+            result_path=result_path,
+            on_start=on_start_cb,
+            timeout=task_timeout,
+        )
 
         # Check for task timeout
         finished_at = int(time.time())
@@ -884,13 +866,8 @@ class JriService:
         attempt = replace(attempt, session_id=result.session_id)
         self.state_store.save_active_attempt(attempt)
 
-        # Cleanup session after export (only for OpenCodeServer, not fake clients)
-        if (
-            self.opencode_server is not None
-            and not self._client_injected
-            and result.session_id is not None
-        ):
-            self.opencode_server._delete_session(result.session_id)
+        if isinstance(self.opencode, OpenCodeServer) and result.session_id is not None:
+            self.opencode._delete_session(result.session_id)
 
         if not doing_task.path.exists():
             self._recover_failed_task_wt(doing_task, wt_git)
@@ -1575,7 +1552,9 @@ class JriService:
             return None
         export_path = self.paths.external_opencode_dir / f"{session_id}.json"
         try:
-            self.opencode_client.export_session(session_id, export_path)
+            self._call_with_server(
+                lambda: self.opencode.export_session(session_id, export_path)
+            )
         except JriError as exc:
             # Surface export failure to timeline and stderr
             error_msg = f"Failed to export session {session_id}: {exc}"
@@ -1593,6 +1572,22 @@ class JriService:
             )
             return None
         return export_path
+
+    def _list_sessions(self) -> list[dict[str, object]]:
+        return self._call_with_server(
+            lambda: self.opencode.list_sessions(root=self.root)
+        )
+
+    def _call_with_server(self, operation: Callable[[], Any]) -> Any:
+        started_here = False
+        if isinstance(self.opencode, OpenCodeServer) and not self.opencode.is_healthy():
+            self.opencode.start(cwd=self.root)
+            started_here = True
+        try:
+            return operation()
+        finally:
+            if started_here and isinstance(self.opencode, OpenCodeServer):
+                self.opencode.stop()
 
     def _create_needs_human_task(
         self,

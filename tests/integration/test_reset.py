@@ -9,13 +9,35 @@ import pytest
 
 from jri.core.errors import JriError
 from jri.core.models import AttemptState, OpenCodeRunResult, ProcessState, State
-from jri.core.opencode import OpenCodeClient
 from jri.core.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git, read_json, write_task
 
 
-class SuccessfulFakeOpenCodeClient(OpenCodeClient):
+class FakeOpenCodeServer:
+    def __init__(self, *, model: str | None = None) -> None:
+        self.model = model
+
+    def list_sessions(self, *, root: Path, limit: int = 20) -> list[dict[str, object]]:
+        return []
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        result_path: Path,
+        on_start: object | None = None,
+        timeout: int | None = None,
+    ) -> OpenCodeRunResult:
+        raise NotImplementedError
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        destination.write_text("{}\n", encoding="utf-8")
+
+
+class SuccessfulFakeOpenCodeClient(FakeOpenCodeServer):
     def __init__(self) -> None:
         super().__init__(model=None)
         self.calls: list[tuple[str, Path]] = []
@@ -41,7 +63,7 @@ class SuccessfulFakeOpenCodeClient(OpenCodeClient):
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
 
 
-class FailedFakeOpenCodeClient(OpenCodeClient):
+class FailedFakeOpenCodeClient(FakeOpenCodeServer):
     def __init__(self) -> None:
         super().__init__(model=None)
         self.calls: list[tuple[str, Path]] = []
@@ -64,7 +86,7 @@ class FailedFakeOpenCodeClient(OpenCodeClient):
         destination.write_text('{"session": "fake_failed"}\n', encoding="utf-8")
 
 
-class DistinctFileFakeOpenCodeClient(OpenCodeClient):
+class DistinctFileFakeOpenCodeClient(FakeOpenCodeServer):
     def __init__(self) -> None:
         super().__init__(model=None)
         self.calls: list[tuple[str, Path]] = []

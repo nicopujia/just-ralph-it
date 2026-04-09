@@ -16,14 +16,36 @@ from jri.core.models import (
     RalphResultPayload,
     State,
 )
-from jri.core.opencode import OpenCodeClient
 from jri.core.service import JriService
 from jri.core.tasks import list_tasks, parse_task_file
 from tests.conftest import run_cli
 from tests.helpers import git, read_json, write_task
 
 
-class SuccessfulFakeOpenCodeClient(OpenCodeClient):
+class FakeOpenCodeServer:
+    def __init__(self, *, model: str | None = None) -> None:
+        self.model = model
+
+    def list_sessions(self, *, root: Path, limit: int = 20) -> list[dict[str, object]]:
+        return []
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        result_path: Path,
+        on_start: object | None = None,
+        timeout: int | None = None,
+    ) -> OpenCodeRunResult:
+        raise NotImplementedError
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        destination.write_text("{}\n", encoding="utf-8")
+
+
+class SuccessfulFakeOpenCodeClient(FakeOpenCodeServer):
     def __init__(self) -> None:
         super().__init__(model=None)
         self.calls: list[tuple[str, Path]] = []
@@ -51,7 +73,7 @@ class SuccessfulFakeOpenCodeClient(OpenCodeClient):
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
 
 
-class NeedsHumanFakeOpenCodeClient(OpenCodeClient):
+class NeedsHumanFakeOpenCodeClient(FakeOpenCodeServer):
     """Simulates Ralph resolving the task as needs human."""
 
     def __init__(self) -> None:
@@ -89,7 +111,7 @@ class NeedsHumanFakeOpenCodeClient(OpenCodeClient):
         destination.write_text('{"session": "fake_needs_human"}\n', encoding="utf-8")
 
 
-class NeedsHumanThenSuccessfulFakeOpenCodeClient(OpenCodeClient):
+class NeedsHumanThenSuccessfulFakeOpenCodeClient(FakeOpenCodeServer):
     """Returns needs human for the first call, successful for the second."""
 
     def __init__(self) -> None:
@@ -1047,7 +1069,7 @@ def test_needs_human_then_successful_completes_one(git_repo: Path) -> None:
     assert git(git_repo, "branch", "--show-current") == "main"
 
 
-class MakeCheckFailsFakeOpenCodeClient(OpenCodeClient):
+class MakeCheckFailsFakeOpenCodeClient(FakeOpenCodeServer):
     """Successful Ralph run, but the project has a failing make check."""
 
     def __init__(self) -> None:
@@ -1075,7 +1097,7 @@ class MakeCheckFailsFakeOpenCodeClient(OpenCodeClient):
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
 
 
-class FailedFakeOpenCodeClient(OpenCodeClient):
+class FailedFakeOpenCodeClient(FakeOpenCodeServer):
     """Simulates a JRI-level failed run after Ralph does not produce a valid result."""
 
     def __init__(self) -> None:
@@ -1100,7 +1122,7 @@ class FailedFakeOpenCodeClient(OpenCodeClient):
         destination.write_text('{"session": "fake_failed"}\n', encoding="utf-8")
 
 
-class IncompleteFakeOpenCodeClient(OpenCodeClient):
+class IncompleteFakeOpenCodeClient(FakeOpenCodeServer):
     """Simulates Ralph returning an incomplete result."""
 
     def __init__(self) -> None:
@@ -1127,7 +1149,7 @@ class IncompleteFakeOpenCodeClient(OpenCodeClient):
         destination.write_text('{"session": "fake_incomplete"}\n', encoding="utf-8")
 
 
-class MalformedNeedsHumanFakeOpenCodeClient(OpenCodeClient):
+class MalformedNeedsHumanFakeOpenCodeClient(FakeOpenCodeServer):
     """Simulates a malformed structured needs_human payload from Ralph."""
 
     def __init__(self) -> None:
@@ -2007,7 +2029,7 @@ def test_task_limit_records_timeline_event(git_repo: Path) -> None:
     assert loop_stopped_events[0].detail.get("limit") == 1
 
 
-class SlowFakeOpenCodeClient(OpenCodeClient):
+class SlowFakeOpenCodeClient(FakeOpenCodeServer):
     """Simulates a task that takes a long time to complete."""
 
     def __init__(self, delay_seconds: int = 0) -> None:
@@ -2641,7 +2663,7 @@ def test_stop_signal_persists_across_invocations(git_repo: Path) -> None:
     assert not stop_signal.exists()
 
 
-class ExportFailingFakeOpenCodeClient(OpenCodeClient):
+class ExportFailingFakeOpenCodeClient(FakeOpenCodeServer):
     """Simulates export failures."""
 
     def __init__(self) -> None:
@@ -2726,7 +2748,7 @@ def test_export_failure_during_failed_recovery_is_visible(git_repo: Path) -> Non
     from jri.core.timeline import TimelineStore
 
     # Create a client that fails at the JRI level and also fails on export
-    class FailingWithExportFail(OpenCodeClient):
+    class FailingWithExportFail(FakeOpenCodeServer):
         def __init__(self) -> None:
             super().__init__(model=None)
             self.call_count = 0

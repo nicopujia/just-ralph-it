@@ -2,13 +2,12 @@ import json
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import cast
 from urllib.error import URLError
 
 import pytest
 
 from jri.core.errors import JriError
-from jri.core.opencode import OpenCodeClient, OpenCodeServer, _parse_event_line
+from jri.core.opencode import OpenCodeServer, _parse_event_line
 
 
 def _result_payload(result: str = "completed", **extra: object) -> str:
@@ -449,105 +448,6 @@ def test_parse_event_line_returns_is_tool_false_for_non_display_json() -> None:
     _, _, is_tool = _parse_event_line(f"{line}\n")
 
     assert is_tool is False
-
-
-def test_client_run_ralph_task_reads_structured_result_payload(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    client = OpenCodeClient(binary="opencode")
-    outcome_path = tmp_path / "result.txt"
-    popen_envs: list[dict[str, str]] = []
-
-    class _FakeRunProcess:
-        def __init__(self) -> None:
-            self.pid = 4321
-            self.stdout = iter(
-                [
-                    json.dumps(
-                        {
-                            "type": "text",
-                            "sessionID": "ses_123",
-                            "part": {"type": "text", "text": "working\n"},
-                        }
-                    )
-                    + "\n"
-                ]
-            )
-
-        def wait(self, timeout: float | None = None) -> int:
-            assert timeout is None or timeout >= 0
-            outcome_path.write_text(_result_payload("completed"), encoding="utf-8")
-            return 0
-
-        def terminate(self) -> None:
-            return None
-
-        def kill(self) -> None:
-            return None
-
-    def fake_popen(args: list[str], **kwargs: object) -> _FakeRunProcess:
-        env = kwargs.get("env")
-        assert isinstance(env, dict)
-        popen_envs.append(cast(dict[str, str], env))
-        return _FakeRunProcess()
-
-    monkeypatch.setattr("jri.core.opencode.subprocess.Popen", fake_popen)
-
-    result = client.run_ralph_task(
-        root=tmp_path,
-        prompt="Solve the task",
-        log_path=tmp_path / "ralph.log",
-        result_path=outcome_path,
-    )
-
-    assert popen_envs[0]["JRI_RESULT_PATH"] == str(outcome_path)
-    assert result.returncode == 0
-    assert result.session_id == "ses_123"
-    assert result.result == "completed"
-    assert result.payload is not None
-    assert result.payload.result == "completed"
-    assert result.warnings == []
-
-
-def test_client_run_ralph_task_missing_result_payload_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    client = OpenCodeClient(binary="opencode")
-    outcome_path = tmp_path / "result.txt"
-
-    class _FakeRunProcess:
-        def __init__(self) -> None:
-            self.pid = 4321
-            self.stdout = iter([""])
-
-        def wait(self, timeout: float | None = None) -> int:
-            assert timeout is None or timeout >= 0
-            return 0
-
-        def terminate(self) -> None:
-            return None
-
-        def kill(self) -> None:
-            return None
-
-    def fake_popen(args: list[str], **kwargs: object) -> _FakeRunProcess:
-        return _FakeRunProcess()
-
-    monkeypatch.setattr("jri.core.opencode.subprocess.Popen", fake_popen)
-
-    result = client.run_ralph_task(
-        root=tmp_path,
-        prompt="Solve the task",
-        log_path=tmp_path / "ralph.log",
-        result_path=outcome_path,
-    )
-
-    msg = "missing JRI result payload for Ralph run; treating run as failed"
-    assert result.returncode == 0
-    assert result.result == "failed"
-    assert result.payload is None
-    assert result.warnings == [msg]
-    assert msg in capsys.readouterr().err
 
 
 def test_run_ralph_task_raises_on_session_create_http_error(
