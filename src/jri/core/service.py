@@ -287,15 +287,7 @@ class JriService:
 
         draft_tasks = self._list_tasks("draft")
         selected = self._select_draft_tasks(draft_tasks, slugs)
-        try:
-            validate_draft_promotion(
-                selected,
-                all_draft_slugs={task.slug for task in draft_tasks},
-                promoted_slugs=self._promoted_task_slugs(),
-                promoted_deps=self._promoted_task_deps(),
-            )
-        except ValueError as exc:
-            raise JriError(str(exc)) from exc
+        self._validate_selected_drafts_for_promotion(selected, draft_tasks=draft_tasks)
 
         promoted_tasks: list[Task] = []
         for task in selected:
@@ -316,6 +308,27 @@ class JriService:
             ],
         )
         return promoted_tasks
+
+    def check_draft_promotion(self, *, slugs: list[str]) -> list[Task]:
+        self.ensure_initialized()
+
+        draft_tasks = self._list_tasks("draft")
+        selected = self._select_draft_tasks(draft_tasks, slugs)
+        self._validate_selected_drafts_for_promotion(selected, draft_tasks=draft_tasks)
+        return selected
+
+    def _validate_selected_drafts_for_promotion(
+        self, selected: list[Task], *, draft_tasks: list[Task]
+    ) -> None:
+        try:
+            validate_draft_promotion(
+                selected,
+                all_draft_slugs={task.slug for task in draft_tasks},
+                promoted_slugs=self._promoted_task_slugs(),
+                promoted_deps=self._promoted_task_deps(),
+            )
+        except ValueError as exc:
+            raise JriError(str(exc)) from exc
 
     def reset(self, target_task: str | None = None) -> None:
         """Reset the repository to a specific task tag.

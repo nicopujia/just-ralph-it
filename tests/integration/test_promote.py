@@ -126,6 +126,63 @@ def test_promote_rejects_dependency_on_unselected_draft(git_repo: Path, capsys) 
     assert "outside the promotion batch" in capsys.readouterr().err
 
 
+def test_promote_check_validates_without_moving_tasks(git_repo: Path, capsys) -> None:
+    _init(git_repo)
+    write_task(
+        git_repo,
+        status="draft",
+        slug="clarify-scope",
+        title="Clarify scope",
+        priority=0,
+        assignee="Ralph",
+        body="Clarify the scope.\n",
+        acceptance_criteria=["The scope is written down."],
+    )
+    status_before = git(git_repo, "status", "--short")
+
+    rc = run_cli(["promote", "clarify-scope", "--check"], cwd=git_repo)
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Promotion check passed for 1 draft task(s)." in out
+    assert "clarify-scope" in out
+    assert (git_repo / ".jri" / "tasks" / "draft" / "clarify-scope.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "todo" / "clarify-scope.md").exists()
+    assert git(git_repo, "status", "--short") == status_before
+
+
+def test_promote_check_reports_validation_failures(git_repo: Path, capsys) -> None:
+    _init(git_repo)
+    write_task(
+        git_repo,
+        status="draft",
+        slug="clarify-scope",
+        title="Clarify scope",
+        priority=0,
+        assignee="Ralph",
+        body="Clarify the scope.\n",
+        acceptance_criteria=["The scope is written down."],
+    )
+    write_task(
+        git_repo,
+        status="draft",
+        slug="build-ui",
+        title="Build UI",
+        priority=1,
+        assignee="Ralph",
+        body="Build the UI.\n",
+        depends_on=["clarify-scope"],
+        acceptance_criteria=["The UI is implemented."],
+    )
+
+    rc = run_cli(["promote", "build-ui", "--check"], cwd=git_repo)
+
+    assert rc == 1
+    assert "outside the promotion batch" in capsys.readouterr().err
+    assert (git_repo / ".jri" / "tasks" / "draft" / "build-ui.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "todo" / "build-ui.md").exists()
+
+
 def test_promote_rejects_cyclic_dependencies(git_repo: Path, capsys) -> None:
     _init(git_repo)
     write_task(
