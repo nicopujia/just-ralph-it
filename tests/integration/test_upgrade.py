@@ -3,14 +3,32 @@ from pathlib import Path
 import jri.core.git as git_module
 import jri.core.service as service_module
 from tests.conftest import run_cli
-from tests.helpers import git, seed_task_and_commit
+from tests.helpers import git, write_task
+
+
+def _init(repo: Path) -> None:
+    assert run_cli(["init"], cwd=repo) == 0
+
+
+def _seed_task_and_commit(repo: Path) -> None:
+    task_path = write_task(
+        repo,
+        status="todo",
+        slug="keep-me",
+        title="Keep me",
+        priority=1,
+        assignee="Human",
+        body="Persistent task body.",
+    )
+    git(repo, "add", str(task_path.relative_to(repo)))
+    git(repo, "commit", "-m", "seed task")
 
 
 def test_init_upgrade_untracks_agent_files_from_older_repos(
-    initialized_git_repo: Path,
+    git_repo: Path,
     monkeypatch,
 ) -> None:
-    git_repo = initialized_git_repo
+    _init(git_repo)
     (git_repo / ".gitignore").write_text("dist/\n.opencode/\n", encoding="utf-8")
     (git_repo / ".opencode" / ".gitignore").write_text(
         "\n".join(
@@ -26,15 +44,7 @@ def test_init_upgrade_untracks_agent_files_from_older_repos(
     git(git_repo, "add", "-f", ".opencode/.gitignore")
     git(git_repo, "commit", "-m", "add legacy ignore files")
 
-    seed_task_and_commit(
-        git_repo,
-        status="todo",
-        slug="keep-me",
-        title="Keep me",
-        priority=1,
-        assignee="Human",
-        body="Persistent task body.",
-    )
+    _seed_task_and_commit(git_repo)
     prompt_paths = {
         name: git_repo / ".opencode" / "agents" / name
         for name in service_module._MANAGED_AGENT_FILENAMES
@@ -98,10 +108,10 @@ def test_init_upgrade_untracks_agent_files_from_older_repos(
 
 
 def test_init_upgrade_commits_when_config_files_change(
-    initialized_git_repo: Path,
+    git_repo: Path,
     monkeypatch,
 ) -> None:
-    git_repo = initialized_git_repo
+    _init(git_repo)
 
     def fake_load_prompt(name: str) -> str:
         base = name.removesuffix(".md") if name.endswith(".md") else name
@@ -131,9 +141,9 @@ def test_init_upgrade_commits_when_config_files_change(
 
 
 def test_init_upgrade_cleans_legacy_gitignore_without_other_changes(
-    initialized_git_repo: Path,
+    git_repo: Path,
 ) -> None:
-    git_repo = initialized_git_repo
+    _init(git_repo)
     (git_repo / ".gitignore").write_text(".opencode/\n", encoding="utf-8")
     (git_repo / ".opencode" / ".gitignore").write_text(
         "\n".join(
