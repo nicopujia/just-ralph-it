@@ -140,7 +140,7 @@ def test_reset_after_successful_task(git_repo: Path) -> None:
     assert "active_attempt" not in state
 
 
-def test_reset_prefers_latest_end_tag_over_jri_init_fallback(
+def test_reset_prefers_latest_end_tag(
     git_repo: Path,
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
@@ -312,50 +312,10 @@ def test_reset_discards_uncommitted_changes_on_default_branch(
     assert git(git_repo, "diff", "--cached", "--name-only") == ""
 
 
-def test_reset_succeeds_when_no_tasks_and_jri0_tag_exists(
-    git_repo: Path,
-) -> None:
-    """When no tasks completed and jri/init tag exists, reset targets jri/init."""
-    assert run_cli(["init"], cwd=git_repo) == 0
-
-    # Simulate a partial/failed first task: start creates jri/init tag
-    write_task(
-        git_repo,
-        status="todo",
-        slug="failing-task",
-        title="Failing task",
-        priority=0,
-        assignee="Ralph",
-        body="This will fail.",
-    )
-    git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
-    git(git_repo, "commit", "-m", "add failing task")
-
-    fail_service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
-    assert fail_service.start(max_tasks=1) == 0
-
-    # Now no tasks completed but jri/init exists.
-    # Add some extra commits to prove reset discards them.
-    (git_repo / "extra-after-fail.txt").write_text("extra\n", encoding="utf-8")
-    git(git_repo, "add", "extra-after-fail.txt")
-    git(git_repo, "commit", "-m", "extra after failure")
-
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
-    service.reset()
-
-    # extra file added after the failed iteration should be gone
-    assert not (git_repo / "extra-after-fail.txt").exists()
-    assert git(git_repo, "branch", "--show-current") == "main"
-
-    state = read_json(git_repo / ".jri" / "state.json")
-    assert "process" not in state
-    assert "active_attempt" not in state
-
-
 def test_reset_refuses_when_no_task_tag(
     git_repo: Path,
 ) -> None:
-    """When no task completed and jri/init tag does NOT exist, raise JriError."""
+    """When no task has completed, reset requires an end tag."""
     assert run_cli(["init"], cwd=git_repo) == 0
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
@@ -364,10 +324,9 @@ def test_reset_refuses_when_no_task_tag(
         service.reset()
 
 
-def test_reset_to_jri0_restores_pre_ralph_working_tree(
+def test_reset_refuses_when_no_completed_task_tag_after_failed_run(
     git_repo: Path,
 ) -> None:
-    """Reset-to-jri/init removes tracked files added by a failed first task."""
     assert run_cli(["init"], cwd=git_repo) == 0
 
     write_task(
@@ -382,25 +341,13 @@ def test_reset_to_jri0_restores_pre_ralph_working_tree(
     git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
     git(git_repo, "commit", "-m", "add failing task")
 
-    # Start creates jri/init tag, then the failed task runs.
-    # The FailedFakeOpenCodeClient doesn't write any files, so add a
-    # post-failure commit to prove reset discards it.
     fail_service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
     assert fail_service.start(max_tasks=1) == 0
 
-    # Add a tracked file after the failed iteration
-    (git_repo / "added-by-fail.txt").write_text("should be gone\n", encoding="utf-8")
-    git(git_repo, "add", "added-by-fail.txt")
-    git(git_repo, "commit", "-m", "added by failed iteration")
-
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
-    service.reset()
 
-    # The extra file should be gone — reset restored to jri/init state
-    assert not (git_repo / "added-by-fail.txt").exists()
-    # The task file was committed before start() and is part of jri/init
-    assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
-    assert git(git_repo, "branch", "--show-current") == "main"
+    with pytest.raises(JriError, match="no task tag found.*jri start"):
+        service.reset()
 
 
 def test_reset_clears_active_attempt(git_repo: Path) -> None:

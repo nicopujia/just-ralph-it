@@ -83,22 +83,6 @@ def test_init_commits_only_scaffold_when_unrelated_changes_exist(
     assert "notes.txt" in git(git_repo, "diff", "--cached", "--name-only").splitlines()
 
 
-def test_init_removes_opencode_from_existing_gitignore(git_repo: Path) -> None:
-    """Root .gitignore should drop the legacy .opencode/ entry."""
-    (git_repo / ".gitignore").write_text("dist/\n.opencode/\n", encoding="utf-8")
-    git(git_repo, "add", ".gitignore")
-    git(git_repo, "commit", "-m", "add gitignore")
-
-    exit_code = run_cli(["init"], cwd=git_repo)
-
-    assert exit_code == 0
-    assert (git_repo / ".gitignore").read_text(encoding="utf-8").splitlines() == [
-        "dist/",
-    ]
-    assert not (git_repo / ".opencode" / ".gitignore").exists()
-    assert git(git_repo, "status", "--short") == ""
-
-
 def test_init_creates_empty_readme_when_missing(git_repo: Path) -> None:
     (git_repo / "README.md").unlink()
     git(git_repo, "add", "README.md")
