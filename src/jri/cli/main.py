@@ -112,6 +112,12 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     print(f"\n{metrics}")
                 return 0
             case "promote":
+                if args.check:
+                    selected = service.check_draft_promotion(slugs=args.slugs)
+                    print(f"Promotion check passed for {len(selected)} draft task(s).")
+                    for task in selected:
+                        print(f"  - {task.slug}")
+                    return 0
                 if not args.force:
                     draft_tasks = service._list_tasks("draft")
                     selected = service._select_draft_tasks(draft_tasks, args.slugs)
@@ -333,6 +339,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--force",
         action="store_true",
         help="Skip the interactive confirmation prompt and promote immediately.",
+    )
+    promote_parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Validate draft promotion without moving any tasks.",
     )
 
     timeline_parser = subparsers.add_parser(
