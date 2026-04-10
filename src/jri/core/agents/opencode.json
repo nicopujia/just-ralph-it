@@ -13,6 +13,15 @@
       "color": "#ffd500", // yellow, like Ralph Wiggum
       "permission": {
         "question": "allow",
+        "write": {
+          "*": "deny",
+          "README.md": "allow"
+        },
+        "edit": {
+          "*": "deny",
+          "README.md": "allow"
+        },
+        "promote-tasks": "deny",
         "ralph-*": "deny",
         "task": {
           "*": "deny",
@@ -30,9 +39,12 @@
       "permission": {
         "write": "deny",
         "edit": "deny",
-        "bash": "allow",
         "ralph-*": "deny",
         "interrogator-*": "deny",
+        "upsert-tasks": "deny",
+        "rename-tasks": "deny",
+        "delete-tasks": "deny",
+        "promote-tasks": "allow",
         "task": {
           "ralph-*": "deny",
           "interrogator-*": "deny"

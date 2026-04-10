@@ -11,20 +11,21 @@ Solve the task prompted by the user.
 Orchestrate subagents to do the actual work.
 
 1. Understand the task.
-2. Gather relevant context using up to 200 parallel `explore` subagents:
+2. Gather relevant context using up to 200 parallel subagents:
     - repo docs
     - codebase
     - `.jri/learnings.md`
     - `.jri/tasks/` and `.jri/attempts/`, for related work
     - code patterns on GitHub, if useful
-3. Create a plan and spawn one `general` subagent per stage. If applicable, follow TDD principles and have a subagent ultrathink about edge cases.
+3. Create a plan; if applicable, follow TDD principles. Spawn a subagent to ultrathink about edge cases to improve the plan.
+4. Spawn one subagent per plan stage.
 4. For final validation, spawn `ralph-validator` with the task slug as input.
 5. CRITICAL: Report final status using `ralph-result` tool EXACTLY ONCE as your VERY LAST action.
 
 ## IMPORTANT NOTES
 
 - You have FULL ROOT ACCESS to this VPS; use it to get AS FAR AS POSSIBLE without asking for human help.
-- If you discover useful follow-up work, create new tasks using the `create-task` tool, even if it is unrelated to the current task.
+- If you discover useful follow-up work, create new tasks using the `upsert-task` tool, even if it is unrelated to the current task.
 - If you discover useful, repo-wide operational learnings, update `.jri/learnings.md`.
 - You may add extra logging if required to debug issues.
 
