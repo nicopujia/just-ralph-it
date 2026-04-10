@@ -1,41 +1,30 @@
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 import jri.core.git as git_module
+from jri.core.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git, read_json, write_task
 
 
-def _init(repo: Path) -> None:
+def _init(repo: Path) -> JriService:
     assert run_cli(["init"], cwd=repo) == 0
+    return JriService(repo)
 
 
-def test_promote_aborts_on_no_response(git_repo: Path, capsys, monkeypatch) -> None:
+def test_promote_is_not_a_public_cli_command(git_repo: Path) -> None:
     _init(git_repo)
-    write_task(
-        git_repo,
-        status="draft",
-        slug="clarify-scope",
-        title="Clarify scope",
-        priority=1,
-        assignee="Ralph",
-        body="Clarify the scope.\n",
-        acceptance_criteria=["The scope is written down."],
-    )
 
-    monkeypatch.setattr("builtins.input", lambda: "n")
-    rc = run_cli(["promote", "clarify-scope"], cwd=git_repo)
+    with pytest.raises(SystemExit) as exc_info:
+        run_cli(["promote", "clarify-scope"], cwd=git_repo)
 
-    assert rc == 1
-    assert "Promotion aborted." in capsys.readouterr().err
-    assert (git_repo / ".jri" / "tasks" / "draft" / "clarify-scope.md").exists()
-    assert not (git_repo / ".jri" / "tasks" / "todo" / "clarify-scope.md").exists()
+    assert exc_info.value.code == 2
 
 
-def test_promote_moves_selected_drafts_and_records_confirmation(
-    git_repo: Path, capsys
-) -> None:
-    _init(git_repo)
+def test_promote_moves_selected_drafts_and_records_confirmation(git_repo: Path) -> None:
+    service = _init(git_repo)
     write_task(
         git_repo,
         status="draft",
@@ -58,21 +47,9 @@ def test_promote_moves_selected_drafts_and_records_confirmation(
         acceptance_criteria=["The UI is implemented."],
     )
 
-    rc = run_cli(
-        [
-            "promote",
-            "clarify-scope",
-            "build-ui",
-            "--force",
-        ],
-        cwd=git_repo,
-    )
+    promoted = service.promote_drafts(slugs=["clarify-scope", "build-ui"])
 
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "Promoted 2 draft task(s) to todo." in out
-    assert "clarify-scope" in out
-    assert "build-ui" in out
+    assert [task.slug for task in promoted] == ["build-ui", "clarify-scope"]
     assert not (git_repo / ".jri" / "tasks" / "draft" / "clarify-scope.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "draft" / "build-ui.md").exists()
     assert (git_repo / ".jri" / "tasks" / "todo" / "clarify-scope.md").exists()
@@ -93,8 +70,8 @@ def test_promote_moves_selected_drafts_and_records_confirmation(
     )
 
 
-def test_promote_rejects_dependency_on_unselected_draft(git_repo: Path, capsys) -> None:
-    _init(git_repo)
+def test_promote_rejects_dependency_on_unselected_draft(git_repo: Path) -> None:
+    service = _init(git_repo)
     write_task(
         git_repo,
         status="draft",
@@ -117,17 +94,12 @@ def test_promote_rejects_dependency_on_unselected_draft(git_repo: Path, capsys) 
         acceptance_criteria=["The UI is implemented."],
     )
 
-    rc = run_cli(
-        ["promote", "build-ui", "--force"],
-        cwd=git_repo,
-    )
-
-    assert rc == 1
-    assert "outside the promotion batch" in capsys.readouterr().err
+    with pytest.raises(Exception, match="outside the promotion batch"):
+        service.promote_drafts(slugs=["build-ui"])
 
 
-def test_promote_check_validates_without_moving_tasks(git_repo: Path, capsys) -> None:
-    _init(git_repo)
+def test_promote_check_validates_without_moving_tasks(git_repo: Path) -> None:
+    service = _init(git_repo)
     write_task(
         git_repo,
         status="draft",
@@ -140,19 +112,16 @@ def test_promote_check_validates_without_moving_tasks(git_repo: Path, capsys) ->
     )
     status_before = git(git_repo, "status", "--short")
 
-    rc = run_cli(["promote", "clarify-scope", "--check"], cwd=git_repo)
+    selected = service.check_draft_promotion(slugs=["clarify-scope"])
 
-    assert rc == 0
-    out = capsys.readouterr().out
-    assert "Promotion check passed for 1 draft task(s)." in out
-    assert "clarify-scope" in out
+    assert [task.slug for task in selected] == ["clarify-scope"]
     assert (git_repo / ".jri" / "tasks" / "draft" / "clarify-scope.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "todo" / "clarify-scope.md").exists()
     assert git(git_repo, "status", "--short") == status_before
 
 
-def test_promote_check_reports_validation_failures(git_repo: Path, capsys) -> None:
-    _init(git_repo)
+def test_promote_check_reports_validation_failures(git_repo: Path) -> None:
+    service = _init(git_repo)
     write_task(
         git_repo,
         status="draft",
@@ -175,16 +144,15 @@ def test_promote_check_reports_validation_failures(git_repo: Path, capsys) -> No
         acceptance_criteria=["The UI is implemented."],
     )
 
-    rc = run_cli(["promote", "build-ui", "--check"], cwd=git_repo)
+    with pytest.raises(Exception, match="outside the promotion batch"):
+        service.check_draft_promotion(slugs=["build-ui"])
 
-    assert rc == 1
-    assert "outside the promotion batch" in capsys.readouterr().err
     assert (git_repo / ".jri" / "tasks" / "draft" / "build-ui.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "todo" / "build-ui.md").exists()
 
 
-def test_promote_rejects_cyclic_dependencies(git_repo: Path, capsys) -> None:
-    _init(git_repo)
+def test_promote_rejects_cyclic_dependencies(git_repo: Path) -> None:
+    service = _init(git_repo)
     write_task(
         git_repo,
         status="draft",
@@ -208,10 +176,5 @@ def test_promote_rejects_cyclic_dependencies(git_repo: Path, capsys) -> None:
         acceptance_criteria=["Beta done."],
     )
 
-    rc = run_cli(
-        ["promote", "alpha", "beta", "--force"],
-        cwd=git_repo,
-    )
-
-    assert rc == 1
-    assert "cyclic dependency" in capsys.readouterr().err
+    with pytest.raises(Exception, match="cyclic dependency"):
+        service.promote_drafts(slugs=["alpha", "beta"])

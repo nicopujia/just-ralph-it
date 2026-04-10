@@ -3,18 +3,18 @@ from pathlib import Path
 
 from .errors import JriError
 
-MSG_INIT = "jri init"
-MSG_UPGRADE = "jri upgrade"
-MSG_UPGRADE_AUTO = "jri upgrade (auto)"
-MSG_START_BEGIN = "jri start: begin {slug}"
-MSG_START_COMPLETE = "jri start: complete {slug}"
-MSG_PROMOTE = "jri promote: move drafts to todo"
+MSG_INIT = "jri: init"
+MSG_UPGRADE = "jri: upgrade"
+MSG_UPGRADE_AUTO = "jri: auto-upgrade"
+MSG_START_BEGIN = "jri(start): begin {slug}"
+MSG_START_COMPLETE = "jri(start): complete {slug}"
+MSG_PROMOTE = "jri: move drafts to todo"
 MSG_RECOVER_FAILED = "jri: recover {slug} after failed task"
 MSG_RECOVER_STALE = "jri: recover {slug} after stale run"
 MSG_RECOVER_NEEDS_HUMAN = "jri: recover {slug} for needs-human"
 MSG_ESCALATE_HUMAN = "jri: escalate {slug} for human help"
-MSG_RALPH_FINALIZE = "ralph: finalize {slug}"
-MSG_RALPH_PARTIAL = "ralph: partial work on {slug}"
+MSG_RALPH_FINALIZE = "jri(ralph): finalize {slug}"
+MSG_RALPH_PARTIAL = "jri(ralph): partial work on {slug}"
 
 
 def tag_name(slug: str, suffix: str) -> str:

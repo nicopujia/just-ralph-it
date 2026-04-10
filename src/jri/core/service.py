@@ -67,7 +67,14 @@ _MANAGED_AGENT_FILENAMES = ("interrogator.md", "ralph.md")
 _MANAGED_AGENT_PATHS = tuple(
     f".opencode/agents/{name}" for name in _MANAGED_AGENT_FILENAMES
 )
-_MANAGED_TOOL_FILENAMES = ("create-task.js", "ralph-result.js")
+_MANAGED_TOOL_FILENAMES = (
+    "_run-python-tool.mjs",
+    "delete-task.js",
+    "promote-tasks.js",
+    "ralph-result.js",
+    "rename-task.js",
+    "upsert-task.js",
+)
 _MANAGED_TOOL_PATHS = tuple(
     f".opencode/tools/{name}" for name in _MANAGED_TOOL_FILENAMES
 )

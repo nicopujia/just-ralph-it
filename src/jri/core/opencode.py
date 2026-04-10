@@ -198,8 +198,10 @@ def launch_chat(
     if session_id:
         command.extend(["--session", session_id])
     command.extend(extra_args)
+    env = os.environ.copy()
+    env["JRI_PYTHON"] = sys.executable
     try:
-        return subprocess.run(command, cwd=root, check=False).returncode
+        return subprocess.run(command, cwd=root, check=False, env=env).returncode
     except FileNotFoundError as err:
         raise JriError(f"could not find `{binary}` — is OpenCode installed?") from err
 

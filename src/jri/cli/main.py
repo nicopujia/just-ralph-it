@@ -111,29 +111,6 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 if metrics:
                     print(f"\n{metrics}")
                 return 0
-            case "promote":
-                if args.check:
-                    selected = service.check_draft_promotion(slugs=args.slugs)
-                    print(f"Promotion check passed for {len(selected)} draft task(s).")
-                    for task in selected:
-                        print(f"  - {task.slug}")
-                    return 0
-                if not args.force:
-                    draft_tasks = service._list_tasks("draft")
-                    selected = service._select_draft_tasks(draft_tasks, args.slugs)
-                    n = len(selected)
-                    slugs_preview = ", ".join(t.slug for t in selected)
-                    print(f"Will promote: {slugs_preview}")
-                    print(f"Promote {n} draft(s) to todo? [y/N] ", end="", flush=True)
-                    response = input().strip().lower()
-                    if response != "y":
-                        print("Promotion aborted.", file=sys.stderr)
-                        return 1
-                promoted = service.promote_drafts(slugs=args.slugs)
-                print(f"Promoted {len(promoted)} draft task(s) to todo.")
-                for task in promoted:
-                    print(f"  - {task.slug}")
-                return 0
             case "timeline":
                 from ..core.timeline import TimelineStore
 
@@ -321,31 +298,6 @@ def _build_parser() -> argparse.ArgumentParser:
             "and list all todo tasks assigned to Human."
         ),
     )
-    promote_parser = subparsers.add_parser(
-        "promote",
-        help="Promote draft tasks to todo.",
-        description=(
-            "Show what will be promoted, ask for confirmation, then move "
-            "draft tasks into todo. Use --force to skip the prompt."
-        ),
-    )
-    promote_parser.add_argument(
-        "slugs",
-        nargs="*",
-        help="Draft task slugs to promote. Defaults to all draft tasks.",
-    )
-    promote_parser.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help="Skip the interactive confirmation prompt and promote immediately.",
-    )
-    promote_parser.add_argument(
-        "--check",
-        action="store_true",
-        help="Validate draft promotion without moving any tasks.",
-    )
-
     timeline_parser = subparsers.add_parser(
         "timeline",
         help="Show the execution timeline for this project.",
