@@ -231,5 +231,5 @@ def _assert_convergence(repo: Path, completed: int) -> None:
 
     # Git history shows clean task completions
     log = git(repo, "log", "--oneline").splitlines()
-    completion_commits = [line for line in log if "jri start: complete" in line]
+    completion_commits = [line for line in log if "jri(start): complete" in line]
     assert len(completion_commits) == 3
