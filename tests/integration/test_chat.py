@@ -42,7 +42,7 @@ def test_chat_without_fresh_reuses_session(initialized_repo: Path) -> None:
     """Test that chat without --fresh reuses the existing session."""
     repo = initialized_repo
     server = FakeOpenCodeServerForChat()
-    launch_calls: list[tuple[Path, str | None, list[str]]] = []
+    launch_calls: list[tuple[Path, str | None, list[str], dict[str, str] | None]] = []
 
     def fake_launch_chat(
         *,
@@ -50,8 +50,9 @@ def test_chat_without_fresh_reuses_session(initialized_repo: Path) -> None:
         session_id: str | None,
         extra_args: list[str],
         binary: str = "opencode",
+        env: dict[str, str] | None = None,
     ) -> int:
-        launch_calls.append((root, session_id, extra_args))
+        launch_calls.append((root, session_id, extra_args, env))
         return 0
 
     service = JriService(repo, opencode_client=server)
@@ -66,8 +67,12 @@ def test_chat_without_fresh_reuses_session(initialized_repo: Path) -> None:
 
     assert result == 0
     assert len(launch_calls) == 1
-    _root, session_id, _extra_args = launch_calls[0]
+    _root, session_id, _extra_args, env = launch_calls[0]
     assert session_id == "existing-session-id"
+    assert env == {
+        "OPENCODE_CONFIG": str((repo / ".jri" / "opencode.json").resolve()),
+        "OPENCODE_CONFIG_DIR": str((repo / ".jri" / ".opencode").resolve()),
+    }
     monkeypatch.undo()
 
 
@@ -75,7 +80,7 @@ def test_chat_with_fresh_clears_session(initialized_repo: Path) -> None:
     """Test that chat with --fresh clears the existing session."""
     repo = initialized_repo
     server = FakeOpenCodeServerForChat()
-    launch_calls: list[tuple[Path, str | None, list[str]]] = []
+    launch_calls: list[tuple[Path, str | None, list[str], dict[str, str] | None]] = []
 
     def fake_launch_chat(
         *,
@@ -83,8 +88,9 @@ def test_chat_with_fresh_clears_session(initialized_repo: Path) -> None:
         session_id: str | None,
         extra_args: list[str],
         binary: str = "opencode",
+        env: dict[str, str] | None = None,
     ) -> int:
-        launch_calls.append((root, session_id, extra_args))
+        launch_calls.append((root, session_id, extra_args, env))
         return 0
 
     service = JriService(repo, opencode_client=server)
@@ -107,8 +113,12 @@ def test_chat_with_fresh_clears_session(initialized_repo: Path) -> None:
     assert state.session is None
     # launch_chat should be called with None session
     assert len(launch_calls) == 1
-    _root, session_id, _extra_args = launch_calls[0]
+    _root, session_id, _extra_args, env = launch_calls[0]
     assert session_id is None
+    assert env == {
+        "OPENCODE_CONFIG": str((repo / ".jri" / "opencode.json").resolve()),
+        "OPENCODE_CONFIG_DIR": str((repo / ".jri" / ".opencode").resolve()),
+    }
     monkeypatch.undo()
 
 
@@ -116,7 +126,7 @@ def test_chat_fresh_with_no_existing_session(initialized_repo: Path) -> None:
     """Test that chat --fresh works even when no session exists."""
     repo = initialized_repo
     server = FakeOpenCodeServerForChat()
-    launch_calls: list[tuple[Path, str | None, list[str]]] = []
+    launch_calls: list[tuple[Path, str | None, list[str], dict[str, str] | None]] = []
 
     def fake_launch_chat(
         *,
@@ -124,8 +134,9 @@ def test_chat_fresh_with_no_existing_session(initialized_repo: Path) -> None:
         session_id: str | None,
         extra_args: list[str],
         binary: str = "opencode",
+        env: dict[str, str] | None = None,
     ) -> int:
-        launch_calls.append((root, session_id, extra_args))
+        launch_calls.append((root, session_id, extra_args, env))
         return 0
 
     service = JriService(repo, opencode_client=server)
@@ -170,6 +181,7 @@ def test_chat_fresh_does_not_affect_other_state(initialized_repo: Path) -> None:
         session_id: str | None,
         extra_args: list[str],
         binary: str = "opencode",
+        env: dict[str, str] | None = None,
     ) -> int:
         return 0
 

@@ -32,6 +32,11 @@ markers = [
 [tool.uv]
 package = true
 
+[tool.hatch.build]
+exclude = [
+    "src/jri/core/agents/**",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/jri"]
 

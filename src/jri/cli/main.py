@@ -183,7 +183,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--delete",
         action="store_true",
         dest="delete",
-        help="Skip prompts and overwrite existing .jri/ and .opencode/ directories.",
+        help=(
+            "Skip prompts and overwrite existing .jri/ contents, "
+            "including managed OpenCode config."
+        ),
     )
     init_modes.add_argument(
         "--upgrade",

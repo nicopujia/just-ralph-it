@@ -12,11 +12,13 @@ def test_init_upgrade_commits_when_config_files_change(
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
 
-    def fake_load_prompt(name: str) -> str:
+    def fake_load_managed_template(name: str) -> str:
         base = name.removesuffix(".md") if name.endswith(".md") else name
         return f"upgraded {base}\n"
 
-    monkeypatch.setattr(service_module, "_load_prompt", fake_load_prompt)
+    monkeypatch.setattr(
+        service_module, "_load_managed_template", fake_load_managed_template
+    )
 
     exit_code = run_cli(["init", "--upgrade"], cwd=git_repo)
 
@@ -33,7 +35,15 @@ def test_init_upgrade_commits_when_config_files_change(
         ).splitlines()
     )
     assert changed_files == {
-        *service_module._MANAGED_AGENT_PATHS,
-        *service_module._MANAGED_TOOL_PATHS,
-        *service_module._MANAGED_CONFIG_FILENAMES,
+        ".jri/.opencode/agents/interrogator.md",
+        ".jri/.opencode/agents/interrogator-validator.md",
+        ".jri/.opencode/agents/ralph.md",
+        ".jri/.opencode/agents/ralph-validator.md",
+        ".jri/.opencode/tools/_run-python-tool.mjs",
+        ".jri/.opencode/tools/delete-task.js",
+        ".jri/.opencode/tools/promote-tasks.js",
+        ".jri/.opencode/tools/ralph-result.js",
+        ".jri/.opencode/tools/rename-task.js",
+        ".jri/.opencode/tools/upsert-task.js",
+        ".jri/opencode.json",
     }

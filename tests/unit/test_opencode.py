@@ -7,7 +7,7 @@ from urllib.error import URLError
 import pytest
 
 from jri.core.errors import JriError
-from jri.core.opencode import OpenCodeServer, _parse_event_line
+from jri.core.opencode import OpenCodeServer, _parse_event_line, launch_chat
 
 
 def _result_payload(result: str = "completed", **extra: object) -> str:
@@ -172,6 +172,71 @@ def test_start_preserves_explicit_port(
     assert server.port == 5005
     assert server._base_url == "http://127.0.0.1:5005"
     assert commands == [["opencode", "serve", "--port", "5005"]]
+
+
+def test_start_merges_custom_env_for_server_launch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = OpenCodeServer(binary="opencode", port=5005)
+    popen_env: dict[str, str] = {}
+
+    def fake_popen(args: list[str], **kwargs: object) -> _FakeProcess:
+        assert args == ["opencode", "serve", "--port", "5005"]
+        assert kwargs["cwd"] == str(tmp_path)
+        env = kwargs["env"]
+        assert isinstance(env, dict)
+        for key, value in env.items():
+            popen_env[str(key)] = str(value)
+        return _FakeProcess()
+
+    monkeypatch.setattr("jri.core.opencode.subprocess.Popen", fake_popen)
+    monkeypatch.setattr(server, "is_healthy", lambda: True)
+    monkeypatch.setenv("BASE_ENV", "from-os")
+
+    server.start(cwd=tmp_path, env={"JRI_RESULT_PATH": "result.json"})
+
+    assert popen_env["BASE_ENV"] == "from-os"
+    assert popen_env["JRI_RESULT_PATH"] == "result.json"
+
+
+def test_launch_chat_merges_custom_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run(args: list[str], **kwargs: object) -> _FakeProcess:
+        captured["args"] = args
+        captured["cwd"] = kwargs["cwd"]
+        captured["env"] = kwargs["env"]
+        return _FakeProcess(returncode=0)
+
+    monkeypatch.setattr("jri.core.opencode.subprocess.run", fake_run)
+    monkeypatch.setenv("BASE_ENV", "from-os")
+
+    result = launch_chat(
+        root=tmp_path,
+        session_id="ses_123",
+        extra_args=["--model", "test-model"],
+        env={"OPENCODE_CONFIG": "/tmp/config.json"},
+    )
+
+    assert result == 0
+    assert captured["args"] == [
+        "opencode",
+        str(tmp_path),
+        "--agent",
+        "interrogator",
+        "--session",
+        "ses_123",
+        "--model",
+        "test-model",
+    ]
+    assert captured["cwd"] == tmp_path
+    env = captured["env"]
+    assert isinstance(env, dict)
+    merged_env = {str(key): str(value) for key, value in env.items()}
+    assert merged_env["BASE_ENV"] == "from-os"
+    assert merged_env["OPENCODE_CONFIG"] == "/tmp/config.json"
 
 
 def test_run_ralph_task_rejects_session_for_different_root(
