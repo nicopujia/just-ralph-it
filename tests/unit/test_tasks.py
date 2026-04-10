@@ -1,6 +1,8 @@
 import json
+import os
 import shutil
 import subprocess
+import sys
 from importlib.resources import files
 from pathlib import Path
 from typing import Literal
@@ -22,9 +24,9 @@ from tests.conftest import run_cli
 from tests.helpers import git, write_task
 
 
-def run_create_task_tool(cwd: Path, tmp_path: Path, payload: dict[str, object]) -> str:
+def run_upsert_task_tool(cwd: Path, tmp_path: Path, payload: dict[str, object]) -> str:
     node = shutil.which("node")
-    assert node is not None, "node is required to run create-task tool tests"
+    assert node is not None, "node is required to run upsert-task tool tests"
 
     harness = tmp_path / "create_task_harness"
     harness.mkdir(parents=True, exist_ok=True)
@@ -49,10 +51,16 @@ def run_create_task_tool(cwd: Path, tmp_path: Path, payload: dict[str, object]) 
         "};\n",
         encoding="utf-8",
     )
+    (harness / "_run-python-tool.mjs").write_text(
+        files("jri.core.agents")
+        .joinpath("_run-python-tool.mjs")
+        .read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
 
-    module_path = harness / "create-task.mjs"
+    module_path = harness / "upsert-task.mjs"
     source = (
-        files("jri.core.agents").joinpath("create-task.js").read_text(encoding="utf-8")
+        files("jri.core.agents").joinpath("upsert-task.js").read_text(encoding="utf-8")
     )
     module_path.write_text(
         source.replace(
@@ -63,7 +71,8 @@ def run_create_task_tool(cwd: Path, tmp_path: Path, payload: dict[str, object]) 
         encoding="utf-8",
     )
     script = (
-        "const [, modulePath, payloadText] = process.argv;\n"
+        "const modulePath = process.argv.at(-2);\n"
+        "const payloadText = process.argv.at(-1);\n"
         "const mod = await import(modulePath);\n"
         "const result = await mod.default.execute(JSON.parse(payloadText));\n"
         "process.stdout.write(result);\n"
@@ -81,6 +90,7 @@ def run_create_task_tool(cwd: Path, tmp_path: Path, payload: dict[str, object]) 
         check=True,
         capture_output=True,
         text=True,
+        env={**os.environ, "JRI_PYTHON": sys.executable},
     )
     return result.stdout
 
@@ -202,17 +212,21 @@ def test_packaged_schemas_are_available() -> None:
     assert files("jri.core.schemas").joinpath("state.json").is_file()
     assert files("jri.core.agents").joinpath("interrogator.md").is_file()
     assert files("jri.core.agents").joinpath("ralph.md").is_file()
-    assert files("jri.core.agents").joinpath("create-task.js").is_file()
+    assert files("jri.core.agents").joinpath("_run-python-tool.mjs").is_file()
+    assert files("jri.core.agents").joinpath("delete-task.js").is_file()
+    assert files("jri.core.agents").joinpath("promote-tasks.js").is_file()
     assert files("jri.core.agents").joinpath("ralph-result.js").is_file()
+    assert files("jri.core.agents").joinpath("rename-task.js").is_file()
+    assert files("jri.core.agents").joinpath("upsert-task.js").is_file()
 
 
-def test_create_task_tool_writes_parseable_draft_and_overwrites(
+def test_upsert_task_tool_writes_parseable_draft_and_overwrites(
     tmp_path: Path,
 ) -> None:
     repo = tmp_path / "repo"
     (repo / ".jri" / "tasks").mkdir(parents=True)
 
-    created = run_create_task_tool(
+    created = run_upsert_task_tool(
         repo,
         tmp_path,
         {
@@ -235,7 +249,7 @@ def test_create_task_tool_writes_parseable_draft_and_overwrites(
     assert created_task.metadata.acceptance_criteria == []
     assert created_task.body == "Draft the scope.\n"
 
-    updated = run_create_task_tool(
+    updated = run_upsert_task_tool(
         repo,
         tmp_path,
         {
@@ -257,7 +271,7 @@ def test_create_task_tool_writes_parseable_draft_and_overwrites(
     assert updated_task.body == "Refined draft.\n"
 
 
-def test_create_task_tool_rejects_invalid_slug(tmp_path: Path) -> None:
+def test_upsert_task_tool_rejects_invalid_slug(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
 
@@ -265,7 +279,7 @@ def test_create_task_tool_rejects_invalid_slug(tmp_path: Path) -> None:
         subprocess.CalledProcessError,
         match="returned non-zero exit status",
     ):
-        run_create_task_tool(
+        run_upsert_task_tool(
             repo,
             tmp_path,
             {
@@ -278,7 +292,7 @@ def test_create_task_tool_rejects_invalid_slug(tmp_path: Path) -> None:
         )
 
 
-def test_create_task_tool_rejects_symlinked_draft_dir(tmp_path: Path) -> None:
+def test_upsert_task_tool_rejects_symlinked_draft_dir(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     outside = tmp_path / "outside"
     outside.mkdir()
@@ -289,7 +303,7 @@ def test_create_task_tool_rejects_symlinked_draft_dir(tmp_path: Path) -> None:
         subprocess.CalledProcessError,
         match="returned non-zero exit status",
     ):
-        run_create_task_tool(
+        run_upsert_task_tool(
             repo,
             tmp_path,
             {
@@ -304,7 +318,7 @@ def test_create_task_tool_rejects_symlinked_draft_dir(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("symlink_path", [".jri", ".jri/tasks"])
-def test_create_task_tool_rejects_symlinked_parent_dir(
+def test_upsert_task_tool_rejects_symlinked_parent_dir(
     tmp_path: Path, symlink_path: str
 ) -> None:
     repo = tmp_path / "repo"
@@ -319,7 +333,7 @@ def test_create_task_tool_rejects_symlinked_parent_dir(
         subprocess.CalledProcessError,
         match="returned non-zero exit status",
     ):
-        run_create_task_tool(
+        run_upsert_task_tool(
             repo,
             tmp_path,
             {
@@ -333,7 +347,7 @@ def test_create_task_tool_rejects_symlinked_parent_dir(
     assert list(outside.iterdir()) == []
 
 
-def test_create_task_tool_rejects_symlinked_draft_file(tmp_path: Path) -> None:
+def test_upsert_task_tool_rejects_symlinked_draft_file(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     outside = tmp_path / "outside.md"
     outside.write_text("outside\n", encoding="utf-8")
@@ -345,7 +359,7 @@ def test_create_task_tool_rejects_symlinked_draft_file(tmp_path: Path) -> None:
         subprocess.CalledProcessError,
         match="returned non-zero exit status",
     ):
-        run_create_task_tool(
+        run_upsert_task_tool(
             repo,
             tmp_path,
             {

@@ -1,5 +1,5 @@
 import { tool } from "@opencode-ai/plugin";
-import { writeFileSync } from "fs";
+import { runPythonTool } from "./_run-python-tool.mjs";
 
 const humanTaskSchema = tool.schema.object({
   title: tool.schema.string().describe("Short title for the Human task"),
@@ -20,7 +20,7 @@ const humanTaskSchema = tool.schema.object({
 export default tool({
   name: "ralph-result",
   description:
-    "Report final status for the current task. Call exactly once as your very last action. Use when work is done, failed, or blocked by a human action.",
+    "Report final status for the current task. This is the canonical way to record Ralph's result, and it must be called exactly once as the final action.",
   args: {
     result: tool.schema
       .enum(["completed", "incomplete", "needs_human"])
@@ -47,18 +47,7 @@ export default tool({
         "REQUIRED when result is needs_human: structured Human task with title, body, acceptance_criteria, and optional priority",
       ),
   },
-  async execute({ result, summary, learnings, blocker, human_task }) {
-    if (result === "needs_human" && (!blocker || !human_task)) {
-      throw new Error("needs_human requires blocker and human_task");
-    }
-    const path = process.env.JRI_RESULT_PATH;
-    if (!path) return "JRI_RESULT_PATH not set";
-    const payload = { result };
-    if (summary) payload.summary = summary;
-    if (learnings?.length) payload.learnings = learnings;
-    if (blocker) payload.blocker = blocker;
-    if (human_task) payload.human_task = human_task;
-    writeFileSync(path, JSON.stringify(payload, null, 2) + "\n");
-    return `Result recorded: ${result}`;
+  async execute(args) {
+    return runPythonTool("ralph-result", args);
   },
 });

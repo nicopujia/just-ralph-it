@@ -189,20 +189,9 @@ def _create_and_promote_tasks(repo: Path) -> None:
     git(repo, "add", ".jri/tasks/draft/")
     git(repo, "commit", "-m", "refine draft tasks for promotion")
 
-    # Promotion: reject unconfirmed requests, then allow explicit confirmation.
-    assert run_cli(["promote", "implement-greet"], cwd=repo) == 1
-    assert (
-        run_cli(
-            [
-                "promote",
-                "implement-greet",
-                "add-greet-tests",
-                "update-changelog",
-                "--force",
-            ],
-            cwd=repo,
-        )
-        == 0
+    # Promotion is an internal interrogator workflow, not a public CLI command.
+    JriService(repo).promote_drafts(
+        slugs=["implement-greet", "add-greet-tests", "update-changelog"]
     )
 
 
