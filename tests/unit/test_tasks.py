@@ -52,15 +52,17 @@ def run_upsert_task_tool(cwd: Path, tmp_path: Path, payload: dict[str, object]) 
         encoding="utf-8",
     )
     (harness / "_run-python-tool.mjs").write_text(
-        files("jri.core.agents")
-        .joinpath("_run-python-tool.mjs")
+        files("jri.core.template")
+        .joinpath(".opencode", "tools", "_run-python-tool.mjs")
         .read_text(encoding="utf-8"),
         encoding="utf-8",
     )
 
     module_path = harness / "upsert-task.mjs"
     source = (
-        files("jri.core.agents").joinpath("upsert-task.js").read_text(encoding="utf-8")
+        files("jri.core.template")
+        .joinpath(".opencode", "tools", "upsert-task.js")
+        .read_text(encoding="utf-8")
     )
     module_path.write_text(
         source.replace(
@@ -210,14 +212,20 @@ def test_validate_state_payload_allows_promotion_record() -> None:
 def test_packaged_schemas_are_available() -> None:
     assert files("jri.core.schemas").joinpath("task-metadata.json").is_file()
     assert files("jri.core.schemas").joinpath("state.json").is_file()
-    assert files("jri.core.agents").joinpath("interrogator.md").is_file()
-    assert files("jri.core.agents").joinpath("ralph.md").is_file()
-    assert files("jri.core.agents").joinpath("_run-python-tool.mjs").is_file()
-    assert files("jri.core.agents").joinpath("delete-task.js").is_file()
-    assert files("jri.core.agents").joinpath("promote-tasks.js").is_file()
-    assert files("jri.core.agents").joinpath("ralph-result.js").is_file()
-    assert files("jri.core.agents").joinpath("rename-task.js").is_file()
-    assert files("jri.core.agents").joinpath("upsert-task.js").is_file()
+    managed = files("jri.core.template")
+    assert managed.joinpath("opencode.json").is_file()
+    assert managed.joinpath(".opencode", "agents", "interrogator.md").is_file()
+    assert managed.joinpath(
+        ".opencode", "agents", "interrogator-validator.md"
+    ).is_file()
+    assert managed.joinpath(".opencode", "agents", "ralph.md").is_file()
+    assert managed.joinpath(".opencode", "agents", "ralph-validator.md").is_file()
+    assert managed.joinpath(".opencode", "tools", "_run-python-tool.mjs").is_file()
+    assert managed.joinpath(".opencode", "tools", "delete-task.js").is_file()
+    assert managed.joinpath(".opencode", "tools", "promote-tasks.js").is_file()
+    assert managed.joinpath(".opencode", "tools", "ralph-result.js").is_file()
+    assert managed.joinpath(".opencode", "tools", "rename-task.js").is_file()
+    assert managed.joinpath(".opencode", "tools", "upsert-task.js").is_file()
 
 
 def test_upsert_task_tool_writes_parseable_draft_and_overwrites(

@@ -41,9 +41,9 @@
         "edit": "deny",
         "ralph-*": "deny",
         "interrogator-*": "deny",
-        "upsert-tasks": "deny",
-        "rename-tasks": "deny",
-        "delete-tasks": "deny",
+        "upsert-task": "deny",
+        "rename-task": "deny",
+        "delete-task": "deny",
         "promote-tasks": "allow",
         "task": {
           "ralph-*": "deny",
@@ -78,6 +78,7 @@
         "bash": "deny",
         "ralph-*": "deny",
         "interrogator-*": "deny",
+        "promote-tasks": "deny",
         "task": {
           "ralph-*": "deny",
           "interrogator-*": "deny"

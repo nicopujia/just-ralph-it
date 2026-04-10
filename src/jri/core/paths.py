@@ -72,7 +72,19 @@ class JriPaths:
 
     @property
     def opencode_agents_dir(self) -> Path:
-        return self.root / ".opencode" / "agents"
+        return self.opencode_dir / "agents"
+
+    @property
+    def opencode_dir(self) -> Path:
+        return self.jri_dir / ".opencode"
+
+    @property
+    def opencode_tools_dir(self) -> Path:
+        return self.opencode_dir / "tools"
+
+    @property
+    def opencode_config_path(self) -> Path:
+        return self.jri_dir / "opencode.json"
 
     def task_path(self, status: str, slug: str) -> Path:
         return self.task_dir(status) / f"{slug}.md"

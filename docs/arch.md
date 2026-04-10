@@ -2,11 +2,11 @@
 
 ## Agents
 
-### [Interrogator](../src/jri/core/agents/interrogator.md)
+### [Interrogator](../src/jri/core/template/.opencode/agents/interrogator.md)
 
 Generates/refines tasks. Asks many questions and uses tools to manage `draft` tasks until they are ready for `todo`. One per project.
 
-### [Ralph](../src/jri/core/agents/ralph.md)
+### [Ralph](../src/jri/core/template/.opencode/agents/ralph.md)
 
 Solves exactly one task. Acts as orchestrator, spawning subagents instead of doing the work itself. Ralph can report three outcomes:
 
@@ -41,6 +41,8 @@ Corrections go in new draft tasks.
 
 ## Generated Structure
 
+`jri init` commits [@template](../src/jri/core/template/) files under `.jri/`. Gitignored runtime directories are created lazily when JRI needs them.
+
 ```toml
 <project-root>/
 ├── .jri/
@@ -60,29 +62,27 @@ Corrections go in new draft tasks.
 │   ├── attempts/
 │   │   ├── .gitkeep
 │   │   └── <task-slug>.json            # committed attempt history per task
-│   ├── signals/
-│   │   ├── stop                        # stop gracefully after current iteration
-│   │   └── result                      # structured result of the active Ralph run
-│   ├── logs/
-│   │   ├── ralph/                      # Ralph stdout/stderr per iteration
-│   │   │   └── <slug>.log
-│   │   ├── diffs/                      # code changes per task
-│   │   │   └── <slug>.diff
-│   │   ├── external/                   # session exports
-│   │   ├── timeline.jsonl              # execution events in order
-│   │   ├── recovery.log                # actions taken to recover dirty state
-│   │   └── recovery-failures.log       # when recovery fails
-│   ├── worktree/                       # where Ralph makes changes
-│   ├── state.json
-│   ├── state.json.bak
-│   └── learnings.md                    # notes by Ralph for its future self
-├── .opencode/
-│   ├── agents/
-│   │   ├── interrogator.md
-│   │   └── ralph.md
-│   └── tools/
-│       └── <tool>.*
-├── opencode.json
+│   ├── state.json                      # initialized runtime state (gitignored)
+│   ├── learnings.md                    # notes by Ralph for its future self
+│   ├── .opencode/
+│   │   ├── agents/
+│   │   │   ├── interrogator.md
+│   │   │   ├── interrogator-validator.md
+│   │   │   ├── ralph.md
+│   │   │   └── ralph-validator.md
+│   │   └── tools/
+│   │       └── <tool>.*
+│   └── opencode.json
 ├── Makefile                            # check target (fails by default)
 └── README.md                           # empty (created by init)
+```
+
+Lazy-created runtime paths:
+
+```toml
+.jri/
+├── signals/                            # stop/result contracts for active runs
+├── logs/                               # Ralph logs, diffs, exports, timeline
+├── worktree/                           # where Ralph makes changes
+└── state.json.bak
 ```
