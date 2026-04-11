@@ -59,6 +59,7 @@ _INIT_COMMIT_PATHS = (
     ".jri",
     ".opencode",
     "opencode.json",
+    "Makefile",
     ".jri/learnings.md",
     ".jri/tasks/draft/.gitkeep",
     ".jri/tasks/todo/.gitkeep",
@@ -67,6 +68,7 @@ _INIT_COMMIT_PATHS = (
     ".jri/attempts/.gitkeep",
 )
 _UPGRADE_COMMIT_PATHS = (
+    "Makefile",
     ".jri/.gitignore",
     ".jri/.opencode",
     ".jri/opencode.json",
@@ -101,6 +103,7 @@ _MANAGED_TOOL_PATHS = tuple(
 )
 _MANAGED_CONFIG_FILENAMES = (".jri/opencode.json",)
 _SCAFFOLD_TEMPLATE_PATHS = (
+    "Makefile",
     ".jri/learnings.md",
     ".jri/tasks/draft/.gitkeep",
     ".jri/tasks/todo/.gitkeep",

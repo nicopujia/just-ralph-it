@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,12 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
     assert (git_repo / ".jri" / "tasks" / "doing" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "tasks" / "done" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "attempts" / ".gitkeep").exists()
+    assert (git_repo / "Makefile").read_text(encoding="utf-8") == (
+        ".PHONY: check\n\n"
+        "check:\n"
+        '\t@echo "make check is not configured yet"\n'
+        "\t@false\n"
+    )
     assert not (git_repo / ".jri" / "signals").exists()
     assert not (git_repo / ".jri" / "logs").exists()
     assert not (git_repo / ".jri" / "worktree").exists()
@@ -46,6 +53,7 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
     assert set(service_module._MANAGED_AGENT_PATHS).issubset(changed_files)
     assert set(service_module._MANAGED_TOOL_PATHS).issubset(changed_files)
     assert set(service_module._MANAGED_CONFIG_FILENAMES).issubset(changed_files)
+    assert "Makefile" in changed_files
     assert ".jri/.opencode/.gitignore" not in changed_files
     assert (git_repo / ".jri" / ".gitignore").read_text(
         encoding="utf-8"
@@ -57,6 +65,16 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
         "worktree/",
     ]
     assert git(git_repo, "status", "--short") == ""
+
+    check = subprocess.run(
+        ["make", "check"],
+        cwd=git_repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert check.returncode != 0
+    assert "make check is not configured yet" in check.stdout
 
 
 def test_init_commits_only_scaffold_when_unrelated_changes_exist(
@@ -81,6 +99,7 @@ def test_init_commits_only_scaffold_when_unrelated_changes_exist(
     )
     assert "README.md" not in changed_files
     assert "notes.txt" not in changed_files
+    assert "Makefile" in changed_files
     assert ".jri/.gitignore" in changed_files
     assert ".gitignore" not in changed_files
     assert "README.md" in git(git_repo, "diff", "--name-only").splitlines()
