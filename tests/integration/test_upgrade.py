@@ -10,7 +10,7 @@ def test_init_upgrade_commits_when_config_files_change(
     git_repo: Path,
     monkeypatch,
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
 
     def fake_load_managed_template(name: str) -> str:
         base = name.removesuffix(".md") if name.endswith(".md") else name
@@ -20,7 +20,7 @@ def test_init_upgrade_commits_when_config_files_change(
         service_module, "_load_managed_template", fake_load_managed_template
     )
 
-    exit_code = run_cli(["init", "--upgrade"], cwd=git_repo)
+    exit_code = run_cli(["ctl", "init", "--upgrade"], cwd=git_repo)
 
     assert exit_code == 0
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE

@@ -18,6 +18,137 @@ from .models import OpenCodeRunResult, RalphResult, RalphResultPayload, Result
 from .ui import DIM, _s, trim_tool_output
 
 
+def _tool_detail(tool_name: str, input_obj: object, *, cwd_hint: str = "") -> str:
+    """Extract a one-line detail (file path, command, etc.) from tool input."""
+    if not isinstance(input_obj, dict):
+        return ""
+    input_obj = cast(dict[str, object], input_obj)
+
+    def _rel(path: str) -> str:
+        if cwd_hint and path.startswith(cwd_hint):
+            return path[len(cwd_hint) :] or "."
+        return path
+
+    candidates_by_tool: dict[str, tuple[str, ...]] = {
+        "read": ("filePath",),
+        "write": ("filePath",),
+        "edit": ("filePath",),
+        "multiedit": ("filePath",),
+        "glob": ("pattern",),
+        "grep": ("pattern",),
+        "list": ("path",),
+        "ls": ("path",),
+        "bash": ("description", "command"),
+        "webfetch": ("url",),
+        "task": ("description",),
+        "todowrite": ("",),
+    }
+    keys = candidates_by_tool.get(tool_name, ("filePath", "path", "description"))
+    for key in keys:
+        if not key:
+            continue
+        value = input_obj.get(key)
+        if isinstance(value, str) and value:
+            if key in ("filePath", "path"):
+                value = _rel(value)
+            if len(value) > 80:
+                value = value[:77] + "..."
+            return value
+    return ""
+
+
+def _unwrap_event(event: dict[str, object]) -> dict[str, object]:
+    payload = event.get("payload")
+    if isinstance(payload, dict):
+        return cast(dict[str, object], payload)
+    return event
+
+
+def render_saved_event(
+    event: dict[str, object], *, seen_tool_calls: set[str], cwd_hint: str = ""
+) -> tuple[str, bool]:
+    """Return rendered output for a persisted OpenCode event."""
+    event = _unwrap_event(event)
+    etype = event.get("type")
+    if etype == "message.part.delta":
+        properties = event.get("properties")
+        if not isinstance(properties, dict):
+            return "", False
+        properties = cast(dict[str, object], properties)
+        if properties.get("field") != "text":
+            return "", False
+        delta = properties.get("delta")
+        if isinstance(delta, str) and delta:
+            return delta, False
+        return "", False
+    if etype != "message.part.updated":
+        return "", False
+    properties = event.get("properties")
+    if not isinstance(properties, dict):
+        return "", False
+    properties = cast(dict[str, object], properties)
+    part = properties.get("part")
+    if not isinstance(part, dict):
+        return "", False
+    part = cast(dict[str, object], part)
+    part_type = part.get("type")
+    if part_type == "reasoning":
+        return "", False
+    if part_type == "step-finish":
+        return "\n", False
+    if part_type == "text":
+        return "", False
+    if part_type != "tool":
+        return "", False
+    state = part.get("state")
+    if not isinstance(state, dict):
+        return "", False
+    state = cast(dict[str, object], state)
+    if state.get("status") != "running":
+        return "", False
+    call_id = part.get("callID") or part.get("id")
+    if isinstance(call_id, str):
+        if call_id in seen_tool_calls:
+            return "", False
+        seen_tool_calls.add(call_id)
+    tool_name = cast(str, part.get("tool") or state.get("tool") or "tool")
+    detail = _tool_detail(tool_name, state.get("input"), cwd_hint=cwd_hint)
+    label = f"⚙ {tool_name}"
+    if detail:
+        label = f"{label} {detail}"
+    return _s(label, DIM) + "\n", True
+
+
+def render_saved_log(text: str, *, cwd_hint: str = "") -> str:
+    """Reconstruct terminal output from a saved per-task OpenCode log."""
+    seen_tool_calls: set[str] = set()
+    rendered: list[str] = []
+    last_terminal_char = "\n"
+    for raw_line in text.splitlines(keepends=True):
+        line = raw_line.rstrip("\n")
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            rendered.append(raw_line)
+            if raw_line:
+                last_terminal_char = raw_line[-1]
+            continue
+        if not isinstance(event, dict):
+            continue
+        text_to_print, newline_before = render_saved_event(
+            event,
+            seen_tool_calls=seen_tool_calls,
+            cwd_hint=cwd_hint,
+        )
+        if not text_to_print:
+            continue
+        if newline_before and last_terminal_char != "\n":
+            rendered.append("\n")
+        rendered.append(text_to_print)
+        last_terminal_char = text_to_print[-1]
+    return "".join(rendered)
+
+
 def _normalize_result(raw: str) -> RalphResult | None:
     if raw == "completed":
         return "completed"
@@ -644,52 +775,15 @@ class OpenCodeServer:
         return not candidates or expected_root in candidates
 
     def _tool_detail(self, tool_name: str, input_obj: object) -> str:
-        """Extract a one-line detail (file path, command, etc.) from tool input."""
-        if not isinstance(input_obj, dict):
-            return ""
-        input_obj = cast(dict[str, object], input_obj)
-
-        def _rel(path: str) -> str:
-            # Strip the worktree prefix first (most specific) so paths
-            # render relative to where Ralph actually works.
-            cwd = getattr(self, "_cwd_hint", "")
-            if cwd and path.startswith(cwd):
-                return path[len(cwd) :] or "."
-            return path
-
-        candidates_by_tool: dict[str, tuple[str, ...]] = {
-            "read": ("filePath",),
-            "write": ("filePath",),
-            "edit": ("filePath",),
-            "multiedit": ("filePath",),
-            "glob": ("pattern",),
-            "grep": ("pattern",),
-            "list": ("path",),
-            "ls": ("path",),
-            "bash": ("description", "command"),
-            "webfetch": ("url",),
-            "task": ("description",),
-            "todowrite": ("",),
-        }
-        keys = candidates_by_tool.get(tool_name, ("filePath", "path", "description"))
-        for key in keys:
-            if not key:
-                continue
-            value = input_obj.get(key)
-            if isinstance(value, str) and value:
-                if key in ("filePath", "path"):
-                    value = _rel(value)
-                if len(value) > 80:
-                    value = value[:77] + "..."
-                return value
-        return ""
+        return _tool_detail(
+            tool_name,
+            input_obj,
+            cwd_hint=getattr(self, "_cwd_hint", ""),
+        )
 
     def _unwrap(self, event: dict[str, object]) -> dict[str, object]:
         """Unwrap the {directory, payload} envelope from /global/event."""
-        payload = event.get("payload")
-        if isinstance(payload, dict):
-            return cast(dict[str, object], payload)
-        return event
+        return _unwrap_event(event)
 
     def _session_status_type(
         self, event: dict[str, object], session_id: str
@@ -717,56 +811,9 @@ class OpenCodeServer:
         seen_tool_calls: set[str],
     ) -> tuple[str, bool]:
         """Return (text_to_print, force_newline_after)."""
-        event = self._unwrap(event)
-        etype = event.get("type")
-        # Streaming text deltas come as message.part.delta events.
-        if etype == "message.part.delta":
-            properties = event.get("properties")
-            if not isinstance(properties, dict):
-                return "", False
-            properties = cast(dict[str, object], properties)
-            if properties.get("field") != "text":
-                return "", False
-            delta = properties.get("delta")
-            if isinstance(delta, str) and delta:
-                return delta, False
-            return "", False
-        if etype != "message.part.updated":
-            return "", False
-        properties = event.get("properties")
-        if not isinstance(properties, dict):
-            return "", False
-        properties = cast(dict[str, object], properties)
-        part = properties.get("part")
-        if not isinstance(part, dict):
-            return "", False
-        part = cast(dict[str, object], part)
-        part_type = part.get("type")
-        if part_type == "reasoning":
-            return "", False
-        if part_type == "step-finish":
-            return "\n", False
-        if part_type == "text":
-            # Skip — text streaming arrives via message.part.delta.
-            return "", False
-        if part_type == "tool":
-            state = part.get("state")
-            if not isinstance(state, dict):
-                return "", False
-            state = cast(dict[str, object], state)
-            status = state.get("status")
-            if status == "running":
-                call_id = part.get("callID") or part.get("id")
-                if isinstance(call_id, str):
-                    if call_id in seen_tool_calls:
-                        return "", False
-                    seen_tool_calls.add(call_id)
-                tool_name = cast(str, part.get("tool") or state.get("tool") or "tool")
-                input_obj = state.get("input")
-                detail = self._tool_detail(tool_name, input_obj)
-                label = f"⚙ {tool_name}"
-                if detail:
-                    label = f"{label} {detail}"
-                return _s(label, DIM) + "\n", True
-            return "", False
-        return "", False
+        del session_id
+        return render_saved_event(
+            event,
+            seen_tool_calls=seen_tool_calls,
+            cwd_hint=getattr(self, "_cwd_hint", ""),
+        )

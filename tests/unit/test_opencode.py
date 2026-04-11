@@ -7,7 +7,12 @@ from urllib.error import URLError
 import pytest
 
 from jri.core.errors import JriError
-from jri.core.opencode import OpenCodeServer, _parse_event_line, launch_chat
+from jri.core.opencode import (
+    OpenCodeServer,
+    _parse_event_line,
+    launch_chat,
+    render_saved_log,
+)
 
 
 def _result_payload(result: str = "completed", **extra: object) -> str:
@@ -110,6 +115,46 @@ class _FakeProcess:
 
 def _sse_event(payload: dict[str, object]) -> list[bytes]:
     return [f"data: {json.dumps(payload)}\n".encode(), b"\n"]
+
+
+def test_render_saved_log_replays_streamed_text_and_tool_labels() -> None:
+    log = "\n".join(
+        [
+            json.dumps(
+                {
+                    "type": "message.part.updated",
+                    "properties": {
+                        "part": {
+                            "type": "tool",
+                            "id": "tool-1",
+                            "tool": "read",
+                            "state": {
+                                "status": "running",
+                                "input": {"filePath": ".jri/tasks/doing/task-a.md"},
+                            },
+                        }
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "message.part.delta",
+                    "properties": {"field": "text", "delta": "Working"},
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "message.part.updated",
+                    "properties": {"part": {"type": "step-finish"}},
+                }
+            ),
+        ]
+    )
+
+    rendered = render_saved_log(log)
+
+    assert "⚙ read .jri/tasks/doing/task-a.md" in rendered
+    assert "Working" in rendered
 
 
 def test_start_uses_new_free_port_on_each_auto_start(

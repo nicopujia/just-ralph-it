@@ -1,3 +1,4 @@
+import json
 import os
 import signal
 import subprocess
@@ -25,7 +26,7 @@ from tests.helpers import git, read_json, write_passing_makefile, write_task
 
 def run_cli(args: list[str], cwd: Path) -> int:
     exit_code = base_run_cli(args, cwd=cwd)
-    if args == ["init"] and exit_code == 0:
+    if args == ["ctl", "init"] and exit_code == 0:
         write_passing_makefile(cwd)
         git(cwd, "add", "Makefile")
         git(cwd, "commit", "-m", "configure check")
@@ -290,6 +291,26 @@ class InterruptedStartupOpenCodeServer(OpenCodeServer):
         self._process = None
 
 
+class CapturingStartupOpenCodeServer(InterruptedStartupOpenCodeServer):
+    def __init__(self) -> None:
+        super().__init__()
+        self.started_env: dict[str, str] | None = None
+        self.config_text: str | None = None
+        self.config_path: Path | None = None
+
+    def start(
+        self,
+        *,
+        env: dict[str, str] | None = None,
+        cwd: Path | None = None,
+    ) -> None:
+        assert env is not None
+        self.started_env = env
+        self.config_path = Path(env["OPENCODE_CONFIG"])
+        self.config_text = self.config_path.read_text(encoding="utf-8")
+        super().start(env=env, cwd=cwd)
+
+
 class FakeDetachedProcess:
     def __init__(self, pid: int) -> None:
         self.pid = pid
@@ -302,7 +323,7 @@ def _dead_pid() -> int:
 
 
 def test_start_uses_explicit_model_override(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -327,8 +348,80 @@ def test_start_uses_explicit_model_override(git_repo: Path) -> None:
     assert client.model is None
 
 
+def test_start_server_model_overrides_use_temporary_config(git_repo: Path) -> None:
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+
+    server = CapturingStartupOpenCodeServer()
+    service = JriService(git_repo, opencode_client=server)
+
+    with pytest.raises(HaltRequested, match="Ralph halt requested"):
+        service.run_loop_process(
+            max_tasks=1,
+            model="provider/ralph-main",
+            validator_model="provider/ralph-validator",
+            force=True,
+        )
+
+    assert server.started_env is not None
+    assert server.config_path is not None
+    assert server.config_text is not None
+    assert server.started_env["OPENCODE_CONFIG_DIR"] == str(
+        (git_repo / ".jri" / ".opencode").resolve()
+    )
+    assert server.config_path != (git_repo / ".jri" / "opencode.json").resolve()
+    assert '"ralph": {' in server.config_text
+    assert '"model": "provider/ralph-main"' in server.config_text
+    assert '"ralph-validator": {' in server.config_text
+    assert '"model": "provider/ralph-validator"' in server.config_text
+    assert not server.config_path.exists()
+
+
+def test_start_detached_passes_validator_model_to_child(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+
+    popen_calls: list[list[str]] = []
+
+    def fake_popen(*args: object, **kwargs: object) -> object:
+        command = cast(list[str], args[0])
+        popen_calls.append(command)
+        assert kwargs["cwd"] == git_repo
+        assert kwargs["start_new_session"] is True
+        return FakeDetachedProcess(424242)
+
+    monkeypatch.setattr("jri.core.service.subprocess.Popen", fake_popen)
+
+    assert (
+        service._start_detached(
+            1,
+            "provider/ralph-main",
+            "provider/ralph-validator",
+            None,
+        )
+        == 0
+    )
+    assert len(popen_calls) == 1
+    command = popen_calls[0]
+    assert command[:5] == [sys.executable, "-m", "jri", "ctl", "_run-loop"]
+    assert "--model" in command
+    assert "provider/ralph-main" in command
+    assert "--validator-model" in command
+    assert "provider/ralph-validator" in command
+
+
+def test_ctl_start_help_accepts_validator_model_flag(git_repo: Path) -> None:
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_cli(["ctl", "start", "--help"], cwd=git_repo)
+
+    assert exc_info.value.code == 0
+
+
 def test_start_completes_single_task(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -370,7 +463,7 @@ def test_start_completes_single_task(git_repo: Path) -> None:
 
 
 def test_start_passes_doing_task_path_to_ralph(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -397,7 +490,7 @@ def test_start_passes_doing_task_path_to_ralph(git_repo: Path) -> None:
 
 
 def test_start_interrupt_during_server_start_stops_opencode(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
 
     server = InterruptedStartupOpenCodeServer()
     service = JriService(git_repo, opencode_client=server)
@@ -411,7 +504,7 @@ def test_start_interrupt_during_server_start_stops_opencode(git_repo: Path) -> N
 
 
 def test_start_fails_cleanly_when_doing_task_disappears(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -436,7 +529,7 @@ def test_start_restores_in_place_mutation_of_doing_task(git_repo: Path) -> None:
     Project tooling (prettier, eslint, etc.) may touch the task file as a
     side effect. JRI restores it to baseline rather than failing the run.
     """
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -468,7 +561,7 @@ def test_start_restores_committed_in_place_mutation_of_doing_task(
     JRI restores the working-tree file to baseline; the committed
     mutation is harmless because the file gets overwritten.
     """
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -495,7 +588,7 @@ def test_start_restores_committed_in_place_mutation_of_doing_task(
 
 
 def test_start_allows_additive_follow_up_draft_tasks(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -523,7 +616,7 @@ def test_start_allows_additive_follow_up_draft_tasks(git_repo: Path) -> None:
 
 
 def test_start_refuses_when_tracked_process_is_still_alive(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="doing",
@@ -552,7 +645,7 @@ def test_start_refuses_when_tracked_process_is_still_alive(git_repo: Path) -> No
 
 
 def test_start_rejects_multiple_doing_tasks_at_start(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     for slug in ("task-a", "task-b"):
         write_task(
             git_repo,
@@ -574,7 +667,7 @@ def test_start_rejects_multiple_doing_tasks_at_start(git_repo: Path) -> None:
 
 
 def test_start_rejects_active_attempt_task_slug_mismatch(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="doing",
@@ -615,7 +708,7 @@ def test_start_rejects_active_attempt_task_slug_mismatch(git_repo: Path) -> None
 
 
 def test_start_recovers_clean_foreground_interruption(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="doing",
@@ -647,7 +740,7 @@ def test_start_recovers_clean_foreground_interruption(git_repo: Path) -> None:
 
 
 def test_start_records_retry_attempt_after_interrupted_run(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="doing",
@@ -694,7 +787,7 @@ def test_start_records_retry_attempt_after_interrupted_run(git_repo: Path) -> No
 
 
 def test_start_recovers_stale_foreground_process(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="doing",
@@ -731,7 +824,7 @@ def test_start_recovers_stale_foreground_process(git_repo: Path) -> None:
 
 
 def test_start_clears_stale_process_metadata_without_doing_task(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -764,7 +857,7 @@ def test_start_clears_stale_process_metadata_without_doing_task(git_repo: Path) 
 def test_start_recovers_clean_detached_interruption(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="doing",
@@ -780,7 +873,7 @@ def test_start_recovers_clean_detached_interruption(
 
     popen_calls: list[list[str]] = []
     original_popen = cast(Any, subprocess.Popen)
-    expected_command = [sys.executable, "-m", "jri", "start", "-n", "1"]
+    expected_command = [sys.executable, "-m", "jri", "ctl", "_run-loop", "-n", "1"]
 
     def fake_popen(*args: object, **kwargs: object) -> object:
         command = cast(list[str], args[0])
@@ -813,7 +906,7 @@ def test_start_recovers_clean_detached_interruption(
 def test_start_recovers_stale_detached_process(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="doing",
@@ -836,7 +929,7 @@ def test_start_recovers_stale_detached_process(
     )
 
     original_popen = cast(Any, subprocess.Popen)
-    expected_command = [sys.executable, "-m", "jri", "start", "-n", "1"]
+    expected_command = [sys.executable, "-m", "jri", "ctl", "_run-loop", "-n", "1"]
 
     def fake_popen(*args: object, **kwargs: object) -> object:
         command = cast(list[str], args[0])
@@ -862,10 +955,164 @@ def test_start_recovers_stale_detached_process(
     assert "reason=dead-tracked-process" in recovery_log
 
 
+def test_ctl_start_detaches_foreground_follow(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+
+    popen_calls: list[list[str]] = []
+    original_popen = cast(Any, subprocess.Popen)
+    expected_command = [
+        sys.executable,
+        "-m",
+        "jri",
+        "ctl",
+        "_run-loop",
+        "-n",
+        "1",
+        "--force",
+    ]
+
+    def fake_popen(*args: object, **kwargs: object) -> object:
+        command = cast(list[str], args[0])
+        if command != expected_command:
+            return original_popen(*args, **kwargs)
+        popen_calls.append(command)
+        assert kwargs["cwd"] == git_repo
+        assert kwargs["start_new_session"] is True
+        return FakeDetachedProcess(515151)
+
+    def fake_follow_log(
+        self: JriService,
+        log_path: Path,
+        *,
+        loop_pid: int | None,
+        allow_detach: bool,
+    ) -> bool:
+        assert log_path.name.startswith("run-")
+        assert loop_pid == 515151
+        assert allow_detach is True
+        return True
+
+    monkeypatch.setattr("jri.core.service.subprocess.Popen", fake_popen)
+    monkeypatch.setattr(JriService, "_follow_log", fake_follow_log)
+
+    assert run_cli(["ctl", "start", "-n", "1", "--force"], cwd=git_repo) == 0
+    assert popen_calls == [expected_command]
+    process = cast(
+        dict[str, object], read_json(git_repo / ".jri" / "state.json")["process"]
+    )
+    assert process["loop_pid"] == 515151
+    assert process["detached"] is True
+
+
+def test_ctl_attach_replays_tracked_run_output(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    log_path = git_repo / ".jri" / "logs" / "ralph" / "attached.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("first line\nsecond line\n", encoding="utf-8")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.state_store.save_process(
+        loop_pid=_dead_pid(),
+        child_pid=None,
+        log_path=log_path,
+        detached=True,
+    )
+
+    assert run_cli(["ctl", "attach"], cwd=git_repo) == 0
+    output = capsys.readouterr().out
+    assert "first line" in output
+    assert "second line" in output
+
+
+def test_view_inspect_pretty_prints_saved_task_log(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    log_path = git_repo / ".jri" / "logs" / "ralph" / "task-a.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "message.part.updated",
+                        "properties": {
+                            "part": {
+                                "type": "tool",
+                                "id": "tool-1",
+                                "tool": "read",
+                                "state": {
+                                    "status": "running",
+                                    "input": {"filePath": ".jri/tasks/doing/task-a.md"},
+                                },
+                            }
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "message.part.delta",
+                        "properties": {"field": "text", "delta": "Applying fix"},
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    attempt = AttemptState(
+        number=1,
+        task_slug="task-a",
+        branch="ralph",
+        started_at=1,
+        finished_at=2,
+        log_path=str(log_path),
+        result="completed",
+    )
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.state_store.save(State(attempts=[attempt]))
+
+    assert run_cli(["view", "inspect", "task-a"], cwd=git_repo) == 0
+    output = capsys.readouterr().out
+    assert "task-a" in output
+    assert "⚙ read .jri/tasks/doing/task-a.md" in output
+    assert "Applying fix" in output
+    assert "completed" in output
+
+
+def test_view_inspect_defaults_to_active_attempt(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    log_path = git_repo / ".jri" / "logs" / "ralph" / "current.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("still running\n", encoding="utf-8")
+
+    attempt = AttemptState(
+        number=1,
+        task_slug="current-task",
+        branch="ralph",
+        started_at=1,
+        log_path=str(log_path),
+    )
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.state_store.save(State(active_attempt=attempt, attempts=[attempt]))
+
+    assert run_cli(["view", "inspect"], cwd=git_repo) == 0
+    output = capsys.readouterr().out
+    assert "current-task" in output
+    assert "still running" in output
+
+
 def test_start_retries_after_interrupted_completion_without_rerunning_task(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -929,7 +1176,7 @@ def test_start_retries_after_interrupted_completion_without_rerunning_task(
 
 
 def test_stop_creates_stop_signal(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
     service.stop("maintenance window")
@@ -940,7 +1187,7 @@ def test_stop_creates_stop_signal(git_repo: Path) -> None:
 
 
 def test_reset_returns_repo_to_last_successful_task(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -969,7 +1216,7 @@ def test_reset_returns_repo_to_last_successful_task(git_repo: Path) -> None:
 
 
 def test_halt_terminates_tracked_process(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     sleeper = subprocess.Popen(["sleep", "30"])
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
     service.state_store.save_process(
@@ -989,7 +1236,7 @@ def test_halt_terminates_tracked_process(git_repo: Path) -> None:
 def test_halt_skips_current_process_and_terminates_tracked_child(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
     service.state_store.save_process(
@@ -1026,7 +1273,7 @@ def test_halt_skips_current_process_and_terminates_tracked_child(
 def test_needs_human_generates_human_followup_and_blocks_original_task(
     git_repo: Path,
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1079,7 +1326,7 @@ def test_needs_human_generates_human_followup_and_blocks_original_task(
 
 
 def test_needs_human_block_is_durable_across_runs(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1105,7 +1352,7 @@ def test_needs_human_block_is_durable_across_runs(git_repo: Path) -> None:
 
 def test_needs_human_then_successful_completes_one(git_repo: Path) -> None:
     """Two tasks: first needs human, loop continues and completes the second."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1265,7 +1512,7 @@ class MalformedNeedsHumanFakeOpenCodeClient(FakeOpenCodeServer):
 
 
 def test_failed_outcome_triggers_recovery(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1292,7 +1539,7 @@ def test_failed_outcome_triggers_recovery(git_repo: Path) -> None:
 
 
 def test_incomplete_result_triggers_retryable_recovery(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1324,7 +1571,7 @@ def test_incomplete_result_triggers_retryable_recovery(git_repo: Path) -> None:
 
 
 def test_malformed_needs_human_payload_is_treated_as_failed(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1354,7 +1601,7 @@ def test_malformed_needs_human_payload_is_treated_as_failed(git_repo: Path) -> N
 
 
 def test_make_check_runs_after_completion(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     # Create a Makefile with a passing check target
     (git_repo / "Makefile").write_text("check:\n\t@echo ok\n", encoding="utf-8")
     write_task(
@@ -1383,7 +1630,7 @@ def test_make_check_pass_records_metric(git_repo: Path) -> None:
     """A passing make check records a pass metric entry."""
     import json
 
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     (git_repo / "Makefile").write_text("check:\n\t@echo ok\n", encoding="utf-8")
     write_task(
         git_repo,
@@ -1414,7 +1661,7 @@ def test_failing_make_check_records_metric(git_repo: Path) -> None:
     """A failing make check records a fail metric entry."""
     import json
 
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     (git_repo / "Makefile").write_text("check:\n\texit 1\n", encoding="utf-8")
     write_task(
         git_repo,
@@ -1442,7 +1689,7 @@ def test_failing_make_check_records_metric(git_repo: Path) -> None:
 
 
 def test_failing_make_check_triggers_recovery(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     # Create a Makefile with a failing check target
     (git_repo / "Makefile").write_text("check:\n\texit 1\n", encoding="utf-8")
     write_task(
@@ -1475,7 +1722,7 @@ def test_failing_make_check_triggers_recovery(git_repo: Path) -> None:
 
 def test_failed_task_is_retried_after_first_failure(git_repo: Path) -> None:
     """A task that fails once is retried on the next loop invocation."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1517,7 +1764,7 @@ def test_failed_task_is_retried_after_first_failure(git_repo: Path) -> None:
 
 def test_failed_task_is_retried_up_to_three_times(git_repo: Path) -> None:
     """A task that fails twice is still retryable on the next start."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1551,7 +1798,7 @@ def test_failed_task_is_retried_up_to_three_times(git_repo: Path) -> None:
 
 def test_failed_task_can_keep_retrying_without_escalation(git_repo: Path) -> None:
     """Repeated failures keep the task in todo until a later successful retry."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1605,7 +1852,7 @@ def test_failed_task_can_keep_retrying_without_escalation(git_repo: Path) -> Non
 def test_failed_task_recovery_logs_failure(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1647,7 +1894,7 @@ def test_failed_task_recovery_logs_failure(
 def test_needs_human_recovery_logs_failure(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1688,7 +1935,7 @@ def test_needs_human_recovery_logs_failure(
 def test_stale_task_recovery_logs_failure_and_propagates_error(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="doing",
@@ -1726,7 +1973,7 @@ def test_stale_task_recovery_logs_failure_and_propagates_error(
 def test_state_is_understandable_after_partial_recovery_failure(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1782,7 +2029,7 @@ def test_state_is_understandable_after_partial_recovery_failure(
 
 
 def test_successful_task_saves_diff_artifact(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1811,7 +2058,7 @@ def test_successful_task_saves_diff_artifact(git_repo: Path) -> None:
 def test_diff_artifact_is_created_for_recovered_completion(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1857,7 +2104,7 @@ def test_diff_artifact_is_created_for_recovered_completion(
 
 
 def test_successful_task_records_timeline_events(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1894,7 +2141,7 @@ def test_successful_task_records_timeline_events(git_repo: Path) -> None:
 
 
 def test_failed_task_records_timeline_events(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1928,7 +2175,7 @@ def test_failed_task_records_timeline_events(git_repo: Path) -> None:
 
 
 def test_needs_human_task_records_timeline_events(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1961,7 +2208,7 @@ def test_needs_human_task_records_timeline_events(git_repo: Path) -> None:
 def test_timeline_cli_shows_events(
     git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -1978,7 +2225,7 @@ def test_timeline_cli_shows_events(
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
     assert service.start(max_tasks=1, force=True) == 1
 
-    rc = run_cli(["timeline"], cwd=git_repo)
+    rc = run_cli(["view", "timeline"], cwd=git_repo)
     assert rc == 0
     output = capsys.readouterr().out
     assert "attempt_started" in output
@@ -1989,7 +2236,7 @@ def test_timeline_cli_shows_events(
 def test_timeline_cli_outputs_jsonl(
     git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2009,7 +2256,7 @@ def test_timeline_cli_outputs_jsonl(
     # Flush task header/footer output before CLI call
     capsys.readouterr()
 
-    rc = run_cli(["timeline", "--json"], cwd=git_repo)
+    rc = run_cli(["view", "timeline", "--json"], cwd=git_repo)
     assert rc == 0
     output = capsys.readouterr().out
     import json
@@ -2022,7 +2269,7 @@ def test_timeline_cli_outputs_jsonl(
 
 def test_task_limit_stops_loop_after_n_tasks(git_repo: Path) -> None:
     """Loop stops after completing the configured number of tasks."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2071,7 +2318,7 @@ def test_task_limit_stops_loop_after_n_tasks(git_repo: Path) -> None:
 
 def test_task_limit_records_timeline_event(git_repo: Path) -> None:
     """Stopping due to task limit is recorded in timeline."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2146,7 +2393,7 @@ class SlowFakeOpenCodeClient(FakeOpenCodeServer):
 
 def test_task_timeout_stops_slow_task(git_repo: Path) -> None:
     """Task that exceeds timeout is stopped and marked as failed."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2176,7 +2423,7 @@ def test_task_timeout_stops_slow_task(git_repo: Path) -> None:
 
 def test_task_timeout_records_timeline_event(git_repo: Path) -> None:
     """Task timeout is recorded in timeline with limit information."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2223,7 +2470,7 @@ def test_task_timeout_records_timeline_event(git_repo: Path) -> None:
 
 def test_successful_task_run_persists_logs(git_repo: Path) -> None:
     """Verify that a successful task run creates durable per-task logs."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2271,7 +2518,7 @@ def test_successful_task_run_persists_logs(git_repo: Path) -> None:
 
 def test_failed_task_run_persists_logs(git_repo: Path) -> None:
     """Verify that a failed task run creates durable per-task logs."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2322,7 +2569,7 @@ def test_failed_task_run_persists_logs(git_repo: Path) -> None:
 
 def test_needs_human_task_run_persists_logs(git_repo: Path) -> None:
     """Verify that a needs-human task run creates durable per-task logs."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2375,7 +2622,7 @@ def test_needs_human_task_run_persists_logs(git_repo: Path) -> None:
 
 def test_timeline_records_stderr_warnings(git_repo: Path) -> None:
     """Verify that stderr-only messages are captured as timeline events."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2473,7 +2720,7 @@ class StopAfterFirstTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
 
 def test_stop_during_active_work_stops_after_task(git_repo: Path) -> None:
     """Stop signal created during iteration stops loop after current iteration."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2516,7 +2763,7 @@ def test_stop_during_active_work_stops_after_task(git_repo: Path) -> None:
 
 def test_stop_signal_consumed_on_start(git_repo: Path) -> None:
     """Stop signal present at start is consumed immediately before processing."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2551,7 +2798,7 @@ def test_stop_signal_consumed_on_start(git_repo: Path) -> None:
 
 def test_stop_reason_preserved_in_signal(git_repo: Path) -> None:
     """Stop signal preserves the reason text provided."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
@@ -2568,7 +2815,7 @@ def test_stop_reason_preserved_in_signal(git_repo: Path) -> None:
 
 def test_halt_raises_error_when_no_tracked_process(git_repo: Path) -> None:
     """Halt raises JriError when no process is currently tracked."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
@@ -2579,7 +2826,7 @@ def test_halt_raises_error_when_no_tracked_process(git_repo: Path) -> None:
 
 def test_halt_clears_process_state(git_repo: Path) -> None:
     """Halt clears the process state from state.json after terminating."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
@@ -2608,7 +2855,7 @@ def test_halt_clears_process_state(git_repo: Path) -> None:
 
 def test_stop_then_start_recovery_consistency(git_repo: Path) -> None:
     """Stop during run allows clean recovery on next start."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2656,7 +2903,7 @@ def test_stop_then_start_recovery_consistency(git_repo: Path) -> None:
 
 def test_halt_then_start_recovery_consistency(git_repo: Path) -> None:
     """Halt during work allows recovery with interrupted attempt marked."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="doing",
@@ -2713,7 +2960,7 @@ def test_halt_then_start_recovery_consistency(git_repo: Path) -> None:
 
 def test_stop_signal_persists_across_invocations(git_repo: Path) -> None:
     """Stop signal persists until consumed by a loop iteration."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2775,7 +3022,7 @@ class ExportFailingFakeOpenCodeClient(FakeOpenCodeServer):
 
 def test_export_failure_is_visible_in_timeline(git_repo: Path) -> None:
     """Export failures are recorded in timeline and not silently ignored."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2814,7 +3061,7 @@ def test_export_failure_is_visible_in_timeline(git_repo: Path) -> None:
 
 def test_export_failure_during_failed_recovery_is_visible(git_repo: Path) -> None:
     """Export failures during failed-task recovery are recorded in timeline."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2879,7 +3126,7 @@ def test_export_failure_during_failed_recovery_is_visible(git_repo: Path) -> Non
 
 def test_start_stashes_dirty_workdir_with_force(git_repo: Path) -> None:
     """With force=True, dirty workdir is auto-stashed before the loop runs."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -2907,7 +3154,7 @@ def test_start_stashes_dirty_workdir_with_force(git_repo: Path) -> None:
 
 def test_start_switches_branch_with_force(git_repo: Path) -> None:
     """With force=True, wrong branch is auto-switched before the loop runs."""
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",

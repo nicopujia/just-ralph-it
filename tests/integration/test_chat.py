@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -34,7 +35,7 @@ class FakeOpenCodeServerForChat:
 @pytest.fixture
 def initialized_repo(git_repo: Path) -> Path:
     """Initialize a JRI project in the git repo."""
-    exit_code = run_cli(["init"], cwd=git_repo)
+    exit_code = run_cli(["ctl", "init"], cwd=git_repo)
     assert exit_code == 0
     return git_repo
 
@@ -74,6 +75,64 @@ def test_chat_without_fresh_reuses_session(initialized_repo: Path) -> None:
         "OPENCODE_CONFIG": str((repo / ".jri" / "opencode.json").resolve()),
         "OPENCODE_CONFIG_DIR": str((repo / ".jri" / ".opencode").resolve()),
     }
+    monkeypatch.undo()
+
+
+def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> None:
+    repo = initialized_repo
+    server = FakeOpenCodeServerForChat()
+    launch_calls: list[dict[str, object]] = []
+
+    def fake_launch_chat(
+        *,
+        root: Path,
+        session_id: str | None,
+        extra_args: list[str],
+        binary: str = "opencode",
+        env: dict[str, str] | None = None,
+    ) -> int:
+        assert env is not None
+        config_path = Path(env["OPENCODE_CONFIG"])
+        launch_calls.append(
+            {
+                "root": root,
+                "session_id": session_id,
+                "extra_args": extra_args,
+                "env": env,
+                "config_path": config_path,
+                "config_text": config_path.read_text(encoding="utf-8"),
+            }
+        )
+        return 0
+
+    service = JriService(repo, opencode_client=server)
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(service_module, "launch_chat", fake_launch_chat)
+
+    result = service.chat(
+        [],
+        fresh=False,
+        model="provider/interrogator-main",
+        validator_model="provider/interrogator-validator",
+    )
+
+    assert result == 0
+    assert len(launch_calls) == 1
+    call = launch_calls[0]
+    env = cast(dict[str, str], call["env"])
+    config_path = cast(Path, call["config_path"])
+    config_text = cast(str, call["config_text"])
+    assert env["OPENCODE_CONFIG_DIR"] == str((repo / ".jri" / ".opencode").resolve())
+    assert config_path != (repo / ".jri" / "opencode.json").resolve()
+    assert '"interrogator": {' in config_text
+    assert '"model": "provider/interrogator-main"' in config_text
+    assert '"interrogator-validator": {' in config_text
+    assert '"model": "provider/interrogator-validator"' in config_text
+    assert (
+        repo.joinpath(".jri", "opencode.json").read_text(encoding="utf-8")
+        != config_text
+    )
+    assert not config_path.exists()
     monkeypatch.undo()
 
 
