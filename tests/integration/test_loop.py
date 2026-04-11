@@ -18,8 +18,17 @@ from jri.core.models import (
 )
 from jri.core.service import JriService
 from jri.core.tasks import list_tasks, parse_task_file
-from tests.conftest import run_cli
-from tests.helpers import git, read_json, write_task
+from tests.conftest import run_cli as base_run_cli
+from tests.helpers import git, read_json, write_passing_makefile, write_task
+
+
+def run_cli(args: list[str], cwd: Path) -> int:
+    exit_code = base_run_cli(args, cwd=cwd)
+    if args == ["init"] and exit_code == 0:
+        write_passing_makefile(cwd)
+        git(cwd, "add", "Makefile")
+        git(cwd, "commit", "-m", "configure check")
+    return exit_code
 
 
 class FakeOpenCodeServer:
