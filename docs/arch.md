@@ -26,7 +26,7 @@ The user doesn't interact directly with the tasks nor with Ralph.
 
 ### Git History
 
-Each iteration commits its changes and tags the commit. The tag marks a recoverable snapshot; `jri ctl reset` rolls back to the latest tag. Ralph works in a separate git worktree to keep the main branch clean between iterations.
+Each iteration commits its changes and tags the commit. The tag marks a recoverable snapshot; `jri ctl reset` rolls back to the latest tag, or to a specific task tag when you pass a slug. Ralph works in a separate git worktree to keep the main branch clean between iterations.
 
 Attempt history is persisted on the main branch under `.jri/attempts/<task-slug>.json` before JRI clears Ralph's runtime state.
 

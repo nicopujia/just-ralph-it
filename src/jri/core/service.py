@@ -488,16 +488,7 @@ class JriService:
         """
         self.ensure_initialized()
         state = self.state_store.load()
-        target_tag: str | None = None
-
-        if target_task:
-            target_tag = self._find_reset_tag_for_task(target_task)
-            if target_tag is None:
-                raise JriError(f"no begin or end tag found for task '{target_task}'")
-        else:
-            target_tag = self._find_latest_reset_tag()
-            if target_tag is None:
-                raise JriError("no task tag found — run `jri ctl start` first")
+        target_tag = self._resolve_reset_target_tag(target_task)
 
         self._cleanup_tracked_processes(required=False)
         default = self.git.default_branch(hint=state.branch)
@@ -554,6 +545,18 @@ class JriService:
             if self.git.has_tag(candidate):
                 return candidate
         return None
+
+    def _resolve_reset_target_tag(self, target_task: str | None = None) -> str:
+        if target_task:
+            target_tag = self._find_reset_tag_for_task(target_task)
+            if target_tag is None:
+                raise JriError(f"no begin or end tag found for task '{target_task}'")
+            return target_tag
+
+        target_tag = self._find_latest_reset_tag()
+        if target_tag is None:
+            raise JriError("no task tag found — run `jri ctl start` first")
+        return target_tag
 
     def ensure_initialized(self) -> None:
         self.git.ensure_repo()
@@ -1893,8 +1896,24 @@ class JriService:
         if state.active_attempt is not None and state.active_attempt.task_slug == slug:
             matches.append(state.active_attempt)
         if not matches:
+            matches = self._load_attempt_history(slug)
+        if not matches:
             raise JriError(f"task '{slug}' has no recorded attempts")
         return max(matches, key=lambda attempt: attempt.number)
+
+    def _load_attempt_history(self, slug: str) -> list[AttemptState]:
+        history_path = self.paths.attempt_history_path(slug)
+        if not history_path.exists():
+            return []
+        payload = json.loads(history_path.read_text(encoding="utf-8"))
+        attempts = payload.get("attempts") if isinstance(payload, dict) else None
+        if not isinstance(attempts, list):
+            return []
+        return [
+            AttemptState.from_payload(item)
+            for item in attempts
+            if isinstance(item, dict)
+        ]
 
     def _save_runtime_process(
         self, *, child_pid: int | None, task_log_path: Path
