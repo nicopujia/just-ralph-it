@@ -1,6 +1,0 @@
-[submodule ".opencode/skills/references/ralph-playbook"]
-	path = .opencode/skills/references/ralph-playbook
-	url = https://github.com/ClaytonFarr/ralph-playbook.git
-[submodule ".opencode/skills/references/opencode"]
-	path = .opencode/skills/references/opencode
-	url = https://github.com/anomalyco/opencode
