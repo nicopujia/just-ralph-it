@@ -1,4 +1,5 @@
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -7,13 +8,31 @@ from ..core.errors import JriError
 from ..core.git import MSG_INIT, MSG_UPGRADE
 from ..core.service import JriService
 
+_INTERNAL_RUN_LOOP_ENV = "JRI_INTERNAL_RUN_LOOP"
+
 
 def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    parser = _build_parser()
-    args, unknown = parser.parse_known_args(argv)
     working_directory = cwd or Path.cwd()
     service = JriService(working_directory)
+
+    if os.environ.get(_INTERNAL_RUN_LOOP_ENV) == "1":
+        args = _build_internal_run_loop_parser().parse_args(argv)
+        return (
+            0
+            if service.run_loop_process(
+                max_tasks=args.max_tasks,
+                model=args.model,
+                validator_model=args.validator_model,
+                task_timeout=args.task_timeout,
+                force=args.force,
+            )
+            >= 0
+            else 1
+        )
+
+    parser = _build_parser()
+    args, unknown = parser.parse_known_args(argv)
 
     if args.command != "chat" and unknown:
         parser.error(f"unrecognized arguments: {' '.join(unknown)}")
@@ -153,19 +172,6 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     case "attach":
                         service.attach()
                         return 0
-                    case "_run-loop":
-                        return (
-                            0
-                            if service.run_loop_process(
-                                max_tasks=args.max_tasks,
-                                model=args.model,
-                                validator_model=args.validator_model,
-                                task_timeout=args.task_timeout,
-                                force=args.force,
-                            )
-                            >= 0
-                            else 1
-                        )
                     case _:
                         args.ctl_parser.print_help()
                         return 1
@@ -401,36 +407,6 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Attach to the tracked Ralph runtime.",
     )
     attach_parser.set_defaults(ctl_parser=ctl_parser)
-    run_loop_parser = ctl_subparsers.add_parser("_run-loop", help=argparse.SUPPRESS)
-    run_loop_parser.set_defaults(ctl_parser=ctl_parser)
-    run_loop_parser.add_argument(
-        "-n",
-        "--tasks",
-        type=int,
-        dest="max_tasks",
-        help=argparse.SUPPRESS,
-    )
-    run_loop_parser.add_argument(
-        "-m",
-        "--model",
-        help=argparse.SUPPRESS,
-    )
-    run_loop_parser.add_argument(
-        "--validator-model",
-        help=argparse.SUPPRESS,
-    )
-    run_loop_parser.add_argument(
-        "--task-timeout",
-        type=int,
-        metavar="SECONDS",
-        help=argparse.SUPPRESS,
-    )
-    run_loop_parser.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
 
     timeline_parser.add_argument(
         "--task",
@@ -443,4 +419,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Output raw JSONL instead of formatted text.",
     )
 
+    return parser
+
+
+def _build_internal_run_loop_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="jri", add_help=False)
+    parser.add_argument("-n", "--tasks", type=int, dest="max_tasks")
+    parser.add_argument("-m", "--model")
+    parser.add_argument("--validator-model")
+    parser.add_argument("--task-timeout", type=int, metavar="SECONDS")
+    parser.add_argument("-f", "--force", action="store_true")
     return parser

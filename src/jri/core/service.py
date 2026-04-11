@@ -759,7 +759,7 @@ class JriService:
         if state.process and state.process.loop_pid:
             raise JriError("a Ralph process is already tracked")
 
-        command = [sys.executable, "-m", "jri", "ctl", "_run-loop"]
+        command = [sys.executable, "-m", "jri"]
         if max_tasks is not None:
             command.extend(["-n", str(max_tasks)])
         if model is not None:
@@ -768,6 +768,8 @@ class JriService:
             command.extend(["--validator-model", validator_model])
         if task_timeout is not None:
             command.extend(["--task-timeout", str(task_timeout)])
+        env = os.environ.copy()
+        env["JRI_INTERNAL_RUN_LOOP"] = "1"
 
         log_path = self.paths.ralph_log_path("detached", int(time.time()))
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -775,6 +777,7 @@ class JriService:
         process = subprocess.Popen(
             command,
             cwd=self.root,
+            env=env,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             start_new_session=True,
@@ -798,7 +801,7 @@ class JriService:
     ) -> int:
         run_log_path = self.paths.ralph_log_path("run", int(time.time()))
         run_log_path.parent.mkdir(parents=True, exist_ok=True)
-        command = [sys.executable, "-m", "jri", "ctl", "_run-loop"]
+        command = [sys.executable, "-m", "jri"]
         if max_tasks is not None:
             command.extend(["-n", str(max_tasks)])
         if model is not None:
@@ -809,10 +812,13 @@ class JriService:
             command.extend(["--task-timeout", str(task_timeout)])
         if force:
             command.append("--force")
+        env = os.environ.copy()
+        env["JRI_INTERNAL_RUN_LOOP"] = "1"
         log_file = run_log_path.open("a", encoding="utf-8")
         process = subprocess.Popen(
             command,
             cwd=self.root,
+            env=env,
             stdout=log_file,
             stderr=subprocess.STDOUT,
             start_new_session=True,
