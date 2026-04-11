@@ -15,7 +15,8 @@
         "question": "allow",
         "write": "deny",
         "edit": "deny",
-        "promote-tasks": "deny",
+        "check-draft-promotion": "deny",
+        "promote-tasks": "allow",
         "ralph-*": "deny",
         "task": {
           "*": "deny",
@@ -35,10 +36,11 @@
         "edit": "deny",
         "ralph-*": "deny",
         "interrogator-*": "deny",
+        "check-draft-promotion": "allow",
         "upsert-task": "deny",
         "rename-task": "deny",
         "delete-task": "deny",
-        "promote-tasks": "allow",
+        "promote-tasks": "deny",
         "task": {
           "ralph-*": "deny",
           "interrogator-*": "deny"
@@ -72,6 +74,7 @@
         "bash": "deny",
         "ralph-*": "deny",
         "interrogator-*": "deny",
+        "check-draft-promotion": "deny",
         "promote-tasks": "deny",
         "task": {
           "ralph-*": "deny",

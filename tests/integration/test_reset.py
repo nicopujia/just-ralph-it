@@ -16,7 +16,7 @@ from tests.helpers import git, read_json, write_passing_makefile, write_task
 
 def run_cli(args: list[str], cwd: Path) -> int:
     exit_code = base_run_cli(args, cwd=cwd)
-    if args == ["ctl", "init"] and exit_code == 0:
+    if args == ["init"] and exit_code == 0:
         write_passing_makefile(cwd)
         git(cwd, "add", "Makefile")
         git(cwd, "commit", "-m", "configure check")
@@ -150,7 +150,7 @@ def _run_successful_task(repo: Path) -> JriService:
 
 
 def test_reset_after_successful_task(git_repo: Path) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     service = _run_successful_task(git_repo)
     service.state_store.save_session("ses_reset_test")
 
@@ -174,7 +174,7 @@ def test_reset_after_successful_task(git_repo: Path) -> None:
 def test_reset_prefers_latest_end_tag(
     git_repo: Path,
 ) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -215,7 +215,7 @@ def test_reset_prefers_latest_end_tag(
 
 
 def test_reset_after_failed_task(git_repo: Path) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -258,7 +258,7 @@ def test_reset_after_failed_task(git_repo: Path) -> None:
 
 
 def test_reset_falls_back_to_begin_tag_when_no_end_tag(git_repo: Path) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -292,7 +292,7 @@ def test_reset_falls_back_to_begin_tag_when_no_end_tag(git_repo: Path) -> None:
 
 
 def test_reset_from_feature_branch_with_stale_state(git_repo: Path) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -364,7 +364,7 @@ def test_reset_from_feature_branch_with_stale_state(git_repo: Path) -> None:
 def test_reset_discards_uncommitted_changes_on_default_branch(
     git_repo: Path,
 ) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     service = _run_successful_task(git_repo)
 
     (git_repo / "untracked-new.txt").write_text("brand new\n", encoding="utf-8")
@@ -381,16 +381,16 @@ def test_reset_refuses_when_no_task_tag(
     git_repo: Path,
 ) -> None:
     """When no task has completed, reset requires an end tag."""
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
 
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
-    with pytest.raises(JriError, match="no task tag found.*jri ctl start"):
+    with pytest.raises(JriError, match="no task tag found.*jri start"):
         service.reset()
 
 
 def test_reset_falls_back_to_begin_tag_after_failed_run(git_repo: Path) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
 
     write_task(
         git_repo,
@@ -420,7 +420,7 @@ def test_reset_falls_back_to_begin_tag_after_failed_run(git_repo: Path) -> None:
 
 
 def test_reset_clears_active_attempt(git_repo: Path) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     service = _run_successful_task(git_repo)
 
     prior_state = service.state_store.load()
@@ -450,7 +450,7 @@ def test_reset_clears_active_attempt(git_repo: Path) -> None:
 
 
 def test_reset_clears_tracked_process(git_repo: Path) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     service = _run_successful_task(git_repo)
 
     service.state_store.save_process(
@@ -470,7 +470,7 @@ def test_reset_clears_tracked_process(git_repo: Path) -> None:
 
 
 def test_reset_terminates_tracked_process_before_cleanup(git_repo: Path) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     service = _run_successful_task(git_repo)
 
     sleeper = subprocess.Popen(["sleep", "30"])
@@ -495,7 +495,7 @@ def test_reset_terminates_tracked_process_before_cleanup(git_repo: Path) -> None
 
 
 def test_reset_preserves_attempt_history(git_repo: Path) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -539,7 +539,7 @@ def test_reset_preserves_attempt_history(git_repo: Path) -> None:
 
 def test_reset_cli_aborts_on_negative_confirmation(git_repo: Path) -> None:
     """Test that reset aborts when user answers 'n' to confirmation prompt."""
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     _run_successful_task(git_repo)
 
     (git_repo / "extra.txt").write_text("extra content\n", encoding="utf-8")
@@ -548,7 +548,7 @@ def test_reset_cli_aborts_on_negative_confirmation(git_repo: Path) -> None:
 
     # Simulate user entering 'n' for the confirmation prompt
     result = subprocess.run(
-        [sys.executable, "-m", "jri", "ctl", "reset"],
+        [sys.executable, "-m", "jri", "reset"],
         cwd=git_repo,
         input="n\n",
         capture_output=True,
@@ -563,7 +563,7 @@ def test_reset_cli_aborts_on_negative_confirmation(git_repo: Path) -> None:
 
 def test_reset_cli_aborts_on_empty_confirmation(git_repo: Path) -> None:
     """Test that reset aborts when user just presses Enter (default N)."""
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     _run_successful_task(git_repo)
 
     (git_repo / "extra.txt").write_text("extra content\n", encoding="utf-8")
@@ -572,7 +572,7 @@ def test_reset_cli_aborts_on_empty_confirmation(git_repo: Path) -> None:
 
     # Simulate user just pressing Enter
     result = subprocess.run(
-        [sys.executable, "-m", "jri", "ctl", "reset"],
+        [sys.executable, "-m", "jri", "reset"],
         cwd=git_repo,
         input="\n",
         capture_output=True,
@@ -587,7 +587,7 @@ def test_reset_cli_aborts_on_empty_confirmation(git_repo: Path) -> None:
 
 def test_reset_cli_force_skips_confirmation(git_repo: Path) -> None:
     """Test that --force flag skips the confirmation prompt."""
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     _run_successful_task(git_repo)
 
     (git_repo / "extra.txt").write_text("extra content\n", encoding="utf-8")
@@ -596,7 +596,7 @@ def test_reset_cli_force_skips_confirmation(git_repo: Path) -> None:
 
     # Use --force flag, should not prompt
     result = subprocess_module.run(
-        [sys.executable, "-m", "jri", "ctl", "reset", "--force"],
+        [sys.executable, "-m", "jri", "reset", "--force"],
         cwd=git_repo,
         capture_output=True,
         text=True,
@@ -609,12 +609,12 @@ def test_reset_cli_force_skips_confirmation(git_repo: Path) -> None:
 
 def test_reset_cli_prompt_includes_target_tag(git_repo: Path) -> None:
     """Test that the confirmation prompt includes the target tag name."""
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     _run_successful_task(git_repo)
 
     # Simulate user entering 'n' to see the prompt
     result = subprocess_module.run(
-        [sys.executable, "-m", "jri", "ctl", "reset"],
+        [sys.executable, "-m", "jri", "reset"],
         cwd=git_repo,
         input="n\n",
         capture_output=True,
@@ -627,7 +627,7 @@ def test_reset_cli_prompt_includes_target_tag(git_repo: Path) -> None:
 
 
 def test_reset_cli_prompt_uses_requested_task_tag(git_repo: Path) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",
@@ -655,7 +655,7 @@ def test_reset_cli_prompt_uses_requested_task_tag(git_repo: Path) -> None:
     assert service.start(max_tasks=1, force=True) == 1
 
     result = subprocess_module.run(
-        [sys.executable, "-m", "jri", "ctl", "reset", "task-a"],
+        [sys.executable, "-m", "jri", "reset", "task-a"],
         cwd=git_repo,
         input="n\n",
         capture_output=True,
@@ -669,7 +669,7 @@ def test_reset_cli_prompt_uses_requested_task_tag(git_repo: Path) -> None:
 
 def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
     """Test that the confirmation prompt mentions uncommitted changes."""
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     _run_successful_task(git_repo)
 
     # Create an uncommitted change
@@ -677,7 +677,7 @@ def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
 
     # Simulate user entering 'n' to see the prompt
     result = subprocess_module.run(
-        [sys.executable, "-m", "jri", "ctl", "reset"],
+        [sys.executable, "-m", "jri", "reset"],
         cwd=git_repo,
         input="n\n",
         capture_output=True,
@@ -691,12 +691,12 @@ def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
 
 def test_reset_cli_prompt_shows_ralph_branch(git_repo: Path) -> None:
     """Test that the confirmation prompt mentions the ralph branch to be deleted."""
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     _run_successful_task(git_repo)
 
     # Simulate user entering 'n' to see the prompt
     result = subprocess_module.run(
-        [sys.executable, "-m", "jri", "ctl", "reset"],
+        [sys.executable, "-m", "jri", "reset"],
         cwd=git_repo,
         input="n\n",
         capture_output=True,
@@ -711,7 +711,7 @@ def test_reset_cli_prompt_shows_ralph_branch(git_repo: Path) -> None:
 def test_reset_cli_help_shows_force_flag(git_repo: Path) -> None:
     """Test that --help documents the --force flag."""
     result = subprocess_module.run(
-        [sys.executable, "-m", "jri", "ctl", "reset", "--help"],
+        [sys.executable, "-m", "jri", "reset", "--help"],
         cwd=git_repo,
         capture_output=True,
         text=True,

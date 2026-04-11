@@ -149,6 +149,10 @@ def _run_upsert_task(payload: dict[str, Any]) -> str:
     acceptance_criteria = _assert_string_list(
         "acceptance_criteria", payload.get("acceptance_criteria")
     )
+    if not acceptance_criteria:
+        raise ValueError(
+            "`acceptance_criteria` must be a non-empty list of non-empty strings"
+        )
 
     draft_dir, _, _, _ = _draft_task_dirs(Path.cwd())
     task_path = _ensure_task_path_within(draft_dir, task_slug)

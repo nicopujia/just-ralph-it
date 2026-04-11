@@ -107,7 +107,7 @@ def test_self_hosting_proof_idea_to_convergence(git_repo: Path) -> None:
 
 def _setup_project_structure(repo: Path) -> None:
     """Create a repo that mirrors this project's structure."""
-    assert run_cli(["ctl", "init"], cwd=repo) == 0
+    assert run_cli(["init"], cwd=repo) == 0
 
     (repo / "pyproject.toml").write_text(
         "[project]\nname = 'proof'\nversion = '0.1.0'\n",

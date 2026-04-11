@@ -10,7 +10,7 @@ from tests.helpers import git, read_json, write_task
 
 
 def _init(repo: Path) -> JriService:
-    assert run_cli(["ctl", "init"], cwd=repo) == 0
+    assert run_cli(["init"], cwd=repo) == 0
     return JriService(repo)
 
 

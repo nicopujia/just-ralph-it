@@ -222,6 +222,7 @@ def test_packaged_schemas_are_available() -> None:
     assert managed.joinpath(".opencode", "agents", "ralph.md").is_file()
     assert managed.joinpath(".opencode", "agents", "ralph-validator.md").is_file()
     assert managed.joinpath(".opencode", "tools", "_run-python-tool.mjs").is_file()
+    assert managed.joinpath(".opencode", "tools", "check-draft-promotion.js").is_file()
     assert managed.joinpath(".opencode", "tools", "delete-task.js").is_file()
     assert managed.joinpath(".opencode", "tools", "promote-tasks.js").is_file()
     assert managed.joinpath(".opencode", "tools", "ralph-result.js").is_file()
@@ -244,6 +245,7 @@ def test_upsert_task_tool_writes_parseable_draft_and_overwrites(
             "assignee": "Ralph",
             "priority": 1,
             "depends_on": ["setup"],
+            "acceptance_criteria": ["Scope is approved"],
         },
     )
 
@@ -257,7 +259,7 @@ def test_upsert_task_tool_writes_parseable_draft_and_overwrites(
     assert created_task.slug == "clarify-scope"
     assert created_task.metadata.title == "Clarify scope"
     assert created_task.metadata.depends_on == ["setup"]
-    assert created_task.metadata.acceptance_criteria == []
+    assert created_task.metadata.acceptance_criteria == ["Scope is approved"]
     assert created_task.body == "Draft the scope.\n"
 
     updated = run_upsert_task_tool(
@@ -299,6 +301,7 @@ def test_upsert_task_tool_rejects_invalid_slug(tmp_path: Path) -> None:
                 "body": "Draft the scope.\n",
                 "assignee": "Ralph",
                 "priority": 1,
+                "acceptance_criteria": ["Scope is approved"],
             },
         )
 
@@ -322,6 +325,7 @@ def test_upsert_task_tool_rejects_symlinked_draft_dir(tmp_path: Path) -> None:
                 "body": "Draft the scope.\n",
                 "assignee": "Ralph",
                 "priority": 1,
+                "acceptance_criteria": ["Scope is approved"],
             },
         )
 
@@ -352,6 +356,7 @@ def test_upsert_task_tool_rejects_symlinked_parent_dir(
                 "body": "Draft the scope.\n",
                 "assignee": "Ralph",
                 "priority": 1,
+                "acceptance_criteria": ["Scope is approved"],
             },
         )
 
@@ -379,10 +384,35 @@ def test_upsert_task_tool_rejects_symlinked_draft_file(tmp_path: Path) -> None:
                 "body": "Draft the scope.\n",
                 "assignee": "Ralph",
                 "priority": 1,
+                "acceptance_criteria": ["Scope is approved"],
             },
         )
 
     assert outside.read_text(encoding="utf-8") == "outside\n"
+
+
+@pytest.mark.parametrize("criteria", [None, []])
+def test_upsert_task_tool_requires_non_empty_acceptance_criteria(
+    tmp_path: Path, criteria: list[str] | None
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".jri" / "tasks").mkdir(parents=True)
+
+    with pytest.raises(
+        subprocess.CalledProcessError,
+        match="returned non-zero exit status",
+    ):
+        run_upsert_task_tool(
+            repo,
+            tmp_path,
+            {
+                "title": "Clarify scope",
+                "body": "Draft the scope.\n",
+                "assignee": "Ralph",
+                "priority": 1,
+                "acceptance_criteria": criteria,
+            },
+        )
 
 
 def test_parse_task_file_reads_frontmatter_and_body(tmp_path: Path) -> None:
@@ -499,7 +529,7 @@ def test_parse_task_file_round_trips_dump_task_output(tmp_path: Path) -> None:
 
 
 def test_list_tasks_allows_in_place_edits_for_draft_tasks(git_repo: Path) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="draft",
