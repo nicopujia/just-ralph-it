@@ -122,6 +122,7 @@ def run_promote_task_tool(
         "export function tool(definition) { return definition; }\n"
         "tool.schema = {\n"
         "  string: () => schemaBuilder(),\n"
+        "  enum: () => schemaBuilder(),\n"
         "  boolean: () => schemaBuilder(),\n"
         "  array: () => schemaBuilder(),\n"
         "};\n",
@@ -193,6 +194,18 @@ def make_task(
         ),
         body="body",
     )
+
+
+def make_git_repo(tmp_path: Path) -> Path:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    git(repo, "init", "-b", "main")
+    git(repo, "config", "user.name", "JRI Tests")
+    git(repo, "config", "user.email", "jri-tests@example.com")
+    (repo / "README.md").write_text("# temp repo\n", encoding="utf-8")
+    git(repo, "add", "README.md")
+    git(repo, "commit", "-m", "initial")
+    return repo
 
 
 def test_select_next_task_uses_dependencies_priority_and_slug_order() -> None:
@@ -300,8 +313,10 @@ def test_packaged_schemas_are_available() -> None:
     assert managed.joinpath(".opencode", "tools", "_run-python-tool.mjs").is_file()
     assert managed.joinpath(".opencode", "tools", "check-draft-promotion.js").is_file()
     assert managed.joinpath(".opencode", "tools", "delete-task.js").is_file()
+    assert managed.joinpath(".opencode", "tools", "list-tasks.js").is_file()
     assert managed.joinpath(".opencode", "tools", "promote-tasks.js").is_file()
     assert managed.joinpath(".opencode", "tools", "ralph-result.js").is_file()
+    assert managed.joinpath(".opencode", "tools", "read-tasks.js").is_file()
     assert managed.joinpath(".opencode", "tools", "rename-task.js").is_file()
     assert managed.joinpath(".opencode", "tools", "upsert-task.js").is_file()
 
@@ -394,6 +409,145 @@ def test_promote_task_tool_rejects_non_slug_entries(tmp_path: Path) -> None:
             repo,
             tmp_path,
             {"slugs": ["title: Build README\npriority: 1"], "check_only": True},
+        )
+
+
+def test_read_tasks_tool_reads_single_and_multiple_slugs(tmp_path: Path) -> None:
+    repo = make_git_repo(tmp_path)
+    assert run_cli(["init"], cwd=repo) == 0
+    write_task(
+        repo,
+        status="draft",
+        slug="clarify-scope",
+        title="Clarify scope",
+        priority=1,
+        assignee="Ralph",
+        body="Clarify the scope.\n",
+        acceptance_criteria=["Scope is approved"],
+    )
+    write_task(
+        repo,
+        status="todo",
+        slug="ship-ui",
+        title="Ship UI",
+        priority=2,
+        assignee="Human",
+        body="Ship the UI.\n",
+        acceptance_criteria=["UI is shipped"],
+    )
+
+    single = json.loads(
+        run_promote_task_tool(
+            repo,
+            tmp_path,
+            {"slug": "clarify-scope"},
+            module_name="read-tasks",
+        )
+    )
+    multiple = json.loads(
+        run_promote_task_tool(
+            repo,
+            tmp_path,
+            {"slugs": ["ship-ui", "clarify-scope"]},
+            module_name="read-tasks",
+        )
+    )
+
+    assert [task["slug"] for task in single] == ["clarify-scope"]
+    assert single[0]["status"] == "draft"
+    assert single[0]["acceptance_criteria"] == ["Scope is approved"]
+    assert [task["slug"] for task in multiple] == ["ship-ui", "clarify-scope"]
+    assert [task["status"] for task in multiple] == ["todo", "draft"]
+
+
+def test_read_tasks_tool_rejects_missing_or_conflicting_inputs(tmp_path: Path) -> None:
+    repo = make_git_repo(tmp_path)
+    assert run_cli(["init"], cwd=repo) == 0
+
+    with pytest.raises(
+        subprocess.CalledProcessError,
+        match="returned non-zero exit status",
+    ):
+        run_promote_task_tool(repo, tmp_path, {}, module_name="read-tasks")
+
+    with pytest.raises(
+        subprocess.CalledProcessError,
+        match="returned non-zero exit status",
+    ):
+        run_promote_task_tool(
+            repo,
+            tmp_path,
+            {"slug": "one", "slugs": ["two"]},
+            module_name="read-tasks",
+        )
+
+
+def test_list_tasks_tool_lists_and_filters_by_status(tmp_path: Path) -> None:
+    repo = make_git_repo(tmp_path)
+    assert run_cli(["init"], cwd=repo) == 0
+    write_task(
+        repo,
+        status="draft",
+        slug="clarify-scope",
+        title="Clarify scope",
+        priority=1,
+        assignee="Ralph",
+        body="Clarify the scope.\n",
+        acceptance_criteria=["Scope is approved"],
+    )
+    write_task(
+        repo,
+        status="done",
+        slug="setup",
+        title="Setup",
+        priority=0,
+        assignee="Ralph",
+        body="Setup done.\n",
+        acceptance_criteria=["Setup is complete"],
+    )
+
+    all_tasks = json.loads(
+        run_promote_task_tool(repo, tmp_path, {}, module_name="list-tasks")
+    )
+    done_tasks = json.loads(
+        run_promote_task_tool(
+            repo,
+            tmp_path,
+            {"status": "done"},
+            module_name="list-tasks",
+        )
+    )
+
+    assert [task["slug"] for task in all_tasks] == ["clarify-scope", "setup"]
+    assert [task["status"] for task in all_tasks] == ["draft", "done"]
+    assert done_tasks == [
+        {
+            "status": "done",
+            "slug": "setup",
+            "path": str(repo / ".jri" / "tasks" / "done" / "setup.md"),
+            "title": "Setup",
+            "priority": 0,
+            "assignee": "Ralph",
+            "depends_on": [],
+            "acceptance_criteria": ["Setup is complete"],
+            "body": "Setup done.\n",
+        }
+    ]
+
+
+def test_list_tasks_tool_rejects_invalid_status(tmp_path: Path) -> None:
+    repo = make_git_repo(tmp_path)
+    assert run_cli(["init"], cwd=repo) == 0
+
+    with pytest.raises(
+        subprocess.CalledProcessError,
+        match="returned non-zero exit status",
+    ):
+        run_promote_task_tool(
+            repo,
+            tmp_path,
+            {"status": "blocked"},
+            module_name="list-tasks",
         )
 
 
