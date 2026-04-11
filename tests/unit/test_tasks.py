@@ -97,6 +97,82 @@ def run_upsert_task_tool(cwd: Path, tmp_path: Path, payload: dict[str, object]) 
     return result.stdout
 
 
+def run_promote_task_tool(
+    cwd: Path,
+    tmp_path: Path,
+    payload: dict[str, object],
+    *,
+    module_name: str = "promote-tasks",
+) -> str:
+    node = shutil.which("node")
+    assert node is not None, "node is required to run promote-tasks tool tests"
+
+    harness = tmp_path / f"{module_name}_harness"
+    harness.mkdir(parents=True, exist_ok=True)
+    (harness / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
+    (harness / "plugin.mjs").write_text(
+        "function schemaBuilder() {\n"
+        "  const schema = {};\n"
+        "  schema.describe = () => schema;\n"
+        "  schema.optional = () => schema;\n"
+        "  schema.boolean = () => schema;\n"
+        "  schema.array = () => schemaBuilder();\n"
+        "  return schema;\n"
+        "}\n"
+        "export function tool(definition) { return definition; }\n"
+        "tool.schema = {\n"
+        "  string: () => schemaBuilder(),\n"
+        "  boolean: () => schemaBuilder(),\n"
+        "  array: () => schemaBuilder(),\n"
+        "};\n",
+        encoding="utf-8",
+    )
+    (harness / "_run-python-tool.mjs").write_text(
+        files("jri.core.template")
+        .joinpath(".opencode", "tools", "_run-python-tool.mjs")
+        .read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    module_path = harness / f"{module_name}.mjs"
+    source = (
+        files("jri.core.template")
+        .joinpath(".opencode", "tools", f"{module_name}.js")
+        .read_text(encoding="utf-8")
+    )
+    module_path.write_text(
+        source.replace(
+            'import { tool } from "@opencode-ai/plugin";',
+            'import { tool } from "./plugin.mjs";',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    script = (
+        "const modulePath = process.argv.at(-2);\n"
+        "const payloadText = process.argv.at(-1);\n"
+        "const mod = await import(modulePath);\n"
+        "const result = await mod.default.execute(JSON.parse(payloadText));\n"
+        "process.stdout.write(result);\n"
+    )
+    result = subprocess.run(
+        [
+            node,
+            "--input-type=module",
+            "--eval",
+            script,
+            module_path.as_uri(),
+            json.dumps(payload),
+        ],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "JRI_PYTHON": sys.executable},
+    )
+    return result.stdout
+
+
 def make_task(
     slug: str,
     *,
@@ -303,6 +379,21 @@ def test_upsert_task_tool_rejects_invalid_slug(tmp_path: Path) -> None:
                 "priority": 1,
                 "acceptance_criteria": ["Scope is approved"],
             },
+        )
+
+
+def test_promote_task_tool_rejects_non_slug_entries(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    with pytest.raises(
+        subprocess.CalledProcessError,
+        match="returned non-zero exit status",
+    ):
+        run_promote_task_tool(
+            repo,
+            tmp_path,
+            {"slugs": ["title: Build README\npriority: 1"], "check_only": True},
         )
 
 

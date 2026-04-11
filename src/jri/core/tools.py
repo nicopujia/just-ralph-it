@@ -51,6 +51,13 @@ def _assert_string_list(name: str, value: Any) -> list[str] | None:
     return value
 
 
+def _assert_slug_list(name: str, value: Any) -> list[str] | None:
+    items = _assert_string_list(name, value)
+    if items is None:
+        return None
+    return [_assert_slug(name, item) for item in items]
+
+
 def _ensure_expected_real_path(parent_dir: Path, child_name: str) -> Path:
     child_path = parent_dir / child_name
     child_path.mkdir(parents=True, exist_ok=True)
@@ -267,7 +274,7 @@ def _run_delete_task(payload: dict[str, Any]) -> str:
 
 
 def _run_promote_tasks(payload: dict[str, Any]) -> str:
-    slugs = _assert_string_list("slugs", payload.get("slugs")) or []
+    slugs = _assert_slug_list("slugs", payload.get("slugs")) or []
     check_only = payload.get("check_only", False)
     if not isinstance(check_only, bool):
         raise ValueError("`check_only` must be a boolean")
