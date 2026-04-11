@@ -213,6 +213,7 @@ def test_packaged_schemas_are_available() -> None:
     assert files("jri.core.schemas").joinpath("task-metadata.json").is_file()
     assert files("jri.core.schemas").joinpath("state.json").is_file()
     managed = files("jri.core.template")
+    assert managed.joinpath("README.md").is_file()
     assert managed.joinpath("opencode.json").is_file()
     assert managed.joinpath(".opencode", "agents", "interrogator.md").is_file()
     assert managed.joinpath(
@@ -498,7 +499,7 @@ def test_parse_task_file_round_trips_dump_task_output(tmp_path: Path) -> None:
 
 
 def test_list_tasks_allows_in_place_edits_for_draft_tasks(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="draft",

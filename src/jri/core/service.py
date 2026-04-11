@@ -1,11 +1,17 @@
 import json
 import os
+import re
+import select
 import shutil
 import signal
 import subprocess
 import sys
+import tempfile
+import termios
 import time
-from collections.abc import Callable
+import tty
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from importlib.resources import files
@@ -41,7 +47,12 @@ from .models import (
     Task,
     TaskMetadata,
 )
-from .opencode import OpenCodeProgrammatic, OpenCodeServer, launch_chat
+from .opencode import (
+    OpenCodeProgrammatic,
+    OpenCodeServer,
+    launch_chat,
+    render_saved_log,
+)
 from .paths import JriPaths
 from .state import StateStore
 from .tasks import (
@@ -60,6 +71,7 @@ _INIT_COMMIT_PATHS = (
     ".opencode",
     "opencode.json",
     "Makefile",
+    ".jri/README.md",
     ".jri/learnings.md",
     ".jri/tasks/draft/.gitkeep",
     ".jri/tasks/todo/.gitkeep",
@@ -72,6 +84,7 @@ _UPGRADE_COMMIT_PATHS = (
     ".jri/.gitignore",
     ".jri/.opencode",
     ".jri/opencode.json",
+    ".jri/README.md",
     ".jri/learnings.md",
     ".jri/tasks/draft/.gitkeep",
     ".jri/tasks/todo/.gitkeep",
@@ -104,6 +117,7 @@ _MANAGED_TOOL_PATHS = tuple(
 _MANAGED_CONFIG_FILENAMES = (".jri/opencode.json",)
 _SCAFFOLD_TEMPLATE_PATHS = (
     "Makefile",
+    ".jri/README.md",
     ".jri/learnings.md",
     ".jri/tasks/draft/.gitkeep",
     ".jri/tasks/todo/.gitkeep",
@@ -224,7 +238,14 @@ class JriService:
                 result.stderr.strip() or f"failed to commit: {commit_message}"
             )
 
-    def chat(self, extra_args: list[str], *, fresh: bool = False) -> int:
+    def chat(
+        self,
+        extra_args: list[str],
+        *,
+        fresh: bool = False,
+        model: str | None = None,
+        validator_model: str | None = None,
+    ) -> int:
         self.ensure_initialized()
         self._update_compaction_reserved()
         if fresh:
@@ -240,13 +261,20 @@ class JriService:
             if isinstance(self.opencode, OpenCodeServer)
             else "opencode"
         )
-        returncode = launch_chat(
-            root=self.root,
-            session_id=state.session,
-            extra_args=extra_args,
-            binary=binary,
-            env=self._opencode_env(self.paths),
-        )
+        with self._temporary_opencode_env(
+            self.paths,
+            overrides={
+                "interrogator": model,
+                "interrogator-validator": validator_model,
+            },
+        ) as env:
+            returncode = launch_chat(
+                root=self.root,
+                session_id=state.session,
+                extra_args=extra_args,
+                binary=binary,
+                env=env,
+            )
         if state.session is None:
             after = self._list_sessions()
             session_id = self._detect_latest_session(before, after)
@@ -260,6 +288,7 @@ class JriService:
         max_tasks: int | None = None,
         detached: bool = False,
         model: str | None = None,
+        validator_model: str | None = None,
         task_timeout: int | None = None,
         force: bool = False,
     ) -> int:
@@ -268,7 +297,50 @@ class JriService:
             mode="detached" if detached else "foreground", force=force
         )
         if detached:
-            return self._start_detached(max_tasks, model, task_timeout)
+            return self._start_detached(
+                max_tasks,
+                model,
+                validator_model,
+                task_timeout,
+            )
+
+        return self.run_loop_process(
+            max_tasks=max_tasks,
+            model=model,
+            validator_model=validator_model,
+            task_timeout=task_timeout,
+            force=force,
+        )
+
+    def run_loop_process(
+        self,
+        *,
+        max_tasks: int | None = None,
+        model: str | None = None,
+        validator_model: str | None = None,
+        task_timeout: int | None = None,
+        force: bool = False,
+        recover: bool = False,
+        mode: str = "foreground",
+    ) -> int:
+        self.ensure_initialized()
+        if recover:
+            self._recover_stale_start_state(mode=mode, force=force)
+
+        if isinstance(self.opencode, OpenCodeServer):
+            with self._temporary_opencode_env(
+                self.paths,
+                overrides={
+                    "ralph": model,
+                    "ralph-validator": validator_model,
+                },
+            ) as opencode_env:
+                return self._run_loop(
+                    max_tasks,
+                    task_timeout=task_timeout,
+                    force=force,
+                    opencode_env=opencode_env,
+                )
 
         previous_model = self.opencode.model
         self.opencode.model = model
@@ -276,6 +348,63 @@ class JriService:
             return self._run_loop(max_tasks, task_timeout=task_timeout, force=force)
         finally:
             self.opencode.model = previous_model
+
+    def start_attached(
+        self,
+        *,
+        max_tasks: int | None = None,
+        model: str | None = None,
+        validator_model: str | None = None,
+        task_timeout: int | None = None,
+        force: bool = False,
+    ) -> int:
+        self.ensure_initialized()
+        self._recover_stale_start_state(mode="foreground", force=force)
+        return self._start_followable(
+            max_tasks,
+            model,
+            validator_model,
+            task_timeout,
+            force,
+        )
+
+    def attach(self) -> None:
+        self.ensure_initialized()
+        state = self.state_store.load()
+        process = state.process
+        if process is None or not process.log_path:
+            raise JriError("no Ralph run is available to attach")
+        self._follow_log(
+            Path(process.log_path),
+            loop_pid=process.loop_pid,
+            allow_detach=False,
+        )
+
+    def inspect(self, slug: str | None = None) -> None:
+        self.ensure_initialized()
+        attempt = self._resolve_inspect_attempt(slug)
+        if attempt.log_path is None:
+            raise JriError(f"task '{attempt.task_slug}' has no saved log")
+        log_path = Path(attempt.log_path)
+        if not log_path.exists():
+            raise JriError(f"task log not found: {log_path}")
+        print(task_header(attempt.task_slug))
+        rendered = render_saved_log(log_path.read_text(encoding="utf-8"))
+        if rendered:
+            sys.stdout.write(rendered)
+            if not rendered.endswith("\n"):
+                sys.stdout.write("\n")
+        if attempt.result in {
+            "completed",
+            "incomplete",
+            "needs_human",
+            "failed",
+            "timeout",
+        }:
+            print(task_footer(attempt.result))
+        elif attempt.result is not None:
+            print(attempt.result)
+        sys.stdout.flush()
 
     def stop(self, reason: str | None = None) -> None:
         self.ensure_initialized()
@@ -368,7 +497,7 @@ class JriService:
         else:
             target_tag = self._find_latest_reset_tag()
             if target_tag is None:
-                raise JriError("no task tag found — run `jri start` first")
+                raise JriError("no task tag found — run `jri ctl start` first")
 
         self._cleanup_tracked_processes(required=False)
         default = self.git.default_branch(hint=state.branch)
@@ -429,13 +558,37 @@ class JriService:
     def ensure_initialized(self) -> None:
         self.git.ensure_repo()
         if not self.paths.jri_dir.exists():
-            raise JriError("project is not initialized; run `jri init`")
+            raise JriError("project is not initialized; run `jri ctl init`")
 
     def _opencode_env(self, paths: JriPaths) -> dict[str, str]:
         return {
             "OPENCODE_CONFIG": str(paths.opencode_config_path.resolve()),
             "OPENCODE_CONFIG_DIR": str(paths.opencode_dir.resolve()),
         }
+
+    @contextmanager
+    def _temporary_opencode_env(
+        self,
+        paths: JriPaths,
+        *,
+        overrides: dict[str, str | None],
+    ) -> Iterator[dict[str, str]]:
+        filtered_overrides = {
+            agent: model for agent, model in overrides.items() if model is not None
+        }
+        if not filtered_overrides:
+            yield self._opencode_env(paths)
+            return
+
+        config_text = paths.opencode_config_path.read_text(encoding="utf-8")
+        overridden_text = _apply_agent_model_overrides(config_text, filtered_overrides)
+        with tempfile.TemporaryDirectory(prefix="jri-opencode-") as tmp_dir:
+            config_path = Path(tmp_dir) / "opencode.json"
+            config_path.write_text(overridden_text, encoding="utf-8")
+            yield {
+                "OPENCODE_CONFIG": str(config_path.resolve()),
+                "OPENCODE_CONFIG_DIR": str(paths.opencode_dir.resolve()),
+            }
 
     def _commit_paths(self, paths: list[str]) -> list[str]:
         scoped_paths: list[str] = []
@@ -593,17 +746,23 @@ class JriService:
             pass  # Non-critical — fall back to template default
 
     def _start_detached(
-        self, max_tasks: int | None, model: str | None, task_timeout: int | None
+        self,
+        max_tasks: int | None,
+        model: str | None,
+        validator_model: str | None,
+        task_timeout: int | None,
     ) -> int:
         state = self.state_store.load()
         if state.process and state.process.loop_pid:
             raise JriError("a Ralph process is already tracked")
 
-        command = [sys.executable, "-m", "jri", "start"]
+        command = [sys.executable, "-m", "jri", "ctl", "_run-loop"]
         if max_tasks is not None:
             command.extend(["-n", str(max_tasks)])
         if model is not None:
             command.extend(["--model", model])
+        if validator_model is not None:
+            command.extend(["--validator-model", validator_model])
         if task_timeout is not None:
             command.extend(["--task-timeout", str(task_timeout)])
 
@@ -626,11 +785,58 @@ class JriService:
         )
         return 0
 
+    def _start_followable(
+        self,
+        max_tasks: int | None,
+        model: str | None,
+        validator_model: str | None,
+        task_timeout: int | None,
+        force: bool,
+    ) -> int:
+        run_log_path = self.paths.ralph_log_path("run", int(time.time()))
+        run_log_path.parent.mkdir(parents=True, exist_ok=True)
+        command = [sys.executable, "-m", "jri", "ctl", "_run-loop"]
+        if max_tasks is not None:
+            command.extend(["-n", str(max_tasks)])
+        if model is not None:
+            command.extend(["--model", model])
+        if validator_model is not None:
+            command.extend(["--validator-model", validator_model])
+        if task_timeout is not None:
+            command.extend(["--task-timeout", str(task_timeout)])
+        if force:
+            command.append("--force")
+        log_file = run_log_path.open("a", encoding="utf-8")
+        process = subprocess.Popen(
+            command,
+            cwd=self.root,
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        log_file.close()
+        self.state_store.save_process(
+            loop_pid=process.pid,
+            child_pid=None,
+            log_path=run_log_path,
+            detached=False,
+        )
+        detached = self._follow_log(
+            run_log_path,
+            loop_pid=process.pid,
+            allow_detach=True,
+        )
+        if detached:
+            self._set_tracked_process_detached(detached=True)
+            return 0
+        return 0 if process.wait() == 0 else 1
+
     def _run_loop(
         self,
         max_tasks: int | None,
         task_timeout: int | None = None,
         force: bool = False,
+        opencode_env: dict[str, str] | None = None,
     ) -> int:
         try:
             doing = list_tasks(self.paths.task_dir("doing"), git_repo=self.git)
@@ -660,7 +866,7 @@ class JriService:
                 self._sync_worktree(wt_git)
                 self.opencode.start(
                     env={
-                        **self._opencode_env(wt_paths),
+                        **(opencode_env or self._opencode_env(wt_paths)),
                         "JRI_RESULT_PATH": str(result_path.resolve()),
                     },
                     cwd=self.paths.worktree_dir,
@@ -863,7 +1069,7 @@ class JriService:
         )
         # Move task to doing in the MAIN repo first, commit, then sync the
         # worktree so it inherits the move via the default-branch reset.
-        # This keeps `jri status` and the task state machine in main.
+        # This keeps `jri view status` and the task state machine in main.
         main_doing_task = move_task(task, self.paths.task_dir("doing"))
         self.git.commit_all_if_needed(MSG_START_BEGIN.format(slug=task.slug))
         # Create begin tag for this task
@@ -879,23 +1085,16 @@ class JriService:
         doing_task_baseline = doing_task.path.read_text(encoding="utf-8")
         # Keep a reference to the main repo's path for later cleanup.
         del main_doing_task
-        self.state_store.save_process(
-            loop_pid=os.getpid(),
-            child_pid=None,
-            log_path=log_path,
-            detached=False,
-        )
+        self._save_runtime_process(child_pid=None, task_log_path=log_path)
 
         prompt_text = (
             f"Solve `{doing_task.path.relative_to(wt_paths.root)}`. Commit frequently. "
             "Stay on the Ralph worktree/branch; JRI handles integration, so do not "
             "merge to the default branch yourself."
         )
-        on_start_cb = lambda child_pid: self.state_store.save_process(  # noqa: E731
-            loop_pid=os.getpid(),
+        on_start_cb = lambda child_pid: self._save_runtime_process(  # noqa: E731
             child_pid=child_pid,
-            log_path=log_path,
-            detached=False,
+            task_log_path=log_path,
         )
         result_path = self.paths.jri_dir / "signals" / "result"
         result_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1361,7 +1560,7 @@ class JriService:
                 )
                 self.git.checkout(default)
             else:
-                raise JriError(f"jri start must begin from the {default} branch")
+                raise JriError(f"jri ctl start must begin from the {default} branch")
 
             # Reset worktree if it exists
             if self.paths.worktree_dir.exists():
@@ -1458,7 +1657,7 @@ class JriService:
                 )
             self.git.checkout(default)
         elif current_branch != default:
-            raise JriError(f"jri start must begin from the {default} branch")
+            raise JriError(f"jri ctl start must begin from the {default} branch")
 
         if doing_task is not None and doing_task.path.exists():
             move_task(doing_task, self.paths.task_dir("done"))
@@ -1681,6 +1880,109 @@ class JriService:
             )
             return None
         return export_path
+
+    def _resolve_inspect_attempt(self, slug: str | None) -> AttemptState:
+        state = self.state_store.load()
+        if slug is None:
+            if state.active_attempt is not None:
+                return state.active_attempt
+            if state.attempts:
+                return state.attempts[-1]
+            raise JriError("no task attempts recorded")
+        matches = [attempt for attempt in state.attempts if attempt.task_slug == slug]
+        if state.active_attempt is not None and state.active_attempt.task_slug == slug:
+            matches.append(state.active_attempt)
+        if not matches:
+            raise JriError(f"task '{slug}' has no recorded attempts")
+        return max(matches, key=lambda attempt: attempt.number)
+
+    def _save_runtime_process(
+        self, *, child_pid: int | None, task_log_path: Path
+    ) -> None:
+        state = self.state_store.load()
+        process = state.process
+        tracked_log_path: Path | None = task_log_path
+        detached = False
+        if process is not None and process.loop_pid == os.getpid():
+            detached = process.detached
+            if process.log_path:
+                tracked_log_path = Path(process.log_path)
+        self.state_store.save_process(
+            loop_pid=os.getpid(),
+            child_pid=child_pid,
+            log_path=tracked_log_path,
+            detached=detached,
+        )
+
+    def _set_tracked_process_detached(self, *, detached: bool) -> None:
+        state = self.state_store.load()
+        process = state.process
+        if process is None:
+            return
+        self.state_store.save_process(
+            loop_pid=process.loop_pid,
+            child_pid=process.child_pid,
+            log_path=Path(process.log_path) if process.log_path else None,
+            detached=detached,
+        )
+
+    def _follow_log(
+        self, log_path: Path, *, loop_pid: int | None, allow_detach: bool
+    ) -> bool:
+        with self._detach_monitor(enabled=allow_detach) as detach_requested:
+            while True:
+                if log_path.exists():
+                    break
+                if loop_pid is None or not self._is_pid_alive(loop_pid):
+                    return False
+                time.sleep(0.05)
+
+            with log_path.open("r", encoding="utf-8") as handle:
+                while True:
+                    chunk = handle.read()
+                    if chunk:
+                        sys.stdout.write(chunk)
+                        sys.stdout.flush()
+                    if allow_detach and detach_requested():
+                        if chunk and not chunk.endswith("\n"):
+                            sys.stdout.write("\n")
+                        print("Detached. Use `jri ctl attach` to follow the run again.")
+                        sys.stdout.flush()
+                        return True
+                    if loop_pid is None or not self._is_pid_alive(loop_pid):
+                        chunk = handle.read()
+                        if chunk:
+                            sys.stdout.write(chunk)
+                            sys.stdout.flush()
+                        return False
+                    time.sleep(0.1)
+
+    @contextmanager
+    def _detach_monitor(self, *, enabled: bool) -> Iterator[Callable[[], bool]]:
+        if not enabled or not sys.stdin.isatty():
+            yield lambda: False
+            return
+        try:
+            fd = sys.stdin.fileno()
+            previous = termios.tcgetattr(fd)
+            tty.setcbreak(fd)
+        except (AttributeError, OSError, termios.error, ValueError):
+            yield lambda: False
+            return
+
+        def _pressed() -> bool:
+            ready, _, _ = select.select([sys.stdin], [], [], 0)
+            if not ready:
+                return False
+            try:
+                return os.read(fd, 1).decode("utf-8", errors="ignore").lower() == "d"
+            except OSError:
+                return False
+
+        try:
+            yield _pressed
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, previous)
 
     def _list_sessions(self) -> list[dict[str, object]]:
         return self._call_with_server(
@@ -1963,3 +2265,16 @@ def _template_resource_parts(name: str) -> tuple[str, ...]:
     if parts and parts[0] == ".jri":
         return parts[1:]
     return parts
+
+
+def _apply_agent_model_overrides(config_text: str, overrides: dict[str, str]) -> str:
+    updated = config_text
+    for agent, model in overrides.items():
+        pattern = re.compile(
+            rf'("{re.escape(agent)}"\s*:\s*\{{.*?"model"\s*:\s*")([^"]+)(")',
+            re.DOTALL,
+        )
+        updated, count = pattern.subn(rf"\g<1>{model}\g<3>", updated, count=1)
+        if count != 1:
+            raise JriError(f"failed to apply model override for agent '{agent}'")
+    return updated

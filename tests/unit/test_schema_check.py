@@ -112,7 +112,7 @@ def test_validate_repo_rejects_promoted_task_with_empty_acceptance_criteria(
 def test_validate_repo_rejects_in_place_mutation_of_promoted_task(
     git_repo: Path,
 ) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",

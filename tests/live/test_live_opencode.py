@@ -19,7 +19,7 @@ def test_start_with_real_opencode_completes_trivial_task(
     if not run_live_opencode:
         pytest.skip("pass --run-live-opencode to enable live OpenCode tests")
 
-    assert run_cli(["init"], cwd=git_repo) == 0
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
     write_task(
         git_repo,
         status="todo",

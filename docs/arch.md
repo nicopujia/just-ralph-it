@@ -26,7 +26,7 @@ The user doesn't interact directly with the tasks nor with Ralph.
 
 ### Git History
 
-Each iteration commits its changes and tags the commit. The tag marks a recoverable snapshot; `jri reset` rolls back to the latest tag. Ralph works in a separate git worktree to keep the main branch clean between iterations.
+Each iteration commits its changes and tags the commit. The tag marks a recoverable snapshot; `jri ctl reset` rolls back to the latest tag. Ralph works in a separate git worktree to keep the main branch clean between iterations.
 
 Attempt history is persisted on the main branch under `.jri/attempts/<task-slug>.json` before JRI clears Ralph's runtime state.
 
@@ -41,7 +41,8 @@ Corrections go in new draft tasks.
 
 ## Generated Structure
 
-`jri init` commits [@template](../src/jri/core/template/) files under `.jri/`. Gitignored runtime directories are created lazily when JRI needs them.
+`jri ctl init` commits [@template](../src/jri/core/template/) files under `.jri/`.
+Runtime-generated `.jri/` paths are documented in [`../.jri/README.md`](../src/jri/core/template/README.md).
 
 ```toml
 <project-root>/
@@ -62,6 +63,7 @@ Corrections go in new draft tasks.
 │   ├── attempts/
 │   │   ├── .gitkeep
 │   │   └── <task-slug>.json            # committed attempt history per task
+│   ├── README.md
 │   ├── state.json                      # initialized runtime state (gitignored)
 │   ├── learnings.md                    # notes by Ralph for its future self
 │   ├── .opencode/
@@ -75,14 +77,4 @@ Corrections go in new draft tasks.
 │   └── opencode.json
 ├── Makefile                            # check target (fails by default)
 └── README.md                           # empty (created by init)
-```
-
-Lazy-created runtime paths:
-
-```toml
-.jri/
-├── signals/                            # stop/result contracts for active runs
-├── logs/                               # Ralph logs, diffs, exports, timeline
-├── worktree/                           # where Ralph makes changes
-└── state.json.bak
 ```

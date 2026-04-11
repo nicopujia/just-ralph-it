@@ -5,7 +5,7 @@ from tests.helpers import git, write_task
 
 
 def _init(repo: Path) -> None:
-    run_cli(["init"], cwd=repo)
+    run_cli(["ctl", "init"], cwd=repo)
 
 
 def test_status_shows_counts_and_human_tasks(git_repo: Path, capsys) -> None:
@@ -47,7 +47,7 @@ def test_status_shows_counts_and_human_tasks(git_repo: Path, capsys) -> None:
         body="do it",
     )
 
-    rc = run_cli(["status"], cwd=git_repo)
+    rc = run_cli(["view", "status"], cwd=git_repo)
     assert rc == 0
     out = capsys.readouterr().out
     assert "Tasks: 4 total" in out
@@ -74,7 +74,7 @@ def test_status_no_human_tasks(git_repo: Path, capsys) -> None:
         body="do it",
     )
 
-    rc = run_cli(["status"], cwd=git_repo)
+    rc = run_cli(["view", "status"], cwd=git_repo)
     assert rc == 0
     out = capsys.readouterr().out
     assert "No tasks assigned to Human." in out
@@ -83,7 +83,7 @@ def test_status_no_human_tasks(git_repo: Path, capsys) -> None:
 def test_status_empty_project(git_repo: Path, capsys) -> None:
     _init(git_repo)
 
-    rc = run_cli(["status"], cwd=git_repo)
+    rc = run_cli(["view", "status"], cwd=git_repo)
     assert rc == 0
     out = capsys.readouterr().out
     assert "Tasks: 0 total" in out
@@ -134,7 +134,7 @@ def test_status_shows_human_tasks_across_all_states(git_repo: Path, capsys) -> N
         body="done",
     )
 
-    rc = run_cli(["status"], cwd=git_repo)
+    rc = run_cli(["view", "status"], cwd=git_repo)
     assert rc == 0
     out = capsys.readouterr().out
     # All Human tasks should appear with their status
@@ -164,7 +164,7 @@ def test_status_rejects_in_place_mutation_of_promoted_task(
         encoding="utf-8",
     )
 
-    rc = run_cli(["status"], cwd=git_repo)
+    rc = run_cli(["view", "status"], cwd=git_repo)
 
     assert rc == 1
     assert "modified in place" in capsys.readouterr().err
@@ -189,7 +189,7 @@ def test_status_shows_metrics_summary(git_repo: Path, capsys) -> None:
         encoding="utf-8",
     )
 
-    rc = run_cli(["status"], cwd=git_repo)
+    rc = run_cli(["view", "status"], cwd=git_repo)
     assert rc == 0
     out = capsys.readouterr().out
     assert "metrics: 3 runs, 2 pass, 1 fail (67% pass rate)" in out
@@ -199,7 +199,7 @@ def test_status_hides_metrics_when_none(git_repo: Path, capsys) -> None:
     """No metrics line is shown when metrics.json does not exist."""
     _init(git_repo)
 
-    rc = run_cli(["status"], cwd=git_repo)
+    rc = run_cli(["view", "status"], cwd=git_repo)
     assert rc == 0
     out = capsys.readouterr().out
     assert "metrics:" not in out
