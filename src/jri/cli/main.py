@@ -191,32 +191,44 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     subparsers = parser.add_subparsers(dest="command", metavar="command")
+    # Keep public command registrations alphabetized so top-level help stays sorted.
 
     subparsers.add_parser(
-        "status",
-        help="Show task counts by status and list human todo tasks.",
+        "attach",
+        help="Attach to the tracked Ralph runtime.",
+        description="Attach to the tracked Ralph runtime.",
+    )
+
+    chat_parser = subparsers.add_parser(
+        "chat",
+        help="Open an interactive chat session for this project.",
         description=(
-            "Display the total number of tasks, broken down by status, "
-            "and list all todo tasks assigned to Human."
+            "Launch chat in the current project, reusing the saved session "
+            "when one is available."
         ),
     )
-    timeline_parser = subparsers.add_parser(
-        "timeline",
-        help="Show the execution timeline for this project.",
+    chat_parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Clear the existing interrogator session and start fresh.",
+    )
+    chat_parser.add_argument(
+        "-m",
+        "--model",
+        help="Override the interrogator model for this chat run only.",
+    )
+    chat_parser.add_argument(
+        "--validator-model",
+        help="Override the interrogator-validator model for this chat run only.",
+    )
+
+    subparsers.add_parser(
+        "halt",
+        help="Terminate the currently tracked Ralph process immediately.",
         description=(
-            "Read the execution timeline and display recorded events. "
-            "Each line represents a key event from the Ralph run loop."
+            "Send SIGTERM to the tracked Ralph loop and clear its tracked "
+            "process state."
         ),
-    )
-    inspect_parser = subparsers.add_parser(
-        "inspect",
-        help="Inspect a task slug.",
-        description="Inspect a task by slug.",
-    )
-    inspect_parser.add_argument(
-        "slug",
-        nargs="?",
-        help="Task slug to inspect. Defaults to the active or latest attempt.",
     )
 
     init_parser = subparsers.add_parser(
@@ -251,27 +263,40 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Refresh only JRI-managed files without deleting project tasks.",
     )
 
-    chat_parser = subparsers.add_parser(
-        "chat",
-        help="Open an interactive chat session for this project.",
+    inspect_parser = subparsers.add_parser(
+        "inspect",
+        help="Inspect a task slug.",
+        description="Inspect a task by slug.",
+    )
+    inspect_parser.add_argument(
+        "slug",
+        nargs="?",
+        help="Task slug to inspect. Defaults to the active or latest attempt.",
+    )
+
+    reset_parser = subparsers.add_parser(
+        "reset",
+        help="Reset the default branch to the latest task tag.",
         description=(
-            "Launch chat in the current project, reusing the saved session "
-            "when one is available."
+            "Hard-reset the default branch to the latest JRI task tag. "
+            "By default, resets to the most recent jri/end/{task} tag. "
+            "Optionally specify a task slug to reset to a specific task's end tag. "
+            "Discards all uncommitted changes, commits, "
+            "and task state since that task. Clears in-progress "
+            "runtime state (process tracking, active attempt). "
+            "Preserves session and attempt history."
         ),
     )
-    chat_parser.add_argument(
-        "--fresh",
+    reset_parser.add_argument(
+        "task",
+        nargs="?",
+        help="Optional task slug to reset to a specific task's end tag.",
+    )
+    reset_parser.add_argument(
+        "-f",
+        "--force",
         action="store_true",
-        help="Clear the existing interrogator session and start fresh.",
-    )
-    chat_parser.add_argument(
-        "-m",
-        "--model",
-        help="Override the interrogator model for this chat run only.",
-    )
-    chat_parser.add_argument(
-        "--validator-model",
-        help="Override the interrogator-validator model for this chat run only.",
+        help="Skip confirmation prompt and proceed with reset.",
     )
 
     start_parser = subparsers.add_parser(
@@ -318,6 +343,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Auto-resolve pre-flight checks without interactive prompts.",
     )
 
+    subparsers.add_parser(
+        "status",
+        help="Show task counts by status and list human todo tasks.",
+        description=(
+            "Display the total number of tasks, broken down by status, "
+            "and list all todo tasks assigned to Human."
+        ),
+    )
     stop_parser = subparsers.add_parser(
         "stop",
         help="Ask Ralph to stop after the current task.",
@@ -331,42 +364,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional text written into the stop signal file.",
     )
 
-    subparsers.add_parser(
-        "halt",
-        help="Terminate the currently tracked Ralph process immediately.",
+    timeline_parser = subparsers.add_parser(
+        "timeline",
+        help="Show the execution timeline for this project.",
         description=(
-            "Send SIGTERM to the tracked Ralph loop and clear its tracked "
-            "process state."
+            "Read the execution timeline and display recorded events. "
+            "Each line represents a key event from the Ralph run loop."
         ),
-    )
-    reset_parser = subparsers.add_parser(
-        "reset",
-        help="Reset the default branch to the latest task tag.",
-        description=(
-            "Hard-reset the default branch to the latest JRI task tag. "
-            "By default, resets to the most recent jri/end/{task} tag. "
-            "Optionally specify a task slug to reset to a specific task's end tag. "
-            "Discards all uncommitted changes, commits, "
-            "and task state since that task. Clears in-progress "
-            "runtime state (process tracking, active attempt). "
-            "Preserves session and attempt history."
-        ),
-    )
-    reset_parser.add_argument(
-        "task",
-        nargs="?",
-        help="Optional task slug to reset to a specific task's end tag.",
-    )
-    reset_parser.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help="Skip confirmation prompt and proceed with reset.",
-    )
-    subparsers.add_parser(
-        "attach",
-        help="Attach to the tracked Ralph runtime.",
-        description="Attach to the tracked Ralph runtime.",
     )
 
     timeline_parser.add_argument(

@@ -248,7 +248,6 @@ class JriService:
         validator_model: str | None = None,
     ) -> int:
         self.ensure_initialized()
-        self._update_compaction_reserved()
         if fresh:
             self.state_store.save_session(None)
         before = {
@@ -730,24 +729,6 @@ class JriService:
                 continue
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(_load_managed_template(relative_path), encoding="utf-8")
-
-    def _update_compaction_reserved(self) -> None:
-        """Update opencode.json reserved tokens based on the model context window."""
-        config_path = self.paths.opencode_config_path
-        if not config_path.exists():
-            return
-        try:
-            import json
-
-            config = json.loads(config_path.read_text(encoding="utf-8"))
-            reserved = _compute_reserved()
-            if reserved is not None and isinstance(config.get("compaction"), dict):
-                config["compaction"]["reserved"] = reserved
-                config_path.write_text(
-                    json.dumps(config, indent=2) + "\n", encoding="utf-8"
-                )
-        except Exception:
-            pass  # Non-critical — fall back to template default
 
     def _start_detached(
         self,
@@ -2237,45 +2218,6 @@ class JriService:
             ):
                 return session_id
         return None
-
-
-_MODELS_DEV_URL = "https://models.dev/api.json"
-_MAX_RESERVED_TOKENS = 500_000
-_RESERVED_RATIO = 0.4
-
-
-def _compute_reserved(model: str | None = None) -> int | None:
-    """Compute compaction reserved tokens from the model context window.
-
-    Fetches context-window size from models.dev and returns
-    ``min(0.4 * context, 500_000)``.  Returns ``None`` on any failure.
-    """
-    import json
-    import urllib.request
-
-    try:
-        req = urllib.request.Request(_MODELS_DEV_URL, headers={"User-Agent": "jri/0.1"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            registry = json.loads(resp.read())
-    except Exception:
-        return None
-
-    # Search all providers for the model
-    target = model or "claude-sonnet-4-20250514"
-    for provider in registry.values():
-        if not isinstance(provider, dict):
-            continue
-        models = provider.get("models")
-        if not isinstance(models, dict):
-            continue
-        entry = models.get(target)
-        if isinstance(entry, dict):
-            limit = entry.get("limit")
-            if isinstance(limit, dict):
-                context = limit.get("context")
-                if isinstance(context, int) and context > 0:
-                    return min(int(context * _RESERVED_RATIO), _MAX_RESERVED_TOKENS)
-    return None
 
 
 def _load_managed_template(name: str) -> str:
