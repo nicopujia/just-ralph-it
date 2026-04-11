@@ -18,6 +18,13 @@ def read_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def write_passing_makefile(repo: Path) -> None:
+    (repo / "Makefile").write_text(
+        ".PHONY: check\n\ncheck:\n\t@true\n",
+        encoding="utf-8",
+    )
+
+
 def write_task(
     repo: Path,
     *,
