@@ -36,7 +36,7 @@ class FakeOpenCodeServerForChat:
 @pytest.fixture
 def initialized_repo(git_repo: Path) -> Path:
     """Initialize a JRI project in the git repo."""
-    exit_code = run_cli(["ctl", "init"], cwd=git_repo)
+    exit_code = run_cli(["init"], cwd=git_repo)
     assert exit_code == 0
     return git_repo
 
@@ -127,8 +127,12 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     assert config_path != (repo / ".jri" / "opencode.json").resolve()
     assert '"interrogator": {' in config_text
     assert '"model": "provider/interrogator-main"' in config_text
+    assert '"todowrite": "deny"' in config_text
+    assert '"check-draft-promotion": "deny"' in config_text
+    assert '"promote-tasks": "allow"' in config_text
     assert '"interrogator-validator": {' in config_text
     assert '"model": "provider/interrogator-validator"' in config_text
+    assert '"check-draft-promotion": "allow"' in config_text
     assert (
         repo.joinpath(".jri", "opencode.json").read_text(encoding="utf-8")
         != config_text

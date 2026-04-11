@@ -29,8 +29,7 @@ export default tool({
       .describe("Optional list of blocking task slugs"),
     acceptance_criteria: tool.schema
       .array(tool.schema.string())
-      .optional()
-      .describe("Optional acceptance criteria; drafts may omit this"),
+      .describe("Required non-empty acceptance criteria stored in metadata"),
   },
   async execute(args) {
     return runPythonTool("upsert-task", args);

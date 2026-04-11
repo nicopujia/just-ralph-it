@@ -105,6 +105,7 @@ _MANAGED_AGENT_PATHS = tuple(
 )
 _MANAGED_TOOL_FILENAMES = (
     "_run-python-tool.mjs",
+    "check-draft-promotion.js",
     "delete-task.js",
     "promote-tasks.js",
     "ralph-result.js",
@@ -555,13 +556,13 @@ class JriService:
 
         target_tag = self._find_latest_reset_tag()
         if target_tag is None:
-            raise JriError("no task tag found — run `jri ctl start` first")
+            raise JriError("no task tag found — run `jri start` first")
         return target_tag
 
     def ensure_initialized(self) -> None:
         self.git.ensure_repo()
         if not self.paths.jri_dir.exists():
-            raise JriError("project is not initialized; run `jri ctl init`")
+            raise JriError("project is not initialized; run `jri init`")
 
     def _opencode_env(self, paths: JriPaths) -> dict[str, str]:
         return {
@@ -1078,7 +1079,7 @@ class JriService:
         )
         # Move task to doing in the MAIN repo first, commit, then sync the
         # worktree so it inherits the move via the default-branch reset.
-        # This keeps `jri view status` and the task state machine in main.
+        # This keeps `jri status` and the task state machine in main.
         main_doing_task = move_task(task, self.paths.task_dir("doing"))
         self.git.commit_all_if_needed(MSG_START_BEGIN.format(slug=task.slug))
         # Create begin tag for this task
@@ -1569,7 +1570,7 @@ class JriService:
                 )
                 self.git.checkout(default)
             else:
-                raise JriError(f"jri ctl start must begin from the {default} branch")
+                raise JriError(f"jri start must begin from the {default} branch")
 
             # Reset worktree if it exists
             if self.paths.worktree_dir.exists():
@@ -1666,7 +1667,7 @@ class JriService:
                 )
             self.git.checkout(default)
         elif current_branch != default:
-            raise JriError(f"jri ctl start must begin from the {default} branch")
+            raise JriError(f"jri start must begin from the {default} branch")
 
         if doing_task is not None and doing_task.path.exists():
             move_task(doing_task, self.paths.task_dir("done"))
@@ -1971,7 +1972,7 @@ class JriService:
                     if allow_detach and detach_requested():
                         if chunk and not chunk.endswith("\n"):
                             sys.stdout.write("\n")
-                        print("Detached. Use `jri ctl attach` to follow the run again.")
+                        print("Detached. Use `jri attach` to follow the run again.")
                         sys.stdout.flush()
                         return True
                     if loop_pid is None or not self._is_pid_alive(loop_pid):

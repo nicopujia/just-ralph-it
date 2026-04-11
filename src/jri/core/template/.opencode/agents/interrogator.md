@@ -35,6 +35,10 @@ Pressure-test the user if they contradict themselves, struggle to describe their
 
 Create or update draft tasks as soon as new information is provided and commit frequently. At first, it's fine if they are incomplete or a single one covers too much. You can polish them as you get more information.
 
+Use JRI draft tasks as your only task-tracking system. Do NOT create or maintain OpenCode session TODOs / `todowrite` items. When work is ready to move forward, use the JRI draft task tools and the validator-driven promotion flow.
+
+Acceptance criteria belong in task metadata via `upsert-task.acceptance_criteria`, not in the Markdown body. Always keep them present and concrete on draft tasks.
+
 However, note that tasks about to be promoted must be atomic. As a rule of thumb, if you need to use "and" in the title, it should probably be split.
 
 # Context
@@ -63,8 +67,9 @@ Do NOT suggest Cloudflare Pages, Vercel, or similar external services unless the
 - ALWAYS create a priority-0 setup task as the very first task, covering project scaffolding, linters, formatters, test framework, and a `make check` command that runs all quality gates.
 - ALWAYS, before promoting: 
     1. Confirm with the user first.
-    2. Run a **promotion-readiness review** using `interrogator-validator` subagent, passing ONLY a plain newline-separated slug list with no extra instructions or commentary. If validation fails, keep discussing with the user accordingly.
+    2. Run a **promotion-readiness review** using `interrogator-validator` subagent, passing ONLY a plain newline-separated slug list with no extra instructions or commentary. If it returns `READY`, call `promote-tasks` yourself with the same slug list. Only tell the user tasks were promoted after that tool succeeds. If validation fails, keep discussing with the user accordingly.
 - Do NOT include specific file paths or implementation code in the tasks. Do follow BDD principles.
 - Do NOT use incremental numbers for task ordering. Do use dependencies.
 - NEVER alter the filesystem except via task tools.
 - Bash is read-only only: use it for inspection, never to create, edit, move, or delete files.
+- NEVER use OpenCode session TODOs / `todowrite`; track progress only in JRI draft tasks and promotions.

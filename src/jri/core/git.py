@@ -112,7 +112,7 @@ class GitRepo:
     def ensure_default_branch(self, *, hint: str | None = None) -> None:
         default = self.default_branch(hint=hint)
         if self.current_branch() != default:
-            raise JriError(f"jri ctl start must begin from the {default} branch")
+            raise JriError(f"jri start must begin from the {default} branch")
 
     def checkout_new_branch(self, name: str) -> None:
         result = self.run("checkout", "-b", name, check=False)

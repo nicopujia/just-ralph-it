@@ -11,7 +11,7 @@ from tests.helpers import git
 
 
 def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
-    exit_code = run_cli(["ctl", "init"], cwd=git_repo)
+    exit_code = run_cli(["init"], cwd=git_repo)
 
     assert exit_code == 0
     assert (git_repo / "README.md").read_text(encoding="utf-8") == "# temp repo\n"
@@ -93,7 +93,7 @@ def test_init_commits_only_scaffold_when_unrelated_changes_exist(
     (git_repo / "notes.txt").write_text("keep staged\n", encoding="utf-8")
     git(git_repo, "add", "notes.txt")
 
-    exit_code = run_cli(["ctl", "init"], cwd=git_repo)
+    exit_code = run_cli(["init"], cwd=git_repo)
 
     assert exit_code == 0
     changed_files = set(
@@ -120,7 +120,7 @@ def test_init_creates_empty_readme_when_missing(git_repo: Path) -> None:
     git(git_repo, "add", "README.md")
     git(git_repo, "commit", "-m", "remove readme")
 
-    exit_code = run_cli(["ctl", "init"], cwd=git_repo)
+    exit_code = run_cli(["init"], cwd=git_repo)
 
     assert exit_code == 0
     assert (git_repo / "README.md").read_text(encoding="utf-8") == ""
@@ -142,21 +142,21 @@ def test_init_creates_empty_readme_when_missing(git_repo: Path) -> None:
 
 def test_init_prompts_on_existing_dirs_and_aborts_when_no_input(git_repo: Path) -> None:
     """When run non-interactively (no stdin), init should abort when dirs exist."""
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
 
     # Second init without force should abort when there's no input
-    exit_code = run_cli(["ctl", "init"], cwd=git_repo)
+    exit_code = run_cli(["init"], cwd=git_repo)
 
     # In non-interactive mode (EOFError), it should abort with exit code 1
     assert exit_code == 1
 
 
 def test_init_delete_recreates_structure(git_repo: Path) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     extra = git_repo / ".jri" / "tasks" / "todo" / "extra.md"
     extra.write_text("temporary", encoding="utf-8")
 
-    exit_code = run_cli(["ctl", "init", "--delete"], cwd=git_repo)
+    exit_code = run_cli(["init", "--delete"], cwd=git_repo)
 
     assert exit_code == 0
     assert not extra.exists()
@@ -164,12 +164,12 @@ def test_init_delete_recreates_structure(git_repo: Path) -> None:
 
 def test_init_force_removes_jri_opencode_dir(git_repo: Path) -> None:
     """Force flag should also remove .jri/.opencode/ directory."""
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
 
     custom_file = git_repo / ".jri" / ".opencode" / "custom.txt"
     custom_file.write_text("custom content", encoding="utf-8")
 
-    exit_code = run_cli(["ctl", "init", "--force"], cwd=git_repo)
+    exit_code = run_cli(["init", "--force"], cwd=git_repo)
 
     assert exit_code == 0
     assert not custom_file.exists()
@@ -180,7 +180,7 @@ def test_init_upgrade_refreshes_managed_files_without_deleting_tasks(
     git_repo: Path,
     monkeypatch,
 ) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     extra = git_repo / ".jri" / "tasks" / "todo" / "extra.md"
     extra.write_text("temporary task", encoding="utf-8")
 
@@ -192,7 +192,7 @@ def test_init_upgrade_refreshes_managed_files_without_deleting_tasks(
         service_module, "_load_managed_template", fake_load_managed_template
     )
 
-    exit_code = run_cli(["ctl", "init", "--upgrade"], cwd=git_repo)
+    exit_code = run_cli(["init", "--upgrade"], cwd=git_repo)
 
     assert exit_code == 0
     assert extra.exists()
@@ -202,7 +202,7 @@ def test_init_upgrade_refreshes_managed_files_without_deleting_tasks(
 def test_init_upgrade_removes_legacy_root_managed_opencode_files(
     git_repo: Path,
 ) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
 
     legacy_agent = git_repo / ".opencode" / "agents" / "interrogator.md"
     legacy_tool = git_repo / ".opencode" / "tools" / "upsert-task.js"
@@ -213,7 +213,7 @@ def test_init_upgrade_removes_legacy_root_managed_opencode_files(
     legacy_tool.write_text("legacy tool\n", encoding="utf-8")
     legacy_config.write_text("{}\n", encoding="utf-8")
 
-    assert run_cli(["ctl", "init", "--upgrade"], cwd=git_repo) == 0
+    assert run_cli(["init", "--upgrade"], cwd=git_repo) == 0
 
     assert not legacy_agent.exists()
     assert not legacy_tool.exists()
@@ -223,13 +223,13 @@ def test_init_upgrade_removes_legacy_root_managed_opencode_files(
 
 
 def test_init_upgrade_restores_missing_template_scaffold_files(git_repo: Path) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     git_repo.joinpath(".jri", "tasks", "draft", ".gitkeep").unlink()
     git_repo.joinpath(".jri", "attempts", ".gitkeep").unlink()
     git_repo.joinpath(".jri", "README.md").unlink()
     git_repo.joinpath(".jri", "learnings.md").unlink()
 
-    assert run_cli(["ctl", "init", "--upgrade"], cwd=git_repo) == 0
+    assert run_cli(["init", "--upgrade"], cwd=git_repo) == 0
 
     assert (git_repo / ".jri" / "tasks" / "draft" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "attempts" / ".gitkeep").exists()
@@ -245,7 +245,7 @@ def test_init_prompt_upgrade_refreshes_managed_files(
     git_repo: Path,
     monkeypatch,
 ) -> None:
-    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    assert run_cli(["init"], cwd=git_repo) == 0
     extra = git_repo / ".jri" / "tasks" / "todo" / "prompt-upgrade.md"
     extra.write_text("keep me", encoding="utf-8")
 
@@ -258,7 +258,7 @@ def test_init_prompt_upgrade_refreshes_managed_files(
     )
     monkeypatch.setattr("builtins.input", lambda: "u")
 
-    exit_code = run_cli(["ctl", "init"], cwd=git_repo)
+    exit_code = run_cli(["init"], cwd=git_repo)
 
     assert exit_code == 0
     assert extra.exists()
@@ -267,7 +267,7 @@ def test_init_prompt_upgrade_refreshes_managed_files(
 
 @pytest.mark.parametrize(
     "args",
-    [["upgrade"], ["ctl", "init", "--bogus"]],
+    [["upgrade"], ["init", "--bogus"]],
 )
 def test_init_rejects_removed_upgrade_command_and_unknown_flags(
     git_repo: Path,
