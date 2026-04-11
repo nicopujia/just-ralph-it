@@ -21,6 +21,7 @@ from typing import Any
 
 from .errors import HaltRequested, JriError
 from .git import (
+    MSG_CHECK_PROMOTE,
     MSG_ESCALATE_HUMAN,
     MSG_PROMOTE,
     MSG_RALPH_FINALIZE,
@@ -466,6 +467,10 @@ class JriService:
         draft_tasks = self._list_tasks("draft")
         selected = self._select_draft_tasks(draft_tasks, slugs)
         self._validate_selected_drafts_for_promotion(selected, draft_tasks=draft_tasks)
+        self.git.commit_paths_if_needed(
+            MSG_CHECK_PROMOTE,
+            [self.git.relative_path(self.paths.task_dir("draft"))],
+        )
         return selected
 
     def _validate_selected_drafts_for_promotion(
