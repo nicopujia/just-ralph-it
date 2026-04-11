@@ -107,8 +107,10 @@ _MANAGED_TOOL_FILENAMES = (
     "_run-python-tool.mjs",
     "check-draft-promotion.js",
     "delete-task.js",
+    "list-tasks.js",
     "promote-tasks.js",
     "ralph-result.js",
+    "read-tasks.js",
     "rename-task.js",
     "upsert-task.js",
 )

@@ -8,7 +8,9 @@ from typing import Any
 
 import yaml
 
+from .models import Task
 from .service import JriService
+from .tasks import list_tasks
 
 SLUG_RE = re.compile(r"^[a-zA-Z0-9][-a-zA-Z0-9_.]*$")
 
@@ -290,6 +292,61 @@ def _run_promote_tasks(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _task_to_payload(task: Task) -> dict[str, object]:
+    return {
+        "status": task.path.parent.name,
+        "slug": task.slug,
+        "path": str(task.path),
+        "title": task.metadata.title,
+        "priority": task.metadata.priority,
+        "assignee": task.metadata.assignee,
+        "depends_on": task.metadata.depends_on,
+        "acceptance_criteria": task.metadata.acceptance_criteria,
+        "body": task.body,
+    }
+
+
+def _run_read_tasks(payload: dict[str, Any]) -> str:
+    slug_value = payload.get("slug")
+    slugs_value = payload.get("slugs")
+    if slug_value is None and slugs_value is None:
+        raise ValueError("`slug` or `slugs` is required")
+    if slug_value is not None and slugs_value is not None:
+        raise ValueError("pass only one of `slug` or `slugs`")
+
+    slugs = (
+        [_assert_slug("slug", slug_value)]
+        if slug_value is not None
+        else _assert_slug_list("slugs", slugs_value)
+    )
+    assert slugs is not None
+
+    service = JriService(Path.cwd())
+    tasks_by_status = service.status()
+    tasks_by_slug = {
+        task.slug: task for tasks in tasks_by_status.values() for task in tasks
+    }
+    missing = [slug for slug in slugs if slug not in tasks_by_slug]
+    if missing:
+        raise ValueError(f"task not found: {', '.join(missing)}")
+
+    result = [_task_to_payload(tasks_by_slug[slug]) for slug in slugs]
+    return json.dumps(result, indent=2) + "\n"
+
+
+def _run_list_tasks(payload: dict[str, Any]) -> str:
+    status = payload.get("status")
+    service = JriService(Path.cwd())
+    if status is None:
+        tasks = [task for tasks in service.status().values() for task in tasks]
+    else:
+        if status not in {"draft", "todo", "doing", "done"}:
+            raise ValueError("`status` must be one of draft, todo, doing, done")
+        tasks_dir = service.paths.tasks_dir / status
+        tasks = list_tasks(tasks_dir, git_repo=service.git)
+    return json.dumps([_task_to_payload(task) for task in tasks], indent=2) + "\n"
+
+
 def _run_ralph_result(payload: dict[str, Any]) -> str:
     result = payload.get("result")
     if result not in {"completed", "incomplete", "needs_human"}:
@@ -316,6 +373,8 @@ def _run_ralph_result(payload: dict[str, Any]) -> str:
 
 
 _HANDLERS: dict[str, Callable[[dict[str, Any]], str]] = {
+    "list-tasks": _run_list_tasks,
+    "read-tasks": _run_read_tasks,
     "upsert-task": _run_upsert_task,
     "rename-task": _run_rename_task,
     "delete-task": _run_delete_task,
