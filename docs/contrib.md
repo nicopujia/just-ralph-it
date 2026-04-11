@@ -31,6 +31,7 @@ uv build
 ## Guidelines
 
 - Use `uv` for Python tooling.
+- Keep CLI docs in the CLI help text (`--help`), not in markdown files.
 - Lowercase commit messages, abbreviations encouraged.
 - Code changes require corresponding docs updates if docs reference that part of the code.
 - Follow TDD principles.

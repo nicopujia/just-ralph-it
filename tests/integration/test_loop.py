@@ -423,6 +423,34 @@ def test_ctl_start_help_accepts_validator_model_flag(git_repo: Path) -> None:
     assert exc_info.value.code == 0
 
 
+def test_top_level_help_lists_commands_alphabetically(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+
+    result = subprocess.run(
+        [sys.executable, "-m", "jri", "--help"],
+        cwd=git_repo,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+
+    command_positions = [
+        result.stdout.index("attach"),
+        result.stdout.index("chat"),
+        result.stdout.index("halt"),
+        result.stdout.index("init"),
+        result.stdout.index("inspect"),
+        result.stdout.index("reset"),
+        result.stdout.index("start"),
+        result.stdout.index("status"),
+        result.stdout.index("stop"),
+        result.stdout.index("timeline"),
+    ]
+    assert command_positions == sorted(command_positions)
+
+
 def test_ctl_run_loop_is_not_a_public_command(
     git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
