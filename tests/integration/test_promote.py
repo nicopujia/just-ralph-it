@@ -110,14 +110,21 @@ def test_promote_check_validates_without_moving_tasks(git_repo: Path) -> None:
         body="Clarify the scope.\n",
         acceptance_criteria=["The scope is written down."],
     )
-    status_before = git(git_repo, "status", "--short")
+    head_before = git(git_repo, "rev-parse", "HEAD")
 
     selected = service.check_draft_promotion(slugs=["clarify-scope"])
 
     assert [task.slug for task in selected] == ["clarify-scope"]
     assert (git_repo / ".jri" / "tasks" / "draft" / "clarify-scope.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "todo" / "clarify-scope.md").exists()
-    assert git(git_repo, "status", "--short") == status_before
+    assert git(git_repo, "status", "--short") == ""
+    assert git(git_repo, "rev-parse", "HEAD") != head_before
+    assert git_module.MSG_CHECK_PROMOTE == git(
+        git_repo,
+        "log",
+        "-1",
+        "--format=%s",
+    )
 
 
 def test_promote_check_reports_validation_failures(git_repo: Path) -> None:
@@ -144,11 +151,14 @@ def test_promote_check_reports_validation_failures(git_repo: Path) -> None:
         acceptance_criteria=["The UI is implemented."],
     )
 
+    head_before = git(git_repo, "rev-parse", "HEAD")
+
     with pytest.raises(Exception, match="outside the promotion batch"):
         service.check_draft_promotion(slugs=["build-ui"])
 
     assert (git_repo / ".jri" / "tasks" / "draft" / "build-ui.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "todo" / "build-ui.md").exists()
+    assert git(git_repo, "rev-parse", "HEAD") == head_before
 
 
 def test_promote_rejects_cyclic_dependencies(git_repo: Path) -> None:
