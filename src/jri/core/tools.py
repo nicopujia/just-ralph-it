@@ -6,6 +6,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .service import JriService
 
 SLUG_RE = re.compile(r"^[a-zA-Z0-9][-a-zA-Z0-9_.]*$")
@@ -79,9 +81,9 @@ def _read_task(task_path: Path) -> tuple[dict[str, Any], str]:
     if body.startswith("\n"):
         body = body[1:]
     try:
-        metadata = json.loads(metadata_text)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"invalid task metadata JSON: {task_path}") from exc
+        metadata = yaml.safe_load(metadata_text)
+    except yaml.YAMLError as exc:
+        raise ValueError(f"invalid task metadata YAML: {task_path}") from exc
     if not isinstance(metadata, dict):
         raise ValueError(f"invalid task metadata object: {task_path}")
     depends_on = metadata.get("depends_on")
@@ -94,7 +96,8 @@ def _read_task(task_path: Path) -> tuple[dict[str, Any], str]:
 
 
 def _serialize_task(metadata: dict[str, Any], body: str) -> str:
-    return f"---\n{json.dumps(metadata, indent=2)}\n---\n\n{body}"
+    frontmatter = yaml.safe_dump(metadata, sort_keys=False, allow_unicode=False).strip()
+    return f"---\n{frontmatter}\n---\n\n{body}"
 
 
 def _draft_task_dirs(root: Path) -> tuple[Path, Path, Path, Path]:

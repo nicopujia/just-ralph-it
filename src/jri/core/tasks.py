@@ -249,7 +249,8 @@ def dump_task(task: Task) -> str:
         "depends_on": task.metadata.depends_on,
         "acceptance_criteria": task.metadata.acceptance_criteria,
     }
-    return "---\n" + json.dumps(payload, indent=2) + "\n---\n\n" + task.body
+    frontmatter = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False).strip()
+    return "---\n" + frontmatter + "\n---\n\n" + task.body
 
 
 def _split_frontmatter(text: str) -> tuple[dict[str, object], str]:
