@@ -3,9 +3,6 @@
 ## Setup
 
 ```bash
-# Fetch skill repos
-git submodule update --init --recursive
-
 # Install Python dependencies
 uv sync
 
