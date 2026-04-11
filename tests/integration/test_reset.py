@@ -257,6 +257,40 @@ def test_reset_after_failed_task(git_repo: Path) -> None:
     assert git(git_repo, "branch", "--show-current") == "main"
 
 
+def test_reset_falls_back_to_begin_tag_when_no_end_tag(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="Complete task A.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/task-a.md")
+    git(git_repo, "commit", "-m", "add task-a")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    assert service.start(max_tasks=1) == 1
+
+    end_tag = "jri/end/task-a"
+    begin_tag = "jri/begin/task-a"
+    assert end_tag in git(git_repo, "tag").splitlines()
+    git(git_repo, "tag", "-d", end_tag)
+
+    (git_repo / "after-begin.txt").write_text("later\n", encoding="utf-8")
+    git(git_repo, "add", "after-begin.txt")
+    git(git_repo, "commit", "-m", "add later file")
+
+    service.reset()
+
+    assert begin_tag in git(git_repo, "tag").splitlines()
+    assert not (git_repo / "after-begin.txt").exists()
+    assert (git_repo / ".jri" / "tasks" / "doing" / "task-a.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
+
+
 def test_reset_from_feature_branch_with_stale_state(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
@@ -355,9 +389,7 @@ def test_reset_refuses_when_no_task_tag(
         service.reset()
 
 
-def test_reset_refuses_when_no_completed_task_tag_after_failed_run(
-    git_repo: Path,
-) -> None:
+def test_reset_falls_back_to_begin_tag_after_failed_run(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
 
     write_task(
@@ -375,10 +407,16 @@ def test_reset_refuses_when_no_completed_task_tag_after_failed_run(
     fail_service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
     assert fail_service.start(max_tasks=1) == 0
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    (git_repo / "after-failure.txt").write_text("later\n", encoding="utf-8")
+    git(git_repo, "add", "after-failure.txt")
+    git(git_repo, "commit", "-m", "add later file")
 
-    with pytest.raises(JriError, match="no task tag found.*jri start"):
-        service.reset()
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.reset()
+
+    assert not (git_repo / "after-failure.txt").exists()
+    assert (git_repo / ".jri" / "tasks" / "doing" / "failing-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "failing-task.md").exists()
 
 
 def test_reset_clears_active_attempt(git_repo: Path) -> None:
@@ -427,6 +465,31 @@ def test_reset_clears_tracked_process(git_repo: Path) -> None:
 
     service.reset()
 
+    state = read_json(git_repo / ".jri" / "state.json")
+    assert "process" not in state
+
+
+def test_reset_terminates_tracked_process_before_cleanup(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    service = _run_successful_task(git_repo)
+
+    sleeper = subprocess.Popen(["sleep", "30"])
+    service.state_store.save_process(
+        loop_pid=sleeper.pid,
+        child_pid=None,
+        log_path=git_repo / ".jri" / "logs" / "ralph" / "tracked.log",
+        detached=True,
+    )
+
+    try:
+        service.reset()
+        sleeper.wait(timeout=5)
+    finally:
+        if sleeper.poll() is None:
+            sleeper.terminate()
+            sleeper.wait(timeout=5)
+
+    assert sleeper.returncode is not None
     state = read_json(git_repo / ".jri" / "state.json")
     assert "process" not in state
 

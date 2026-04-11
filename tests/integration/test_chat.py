@@ -2,10 +2,11 @@ from pathlib import Path
 
 import pytest
 
+import jri.core.git as git_module
 import jri.core.service as service_module
 from jri.core.service import JriService
 from tests.conftest import run_cli
-from tests.helpers import read_json
+from tests.helpers import git, read_json
 
 
 class FakeOpenCodeServerForChat:
@@ -200,4 +201,37 @@ def test_chat_fresh_does_not_affect_other_state(initialized_repo: Path) -> None:
     # Verify only session is cleared, other state remains
     state = read_json(service.paths.state_path)
     assert state.get("session") is None
+    monkeypatch.undo()
+
+
+def test_chat_does_not_auto_restore_modified_managed_files(
+    initialized_repo: Path,
+) -> None:
+    repo = initialized_repo
+    server = FakeOpenCodeServerForChat()
+
+    def fake_launch_chat(
+        *,
+        root: Path,
+        session_id: str | None,
+        extra_args: list[str],
+        binary: str = "opencode",
+        env: dict[str, str] | None = None,
+    ) -> int:
+        return 0
+
+    managed = repo / ".jri" / ".opencode" / "agents" / "interrogator.md"
+    managed.write_text("user-modified managed file\n", encoding="utf-8")
+    head_before = git(repo, "rev-parse", "HEAD")
+
+    service = JriService(repo, opencode_client=server)
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(service_module, "launch_chat", fake_launch_chat)
+
+    result = service.chat([], fresh=False)
+
+    assert result == 0
+    assert managed.read_text(encoding="utf-8") == "user-modified managed file\n"
+    assert git(repo, "rev-parse", "HEAD") == head_before
+    assert git(repo, "log", "-1", "--pretty=%s") != git_module.MSG_UPGRADE
     monkeypatch.undo()

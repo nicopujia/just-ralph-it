@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import pytest
 
-from jri.core.errors import JriError
+from jri.core.errors import HaltRequested, JriError
 from jri.core.git import MSG_RECOVER_STALE
 from jri.core.models import (
     AttemptState,
@@ -16,6 +16,7 @@ from jri.core.models import (
     RalphResultPayload,
     State,
 )
+from jri.core.opencode import OpenCodeServer
 from jri.core.service import JriService
 from jri.core.tasks import list_tasks, parse_task_file
 from tests.conftest import run_cli as base_run_cli
@@ -270,6 +271,25 @@ class FollowUpDraftOpenCodeClient(SuccessfulFakeOpenCodeClient):
         )
 
 
+class InterruptedStartupOpenCodeServer(OpenCodeServer):
+    def __init__(self) -> None:
+        super().__init__(binary="opencode")
+        self.stop_calls = 0
+
+    def start(
+        self,
+        *,
+        env: dict[str, str] | None = None,
+        cwd: Path | None = None,
+    ) -> None:
+        self._process = cast(Any, FakeDetachedProcess(989898))
+        raise HaltRequested("Ralph halt requested")
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+        self._process = None
+
+
 class FakeDetachedProcess:
     def __init__(self, pid: int) -> None:
         self.pid = pid
@@ -299,11 +319,11 @@ def test_start_uses_explicit_model_override(git_repo: Path) -> None:
     service = JriService(git_repo, opencode_client=client)
 
     completed = service.start(
-        max_tasks=1, model="opencode/qwen3.6-plus-free", force=True
+        max_tasks=1, model="vercel/alibaba/qwen3.6-plus", force=True
     )
 
     assert completed == 1
-    assert client.models_used == ["opencode/qwen3.6-plus-free"]
+    assert client.models_used == ["vercel/alibaba/qwen3.6-plus"]
     assert client.model is None
 
 
@@ -370,8 +390,24 @@ def test_start_passes_doing_task_path_to_ralph(git_repo: Path) -> None:
     assert len(client.calls) == 1
     assert (
         client.calls[0][0]
-        == "Solve `.jri/tasks/doing/implement-file.md`. Commit frequently."
+        == "Solve `.jri/tasks/doing/implement-file.md`. Commit frequently. "
+        "Stay on the Ralph worktree/branch; JRI handles integration, so do "
+        "not merge to the default branch yourself."
     )
+
+
+def test_start_interrupt_during_server_start_stops_opencode(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+
+    server = InterruptedStartupOpenCodeServer()
+    service = JriService(git_repo, opencode_client=server)
+
+    with pytest.raises(HaltRequested, match="Ralph halt requested"):
+        service.start(max_tasks=1, force=True)
+
+    assert server.stop_calls == 1
+    state = read_json(git_repo / ".jri" / "state.json")
+    assert state.get("process") is None
 
 
 def test_start_fails_cleanly_when_doing_task_disappears(git_repo: Path) -> None:
@@ -948,6 +984,43 @@ def test_halt_terminates_tracked_process(git_repo: Path) -> None:
             os.kill(sleeper.pid, signal.SIGTERM)
 
     assert sleeper.returncode is not None
+
+
+def test_halt_skips_current_process_and_terminates_tracked_child(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.state_store.save_process(
+        loop_pid=os.getpid(),
+        child_pid=424242,
+        log_path=None,
+        detached=False,
+    )
+
+    kill_calls: list[int] = []
+    killpg_calls: list[int] = []
+
+    monkeypatch.setattr("jri.core.service.os.getpgrp", lambda: 999)
+    monkeypatch.setattr(
+        "jri.core.service.os.getpgid",
+        lambda pid: 999 if pid == 424242 else 0,
+    )
+    monkeypatch.setattr(
+        "jri.core.service.os.kill",
+        lambda pid, sig: kill_calls.append(pid),
+    )
+    monkeypatch.setattr(
+        "jri.core.service.os.killpg", lambda pgid, sig: killpg_calls.append(pgid)
+    )
+
+    service.halt()
+
+    assert kill_calls == [424242]
+    assert killpg_calls == []
+    state = read_json(git_repo / ".jri" / "state.json")
+    assert state.get("process") is None
 
 
 def test_needs_human_generates_human_followup_and_blocks_original_task(
