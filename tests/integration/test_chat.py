@@ -5,6 +5,7 @@ import pytest
 
 import jri.core.git as git_module
 import jri.core.service as service_module
+from jri.cli.main import main
 from jri.core.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git, read_json
@@ -228,6 +229,51 @@ def test_chat_cli_with_fresh_flag(initialized_repo: Path) -> None:
     with pytest.raises(SystemExit) as exc_info:
         run_cli(["chat", "--help"], cwd=repo)
     assert exc_info.value.code == 0
+
+
+def test_chat_cli_passes_model_overrides(initialized_repo: Path) -> None:
+    repo = initialized_repo
+    captured: dict[str, object] = {}
+
+    def fake_chat(
+        self: JriService,
+        extra_args: list[str],
+        *,
+        fresh: bool = False,
+        model: str | None = None,
+        validator_model: str | None = None,
+    ) -> int:
+        captured["extra_args"] = extra_args
+        captured["fresh"] = fresh
+        captured["model"] = model
+        captured["validator_model"] = validator_model
+        return 0
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(JriService, "chat", fake_chat)
+
+    result = main(
+        [
+            "chat",
+            "--fresh",
+            "--model",
+            "provider/interrogator-main",
+            "--validator-model",
+            "provider/interrogator-validator",
+            "--prompt",
+            "hello",
+        ],
+        cwd=repo,
+    )
+
+    assert result == 0
+    assert captured == {
+        "extra_args": ["--prompt", "hello"],
+        "fresh": True,
+        "model": "provider/interrogator-main",
+        "validator_model": "provider/interrogator-validator",
+    }
+    monkeypatch.undo()
 
 
 def test_chat_fresh_does_not_affect_other_state(initialized_repo: Path) -> None:

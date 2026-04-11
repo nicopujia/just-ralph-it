@@ -1109,6 +1109,84 @@ def test_view_inspect_defaults_to_active_attempt(
     assert "still running" in output
 
 
+def test_view_inspect_reads_historical_attempt_when_runtime_state_is_missing(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    log_path = git_repo / ".jri" / "logs" / "ralph" / "task-a-history.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "message.part.updated",
+                        "properties": {
+                            "part": {
+                                "type": "tool",
+                                "id": "tool-1",
+                                "tool": "read",
+                                "state": {
+                                    "status": "running",
+                                    "input": {"filePath": ".jri/tasks/done/task-a.md"},
+                                },
+                            }
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "message.part.delta",
+                        "properties": {"field": "text", "delta": "Replaying history"},
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    history_path = git_repo / ".jri" / "attempts" / "task-a.json"
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+    history_path.write_text(
+        json.dumps(
+            {
+                "task_slug": "task-a",
+                "attempts": [
+                    {
+                        "number": 1,
+                        "task_slug": "task-a",
+                        "branch": "ralph",
+                        "started_at": 1,
+                        "finished_at": 2,
+                        "log_path": str(
+                            git_repo / ".jri" / "logs" / "ralph" / "missing.log"
+                        ),
+                        "result": "failed",
+                    },
+                    {
+                        "number": 2,
+                        "task_slug": "task-a",
+                        "branch": "ralph",
+                        "started_at": 3,
+                        "finished_at": 4,
+                        "log_path": str(log_path),
+                        "result": "completed",
+                    },
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert run_cli(["view", "inspect", "task-a"], cwd=git_repo) == 0
+    output = capsys.readouterr().out
+    assert "task-a" in output
+    assert "⚙ read .jri/tasks/done/task-a.md" in output
+    assert "Replaying history" in output
+    assert "completed" in output
+
+
 def test_start_retries_after_interrupted_completion_without_rerunning_task(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -21,7 +21,12 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
     try:
         match args.command:
             case "chat":
-                return service.chat(unknown, fresh=args.fresh)
+                return service.chat(
+                    unknown,
+                    fresh=args.fresh,
+                    model=args.model,
+                    validator_model=args.validator_model,
+                )
             case "view":
                 match args.view_command:
                     case "status":
@@ -123,14 +128,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         return 0
                     case "reset":
                         if not args.force:
-                            target_tag = service._find_latest_reset_tag()
-                            if target_tag is None:
-                                print(
-                                    "Error: no task tag found"
-                                    " - run `jri ctl start` first",
-                                    file=sys.stderr,
-                                )
-                                return 1
+                            target_tag = service._resolve_reset_target_tag(args.task)
 
                             has_uncommitted = bool(service.git.status_short())
                             has_ralph = service.git.has_local_branch("ralph")

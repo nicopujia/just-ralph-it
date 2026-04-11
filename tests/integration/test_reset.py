@@ -626,6 +626,47 @@ def test_reset_cli_prompt_includes_target_tag(git_repo: Path) -> None:
     assert "jri/end/implement-file" in result.stdout
 
 
+def test_reset_cli_prompt_uses_requested_task_tag(git_repo: Path) -> None:
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="Complete task A.",
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-b",
+        title="Task B",
+        priority=0,
+        assignee="Ralph",
+        body="Complete task B.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo")
+    git(git_repo, "commit", "-m", "add two tasks")
+
+    service = JriService(git_repo, opencode_client=DistinctFileFakeOpenCodeClient())
+    assert service.start(max_tasks=1, force=True) == 1
+    time.sleep(1)
+    assert service.start(max_tasks=1, force=True) == 1
+
+    result = subprocess_module.run(
+        [sys.executable, "-m", "jri", "ctl", "reset", "task-a"],
+        cwd=git_repo,
+        input="n\n",
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "jri/end/task-a" in result.stdout
+    assert "jri/end/task-b" not in result.stdout
+
+
 def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
     """Test that the confirmation prompt mentions uncommitted changes."""
     assert run_cli(["ctl", "init"], cwd=git_repo) == 0
