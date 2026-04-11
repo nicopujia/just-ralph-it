@@ -383,10 +383,12 @@ def test_start_detached_passes_validator_model_to_child(
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
 
     popen_calls: list[list[str]] = []
+    popen_envs: list[dict[str, str]] = []
 
     def fake_popen(*args: object, **kwargs: object) -> object:
         command = cast(list[str], args[0])
         popen_calls.append(command)
+        popen_envs.append(cast(dict[str, str], kwargs["env"]))
         assert kwargs["cwd"] == git_repo
         assert kwargs["start_new_session"] is True
         return FakeDetachedProcess(424242)
@@ -404,7 +406,8 @@ def test_start_detached_passes_validator_model_to_child(
     )
     assert len(popen_calls) == 1
     command = popen_calls[0]
-    assert command[:5] == [sys.executable, "-m", "jri", "ctl", "_run-loop"]
+    assert command[:3] == [sys.executable, "-m", "jri"]
+    assert popen_envs[0]["JRI_INTERNAL_RUN_LOOP"] == "1"
     assert "--model" in command
     assert "provider/ralph-main" in command
     assert "--validator-model" in command
@@ -418,6 +421,18 @@ def test_ctl_start_help_accepts_validator_model_flag(git_repo: Path) -> None:
         run_cli(["ctl", "start", "--help"], cwd=git_repo)
 
     assert exc_info.value.code == 0
+
+
+def test_ctl_run_loop_is_not_a_public_command(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["ctl", "init"], cwd=git_repo) == 0
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_cli(["ctl", "_run-loop"], cwd=git_repo)
+
+    assert exc_info.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
 
 
 def test_start_completes_single_task(git_repo: Path) -> None:
@@ -873,7 +888,7 @@ def test_start_recovers_clean_detached_interruption(
 
     popen_calls: list[list[str]] = []
     original_popen = cast(Any, subprocess.Popen)
-    expected_command = [sys.executable, "-m", "jri", "ctl", "_run-loop", "-n", "1"]
+    expected_command = [sys.executable, "-m", "jri", "-n", "1"]
 
     def fake_popen(*args: object, **kwargs: object) -> object:
         command = cast(list[str], args[0])
@@ -881,6 +896,7 @@ def test_start_recovers_clean_detached_interruption(
             return original_popen(*args, **kwargs)
         popen_calls.append(command)
         assert kwargs["cwd"] == git_repo
+        assert cast(dict[str, str], kwargs["env"])["JRI_INTERNAL_RUN_LOOP"] == "1"
         assert kwargs["start_new_session"] is True
         return FakeDetachedProcess(424242)
 
@@ -929,13 +945,14 @@ def test_start_recovers_stale_detached_process(
     )
 
     original_popen = cast(Any, subprocess.Popen)
-    expected_command = [sys.executable, "-m", "jri", "ctl", "_run-loop", "-n", "1"]
+    expected_command = [sys.executable, "-m", "jri", "-n", "1"]
 
     def fake_popen(*args: object, **kwargs: object) -> object:
         command = cast(list[str], args[0])
         if command != expected_command:
             return original_popen(*args, **kwargs)
         assert kwargs["cwd"] == git_repo
+        assert cast(dict[str, str], kwargs["env"])["JRI_INTERNAL_RUN_LOOP"] == "1"
         assert kwargs["start_new_session"] is True
         return FakeDetachedProcess(313131)
 
@@ -966,8 +983,6 @@ def test_ctl_start_detaches_foreground_follow(
         sys.executable,
         "-m",
         "jri",
-        "ctl",
-        "_run-loop",
         "-n",
         "1",
         "--force",
@@ -979,6 +994,7 @@ def test_ctl_start_detaches_foreground_follow(
             return original_popen(*args, **kwargs)
         popen_calls.append(command)
         assert kwargs["cwd"] == git_repo
+        assert cast(dict[str, str], kwargs["env"])["JRI_INTERNAL_RUN_LOOP"] == "1"
         assert kwargs["start_new_session"] is True
         return FakeDetachedProcess(515151)
 
