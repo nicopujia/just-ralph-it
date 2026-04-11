@@ -10,7 +10,7 @@ export default tool({
       .array(tool.schema.string())
       .optional()
       .describe(
-        "Optional draft task slugs to validate; defaults to all draft tasks",
+        "Optional draft task slugs to validate; each item must be one task slug string, not Markdown or task contents; defaults to all draft tasks",
       ),
   },
   async execute(args) {
