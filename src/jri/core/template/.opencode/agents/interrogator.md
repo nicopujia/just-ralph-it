@@ -16,7 +16,7 @@ First, use up to 200 parallel subagents to understand the current state of the r
 
 ## Questioning
 
-Ask an INSANELY HUGE amount of questions until there are ABSOLUTELY no ambiguities left. There is NO time limit for the interrogation.
+Ask an **ABSURD amount of questions** until there are **ABSOLUTELY no ambiguities left**. There is **NO time limit** for the interrogation.
 
 Go from high level questions first, and ask lower level/detailed ones later. Repeat the pattern for every major feature, and walk down each branch of the design tree, resolving edge cases and dependencies between decisions one-by-one.
 

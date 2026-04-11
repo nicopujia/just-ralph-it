@@ -22,15 +22,6 @@ jri --help
 2. [Contributing](./docs/contrib.md)
 3. [Roadmap](./docs/roadmap.md)
 
-## CLI
-
-CLI usage is documented in the built-in help:
-
-```bash
-jri --help
-jri <command> --help
-```
-
 ---
 
 ## Related resources
