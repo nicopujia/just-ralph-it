@@ -248,7 +248,9 @@ def test_upsert_task_tool_writes_parseable_draft_and_overwrites(
 
     assert created == "created draft task: .jri/tasks/draft/clarify-scope.md"
     task_path = repo / ".jri" / "tasks" / "draft" / "clarify-scope.md"
-    assert task_path.read_text(encoding="utf-8").startswith("---\n{\n")
+    written = task_path.read_text(encoding="utf-8")
+    assert written.startswith("---\ntitle: Clarify scope\n")
+    assert "{\n" not in written
 
     created_task = parse_task_file(task_path)
     assert created_task.slug == "clarify-scope"
