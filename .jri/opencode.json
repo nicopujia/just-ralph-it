@@ -6,21 +6,15 @@
   },
   "agent": {
     "interrogator": {
-      "model": "openrouter/qwen/qwen3.6-plus",
+      "model": "vercel/alibaba/qwen3.6-plus",
       "temperature": 0.7,
       "description": "Interrogates user and manages tasks.",
       "mode": "primary",
       "color": "#ffd500", // yellow, like Ralph Wiggum
       "permission": {
         "question": "allow",
-        "write": {
-          "*": "deny",
-          "README.md": "allow"
-        },
-        "edit": {
-          "*": "deny",
-          "README.md": "allow"
-        },
+        "write": "deny",
+        "edit": "deny",
         "promote-tasks": "deny",
         "ralph-*": "deny",
         "task": {
@@ -31,7 +25,7 @@
       }
     },
     "interrogator-validator": {
-      "model": "openai/gpt-5.4-mini",
+      "model": "vercel/deepseek/deepseek-r1",
       "temperature": 0,
       "reasoningEffort": "high",
       "description": "Checks if tasks are free of ambiguities",
@@ -52,7 +46,7 @@
       }
     },
     "ralph": {
-      "model": "openrouter/moonshotai/kimi-k2.5",
+      "model": "vercel/moonshotai/kimi-k2.5",
       "temperature": 0.3,
       "reasoningEffort": "high",
       "description": "Solves a single JRI task autonomously.",
@@ -67,7 +61,7 @@
       }
     },
     "ralph-validator": {
-      "model": "openrouter/z-ai/glm-5",
+      "model": "vercel/zai/glm-5",
       "temperature": 0,
       "reasoningEffort": "high",
       "description": "Checks if things work and are clean",
@@ -86,11 +80,11 @@
       }
     },
     "explore": {
-      "model": "openrouter/qwen/qwen3.5-flash-02-23",
+      "model": "vercel/alibaba/qwen3.5-flash",
       "temperature": 0.2
     },
     "general": {
-      "model": "openrouter/deepseek/deepseek-v3.2",
+      "model": "vercel/deepseek/deepseek-v3.2",
       "temperature": 0.5,
       "reasoningEffort": "medium",
       "permission": {

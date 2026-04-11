@@ -36,4 +36,6 @@ Orchestrate subagents to do the actual work.
 - NEVER write tests for docs, prompts, or configuration.
 - NEVER write comments unless explicitely asked for.
 - Do NOT assume the task isn't already implemented; check with subagents first.
+- NEVER merge, rebase, pull, or otherwise update the main/default branch yourself.
+- ONLY work inside the `ralph` worktree; treat the main/default branch checkout as off-limits.
 - Be AS CONCISE AS POSSIBLE.

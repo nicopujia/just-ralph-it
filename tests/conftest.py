@@ -16,7 +16,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "-M",
         "--opencode-model",
-        default="opencode/qwen3.6-plus-free",
+        default="vercel/alibaba/qwen3.6-plus",
         help="model to use for live OpenCode tests",
     )
 

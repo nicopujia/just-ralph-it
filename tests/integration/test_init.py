@@ -1,4 +1,5 @@
 import subprocess
+from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,9 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
         assert (git_repo / ".jri" / ".opencode" / "tools" / name).exists()
     for name in service_module._MANAGED_CONFIG_FILENAMES:
         assert (git_repo / name).exists()
+    assert (git_repo / ".jri" / "opencode.json").read_text(encoding="utf-8") == (
+        files("jri.core.template").joinpath("opencode.json").read_text(encoding="utf-8")
+    )
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_INIT
     changed_files = set(
         git(

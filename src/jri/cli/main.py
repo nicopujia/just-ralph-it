@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
             case "reset":
                 if not args.force:
                     # Gather information for the confirmation prompt
-                    target_tag = service._find_latest_end_tag()
+                    target_tag = service._find_latest_reset_tag()
                     if target_tag is None:
                         print(
                             "Error: no task tag found — run `jri start` first",

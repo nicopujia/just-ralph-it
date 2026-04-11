@@ -226,7 +226,6 @@ class JriService:
 
     def chat(self, extra_args: list[str], *, fresh: bool = False) -> int:
         self.ensure_initialized()
-        self._auto_upgrade_if_needed()
         self._update_compaction_reserved()
         if fresh:
             self.state_store.save_session(None)
@@ -286,28 +285,8 @@ class JriService:
 
     def halt(self) -> None:
         self.ensure_initialized()
-        state = self.state_store.load()
-        if state.process is None or state.process.loop_pid is None:
+        if not self._cleanup_tracked_processes(required=True):
             raise JriError("no Ralph process is currently tracked")
-
-        own_pgid = os.getpgrp()
-        seen: set[int] = set()
-        for pid in (state.process.child_pid, state.process.loop_pid):
-            if pid is None or pid in seen:
-                continue
-            seen.add(pid)
-            try:
-                pgid = os.getpgid(pid)
-                if pgid != own_pgid:
-                    os.killpg(pgid, signal.SIGTERM)
-                    continue
-            except (ProcessLookupError, PermissionError):
-                pass
-            try:
-                os.kill(pid, signal.SIGTERM)
-            except ProcessLookupError:
-                continue
-        self.state_store.clear_process()
 
     def status(self) -> dict[str, list[Task]]:
         self.ensure_initialized()
@@ -374,24 +353,24 @@ class JriService:
     def reset(self, target_task: str | None = None) -> None:
         """Reset the repository to a specific task tag.
 
-        If target_task is provided, reset to jri/end/{target_task}.
-        Otherwise, find the most recent end tag and reset to it.
+        If target_task is provided, prefer jri/end/{target_task} and fall back to
+        jri/begin/{target_task}. Otherwise, find the most recent end tag and fall
+        back to the most recent begin tag when no end tag exists.
         """
         self.ensure_initialized()
         state = self.state_store.load()
         target_tag: str | None = None
 
         if target_task:
-            # Reset to specific task's end tag
-            target_tag = tag_name(target_task, "end")
-            if not self.git.has_tag(target_tag):
-                raise JriError(f"no end tag found for task '{target_task}'")
+            target_tag = self._find_reset_tag_for_task(target_task)
+            if target_tag is None:
+                raise JriError(f"no begin or end tag found for task '{target_task}'")
         else:
-            # Find the most recent end tag
-            target_tag = self._find_latest_end_tag()
+            target_tag = self._find_latest_reset_tag()
             if target_tag is None:
                 raise JriError("no task tag found — run `jri start` first")
 
+        self._cleanup_tracked_processes(required=False)
         default = self.git.default_branch(hint=state.branch)
         current = self.git.current_branch()
         if current != default:
@@ -412,17 +391,17 @@ class JriService:
             )
         )
 
-    def _find_latest_end_tag(self) -> str | None:
-        """Find the most recent end tag (jri/end/{slug}).
+    def _find_latest_tag(self, stage: str) -> str | None:
+        """Find the most recent task tag for the given stage.
 
-        Returns the tag name or None if no end tags exist.
+        Returns the tag name or None if no matching tags exist.
         Uses git for-each-ref to list tags in reverse chronological order.
         """
         result = self.git.run(
             "for-each-ref",
             "--sort=-creatordate",
             "--format=%(refname:short)",
-            "refs/tags/jri/end/",
+            f"refs/tags/jri/{stage}/",
             check=False,
         )
         if result.returncode != 0 or not result.stdout.strip():
@@ -430,8 +409,21 @@ class JriService:
         tags = result.stdout.strip().split("\n")
         for tag in tags:
             parsed = parse_tag_name(tag)
-            if parsed and parsed[0] == "end":
+            if parsed and parsed[0] == stage:
                 return tag
+        return None
+
+    def _find_latest_end_tag(self) -> str | None:
+        return self._find_latest_tag("end")
+
+    def _find_latest_reset_tag(self) -> str | None:
+        return self._find_latest_tag("end") or self._find_latest_tag("begin")
+
+    def _find_reset_tag_for_task(self, task_slug: str) -> str | None:
+        for stage in ("end", "begin"):
+            candidate = tag_name(task_slug, stage)
+            if self.git.has_tag(candidate):
+                return candidate
         return None
 
     def ensure_initialized(self) -> None:
@@ -657,22 +649,22 @@ class JriService:
         self._halt_requested = False
         old_handlers = self._install_signal_handlers()
         server_started_here = False
-        if isinstance(self.opencode, OpenCodeServer):
-            result_path = self.paths.jri_dir / "signals" / "result"
-            result_path.parent.mkdir(parents=True, exist_ok=True)
-            # Ensure the worktree exists before the server starts so Ralph's
-            # tools resolve paths against the worktree, not the main repo.
-            wt_git, wt_paths = self._ensure_worktree()
-            self._sync_worktree(wt_git)
-            self.opencode.start(
-                env={
-                    **self._opencode_env(wt_paths),
-                    "JRI_RESULT_PATH": str(result_path.resolve()),
-                },
-                cwd=self.paths.worktree_dir,
-            )
-            server_started_here = True
         try:
+            if isinstance(self.opencode, OpenCodeServer):
+                server_started_here = True
+                result_path = self.paths.jri_dir / "signals" / "result"
+                result_path.parent.mkdir(parents=True, exist_ok=True)
+                # Ensure the worktree exists before the server starts so Ralph's
+                # tools resolve paths against the worktree, not the main repo.
+                wt_git, wt_paths = self._ensure_worktree()
+                self._sync_worktree(wt_git)
+                self.opencode.start(
+                    env={
+                        **self._opencode_env(wt_paths),
+                        "JRI_RESULT_PATH": str(result_path.resolve()),
+                    },
+                    cwd=self.paths.worktree_dir,
+                )
             while max_tasks is None or completed < max_tasks:
                 if self._halt_requested:
                     raise HaltRequested("Ralph halt requested")
@@ -751,6 +743,39 @@ class JriService:
             self.state_store.clear_process()
 
         return completed
+
+    def _cleanup_tracked_processes(self, *, required: bool) -> bool:
+        state = self.state_store.load()
+        process = state.process
+        tracked_pids = [] if process is None else [process.child_pid, process.loop_pid]
+        has_tracked_process = any(pid is not None for pid in tracked_pids)
+        if not has_tracked_process:
+            if required:
+                return False
+            self.state_store.clear_process()
+            return False
+
+        current_pid = os.getpid()
+        own_pgid = os.getpgrp()
+        seen: set[int] = set()
+        for pid in tracked_pids:
+            if pid is None or pid <= 0 or pid in seen or pid == current_pid:
+                continue
+            seen.add(pid)
+            try:
+                pgid = os.getpgid(pid)
+                if pgid != own_pgid:
+                    os.killpg(pgid, signal.SIGTERM)
+                    continue
+            except (ProcessLookupError, PermissionError):
+                pass
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except ProcessLookupError:
+                continue
+
+        self.state_store.clear_process()
+        return True
 
     def _ensure_worktree(self) -> tuple[GitRepo, JriPaths]:
         """Ensure the persistent ``ralph`` worktree exists and return helpers."""
@@ -862,7 +887,9 @@ class JriService:
         )
 
         prompt_text = (
-            f"Solve `{doing_task.path.relative_to(wt_paths.root)}`. Commit frequently."
+            f"Solve `{doing_task.path.relative_to(wt_paths.root)}`. Commit frequently. "
+            "Stay on the Ralph worktree/branch; JRI handles integration, so do not "
+            "merge to the default branch yourself."
         )
         on_start_cb = lambda child_pid: self.state_store.save_process(  # noqa: E731
             loop_pid=os.getpid(),

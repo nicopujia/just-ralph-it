@@ -62,6 +62,7 @@ PROMOTED
 # Context
 
 Tasks are meant to follow BDD principles, so they shouldn't include specific file paths or implementation code.
+The input from `interrogator` is ONLY a plain newline-separated slug list with no extra instructions.
 
 # Constraints
 
