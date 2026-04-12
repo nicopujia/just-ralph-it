@@ -4,7 +4,7 @@ import { runPythonTool } from "./_run-python-tool.mjs";
 export default tool({
   name: "rename-task",
   description:
-    "Rename one draft task slug and rewrite draft-task dependencies that reference it. This is the canonical way to rename draft tasks.",
+    "Rename one draft task slug and rewrite draft-task dependencies that reference it.",
   args: {
     from_slug: tool.schema
       .string()
