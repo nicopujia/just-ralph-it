@@ -10,18 +10,23 @@
       "temperature": 0.7,
       "description": "Interrogates user and manages tasks.",
       "mode": "primary",
-      "color": "#ffd500", // yellow, like Ralph Wiggum
+      // Yellow, like Ralph Wiggum
+      "color": "#ffd500",
       "permission": {
+        "*": "deny",
+        "edit": {
+          "*": "deny",
+          "README.md": "allow"
+        },
+        "read": {
+          "*": "deny",
+          "README.md": "allow"
+        },
         "question": "allow",
-        "todowrite": "deny",
-        "write": "deny",
-        "edit": "deny",
-        "check-draft-promotion": "deny",
-        "promote-tasks": "allow",
-        "ralph-*": "deny",
+        "*-task*": "allow",
         "task": {
           "*": "deny",
-          "interrogator-*": "allow",
+          "interrogator-validator": "allow",
           "explore": "allow"
         }
       }
@@ -33,19 +38,9 @@
       "description": "Checks if tasks are free of ambiguities",
       "mode": "subagent",
       "permission": {
-        "write": "deny",
-        "edit": "deny",
-        "ralph-*": "deny",
-        "interrogator-*": "deny",
+        "*": "deny",
         "check-draft-promotion": "allow",
-        "upsert-task": "deny",
-        "rename-task": "deny",
-        "delete-task": "deny",
-        "promote-tasks": "deny",
-        "task": {
-          "ralph-*": "deny",
-          "interrogator-*": "deny"
-        }
+        "read-tasks": "allow"
       }
     },
     "ralph": {
@@ -56,10 +51,12 @@
       "mode": "primary",
       "permission": {
         "*": "allow",
-        "interrogator-*": "deny",
+        "interrogator-validator": "deny",
+        "question": "deny",
+        "*-task*": "deny",
         "task": {
           "*": "allow",
-          "interrogator-*": "deny"
+          "interrogator-validator": "deny"
         }
       }
     },
@@ -72,31 +69,33 @@
       "permission": {
         "write": "deny",
         "edit": "deny",
-        "bash": "deny",
-        "ralph-*": "deny",
-        "interrogator-*": "deny",
-        "check-draft-promotion": "deny",
-        "promote-tasks": "deny",
+        "ralph-result": "deny",
+        "*-task*": "deny",
         "task": {
-          "ralph-*": "deny",
-          "interrogator-*": "deny"
+          "*-validator": "deny"
         }
       }
     },
     "explore": {
       "model": "vercel/alibaba/qwen3.5-flash",
-      "temperature": 0.2
+      "temperature": 0.2,
+      "permission": {
+        "ralph-result": "deny",
+        "*-task*": "deny",
+        "task": {
+          "*-validator": "deny"
+        }
+      }
     },
     "general": {
       "model": "vercel/deepseek/deepseek-v3.2",
       "temperature": 0.5,
       "reasoningEffort": "medium",
       "permission": {
-        "ralph-*": "deny",
-        "interrogator-*": "deny",
+        "ralph-result": "deny",
+        "*-task*": "deny",
         "task": {
-          "ralph-*": "deny",
-          "interrogator-*": "deny"
+          "*-validator": "deny"
         }
       }
     }
