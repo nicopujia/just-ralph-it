@@ -307,19 +307,9 @@ def _task_to_payload(task: Task) -> dict[str, object]:
 
 
 def _run_read_tasks(payload: dict[str, Any]) -> str:
-    slug_value = payload.get("slug")
-    slugs_value = payload.get("slugs")
-    if slug_value is None and slugs_value is None:
-        raise ValueError("`slug` or `slugs` is required")
-    if slug_value is not None and slugs_value is not None:
-        raise ValueError("pass only one of `slug` or `slugs`")
-
-    slugs = (
-        [_assert_slug("slug", slug_value)]
-        if slug_value is not None
-        else _assert_slug_list("slugs", slugs_value)
-    )
-    assert slugs is not None
+    slugs = _assert_slug_list("slugs", payload.get("slugs"))
+    if not slugs:
+        raise ValueError("`slugs` must be a non-empty list of task slugs")
 
     service = JriService(Path.cwd())
     tasks_by_status = service.status()
