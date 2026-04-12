@@ -4,7 +4,7 @@ import { runPythonTool } from "./_run-python-tool.mjs";
 export default tool({
   name: "promote-tasks",
   description:
-    "Validate or promote draft tasks to todo using JRI's core promotion logic. This is the canonical way to promote draft tasks; defaults to all draft tasks when `slugs` is omitted.",
+    "Validate or promote draft tasks to todo using JRI's core promotion logic.",
   args: {
     slugs: tool.schema
       .array(tool.schema.string())
