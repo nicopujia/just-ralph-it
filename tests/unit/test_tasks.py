@@ -412,7 +412,7 @@ def test_promote_task_tool_rejects_non_slug_entries(tmp_path: Path) -> None:
         )
 
 
-def test_read_tasks_tool_reads_single_and_multiple_slugs(tmp_path: Path) -> None:
+def test_read_tasks_tool_reads_requested_slugs(tmp_path: Path) -> None:
     repo = make_git_repo(tmp_path)
     assert run_cli(["init"], cwd=repo) == 0
     write_task(
@@ -440,7 +440,7 @@ def test_read_tasks_tool_reads_single_and_multiple_slugs(tmp_path: Path) -> None
         run_promote_task_tool(
             repo,
             tmp_path,
-            {"slug": "clarify-scope"},
+            {"slugs": ["clarify-scope"]},
             module_name="read-tasks",
         )
     )
@@ -460,7 +460,7 @@ def test_read_tasks_tool_reads_single_and_multiple_slugs(tmp_path: Path) -> None
     assert [task["status"] for task in multiple] == ["todo", "draft"]
 
 
-def test_read_tasks_tool_rejects_missing_or_conflicting_inputs(tmp_path: Path) -> None:
+def test_read_tasks_tool_rejects_missing_or_invalid_inputs(tmp_path: Path) -> None:
     repo = make_git_repo(tmp_path)
     assert run_cli(["init"], cwd=repo) == 0
 
@@ -477,7 +477,7 @@ def test_read_tasks_tool_rejects_missing_or_conflicting_inputs(tmp_path: Path) -
         run_promote_task_tool(
             repo,
             tmp_path,
-            {"slug": "one", "slugs": ["two"]},
+            {"slugs": []},
             module_name="read-tasks",
         )
 

@@ -6,14 +6,9 @@ export default tool({
   description:
     "Read one or more JRI tasks by slug and return their structured contents.",
   args: {
-    slug: tool.schema
-      .string()
-      .optional()
-      .describe("Single task slug to read"),
     slugs: tool.schema
       .array(tool.schema.string())
-      .optional()
-      .describe("Multiple task slugs to read"),
+      .describe("Task slugs to read"),
   },
   async execute(args) {
     return runPythonTool("read-tasks", args);
