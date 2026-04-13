@@ -40,7 +40,11 @@
       "permission": {
         "*": "deny",
         "check-draft-promotion": "allow",
-        "read-tasks": "allow"
+        "read-tasks": "allow",
+        "task": {
+          "*": "deny",
+          "interrogator-validator": "allow"
+        }
       }
     },
     "ralph": {
