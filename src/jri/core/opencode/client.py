@@ -13,9 +13,9 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Protocol, cast
 
-from .errors import JriError
-from .models import OpenCodeRunResult, RalphResult, RalphResultPayload, Result
-from .ui import DIM, _s, trim_tool_output
+from ..errors import JriError
+from ..models import OpenCodeRunResult, RalphResult, RalphResultPayload, Result
+from ..ui import DIM, _s, trim_tool_output
 
 
 def _tool_detail(tool_name: str, input_obj: object, *, cwd_hint: str = "") -> str:

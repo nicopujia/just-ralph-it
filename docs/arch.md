@@ -2,11 +2,11 @@
 
 ## Agents
 
-### [Interrogator](../src/jri/core/builtin_opencode/.opencode/agents/interrogator.md)
+### [Interrogator](../src/jri/core/opencode/agents/interrogator.md)
 
 Generates/refines tasks. Asks many questions and uses tools to manage `draft` tasks until they are ready for `todo`. One per project.
 
-### [Ralph](../src/jri/core/builtin_opencode/.opencode/agents/ralph.md)
+### [Ralph](../src/jri/core/opencode/agents/ralph.md)
 
 Solves exactly one task. Acts as orchestrator, spawning subagents instead of doing the work itself. Ralph can report three outcomes:
 
