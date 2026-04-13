@@ -74,7 +74,6 @@ from .ui import task_footer, task_header
 _INIT_COMMIT_PATHS = (
     ".jri",
     "Makefile",
-    ".jri/README.md",
     ".jri/learnings.md",
     ".jri/tasks/draft/.gitkeep",
     ".jri/tasks/todo/.gitkeep",
@@ -85,7 +84,6 @@ _INIT_COMMIT_PATHS = (
 _UPGRADE_COMMIT_PATHS = (
     "Makefile",
     ".jri/.gitignore",
-    ".jri/README.md",
     ".jri/learnings.md",
     ".jri/tasks/draft/.gitkeep",
     ".jri/tasks/todo/.gitkeep",
@@ -94,7 +92,6 @@ _UPGRADE_COMMIT_PATHS = (
     ".jri/attempts/.gitkeep",
 )
 _SCAFFOLD_TEMPLATE_PATHS = (
-    ".jri/README.md",
     ".jri/learnings.md",
     ".jri/tasks/draft/.gitkeep",
     ".jri/tasks/todo/.gitkeep",
