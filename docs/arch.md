@@ -35,10 +35,17 @@ draft -> todo -> doing -> done
 
 ### Git History
 
-Each iteration commits its changes and tags the commit. The tag marks a recoverable snapshot; `jri reset` rolls back to the latest tag, or to a specific task tag when you pass a slug. Ralph works in a separate git worktree to keep the main branch clean between iterations.
+Each iteration commits its changes and tags the commit. The tag marks a recoverable snapshot. Ralph works in a separate git worktree to keep the main branch clean between iterations.
 
 Attempt history is persisted on the main branch under `.jri/attempts/<task-slug>.json` before JRI clears Ralph's runtime state.
 
 ## Generated Structure
 
-`jri init` commits files [@src/jri/core/template](../src/jri/core/template/) under `.jri/`. Git-ignored files are generated at runtime.
+`jri init` commits files [@src/jri/core/template](../src/jri/core/template/) under `.jri/`, alongside `.gitignore`d files which are generated at runtime, including:
+
+- `state.json`: active runtime state for sessions, loop tracking, and recovery.
+- `state.json.bak`: backup written while updating runtime state.
+- `metrics.json`: runtime summary.
+- `signals/`: `stop` and `result` files used by active runs.
+- `logs/`: Ralph logs, exported sessions, diffs, recovery logs, and timeline data.
+- `worktree/`: where Ralph makes changes.
