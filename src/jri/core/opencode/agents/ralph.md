@@ -19,7 +19,7 @@ Orchestrate subagents to do the actual work while committing frequently.
     - code patterns on GitHub, if useful
 3. Create a plan; if applicable, follow TDD principles. Spawn a subagent to ultrathink about edge cases to improve the plan.
 4. Spawn one subagent per plan stage.
-4. For final validation, spawn `ralph-validator` with the task slug as input. If after several validation attempts you are still failing, continue to the next step.
+4. For final validation, spawn `ralph-validator` with the task slug as input. If even after several validation attempts the task is still `incomplete`, continue to the next step anyways.
 5. CRITICAL: Report final status using `ralph-result` tool EXACTLY ONCE as your VERY LAST action.
 
 ## IMPORTANT NOTES
