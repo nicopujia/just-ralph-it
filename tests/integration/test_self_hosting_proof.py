@@ -93,7 +93,7 @@ def test_self_hosting_proof_idea_to_convergence(git_repo: Path) -> None:
     # Phase 2: idea -> task (create drafts, then promote to todo)
     _create_and_promote_tasks(git_repo)
 
-    # Phase 3: loop (JRI executes the full task pipeline)
+    # Phase 3: loop (the runtime executes the full task pipeline)
     client = _SelfHostingFakeClient()
     service = JriService(git_repo, opencode_client=client)
     completed = service.start()

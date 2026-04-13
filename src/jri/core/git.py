@@ -19,7 +19,7 @@ MSG_RALPH_PARTIAL = "jri(ralph): partial work on {slug}"
 
 
 def tag_name(slug: str, suffix: str) -> str:
-    """Generate a JRI tag name with begin/end suffix.
+    """Generate a task tag name with begin/end suffix.
 
     Args:
         slug: The task slug
@@ -32,13 +32,13 @@ def tag_name(slug: str, suffix: str) -> str:
 
 
 def parse_tag_name(tag: str) -> tuple[str, str] | None:
-    """Parse a JRI tag name into (suffix, slug) tuple.
+    """Parse a task tag name into (suffix, slug) tuple.
 
     Args:
         tag: The tag name to parse
 
     Returns:
-        Tuple of (suffix, slug) if it's a JRI tag, None otherwise.
+        Tuple of (suffix, slug) if it's a matching task tag, None otherwise.
         Suffix is either 'begin' or 'end'.
     """
     if not tag.startswith("jri/"):

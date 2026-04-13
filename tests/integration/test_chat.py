@@ -127,9 +127,9 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     assert config_path != (repo / ".jri" / "opencode.json").resolve()
     assert '"interrogator": {' in config_text
     assert '"model": "provider/interrogator-main"' in config_text
-    assert '"todowrite": "deny"' in config_text
-    assert '"check-draft-promotion": "deny"' in config_text
-    assert '"promote-tasks": "allow"' in config_text
+    assert '"write": "deny"' in config_text
+    assert '"question": "allow"' in config_text
+    assert '"*-task*": "allow"' in config_text
     assert '"interrogator-validator": {' in config_text
     assert '"model": "provider/interrogator-validator"' in config_text
     assert '"check-draft-promotion": "allow"' in config_text

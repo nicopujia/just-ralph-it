@@ -184,7 +184,7 @@ class JriService:
                 existing_str = " and ".join(existing)
                 print(f"Existing {existing_str} directories found.")
                 print("  [d] Delete - remove existing and reinitialize")
-                print("  [u] Upgrade - refresh JRI-managed files only")
+                print("  [u] Upgrade - refresh managed files only")
                 print("  [a] Abort - cancel initialization")
                 print("Choice [d/u/a]: ", end="", flush=True)
 
@@ -1087,7 +1087,8 @@ class JriService:
 
         prompt_text = (
             f"Solve `{doing_task.path.relative_to(wt_paths.root)}`. Commit frequently. "
-            "Stay on the Ralph worktree/branch; JRI handles integration, so do not "
+            "Stay on the Ralph worktree/branch; the runtime handles integration, "
+            "so do not "
             "merge to the default branch yourself."
         )
         on_start_cb = lambda child_pid: self._save_runtime_process(  # noqa: E731

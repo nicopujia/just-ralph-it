@@ -454,7 +454,7 @@ def test_missing_result_payload_treats_run_as_failed(
 
     result, warnings = _missing_result_payload(context="Ralph run")
     assert result == "failed"
-    msg = "missing JRI result payload for Ralph run; treating run as failed"
+    msg = "missing result payload for Ralph run; treating run as failed"
     assert warnings == [msg]
     assert msg in capsys.readouterr().err
 
@@ -480,7 +480,7 @@ def test_parse_result_payload_rejects_malformed_needs_human_human_task(
 
     assert payload is None
     assert warnings == [
-        "invalid JRI result payload; treating run as failed: "
+        "invalid result payload; treating run as failed: "
         "`human_task.title` must be a non-empty string"
     ]
     assert "`human_task.title` must be a non-empty string" in capsys.readouterr().err
@@ -495,8 +495,7 @@ def test_parse_result_payload_rejects_failed_result(
 
     assert payload is None
     assert warnings == [
-        "invalid JRI result payload; treating run as failed: "
-        "missing or unknown `result`"
+        "invalid result payload; treating run as failed: missing or unknown `result`"
     ]
     assert "missing or unknown `result`" in capsys.readouterr().err
 
@@ -898,7 +897,7 @@ def test_run_ralph_task_fails_when_result_payload_file_is_missing(
     assert not outcome_path.exists()
     assert result.result == "failed"
     assert result.warnings == [
-        "missing JRI result payload for Ralph run; treating run as failed"
+        "missing result payload for Ralph run; treating run as failed"
     ]
 
 

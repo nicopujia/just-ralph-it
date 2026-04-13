@@ -527,7 +527,7 @@ def test_start_passes_doing_task_path_to_ralph(git_repo: Path) -> None:
     assert (
         client.calls[0][0]
         == "Solve `.jri/tasks/doing/implement-file.md`. Commit frequently. "
-        "Stay on the Ralph worktree/branch; JRI handles integration, so do "
+        "Stay on the Ralph worktree/branch; the runtime handles integration, so do "
         "not merge to the default branch yourself."
     )
 
@@ -570,7 +570,7 @@ def test_start_restores_in_place_mutation_of_doing_task(git_repo: Path) -> None:
     """In-place modifications to the doing task file are silently restored.
 
     Project tooling (prettier, eslint, etc.) may touch the task file as a
-    side effect. JRI restores it to baseline rather than failing the run.
+    side effect. The runtime restores it to baseline rather than failing the run.
     """
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
@@ -601,7 +601,7 @@ def test_start_restores_committed_in_place_mutation_of_doing_task(
 ) -> None:
     """Same as above, but the mutation was committed by Ralph.
 
-    JRI restores the working-tree file to baseline; the committed
+    The runtime restores the working-tree file to baseline; the committed
     mutation is harmless because the file gets overwritten.
     """
     assert run_cli(["init"], cwd=git_repo) == 0
@@ -1549,7 +1549,10 @@ class MakeCheckFailsFakeOpenCodeClient(FakeOpenCodeServer):
 
 
 class FailedFakeOpenCodeClient(FakeOpenCodeServer):
-    """Simulates a JRI-level failed run after Ralph does not produce a valid result."""
+    """Simulates a runtime-level failed run.
+
+    Ralph does not produce a valid result.
+    """
 
     def __init__(self) -> None:
         super().__init__(model=None)
@@ -1622,7 +1625,7 @@ class MalformedNeedsHumanFakeOpenCodeClient(FakeOpenCodeServer):
             session_id="ses_bad_needs_human",
             result="failed",
             warnings=[
-                "invalid JRI result payload; treating run as failed: "
+                "invalid result payload; treating run as failed: "
                 "`human_task.title` must be a non-empty string"
             ],
         )
@@ -3198,7 +3201,7 @@ def test_export_failure_during_failed_recovery_is_visible(git_repo: Path) -> Non
 
     from jri.core.timeline import TimelineStore
 
-    # Create a client that fails at the JRI level and also fails on export
+    # Create a client that fails at the runtime level and also fails on export
     class FailingWithExportFail(FakeOpenCodeServer):
         def __init__(self) -> None:
             super().__init__(model=None)
@@ -3216,7 +3219,7 @@ def test_export_failure_during_failed_recovery_is_visible(git_repo: Path) -> Non
         ) -> OpenCodeRunResult:
             self.call_count += 1
             log_path.write_text(f"failed run #{self.call_count}\n", encoding="utf-8")
-            # Process exited cleanly, but JRI marked the run failed.
+            # Process exited cleanly, but the runtime marked the run failed.
             return OpenCodeRunResult(
                 returncode=0,
                 session_id=f"ses_fail_{self.call_count}",

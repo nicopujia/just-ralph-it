@@ -186,7 +186,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jri",
         description=(
-            "Manage a Just Ralph It project and run the Ralph task loop. "
+            "Manage a project and run the Ralph task loop. "
             "Use 'jri <command> --help' for command-specific details."
         ),
     )
@@ -260,7 +260,7 @@ def _build_parser() -> argparse.ArgumentParser:
     init_modes.add_argument(
         "--upgrade",
         action="store_true",
-        help="Refresh only JRI-managed files without deleting project tasks.",
+        help="Refresh only managed files without deleting project tasks.",
     )
 
     inspect_parser = subparsers.add_parser(
@@ -278,7 +278,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "reset",
         help="Reset the default branch to the latest task tag.",
         description=(
-            "Hard-reset the default branch to the latest JRI task tag. "
+            "Hard-reset the default branch to the latest task tag. "
             "By default, resets to the most recent jri/end/{task} tag. "
             "Optionally specify a task slug to reset to a specific task's end tag. "
             "Discards all uncommitted changes, commits, "

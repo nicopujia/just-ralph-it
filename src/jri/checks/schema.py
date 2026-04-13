@@ -72,7 +72,7 @@ def validate_state_file(root: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Validate repo JSON schemas and JRI files."
+        description="Validate repo JSON schemas and managed files."
     )
     parser.add_argument(
         "root",

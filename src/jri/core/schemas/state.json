@@ -99,7 +99,7 @@
       "properties": {
         "loop_pid": {
           "type": "integer",
-          "description": "PID of the active JRI loop process."
+          "description": "PID of the active loop process."
         },
         "child_pid": {
           "type": ["integer", "null"],
