@@ -54,6 +54,13 @@ from .opencode import (
     launch_chat,
     render_saved_log,
 )
+from .opencode.config import (
+    AGENT_FILENAMES,
+    TOOL_FILENAMES,
+    load_agent_text,
+    load_config_text,
+    load_tool_text,
+)
 from .paths import JriPaths
 from .state import StateStore
 from .tasks import (
@@ -88,23 +95,6 @@ _UPGRADE_COMMIT_PATHS = (
     ".jri/tasks/doing/.gitkeep",
     ".jri/tasks/done/.gitkeep",
     ".jri/attempts/.gitkeep",
-)
-_MANAGED_AGENT_FILENAMES = (
-    "interrogator.md",
-    "interrogator-validator.md",
-    "ralph.md",
-    "ralph-validator.md",
-)
-_MANAGED_TOOL_FILENAMES = (
-    "_run-python-tool.mjs",
-    "check-draft-promotion.js",
-    "delete-task.js",
-    "list-tasks.js",
-    "promote-tasks.js",
-    "ralph-result.js",
-    "read-tasks.js",
-    "rename-task.js",
-    "upsert-task.js",
 )
 _SCAFFOLD_TEMPLATE_PATHS = (
     ".jri/README.md",
@@ -562,7 +552,7 @@ class JriService:
         root: Path,
         overrides: dict[str, str | None],
     ) -> Iterator[dict[str, str]]:
-        config_text = _load_builtin_opencode_asset("opencode.json")
+        config_text = load_config_text()
         filtered_overrides = {
             agent: model for agent, model in overrides.items() if model is not None
         }
@@ -575,14 +565,14 @@ class JriService:
             tools_dir = config_dir / "tools"
             agents_dir.mkdir(parents=True, exist_ok=True)
             tools_dir.mkdir(parents=True, exist_ok=True)
-            for name in _MANAGED_AGENT_FILENAMES:
+            for name in AGENT_FILENAMES:
                 agents_dir.joinpath(name).write_text(
-                    _load_builtin_opencode_asset(f".opencode/agents/{name}"),
+                    load_agent_text(name),
                     encoding="utf-8",
                 )
-            for name in _MANAGED_TOOL_FILENAMES:
+            for name in TOOL_FILENAMES:
                 tools_dir.joinpath(name).write_text(
-                    _load_builtin_opencode_asset(f".opencode/tools/{name}"),
+                    load_tool_text(name),
                     encoding="utf-8",
                 )
             config_path = bundle_root / "opencode.json"
@@ -2133,14 +2123,6 @@ def _load_managed_template(name: str) -> str:
     return (
         files("jri.core.template")
         .joinpath(*_template_resource_parts(name))
-        .read_text(encoding="utf-8")
-    )
-
-
-def _load_builtin_opencode_asset(name: str) -> str:
-    return (
-        files("jri.core.builtin_opencode")
-        .joinpath(*Path(name).parts)
         .read_text(encoding="utf-8")
     )
 

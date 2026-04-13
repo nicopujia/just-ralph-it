@@ -176,9 +176,9 @@ def test_start_uses_new_free_port_on_each_auto_start(
         return process
 
     monkeypatch.setattr(
-        "jri.core.opencode._pick_free_local_port", fake_pick_free_local_port
+        "jri.core.opencode.client._pick_free_local_port", fake_pick_free_local_port
     )
-    monkeypatch.setattr("jri.core.opencode.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("jri.core.opencode.client.subprocess.Popen", fake_popen)
     monkeypatch.setattr(server, "is_healthy", lambda: True)
 
     server.start(cwd=tmp_path)
@@ -209,7 +209,7 @@ def test_start_preserves_explicit_port(
         commands.append(args)
         return _FakeProcess()
 
-    monkeypatch.setattr("jri.core.opencode.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("jri.core.opencode.client.subprocess.Popen", fake_popen)
     monkeypatch.setattr(server, "is_healthy", lambda: True)
 
     server.start(cwd=tmp_path)
@@ -234,7 +234,7 @@ def test_start_merges_custom_env_for_server_launch(
             popen_env[str(key)] = str(value)
         return _FakeProcess()
 
-    monkeypatch.setattr("jri.core.opencode.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("jri.core.opencode.client.subprocess.Popen", fake_popen)
     monkeypatch.setattr(server, "is_healthy", lambda: True)
     monkeypatch.setenv("BASE_ENV", "from-os")
 
@@ -255,7 +255,7 @@ def test_launch_chat_merges_custom_env(
         captured["env"] = kwargs["env"]
         return _FakeProcess(returncode=0)
 
-    monkeypatch.setattr("jri.core.opencode.subprocess.run", fake_run)
+    monkeypatch.setattr("jri.core.opencode.client.subprocess.run", fake_run)
     monkeypatch.setenv("BASE_ENV", "from-os")
 
     result = launch_chat(
@@ -304,7 +304,7 @@ def test_run_ralph_task_rejects_session_for_different_root(
     def fake_delete_session(session_id: str) -> None:
         deleted.append(session_id)
 
-    monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
     monkeypatch.setattr(server, "_delete_session", fake_delete_session)
 
     with pytest.raises(
@@ -573,7 +573,7 @@ def test_run_ralph_task_raises_on_session_create_http_error(
     ) -> tuple[int, bytes]:
         return 500, b"boom"
 
-    monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
 
     with pytest.raises(
         JriError, match=r"failed to create opencode session \(HTTP 500\): boom"
@@ -611,8 +611,8 @@ def test_run_ralph_task_cleans_up_session_on_prompt_http_failure(
     def fake_delete_session(session_id: str) -> None:
         deleted.append(session_id)
 
-    monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
-    monkeypatch.setattr("jri.core.opencode.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.client.urllib.request.urlopen", fake_urlopen)
     monkeypatch.setattr(server, "_delete_session", fake_delete_session)
 
     with pytest.raises(JriError, match="failed to start ralph prompt"):
@@ -677,8 +677,8 @@ def test_run_ralph_task_ignores_stale_idle_until_run_becomes_active(
     def fake_urlopen(*args: object, **kwargs: object) -> object:
         return _ResultWritingSSEStream(events, result_path=outcome_path)
 
-    monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
-    monkeypatch.setattr("jri.core.opencode.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.client.urllib.request.urlopen", fake_urlopen)
 
     result = server.run_ralph_task(
         root=tmp_path,
@@ -749,8 +749,8 @@ def test_run_ralph_task_ignores_idle_after_non_running_pre_prompt_status(
     def fake_urlopen(*args: object, **kwargs: object) -> object:
         return _ResultWritingSSEStream(events, result_path=outcome_path)
 
-    monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
-    monkeypatch.setattr("jri.core.opencode.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.client.urllib.request.urlopen", fake_urlopen)
 
     result = server.run_ralph_task(
         root=tmp_path,
@@ -812,8 +812,8 @@ def test_run_ralph_task_treats_busy_as_active_for_idle_termination(
     def fake_urlopen(*args: object, **kwargs: object) -> object:
         return _ResultWritingSSEStream(events, result_path=outcome_path)
 
-    monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
-    monkeypatch.setattr("jri.core.opencode.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.client.urllib.request.urlopen", fake_urlopen)
 
     result = server.run_ralph_task(
         root=tmp_path,
@@ -884,8 +884,8 @@ def test_run_ralph_task_fails_when_result_payload_file_is_missing(
     def fake_urlopen(*args: object, **kwargs: object) -> object:
         return _FakeSSEStream(events)
 
-    monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
-    monkeypatch.setattr("jri.core.opencode.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.client.urllib.request.urlopen", fake_urlopen)
 
     result = server.run_ralph_task(
         root=tmp_path,
@@ -961,8 +961,8 @@ def test_run_ralph_task_waits_for_idle_after_terminal_result_tool(
             split_index=4,
         )
 
-    monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
-    monkeypatch.setattr("jri.core.opencode.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.client.urllib.request.urlopen", fake_urlopen)
 
     result = server.run_ralph_task(
         root=tmp_path,
@@ -1023,8 +1023,8 @@ def test_run_ralph_task_times_out_after_terminal_result_tool_without_idle(
     def fake_urlopen(*args: object, **kwargs: object) -> object:
         return _HangingAfterChunksSSEStream(events, delay=2.0)
 
-    monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
-    monkeypatch.setattr("jri.core.opencode.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.client.urllib.request.urlopen", fake_urlopen)
 
     result = server.run_ralph_task(
         root=tmp_path,
@@ -1090,8 +1090,8 @@ def test_run_ralph_task_prefers_outcome_file_over_result_tool_outcome(
             write_index=2,
         )
 
-    monkeypatch.setattr("jri.core.opencode._http_request", fake_http_request)
-    monkeypatch.setattr("jri.core.opencode.urllib.request.urlopen", fake_urlopen)
+    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.client.urllib.request.urlopen", fake_urlopen)
 
     result = server.run_ralph_task(
         root=tmp_path,

@@ -8,9 +8,9 @@ from typing import Any
 
 import yaml
 
-from .models import Task
-from .service import JriService
-from .tasks import list_tasks
+from ..models import Task
+from ..service import JriService
+from ..tasks import list_tasks
 
 SLUG_RE = re.compile(r"^[a-zA-Z0-9][-a-zA-Z0-9_.]*$")
 
