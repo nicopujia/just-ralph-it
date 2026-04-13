@@ -6,18 +6,15 @@ from tests.conftest import run_cli
 from tests.helpers import git
 
 
-def test_init_upgrade_commits_when_config_files_change(
+def test_init_upgrade_commits_when_runtime_gitignore_changes(
     git_repo: Path,
     monkeypatch,
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
-
-    def fake_load_managed_template(name: str) -> str:
-        base = name.removesuffix(".md") if name.endswith(".md") else name
-        return f"upgraded {base}\n"
-
     monkeypatch.setattr(
-        service_module, "_load_managed_template", fake_load_managed_template
+        service_module.JriService,
+        "_GITIGNORE_CONTENT",
+        "logs/\nsignals/\n*state.json*\nmetrics.json\nworktree/\ncache/\n",
     )
 
     exit_code = run_cli(["init", "--upgrade"], cwd=git_repo)
@@ -34,19 +31,4 @@ def test_init_upgrade_commits_when_config_files_change(
             "HEAD",
         ).splitlines()
     )
-    assert changed_files == {
-        ".jri/.opencode/agents/interrogator.md",
-        ".jri/.opencode/agents/interrogator-validator.md",
-        ".jri/.opencode/agents/ralph.md",
-        ".jri/.opencode/agents/ralph-validator.md",
-        ".jri/.opencode/tools/_run-python-tool.mjs",
-        ".jri/.opencode/tools/check-draft-promotion.js",
-        ".jri/.opencode/tools/delete-task.js",
-        ".jri/.opencode/tools/list-tasks.js",
-        ".jri/.opencode/tools/promote-tasks.js",
-        ".jri/.opencode/tools/ralph-result.js",
-        ".jri/.opencode/tools/read-tasks.js",
-        ".jri/.opencode/tools/rename-task.js",
-        ".jri/.opencode/tools/upsert-task.js",
-        ".jri/opencode.json",
-    }
+    assert changed_files == {".jri/.gitignore"}

@@ -52,7 +52,7 @@ def run_upsert_task_tool(cwd: Path, tmp_path: Path, payload: dict[str, object]) 
         encoding="utf-8",
     )
     (harness / "_run-python-tool.mjs").write_text(
-        files("jri.core.template")
+        files("jri.core.builtin_opencode")
         .joinpath(".opencode", "tools", "_run-python-tool.mjs")
         .read_text(encoding="utf-8"),
         encoding="utf-8",
@@ -60,7 +60,7 @@ def run_upsert_task_tool(cwd: Path, tmp_path: Path, payload: dict[str, object]) 
 
     module_path = harness / "upsert-task.mjs"
     source = (
-        files("jri.core.template")
+        files("jri.core.builtin_opencode")
         .joinpath(".opencode", "tools", "upsert-task.js")
         .read_text(encoding="utf-8")
     )
@@ -129,7 +129,7 @@ def run_promote_task_tool(
         encoding="utf-8",
     )
     (harness / "_run-python-tool.mjs").write_text(
-        files("jri.core.template")
+        files("jri.core.builtin_opencode")
         .joinpath(".opencode", "tools", "_run-python-tool.mjs")
         .read_text(encoding="utf-8"),
         encoding="utf-8",
@@ -137,7 +137,7 @@ def run_promote_task_tool(
 
     module_path = harness / f"{module_name}.mjs"
     source = (
-        files("jri.core.template")
+        files("jri.core.builtin_opencode")
         .joinpath(".opencode", "tools", f"{module_name}.js")
         .read_text(encoding="utf-8")
     )
@@ -301,24 +301,25 @@ def test_validate_state_payload_allows_promotion_record() -> None:
 def test_packaged_schemas_are_available() -> None:
     assert files("jri.core.schemas").joinpath("task-metadata.json").is_file()
     assert files("jri.core.schemas").joinpath("state.json").is_file()
-    managed = files("jri.core.template")
-    assert managed.joinpath("README.md").is_file()
-    assert managed.joinpath("opencode.json").is_file()
-    assert managed.joinpath(".opencode", "agents", "interrogator.md").is_file()
-    assert managed.joinpath(
+    scaffold = files("jri.core.template")
+    assert scaffold.joinpath("README.md").is_file()
+    builtins = files("jri.core.builtin_opencode")
+    assert builtins.joinpath("opencode.json").is_file()
+    assert builtins.joinpath(".opencode", "agents", "interrogator.md").is_file()
+    assert builtins.joinpath(
         ".opencode", "agents", "interrogator-validator.md"
     ).is_file()
-    assert managed.joinpath(".opencode", "agents", "ralph.md").is_file()
-    assert managed.joinpath(".opencode", "agents", "ralph-validator.md").is_file()
-    assert managed.joinpath(".opencode", "tools", "_run-python-tool.mjs").is_file()
-    assert managed.joinpath(".opencode", "tools", "check-draft-promotion.js").is_file()
-    assert managed.joinpath(".opencode", "tools", "delete-task.js").is_file()
-    assert managed.joinpath(".opencode", "tools", "list-tasks.js").is_file()
-    assert managed.joinpath(".opencode", "tools", "promote-tasks.js").is_file()
-    assert managed.joinpath(".opencode", "tools", "ralph-result.js").is_file()
-    assert managed.joinpath(".opencode", "tools", "read-tasks.js").is_file()
-    assert managed.joinpath(".opencode", "tools", "rename-task.js").is_file()
-    assert managed.joinpath(".opencode", "tools", "upsert-task.js").is_file()
+    assert builtins.joinpath(".opencode", "agents", "ralph.md").is_file()
+    assert builtins.joinpath(".opencode", "agents", "ralph-validator.md").is_file()
+    assert builtins.joinpath(".opencode", "tools", "_run-python-tool.mjs").is_file()
+    assert builtins.joinpath(".opencode", "tools", "check-draft-promotion.js").is_file()
+    assert builtins.joinpath(".opencode", "tools", "delete-task.js").is_file()
+    assert builtins.joinpath(".opencode", "tools", "list-tasks.js").is_file()
+    assert builtins.joinpath(".opencode", "tools", "promote-tasks.js").is_file()
+    assert builtins.joinpath(".opencode", "tools", "ralph-result.js").is_file()
+    assert builtins.joinpath(".opencode", "tools", "read-tasks.js").is_file()
+    assert builtins.joinpath(".opencode", "tools", "rename-task.js").is_file()
+    assert builtins.joinpath(".opencode", "tools", "upsert-task.js").is_file()
 
 
 def test_upsert_task_tool_writes_parseable_draft_and_overwrites(
