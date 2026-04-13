@@ -14,11 +14,6 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
 
     assert exit_code == 0
     assert (git_repo / "README.md").read_text(encoding="utf-8") == "# temp repo\n"
-    assert (
-        (git_repo / ".jri" / "README.md")
-        .read_text(encoding="utf-8")
-        .startswith("# Runtime Files\n")
-    )
     assert (git_repo / ".jri" / "learnings.md").read_text(encoding="utf-8") == ""
     assert (git_repo / ".jri" / "tasks" / "draft" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "tasks" / "todo" / ".gitkeep").exists()
@@ -112,7 +107,6 @@ def test_init_creates_empty_readme_when_missing(git_repo: Path) -> None:
 
     assert exit_code == 0
     assert (git_repo / "README.md").read_text(encoding="utf-8") == ""
-    assert (git_repo / ".jri" / "README.md").exists()
     assert (git_repo / ".jri" / "learnings.md").read_text(encoding="utf-8") == ""
     changed_files = set(
         git(
@@ -189,7 +183,6 @@ def test_init_upgrade_restores_missing_template_scaffold_files(git_repo: Path) -
     git_repo.joinpath("Makefile").unlink()
     git_repo.joinpath(".jri", "tasks", "draft", ".gitkeep").unlink()
     git_repo.joinpath(".jri", "attempts", ".gitkeep").unlink()
-    git_repo.joinpath(".jri", "README.md").unlink()
     git_repo.joinpath(".jri", "learnings.md").unlink()
 
     assert run_cli(["init", "--upgrade"], cwd=git_repo) == 0
@@ -202,11 +195,6 @@ def test_init_upgrade_restores_missing_template_scaffold_files(git_repo: Path) -
     )
     assert (git_repo / ".jri" / "tasks" / "draft" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "attempts" / ".gitkeep").exists()
-    assert (
-        (git_repo / ".jri" / "README.md")
-        .read_text(encoding="utf-8")
-        .startswith("# Runtime Files\n")
-    )
     assert (git_repo / ".jri" / "learnings.md").read_text(encoding="utf-8") == ""
 
 
