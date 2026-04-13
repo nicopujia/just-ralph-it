@@ -51,7 +51,7 @@
       "model": "vercel/moonshotai/kimi-k2.5",
       "temperature": 0.3,
       "reasoningEffort": "high",
-      "description": "Solves a single JRI task autonomously.",
+      "description": "Solves a single task autonomously.",
       "mode": "primary",
       "permission": {
         "*": "allow",

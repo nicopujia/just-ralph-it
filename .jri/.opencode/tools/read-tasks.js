@@ -4,7 +4,7 @@ import { runPythonTool } from "./_run-python-tool.mjs";
 export default tool({
   name: "read-tasks",
   description:
-    "Read one or more JRI tasks by slug and return their structured contents.",
+    "Read one or more tasks by slug and return their structured contents.",
   args: {
     slugs: tool.schema
       .array(tool.schema.string())

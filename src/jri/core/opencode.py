@@ -221,7 +221,7 @@ def _parse_event_line(line: str) -> tuple[dict[str, object] | None, str | None, 
 
 
 def _missing_result_payload(*, context: str) -> tuple[Result, list[str]]:
-    warning = f"missing JRI result payload for {context}; treating run as failed"
+    warning = f"missing result payload for {context}; treating run as failed"
     print(warning, file=sys.stderr)
     return "failed", [warning]
 
@@ -230,18 +230,18 @@ def _parse_result_payload(text: str) -> tuple[RalphResultPayload | None, list[st
     try:
         payload = json.loads(text)
     except json.JSONDecodeError as exc:
-        warning = f"invalid JRI result payload; treating run as failed: {exc}"
+        warning = f"invalid result payload; treating run as failed: {exc}"
         print(warning, file=sys.stderr)
         return None, [warning]
     if not isinstance(payload, dict):
-        warning = "invalid JRI result payload; treating run as failed: expected object"
+        warning = "invalid result payload; treating run as failed: expected object"
         print(warning, file=sys.stderr)
         return None, [warning]
     result = payload.get("result")
     normalized = _normalize_result(result) if isinstance(result, str) else None
     if normalized is None:
         warning = (
-            "invalid JRI result payload; treating run as failed: "
+            "invalid result payload; treating run as failed: "
             "missing or unknown `result`"
         )
         print(warning, file=sys.stderr)
@@ -250,7 +250,7 @@ def _parse_result_payload(text: str) -> tuple[RalphResultPayload | None, list[st
     if parsed.result == "needs_human":
         if not parsed.blocker or parsed.human_task is None:
             warning = (
-                "invalid JRI result payload; treating run as failed: "
+                "invalid result payload; treating run as failed: "
                 "`needs_human` requires `blocker` and `human_task`"
             )
             print(warning, file=sys.stderr)
@@ -258,8 +258,7 @@ def _parse_result_payload(text: str) -> tuple[RalphResultPayload | None, list[st
         validation_error = _validate_human_task_payload(payload)
         if validation_error is not None:
             warning = (
-                "invalid JRI result payload; treating run as failed: "
-                f"{validation_error}"
+                f"invalid result payload; treating run as failed: {validation_error}"
             )
             print(warning, file=sys.stderr)
             return None, [warning]

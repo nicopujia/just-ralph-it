@@ -1,6 +1,6 @@
 # Runtime Files
 
-This file documents only `.jri/` paths that JRI creates at runtime.
+This file documents only `.jri/` paths that the runtime creates.
 
 ## Runtime-generated paths
 
