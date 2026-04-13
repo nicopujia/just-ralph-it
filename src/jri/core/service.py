@@ -1313,7 +1313,7 @@ class JriService:
             self.git.run("checkout", default)
             return
         sys.stdout.write(f'Currently on branch "{current}", expected "{default}".\n')
-        sys.stdout.write("Switch to main? [Y/n] ")
+        sys.stdout.write(f"Switch to {default}? [Y/n] ")
         sys.stdout.flush()
         choice = input().strip().lower()
         if choice in ("", "y"):

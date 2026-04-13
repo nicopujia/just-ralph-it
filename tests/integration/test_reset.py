@@ -603,6 +603,7 @@ def test_reset_cli_force_skips_confirmation(git_repo: Path) -> None:
     )
 
     assert result.returncode == 0
+    assert "reset: reset complete." in result.stdout
     # extra.txt should be gone because reset proceeded
     assert not (git_repo / "extra.txt").exists()
 

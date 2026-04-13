@@ -11,6 +11,7 @@ import pytest
 
 from jri.core.git import GitRepo
 from jri.core.models import Task, TaskMetadata
+from jri.core.opencode.tools import _run_upsert_task
 from jri.core.tasks import (
     dump_task,
     list_tasks,
@@ -393,6 +394,42 @@ def test_upsert_task_tool_rejects_invalid_slug(tmp_path: Path) -> None:
                 "priority": 1,
                 "acceptance_criteria": ["Scope is approved"],
             },
+        )
+
+
+def test_run_upsert_task_accepts_75_char_titles(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".jri" / "tasks").mkdir(parents=True)
+    monkeypatch.chdir(repo)
+
+    title = "a" * 75
+    result = _run_upsert_task(
+        {
+            "title": title,
+            "body": "Draft the scope.\n",
+            "assignee": "Ralph",
+            "priority": 1,
+            "acceptance_criteria": ["Scope is approved"],
+        }
+    )
+
+    assert result == f"created draft task: .jri/tasks/draft/{title}.md"
+    task = parse_task_file(repo / ".jri" / "tasks" / "draft" / f"{title}.md")
+    assert task.metadata.title == title
+
+
+def test_run_upsert_task_rejects_titles_over_75_chars() -> None:
+    with pytest.raises(ValueError, match="75 characters or fewer"):
+        _run_upsert_task(
+            {
+                "title": "a" * 76,
+                "body": "Draft the scope.\n",
+                "assignee": "Ralph",
+                "priority": 1,
+                "acceptance_criteria": ["Scope is approved"],
+            }
         )
 
 

@@ -5,7 +5,7 @@ import pytest
 
 import jri.core.git as git_module
 import jri.core.service as service_module
-from jri.cli.main import main
+from jri.cli.main import _build_parser, main
 from jri.core.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git, read_json
@@ -233,6 +233,18 @@ def test_chat_cli_with_fresh_flag(initialized_repo: Path) -> None:
     assert exc_info.value.code == 0
 
 
+def test_chat_help_includes_new_alias(capsys: pytest.CaptureFixture[str]) -> None:
+    parser = _build_parser()
+
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args(["chat", "--help"])
+
+    assert exc_info.value.code == 0
+    help_text = capsys.readouterr().out
+
+    assert "--fresh, --new" in help_text
+
+
 def test_chat_cli_passes_model_overrides(initialized_repo: Path) -> None:
     repo = initialized_repo
     captured: dict[str, object] = {}
@@ -274,6 +286,39 @@ def test_chat_cli_passes_model_overrides(initialized_repo: Path) -> None:
         "fresh": True,
         "model": "provider/interrogator-main",
         "validator_model": "provider/interrogator-validator",
+    }
+    monkeypatch.undo()
+
+
+def test_chat_cli_new_alias_sets_fresh(initialized_repo: Path) -> None:
+    repo = initialized_repo
+    captured: dict[str, object] = {}
+
+    def fake_chat(
+        self: JriService,
+        extra_args: list[str],
+        *,
+        fresh: bool = False,
+        model: str | None = None,
+        validator_model: str | None = None,
+    ) -> int:
+        captured["extra_args"] = extra_args
+        captured["fresh"] = fresh
+        captured["model"] = model
+        captured["validator_model"] = validator_model
+        return 0
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(JriService, "chat", fake_chat)
+
+    result = main(["chat", "--new", "--prompt", "hello"], cwd=repo)
+
+    assert result == 0
+    assert captured == {
+        "extra_args": ["--prompt", "hello"],
+        "fresh": True,
+        "model": None,
+        "validator_model": None,
     }
     monkeypatch.undo()
 
