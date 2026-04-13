@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 from ..core.errors import JriError
-from ..core.git import MSG_INIT, MSG_UPGRADE
+from ..core.git import MSG_INIT
 from ..core.service import JriService
 
 _INTERNAL_RUN_LOOP_ENV = "JRI_INTERNAL_RUN_LOOP"
@@ -121,9 +121,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 init_service = JriService(directory)
                 init_service.init(
                     delete=args.delete,
-                    upgrade=args.upgrade,
                     commit_message=MSG_INIT,
-                    upgrade_commit_message=MSG_UPGRADE,
                 )
                 _print_command_message("init")
                 return 0
@@ -272,10 +270,7 @@ def _build_parser() -> argparse.ArgumentParser:
     init_parser = subparsers.add_parser(
         "init",
         help="Initialize JRI in the current git repo.",
-        description=(
-            "Create the .jri scaffold, bundled agent prompts, and initial "
-            "state for this project."
-        ),
+        description=("Create the .jri scaffold and initial state for this project."),
     )
     init_parser.add_argument(
         "directory",
@@ -290,15 +285,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--delete",
         action="store_true",
         dest="delete",
-        help=(
-            "Skip prompts and overwrite existing .jri/ contents, "
-            "including managed OpenCode config."
-        ),
-    )
-    init_modes.add_argument(
-        "--upgrade",
-        action="store_true",
-        help="Refresh only managed files without deleting project tasks.",
+        help=("Skip prompts and overwrite existing .jri/ contents."),
     )
 
     inspect_parser = subparsers.add_parser(

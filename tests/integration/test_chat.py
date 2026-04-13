@@ -3,7 +3,6 @@ from typing import cast
 
 import pytest
 
-import jri.core.git as git_module
 import jri.core.service as service_module
 from jri.cli.main import _build_parser, main
 from jri.core.service import JriService
@@ -386,5 +385,4 @@ def test_chat_does_not_create_or_touch_project_managed_opencode_files(
     assert result == 0
     assert managed.read_text(encoding="utf-8") == "user-modified managed file\n"
     assert git(repo, "rev-parse", "HEAD") == head_before
-    assert git(repo, "log", "-1", "--pretty=%s") != git_module.MSG_UPGRADE
     monkeypatch.undo()

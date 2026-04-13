@@ -4,8 +4,6 @@ from pathlib import Path
 from .errors import JriError
 
 MSG_INIT = "jri: init"
-MSG_UPGRADE = "jri: upgrade"
-MSG_UPGRADE_AUTO = "jri: auto-upgrade"
 MSG_START_BEGIN = "jri(start): begin {slug}"
 MSG_START_COMPLETE = "jri(start): complete {slug}"
 MSG_CHECK_PROMOTE = "jri: validate draft tasks for promotion"
@@ -205,34 +203,6 @@ class GitRepo:
 
         self.run("add", "-A", "--", *scoped_paths)
         result = self.run("commit", "-m", message, "--", *scoped_paths, check=False)
-        if result.returncode != 0:
-            raise JriError(result.stderr.strip() or f"failed to commit: {message}")
-        return True
-
-    def commit_upgrade_if_needed(
-        self,
-        message: str,
-        *,
-        managed_paths: list[str],
-        untracked_paths: list[str],
-    ) -> bool:
-        scoped_paths = list(dict.fromkeys([*managed_paths, *untracked_paths]))
-        if not self.status_short(*scoped_paths):
-            return False
-
-        tracked_paths = [path for path in untracked_paths if self.is_tracked(path)]
-        if tracked_paths:
-            stashed = self.run("stash", "push", "--staged", "--quiet", check=False)
-            self.run("add", "-A", "--", *managed_paths)
-            self.run("rm", "--cached", "--quiet", "--", *tracked_paths)
-            result = self.run("commit", "-m", message, check=False)
-            if stashed.returncode == 0:
-                self.run("stash", "pop", "--quiet", check=False)
-        else:
-            self.run("add", "-A", "--", *managed_paths)
-            result = self.run(
-                "commit", "-m", message, "--", *managed_paths, check=False
-            )
         if result.returncode != 0:
             raise JriError(result.stderr.strip() or f"failed to commit: {message}")
         return True
