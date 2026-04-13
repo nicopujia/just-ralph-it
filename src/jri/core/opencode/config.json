@@ -6,7 +6,7 @@
   },
   "agent": {
     "interrogator": {
-      "model": "vercel/alibaba/qwen3.6-plus",
+      "model": "vercel/xai/grok-4.20-reasoning",
       "temperature": 0.7,
       "description": "Interrogates user and manages tasks.",
       "mode": "primary",
