@@ -193,13 +193,21 @@ class JriService:
                 binary=binary,
                 env=env,
             )
-        if state.session is None:
+        session_id = state.session
+        if session_id is None:
             after = list_sessions(self.opencode, root=self.root)
             session_id = detect_latest_session(
                 root=self.root, before=before, sessions=after
             )
             if session_id is not None:
                 self.state_store.save_session(session_id)
+        export_session_if_available(
+            self.opencode,
+            root=self.root,
+            destination_dir=self.paths.chat_logs_dir,
+            timeline=self.timeline,
+            session_id=session_id,
+        )
         return returncode
 
     def start(
@@ -979,7 +987,7 @@ class JriService:
         export_path = export_session_if_available(
             self.opencode,
             root=self.root,
-            external_opencode_dir=self.paths.external_opencode_dir,
+            destination_dir=self.paths.external_opencode_dir,
             timeline=self.timeline,
             session_id=result.session_id,
             task_slug=task.slug,

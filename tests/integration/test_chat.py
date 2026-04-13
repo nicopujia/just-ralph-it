@@ -17,6 +17,7 @@ class FakeOpenCodeServerForChat:
         self.model: str | None = None
         self.list_sessions_calls: list[Path] = []
         self._sessions: list[dict[str, object]] = []
+        self.export_calls: list[tuple[str, Path]] = []
 
     def list_sessions(self, *, root: Path, limit: int = 20) -> list[dict[str, object]]:
         self.list_sessions_calls.append(root)
@@ -26,10 +27,14 @@ class FakeOpenCodeServerForChat:
         raise AssertionError("run_ralph_task should not be called in chat tests")
 
     def export_session(self, session_id: str, destination: Path) -> None:
+        self.export_calls.append((session_id, destination))
         destination.write_text("{}\n", encoding="utf-8")
 
-    def add_session(self, session_id: str) -> None:
-        self._sessions.append({"id": session_id})
+    def add_session(self, session_id: str, *, root: Path | None = None) -> None:
+        session: dict[str, object] = {"id": session_id}
+        if root is not None:
+            session["directory"] = str(root)
+        self._sessions.append(session)
 
 
 @pytest.fixture
@@ -76,6 +81,15 @@ def test_chat_without_fresh_reuses_session(initialized_repo: Path) -> None:
     assert Path(env["OPENCODE_CONFIG_DIR"]).name == ".opencode"
     assert not Path(env["OPENCODE_CONFIG"]).is_relative_to(repo)
     assert not Path(env["OPENCODE_CONFIG_DIR"]).is_relative_to(repo)
+    assert server.export_calls == [
+        (
+            "existing-session-id",
+            service.paths.chat_logs_dir / "existing-session-id.json",
+        )
+    ]
+    assert (service.paths.chat_logs_dir / "existing-session-id.json").read_text(
+        encoding="utf-8"
+    ) == "{}\n"
     monkeypatch.undo()
 
 
@@ -181,6 +195,7 @@ def test_chat_with_fresh_clears_session(initialized_repo: Path) -> None:
     assert Path(env["OPENCODE_CONFIG_DIR"]).name == ".opencode"
     assert not Path(env["OPENCODE_CONFIG"]).is_relative_to(repo)
     assert not Path(env["OPENCODE_CONFIG_DIR"]).is_relative_to(repo)
+    assert server.export_calls == []
     monkeypatch.undo()
 
 
@@ -216,6 +231,82 @@ def test_chat_fresh_with_no_existing_session(initialized_repo: Path) -> None:
     state = service.state_store.load()
     assert state.session is None
     assert len(launch_calls) == 1
+    assert server.export_calls == []
+    monkeypatch.undo()
+
+
+def test_chat_detects_and_exports_new_session(initialized_repo: Path) -> None:
+    repo = initialized_repo
+    server = FakeOpenCodeServerForChat()
+
+    def fake_launch_chat(
+        *,
+        root: Path,
+        session_id: str | None,
+        extra_args: list[str],
+        binary: str = "opencode",
+        env: dict[str, str] | None = None,
+    ) -> int:
+        assert session_id is None
+        server.add_session("new-session-id", root=root)
+        return 0
+
+    service = JriService(repo, opencode_client=server)
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(service_module, "launch_chat", fake_launch_chat)
+
+    result = service.chat([], fresh=True)
+
+    assert result == 0
+    assert service.state_store.load().session == "new-session-id"
+    assert server.export_calls == [
+        ("new-session-id", service.paths.chat_logs_dir / "new-session-id.json")
+    ]
+    assert (service.paths.chat_logs_dir / "new-session-id.json").read_text(
+        encoding="utf-8"
+    ) == "{}\n"
+    monkeypatch.undo()
+
+
+def test_chat_export_failure_does_not_fail_chat(
+    initialized_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repo = initialized_repo
+
+    class FailingExportServer(FakeOpenCodeServerForChat):
+        def export_session(self, session_id: str, destination: Path) -> None:
+            self.export_calls.append((session_id, destination))
+            raise service_module.JriError("boom")
+
+    server = FailingExportServer()
+
+    def fake_launch_chat(
+        *,
+        root: Path,
+        session_id: str | None,
+        extra_args: list[str],
+        binary: str = "opencode",
+        env: dict[str, str] | None = None,
+    ) -> int:
+        return 0
+
+    service = JriService(repo, opencode_client=server)
+    service.state_store.save_session("existing-session-id")
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(service_module, "launch_chat", fake_launch_chat)
+
+    result = service.chat([], fresh=False)
+
+    assert result == 0
+    captured = capsys.readouterr()
+    assert "Failed to export session existing-session-id: boom" in captured.err
+    assert server.export_calls == [
+        (
+            "existing-session-id",
+            service.paths.chat_logs_dir / "existing-session-id.json",
+        )
+    ]
+    assert not (service.paths.chat_logs_dir / "existing-session-id.json").exists()
     monkeypatch.undo()
 
 
