@@ -101,14 +101,14 @@ def export_session_if_available(
     opencode: OpenCodeProgrammatic,
     *,
     root: Path,
-    external_opencode_dir: Path,
+    destination_dir: Path,
     timeline: TimelineStore,
     session_id: str | None,
     task_slug: str | None = None,
 ) -> Path | None:
     if session_id is None:
         return None
-    export_path = external_opencode_dir / f"{session_id}.json"
+    export_path = destination_dir / f"{session_id}.json"
     export_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         call_with_server(

@@ -35,6 +35,10 @@ class JriPaths:
         return self.logs_dir / "external"
 
     @property
+    def chat_logs_dir(self) -> Path:
+        return self.logs_dir / "chat"
+
+    @property
     def external_opencode_dir(self) -> Path:
         return self.external_logs_dir / "opencode"
 
