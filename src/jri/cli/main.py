@@ -60,7 +60,9 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
             case "status":
                 tasks_by_status = service.status()
                 total = sum(len(t) for t in tasks_by_status.values())
-                print(f"Tasks: {total} total\n")
+                print(f"Tasks: {total} total")
+                print(service.ralph_status_summary())
+                print()
                 max_label = max(len(s) for s in tasks_by_status)
                 for status, tasks in tasks_by_status.items():
                     print(f"  {status:<{max_label}}  {len(tasks)}")
