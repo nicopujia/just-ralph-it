@@ -354,6 +354,33 @@ class JriService:
         except ValueError as exc:
             raise JriError(str(exc)) from exc
 
+    def ralph_status_summary(self) -> str:
+        self.ensure_initialized()
+        state = self.state_store.load()
+        process = state.process
+        loop_pid = process.loop_pid if process is not None else None
+        process_alive = loop_pid is not None and self._is_pid_alive(loop_pid)
+        active_task = (
+            state.active_attempt.task_slug
+            if state.active_attempt is not None
+            and state.active_attempt.finished_at is None
+            else state.current_task
+        )
+
+        if process_alive:
+            mode = "detached" if process and process.detached else "attached"
+            summary = f"Ralph: running ({mode})"
+            if active_task:
+                summary += f" on {active_task}"
+            if self.paths.stop_signal_path.exists():
+                summary += ", stop requested"
+            return summary
+
+        if process is not None:
+            return "Ralph: not running (previous run was interrupted)"
+
+        return "Ralph: not running"
+
     def metrics_summary(self) -> str | None:
         """Return a human-readable metrics summary, or None if no metrics."""
         return self.metrics.summary()

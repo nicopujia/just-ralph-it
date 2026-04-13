@@ -1,5 +1,8 @@
+import subprocess
 from pathlib import Path
 
+from jri.core.models import AttemptState
+from jri.core.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git, write_task
 
@@ -87,11 +90,58 @@ def test_status_empty_project(git_repo: Path, capsys) -> None:
     assert rc == 0
     out = capsys.readouterr().out
     assert "Tasks: 0 total" in out
+    assert "Ralph: not running" in out
     assert "draft" in out
     assert "todo" in out
     assert "doing" in out
     assert "done" in out
     assert "No tasks assigned to Human." in out
+
+
+def test_status_shows_ralph_running_state(git_repo: Path, capsys) -> None:
+    _init(git_repo)
+    sleeper = subprocess.Popen(["sleep", "30"])
+    service = JriService(git_repo)
+    service.state_store.save_process(
+        loop_pid=sleeper.pid,
+        child_pid=None,
+        log_path=None,
+        detached=True,
+    )
+    service.state_store.start_attempt(
+        AttemptState(number=1, task_slug="ralph-task", branch="ralph", started_at=1)
+    )
+    service.paths.stop_signal_path.parent.mkdir(parents=True, exist_ok=True)
+    service.paths.stop_signal_path.write_text("requested\n", encoding="utf-8")
+
+    try:
+        rc = run_cli(["status"], cwd=git_repo)
+    finally:
+        sleeper.terminate()
+        sleeper.wait(timeout=5)
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Ralph: running (detached) on ralph-task, stop requested" in out
+
+
+def test_status_shows_stale_tracked_ralph_process(git_repo: Path, capsys) -> None:
+    _init(git_repo)
+    process = subprocess.Popen(["sleep", "0"])
+    process.wait(timeout=5)
+    service = JriService(git_repo)
+    service.state_store.save_process(
+        loop_pid=process.pid,
+        child_pid=None,
+        log_path=None,
+        detached=False,
+    )
+
+    rc = run_cli(["status"], cwd=git_repo)
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Ralph: not running (previous run was interrupted)" in out
 
 
 def test_status_shows_human_tasks_across_all_states(git_repo: Path, capsys) -> None:
