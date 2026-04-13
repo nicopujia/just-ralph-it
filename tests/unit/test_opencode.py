@@ -2,6 +2,7 @@ import json
 import time
 from collections.abc import Iterator
 from pathlib import Path
+from typing import cast
 from urllib.error import URLError
 
 import pytest
@@ -828,79 +829,6 @@ def test_run_ralph_task_treats_busy_as_active_for_idle_termination(
     assert result.warnings == []
 
 
-def test_run_ralph_task_fails_when_result_payload_file_is_missing(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    server = OpenCodeServer(binary="opencode")
-    outcome_path = tmp_path / "result.txt"
-    events = [
-        *_sse_event(
-            {
-                "type": "session.status",
-                "properties": {
-                    "sessionID": "ses_123",
-                    "status": "running",
-                },
-            }
-        ),
-        *_sse_event(
-            {
-                "type": "message.part.updated",
-                "properties": {
-                    "part": {
-                        "type": "tool",
-                        "tool": "ralph-result",
-                        "state": {
-                            "status": "completed",
-                            "input": {"result": "completed"},
-                            "output": "JRI_RESULT_PATH not set",
-                        },
-                    }
-                },
-            }
-        ),
-        *_sse_event(
-            {
-                "type": "session.status",
-                "properties": {
-                    "sessionID": "ses_123",
-                    "status": "idle",
-                },
-            }
-        ),
-    ]
-
-    def fake_http_request(
-        method: str,
-        url: str,
-        *,
-        body: object | None = None,
-        timeout: float = 10.0,
-    ) -> tuple[int, bytes]:
-        if url.endswith("/prompt_async"):
-            return 202, b"{}"
-        return 201, b'{"id": "ses_123"}'
-
-    def fake_urlopen(*args: object, **kwargs: object) -> object:
-        return _FakeSSEStream(events)
-
-    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
-    monkeypatch.setattr("jri.core.opencode.client.urllib.request.urlopen", fake_urlopen)
-
-    result = server.run_ralph_task(
-        root=tmp_path,
-        prompt="Solve the task",
-        log_path=tmp_path / "ralph.log",
-        result_path=outcome_path,
-    )
-
-    assert not outcome_path.exists()
-    assert result.result == "failed"
-    assert result.warnings == [
-        "missing result payload for Ralph run; treating run as failed"
-    ]
-
-
 def test_run_ralph_task_waits_for_idle_after_terminal_result_tool(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1102,6 +1030,155 @@ def test_run_ralph_task_prefers_outcome_file_over_result_tool_outcome(
 
     assert result.result == "incomplete"
     assert result.warnings == []
+
+
+def test_run_ralph_task_retries_missing_result_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from jri.core.opencode.client import _MISSING_RESULT_FOLLOW_UP_PROMPT
+
+    server = OpenCodeServer(binary="opencode")
+    outcome_path = tmp_path / "result.txt"
+    events = [
+        *_sse_event(
+            {
+                "type": "session.status",
+                "properties": {
+                    "sessionID": "ses_123",
+                    "status": "running",
+                },
+            }
+        ),
+        *_sse_event(
+            {
+                "type": "session.status",
+                "properties": {
+                    "sessionID": "ses_123",
+                    "status": "idle",
+                },
+            }
+        ),
+        *_sse_event(
+            {
+                "type": "session.status",
+                "properties": {
+                    "sessionID": "ses_123",
+                    "status": "running",
+                },
+            }
+        ),
+        *_sse_event(
+            {
+                "type": "session.status",
+                "properties": {
+                    "sessionID": "ses_123",
+                    "status": "idle",
+                },
+            }
+        ),
+    ]
+    prompt_bodies: list[object] = []
+
+    def fake_http_request(
+        method: str,
+        url: str,
+        *,
+        body: object | None = None,
+        timeout: float = 10.0,
+    ) -> tuple[int, bytes]:
+        del method, timeout
+        if url.endswith("/prompt_async"):
+            assert isinstance(body, dict)
+            prompt_bodies.append(body)
+            if len(prompt_bodies) == 2:
+                outcome_path.write_text(_result_payload("completed"), encoding="utf-8")
+            return 202, b"{}"
+        return 201, b'{"id": "ses_123"}'
+
+    def fake_urlopen(*args: object, **kwargs: object) -> object:
+        return _FakeSSEStream(events)
+
+    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.client.urllib.request.urlopen", fake_urlopen)
+
+    result = server.run_ralph_task(
+        root=tmp_path,
+        prompt="Solve the task",
+        log_path=tmp_path / "ralph.log",
+        result_path=outcome_path,
+    )
+
+    assert result.result == "completed"
+    assert len(prompt_bodies) == 2
+    assert isinstance(prompt_bodies[0], dict)
+    assert isinstance(prompt_bodies[1], dict)
+    first_prompt = cast(dict[str, object], dict(prompt_bodies[0]))
+    second_prompt = cast(dict[str, object], dict(prompt_bodies[1]))
+    assert first_prompt["parts"] == [{"type": "text", "text": "Solve the task"}]
+    assert second_prompt["parts"] == [
+        {"type": "text", "text": _MISSING_RESULT_FOLLOW_UP_PROMPT}
+    ]
+
+
+def test_run_ralph_task_fails_after_missing_result_follow_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = OpenCodeServer(binary="opencode")
+    outcome_path = tmp_path / "result.txt"
+    events = [
+        *_sse_event(
+            {
+                "type": "session.status",
+                "properties": {
+                    "sessionID": "ses_123",
+                    "status": "running",
+                },
+            }
+        ),
+        *_sse_event(
+            {
+                "type": "session.status",
+                "properties": {
+                    "sessionID": "ses_123",
+                    "status": "idle",
+                },
+            }
+        ),
+    ]
+    prompt_calls = 0
+
+    def fake_http_request(
+        method: str,
+        url: str,
+        *,
+        body: object | None = None,
+        timeout: float = 10.0,
+    ) -> tuple[int, bytes]:
+        del method, body, timeout
+        nonlocal prompt_calls
+        if url.endswith("/prompt_async"):
+            prompt_calls += 1
+            return 202, b"{}"
+        return 201, b'{"id": "ses_123"}'
+
+    def fake_urlopen(*args: object, **kwargs: object) -> object:
+        return _FakeSSEStream(events)
+
+    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.client.urllib.request.urlopen", fake_urlopen)
+
+    result = server.run_ralph_task(
+        root=tmp_path,
+        prompt="Solve the task",
+        log_path=tmp_path / "ralph.log",
+        result_path=outcome_path,
+    )
+
+    assert result.result == "failed"
+    assert prompt_calls == 2
+    assert result.warnings == [
+        "missing result payload for Ralph run; treating run as failed"
+    ]
 
 
 def test_parse_event_line_trims_long_tool_output() -> None:

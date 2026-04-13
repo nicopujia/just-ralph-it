@@ -346,6 +346,11 @@ def launch_chat(
 
 _SERVER_HEALTH_TIMEOUT = 30.0
 _SERVER_HEALTH_INTERVAL = 0.25
+_MISSING_RESULT_FOLLOW_UP_PROMPT = (
+    "Your last response ended without the required result payload. "
+    "Final action only: call `ralph-result` exactly once with the correct payload, "
+    "then stop."
+)
 
 
 def _pick_free_local_port() -> int:
@@ -637,34 +642,16 @@ class OpenCodeServer:
         seen_tool_calls: set[str] = set()
         saw_active_status = False
         # 3. Send prompt
-        prompt_body: dict[str, object] = {
-            "agent": "ralph",
-            "parts": [{"type": "text", "text": prompt}],
-        }
-        model_payload = self._model_payload()
-        if model_payload is not None:
-            prompt_body["model"] = model_payload
-        try:
-            p_status, p_body = _http_request(
-                "POST",
-                f"{self._base_url}/session/{session_id}/prompt_async",
-                body=prompt_body,
-                timeout=30.0,
-            )
-        except Exception as err:  # noqa: BLE001
-            stop_event.set()
-            self._delete_session(session_id)
-            raise JriError(f"failed to start ralph prompt: {err}") from err
-        if p_status >= 400:
-            stop_event.set()
-            self._delete_session(session_id)
-            raise JriError(
-                f"failed to start ralph prompt (HTTP {p_status}): "
-                f"{p_body.decode('utf-8', errors='replace')}"
-            )
+        self._start_ralph_prompt(
+            session_id,
+            prompt,
+            on_error=lambda: self._delete_session(session_id),
+            error_context="start ralph prompt",
+        )
 
         # 4. Drive event loop
         last_terminal_char = "\n"
+        sent_missing_result_follow_up = False
         try:
             with log_path.open("a", encoding="utf-8") as log_file:
                 while True:
@@ -700,6 +687,19 @@ class OpenCodeServer:
                     if status_type in {"running", "busy"}:
                         saw_active_status = True
                     if status_type == "idle" and saw_active_status:
+                        if (
+                            not result_path.exists()
+                            and not sent_missing_result_follow_up
+                        ):
+                            self._start_ralph_prompt(
+                                session_id,
+                                _MISSING_RESULT_FOLLOW_UP_PROMPT,
+                                on_error=stop_event.set,
+                                error_context="start ralph result follow-up",
+                            )
+                            sent_missing_result_follow_up = True
+                            saw_active_status = False
+                            continue
                         break
         finally:
             stop_event.set()
@@ -740,6 +740,38 @@ class OpenCodeServer:
             )
         except Exception:
             pass
+
+    def _start_ralph_prompt(
+        self,
+        session_id: str,
+        prompt: str,
+        *,
+        on_error: Callable[[], None],
+        error_context: str,
+    ) -> None:
+        prompt_body: dict[str, object] = {
+            "agent": "ralph",
+            "parts": [{"type": "text", "text": prompt}],
+        }
+        model_payload = self._model_payload()
+        if model_payload is not None:
+            prompt_body["model"] = model_payload
+        try:
+            p_status, p_body = _http_request(
+                "POST",
+                f"{self._base_url}/session/{session_id}/prompt_async",
+                body=prompt_body,
+                timeout=30.0,
+            )
+        except Exception as err:  # noqa: BLE001
+            on_error()
+            raise JriError(f"failed to {error_context}: {err}") from err
+        if p_status >= 400:
+            on_error()
+            raise JriError(
+                f"failed to {error_context} (HTTP {p_status}): "
+                f"{p_body.decode('utf-8', errors='replace')}"
+            )
 
     def _handle_permission(self, event: dict[str, object]) -> None:
         """Auto-approve any permission.asked event."""
