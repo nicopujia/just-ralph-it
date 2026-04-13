@@ -1,12 +1,10 @@
 import json
 import os
-import re
 import select
 import shutil
 import signal
 import subprocess
 import sys
-import tempfile
 import termios
 import time
 import tty
@@ -54,12 +52,11 @@ from .opencode import (
     launch_chat,
     render_saved_log,
 )
-from .opencode.config import (
-    AGENT_FILENAMES,
-    TOOL_FILENAMES,
-    load_agent_text,
-    load_config_text,
-    load_tool_text,
+from .opencode.session import (
+    detect_latest_session,
+    export_session_if_available,
+    list_sessions,
+    runtime_env,
 )
 from .paths import JriPaths
 from .state import StateStore
@@ -77,6 +74,7 @@ from .ui import task_footer, task_header
 _INIT_COMMIT_PATHS = (
     ".jri",
     "Makefile",
+    "README.md",
     ".jri/README.md",
     ".jri/learnings.md",
     ".jri/tasks/draft/.gitkeep",
@@ -87,6 +85,7 @@ _INIT_COMMIT_PATHS = (
 )
 _UPGRADE_COMMIT_PATHS = (
     "Makefile",
+    "README.md",
     ".jri/.gitignore",
     ".jri/README.md",
     ".jri/learnings.md",
@@ -105,7 +104,7 @@ _SCAFFOLD_TEMPLATE_PATHS = (
     ".jri/tasks/done/.gitkeep",
     ".jri/attempts/.gitkeep",
 )
-_ROOT_SCAFFOLD_PATHS = ("Makefile",)
+_ROOT_SCAFFOLD_PATHS = ("Makefile", "README.md")
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
 _MAX_TASK_TITLE_LENGTH = 50
 _DEFAULT_MAKEFILE = """.PHONY: check
@@ -230,7 +229,7 @@ class JriService:
             self.state_store.save_session(None)
         before = {
             session_id
-            for session in self._list_sessions()
+            for session in list_sessions(self.opencode, root=self.root)
             if isinstance((session_id := session.get("id")), str)
         }
         state = self.state_store.load()
@@ -239,8 +238,7 @@ class JriService:
             if isinstance(self.opencode, OpenCodeServer)
             else "opencode"
         )
-        with self._runtime_opencode_env(
-            root=self.root,
+        with runtime_env(
             overrides={
                 "interrogator": model,
                 "interrogator-validator": validator_model,
@@ -254,8 +252,10 @@ class JriService:
                 env=env,
             )
         if state.session is None:
-            after = self._list_sessions()
-            session_id = self._detect_latest_session(before, after)
+            after = list_sessions(self.opencode, root=self.root)
+            session_id = detect_latest_session(
+                root=self.root, before=before, sessions=after
+            )
             if session_id is not None:
                 self.state_store.save_session(session_id)
         return returncode
@@ -306,8 +306,7 @@ class JriService:
             self._recover_stale_start_state(mode=mode, force=force)
 
         if isinstance(self.opencode, OpenCodeServer):
-            with self._runtime_opencode_env(
-                root=self.paths.worktree_dir,
+            with runtime_env(
                 overrides={
                     "ralph": model,
                     "ralph-validator": validator_model,
@@ -545,43 +544,6 @@ class JriService:
         if not self.paths.jri_dir.exists():
             raise JriError("project is not initialized; run `jri init`")
 
-    @contextmanager
-    def _runtime_opencode_env(
-        self,
-        *,
-        root: Path,
-        overrides: dict[str, str | None],
-    ) -> Iterator[dict[str, str]]:
-        config_text = load_config_text()
-        filtered_overrides = {
-            agent: model for agent, model in overrides.items() if model is not None
-        }
-        if filtered_overrides:
-            config_text = _apply_agent_model_overrides(config_text, filtered_overrides)
-        with tempfile.TemporaryDirectory(prefix="jri-opencode-") as tmp_dir:
-            bundle_root = Path(tmp_dir)
-            config_dir = bundle_root / ".opencode"
-            agents_dir = config_dir / "agents"
-            tools_dir = config_dir / "tools"
-            agents_dir.mkdir(parents=True, exist_ok=True)
-            tools_dir.mkdir(parents=True, exist_ok=True)
-            for name in AGENT_FILENAMES:
-                agents_dir.joinpath(name).write_text(
-                    load_agent_text(name),
-                    encoding="utf-8",
-                )
-            for name in TOOL_FILENAMES:
-                tools_dir.joinpath(name).write_text(
-                    load_tool_text(name),
-                    encoding="utf-8",
-                )
-            config_path = bundle_root / "opencode.json"
-            config_path.write_text(config_text, encoding="utf-8")
-            yield {
-                "OPENCODE_CONFIG": str(config_path.resolve()),
-                "OPENCODE_CONFIG_DIR": str(config_dir.resolve()),
-            }
-
     def _commit_paths(self, paths: list[str]) -> list[str]:
         scoped_paths: list[str] = []
         for path in dict.fromkeys(paths):
@@ -633,15 +595,10 @@ class JriService:
 
     def _create_scaffold(self) -> list[Path]:
         created_files: list[Path] = []
-        readme_path = self.paths.readme_path
-        if not readme_path.exists():
-            readme_path.write_text("", encoding="utf-8")
-            created_files.append(readme_path)
-
         self.paths.jri_dir.mkdir(parents=True, exist_ok=True)
 
         self._write_template_files(_SCAFFOLD_TEMPLATE_PATHS)
-        self._write_root_scaffold_files()
+        created_files.extend(self._write_root_scaffold_files())
         self._write_gitignore_file()
         self.state_store.initialize(branch=self.git.current_branch() or None)
         return created_files
@@ -686,10 +643,19 @@ class JriService:
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(_load_managed_template(relative_path), encoding="utf-8")
 
-    def _write_root_scaffold_files(self) -> None:
+    def _write_root_scaffold_files(self) -> list[Path]:
+        created_files: list[Path] = []
         makefile_path = self.root / "Makefile"
         if not makefile_path.exists():
             makefile_path.write_text(_DEFAULT_MAKEFILE, encoding="utf-8")
+            created_files.append(makefile_path)
+
+        readme_path = self.paths.readme_path
+        if not readme_path.exists():
+            readme_path.write_text("", encoding="utf-8")
+            created_files.append(readme_path)
+
+        return created_files
 
     def _start_detached(
         self,
@@ -1093,8 +1059,12 @@ class JriService:
             sys.stdout.flush()
             raise JriError(f"OpenCode exited with status {result.returncode}")
 
-        export_path = self._export_session_if_available(
-            result.session_id,
+        export_path = export_session_if_available(
+            self.opencode,
+            root=self.root,
+            external_opencode_dir=self.paths.external_opencode_dir,
+            timeline=self.timeline,
+            session_id=result.session_id,
             task_slug=task.slug,
         )
         attempt = replace(attempt, session_id=result.session_id)
@@ -1776,38 +1746,6 @@ class JriService:
                 )
             )
 
-    def _export_session_if_available(
-        self,
-        session_id: str | None,
-        *,
-        task_slug: str | None = None,
-    ) -> Path | None:
-        if session_id is None:
-            return None
-        export_path = self.paths.external_opencode_dir / f"{session_id}.json"
-        export_path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            self._call_with_server(
-                lambda: self.opencode.export_session(session_id, export_path)
-            )
-        except JriError as exc:
-            # Surface export failure to timeline and stderr
-            error_msg = f"Failed to export session {session_id}: {exc}"
-            print(error_msg, file=sys.stderr)
-            self.timeline.record(
-                TimelineEvent(
-                    ts=TimelineStore.now_iso(),
-                    event="export_failed",
-                    task=task_slug,
-                    detail={
-                        "session_id": session_id,
-                        "error": str(exc),
-                    },
-                )
-            )
-            return None
-        return export_path
-
     def _resolve_inspect_attempt(self, slug: str | None) -> AttemptState:
         state = self.state_store.load()
         if slug is None:
@@ -1926,21 +1864,6 @@ class JriService:
             yield _pressed
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, previous)
-
-    def _list_sessions(self) -> list[dict[str, object]]:
-        return self._call_with_server(
-            lambda: self.opencode.list_sessions(root=self.root)
-        )
-
-    def _call_with_server(self, operation: Callable[[], Any]) -> Any:
-        if isinstance(self.opencode, OpenCodeServer) and not self.opencode.is_healthy():
-            with self._runtime_opencode_env(root=self.root, overrides={}) as env:
-                self.opencode.start(env=env, cwd=self.root)
-                try:
-                    return operation()
-                finally:
-                    self.opencode.stop()
-        return operation()
 
     def _create_needs_human_task(
         self,
@@ -2096,28 +2019,6 @@ class JriService:
         for signum, handler in handlers.items():
             signal.signal(signum, handler)
 
-    def _detect_latest_session(
-        self,
-        before: set[str],
-        sessions: list[dict[str, object]],
-    ) -> str | None:
-        for session in sessions:
-            session_id = session.get("id")
-            directory = session.get("directory")
-            if isinstance(session_id, str) and isinstance(directory, str):
-                if Path(directory).resolve() == self.root and session_id not in before:
-                    return session_id
-        for session in sessions:
-            session_id = session.get("id")
-            directory = session.get("directory")
-            if (
-                isinstance(session_id, str)
-                and isinstance(directory, str)
-                and Path(directory).resolve() == self.root
-            ):
-                return session_id
-        return None
-
 
 def _load_managed_template(name: str) -> str:
     return (
@@ -2132,16 +2033,3 @@ def _template_resource_parts(name: str) -> tuple[str, ...]:
     if parts and parts[0] == ".jri":
         return parts[1:]
     return parts
-
-
-def _apply_agent_model_overrides(config_text: str, overrides: dict[str, str]) -> str:
-    updated = config_text
-    for agent, model in overrides.items():
-        pattern = re.compile(
-            rf'("{re.escape(agent)}"\s*:\s*\{{.*?"model"\s*:\s*")([^"]+)(")',
-            re.DOTALL,
-        )
-        updated, count = pattern.subn(rf"\g<1>{model}\g<3>", updated, count=1)
-        if count != 1:
-            raise JriError(f"failed to apply model override for agent '{agent}'")
-    return updated
