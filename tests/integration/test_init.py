@@ -186,6 +186,7 @@ def test_init_upgrade_refreshes_managed_files_without_deleting_tasks(
 
 def test_init_upgrade_restores_missing_template_scaffold_files(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
+    git_repo.joinpath("Makefile").unlink()
     git_repo.joinpath(".jri", "tasks", "draft", ".gitkeep").unlink()
     git_repo.joinpath(".jri", "attempts", ".gitkeep").unlink()
     git_repo.joinpath(".jri", "README.md").unlink()
@@ -193,6 +194,12 @@ def test_init_upgrade_restores_missing_template_scaffold_files(git_repo: Path) -
 
     assert run_cli(["init", "--upgrade"], cwd=git_repo) == 0
 
+    assert (git_repo / "Makefile").read_text(encoding="utf-8") == (
+        ".PHONY: check\n\n"
+        "check:\n"
+        '\t@echo "make check is not configured yet"\n'
+        "\t@false\n"
+    )
     assert (git_repo / ".jri" / "tasks" / "draft" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "attempts" / ".gitkeep").exists()
     assert (
@@ -222,6 +229,29 @@ def test_init_prompt_upgrade_commits_runtime_gitignore_refresh(
     assert exit_code == 0
     assert extra.exists()
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
+
+
+def test_init_leaves_existing_makefile_untouched(git_repo: Path) -> None:
+    (git_repo / "Makefile").write_text("check:\n\t@echo custom\n", encoding="utf-8")
+
+    exit_code = run_cli(["init"], cwd=git_repo)
+
+    assert exit_code == 0
+    assert (git_repo / "Makefile").read_text(encoding="utf-8") == (
+        "check:\n\t@echo custom\n"
+    )
+
+
+def test_init_upgrade_does_not_overwrite_existing_makefile(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    (git_repo / "Makefile").write_text("check:\n\t@echo custom\n", encoding="utf-8")
+
+    exit_code = run_cli(["init", "--upgrade"], cwd=git_repo)
+
+    assert exit_code == 0
+    assert (git_repo / "Makefile").read_text(encoding="utf-8") == (
+        "check:\n\t@echo custom\n"
+    )
 
 
 @pytest.mark.parametrize(

@@ -302,7 +302,7 @@ def test_packaged_schemas_are_available() -> None:
     assert files("jri.core.schemas").joinpath("task-metadata.json").is_file()
     assert files("jri.core.schemas").joinpath("state.json").is_file()
     scaffold = files("jri.core.template")
-    assert scaffold.joinpath("README.md").is_file()
+    assert scaffold.joinpath("learnings.md").is_file()
     builtins = files("jri.core.builtin_opencode")
     assert builtins.joinpath("opencode.json").is_file()
     assert builtins.joinpath(".opencode", "agents", "interrogator.md").is_file()
