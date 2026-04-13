@@ -107,7 +107,6 @@ _MANAGED_TOOL_FILENAMES = (
     "upsert-task.js",
 )
 _SCAFFOLD_TEMPLATE_PATHS = (
-    "Makefile",
     ".jri/README.md",
     ".jri/learnings.md",
     ".jri/tasks/draft/.gitkeep",
@@ -116,8 +115,15 @@ _SCAFFOLD_TEMPLATE_PATHS = (
     ".jri/tasks/done/.gitkeep",
     ".jri/attempts/.gitkeep",
 )
+_ROOT_SCAFFOLD_PATHS = ("Makefile",)
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
 _MAX_TASK_TITLE_LENGTH = 50
+_DEFAULT_MAKEFILE = """.PHONY: check
+
+check:
+	@echo "make check is not configured yet"
+	@false
+"""
 
 
 class JriService:
@@ -204,6 +210,7 @@ class JriService:
     def upgrade(self, *, commit_message: str) -> None:
         self.ensure_initialized()
         self._write_template_files(_SCAFFOLD_TEMPLATE_PATHS)
+        self._write_root_scaffold_files()
         self._write_gitignore_file()
         commit_paths = list(_UPGRADE_COMMIT_PATHS)
         commit_paths = self._commit_paths(commit_paths)
@@ -644,6 +651,7 @@ class JriService:
         self.paths.jri_dir.mkdir(parents=True, exist_ok=True)
 
         self._write_template_files(_SCAFFOLD_TEMPLATE_PATHS)
+        self._write_root_scaffold_files()
         self._write_gitignore_file()
         self.state_store.initialize(branch=self.git.current_branch() or None)
         return created_files
@@ -671,6 +679,9 @@ class JriService:
                 relative_path
             ):
                 return True
+        for relative_path in _ROOT_SCAFFOLD_PATHS:
+            if not (self.root / relative_path).exists():
+                return True
         return False
 
     def _auto_upgrade_if_needed(self) -> None:
@@ -684,6 +695,11 @@ class JriService:
                 continue
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(_load_managed_template(relative_path), encoding="utf-8")
+
+    def _write_root_scaffold_files(self) -> None:
+        makefile_path = self.root / "Makefile"
+        if not makefile_path.exists():
+            makefile_path.write_text(_DEFAULT_MAKEFILE, encoding="utf-8")
 
     def _start_detached(
         self,
