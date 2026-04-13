@@ -137,8 +137,8 @@ def _run_upsert_task(payload: dict[str, Any]) -> str:
     priority = payload.get("priority")
     if not isinstance(title, str) or not title.strip():
         raise ValueError("`title` must be a non-empty string")
-    if len(title) > 50:
-        raise ValueError("`title` must be 50 characters or fewer")
+    if len(title) > 75:
+        raise ValueError("`title` must be 75 characters or fewer")
     if not isinstance(body, str) or not body.strip():
         raise ValueError("`body` must be a non-empty string")
     if assignee not in {"Ralph", "Human"}:

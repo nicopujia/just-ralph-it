@@ -9,10 +9,13 @@ from tests.conftest import run_cli
 from tests.helpers import git
 
 
-def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
+def test_init_creates_scaffold_and_commit(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     exit_code = run_cli(["init"], cwd=git_repo)
 
     assert exit_code == 0
+    assert "init: initialization complete." in capsys.readouterr().out
     assert (git_repo / "README.md").read_text(encoding="utf-8") == "# temp repo\n"
     assert (git_repo / ".jri" / "learnings.md").read_text(encoding="utf-8") == ""
     assert (git_repo / ".jri" / "tasks" / "draft" / ".gitkeep").exists()

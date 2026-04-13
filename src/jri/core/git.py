@@ -95,20 +95,65 @@ class GitRepo:
     def current_branch(self) -> str:
         return self.run("branch", "--show-current").stdout.strip()
 
+    def _validated_default_branch(self, branch: str) -> str:
+        if branch == "ralph":
+            raise JriError(
+                "detected default branch 'ralph'; change the repository "
+                "default branch name before running jri"
+            )
+        return branch
+
     def default_branch(self, *, hint: str | None = None) -> str:
         if hint:
-            return hint
+            return self._validated_default_branch(hint)
+        result = self.run(
+            "symbolic-ref",
+            "--quiet",
+            "--short",
+            "refs/remotes/origin/HEAD",
+            check=False,
+        )
+        if result.returncode == 0:
+            branch = result.stdout.strip().removeprefix("origin/")
+            if branch:
+                return self._validated_default_branch(branch)
         result = self.run(
             "rev-parse", "--verify", "--quiet", "refs/heads/main", check=False
         )
         if result.returncode == 0:
-            return "main"
+            return self._validated_default_branch("main")
         result = self.run(
             "rev-parse", "--verify", "--quiet", "refs/heads/master", check=False
         )
         if result.returncode == 0:
-            return "master"
-        return self.current_branch() or "main"
+            return self._validated_default_branch("master")
+        current = self.current_branch()
+        if current:
+            return self._validated_default_branch(current)
+        result = self.run(
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "--points-at",
+            "HEAD",
+            "refs/heads",
+            check=False,
+        )
+        if result.returncode == 0:
+            branches = [
+                line.strip() for line in result.stdout.splitlines() if line.strip()
+            ]
+            if branches:
+                return self._validated_default_branch(branches[0])
+        result = self.run(
+            "for-each-ref", "--format=%(refname:short)", "refs/heads", check=False
+        )
+        if result.returncode == 0:
+            branches = [
+                line.strip() for line in result.stdout.splitlines() if line.strip()
+            ]
+            if len(branches) == 1:
+                return self._validated_default_branch(branches[0])
+        return self._validated_default_branch("main")
 
     def ensure_default_branch(self, *, hint: str | None = None) -> None:
         default = self.default_branch(hint=hint)

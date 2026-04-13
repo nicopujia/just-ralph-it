@@ -6,7 +6,7 @@ export default tool({
   description:
     "Create or update one draft task at .jri/tasks/draft/<slug>.md from structured fields. This is the canonical way to manage draft task contents.",
   args: {
-    title: tool.schema.string().describe("Brief task title, max 50 chars"),
+    title: tool.schema.string().describe("Brief task title, max 75 chars"),
     body: tool.schema.string().describe("Markdown task body"),
     assignee: tool.schema
       .enum(["Ralph", "Human"])

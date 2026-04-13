@@ -10,6 +10,14 @@ from ..core.service import JriService
 
 _INTERNAL_RUN_LOOP_ENV = "JRI_INTERNAL_RUN_LOOP"
 
+_COMMAND_MESSAGES = {
+    "halt": "tracked Ralph process stopped.",
+    "init": "initialization complete.",
+    "reset": "reset complete.",
+    "start": "Ralph is running in the background. Use `jri attach` to follow progress.",
+    "stop": "stop requested; Ralph will stop after the current task.",
+}
+
 
 def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
@@ -40,11 +48,14 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
     try:
         match args.command:
             case "chat":
-                return service.chat(
-                    unknown,
-                    fresh=args.fresh,
-                    model=args.model,
-                    validator_model=args.validator_model,
+                return _finalize_command_return(
+                    "chat",
+                    service.chat(
+                        unknown,
+                        fresh=args.fresh,
+                        model=args.model,
+                        validator_model=args.validator_model,
+                    ),
                 )
             case "status":
                 tasks_by_status = service.status()
@@ -83,8 +94,13 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 if args.task:
                     events = [e for e in events if e.task == args.task]
                 if args.json:
-                    for event in events:
-                        print(event.to_jsonl())
+                    if not events:
+                        print("[]")
+                    else:
+                        for event in events:
+                            print(event.to_jsonl())
+                elif not events:
+                    print("No timeline events recorded.")
                 else:
                     for event in events:
                         parts = [event.ts, event.event]
@@ -109,34 +125,39 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     commit_message=MSG_INIT,
                     upgrade_commit_message=MSG_UPGRADE,
                 )
+                _print_command_message("init")
                 return 0
             case "start":
                 if args.detached:
-                    return (
-                        0
-                        if service.start(
-                            max_tasks=args.max_tasks,
-                            detached=True,
-                            model=args.model,
-                            validator_model=args.validator_model,
-                            task_timeout=args.task_timeout,
-                            force=args.force,
-                        )
-                        >= 0
-                        else 1
+                    result = service.start(
+                        max_tasks=args.max_tasks,
+                        detached=True,
+                        model=args.model,
+                        validator_model=args.validator_model,
+                        task_timeout=args.task_timeout,
+                        force=args.force,
                     )
-                return service.start_attached(
-                    max_tasks=args.max_tasks,
-                    model=args.model,
-                    validator_model=args.validator_model,
-                    task_timeout=args.task_timeout,
-                    force=args.force,
+                    if result >= 0:
+                        _print_command_message("start")
+                        return 0
+                    return _finalize_command_return("start", -result)
+                return _finalize_command_return(
+                    "start",
+                    service.start_attached(
+                        max_tasks=args.max_tasks,
+                        model=args.model,
+                        validator_model=args.validator_model,
+                        task_timeout=args.task_timeout,
+                        force=args.force,
+                    ),
                 )
             case "stop":
                 service.stop(args.reason)
+                _print_command_message("stop")
                 return 0
             case "halt":
                 service.halt()
+                _print_command_message("halt")
                 return 0
             case "reset":
                 if not args.force:
@@ -159,6 +180,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         return 1
 
                 service.reset(target_task=args.task)
+                _print_command_message("reset")
                 return 0
             case "attach":
                 service.attach()
@@ -167,7 +189,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 parser.print_help()
                 return 1
     except JriError as error:
-        print(str(error), file=sys.stderr)
+        _print_command_error(args.command, str(error))
         return 1
     except subprocess.CalledProcessError as error:
         cmd = " ".join(error.cmd) if isinstance(error.cmd, list) else error.cmd
@@ -175,11 +197,26 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
         message = f"git command failed: {cmd}"
         if detail:
             message += f"\n{detail}"
-        print(message, file=sys.stderr)
+        _print_command_error(args.command, message)
         return 1
     except OSError as error:
-        print(str(error), file=sys.stderr)
+        _print_command_error(args.command, str(error))
         return 1
+
+
+def _print_command_message(command: str) -> None:
+    print(f"{command}: {_COMMAND_MESSAGES[command]}")
+
+
+def _finalize_command_return(command: str, returncode: int) -> int:
+    if returncode != 0:
+        _print_command_error(command, f"command exited with status {returncode}")
+    return returncode
+
+
+def _print_command_error(command: str | None, message: str) -> None:
+    prefix = f"{command}: " if command else ""
+    print(f"{prefix}{message}", file=sys.stderr)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -209,6 +246,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     chat_parser.add_argument(
         "--fresh",
+        "--new",
         action="store_true",
         help="Clear the existing interrogator session and start fresh.",
     )

@@ -7,7 +7,7 @@
     "title": {
       "type": "string",
       "description": "Brief explanation of the task.",
-      "maxLength": 50
+      "maxLength": 75
     },
     "priority": {
       "type": "integer",

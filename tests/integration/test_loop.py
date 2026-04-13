@@ -1050,6 +1050,35 @@ def test_ctl_start_detaches_foreground_follow(
     assert process["detached"] is True
 
 
+def test_ctl_start_detached_reports_background_run(
+    git_repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    capsys.readouterr()
+
+    original_popen = cast(Any, subprocess.Popen)
+    expected_command = [sys.executable, "-m", "jri", "-n", "1"]
+
+    def fake_popen(*args: object, **kwargs: object) -> object:
+        command = cast(list[str], args[0])
+        if command != expected_command:
+            return original_popen(*args, **kwargs)
+        assert kwargs["cwd"] == git_repo
+        assert cast(dict[str, str], kwargs["env"])["JRI_INTERNAL_RUN_LOOP"] == "1"
+        assert kwargs["start_new_session"] is True
+        return FakeDetachedProcess(616161)
+
+    monkeypatch.setattr("jri.core.service.subprocess.Popen", fake_popen)
+
+    assert run_cli(["start", "-n", "1", "--detached"], cwd=git_repo) == 0
+
+    output = capsys.readouterr().out
+    assert "start: Ralph is running in the background." in output
+    assert "jri attach" in output
+
+
 def test_ctl_attach_replays_tracked_run_output(
     git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -1308,6 +1337,21 @@ def test_stop_creates_stop_signal(git_repo: Path) -> None:
     ) == "maintenance window\n"
 
 
+def test_ctl_stop_reports_stop_request(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    capsys.readouterr()
+
+    assert run_cli(["stop", "maintenance"], cwd=git_repo) == 0
+
+    output = capsys.readouterr().out
+    assert "stop: stop requested; Ralph will stop after the current task." in output
+    assert (git_repo / ".jri" / "signals" / "stop").read_text(
+        encoding="utf-8"
+    ) == "maintenance\n"
+
+
 def test_reset_returns_repo_to_last_successful_task(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
@@ -1353,6 +1397,27 @@ def test_halt_terminates_tracked_process(git_repo: Path) -> None:
             os.kill(sleeper.pid, signal.SIGTERM)
 
     assert sleeper.returncode is not None
+
+
+def test_ctl_halt_reports_success(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    capsys.readouterr()
+    sleeper = subprocess.Popen(["sleep", "30"])
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.state_store.save_process(
+        loop_pid=sleeper.pid, child_pid=None, log_path=None, detached=True
+    )
+
+    try:
+        assert run_cli(["halt"], cwd=git_repo) == 0
+        sleeper.wait(timeout=5)
+    finally:
+        if sleeper.poll() is None:
+            os.kill(sleeper.pid, signal.SIGTERM)
+
+    assert "halt: tracked Ralph process stopped." in capsys.readouterr().out
 
 
 def test_halt_skips_current_process_and_terminates_tracked_child(
@@ -2390,6 +2455,28 @@ def test_timeline_cli_outputs_jsonl(
         parsed = json.loads(line)
         assert "ts" in parsed
         assert "event" in parsed
+
+
+def test_timeline_cli_reports_empty_history(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    capsys.readouterr()
+
+    assert run_cli(["timeline"], cwd=git_repo) == 0
+
+    assert "No timeline events recorded." in capsys.readouterr().out
+
+
+def test_timeline_cli_outputs_empty_json_array_when_history_is_empty(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    capsys.readouterr()
+
+    assert run_cli(["timeline", "--json"], cwd=git_repo) == 0
+
+    assert capsys.readouterr().out.strip() == "[]"
 
 
 def test_task_limit_stops_loop_after_n_tasks(git_repo: Path) -> None:

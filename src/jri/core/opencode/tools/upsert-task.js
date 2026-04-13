@@ -5,7 +5,7 @@ export default tool({
   name: "upsert-task",
   description: "Create or update one draft task.",
   args: {
-    title: tool.schema.string().describe("Brief task title, max 50 chars"),
+    title: tool.schema.string().describe("Brief task title, max 75 chars"),
     body: tool.schema
       .string()
       .describe(
