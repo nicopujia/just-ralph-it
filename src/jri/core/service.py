@@ -29,7 +29,6 @@ from .git import (
     MSG_RECOVER_STALE,
     MSG_START_BEGIN,
     MSG_START_COMPLETE,
-    MSG_UPGRADE_AUTO,
     GitRepo,
     parse_tag_name,
     tag_name,
@@ -81,16 +80,6 @@ _INIT_COMMIT_PATHS = (
     ".jri/tasks/done/.gitkeep",
     ".jri/attempts/.gitkeep",
 )
-_UPGRADE_COMMIT_PATHS = (
-    "Makefile",
-    ".jri/.gitignore",
-    ".jri/learnings.md",
-    ".jri/tasks/draft/.gitkeep",
-    ".jri/tasks/todo/.gitkeep",
-    ".jri/tasks/doing/.gitkeep",
-    ".jri/tasks/done/.gitkeep",
-    ".jri/attempts/.gitkeep",
-)
 _SCAFFOLD_TEMPLATE_PATHS = (
     ".jri/learnings.md",
     ".jri/tasks/draft/.gitkeep",
@@ -130,54 +119,32 @@ class JriService:
         self,
         *,
         delete: bool,
-        upgrade: bool,
         commit_message: str,
-        upgrade_commit_message: str,
     ) -> None:
         self.git.ensure_repo()
 
         # Check for existing managed directories
         jri_exists = self.paths.jri_dir.exists()
 
-        if upgrade and jri_exists:
-            self.upgrade(commit_message=upgrade_commit_message)
-            return
-
         if jri_exists:
             if delete:
                 # Delete mode: remove existing managed files without prompting
                 if jri_exists:
                     shutil.rmtree(self.paths.jri_dir)
-            elif not upgrade:
-                # Interactive mode: ask user what to do
-                existing = []
-                if jri_exists:
-                    existing.append(".jri/")
-
-                existing_str = " and ".join(existing)
-                print(f"Existing {existing_str} directories found.")
+            else:
+                print("Existing .jri/ directory found.")
                 print("  [d] Delete - remove existing and reinitialize")
-                print("  [u] Upgrade - refresh managed files only")
                 print("  [a] Abort - cancel initialization")
-                print("Choice [d/u/a]: ", end="", flush=True)
+                print("Choice [d/a]: ", end="", flush=True)
 
                 try:
                     choice = input().strip().lower()
                 except EOFError:
-                    # Non-interactive environment (e.g., CI)
                     choice = "a"
 
                 if choice == "d":
-                    # User chose to delete and reinitialize
-                    if jri_exists:
-                        shutil.rmtree(self.paths.jri_dir)
-                elif choice == "u":
-                    # User chose to upgrade managed files only
-                    if jri_exists:
-                        self.upgrade(commit_message=upgrade_commit_message)
-                        return
+                    shutil.rmtree(self.paths.jri_dir)
                 else:
-                    # User chose abort or invalid input
                     raise JriError("initialization aborted by user")
 
         created_files = self._create_scaffold()
@@ -190,26 +157,6 @@ class JriService:
         if not self.git.status_short(*commit_paths):
             return
         self.git.run("commit", "-m", commit_message, "--", *commit_paths)
-
-    def upgrade(self, *, commit_message: str) -> None:
-        self.ensure_initialized()
-        self._write_template_files(_SCAFFOLD_TEMPLATE_PATHS)
-        self._write_root_scaffold_files()
-        self._write_gitignore_file()
-        commit_paths = list(_UPGRADE_COMMIT_PATHS)
-        commit_paths = self._commit_paths(commit_paths)
-        # Check if there's anything to commit
-        if not self.git.status_short(*commit_paths):
-            return
-        # Stage all paths now that .opencode files are tracked normally
-        self.git.run("add", "-A", "--", *commit_paths)
-        result = self.git.run(
-            "commit", "-m", commit_message, "--", *commit_paths, check=False
-        )
-        if result.returncode != 0:
-            raise JriError(
-                result.stderr.strip() or f"failed to commit: {commit_message}"
-            )
 
     def chat(
         self,
@@ -606,30 +553,6 @@ class JriService:
             encoding="utf-8",
         )
 
-    def needs_upgrade(self) -> bool:
-        """Check if managed files are outdated."""
-        if not self.paths.gitignore_path.exists():
-            return True
-        current = self.paths.gitignore_path.read_text(encoding="utf-8")
-        if current != self._GITIGNORE_CONTENT:
-            return True
-        for relative_path in _SCAFFOLD_TEMPLATE_PATHS:
-            path = self.root / relative_path
-            if not path.exists():
-                return True
-            if path.read_text(encoding="utf-8") != _load_managed_template(
-                relative_path
-            ):
-                return True
-        for relative_path in _ROOT_SCAFFOLD_PATHS:
-            if not (self.root / relative_path).exists():
-                return True
-        return False
-
-    def _auto_upgrade_if_needed(self) -> None:
-        if self.needs_upgrade():
-            self.upgrade(commit_message=MSG_UPGRADE_AUTO)
-
     def _write_template_files(self, relative_paths: tuple[str, ...]) -> None:
         for relative_path in relative_paths:
             path = self.root / relative_path
@@ -757,7 +680,6 @@ class JriService:
             raise JriError(str(exc)) from exc
         if doing:
             raise JriError("a task is already in progress")
-        self._auto_upgrade_if_needed()
         self._handle_dirty_workdir(force=force)
         self._handle_wrong_branch(force=force)
         if self.paths.stop_signal_path.exists():

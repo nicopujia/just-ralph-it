@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 
 import jri.core.git as git_module
-import jri.core.service as service_module
 from tests.conftest import run_cli
 from tests.helpers import git
 
@@ -161,67 +160,6 @@ def test_init_force_removes_custom_jri_state(git_repo: Path) -> None:
     assert not (git_repo / ".jri" / ".opencode").exists()
 
 
-def test_init_upgrade_refreshes_managed_files_without_deleting_tasks(
-    git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
-    extra = git_repo / ".jri" / "tasks" / "todo" / "extra.md"
-    extra.write_text("temporary task", encoding="utf-8")
-    monkeypatch.setattr(
-        service_module.JriService,
-        "_GITIGNORE_CONTENT",
-        "logs/\nsignals/\n*state.json*\nmetrics.json\nworktree/\ncache/\n",
-    )
-
-    exit_code = run_cli(["init", "--upgrade"], cwd=git_repo)
-
-    assert exit_code == 0
-    assert extra.exists()
-    assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
-
-
-def test_init_upgrade_restores_missing_template_scaffold_files(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
-    git_repo.joinpath("Makefile").unlink()
-    git_repo.joinpath(".jri", "tasks", "draft", ".gitkeep").unlink()
-    git_repo.joinpath(".jri", "attempts", ".gitkeep").unlink()
-    git_repo.joinpath(".jri", "learnings.md").unlink()
-
-    assert run_cli(["init", "--upgrade"], cwd=git_repo) == 0
-
-    assert (git_repo / "Makefile").read_text(encoding="utf-8") == (
-        ".PHONY: check\n\n"
-        "check:\n"
-        '\t@echo "make check is not configured yet"\n'
-        "\t@false\n"
-    )
-    assert (git_repo / ".jri" / "tasks" / "draft" / ".gitkeep").exists()
-    assert (git_repo / ".jri" / "attempts" / ".gitkeep").exists()
-    assert (git_repo / ".jri" / "learnings.md").read_text(encoding="utf-8") == ""
-
-
-def test_init_prompt_upgrade_commits_runtime_gitignore_refresh(
-    git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
-    extra = git_repo / ".jri" / "tasks" / "todo" / "prompt-upgrade.md"
-    extra.write_text("keep me", encoding="utf-8")
-    monkeypatch.setattr(
-        service_module.JriService,
-        "_GITIGNORE_CONTENT",
-        "logs/\nsignals/\n*state.json*\nmetrics.json\nworktree/\ncache/\n",
-    )
-    monkeypatch.setattr("builtins.input", lambda: "u")
-
-    exit_code = run_cli(["init"], cwd=git_repo)
-
-    assert exit_code == 0
-    assert extra.exists()
-    assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
-
-
 def test_init_leaves_existing_makefile_untouched(git_repo: Path) -> None:
     (git_repo / "Makefile").write_text("check:\n\t@echo custom\n", encoding="utf-8")
 
@@ -233,21 +171,9 @@ def test_init_leaves_existing_makefile_untouched(git_repo: Path) -> None:
     )
 
 
-def test_init_upgrade_does_not_overwrite_existing_makefile(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
-    (git_repo / "Makefile").write_text("check:\n\t@echo custom\n", encoding="utf-8")
-
-    exit_code = run_cli(["init", "--upgrade"], cwd=git_repo)
-
-    assert exit_code == 0
-    assert (git_repo / "Makefile").read_text(encoding="utf-8") == (
-        "check:\n\t@echo custom\n"
-    )
-
-
 @pytest.mark.parametrize(
     "args",
-    [["upgrade"], ["init", "--bogus"]],
+    [["upgrade"], ["init", "--upgrade"], ["init", "--bogus"]],
 )
 def test_init_rejects_removed_upgrade_command_and_unknown_flags(
     git_repo: Path,
