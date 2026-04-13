@@ -2,11 +2,11 @@
 
 ## Agents
 
-### [Interrogator](../src/jri/core/template/.opencode/agents/interrogator.md)
+### [Interrogator](../src/jri/core/builtin_opencode/.opencode/agents/interrogator.md)
 
 Generates/refines tasks. Asks many questions and uses tools to manage `draft` tasks until they are ready for `todo`. One per project.
 
-### [Ralph](../src/jri/core/template/.opencode/agents/ralph.md)
+### [Ralph](../src/jri/core/builtin_opencode/.opencode/agents/ralph.md)
 
 Solves exactly one task. Acts as orchestrator, spawning subagents instead of doing the work itself. Ralph can report three outcomes:
 
@@ -41,7 +41,7 @@ Attempt history is persisted on the main branch under `.jri/attempts/<task-slug>
 
 ## Generated Structure
 
-`jri init` commits files [@src/jri/core/template](../src/jri/core/template/) under `.jri/`, alongside `.gitignore`d files which are generated at runtime, including:
+`jri init` commits only project-owned scaffold and state under `.jri/`. The OpenCode agent/tool/config bundle is installation-owned and assembled into a temporary runtime directory for each chat or Ralph run. Alongside the committed scaffold, these `.gitignore`d runtime files are generated as needed:
 
 - `state.json`: active runtime state for sessions, loop tracking, and recovery.
 - `state.json.bak`: backup written while updating runtime state.

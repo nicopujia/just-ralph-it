@@ -69,8 +69,6 @@ from .ui import task_footer, task_header
 
 _INIT_COMMIT_PATHS = (
     ".jri",
-    ".opencode",
-    "opencode.json",
     "Makefile",
     ".jri/README.md",
     ".jri/learnings.md",
@@ -83,8 +81,6 @@ _INIT_COMMIT_PATHS = (
 _UPGRADE_COMMIT_PATHS = (
     "Makefile",
     ".jri/.gitignore",
-    ".jri/.opencode",
-    ".jri/opencode.json",
     ".jri/README.md",
     ".jri/learnings.md",
     ".jri/tasks/draft/.gitkeep",
@@ -92,17 +88,12 @@ _UPGRADE_COMMIT_PATHS = (
     ".jri/tasks/doing/.gitkeep",
     ".jri/tasks/done/.gitkeep",
     ".jri/attempts/.gitkeep",
-    ".opencode",
-    "opencode.json",
 )
 _MANAGED_AGENT_FILENAMES = (
     "interrogator.md",
     "interrogator-validator.md",
     "ralph.md",
     "ralph-validator.md",
-)
-_MANAGED_AGENT_PATHS = tuple(
-    f".jri/.opencode/agents/{name}" for name in _MANAGED_AGENT_FILENAMES
 )
 _MANAGED_TOOL_FILENAMES = (
     "_run-python-tool.mjs",
@@ -115,10 +106,6 @@ _MANAGED_TOOL_FILENAMES = (
     "rename-task.js",
     "upsert-task.js",
 )
-_MANAGED_TOOL_PATHS = tuple(
-    f".jri/.opencode/tools/{name}" for name in _MANAGED_TOOL_FILENAMES
-)
-_MANAGED_CONFIG_FILENAMES = (".jri/opencode.json",)
 _SCAFFOLD_TEMPLATE_PATHS = (
     "Makefile",
     ".jri/README.md",
@@ -161,25 +148,21 @@ class JriService:
 
         # Check for existing managed directories
         jri_exists = self.paths.jri_dir.exists()
-        legacy_managed_exists = self._legacy_managed_files_exist()
 
         if upgrade and jri_exists:
             self.upgrade(commit_message=upgrade_commit_message)
             return
 
-        if jri_exists or legacy_managed_exists:
+        if jri_exists:
             if delete:
                 # Delete mode: remove existing managed files without prompting
                 if jri_exists:
                     shutil.rmtree(self.paths.jri_dir)
-                self._remove_legacy_managed_files()
             elif not upgrade:
                 # Interactive mode: ask user what to do
                 existing = []
                 if jri_exists:
                     existing.append(".jri/")
-                if legacy_managed_exists:
-                    existing.append("legacy OpenCode config")
 
                 existing_str = " and ".join(existing)
                 print(f"Existing {existing_str} directories found.")
@@ -198,7 +181,6 @@ class JriService:
                     # User chose to delete and reinitialize
                     if jri_exists:
                         shutil.rmtree(self.paths.jri_dir)
-                    self._remove_legacy_managed_files()
                 elif choice == "u":
                     # User chose to upgrade managed files only
                     if jri_exists:
@@ -211,8 +193,6 @@ class JriService:
         created_files = self._create_scaffold()
         commit_paths = list(_INIT_COMMIT_PATHS)
         commit_paths.extend(str(path.relative_to(self.root)) for path in created_files)
-        commit_paths.extend(_MANAGED_AGENT_PATHS)
-        commit_paths.extend(_MANAGED_TOOL_PATHS)
         commit_paths = self._commit_paths(commit_paths)
         # Stage all paths first
         self.git.run("add", "-A", "--", *commit_paths)
@@ -224,10 +204,8 @@ class JriService:
     def upgrade(self, *, commit_message: str) -> None:
         self.ensure_initialized()
         self._write_template_files(_SCAFFOLD_TEMPLATE_PATHS)
-        self._write_managed_files()
+        self._write_gitignore_file()
         commit_paths = list(_UPGRADE_COMMIT_PATHS)
-        commit_paths.extend(_MANAGED_AGENT_PATHS)
-        commit_paths.extend(_MANAGED_TOOL_PATHS)
         commit_paths = self._commit_paths(commit_paths)
         # Check if there's anything to commit
         if not self.git.status_short(*commit_paths):
@@ -264,8 +242,8 @@ class JriService:
             if isinstance(self.opencode, OpenCodeServer)
             else "opencode"
         )
-        with self._temporary_opencode_env(
-            self.paths,
+        with self._runtime_opencode_env(
+            root=self.root,
             overrides={
                 "interrogator": model,
                 "interrogator-validator": validator_model,
@@ -331,8 +309,8 @@ class JriService:
             self._recover_stale_start_state(mode=mode, force=force)
 
         if isinstance(self.opencode, OpenCodeServer):
-            with self._temporary_opencode_env(
-                self.paths,
+            with self._runtime_opencode_env(
+                root=self.paths.worktree_dir,
                 overrides={
                     "ralph": model,
                     "ralph-validator": validator_model,
@@ -570,34 +548,41 @@ class JriService:
         if not self.paths.jri_dir.exists():
             raise JriError("project is not initialized; run `jri init`")
 
-    def _opencode_env(self, paths: JriPaths) -> dict[str, str]:
-        return {
-            "OPENCODE_CONFIG": str(paths.opencode_config_path.resolve()),
-            "OPENCODE_CONFIG_DIR": str(paths.opencode_dir.resolve()),
-        }
-
     @contextmanager
-    def _temporary_opencode_env(
+    def _runtime_opencode_env(
         self,
-        paths: JriPaths,
         *,
+        root: Path,
         overrides: dict[str, str | None],
     ) -> Iterator[dict[str, str]]:
+        config_text = _load_builtin_opencode_asset("opencode.json")
         filtered_overrides = {
             agent: model for agent, model in overrides.items() if model is not None
         }
-        if not filtered_overrides:
-            yield self._opencode_env(paths)
-            return
-
-        config_text = paths.opencode_config_path.read_text(encoding="utf-8")
-        overridden_text = _apply_agent_model_overrides(config_text, filtered_overrides)
+        if filtered_overrides:
+            config_text = _apply_agent_model_overrides(config_text, filtered_overrides)
         with tempfile.TemporaryDirectory(prefix="jri-opencode-") as tmp_dir:
-            config_path = Path(tmp_dir) / "opencode.json"
-            config_path.write_text(overridden_text, encoding="utf-8")
+            bundle_root = Path(tmp_dir)
+            config_dir = bundle_root / ".opencode"
+            agents_dir = config_dir / "agents"
+            tools_dir = config_dir / "tools"
+            agents_dir.mkdir(parents=True, exist_ok=True)
+            tools_dir.mkdir(parents=True, exist_ok=True)
+            for name in _MANAGED_AGENT_FILENAMES:
+                agents_dir.joinpath(name).write_text(
+                    _load_builtin_opencode_asset(f".opencode/agents/{name}"),
+                    encoding="utf-8",
+                )
+            for name in _MANAGED_TOOL_FILENAMES:
+                tools_dir.joinpath(name).write_text(
+                    _load_builtin_opencode_asset(f".opencode/tools/{name}"),
+                    encoding="utf-8",
+                )
+            config_path = bundle_root / "opencode.json"
+            config_path.write_text(config_text, encoding="utf-8")
             yield {
                 "OPENCODE_CONFIG": str(config_path.resolve()),
-                "OPENCODE_CONFIG_DIR": str(paths.opencode_dir.resolve()),
+                "OPENCODE_CONFIG_DIR": str(config_dir.resolve()),
             }
 
     def _commit_paths(self, paths: list[str]) -> list[str]:
@@ -659,11 +644,17 @@ class JriService:
         self.paths.jri_dir.mkdir(parents=True, exist_ok=True)
 
         self._write_template_files(_SCAFFOLD_TEMPLATE_PATHS)
-        self._write_managed_files()
+        self._write_gitignore_file()
         self.state_store.initialize(branch=self.git.current_branch() or None)
         return created_files
 
     _GITIGNORE_CONTENT = "logs/\nsignals/\n*state.json*\nmetrics.json\nworktree/\n"
+
+    def _write_gitignore_file(self) -> None:
+        self.paths.gitignore_path.write_text(
+            self._GITIGNORE_CONTENT,
+            encoding="utf-8",
+        )
 
     def needs_upgrade(self) -> bool:
         """Check if managed files are outdated."""
@@ -672,23 +663,7 @@ class JriService:
         current = self.paths.gitignore_path.read_text(encoding="utf-8")
         if current != self._GITIGNORE_CONTENT:
             return True
-        for relative_path in _MANAGED_AGENT_PATHS:
-            path = self.root / relative_path
-            if not path.exists():
-                return True
-            if path.read_text(encoding="utf-8") != _load_managed_template(
-                relative_path
-            ):
-                return True
-        for relative_path in _MANAGED_TOOL_PATHS:
-            path = self.root / relative_path
-            if not path.exists():
-                return True
-            if path.read_text(encoding="utf-8") != _load_managed_template(
-                relative_path
-            ):
-                return True
-        for relative_path in _MANAGED_CONFIG_FILENAMES:
+        for relative_path in _SCAFFOLD_TEMPLATE_PATHS:
             path = self.root / relative_path
             if not path.exists():
                 return True
@@ -701,33 +676,6 @@ class JriService:
     def _auto_upgrade_if_needed(self) -> None:
         if self.needs_upgrade():
             self.upgrade(commit_message=MSG_UPGRADE_AUTO)
-
-    def _write_managed_files(self) -> None:
-        self.paths.gitignore_path.write_text(
-            self._GITIGNORE_CONTENT,
-            encoding="utf-8",
-        )
-        self.paths.opencode_dir.mkdir(parents=True, exist_ok=True)
-        self.paths.opencode_agents_dir.mkdir(parents=True, exist_ok=True)
-        for relative_path in _MANAGED_AGENT_PATHS:
-            path = self.root / relative_path
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                _load_managed_template(relative_path),
-                encoding="utf-8",
-            )
-        for relative_path in _MANAGED_TOOL_PATHS:
-            path = self.root / relative_path
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                _load_managed_template(relative_path),
-                encoding="utf-8",
-            )
-        for relative_path in _MANAGED_CONFIG_FILENAMES:
-            path = self.root / relative_path
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(_load_managed_template(relative_path), encoding="utf-8")
-        self._remove_legacy_managed_files()
 
     def _write_template_files(self, relative_paths: tuple[str, ...]) -> None:
         for relative_path in relative_paths:
@@ -864,7 +812,7 @@ class JriService:
                 self._sync_worktree(wt_git)
                 self.opencode.start(
                     env={
-                        **(opencode_env or self._opencode_env(wt_paths)),
+                        **(opencode_env or {}),
                         "JRI_RESULT_PATH": str(result_path.resolve()),
                     },
                     cwd=self.paths.worktree_dir,
@@ -1001,32 +949,6 @@ class JriService:
         self.git.reset_branch("ralph", default_ref)
         wt_git.run("checkout", "--force", "ralph")
         wt_git.run("clean", "-fd")
-        self._copy_managed_files_to_worktree()
-
-    def _copy_managed_files_to_worktree(self) -> None:
-        """Copy managed OpenCode files into the worktree's .jri directory."""
-        wt = self.paths.worktree_dir
-        for src_dir, filenames in (
-            (".jri/.opencode/agents", _MANAGED_AGENT_FILENAMES),
-            (".jri/.opencode/tools", _MANAGED_TOOL_FILENAMES),
-        ):
-            dst_dir = wt / src_dir
-            dst_dir.mkdir(parents=True, exist_ok=True)
-            for name in filenames:
-                src = self.root / src_dir / name
-                if src.exists():
-                    shutil.copy2(src, dst_dir / name)
-        # Remove any plugin dir left over from earlier versions — the
-        # pruning plugin must NOT exist in Ralph's worktree.
-        wt_plugin_dir = wt / ".jri" / ".opencode" / "plugin"
-        if wt_plugin_dir.exists():
-            shutil.rmtree(wt_plugin_dir)
-        # Copy opencode.json
-        src = self.paths.opencode_config_path
-        if src.exists():
-            dst = wt / ".jri" / "opencode.json"
-            dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
 
     def _run_task(self, task: Task, task_timeout: int | None = None) -> Result:
         state = self.state_store.load()
@@ -2005,51 +1927,14 @@ class JriService:
         )
 
     def _call_with_server(self, operation: Callable[[], Any]) -> Any:
-        started_here = False
         if isinstance(self.opencode, OpenCodeServer) and not self.opencode.is_healthy():
-            self.opencode.start(env=self._opencode_env(self.paths), cwd=self.root)
-            started_here = True
-        try:
-            return operation()
-        finally:
-            if started_here and isinstance(self.opencode, OpenCodeServer):
-                self.opencode.stop()
-
-    def _legacy_managed_files_exist(self) -> bool:
-        legacy_paths = (
-            self.root / ".opencode" / "agents" / name
-            for name in _MANAGED_AGENT_FILENAMES
-        )
-        if any(path.exists() for path in legacy_paths):
-            return True
-        legacy_paths = (
-            self.root / ".opencode" / "tools" / name for name in _MANAGED_TOOL_FILENAMES
-        )
-        if any(path.exists() for path in legacy_paths):
-            return True
-        return (self.root / "opencode.json").exists()
-
-    def _remove_legacy_managed_files(self) -> None:
-        for path in (
-            *(
-                (self.root / ".opencode" / "agents" / name)
-                for name in _MANAGED_AGENT_FILENAMES
-            ),
-            *(
-                (self.root / ".opencode" / "tools" / name)
-                for name in _MANAGED_TOOL_FILENAMES
-            ),
-            self.root / "opencode.json",
-        ):
-            if path.exists():
-                path.unlink()
-        for directory in (
-            self.root / ".opencode" / "agents",
-            self.root / ".opencode" / "tools",
-            self.root / ".opencode",
-        ):
-            if directory.exists() and not any(directory.iterdir()):
-                directory.rmdir()
+            with self._runtime_opencode_env(root=self.root, overrides={}) as env:
+                self.opencode.start(env=env, cwd=self.root)
+                try:
+                    return operation()
+                finally:
+                    self.opencode.stop()
+        return operation()
 
     def _create_needs_human_task(
         self,
@@ -2232,6 +2117,14 @@ def _load_managed_template(name: str) -> str:
     return (
         files("jri.core.template")
         .joinpath(*_template_resource_parts(name))
+        .read_text(encoding="utf-8")
+    )
+
+
+def _load_builtin_opencode_asset(name: str) -> str:
+    return (
+        files("jri.core.builtin_opencode")
+        .joinpath(*Path(name).parts)
         .read_text(encoding="utf-8")
     )
 

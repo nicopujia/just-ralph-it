@@ -1,5 +1,4 @@
 import subprocess
-from importlib.resources import files
 from pathlib import Path
 
 import pytest
@@ -38,16 +37,9 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
     assert (git_repo / ".jri" / "state.json").exists()
     assert not (git_repo / ".opencode").exists()
     assert not (git_repo / "opencode.json").exists()
+    assert not (git_repo / ".jri" / ".opencode").exists()
+    assert not (git_repo / ".jri" / "opencode.json").exists()
     assert not (git_repo / ".gitignore").exists()
-    for name in service_module._MANAGED_AGENT_FILENAMES:
-        assert (git_repo / ".jri" / ".opencode" / "agents" / name).exists()
-    for name in service_module._MANAGED_TOOL_FILENAMES:
-        assert (git_repo / ".jri" / ".opencode" / "tools" / name).exists()
-    for name in service_module._MANAGED_CONFIG_FILENAMES:
-        assert (git_repo / name).exists()
-    assert (git_repo / ".jri" / "opencode.json").read_text(encoding="utf-8") == (
-        files("jri.core.template").joinpath("opencode.json").read_text(encoding="utf-8")
-    )
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_INIT
     changed_files = set(
         git(
@@ -59,11 +51,7 @@ def test_init_creates_scaffold_and_commit(git_repo: Path) -> None:
             "HEAD",
         ).splitlines()
     )
-    assert set(service_module._MANAGED_AGENT_PATHS).issubset(changed_files)
-    assert set(service_module._MANAGED_TOOL_PATHS).issubset(changed_files)
-    assert set(service_module._MANAGED_CONFIG_FILENAMES).issubset(changed_files)
     assert "Makefile" in changed_files
-    assert ".jri/.opencode/.gitignore" not in changed_files
     assert (git_repo / ".jri" / ".gitignore").read_text(
         encoding="utf-8"
     ).splitlines() == [
@@ -162,34 +150,31 @@ def test_init_delete_recreates_structure(git_repo: Path) -> None:
     assert not extra.exists()
 
 
-def test_init_force_removes_jri_opencode_dir(git_repo: Path) -> None:
-    """Force flag should also remove .jri/.opencode/ directory."""
+def test_init_force_removes_custom_jri_state(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
 
-    custom_file = git_repo / ".jri" / ".opencode" / "custom.txt"
+    custom_file = git_repo / ".jri" / "custom.txt"
+    custom_file.parent.mkdir(parents=True, exist_ok=True)
     custom_file.write_text("custom content", encoding="utf-8")
 
     exit_code = run_cli(["init", "--force"], cwd=git_repo)
 
     assert exit_code == 0
     assert not custom_file.exists()
-    assert (git_repo / ".jri" / ".opencode" / "agents" / "interrogator.md").exists()
+    assert not (git_repo / ".jri" / ".opencode").exists()
 
 
 def test_init_upgrade_refreshes_managed_files_without_deleting_tasks(
     git_repo: Path,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     extra = git_repo / ".jri" / "tasks" / "todo" / "extra.md"
     extra.write_text("temporary task", encoding="utf-8")
-
-    def fake_load_managed_template(name: str) -> str:
-        base = name.removesuffix(".md") if name.endswith(".md") else name
-        return f"upgraded {base}\n"
-
     monkeypatch.setattr(
-        service_module, "_load_managed_template", fake_load_managed_template
+        service_module.JriService,
+        "_GITIGNORE_CONTENT",
+        "logs/\nsignals/\n*state.json*\nmetrics.json\nworktree/\ncache/\n",
     )
 
     exit_code = run_cli(["init", "--upgrade"], cwd=git_repo)
@@ -197,29 +182,6 @@ def test_init_upgrade_refreshes_managed_files_without_deleting_tasks(
     assert exit_code == 0
     assert extra.exists()
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_UPGRADE
-
-
-def test_init_upgrade_removes_legacy_root_managed_opencode_files(
-    git_repo: Path,
-) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
-
-    legacy_agent = git_repo / ".opencode" / "agents" / "interrogator.md"
-    legacy_tool = git_repo / ".opencode" / "tools" / "upsert-task.js"
-    legacy_config = git_repo / "opencode.json"
-    legacy_agent.parent.mkdir(parents=True, exist_ok=True)
-    legacy_tool.parent.mkdir(parents=True, exist_ok=True)
-    legacy_agent.write_text("legacy agent\n", encoding="utf-8")
-    legacy_tool.write_text("legacy tool\n", encoding="utf-8")
-    legacy_config.write_text("{}\n", encoding="utf-8")
-
-    assert run_cli(["init", "--upgrade"], cwd=git_repo) == 0
-
-    assert not legacy_agent.exists()
-    assert not legacy_tool.exists()
-    assert not legacy_config.exists()
-    assert (git_repo / ".jri" / ".opencode" / "agents" / "interrogator.md").exists()
-    assert (git_repo / ".jri" / "opencode.json").exists()
 
 
 def test_init_upgrade_restores_missing_template_scaffold_files(git_repo: Path) -> None:
@@ -241,20 +203,17 @@ def test_init_upgrade_restores_missing_template_scaffold_files(git_repo: Path) -
     assert (git_repo / ".jri" / "learnings.md").read_text(encoding="utf-8") == ""
 
 
-def test_init_prompt_upgrade_refreshes_managed_files(
+def test_init_prompt_upgrade_commits_runtime_gitignore_refresh(
     git_repo: Path,
-    monkeypatch,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     extra = git_repo / ".jri" / "tasks" / "todo" / "prompt-upgrade.md"
     extra.write_text("keep me", encoding="utf-8")
-
-    def fake_load_managed_template(name: str) -> str:
-        base = name.removesuffix(".md") if name.endswith(".md") else name
-        return f"prompt-upgraded {base}\n"
-
     monkeypatch.setattr(
-        service_module, "_load_managed_template", fake_load_managed_template
+        service_module.JriService,
+        "_GITIGNORE_CONTENT",
+        "logs/\nsignals/\n*state.json*\nmetrics.json\nworktree/\ncache/\n",
     )
     monkeypatch.setattr("builtins.input", lambda: "u")
 

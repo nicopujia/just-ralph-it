@@ -72,10 +72,11 @@ def test_chat_without_fresh_reuses_session(initialized_repo: Path) -> None:
     assert len(launch_calls) == 1
     _root, session_id, _extra_args, env = launch_calls[0]
     assert session_id == "existing-session-id"
-    assert env == {
-        "OPENCODE_CONFIG": str((repo / ".jri" / "opencode.json").resolve()),
-        "OPENCODE_CONFIG_DIR": str((repo / ".jri" / ".opencode").resolve()),
-    }
+    assert env is not None
+    assert Path(env["OPENCODE_CONFIG"]).name == "opencode.json"
+    assert Path(env["OPENCODE_CONFIG_DIR"]).name == ".opencode"
+    assert not Path(env["OPENCODE_CONFIG"]).is_relative_to(repo)
+    assert not Path(env["OPENCODE_CONFIG_DIR"]).is_relative_to(repo)
     monkeypatch.undo()
 
 
@@ -123,8 +124,8 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     env = cast(dict[str, str], call["env"])
     config_path = cast(Path, call["config_path"])
     config_text = cast(str, call["config_text"])
-    assert env["OPENCODE_CONFIG_DIR"] == str((repo / ".jri" / ".opencode").resolve())
-    assert config_path != (repo / ".jri" / "opencode.json").resolve()
+    assert Path(env["OPENCODE_CONFIG_DIR"]) == config_path.parent / ".opencode"
+    assert not config_path.is_relative_to(repo)
     assert '"interrogator": {' in config_text
     assert '"model": "provider/interrogator-main"' in config_text
     assert '"write": "deny"' in config_text
@@ -133,10 +134,6 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     assert '"interrogator-validator": {' in config_text
     assert '"model": "provider/interrogator-validator"' in config_text
     assert '"check-draft-promotion": "allow"' in config_text
-    assert (
-        repo.joinpath(".jri", "opencode.json").read_text(encoding="utf-8")
-        != config_text
-    )
     assert not config_path.exists()
     monkeypatch.undo()
 
@@ -180,10 +177,11 @@ def test_chat_with_fresh_clears_session(initialized_repo: Path) -> None:
     assert len(launch_calls) == 1
     _root, session_id, _extra_args, env = launch_calls[0]
     assert session_id is None
-    assert env == {
-        "OPENCODE_CONFIG": str((repo / ".jri" / "opencode.json").resolve()),
-        "OPENCODE_CONFIG_DIR": str((repo / ".jri" / ".opencode").resolve()),
-    }
+    assert env is not None
+    assert Path(env["OPENCODE_CONFIG"]).name == "opencode.json"
+    assert Path(env["OPENCODE_CONFIG_DIR"]).name == ".opencode"
+    assert not Path(env["OPENCODE_CONFIG"]).is_relative_to(repo)
+    assert not Path(env["OPENCODE_CONFIG_DIR"]).is_relative_to(repo)
     monkeypatch.undo()
 
 
@@ -313,7 +311,7 @@ def test_chat_fresh_does_not_affect_other_state(initialized_repo: Path) -> None:
     monkeypatch.undo()
 
 
-def test_chat_does_not_auto_restore_modified_managed_files(
+def test_chat_does_not_create_or_touch_project_managed_opencode_files(
     initialized_repo: Path,
 ) -> None:
     repo = initialized_repo
@@ -330,6 +328,7 @@ def test_chat_does_not_auto_restore_modified_managed_files(
         return 0
 
     managed = repo / ".jri" / ".opencode" / "agents" / "interrogator.md"
+    managed.parent.mkdir(parents=True, exist_ok=True)
     managed.write_text("user-modified managed file\n", encoding="utf-8")
     head_before = git(repo, "rev-parse", "HEAD")
 
