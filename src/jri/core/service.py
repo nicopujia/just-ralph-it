@@ -74,7 +74,6 @@ from .ui import task_footer, task_header
 _INIT_COMMIT_PATHS = (
     ".jri",
     "Makefile",
-    "README.md",
     ".jri/README.md",
     ".jri/learnings.md",
     ".jri/tasks/draft/.gitkeep",
@@ -85,7 +84,6 @@ _INIT_COMMIT_PATHS = (
 )
 _UPGRADE_COMMIT_PATHS = (
     "Makefile",
-    "README.md",
     ".jri/.gitignore",
     ".jri/README.md",
     ".jri/learnings.md",
@@ -104,7 +102,7 @@ _SCAFFOLD_TEMPLATE_PATHS = (
     ".jri/tasks/done/.gitkeep",
     ".jri/attempts/.gitkeep",
 )
-_ROOT_SCAFFOLD_PATHS = ("Makefile", "README.md")
+_ROOT_SCAFFOLD_PATHS = ("Makefile",)
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
 _MAX_TASK_TITLE_LENGTH = 50
 _DEFAULT_MAKEFILE = """.PHONY: check
