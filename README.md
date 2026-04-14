@@ -12,6 +12,7 @@
 ### Install and run
 
 ```bash
+make setup
 uv tool install -e .
 jri --help
 ```
