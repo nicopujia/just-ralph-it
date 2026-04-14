@@ -862,6 +862,8 @@ class JriService:
                     doing_tasks=doing_tasks,
                 )
                 if next_task is None:
+                    if not todo_tasks:
+                        print("No todo tasks found.")
                     break
 
                 # Check if we've reached the task limit before starting
