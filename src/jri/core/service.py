@@ -24,6 +24,7 @@ from .git import (
     MSG_PROMOTE,
     MSG_RALPH_FINALIZE,
     MSG_RALPH_PARTIAL,
+    MSG_RECORD_ATTEMPT_HISTORY,
     MSG_RECOVER_FAILED,
     MSG_RECOVER_NEEDS_HUMAN,
     MSG_RECOVER_STALE,
@@ -1828,7 +1829,7 @@ class JriService:
             encoding="utf-8",
         )
         self.git.commit_paths_if_needed(
-            f"jri: record attempt history for {attempt.task_slug}",
+            MSG_RECORD_ATTEMPT_HISTORY.format(slug=attempt.task_slug),
             [self.git.relative_path(history_path)],
         )
 
