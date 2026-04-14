@@ -227,6 +227,8 @@ class State:
             payload["attempts"] = [attempt.to_payload() for attempt in self.attempts]
         if self.promotion is not None:
             payload["promotion"] = self.promotion.to_payload()
+        if self.current_task is not None:
+            payload["current_task"] = self.current_task
         return payload
 
     @classmethod

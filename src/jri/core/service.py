@@ -8,9 +8,9 @@ import sys
 import termios
 import time
 import tty
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
@@ -68,7 +68,7 @@ from .tasks import (
     validate_draft_promotion,
 )
 from .timeline import TimelineEvent, TimelineStore
-from .ui import task_footer, task_header
+from .ui import follow_status_bar, supports_interactive_footer, task_footer, task_header
 
 _INIT_COMMIT_PATHS = (
     ".jri",
@@ -97,6 +97,58 @@ check:
 	@echo "make check is not configured yet"
 	@false
 """
+
+
+@dataclass
+class _FollowControls:
+    enabled: bool
+    fd: int | None = None
+    confirming_halt: bool = False
+    halt_armed: bool = False
+
+    def poll_action(self) -> str | None:
+        if not self.enabled or self.fd is None:
+            return None
+        try:
+            ready, _, _ = select.select([sys.stdin], [], [], 0)
+        except OSError:
+            return None
+        if not ready:
+            return None
+        try:
+            key = os.read(self.fd, 1).decode("utf-8", errors="ignore")
+        except OSError:
+            return None
+        return self.handle_key(key.lower())
+
+    def handle_key(self, key: str) -> str | None:
+        if not key:
+            return None
+        if key == "d":
+            self._reset_halt_confirmation()
+            return "detach"
+        if key == "s":
+            self._reset_halt_confirmation()
+            return "stop"
+        if self.confirming_halt:
+            if key == "n":
+                self._reset_halt_confirmation()
+                return None
+            if key == "y":
+                self.halt_armed = True
+                return None
+            if key in {"\r", "\n"} and self.halt_armed:
+                self._reset_halt_confirmation()
+                return "halt"
+            return None
+        if key == "h":
+            self.confirming_halt = True
+            self.halt_armed = False
+        return None
+
+    def _reset_halt_confirmation(self) -> None:
+        self.confirming_halt = False
+        self.halt_armed = False
 
 
 class JriService:
@@ -326,11 +378,13 @@ class JriService:
         process = state.process
         if process is None or not process.log_path:
             raise JriError("no Ralph run is available to attach")
-        self._follow_log(
+        detached = self._follow_log(
             Path(process.log_path),
             loop_pid=process.loop_pid,
-            allow_detach=False,
+            allow_detach=True,
         )
+        if detached:
+            self._set_tracked_process_detached(detached=True)
 
     def inspect(self, slug: str | None = None) -> None:
         self.ensure_initialized()
@@ -1882,11 +1936,56 @@ class JriService:
         loop_process: subprocess.Popen[str] | subprocess.Popen[bytes] | None = None,
         allow_detach: bool,
     ) -> bool:
-        with self._detach_monitor(enabled=allow_detach) as detach_requested:
+        footer_enabled = allow_detach and supports_interactive_footer()
+        footer_visible = False
+        footer_text = ""
+
+        def _clear_footer() -> None:
+            nonlocal footer_visible, footer_text
+            if not footer_enabled or not footer_visible:
+                return
+            sys.stdout.write("\r\033[2K")
+            sys.stdout.flush()
+            footer_visible = False
+            footer_text = ""
+
+        def _render_footer(controls: _FollowControls) -> None:
+            nonlocal footer_visible, footer_text
+            if not footer_enabled:
+                return
+            next_text = follow_status_bar(
+                self._current_follow_task(),
+                confirming_halt=controls.confirming_halt,
+                halt_armed=controls.halt_armed,
+                width=shutil.get_terminal_size((80, 24)).columns,
+            )
+            if footer_visible and next_text == footer_text:
+                return
+            sys.stdout.write("\r\033[2K")
+            sys.stdout.write(next_text)
+            sys.stdout.flush()
+            footer_visible = True
+            footer_text = next_text
+
+        with self._follow_control_monitor(enabled=footer_enabled) as controls:
             while True:
+                action = controls.poll_action()
+                if action == "detach":
+                    _clear_footer()
+                    print("Detached. Use `jri attach` to follow the run again.")
+                    sys.stdout.flush()
+                    return True
+                if action == "stop":
+                    self.stop()
+                if action == "halt":
+                    _clear_footer()
+                    self.halt()
+                    return False
                 if log_path.exists():
                     break
+                _render_footer(controls)
                 if loop_pid is None or not self._is_pid_alive(loop_pid):
+                    _clear_footer()
                     return False
                 time.sleep(0.05)
 
@@ -1894,14 +1993,23 @@ class JriService:
                 while True:
                     chunk = handle.read()
                     if chunk:
+                        _clear_footer()
                         sys.stdout.write(chunk)
-                        sys.stdout.flush()
-                    if allow_detach and detach_requested():
-                        if chunk and not chunk.endswith("\n"):
+                        if footer_enabled and not chunk.endswith("\n"):
                             sys.stdout.write("\n")
+                        sys.stdout.flush()
+                    action = controls.poll_action()
+                    if action == "detach":
+                        _clear_footer()
                         print("Detached. Use `jri attach` to follow the run again.")
                         sys.stdout.flush()
                         return True
+                    if action == "stop":
+                        self.stop()
+                    if action == "halt":
+                        _clear_footer()
+                        self.halt()
+                        return False
                     process_exited = (
                         loop_process is not None and loop_process.poll() is not None
                     )
@@ -1912,37 +2020,43 @@ class JriService:
                     ):
                         chunk = handle.read()
                         if chunk:
+                            _clear_footer()
                             sys.stdout.write(chunk)
                             sys.stdout.flush()
+                        _clear_footer()
                         return False
+                    _render_footer(controls)
                     time.sleep(0.1)
 
     @contextmanager
-    def _detach_monitor(self, *, enabled: bool) -> Iterator[Callable[[], bool]]:
-        if not enabled or not sys.stdin.isatty():
-            yield lambda: False
+    def _follow_control_monitor(self, *, enabled: bool) -> Iterator[_FollowControls]:
+        controls = _FollowControls(enabled=False)
+        if not enabled:
+            yield controls
             return
         try:
             fd = sys.stdin.fileno()
             previous = termios.tcgetattr(fd)
             tty.setcbreak(fd)
         except (AttributeError, OSError, termios.error, ValueError):
-            yield lambda: False
+            yield controls
             return
-
-        def _pressed() -> bool:
-            ready, _, _ = select.select([sys.stdin], [], [], 0)
-            if not ready:
-                return False
-            try:
-                return os.read(fd, 1).decode("utf-8", errors="ignore").lower() == "d"
-            except OSError:
-                return False
+        controls.enabled = True
+        controls.fd = fd
 
         try:
-            yield _pressed
+            yield controls
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, previous)
+
+    def _current_follow_task(self) -> str | None:
+        state = self.state_store.load()
+        if (
+            state.active_attempt is not None
+            and state.active_attempt.finished_at is None
+        ):
+            return state.active_attempt.task_slug
+        return state.current_task
 
     def _create_needs_human_task(
         self,

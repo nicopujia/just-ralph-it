@@ -142,3 +142,12 @@ def test_state_round_trips_attempt_timeout_result(tmp_path: Path) -> None:
     store.save(expected)
 
     assert store.load() == expected
+
+
+def test_state_round_trips_current_task(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    expected = State(current_task="task-a")
+
+    store.save(expected)
+
+    assert store.load() == expected

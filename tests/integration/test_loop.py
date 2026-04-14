@@ -5,6 +5,8 @@ import shutil
 import signal
 import subprocess
 import sys
+from collections.abc import Iterator
+from contextlib import contextmanager
 from importlib import import_module
 from pathlib import Path
 from typing import Any, cast
@@ -22,7 +24,7 @@ from jri.core.models import (
     State,
 )
 from jri.core.opencode import OpenCodeServer
-from jri.core.service import JriService
+from jri.core.service import JriService, _FollowControls
 from jri.core.tasks import list_tasks, parse_task_file
 from tests.conftest import run_cli as base_run_cli
 from tests.helpers import git, read_json, write_passing_makefile, write_task
@@ -1525,6 +1527,129 @@ def test_ctl_attach_replays_tracked_run_output(
     output = capsys.readouterr().out
     assert "first line" in output
     assert "second line" in output
+
+
+def test_ctl_attach_allows_detach(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    log_path = git_repo / ".jri" / "logs" / "ralph" / "attached.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("first line\n", encoding="utf-8")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.state_store.save_process(
+        loop_pid=_dead_pid(),
+        child_pid=None,
+        log_path=log_path,
+        detached=False,
+    )
+
+    def fake_follow_log(
+        self: JriService,
+        path: Path,
+        *,
+        loop_pid: int | None,
+        loop_process: object | None = None,
+        allow_detach: bool,
+    ) -> bool:
+        assert path == log_path
+        assert loop_pid is not None
+        assert loop_process is None
+        assert allow_detach is True
+        return True
+
+    monkeypatch.setattr(JriService, "_follow_log", fake_follow_log)
+
+    assert run_cli(["attach"], cwd=git_repo) == 0
+    process = cast(
+        dict[str, object], read_json(git_repo / ".jri" / "state.json")["process"]
+    )
+    assert process["detached"] is True
+
+
+def test_follow_controls_require_y_then_enter_to_halt() -> None:
+    controls = _FollowControls(enabled=True)
+
+    assert controls.handle_key("h") is None
+    assert controls.confirming_halt is True
+    assert controls.halt_armed is False
+
+    assert controls.handle_key("y") is None
+    assert controls.confirming_halt is True
+    assert controls.halt_armed is True
+
+    assert controls.handle_key("\n") == "halt"
+    assert controls.confirming_halt is False
+    assert controls.halt_armed is False
+
+
+def test_follow_controls_cancel_halt_confirmation() -> None:
+    controls = _FollowControls(enabled=True)
+
+    assert controls.handle_key("h") is None
+    assert controls.handle_key("n") is None
+    assert controls.confirming_halt is False
+    assert controls.halt_armed is False
+
+
+def test_follow_log_stop_control_writes_stop_signal(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    log_path = git_repo / ".jri" / "logs" / "ralph" / "running.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("running\n", encoding="utf-8")
+
+    class FakeControls:
+        confirming_halt = False
+        halt_armed = False
+        _actions = iter(["stop", None])
+
+        def poll_action(self) -> str | None:
+            return next(self._actions, None)
+
+    @contextmanager
+    def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
+        assert enabled is True
+        yield FakeControls()
+
+    monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
+    monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
+    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: False)
+
+    assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
+    assert service.paths.stop_signal_path.exists()
+
+
+def test_follow_log_halt_control_invokes_halt(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    log_path = git_repo / ".jri" / "logs" / "ralph" / "running.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("running\n", encoding="utf-8")
+    halt_calls: list[str] = []
+
+    class FakeControls:
+        confirming_halt = False
+        halt_armed = True
+        _actions = iter(["halt"])
+
+        def poll_action(self) -> str | None:
+            return next(self._actions, None)
+
+    @contextmanager
+    def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
+        assert enabled is True
+        yield FakeControls()
+
+    monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
+    monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
+    monkeypatch.setattr(service, "halt", lambda: halt_calls.append("halt"))
+
+    assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
+    assert halt_calls == ["halt"]
 
 
 def test_follow_log_stops_when_spawned_process_has_exited(
