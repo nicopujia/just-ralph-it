@@ -13,13 +13,12 @@ from .config import (
     COPYABLE_DIRECTORIES,
     iter_directory_assets,
     load_asset_text,
-    load_config_text,
 )
 
 
 @contextmanager
 def runtime_env(*, overrides: dict[str, str | None]) -> Iterator[dict[str, str]]:
-    config_text = load_config_text()
+    config_text = load_asset_text("config.json")
     filtered_overrides = {
         agent: model for agent, model in overrides.items() if model is not None
     }
