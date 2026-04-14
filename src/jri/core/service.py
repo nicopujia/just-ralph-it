@@ -165,7 +165,6 @@ class JriService:
         fresh: bool = False,
         model: str | None = None,
         validator_model: str | None = None,
-        general_model: str | None = None,
         explore_model: str | None = None,
     ) -> int:
         self.ensure_initialized()
@@ -186,7 +185,6 @@ class JriService:
             overrides={
                 "interrogator": model,
                 "interrogator-validator": validator_model,
-                "general": general_model,
                 "explore": explore_model,
             },
         ) as env:

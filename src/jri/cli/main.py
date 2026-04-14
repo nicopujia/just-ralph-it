@@ -57,7 +57,6 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         fresh=args.fresh,
                         model=args.model,
                         validator_model=args.validator_model,
-                        general_model=args.general_model,
                         explore_model=args.explore_model,
                     ),
                 )
@@ -266,10 +265,6 @@ def _build_parser() -> argparse.ArgumentParser:
     chat_parser.add_argument(
         "--validator-model",
         help="Override the interrogator-validator model for this chat run only.",
-    )
-    chat_parser.add_argument(
-        "--general-model",
-        help="Override the general subagent model for this chat run only.",
     )
     chat_parser.add_argument(
         "--explore-model",

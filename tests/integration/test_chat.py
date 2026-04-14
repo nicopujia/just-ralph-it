@@ -129,7 +129,6 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
         fresh=False,
         model="provider/interrogator-main",
         validator_model="provider/interrogator-validator",
-        general_model="provider/general-subagent",
         explore_model="provider/explore-subagent",
     )
 
@@ -150,8 +149,6 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     assert '"model": "provider/interrogator-validator"' in config_text
     assert '"explore": {' in config_text
     assert '"model": "provider/explore-subagent"' in config_text
-    assert '"general": {' in config_text
-    assert '"model": "provider/general-subagent"' in config_text
     assert '"check-draft-promotion": "allow"' in config_text
     assert not config_path.exists()
     monkeypatch.undo()
@@ -352,14 +349,12 @@ def test_chat_cli_passes_model_overrides(initialized_repo: Path) -> None:
         fresh: bool = False,
         model: str | None = None,
         validator_model: str | None = None,
-        general_model: str | None = None,
         explore_model: str | None = None,
     ) -> int:
         captured["extra_args"] = extra_args
         captured["fresh"] = fresh
         captured["model"] = model
         captured["validator_model"] = validator_model
-        captured["general_model"] = general_model
         captured["explore_model"] = explore_model
         return 0
 
@@ -374,8 +369,6 @@ def test_chat_cli_passes_model_overrides(initialized_repo: Path) -> None:
             "provider/interrogator-main",
             "--validator-model",
             "provider/interrogator-validator",
-            "--general-model",
-            "provider/general-subagent",
             "--explore-model",
             "provider/explore-subagent",
             "--prompt",
@@ -390,7 +383,6 @@ def test_chat_cli_passes_model_overrides(initialized_repo: Path) -> None:
         "fresh": True,
         "model": "provider/interrogator-main",
         "validator_model": "provider/interrogator-validator",
-        "general_model": "provider/general-subagent",
         "explore_model": "provider/explore-subagent",
     }
     monkeypatch.undo()
@@ -407,14 +399,12 @@ def test_chat_cli_new_alias_sets_fresh(initialized_repo: Path) -> None:
         fresh: bool = False,
         model: str | None = None,
         validator_model: str | None = None,
-        general_model: str | None = None,
         explore_model: str | None = None,
     ) -> int:
         captured["extra_args"] = extra_args
         captured["fresh"] = fresh
         captured["model"] = model
         captured["validator_model"] = validator_model
-        captured["general_model"] = general_model
         captured["explore_model"] = explore_model
         return 0
 
@@ -429,7 +419,6 @@ def test_chat_cli_new_alias_sets_fresh(initialized_repo: Path) -> None:
         "fresh": True,
         "model": None,
         "validator_model": None,
-        "general_model": None,
         "explore_model": None,
     }
     monkeypatch.undo()
