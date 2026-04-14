@@ -8,6 +8,7 @@ from typing import Any, cast
 
 import pytest
 
+from jri.cli.main import main
 from jri.core.errors import HaltRequested, JriError
 from jri.core.git import MSG_RECOVER_STALE
 from jri.core.models import (
@@ -365,6 +366,8 @@ def test_start_server_model_overrides_use_temporary_config(git_repo: Path) -> No
             max_tasks=1,
             model="provider/ralph-main",
             validator_model="provider/ralph-validator",
+            general_model="provider/general-subagent",
+            explore_model="provider/explore-subagent",
             force=True,
         )
 
@@ -379,6 +382,10 @@ def test_start_server_model_overrides_use_temporary_config(git_repo: Path) -> No
     assert '"model": "provider/ralph-main"' in server.config_text
     assert '"ralph-validator": {' in server.config_text
     assert '"model": "provider/ralph-validator"' in server.config_text
+    assert '"explore": {' in server.config_text
+    assert '"model": "provider/explore-subagent"' in server.config_text
+    assert '"general": {' in server.config_text
+    assert '"model": "provider/general-subagent"' in server.config_text
     assert not server.config_path.exists()
 
 
@@ -406,6 +413,8 @@ def test_start_detached_passes_validator_model_to_child(
             1,
             "provider/ralph-main",
             "provider/ralph-validator",
+            "provider/general-subagent",
+            "provider/explore-subagent",
             None,
         )
         == 0
@@ -418,6 +427,80 @@ def test_start_detached_passes_validator_model_to_child(
     assert "provider/ralph-main" in command
     assert "--validator-model" in command
     assert "provider/ralph-validator" in command
+    assert "--general-model" in command
+    assert "provider/general-subagent" in command
+    assert "--explore-model" in command
+    assert "provider/explore-subagent" in command
+
+
+def test_internal_run_loop_cli_passes_subagent_model_overrides(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    captured: dict[str, object] = {}
+
+    def fake_run_loop_process(
+        self: JriService,
+        *,
+        max_tasks: int | None = None,
+        model: str | None = None,
+        validator_model: str | None = None,
+        general_model: str | None = None,
+        explore_model: str | None = None,
+        task_timeout: int | None = None,
+        force: bool = False,
+        recover: bool = False,
+        mode: str = "foreground",
+    ) -> int:
+        captured.update(
+            {
+                "max_tasks": max_tasks,
+                "model": model,
+                "validator_model": validator_model,
+                "general_model": general_model,
+                "explore_model": explore_model,
+                "task_timeout": task_timeout,
+                "force": force,
+                "recover": recover,
+                "mode": mode,
+            }
+        )
+        return 1
+
+    monkeypatch.setattr(JriService, "run_loop_process", fake_run_loop_process)
+    monkeypatch.setenv("JRI_INTERNAL_RUN_LOOP", "1")
+
+    result = main(
+        [
+            "--tasks",
+            "2",
+            "--model",
+            "provider/ralph-main",
+            "--validator-model",
+            "provider/ralph-validator",
+            "--general-model",
+            "provider/general-subagent",
+            "--explore-model",
+            "provider/explore-subagent",
+            "--task-timeout",
+            "60",
+            "--force",
+        ],
+        cwd=git_repo,
+    )
+
+    assert result == 0
+    assert captured == {
+        "max_tasks": 2,
+        "model": "provider/ralph-main",
+        "validator_model": "provider/ralph-validator",
+        "general_model": "provider/general-subagent",
+        "explore_model": "provider/explore-subagent",
+        "task_timeout": 60,
+        "force": True,
+        "recover": False,
+        "mode": "foreground",
+    }
 
 
 def test_ctl_start_help_accepts_validator_model_flag(git_repo: Path) -> None:
