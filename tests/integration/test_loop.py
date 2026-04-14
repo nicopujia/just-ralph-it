@@ -634,6 +634,125 @@ def test_ctl_start_help_accepts_validator_model_flag(git_repo: Path) -> None:
     assert exc_info.value.code == 0
 
 
+def test_ctl_start_help_includes_provider_flag(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+
+    with pytest.raises(SystemExit) as exc_info:
+        run_cli(["start", "--help"], cwd=git_repo)
+
+    assert exc_info.value.code == 0
+    assert "--provider {default,openai}" in capsys.readouterr().out
+
+
+def test_start_cli_provider_sets_models(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    captured: dict[str, object] = {}
+
+    def fake_start_attached(
+        self: JriService,
+        *,
+        max_tasks: int | None = None,
+        model: str | None = None,
+        validator_model: str | None = None,
+        general_model: str | None = None,
+        explore_model: str | None = None,
+        task_timeout: int | None = None,
+        force: bool = False,
+        dogfood: bool = False,
+    ) -> int:
+        captured.update(
+            {
+                "max_tasks": max_tasks,
+                "model": model,
+                "validator_model": validator_model,
+                "general_model": general_model,
+                "explore_model": explore_model,
+                "task_timeout": task_timeout,
+                "force": force,
+                "dogfood": dogfood,
+            }
+        )
+        return 0
+
+    monkeypatch.setattr(JriService, "start_attached", fake_start_attached)
+
+    result = main(["start", "--provider", "openai", "--tasks", "2"], cwd=git_repo)
+
+    assert result == 0
+    assert captured == {
+        "max_tasks": 2,
+        "model": "openai/gpt-5.4-pro",
+        "validator_model": "openai/gpt-5.4",
+        "general_model": "openai/gpt-5-codex",
+        "explore_model": "openai/gpt-5.4-mini",
+        "task_timeout": None,
+        "force": False,
+        "dogfood": False,
+    }
+
+
+def test_start_cli_explicit_model_overrides_provider(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    captured: dict[str, object] = {}
+
+    def fake_start_attached(
+        self: JriService,
+        *,
+        max_tasks: int | None = None,
+        model: str | None = None,
+        validator_model: str | None = None,
+        general_model: str | None = None,
+        explore_model: str | None = None,
+        task_timeout: int | None = None,
+        force: bool = False,
+        dogfood: bool = False,
+    ) -> int:
+        captured.update(
+            {
+                "max_tasks": max_tasks,
+                "model": model,
+                "validator_model": validator_model,
+                "general_model": general_model,
+                "explore_model": explore_model,
+                "task_timeout": task_timeout,
+                "force": force,
+                "dogfood": dogfood,
+            }
+        )
+        return 0
+
+    monkeypatch.setattr(JriService, "start_attached", fake_start_attached)
+
+    result = main(
+        [
+            "start",
+            "--provider",
+            "openai",
+            "--general-model",
+            "openai/gpt-5.4",
+        ],
+        cwd=git_repo,
+    )
+
+    assert result == 0
+    assert captured == {
+        "max_tasks": None,
+        "model": "openai/gpt-5.4-pro",
+        "validator_model": "openai/gpt-5.4",
+        "general_model": "openai/gpt-5.4",
+        "explore_model": "openai/gpt-5.4-mini",
+        "task_timeout": None,
+        "force": False,
+        "dogfood": False,
+    }
+
+
 def test_top_level_help_lists_commands_alphabetically(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
 
