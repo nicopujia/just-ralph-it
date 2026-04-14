@@ -17,7 +17,6 @@ from pathlib import Path
 from types import FrameType
 from typing import Any
 
-from .env import load_repo_env
 from .errors import HaltRequested, JriError, RestartRequested
 from .git import (
     MSG_CHECK_PROMOTE,
@@ -108,7 +107,6 @@ class JriService:
         opencode_client: OpenCodeProgrammatic | None = None,
     ) -> None:
         self.root = root.resolve()
-        load_repo_env(self.root)
         self.paths = JriPaths(self.root)
         self.git = GitRepo(self.root)
         self.state_store = StateStore(self.paths.state_path)
@@ -221,6 +219,7 @@ class JriService:
         validator_model: str | None = None,
         task_timeout: int | None = None,
         force: bool = False,
+        dogfood: bool = False,
     ) -> int:
         self.ensure_initialized()
         self._recover_stale_start_state(
@@ -232,6 +231,7 @@ class JriService:
                 model,
                 validator_model,
                 task_timeout,
+                dogfood,
             )
 
         return self.run_loop_process(
@@ -240,6 +240,7 @@ class JriService:
             validator_model=validator_model,
             task_timeout=task_timeout,
             force=force,
+            dogfood=dogfood,
         )
 
     def run_loop_process(
@@ -252,6 +253,7 @@ class JriService:
         force: bool = False,
         recover: bool = False,
         mode: str = "foreground",
+        dogfood: bool = False,
     ) -> int:
         self.ensure_initialized()
         if recover:
@@ -262,6 +264,7 @@ class JriService:
                 max_tasks,
                 task_timeout=task_timeout,
                 force=force,
+                dogfood=dogfood,
                 opencode_overrides={
                     "ralph": model,
                     "ralph-validator": validator_model,
@@ -271,7 +274,12 @@ class JriService:
         previous_model = self.opencode.model
         self.opencode.model = model
         try:
-            return self._run_loop(max_tasks, task_timeout=task_timeout, force=force)
+            return self._run_loop(
+                max_tasks,
+                task_timeout=task_timeout,
+                force=force,
+                dogfood=dogfood,
+            )
         finally:
             self.opencode.model = previous_model
 
@@ -283,6 +291,7 @@ class JriService:
         validator_model: str | None = None,
         task_timeout: int | None = None,
         force: bool = False,
+        dogfood: bool = False,
     ) -> int:
         self.ensure_initialized()
         self._recover_stale_start_state(mode="foreground", force=force)
@@ -292,6 +301,7 @@ class JriService:
             validator_model,
             task_timeout,
             force,
+            dogfood,
         )
 
     def attach(self) -> None:
@@ -615,6 +625,7 @@ class JriService:
         model: str | None,
         validator_model: str | None,
         task_timeout: int | None,
+        dogfood: bool,
     ) -> int:
         state = self.state_store.load()
         if state.process and state.process.loop_pid:
@@ -629,6 +640,8 @@ class JriService:
             command.extend(["--validator-model", validator_model])
         if task_timeout is not None:
             command.extend(["--task-timeout", str(task_timeout)])
+        if dogfood:
+            command.append("--dogfood")
         env = os.environ.copy()
         env["JRI_INTERNAL_RUN_LOOP"] = "1"
 
@@ -659,6 +672,7 @@ class JriService:
         validator_model: str | None,
         task_timeout: int | None,
         force: bool,
+        dogfood: bool,
     ) -> int:
         run_log_path = self.paths.ralph_log_path("run", int(time.time()))
         run_log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -673,6 +687,8 @@ class JriService:
             command.extend(["--task-timeout", str(task_timeout)])
         if force:
             command.append("--force")
+        if dogfood:
+            command.append("--dogfood")
         env = os.environ.copy()
         env["JRI_INTERNAL_RUN_LOOP"] = "1"
         log_file = run_log_path.open("a", encoding="utf-8")
@@ -707,6 +723,7 @@ class JriService:
         max_tasks: int | None,
         task_timeout: int | None = None,
         force: bool = False,
+        dogfood: bool = False,
         opencode_overrides: dict[str, str | None] | None = None,
     ) -> int:
         try:
@@ -726,10 +743,7 @@ class JriService:
         old_handlers = self._install_signal_handlers()
         server_started_here = False
         server_runtime: AbstractContextManager[dict[str, str]] | None = None
-        refresh_runtime = (
-            isinstance(self.opencode, OpenCodeServer)
-            and self._should_refresh_runtime_between_iterations()
-        )
+        refresh_runtime = isinstance(self.opencode, OpenCodeServer) and dogfood
         try:
             if isinstance(self.opencode, OpenCodeServer) and not refresh_runtime:
                 server_started_here = True
@@ -781,6 +795,7 @@ class JriService:
                 if result == "completed":
                     completed += 1
                     if self._should_restart_process_after_iteration(
+                        dogfood=dogfood,
                         max_tasks=max_tasks,
                         completed=completed,
                     ):
@@ -829,18 +844,16 @@ class JriService:
 
         return completed
 
-    def _should_refresh_runtime_between_iterations(self) -> bool:
-        return self.git.matches_remote_url(os.environ.get("REMOTE_URL"))
-
     def _should_restart_process_after_iteration(
         self,
         *,
+        dogfood: bool,
         max_tasks: int | None,
         completed: int,
     ) -> bool:
-        if os.environ.get("JRI_ALLOW_SELF_RESTART") != "1":
+        if not dogfood:
             return False
-        if not self._should_refresh_runtime_between_iterations():
+        if os.environ.get("JRI_ALLOW_SELF_RESTART") != "1":
             return False
         if self.paths.stop_signal_path.exists():
             return False
