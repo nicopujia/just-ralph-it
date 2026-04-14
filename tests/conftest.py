@@ -11,13 +11,23 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--run-live-opencode",
         action="store_true",
         default=False,
-        help="run live tests that call the real OpenCode CLI",
+        help="run live tests against a real OpenCode server",
     )
     parser.addoption(
-        "-M",
-        "--opencode-model",
-        default="vercel/alibaba/qwen3.6-plus",
-        help="model to use for live OpenCode tests",
+        "--model",
+        help="Override the Ralph model for live start tests.",
+    )
+    parser.addoption(
+        "--validator-model",
+        help="Override the Ralph validator model for live start tests.",
+    )
+    parser.addoption(
+        "--general-model",
+        help="Override the general subagent model for live start tests.",
+    )
+    parser.addoption(
+        "--explore-model",
+        help="Override the explore subagent model for live start tests.",
     )
 
 
@@ -33,9 +43,30 @@ def run_live_opencode(request: pytest.FixtureRequest) -> bool:
 
 
 @pytest.fixture
-def opencode_model(request: pytest.FixtureRequest) -> str:
-    value = request.config.getoption("opencode_model")
-    assert isinstance(value, str)
+def model(request: pytest.FixtureRequest) -> str | None:
+    value = request.config.getoption("model")
+    assert isinstance(value, str) or value is None
+    return value
+
+
+@pytest.fixture
+def validator_model(request: pytest.FixtureRequest) -> str | None:
+    value = request.config.getoption("validator_model")
+    assert isinstance(value, str) or value is None
+    return value
+
+
+@pytest.fixture
+def general_model(request: pytest.FixtureRequest) -> str | None:
+    value = request.config.getoption("general_model")
+    assert isinstance(value, str) or value is None
+    return value
+
+
+@pytest.fixture
+def explore_model(request: pytest.FixtureRequest) -> str | None:
+    value = request.config.getoption("explore_model")
+    assert isinstance(value, str) or value is None
     return value
 
 
