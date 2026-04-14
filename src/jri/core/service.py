@@ -977,6 +977,7 @@ class JriService:
             self.git.run("branch", branch, default_ref)
 
         if not wt_dir.exists():
+            self.git.prune_worktrees()
             self.git.add_worktree(wt_dir, branch)
 
         return GitRepo(wt_dir), JriPaths(wt_dir)

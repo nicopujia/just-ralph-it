@@ -298,6 +298,11 @@ class GitRepo:
                 result.stderr.strip() or f"failed to create worktree at {path}"
             )
 
+    def prune_worktrees(self) -> None:
+        result = self.run("worktree", "prune", check=False)
+        if result.returncode != 0:
+            raise JriError(result.stderr.strip() or "failed to prune worktrees")
+
     def remove_worktree(self, path: Path) -> None:
         result = self.run("worktree", "remove", str(path), "--force", check=False)
         if result.returncode != 0 and path.exists():

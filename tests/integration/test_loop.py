@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -1286,6 +1287,38 @@ def test_start_clears_stale_process_metadata_without_doing_task(git_repo: Path) 
     )
     assert "task=-" in recovery_log
     assert "reason=dead-tracked-process" in recovery_log
+
+
+def test_start_prunes_stale_worktree_metadata_before_recreating_worktree(
+    git_repo: Path,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    for slug in ("first-task", "second-task"):
+        write_task(
+            git_repo,
+            status="todo",
+            slug=slug,
+            title=slug.replace("-", " ").title(),
+            priority=0,
+            assignee="Ralph",
+            body="Create implemented.txt with the text implemented.",
+            acceptance_criteria=["implemented.txt exists"],
+        )
+        git(git_repo, "add", f".jri/tasks/todo/{slug}.md")
+        git(git_repo, "commit", "-m", f"add {slug}")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+
+    assert service.start(max_tasks=1, force=True) == 1
+
+    worktree_dir = git_repo / ".jri" / "worktree"
+    assert worktree_dir.exists()
+    shutil.rmtree(worktree_dir)
+    assert not worktree_dir.exists()
+
+    assert service.start(max_tasks=1, force=True) == 1
+    assert worktree_dir.exists()
+    assert (git_repo / ".jri" / "tasks" / "done" / "second-task.md").exists()
 
 
 def test_start_recovers_clean_detached_interruption(
