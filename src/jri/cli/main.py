@@ -7,6 +7,7 @@ from typing import NoReturn
 
 from ..core.errors import JriError, RestartRequested
 from ..core.git import MSG_INIT
+from ..core.providers import provider_choices, resolve_provider_models
 from ..core.service import JriService
 
 _ALLOW_SELF_RESTART_ENV = "JRI_ALLOW_SELF_RESTART"
@@ -60,14 +61,23 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
     try:
         match args.command:
             case "chat":
+                chat_models = resolve_provider_models(
+                    args.provider,
+                    mode="chat",
+                    overrides={
+                        "model": args.model,
+                        "validator_model": args.validator_model,
+                        "explore_model": args.explore_model,
+                    },
+                )
                 return _finalize_command_return(
                     "chat",
                     service.chat(
                         unknown,
                         fresh=args.fresh,
-                        model=args.model,
-                        validator_model=args.validator_model,
-                        explore_model=args.explore_model,
+                        model=chat_models["model"],
+                        validator_model=chat_models["validator_model"],
+                        explore_model=chat_models["explore_model"],
                     ),
                 )
             case "status":
@@ -141,14 +151,24 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 _print_command_message("init")
                 return 0
             case "start":
+                start_models = resolve_provider_models(
+                    args.provider,
+                    mode="start",
+                    overrides={
+                        "model": args.model,
+                        "validator_model": args.validator_model,
+                        "general_model": args.general_model,
+                        "explore_model": args.explore_model,
+                    },
+                )
                 if args.detached:
                     result = service.start(
                         max_tasks=args.max_tasks,
                         detached=True,
-                        model=args.model,
-                        validator_model=args.validator_model,
-                        general_model=args.general_model,
-                        explore_model=args.explore_model,
+                        model=start_models["model"],
+                        validator_model=start_models["validator_model"],
+                        general_model=start_models["general_model"],
+                        explore_model=start_models["explore_model"],
                         task_timeout=args.task_timeout,
                         force=args.force,
                         dogfood=args.dogfood,
@@ -161,10 +181,10 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     "start",
                     service.start_attached(
                         max_tasks=args.max_tasks,
-                        model=args.model,
-                        validator_model=args.validator_model,
-                        general_model=args.general_model,
-                        explore_model=args.explore_model,
+                        model=start_models["model"],
+                        validator_model=start_models["validator_model"],
+                        general_model=start_models["general_model"],
+                        explore_model=start_models["explore_model"],
                         task_timeout=args.task_timeout,
                         force=args.force,
                         dogfood=args.dogfood,
@@ -292,6 +312,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Clear the existing interrogator session and start fresh.",
     )
     chat_parser.add_argument(
+        "--provider",
+        choices=provider_choices(),
+        help=(
+            "Apply the named model provider bundle for chat. "
+            "Use 'default' to match the checked-in config."
+        ),
+    )
+    chat_parser.add_argument(
         "-m",
         "--model",
         help="Override the interrogator model for this chat run only.",
@@ -392,6 +420,14 @@ def _build_parser() -> argparse.ArgumentParser:
         "--detached",
         action="store_true",
         help="Run the loop in the background and track it in .jri/state.json.",
+    )
+    start_parser.add_argument(
+        "--provider",
+        choices=provider_choices(),
+        help=(
+            "Apply the named model provider bundle for start. "
+            "Use 'default' to match the checked-in config."
+        ),
     )
     start_parser.add_argument(
         "-m",

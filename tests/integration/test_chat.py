@@ -338,6 +338,18 @@ def test_chat_help_includes_new_alias(capsys: pytest.CaptureFixture[str]) -> Non
     assert "--fresh, --new" in help_text
 
 
+def test_chat_help_includes_provider_flag(capsys: pytest.CaptureFixture[str]) -> None:
+    parser = _build_parser()
+
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args(["chat", "--help"])
+
+    assert exc_info.value.code == 0
+    help_text = capsys.readouterr().out
+
+    assert "--provider {default,openai}" in help_text
+
+
 def test_chat_cli_passes_model_overrides(initialized_repo: Path) -> None:
     repo = initialized_repo
     captured: dict[str, object] = {}
@@ -420,6 +432,89 @@ def test_chat_cli_new_alias_sets_fresh(initialized_repo: Path) -> None:
         "model": None,
         "validator_model": None,
         "explore_model": None,
+    }
+    monkeypatch.undo()
+
+
+def test_chat_cli_provider_sets_models(initialized_repo: Path) -> None:
+    repo = initialized_repo
+    captured: dict[str, object] = {}
+
+    def fake_chat(
+        self: JriService,
+        extra_args: list[str],
+        *,
+        fresh: bool = False,
+        model: str | None = None,
+        validator_model: str | None = None,
+        explore_model: str | None = None,
+    ) -> int:
+        captured["extra_args"] = extra_args
+        captured["fresh"] = fresh
+        captured["model"] = model
+        captured["validator_model"] = validator_model
+        captured["explore_model"] = explore_model
+        return 0
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(JriService, "chat", fake_chat)
+
+    result = main(["chat", "--provider", "openai", "--prompt", "hello"], cwd=repo)
+
+    assert result == 0
+    assert captured == {
+        "extra_args": ["--prompt", "hello"],
+        "fresh": False,
+        "model": "openai/gpt-5.4",
+        "validator_model": "openai/gpt-5.4",
+        "explore_model": "openai/gpt-5.4-mini",
+    }
+    monkeypatch.undo()
+
+
+def test_chat_cli_explicit_model_overrides_provider(initialized_repo: Path) -> None:
+    repo = initialized_repo
+    captured: dict[str, object] = {}
+
+    def fake_chat(
+        self: JriService,
+        extra_args: list[str],
+        *,
+        fresh: bool = False,
+        model: str | None = None,
+        validator_model: str | None = None,
+        explore_model: str | None = None,
+    ) -> int:
+        captured["extra_args"] = extra_args
+        captured["fresh"] = fresh
+        captured["model"] = model
+        captured["validator_model"] = validator_model
+        captured["explore_model"] = explore_model
+        return 0
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(JriService, "chat", fake_chat)
+
+    result = main(
+        [
+            "chat",
+            "--provider",
+            "openai",
+            "--model",
+            "openai/gpt-5-codex",
+            "--prompt",
+            "hello",
+        ],
+        cwd=repo,
+    )
+
+    assert result == 0
+    assert captured == {
+        "extra_args": ["--prompt", "hello"],
+        "fresh": False,
+        "model": "openai/gpt-5-codex",
+        "validator_model": "openai/gpt-5.4",
+        "explore_model": "openai/gpt-5.4-mini",
     }
     monkeypatch.undo()
 
