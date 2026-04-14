@@ -91,6 +91,7 @@ _SCAFFOLD_TEMPLATE_PATHS = (
 _ROOT_SCAFFOLD_PATHS = ("Makefile",)
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
 _MAX_TASK_TITLE_LENGTH = 50
+_DRAFT_TASK_PREFIX = ".jri/tasks/draft/"
 _DEFAULT_MAKEFILE = """.PHONY: check
 
 check:
@@ -1407,6 +1408,8 @@ class JriService:
         status = self.git.status_short()
         if not status:
             return
+        if self._dirty_paths_are_draft_only(status):
+            return
         if force:
             self.git.run("stash")
             return
@@ -1427,6 +1430,23 @@ class JriService:
             self.git.run("clean", "-fd")
         else:
             raise JriError("aborted by user")
+
+    def _dirty_paths_are_draft_only(self, status: str) -> bool:
+        paths = [path for path in self._status_paths(status) if path]
+        return bool(paths) and all(
+            path.startswith(_DRAFT_TASK_PREFIX) for path in paths
+        )
+
+    def _status_paths(self, status: str) -> list[str]:
+        paths: list[str] = []
+        for line in status.splitlines():
+            if len(line) < 4:
+                continue
+            path = line[3:]
+            if " -> " in path:
+                path = path.rsplit(" -> ", 1)[-1]
+            paths.append(path)
+        return paths
 
     def _handle_wrong_branch(self, *, force: bool) -> None:
         """Handle being on the wrong branch before starting the loop."""

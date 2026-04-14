@@ -3940,6 +3940,74 @@ def test_start_stashes_dirty_workdir_with_force(git_repo: Path) -> None:
     assert "stash@{0}" in stash_list
 
 
+def test_start_allows_dirty_draft_tasks_without_force(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    write_task(
+        git_repo,
+        status="draft",
+        slug="clarify-scope",
+        title="Clarify scope",
+        priority=1,
+        assignee="Human",
+        body="Capture open questions.",
+    )
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    completed = service.start(max_tasks=1)
+
+    assert completed == 1
+    assert git(git_repo, "stash", "list") == ""
+    assert (git_repo / ".jri" / "tasks" / "draft" / "clarify-scope.md").exists()
+
+
+def test_start_force_stashes_when_dirty_paths_are_not_draft_only(
+    git_repo: Path,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    write_task(
+        git_repo,
+        status="draft",
+        slug="clarify-scope",
+        title="Clarify scope",
+        priority=1,
+        assignee="Human",
+        body="Capture open questions.",
+    )
+    (git_repo / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+    git(git_repo, "add", "dirty.txt")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    completed = service.start(max_tasks=1, force=True)
+
+    assert completed == 1
+    stash_list = git(git_repo, "stash", "list")
+    assert "stash@{0}" in stash_list
+
+
 def test_start_switches_branch_with_force(git_repo: Path) -> None:
     """With force=True, wrong branch is auto-switched before the loop runs."""
     assert run_cli(["init"], cwd=git_repo) == 0
