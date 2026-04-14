@@ -4,8 +4,8 @@ from pathlib import Path
 from .errors import JriError
 
 MSG_INIT = "jri: init"
-MSG_START_BEGIN = "jri(start): begin {slug}"
-MSG_START_COMPLETE = "jri(start): complete {slug}"
+MSG_START_BEGIN = "jri: begin {slug}"
+MSG_START_COMPLETE = "jri: complete {slug}"
 MSG_CHECK_PROMOTE = "jri: validate draft tasks for promotion"
 MSG_PROMOTE = "jri: move drafts to todo"
 MSG_RECOVER_FAILED = "jri: recover {slug} after failed task"
