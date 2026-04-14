@@ -1,4 +1,5 @@
 import os
+import shutil
 import sys
 
 BOLD = "\033[1m"
@@ -7,6 +8,7 @@ GREEN = "\033[32m"
 RED = "\033[31m"
 YELLOW = "\033[33m"
 CYAN = "\033[36m"
+INVERSE = "\033[7m"
 RESET = "\033[0m"
 
 
@@ -14,6 +16,10 @@ def supports_color() -> bool:
     if os.environ.get("NO_COLOR") is not None:
         return False
     return sys.stdout.isatty()
+
+
+def supports_interactive_footer() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
 
 
 def _s(text: str, *codes: str) -> str:
@@ -49,6 +55,34 @@ def task_footer(result: str) -> str:
     return _s(text, color, BOLD)
 
 
+def follow_status_bar(
+    task_slug: str | None,
+    *,
+    confirming_halt: bool = False,
+    halt_armed: bool = False,
+    width: int | None = None,
+) -> str:
+    width = max(width or shutil.get_terminal_size((80, 24)).columns, 20)
+    left = f" task: {task_slug or 'idle'} "
+    if confirming_halt:
+        right = (
+            " halt? Enter confirm  n cancel "
+            if halt_armed
+            else " halt? y then Enter  n cancel "
+        )
+    else:
+        right = " d detach  s stop-next  h halt "
+
+    if len(left) + len(right) > width:
+        left = _truncate(left, max(width - len(right), 1))
+    if len(left) + len(right) > width:
+        right = _truncate(right, max(width - len(left), 1))
+
+    padding = max(width - len(left) - len(right), 0)
+    bar = f"{left}{' ' * padding}{right}"
+    return _s(bar.ljust(width), BOLD, INVERSE)
+
+
 def trim_tool_output(
     text: str, *, max_lines: int = 20, max_chars: int = 2000
 ) -> str | None:
@@ -70,3 +104,13 @@ def trim_tool_output(
 
 def _looks_like_file_list(line: str) -> bool:
     return "/" in line and not line.strip().startswith("#")
+
+
+def _truncate(text: str, width: int) -> str:
+    if width <= 0:
+        return ""
+    if len(text) <= width:
+        return text
+    if width <= 3:
+        return text[:width]
+    return text[: width - 3] + "..."
