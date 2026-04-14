@@ -41,7 +41,7 @@ def test_resolve_preset_models_uses_openai_start_bundle() -> None:
     )
 
     assert resolved == {
-        "model": "openai/gpt-5.4-pro",
+        "model": "openai/gpt-5.4",
         "validator_model": "openai/gpt-5.4",
         "general_model": "openai/gpt-5-codex",
         "explore_model": "openai/gpt-5.4-mini",
@@ -79,7 +79,7 @@ def test_resolve_preset_models_allows_explicit_overrides() -> None:
     )
 
     assert resolved == {
-        "model": "openai/gpt-5.4-pro",
+        "model": "openai/gpt-5.4",
         "validator_model": "openai/gpt-5.4-mini",
         "general_model": "openai/gpt-5.4",
         "explore_model": "openai/gpt-5.4-mini",
