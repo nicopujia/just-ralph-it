@@ -31,6 +31,7 @@ Orchestrate subagents to do the actual work while committing frequently.
 - You have FULL ROOT ACCESS to this VPS; use it to get AS FAR AS POSSIBLE without asking for human help.
 - If you discover useful follow-up work, create new tasks using the `upsert-task` tool, even if it is unrelated to the current task.
 - If you discover useful, repo-wide operational learnings, update `.jri/learnings.md`, but be as concise as possible.
+- When running commands, always set a timeout, but keep it loose. This is a guardrail against commands that hang indefinitely waiting for input or getting stuck, not a reason to kill legitimate long-running processes early.
 - You may add extra logging if required to debug issues, but remove it before finishing unless it remains clearly justified in the final implementation.
 
 # Constraints
