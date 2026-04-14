@@ -41,9 +41,9 @@ Remember that promoted tasks are NOT editable, so drafts shall be promoted only 
 
 ### Guidelines
 
-- Follow BDD principles — do NOT include specific file paths or implementation code in the tasks.
+- Follow BDD principles — do NOT include implementation code in the tasks, and avoid specific file paths because they are fragile implementation detail. Only include a path when the path itself is a durable part of the task scope.
 - Use dependencies — do NOT use incremental numbers for task ordering.
-- Always create a priority-0 setup task as the very first task — cover project scaffolding, linters, formatters, testing, and a `make check` command that runs all quality gates.
+- Always create a priority-0 setup task as the very first task on greenfield projects — establish the project quality entrypoint by defining or wiring a `make check` command that runs the required quality gates. For scaffolding, linters, formatters, and test harness setup, add them as separate setup tasks rather than bundling them into this first task.
 - You may also edit the `README.md` file, but be very picky — it MUST ONLY include project-wide information which cannot fit in tasks.
 
 ### Promotion
