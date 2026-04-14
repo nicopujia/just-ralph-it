@@ -1529,6 +1529,22 @@ def test_ctl_start_reports_when_no_todo_tasks(
     assert capsys.readouterr().out == "No todo tasks found.\n"
 
 
+def test_ctl_start_rejects_managed_ralph_worktree(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+
+    worktree_dir = git_repo / ".jri" / "worktree"
+    worktree_dir.mkdir(parents=True)
+    (worktree_dir / ".jri").mkdir()
+
+    assert run_cli(["start", "-n", "1", "--force"], cwd=worktree_dir) == 1
+    assert (
+        "start: jri start cannot run from .jri/worktree; "
+        "run it from the main repository root" in capsys.readouterr().err
+    )
+
+
 def test_ctl_attach_replays_tracked_run_output(
     git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
