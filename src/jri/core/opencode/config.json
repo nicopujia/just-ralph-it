@@ -40,11 +40,7 @@
       "permission": {
         "*": "deny",
         "check-draft-promotion": "allow",
-        "read-tasks": "allow",
-        "task": {
-          "*": "deny",
-          "interrogator-validator": "allow"
-        }
+        "read-tasks": "allow"
       }
     },
     "ralph": {
@@ -57,7 +53,10 @@
         "*": "allow",
         "interrogator-validator": "deny",
         "question": "deny",
-        "*-task*": "deny",
+        "list-tasks": "deny",
+        "read-tasks": "deny",
+        "check-draft-promotion": "deny",
+        "promote-tasks": "deny",
         "task": {
           "*": "allow",
           "interrogator-validator": "deny"
