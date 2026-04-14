@@ -1507,6 +1507,28 @@ def test_ctl_start_detached_reports_background_run(
     assert "jri attach" in output
 
 
+def test_ctl_start_reports_when_no_todo_tasks(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    capsys.readouterr()
+
+    service = JriService(git_repo)
+
+    def fake_start_attached(**kwargs: object) -> int:
+        assert kwargs["force"] is False
+        print("No todo tasks found.")
+        return 0
+
+    monkeypatch.setattr(service, "start_attached", fake_start_attached)
+    monkeypatch.setattr(
+        import_module("jri.cli.main"), "JriService", lambda cwd: service
+    )
+
+    assert run_cli(["start"], cwd=git_repo) == 0
+    assert capsys.readouterr().out == "No todo tasks found.\n"
+
+
 def test_ctl_attach_replays_tracked_run_output(
     git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
