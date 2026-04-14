@@ -39,6 +39,8 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     max_tasks=args.max_tasks,
                     model=args.model,
                     validator_model=args.validator_model,
+                    general_model=args.general_model,
+                    explore_model=args.explore_model,
                     task_timeout=args.task_timeout,
                     force=args.force,
                     dogfood=args.dogfood,
@@ -65,6 +67,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         fresh=args.fresh,
                         model=args.model,
                         validator_model=args.validator_model,
+                        explore_model=args.explore_model,
                     ),
                 )
             case "status":
@@ -144,6 +147,8 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         detached=True,
                         model=args.model,
                         validator_model=args.validator_model,
+                        general_model=args.general_model,
+                        explore_model=args.explore_model,
                         task_timeout=args.task_timeout,
                         force=args.force,
                         dogfood=args.dogfood,
@@ -158,6 +163,8 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         max_tasks=args.max_tasks,
                         model=args.model,
                         validator_model=args.validator_model,
+                        general_model=args.general_model,
+                        explore_model=args.explore_model,
                         task_timeout=args.task_timeout,
                         force=args.force,
                         dogfood=args.dogfood,
@@ -293,6 +300,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--validator-model",
         help="Override the interrogator-validator model for this chat run only.",
     )
+    chat_parser.add_argument(
+        "--explore-model",
+        help="Override the explore subagent model for this chat run only.",
+    )
 
     subparsers.add_parser(
         "halt",
@@ -392,6 +403,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override the Ralph validator model for this start run only.",
     )
     start_parser.add_argument(
+        "--general-model",
+        help="Override the general subagent model for this start run only.",
+    )
+    start_parser.add_argument(
+        "--explore-model",
+        help="Override the explore subagent model for this start run only.",
+    )
+    start_parser.add_argument(
         "--task-timeout",
         type=int,
         metavar="SECONDS",
@@ -461,6 +480,8 @@ def _build_internal_run_loop_parser() -> argparse.ArgumentParser:
     parser.add_argument("-n", "--tasks", type=int, dest="max_tasks")
     parser.add_argument("-m", "--model")
     parser.add_argument("--validator-model")
+    parser.add_argument("--general-model")
+    parser.add_argument("--explore-model")
     parser.add_argument("--task-timeout", type=int, metavar="SECONDS")
     parser.add_argument("-f", "--force", action="store_true")
     parser.add_argument("--dogfood", action="store_true")

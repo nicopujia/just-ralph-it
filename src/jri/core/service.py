@@ -165,6 +165,7 @@ class JriService:
         fresh: bool = False,
         model: str | None = None,
         validator_model: str | None = None,
+        explore_model: str | None = None,
     ) -> int:
         self.ensure_initialized()
         if fresh:
@@ -184,6 +185,7 @@ class JriService:
             overrides={
                 "interrogator": model,
                 "interrogator-validator": validator_model,
+                "explore": explore_model,
             },
         ) as env:
             returncode = launch_chat(
@@ -217,6 +219,8 @@ class JriService:
         detached: bool = False,
         model: str | None = None,
         validator_model: str | None = None,
+        general_model: str | None = None,
+        explore_model: str | None = None,
         task_timeout: int | None = None,
         force: bool = False,
         dogfood: bool = False,
@@ -230,6 +234,8 @@ class JriService:
                 max_tasks,
                 model,
                 validator_model,
+                general_model,
+                explore_model,
                 task_timeout,
                 dogfood,
             )
@@ -238,6 +244,8 @@ class JriService:
             max_tasks=max_tasks,
             model=model,
             validator_model=validator_model,
+            general_model=general_model,
+            explore_model=explore_model,
             task_timeout=task_timeout,
             force=force,
             dogfood=dogfood,
@@ -249,6 +257,8 @@ class JriService:
         max_tasks: int | None = None,
         model: str | None = None,
         validator_model: str | None = None,
+        general_model: str | None = None,
+        explore_model: str | None = None,
         task_timeout: int | None = None,
         force: bool = False,
         recover: bool = False,
@@ -268,6 +278,8 @@ class JriService:
                 opencode_overrides={
                     "ralph": model,
                     "ralph-validator": validator_model,
+                    "general": general_model,
+                    "explore": explore_model,
                 },
             )
 
@@ -289,6 +301,8 @@ class JriService:
         max_tasks: int | None = None,
         model: str | None = None,
         validator_model: str | None = None,
+        general_model: str | None = None,
+        explore_model: str | None = None,
         task_timeout: int | None = None,
         force: bool = False,
         dogfood: bool = False,
@@ -299,6 +313,8 @@ class JriService:
             max_tasks,
             model,
             validator_model,
+            general_model,
+            explore_model,
             task_timeout,
             force,
             dogfood,
@@ -624,6 +640,8 @@ class JriService:
         max_tasks: int | None,
         model: str | None,
         validator_model: str | None,
+        general_model: str | None,
+        explore_model: str | None,
         task_timeout: int | None,
         dogfood: bool,
     ) -> int:
@@ -638,6 +656,10 @@ class JriService:
             command.extend(["--model", model])
         if validator_model is not None:
             command.extend(["--validator-model", validator_model])
+        if general_model is not None:
+            command.extend(["--general-model", general_model])
+        if explore_model is not None:
+            command.extend(["--explore-model", explore_model])
         if task_timeout is not None:
             command.extend(["--task-timeout", str(task_timeout)])
         if dogfood:
@@ -670,6 +692,8 @@ class JriService:
         max_tasks: int | None,
         model: str | None,
         validator_model: str | None,
+        general_model: str | None,
+        explore_model: str | None,
         task_timeout: int | None,
         force: bool,
         dogfood: bool,
@@ -683,6 +707,10 @@ class JriService:
             command.extend(["--model", model])
         if validator_model is not None:
             command.extend(["--validator-model", validator_model])
+        if general_model is not None:
+            command.extend(["--general-model", general_model])
+        if explore_model is not None:
+            command.extend(["--explore-model", explore_model])
         if task_timeout is not None:
             command.extend(["--task-timeout", str(task_timeout)])
         if force:
