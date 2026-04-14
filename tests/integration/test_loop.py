@@ -372,6 +372,12 @@ class FakeDetachedProcess:
     def __init__(self, pid: int) -> None:
         self.pid = pid
 
+    def poll(self) -> None:
+        return None
+
+    def wait(self) -> int:
+        return 0
+
 
 def _dead_pid() -> int:
     process = subprocess.Popen(["sleep", "0"])
@@ -1216,10 +1222,12 @@ def test_ctl_start_detaches_foreground_follow(
         log_path: Path,
         *,
         loop_pid: int | None,
+        loop_process: object | None = None,
         allow_detach: bool,
     ) -> bool:
         assert log_path.name.startswith("run-")
         assert loop_pid == 515151
+        assert loop_process is not None
         assert allow_detach is True
         return True
 
@@ -1284,6 +1292,31 @@ def test_ctl_attach_replays_tracked_run_output(
     output = capsys.readouterr().out
     assert "first line" in output
     assert "second line" in output
+
+
+def test_follow_log_stops_when_spawned_process_has_exited(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    log_path = git_repo / ".jri" / "logs" / "ralph" / "completed.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("completed\n", encoding="utf-8")
+
+    class ZombieLikeProcess:
+        def poll(self) -> int:
+            return 0
+
+    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: True)
+
+    detached = service._follow_log(
+        log_path,
+        loop_pid=12345,
+        loop_process=cast(Any, ZombieLikeProcess()),
+        allow_detach=False,
+    )
+
+    assert detached is False
+    assert capsys.readouterr().out == "completed\n"
 
 
 def test_view_inspect_pretty_prints_saved_task_log(
