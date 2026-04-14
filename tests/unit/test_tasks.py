@@ -11,7 +11,7 @@ import pytest
 
 from jri.core.git import GitRepo
 from jri.core.models import Task, TaskMetadata
-from jri.core.opencode.tools import _run_upsert_task
+from jri.core.opencode.tools import _run_contrast_check, _run_upsert_task
 from jri.core.tasks import (
     dump_task,
     list_tasks,
@@ -140,6 +140,73 @@ def run_promote_task_tool(
     source = (
         files("jri.core.opencode")
         .joinpath("tools", f"{module_name}.js")
+        .read_text(encoding="utf-8")
+    )
+    module_path.write_text(
+        source.replace(
+            'import { tool } from "@opencode-ai/plugin";',
+            'import { tool } from "./plugin.mjs";',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    script = (
+        "const modulePath = process.argv.at(-2);\n"
+        "const payloadText = process.argv.at(-1);\n"
+        "const mod = await import(modulePath);\n"
+        "const result = await mod.default.execute(JSON.parse(payloadText));\n"
+        "process.stdout.write(result);\n"
+    )
+    result = subprocess.run(
+        [
+            node,
+            "--input-type=module",
+            "--eval",
+            script,
+            module_path.as_uri(),
+            json.dumps(payload),
+        ],
+        cwd=cwd,
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "JRI_PYTHON": sys.executable},
+    )
+    return result.stdout
+
+
+def run_contrast_check_tool(
+    cwd: Path, tmp_path: Path, payload: dict[str, object]
+) -> str:
+    node = shutil.which("node")
+    assert node is not None, "node is required to run check-contrast tool tests"
+
+    harness = tmp_path / "contrast_check_harness"
+    harness.mkdir(parents=True, exist_ok=True)
+    (harness / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
+    (harness / "plugin.mjs").write_text(
+        "function schemaBuilder() {\n"
+        "  const schema = {};\n"
+        "  schema.describe = () => schema;\n"
+        "  return schema;\n"
+        "}\n"
+        "export function tool(definition) { return definition; }\n"
+        "tool.schema = {\n"
+        "  string: () => schemaBuilder(),\n"
+        "};\n",
+        encoding="utf-8",
+    )
+    (harness / "_run-python-tool.mjs").write_text(
+        files("jri.core.opencode")
+        .joinpath("tools", "_run-python-tool.mjs")
+        .read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    module_path = harness / "check-contrast.mjs"
+    source = (
+        files("jri.core.opencode")
+        .joinpath("tools", "check-contrast.js")
         .read_text(encoding="utf-8")
     )
     module_path.write_text(
@@ -311,6 +378,7 @@ def test_packaged_schemas_are_available() -> None:
     assert builtins.joinpath("agents", "ralph.md").is_file()
     assert builtins.joinpath("agents", "ralph-validator.md").is_file()
     assert builtins.joinpath("tools", "_run-python-tool.mjs").is_file()
+    assert builtins.joinpath("tools", "check-contrast.js").is_file()
     assert builtins.joinpath("tools", "check-draft-promotion.js").is_file()
     assert builtins.joinpath("tools", "delete-task.js").is_file()
     assert builtins.joinpath("tools", "list-tasks.js").is_file()
@@ -445,6 +513,74 @@ def test_promote_task_tool_rejects_non_slug_entries(tmp_path: Path) -> None:
             repo,
             tmp_path,
             {"slugs": ["title: Build README\npriority: 1"], "check_only": True},
+        )
+
+
+def test_contrast_check_matches_webaim_thresholds() -> None:
+    result = json.loads(
+        _run_contrast_check(
+            {"foreground": "777777", "background": "FFFFFF", "standard": "AA"}
+        )
+    )
+
+    assert result == {
+        "standard": "AA",
+        "ratio": 4.48,
+        "threshold": 4.5,
+        "result": "fail",
+    }
+
+
+def test_contrast_check_supports_foreground_alpha() -> None:
+    result = json.loads(
+        _run_contrast_check(
+            {
+                "foreground": "0000FF80",
+                "background": "FFFFFF",
+                "standard": "GraphicsAA",
+            }
+        )
+    )
+
+    assert result == {
+        "standard": "GraphicsAA",
+        "ratio": 3.29,
+        "threshold": 3.0,
+        "result": "pass",
+    }
+
+
+def test_contrast_check_tool_executes_via_js_wrapper(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    result = json.loads(
+        run_contrast_check_tool(
+            repo,
+            tmp_path,
+            {"foreground": "000000", "background": "FFFFFF", "standard": "AAA"},
+        )
+    )
+
+    assert result["ratio"] == 21.0
+    assert result["result"] == "pass"
+
+
+def test_contrast_check_rejects_invalid_hex() -> None:
+    with pytest.raises(ValueError, match="`foreground` must be a valid"):
+        _run_contrast_check(
+            {"foreground": "blue", "background": "FFFFFF", "standard": "AA"}
+        )
+
+
+def test_contrast_check_rejects_invalid_standard() -> None:
+    with pytest.raises(ValueError, match="`standard` must be one of"):
+        _run_contrast_check(
+            {
+                "foreground": "000000",
+                "background": "FFFFFF",
+                "standard": "normal-text",
+            }
         )
 
 

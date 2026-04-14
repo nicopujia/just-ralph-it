@@ -10,6 +10,7 @@ AGENT_FILENAMES = (
 
 TOOL_FILENAMES = (
     "_run-python-tool.mjs",
+    "check-contrast.js",
     "check-draft-promotion.js",
     "delete-task.js",
     "list-tasks.js",
