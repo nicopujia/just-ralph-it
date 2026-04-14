@@ -444,16 +444,10 @@ def test_start_server_model_overrides_use_temporary_config(git_repo: Path) -> No
     assert not server.config_path.exists()
 
 
-def test_start_refreshes_server_runtime_each_iteration_for_self_hosting_repo(
-    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+def test_start_refreshes_server_runtime_each_iteration_in_dogfood_mode(
+    git_repo: Path,
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
-    monkeypatch.delenv("REMOTE_URL", raising=False)
-    (git_repo / ".env").write_text(
-        "REMOTE_URL=https://github.com/example/justralph.it\n",
-        encoding="utf-8",
-    )
-    git(git_repo, "remote", "add", "origin", "git@github.com:example/justralph.it.git")
     for slug in ("task-a", "task-b"):
         write_task(
             git_repo,
@@ -470,9 +464,8 @@ def test_start_refreshes_server_runtime_each_iteration_for_self_hosting_repo(
 
     server = RefreshCapturingOpenCodeServer()
     service = JriService(git_repo, opencode_client=server)
-    monkeypatch.setattr(service.git, "has_remote", lambda: False)
 
-    completed = service.start(max_tasks=2, force=True)
+    completed = service.start(max_tasks=2, force=True, dogfood=True)
 
     assert completed == 2
     assert len(server.start_config_paths) == 2
@@ -480,16 +473,8 @@ def test_start_refreshes_server_runtime_each_iteration_for_self_hosting_repo(
     assert server.stop_calls == 2
 
 
-def test_start_keeps_single_server_runtime_for_non_self_hosting_repo(
-    git_repo: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_start_keeps_single_server_runtime_without_dogfood(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
-    monkeypatch.delenv("REMOTE_URL", raising=False)
-    (git_repo / ".env").write_text(
-        "REMOTE_URL=https://github.com/example/justralph.it\n",
-        encoding="utf-8",
-    )
-    git(git_repo, "remote", "add", "origin", "https://github.com/example/another-repo")
     for slug in ("task-a", "task-b"):
         write_task(
             git_repo,
@@ -506,7 +491,6 @@ def test_start_keeps_single_server_runtime_for_non_self_hosting_repo(
 
     server = RefreshCapturingOpenCodeServer()
     service = JriService(git_repo, opencode_client=server)
-    monkeypatch.setattr(service.git, "has_remote", lambda: False)
 
     completed = service.start(max_tasks=2, force=True)
 
@@ -540,6 +524,7 @@ def test_start_detached_passes_validator_model_to_child(
             "provider/ralph-main",
             "provider/ralph-validator",
             None,
+            True,
         )
         == 0
     )
@@ -551,6 +536,7 @@ def test_start_detached_passes_validator_model_to_child(
     assert "provider/ralph-main" in command
     assert "--validator-model" in command
     assert "provider/ralph-validator" in command
+    assert "--dogfood" in command
 
 
 def test_ctl_start_help_accepts_validator_model_flag(git_repo: Path) -> None:
@@ -615,8 +601,9 @@ def test_internal_run_loop_uses_remaining_task_budget(
     monkeypatch.setenv("JRI_REMAINING_TASKS", "1")
     monkeypatch.setattr(JriService, "run_loop_process", fake_run_loop_process)
 
-    assert base_run_cli(["-n", "2", "--force"], cwd=git_repo) == 0
+    assert base_run_cli(["-n", "2", "--force", "--dogfood"], cwd=git_repo) == 0
     assert captured["max_tasks"] == 1
+    assert captured["dogfood"] is True
 
 
 def test_internal_run_loop_reexecs_after_restart_request(
@@ -644,10 +631,18 @@ def test_internal_run_loop_reexecs_after_restart_request(
     monkeypatch.setattr(cli_main.os, "execve", fake_execve)
 
     with pytest.raises(ExecveCalled):
-        base_run_cli(["-n", "2", "--force"], cwd=git_repo)
+        base_run_cli(["-n", "2", "--force", "--dogfood"], cwd=git_repo)
 
     assert captured["path"] == sys.executable
-    assert captured["args"] == [sys.executable, "-m", "jri", "-n", "2", "--force"]
+    assert captured["args"] == [
+        sys.executable,
+        "-m",
+        "jri",
+        "-n",
+        "2",
+        "--force",
+        "--dogfood",
+    ]
     env = cast(dict[str, str], captured["env"])
     assert env["JRI_ALLOW_SELF_RESTART"] == "1"
     assert env["JRI_INTERNAL_RUN_LOOP"] == "1"

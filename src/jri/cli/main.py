@@ -30,7 +30,8 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
     if os.environ.get(_INTERNAL_RUN_LOOP_ENV) == "1":
         args = _build_internal_run_loop_parser().parse_args(argv)
         args.max_tasks = _override_remaining_tasks(args.max_tasks)
-        os.environ[_ALLOW_SELF_RESTART_ENV] = "1"
+        if args.dogfood:
+            os.environ[_ALLOW_SELF_RESTART_ENV] = "1"
         try:
             return (
                 0
@@ -40,6 +41,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     validator_model=args.validator_model,
                     task_timeout=args.task_timeout,
                     force=args.force,
+                    dogfood=args.dogfood,
                 )
                 >= 0
                 else 1
@@ -144,6 +146,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         validator_model=args.validator_model,
                         task_timeout=args.task_timeout,
                         force=args.force,
+                        dogfood=args.dogfood,
                     )
                     if result >= 0:
                         _print_command_message("start")
@@ -157,6 +160,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         validator_model=args.validator_model,
                         task_timeout=args.task_timeout,
                         force=args.force,
+                        dogfood=args.dogfood,
                     ),
                 )
             case "stop":
@@ -399,6 +403,14 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Auto-resolve pre-flight checks without interactive prompts.",
     )
+    start_parser.add_argument(
+        "--dogfood",
+        action="store_true",
+        help=(
+            "Restart JRI between completed iterations so the next task uses "
+            "updated JRI code."
+        ),
+    )
 
     subparsers.add_parser(
         "status",
@@ -451,4 +463,5 @@ def _build_internal_run_loop_parser() -> argparse.ArgumentParser:
     parser.add_argument("--validator-model")
     parser.add_argument("--task-timeout", type=int, metavar="SECONDS")
     parser.add_argument("-f", "--force", action="store_true")
+    parser.add_argument("--dogfood", action="store_true")
     return parser
