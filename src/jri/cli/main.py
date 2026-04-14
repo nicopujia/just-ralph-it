@@ -7,7 +7,7 @@ from typing import NoReturn
 
 from ..core.errors import JriError, RestartRequested
 from ..core.git import MSG_INIT
-from ..core.providers import provider_choices, resolve_provider_models
+from ..core.opencode.presets import preset_choices, resolve_preset_models
 from ..core.service import JriService
 
 _ALLOW_SELF_RESTART_ENV = "JRI_ALLOW_SELF_RESTART"
@@ -61,8 +61,8 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
     try:
         match args.command:
             case "chat":
-                chat_models = resolve_provider_models(
-                    args.provider,
+                chat_models = resolve_preset_models(
+                    args.preset,
                     mode="chat",
                     overrides={
                         "model": args.model,
@@ -151,8 +151,8 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 _print_command_message("init")
                 return 0
             case "start":
-                start_models = resolve_provider_models(
-                    args.provider,
+                start_models = resolve_preset_models(
+                    args.preset,
                     mode="start",
                     overrides={
                         "model": args.model,
@@ -312,10 +312,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Clear the existing interrogator session and start fresh.",
     )
     chat_parser.add_argument(
-        "--provider",
-        choices=provider_choices(),
+        "--preset",
+        choices=preset_choices(),
         help=(
-            "Apply the named model provider bundle for chat. "
+            "Apply the named model preset for chat. "
             "Use 'default' to match the checked-in config."
         ),
     )
@@ -422,10 +422,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run the loop in the background and track it in .jri/state.json.",
     )
     start_parser.add_argument(
-        "--provider",
-        choices=provider_choices(),
+        "--preset",
+        choices=preset_choices(),
         help=(
-            "Apply the named model provider bundle for start. "
+            "Apply the named model preset for start. "
             "Use 'default' to match the checked-in config."
         ),
     )

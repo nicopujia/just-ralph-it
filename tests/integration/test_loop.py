@@ -634,7 +634,7 @@ def test_ctl_start_help_accepts_validator_model_flag(git_repo: Path) -> None:
     assert exc_info.value.code == 0
 
 
-def test_ctl_start_help_includes_provider_flag(
+def test_ctl_start_help_includes_preset_flag(
     git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
@@ -643,10 +643,10 @@ def test_ctl_start_help_includes_provider_flag(
         run_cli(["start", "--help"], cwd=git_repo)
 
     assert exc_info.value.code == 0
-    assert "--provider {default,openai}" in capsys.readouterr().out
+    assert "--preset {default,openai}" in capsys.readouterr().out
 
 
-def test_start_cli_provider_sets_models(
+def test_start_cli_preset_sets_models(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
@@ -680,7 +680,7 @@ def test_start_cli_provider_sets_models(
 
     monkeypatch.setattr(JriService, "start_attached", fake_start_attached)
 
-    result = main(["start", "--provider", "openai", "--tasks", "2"], cwd=git_repo)
+    result = main(["start", "--preset", "openai", "--tasks", "2"], cwd=git_repo)
 
     assert result == 0
     assert captured == {
@@ -695,7 +695,7 @@ def test_start_cli_provider_sets_models(
     }
 
 
-def test_start_cli_explicit_model_overrides_provider(
+def test_start_cli_explicit_model_overrides_preset(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
@@ -732,7 +732,7 @@ def test_start_cli_explicit_model_overrides_provider(
     result = main(
         [
             "start",
-            "--provider",
+            "--preset",
             "openai",
             "--general-model",
             "openai/gpt-5.4",
