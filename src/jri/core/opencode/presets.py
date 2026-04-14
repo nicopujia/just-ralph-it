@@ -9,7 +9,7 @@ PresetMode = Literal["chat", "start"]
 _CHAT_FIELDS = ("model", "validator_model", "explore_model")
 _START_FIELDS = ("model", "validator_model", "general_model", "explore_model")
 
-_PRESET_CHOICES = ("default", "openai")
+_PRESET_CHOICES = ("openai",)
 
 
 def preset_choices() -> tuple[str, ...]:
