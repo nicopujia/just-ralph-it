@@ -1,8 +1,6 @@
-import json
 from typing import Literal, cast
 
 from ..errors import JriError
-from .config import load_preset_text
 
 PresetMode = Literal["chat", "start"]
 
@@ -10,6 +8,21 @@ _CHAT_FIELDS = ("model", "validator_model", "explore_model")
 _START_FIELDS = ("model", "validator_model", "general_model", "explore_model")
 
 _PRESET_CHOICES = ("default", "openai")
+_PRESET_CONFIG: dict[str, object] = {
+    "openai": {
+        "chat": {
+            "model": "openai/gpt-5.4",
+            "validator_model": "openai/gpt-5.4",
+            "explore_model": "openai/gpt-5.4-mini",
+        },
+        "start": {
+            "model": "openai/gpt-5.4",
+            "validator_model": "openai/gpt-5.4",
+            "general_model": "openai/gpt-5-codex",
+            "explore_model": "openai/gpt-5.4-mini",
+        },
+    }
+}
 
 
 def preset_choices() -> tuple[str, ...]:
@@ -76,8 +89,4 @@ def _extract_preset_model(
 
 
 def _load_preset_config() -> dict[str, object]:
-    config_text = load_preset_text()
-    loaded = json.loads(config_text)
-    if not isinstance(loaded, dict):
-        raise JriError("preset config must be a JSON object")
-    return loaded
+    return _PRESET_CONFIG

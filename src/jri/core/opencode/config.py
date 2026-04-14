@@ -13,10 +13,6 @@ def load_config_text() -> str:
     return load_asset_text("config.json")
 
 
-def load_preset_text() -> str:
-    return load_asset_text("presets.json")
-
-
 def load_agent_text(name: str) -> str:
     return load_asset_text(Path("agents") / name)
 
