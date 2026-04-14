@@ -11,7 +11,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--run-live-opencode",
         action="store_true",
         default=False,
-        help="run live tests that call the real OpenCode CLI",
+        help="run live tests against a real OpenCode server",
     )
     parser.addoption(
         "--model",
