@@ -644,7 +644,7 @@ def test_ctl_start_help_includes_preset_flag(
         run_cli(["start", "--help"], cwd=git_repo)
 
     assert exc_info.value.code == 0
-    assert "--preset {openai}" in capsys.readouterr().out
+    assert "--preset {default,openai}" in capsys.readouterr().out
 
 
 def test_start_cli_preset_sets_models(

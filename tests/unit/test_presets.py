@@ -5,7 +5,27 @@ from jri.core.opencode.presets import preset_choices, resolve_preset_models
 
 
 def test_preset_choices_are_stable() -> None:
-    assert preset_choices() == ("openai",)
+    assert preset_choices() == ("default", "openai")
+
+
+def test_resolve_preset_models_default_is_noop() -> None:
+    resolved = resolve_preset_models(
+        "default",
+        mode="start",
+        overrides={
+            "model": None,
+            "validator_model": None,
+            "general_model": None,
+            "explore_model": None,
+        },
+    )
+
+    assert resolved == {
+        "model": None,
+        "validator_model": None,
+        "general_model": None,
+        "explore_model": None,
+    }
 
 
 def test_resolve_preset_models_uses_openai_start_bundle() -> None:
