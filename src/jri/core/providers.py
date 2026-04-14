@@ -1,8 +1,8 @@
-import re
-from typing import Literal
+import json
+from importlib.resources import files
+from typing import Literal, cast
 
 from .errors import JriError
-from .opencode.config import load_config_text
 
 ProviderMode = Literal["chat", "start"]
 
@@ -52,9 +52,17 @@ def _provider_models(provider: str | None, *, mode: ProviderMode) -> dict[str, s
 
 
 def _configured_provider_models(provider: str, *, mode: ProviderMode) -> dict[str, str]:
-    config_text = load_config_text()
+    provider_config = _load_provider_config()
+    provider_data = provider_config.get(provider)
+    if not isinstance(provider_data, dict):
+        raise JriError(f"failed to resolve provider '{provider}'")
+    provider_data = cast(dict[str, object], provider_data)
+    mode_data = provider_data.get(mode)
+    if not isinstance(mode_data, dict):
+        raise JriError(f"failed to resolve provider '{provider}' mode '{mode}'")
+    mode_data = cast(dict[str, object], mode_data)
     return {
-        name: _extract_provider_model(config_text, provider, mode, name)
+        name: _extract_provider_model(mode_data, provider, mode, name)
         for name in _provider_fields(mode)
     }
 
@@ -66,17 +74,22 @@ def _provider_fields(mode: ProviderMode) -> tuple[str, ...]:
 
 
 def _extract_provider_model(
-    config_text: str, provider: str, mode: ProviderMode, field_name: str
+    mode_data: dict[str, object], provider: str, mode: ProviderMode, field_name: str
 ) -> str:
-    pattern = re.compile(
-        rf'"provider"\s*:\s*\{{.*?"{re.escape(provider)}"\s*:\s*\{{.*?'
-        rf'"{re.escape(mode)}"\s*:\s*\{{.*?"{re.escape(field_name)}"\s*:\s*"([^"]+)"',
-        re.DOTALL,
-    )
-    match = pattern.search(config_text)
-    if match is None:
+    value = mode_data.get(field_name)
+    if not isinstance(value, str):
         raise JriError(
             "failed to resolve provider model for "
-            f"provider '{provider}' field '{field_name}'"
+            f"provider '{provider}' mode '{mode}' field '{field_name}'"
         )
-    return match.group(1)
+    return value
+
+
+def _load_provider_config() -> dict[str, object]:
+    config_text = (
+        files("jri.core").joinpath("providers.json").read_text(encoding="utf-8")
+    )
+    loaded = json.loads(config_text)
+    if not isinstance(loaded, dict):
+        raise JriError("provider config must be a JSON object")
+    return loaded

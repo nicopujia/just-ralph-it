@@ -1,0 +1,28 @@
+{
+  "default": {
+    "chat": {
+      "model": "vercel/xai/grok-4.20-reasoning",
+      "validator_model": "vercel/deepseek/deepseek-r1",
+      "explore_model": "vercel/alibaba/qwen3.5-flash"
+    },
+    "start": {
+      "model": "vercel/moonshotai/kimi-k2.5",
+      "validator_model": "vercel/zai/glm-5",
+      "general_model": "vercel/deepseek/deepseek-v3.2",
+      "explore_model": "vercel/alibaba/qwen3.5-flash"
+    }
+  },
+  "openai": {
+    "chat": {
+      "model": "openai/gpt-5.4",
+      "validator_model": "openai/gpt-5.4",
+      "explore_model": "openai/gpt-5.4-mini"
+    },
+    "start": {
+      "model": "openai/gpt-5.4-pro",
+      "validator_model": "openai/gpt-5.4",
+      "general_model": "openai/gpt-5-codex",
+      "explore_model": "openai/gpt-5.4-mini"
+    }
+  }
+}
