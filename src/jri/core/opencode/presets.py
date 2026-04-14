@@ -9,7 +9,7 @@ PresetMode = Literal["chat", "start"]
 _CHAT_FIELDS = ("model", "validator_model", "explore_model")
 _START_FIELDS = ("model", "validator_model", "general_model", "explore_model")
 
-_PRESET_CHOICES = ("openai",)
+_PRESET_CHOICES = ("default", "openai")
 
 
 def preset_choices() -> tuple[str, ...]:
@@ -34,7 +34,7 @@ def resolve_preset_models(
 
 
 def _preset_models(preset: str | None, *, mode: PresetMode) -> dict[str, str]:
-    if preset is None:
+    if preset is None or preset == "default":
         return {}
     if preset in _PRESET_CHOICES:
         return _configured_preset_models(preset, mode=mode)

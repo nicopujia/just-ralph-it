@@ -347,7 +347,7 @@ def test_chat_help_includes_preset_flag(capsys: pytest.CaptureFixture[str]) -> N
     assert exc_info.value.code == 0
     help_text = capsys.readouterr().out
 
-    assert "--preset {openai}" in help_text
+    assert "--preset {default,openai}" in help_text
 
 
 def test_chat_cli_passes_model_overrides(initialized_repo: Path) -> None:
