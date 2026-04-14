@@ -1,15 +1,15 @@
 import pytest
 
 from jri.core.errors import JriError
-from jri.core.providers import provider_choices, resolve_provider_models
+from jri.core.opencode.presets import preset_choices, resolve_preset_models
 
 
-def test_provider_choices_are_stable() -> None:
-    assert provider_choices() == ("default", "openai")
+def test_preset_choices_are_stable() -> None:
+    assert preset_choices() == ("default", "openai")
 
 
-def test_resolve_provider_models_uses_openai_start_bundle() -> None:
-    resolved = resolve_provider_models(
+def test_resolve_preset_models_uses_openai_start_bundle() -> None:
+    resolved = resolve_preset_models(
         "openai",
         mode="start",
         overrides={
@@ -28,8 +28,8 @@ def test_resolve_provider_models_uses_openai_start_bundle() -> None:
     }
 
 
-def test_resolve_provider_models_uses_openai_chat_bundle() -> None:
-    resolved = resolve_provider_models(
+def test_resolve_preset_models_uses_openai_chat_bundle() -> None:
+    resolved = resolve_preset_models(
         "openai",
         mode="chat",
         overrides={
@@ -46,8 +46,8 @@ def test_resolve_provider_models_uses_openai_chat_bundle() -> None:
     }
 
 
-def test_resolve_provider_models_allows_explicit_overrides() -> None:
-    resolved = resolve_provider_models(
+def test_resolve_preset_models_allows_explicit_overrides() -> None:
+    resolved = resolve_preset_models(
         "openai",
         mode="start",
         overrides={
@@ -66,8 +66,8 @@ def test_resolve_provider_models_allows_explicit_overrides() -> None:
     }
 
 
-def test_resolve_provider_models_default_matches_checked_in_config() -> None:
-    resolved = resolve_provider_models(
+def test_resolve_preset_models_default_matches_checked_in_config() -> None:
+    resolved = resolve_preset_models(
         "default",
         mode="start",
         overrides={
@@ -86,9 +86,9 @@ def test_resolve_provider_models_default_matches_checked_in_config() -> None:
     }
 
 
-def test_resolve_provider_models_rejects_unknown_provider() -> None:
-    with pytest.raises(JriError, match="unknown provider 'bogus'"):
-        resolve_provider_models(
+def test_resolve_preset_models_rejects_unknown_preset() -> None:
+    with pytest.raises(JriError, match="unknown preset 'bogus'"):
+        resolve_preset_models(
             "bogus",
             mode="chat",
             overrides={

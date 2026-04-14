@@ -10,11 +10,10 @@ from ..errors import JriError
 from ..timeline import TimelineEvent, TimelineStore
 from .client import OpenCodeProgrammatic, OpenCodeServer
 from .config import (
-    AGENT_FILENAMES,
-    TOOL_FILENAMES,
-    load_agent_text,
+    COPYABLE_DIRECTORIES,
+    iter_directory_assets,
+    load_asset_text,
     load_config_text,
-    load_tool_text,
 )
 
 
@@ -29,16 +28,13 @@ def runtime_env(*, overrides: dict[str, str | None]) -> Iterator[dict[str, str]]
     with tempfile.TemporaryDirectory(prefix="jri-opencode-") as tmp_dir:
         bundle_root = Path(tmp_dir)
         config_dir = bundle_root / ".opencode"
-        agents_dir = config_dir / "agents"
-        tools_dir = config_dir / "tools"
-        agents_dir.mkdir(parents=True, exist_ok=True)
-        tools_dir.mkdir(parents=True, exist_ok=True)
-        for name in AGENT_FILENAMES:
-            agents_dir.joinpath(name).write_text(
-                load_agent_text(name), encoding="utf-8"
-            )
-        for name in TOOL_FILENAMES:
-            tools_dir.joinpath(name).write_text(load_tool_text(name), encoding="utf-8")
+        for directory in COPYABLE_DIRECTORIES:
+            target_dir = config_dir / directory
+            target_dir.mkdir(parents=True, exist_ok=True)
+            for name in iter_directory_assets(directory):
+                target_dir.joinpath(name).write_text(
+                    load_asset_text(Path(directory) / name), encoding="utf-8"
+                )
         config_path = bundle_root / "opencode.json"
         config_path.write_text(config_text, encoding="utf-8")
         yield {
