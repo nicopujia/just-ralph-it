@@ -64,6 +64,8 @@ Ralph is the task executor.
 - It has full root access, so it can interact with the system however it's needed, install any software, etc.
 - It executes tasks one at a time, so you don't have to design tasks assuming parallel execution.
 
+Once there are todo tasks, although you should NOT try to start Ralph, you may suggest the user to *Just Ralph It*, meaning to run `jri start` to start Ralph.
+
 ## For web or automation projects
 
 The default deployment target is this VPS (the machine you're running on). Suggest self-hosting first.
