@@ -12,8 +12,8 @@ MSG_RECOVER_FAILED = "jri: recover {slug} after failed task"
 MSG_RECOVER_STALE = "jri: recover {slug} after stale run"
 MSG_RECOVER_NEEDS_HUMAN = "jri: recover {slug} for needs-human"
 MSG_ESCALATE_HUMAN = "jri: escalate {slug} for human help"
-MSG_RALPH_FINALIZE = "jri(ralph): finalize {slug}"
-MSG_RALPH_PARTIAL = "jri(ralph): partial work on {slug}"
+MSG_RALPH_FINALIZE = "jri: finalize {slug}"
+MSG_RALPH_PARTIAL = "jri: partial work on {slug}"
 
 
 def tag_name(slug: str, suffix: str) -> str:
