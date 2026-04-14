@@ -44,7 +44,7 @@
       }
     },
     "ralph": {
-      "model": "vercel/moonshotai/kimi-k2.5",
+      "model": "vercel/minimax/minimax-m2.7",
       "temperature": 0.3,
       "reasoningEffort": "high",
       "description": "Solves a single task autonomously.",
