@@ -7,12 +7,11 @@
 ### Prerequisites
 
 - **Mandatory**: [Git](https://git-scm.com/install/), [Make](https://www.gnu.org/software/make/), [uv](https://docs.astral.sh/uv/getting-started/installation/), [OpenCode](https://opencode.ai/docs/#install)
-- **Recommended**: VPS or [Docker](https://docs.docker.com/get-started/get-docker/)
+- **Recommended**: Run on a VPS. For example, [Contabo](https://contabo.com/en/vps)'s are very cheap.
 
 ### Install and run
 
 ```bash
-make setup
 uv tool install -e .
 jri --help
 ```
