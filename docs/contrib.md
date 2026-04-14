@@ -3,12 +3,8 @@
 ## Setup
 
 ```bash
-# Install Python dependencies
-uv sync
-
-# Install Git hooks
-uv run pre-commit install
-uv run pre-commit install --hook-type pre-push
+# Install dependencies and Git hooks
+make setup
 ```
 
 ## Validate
