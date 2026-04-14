@@ -279,6 +279,7 @@ class JriService:
         dogfood: bool = False,
     ) -> int:
         self.ensure_initialized()
+        self._ensure_not_managed_worktree()
         self._recover_stale_start_state(
             mode="detached" if detached else "foreground", force=force
         )
@@ -319,6 +320,7 @@ class JriService:
         dogfood: bool = False,
     ) -> int:
         self.ensure_initialized()
+        self._ensure_not_managed_worktree()
         if recover:
             self._recover_stale_start_state(mode=mode, force=force)
 
@@ -361,6 +363,7 @@ class JriService:
         dogfood: bool = False,
     ) -> int:
         self.ensure_initialized()
+        self._ensure_not_managed_worktree()
         self._recover_stale_start_state(mode="foreground", force=force)
         return self._start_followable(
             max_tasks,
@@ -600,6 +603,13 @@ class JriService:
         self.git.ensure_repo()
         if not self.paths.jri_dir.exists():
             raise JriError("project is not initialized; run `jri init`")
+
+    def _ensure_not_managed_worktree(self) -> None:
+        if self.root.name == "worktree" and self.root.parent.name == ".jri":
+            raise JriError(
+                "jri start cannot run from .jri/worktree; "
+                "run it from the main repository root"
+            )
 
     def _commit_paths(self, paths: list[str]) -> list[str]:
         scoped_paths: list[str] = []
