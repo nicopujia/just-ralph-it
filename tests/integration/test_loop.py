@@ -1,14 +1,16 @@
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
+from importlib import import_module
 from pathlib import Path
 from typing import Any, cast
 
 import pytest
 
-from jri.core.errors import HaltRequested, JriError
+from jri.core.errors import HaltRequested, JriError, RestartRequested
 from jri.core.git import MSG_RECOVER_STALE
 from jri.core.models import (
     AttemptState,
@@ -311,6 +313,61 @@ class CapturingStartupOpenCodeServer(InterruptedStartupOpenCodeServer):
         super().start(env=env, cwd=cwd)
 
 
+class RefreshCapturingOpenCodeServer(OpenCodeServer):
+    def __init__(self) -> None:
+        super().__init__(binary="opencode")
+        self.start_config_paths: list[Path] = []
+        self.stop_calls = 0
+
+    def is_healthy(self) -> bool:
+        return True
+
+    def list_sessions(self, *, root: Path, limit: int = 20) -> list[dict[str, object]]:
+        return []
+
+    def start(
+        self,
+        *,
+        env: dict[str, str] | None = None,
+        cwd: Path | None = None,
+    ) -> None:
+        assert env is not None
+        self.start_config_paths.append(Path(env["OPENCODE_CONFIG"]))
+        self._process = cast(
+            Any,
+            FakeDetachedProcess(7000 + len(self.start_config_paths)),
+        )
+
+    def stop(self) -> None:
+        self.stop_calls += 1
+        self._process = None
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        result_path: Path,
+        on_start: object | None = None,
+        timeout: int | None = None,
+    ) -> OpenCodeRunResult:
+        del result_path, timeout
+        if on_start is not None and self._process is not None:
+            cast(Any, on_start)(self._process.pid)
+        slug = _extract_task_slug(prompt)
+        (root / f"{slug}.txt").write_text(f"{slug}\n", encoding="utf-8")
+        log_path.write_text(f"completed {slug}\n", encoding="utf-8")
+        return OpenCodeRunResult(
+            returncode=0,
+            session_id=f"ses_{slug}",
+            result="completed",
+        )
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        destination.write_text(f'{{"session": "{session_id}"}}\n', encoding="utf-8")
+
+
 class FakeDetachedProcess:
     def __init__(self, pid: int) -> None:
         self.pid = pid
@@ -320,6 +377,11 @@ def _dead_pid() -> int:
     process = subprocess.Popen(["sleep", "0"])
     process.wait(timeout=5)
     return process.pid
+
+
+def _extract_task_slug(prompt: str) -> str:
+    match = re.search(r"\.jri/tasks/doing/([^/]+)\.md", prompt)
+    return match.group(1) if match else ""
 
 
 def test_start_uses_explicit_model_override(git_repo: Path) -> None:
@@ -374,6 +436,77 @@ def test_start_server_model_overrides_use_temporary_config(git_repo: Path) -> No
     assert '"ralph-validator": {' in server.config_text
     assert '"model": "provider/ralph-validator"' in server.config_text
     assert not server.config_path.exists()
+
+
+def test_start_refreshes_server_runtime_each_iteration_for_self_hosting_repo(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    monkeypatch.delenv("REMOTE_URL", raising=False)
+    (git_repo / ".env").write_text(
+        "REMOTE_URL=https://github.com/example/justralph.it\n",
+        encoding="utf-8",
+    )
+    git(git_repo, "remote", "add", "origin", "git@github.com:example/justralph.it.git")
+    for slug in ("task-a", "task-b"):
+        write_task(
+            git_repo,
+            status="todo",
+            slug=slug,
+            title=slug,
+            priority=0,
+            assignee="Ralph",
+            body=f"Complete {slug}.",
+            acceptance_criteria=[f"{slug}.txt exists"],
+        )
+    git(git_repo, "add", ".jri/tasks/todo/")
+    git(git_repo, "commit", "-m", "add self-hosting tasks")
+
+    server = RefreshCapturingOpenCodeServer()
+    service = JriService(git_repo, opencode_client=server)
+    monkeypatch.setattr(service.git, "has_remote", lambda: False)
+
+    completed = service.start(max_tasks=2, force=True)
+
+    assert completed == 2
+    assert len(server.start_config_paths) == 2
+    assert server.start_config_paths[0] != server.start_config_paths[1]
+    assert server.stop_calls == 2
+
+
+def test_start_keeps_single_server_runtime_for_non_self_hosting_repo(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    monkeypatch.delenv("REMOTE_URL", raising=False)
+    (git_repo / ".env").write_text(
+        "REMOTE_URL=https://github.com/example/justralph.it\n",
+        encoding="utf-8",
+    )
+    git(git_repo, "remote", "add", "origin", "https://github.com/example/another-repo")
+    for slug in ("task-a", "task-b"):
+        write_task(
+            git_repo,
+            status="todo",
+            slug=slug,
+            title=slug,
+            priority=0,
+            assignee="Ralph",
+            body=f"Complete {slug}.",
+            acceptance_criteria=[f"{slug}.txt exists"],
+        )
+    git(git_repo, "add", ".jri/tasks/todo/")
+    git(git_repo, "commit", "-m", "add regular tasks")
+
+    server = RefreshCapturingOpenCodeServer()
+    service = JriService(git_repo, opencode_client=server)
+    monkeypatch.setattr(service.git, "has_remote", lambda: False)
+
+    completed = service.start(max_tasks=2, force=True)
+
+    assert completed == 2
+    assert len(server.start_config_paths) == 1
+    assert server.stop_calls == 1
 
 
 def test_start_detached_passes_validator_model_to_child(
@@ -461,6 +594,58 @@ def test_ctl_run_loop_is_not_a_public_command(
 
     assert exc_info.value.code == 2
     assert "invalid choice" in capsys.readouterr().err
+
+
+def test_internal_run_loop_uses_remaining_task_budget(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_run_loop_process(self: JriService, **kwargs: object) -> int:
+        captured.update(kwargs)
+        return 0
+
+    monkeypatch.setenv("JRI_INTERNAL_RUN_LOOP", "1")
+    monkeypatch.setenv("JRI_REMAINING_TASKS", "1")
+    monkeypatch.setattr(JriService, "run_loop_process", fake_run_loop_process)
+
+    assert base_run_cli(["-n", "2", "--force"], cwd=git_repo) == 0
+    assert captured["max_tasks"] == 1
+
+
+def test_internal_run_loop_reexecs_after_restart_request(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    class ExecveCalled(Exception):
+        pass
+
+    def fake_run_loop_process(self: JriService, **kwargs: object) -> int:
+        del kwargs
+        raise RestartRequested(remaining_tasks=1)
+
+    def fake_execve(path: str, args: list[str], env: dict[str, str]) -> None:
+        captured["path"] = path
+        captured["args"] = args
+        captured["env"] = env
+        raise ExecveCalled
+
+    monkeypatch.setenv("JRI_INTERNAL_RUN_LOOP", "1")
+    monkeypatch.delenv("JRI_REMAINING_TASKS", raising=False)
+    monkeypatch.setattr(JriService, "run_loop_process", fake_run_loop_process)
+    cli_main = import_module("jri.cli.main")
+    monkeypatch.setattr(cli_main.os, "execve", fake_execve)
+
+    with pytest.raises(ExecveCalled):
+        base_run_cli(["-n", "2", "--force"], cwd=git_repo)
+
+    assert captured["path"] == sys.executable
+    assert captured["args"] == [sys.executable, "-m", "jri", "-n", "2", "--force"]
+    env = cast(dict[str, str], captured["env"])
+    assert env["JRI_ALLOW_SELF_RESTART"] == "1"
+    assert env["JRI_INTERNAL_RUN_LOOP"] == "1"
+    assert env["JRI_REMAINING_TASKS"] == "1"
 
 
 def test_start_completes_single_task(git_repo: Path) -> None:

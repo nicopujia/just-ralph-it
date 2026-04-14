@@ -3,12 +3,15 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import NoReturn
 
-from ..core.errors import JriError
+from ..core.errors import JriError, RestartRequested
 from ..core.git import MSG_INIT
 from ..core.service import JriService
 
+_ALLOW_SELF_RESTART_ENV = "JRI_ALLOW_SELF_RESTART"
 _INTERNAL_RUN_LOOP_ENV = "JRI_INTERNAL_RUN_LOOP"
+_REMAINING_TASKS_ENV = "JRI_REMAINING_TASKS"
 
 _COMMAND_MESSAGES = {
     "halt": "tracked Ralph process stopped.",
@@ -26,18 +29,23 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
 
     if os.environ.get(_INTERNAL_RUN_LOOP_ENV) == "1":
         args = _build_internal_run_loop_parser().parse_args(argv)
-        return (
-            0
-            if service.run_loop_process(
-                max_tasks=args.max_tasks,
-                model=args.model,
-                validator_model=args.validator_model,
-                task_timeout=args.task_timeout,
-                force=args.force,
+        args.max_tasks = _override_remaining_tasks(args.max_tasks)
+        os.environ[_ALLOW_SELF_RESTART_ENV] = "1"
+        try:
+            return (
+                0
+                if service.run_loop_process(
+                    max_tasks=args.max_tasks,
+                    model=args.model,
+                    validator_model=args.validator_model,
+                    task_timeout=args.task_timeout,
+                    force=args.force,
+                )
+                >= 0
+                else 1
             )
-            >= 0
-            else 1
-        )
+        except RestartRequested as restart:
+            _restart_internal_run_loop(argv, remaining_tasks=restart.remaining_tasks)
 
     parser = _build_parser()
     args, unknown = parser.parse_known_args(argv)
@@ -217,6 +225,28 @@ def _finalize_command_return(command: str, returncode: int) -> int:
 def _print_command_error(command: str | None, message: str) -> None:
     prefix = f"{command}: " if command else ""
     print(f"{prefix}{message}", file=sys.stderr)
+
+
+def _override_remaining_tasks(max_tasks: int | None) -> int | None:
+    remaining = os.environ.get(_REMAINING_TASKS_ENV)
+    if remaining is None:
+        return max_tasks
+    try:
+        return int(remaining)
+    except ValueError:
+        return max_tasks
+
+
+def _restart_internal_run_loop(
+    argv: list[str], *, remaining_tasks: int | None
+) -> NoReturn:
+    env = os.environ.copy()
+    env[_ALLOW_SELF_RESTART_ENV] = "1"
+    if remaining_tasks is None:
+        env.pop(_REMAINING_TASKS_ENV, None)
+    else:
+        env[_REMAINING_TASKS_ENV] = str(remaining_tasks)
+    os.execve(sys.executable, [sys.executable, "-m", "jri", *argv], env)
 
 
 def _build_parser() -> argparse.ArgumentParser:

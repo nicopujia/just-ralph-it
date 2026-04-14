@@ -9,7 +9,7 @@ import termios
 import time
 import tty
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import replace
 from datetime import UTC, datetime
 from importlib.resources import files
@@ -17,7 +17,8 @@ from pathlib import Path
 from types import FrameType
 from typing import Any
 
-from .errors import HaltRequested, JriError
+from .env import load_repo_env
+from .errors import HaltRequested, JriError, RestartRequested
 from .git import (
     MSG_CHECK_PROMOTE,
     MSG_ESCALATE_HUMAN,
@@ -107,6 +108,7 @@ class JriService:
         opencode_client: OpenCodeProgrammatic | None = None,
     ) -> None:
         self.root = root.resolve()
+        load_repo_env(self.root)
         self.paths = JriPaths(self.root)
         self.git = GitRepo(self.root)
         self.state_store = StateStore(self.paths.state_path)
@@ -256,18 +258,15 @@ class JriService:
             self._recover_stale_start_state(mode=mode, force=force)
 
         if isinstance(self.opencode, OpenCodeServer):
-            with runtime_env(
-                overrides={
+            return self._run_loop(
+                max_tasks,
+                task_timeout=task_timeout,
+                force=force,
+                opencode_overrides={
                     "ralph": model,
                     "ralph-validator": validator_model,
                 },
-            ) as opencode_env:
-                return self._run_loop(
-                    max_tasks,
-                    task_timeout=task_timeout,
-                    force=force,
-                    opencode_env=opencode_env,
-                )
+            )
 
         previous_model = self.opencode.model
         self.opencode.model = model
@@ -707,7 +706,7 @@ class JriService:
         max_tasks: int | None,
         task_timeout: int | None = None,
         force: bool = False,
-        opencode_env: dict[str, str] | None = None,
+        opencode_overrides: dict[str, str | None] | None = None,
     ) -> int:
         try:
             doing = list_tasks(self.paths.task_dir("doing"), git_repo=self.git)
@@ -725,21 +724,16 @@ class JriService:
         self._halt_requested = False
         old_handlers = self._install_signal_handlers()
         server_started_here = False
+        server_runtime: AbstractContextManager[dict[str, str]] | None = None
+        refresh_runtime = (
+            isinstance(self.opencode, OpenCodeServer)
+            and self._should_refresh_runtime_between_iterations()
+        )
         try:
-            if isinstance(self.opencode, OpenCodeServer):
+            if isinstance(self.opencode, OpenCodeServer) and not refresh_runtime:
                 server_started_here = True
-                result_path = self.paths.jri_dir / "signals" / "result"
-                result_path.parent.mkdir(parents=True, exist_ok=True)
-                # Ensure the worktree exists before the server starts so Ralph's
-                # tools resolve paths against the worktree, not the main repo.
-                wt_git, wt_paths = self._ensure_worktree()
-                self._sync_worktree(wt_git)
-                self.opencode.start(
-                    env={
-                        **(opencode_env or {}),
-                        "JRI_RESULT_PATH": str(result_path.resolve()),
-                    },
-                    cwd=self.paths.worktree_dir,
+                server_runtime = self._start_opencode_server(
+                    overrides=opencode_overrides or {}
                 )
             while max_tasks is None or completed < max_tasks:
                 if self._halt_requested:
@@ -776,9 +770,23 @@ class JriService:
                 if max_tasks is not None and completed >= max_tasks:
                     break
 
-                result = self._run_task(next_task, task_timeout=task_timeout)
+                if refresh_runtime:
+                    with self._running_opencode_server(
+                        overrides=opencode_overrides or {}
+                    ):
+                        result = self._run_task(next_task, task_timeout=task_timeout)
+                else:
+                    result = self._run_task(next_task, task_timeout=task_timeout)
                 if result == "completed":
                     completed += 1
+                    if self._should_restart_process_after_iteration(
+                        max_tasks=max_tasks,
+                        completed=completed,
+                    ):
+                        remaining_tasks = (
+                            max_tasks - completed if max_tasks is not None else None
+                        )
+                        raise RestartRequested(remaining_tasks=remaining_tasks)
                 elif result in {"failed", "incomplete"}:
                     failed_slugs.add(next_task.slug)
                 elif result == "needs_human":
@@ -814,11 +822,75 @@ class JriService:
                 )
         finally:
             if server_started_here and isinstance(self.opencode, OpenCodeServer):
-                self.opencode.stop()
+                self._stop_opencode_server(server_runtime)
             self._restore_signal_handlers(old_handlers)
             self.state_store.clear_process()
 
         return completed
+
+    def _should_refresh_runtime_between_iterations(self) -> bool:
+        return self.git.matches_remote_url(os.environ.get("REMOTE_URL"))
+
+    def _should_restart_process_after_iteration(
+        self,
+        *,
+        max_tasks: int | None,
+        completed: int,
+    ) -> bool:
+        if os.environ.get("JRI_ALLOW_SELF_RESTART") != "1":
+            return False
+        if not self._should_refresh_runtime_between_iterations():
+            return False
+        if self.paths.stop_signal_path.exists():
+            return False
+        if max_tasks is not None and completed >= max_tasks:
+            return False
+        return True
+
+    @contextmanager
+    def _running_opencode_server(
+        self, *, overrides: dict[str, str | None]
+    ) -> Iterator[None]:
+        runtime = self._start_opencode_server(overrides=overrides)
+        try:
+            yield
+        finally:
+            self._stop_opencode_server(runtime)
+
+    def _start_opencode_server(
+        self, *, overrides: dict[str, str | None]
+    ) -> AbstractContextManager[dict[str, str]]:
+        if not isinstance(self.opencode, OpenCodeServer):
+            raise JriError("OpenCode server runtime requested for non-server client")
+        result_path = self.paths.jri_dir / "signals" / "result"
+        result_path.parent.mkdir(parents=True, exist_ok=True)
+        # Ensure the worktree exists before the server starts so Ralph's tools
+        # resolve paths against the worktree, not the main repo.
+        wt_git, _ = self._ensure_worktree()
+        self._sync_worktree(wt_git)
+        runtime = runtime_env(overrides=overrides)
+        opencode_env = runtime.__enter__()
+        try:
+            self.opencode.start(
+                env={
+                    **opencode_env,
+                    "JRI_RESULT_PATH": str(result_path.resolve()),
+                },
+                cwd=self.paths.worktree_dir,
+            )
+        except BaseException as exc:
+            runtime.__exit__(type(exc), exc, exc.__traceback__)
+            raise
+        return runtime
+
+    def _stop_opencode_server(
+        self, runtime: AbstractContextManager[dict[str, str]] | None
+    ) -> None:
+        if not isinstance(self.opencode, OpenCodeServer):
+            return
+        self.opencode.stop()
+        if runtime is not None:
+            runtime.__exit__(None, None, None)
 
     def _cleanup_tracked_processes(self, *, required: bool) -> bool:
         state = self.state_store.load()

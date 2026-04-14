@@ -1,5 +1,6 @@
 import subprocess
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from .errors import JriError
 
@@ -260,6 +261,23 @@ class GitRepo:
     def has_remote(self) -> bool:
         return bool(self.run("remote").stdout.strip())
 
+    def remote_url(self, name: str = "origin") -> str | None:
+        result = self.run("remote", "get-url", name, check=False)
+        if result.returncode != 0:
+            return None
+        url = result.stdout.strip()
+        return url or None
+
+    def matches_remote_url(
+        self, expected_url: str | None, *, name: str = "origin"
+    ) -> bool:
+        if not expected_url:
+            return False
+        actual_url = self.remote_url(name)
+        if not actual_url:
+            return False
+        return normalize_remote_url(actual_url) == normalize_remote_url(expected_url)
+
     def push_task_refs(self, *, branch: str, tag: str) -> None:
         default = self.default_branch()
         for args in (
@@ -310,3 +328,29 @@ class GitRepo:
         if result.returncode != 0:
             raise JriError(result.stderr.strip() or f"failed to resolve {ref}")
         return result.stdout.strip()
+
+
+def normalize_remote_url(url: str) -> str:
+    value = url.strip().rstrip("/")
+    if "://" in value:
+        split = urlsplit(value)
+        host = split.netloc
+        path = split.path
+    elif "@" in value and ":" in value.split("@", 1)[1]:
+        _, remainder = value.split("@", 1)
+        host, path_part = remainder.split(":", 1)
+        path = f"/{path_part}"
+    else:
+        stripped = value.lstrip("/")
+        if "/" not in stripped:
+            return _strip_git_suffix(stripped)
+        host, path_part = stripped.split("/", 1)
+        path = f"/{path_part}"
+
+    normalized_path = _strip_git_suffix(path.strip("/"))
+    normalized_host = host.rsplit("@", 1)[-1].strip("/").lower()
+    return f"{normalized_host}/{normalized_path}".rstrip("/")
+
+
+def _strip_git_suffix(value: str) -> str:
+    return value[:-4] if value.endswith(".git") else value
