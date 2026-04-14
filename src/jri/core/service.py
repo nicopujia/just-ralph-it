@@ -695,6 +695,7 @@ class JriService:
         detached = self._follow_log(
             run_log_path,
             loop_pid=process.pid,
+            loop_process=process,
             allow_detach=True,
         )
         if detached:
@@ -1760,7 +1761,12 @@ class JriService:
         )
 
     def _follow_log(
-        self, log_path: Path, *, loop_pid: int | None, allow_detach: bool
+        self,
+        log_path: Path,
+        *,
+        loop_pid: int | None,
+        loop_process: subprocess.Popen[str] | subprocess.Popen[bytes] | None = None,
+        allow_detach: bool,
     ) -> bool:
         with self._detach_monitor(enabled=allow_detach) as detach_requested:
             while True:
@@ -1782,7 +1788,14 @@ class JriService:
                         print("Detached. Use `jri attach` to follow the run again.")
                         sys.stdout.flush()
                         return True
-                    if loop_pid is None or not self._is_pid_alive(loop_pid):
+                    process_exited = (
+                        loop_process is not None and loop_process.poll() is not None
+                    )
+                    if (
+                        process_exited
+                        or loop_pid is None
+                        or not self._is_pid_alive(loop_pid)
+                    ):
                         chunk = handle.read()
                         if chunk:
                             sys.stdout.write(chunk)
