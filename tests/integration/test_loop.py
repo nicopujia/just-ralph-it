@@ -1448,7 +1448,9 @@ def test_ctl_start_detaches_foreground_follow(
             return original_popen(*args, **kwargs)
         popen_calls.append(command)
         assert kwargs["cwd"] == git_repo
-        assert cast(dict[str, str], kwargs["env"])["JRI_INTERNAL_RUN_LOOP"] == "1"
+        env = cast(dict[str, str], kwargs["env"])
+        assert env["JRI_INTERNAL_RUN_LOOP"] == "1"
+        assert env["CLICOLOR_FORCE"] == "1"
         assert kwargs["start_new_session"] is True
         return FakeDetachedProcess(515151)
 
@@ -1467,6 +1469,7 @@ def test_ctl_start_detaches_foreground_follow(
         return True
 
     monkeypatch.setattr("jri.core.service.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("jri.core.service.supports_color", lambda: True)
     monkeypatch.setattr(JriService, "_follow_log", fake_follow_log)
 
     assert run_cli(["start", "-n", "1", "--force"], cwd=git_repo) == 0
@@ -1494,11 +1497,14 @@ def test_ctl_start_detached_reports_background_run(
         if command != expected_command:
             return original_popen(*args, **kwargs)
         assert kwargs["cwd"] == git_repo
-        assert cast(dict[str, str], kwargs["env"])["JRI_INTERNAL_RUN_LOOP"] == "1"
+        env = cast(dict[str, str], kwargs["env"])
+        assert env["JRI_INTERNAL_RUN_LOOP"] == "1"
+        assert env["CLICOLOR_FORCE"] == "1"
         assert kwargs["start_new_session"] is True
         return FakeDetachedProcess(616161)
 
     monkeypatch.setattr("jri.core.service.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("jri.core.service.supports_color", lambda: True)
 
     assert run_cli(["start", "-n", "1", "--detached"], cwd=git_repo) == 0
 
@@ -1527,6 +1533,28 @@ def test_ctl_start_reports_when_no_todo_tasks(
 
     assert run_cli(["start"], cwd=git_repo) == 0
     assert capsys.readouterr().out == "No todo tasks found.\n"
+def test_start_does_not_force_color_without_tty(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    original_popen = cast(Any, subprocess.Popen)
+    expected_command = [sys.executable, "-m", "jri", "-n", "1"]
+
+    def fake_popen(*args: object, **kwargs: object) -> object:
+        command = cast(list[str], args[0])
+        if command != expected_command:
+            return original_popen(*args, **kwargs)
+        env = cast(dict[str, str], kwargs["env"])
+        assert env["JRI_INTERNAL_RUN_LOOP"] == "1"
+        assert "CLICOLOR_FORCE" not in env
+        return FakeDetachedProcess(717171)
+
+    monkeypatch.setattr("jri.core.service.subprocess.Popen", fake_popen)
+    monkeypatch.setattr("jri.core.service.supports_color", lambda: False)
+
+    assert service.start(max_tasks=1, detached=True, force=True) == 0
 
 
 def test_ctl_start_rejects_managed_ralph_worktree(

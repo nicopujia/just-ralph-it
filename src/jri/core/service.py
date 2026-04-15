@@ -72,6 +72,7 @@ from .timeline import TimelineEvent, TimelineStore
 from .ui import (
     follow_status_bar,
     follow_status_bar_clear,
+    supports_color,
     supports_interactive_footer,
     task_footer,
     task_header,
@@ -738,6 +739,8 @@ class JriService:
             command.append("--dogfood")
         env = os.environ.copy()
         env["JRI_INTERNAL_RUN_LOOP"] = "1"
+        if supports_color():
+            env["CLICOLOR_FORCE"] = "1"
 
         log_path = self.paths.ralph_log_path("detached", int(time.time()))
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -791,6 +794,8 @@ class JriService:
             command.append("--dogfood")
         env = os.environ.copy()
         env["JRI_INTERNAL_RUN_LOOP"] = "1"
+        if supports_color():
+            env["CLICOLOR_FORCE"] = "1"
         log_file = run_log_path.open("a", encoding="utf-8")
         process = subprocess.Popen(
             command,
