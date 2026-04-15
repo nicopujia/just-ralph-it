@@ -67,6 +67,7 @@ def task_footer(result: str) -> str:
 def follow_status_bar(
     task_slug: str | None,
     *,
+    stop_requested: bool = False,
     confirming_halt: bool = False,
     halt_armed: bool = False,
     width: int | None = None,
@@ -81,6 +82,8 @@ def follow_status_bar(
             if halt_armed
             else " halt? y then Enter  n cancel "
         )
+    elif stop_requested:
+        right = " stop requested; Ralph will stop after this task "
     else:
         right = " d detach  s stop-next  h halt "
 

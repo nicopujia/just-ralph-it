@@ -119,34 +119,58 @@ def render_saved_event(
     return _s(label, DIM) + "\n", True
 
 
-def render_saved_log(text: str, *, cwd_hint: str = "") -> str:
-    """Reconstruct terminal output from a saved per-task OpenCode log."""
-    seen_tool_calls: set[str] = set()
-    rendered: list[str] = []
-    last_terminal_char = "\n"
-    for raw_line in text.splitlines(keepends=True):
+class SavedLogRenderer:
+    """Incrementally reconstruct terminal output from saved OpenCode logs."""
+
+    def __init__(self, *, cwd_hint: str = "") -> None:
+        self._cwd_hint = cwd_hint
+        self._seen_tool_calls: set[str] = set()
+        self._buffer = ""
+        self._last_terminal_char = "\n"
+
+    def render_chunk(self, text: str, *, final: bool = False) -> str:
+        if text:
+            self._buffer += text
+        rendered: list[str] = []
+        while True:
+            newline_index = self._buffer.find("\n")
+            if newline_index < 0:
+                break
+            raw_line = self._buffer[: newline_index + 1]
+            self._buffer = self._buffer[newline_index + 1 :]
+            self._append_line(rendered, raw_line)
+        if final and self._buffer:
+            self._append_line(rendered, self._buffer)
+            self._buffer = ""
+        return "".join(rendered)
+
+    def _append_line(self, rendered: list[str], raw_line: str) -> None:
         line = raw_line.rstrip("\n")
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
             rendered.append(raw_line)
             if raw_line:
-                last_terminal_char = raw_line[-1]
-            continue
+                self._last_terminal_char = raw_line[-1]
+            return
         if not isinstance(event, dict):
-            continue
+            return
         text_to_print, newline_before = render_saved_event(
             event,
-            seen_tool_calls=seen_tool_calls,
-            cwd_hint=cwd_hint,
+            seen_tool_calls=self._seen_tool_calls,
+            cwd_hint=self._cwd_hint,
         )
         if not text_to_print:
-            continue
-        if newline_before and last_terminal_char != "\n":
+            return
+        if newline_before and self._last_terminal_char != "\n":
             rendered.append("\n")
         rendered.append(text_to_print)
-        last_terminal_char = text_to_print[-1]
-    return "".join(rendered)
+        self._last_terminal_char = text_to_print[-1]
+
+
+def render_saved_log(text: str, *, cwd_hint: str = "") -> str:
+    """Reconstruct terminal output from a saved per-task OpenCode log."""
+    return SavedLogRenderer(cwd_hint=cwd_hint).render_chunk(text, final=True)
 
 
 def _normalize_result(raw: str) -> RalphResult | None:

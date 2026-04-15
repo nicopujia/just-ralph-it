@@ -64,6 +64,13 @@ def test_follow_status_bar_shows_halt_confirmation_prompt() -> None:
     assert "n cancel" in result
 
 
+def test_follow_status_bar_shows_stop_requested_feedback() -> None:
+    result = follow_status_bar("my-task", stop_requested=True, width=90, height=20)
+    assert "task: my-task" in result
+    assert "stop requested" in result
+    assert "after this task" in result
+
+
 def test_follow_status_bar_shows_armed_halt_confirmation_prompt() -> None:
     result = follow_status_bar(
         "my-task",

@@ -10,6 +10,7 @@ import pytest
 from jri.core.errors import JriError
 from jri.core.opencode import (
     OpenCodeServer,
+    SavedLogRenderer,
     _parse_event_line,
     launch_chat,
     render_saved_log,
@@ -156,6 +157,41 @@ def test_render_saved_log_replays_streamed_text_and_tool_labels() -> None:
 
     assert "⚙ read .jri/tasks/doing/task-a.md" in rendered
     assert "Working" in rendered
+
+
+def test_saved_log_renderer_handles_partial_chunks() -> None:
+    renderer = SavedLogRenderer()
+    tool_line = json.dumps(
+        {
+            "type": "message.part.updated",
+            "properties": {
+                "part": {
+                    "type": "tool",
+                    "id": "tool-1",
+                    "tool": "read",
+                    "state": {
+                        "status": "running",
+                        "input": {"filePath": ".jri/tasks/doing/task-a.md"},
+                    },
+                }
+            },
+        }
+    )
+    text_line = json.dumps(
+        {
+            "type": "message.part.delta",
+            "properties": {"field": "text", "delta": "Spawned research subagent"},
+        }
+    )
+
+    assert renderer.render_chunk(tool_line[:25]) == ""
+
+    rendered = renderer.render_chunk(tool_line[25:] + "\n" + text_line[:20])
+    assert "⚙ read .jri/tasks/doing/task-a.md" in rendered
+    assert '"type"' not in rendered
+
+    rendered += renderer.render_chunk(text_line[20:], final=True)
+    assert "Spawned research subagent" in rendered
 
 
 def test_start_uses_new_free_port_on_each_auto_start(
