@@ -275,7 +275,7 @@ def test_render_saved_log_colors_task_tool_labels(
 
     rendered = render_saved_log(log)
 
-    assert "\033[2m\033[36m⚙ task research phase\033[0m" in rendered
+    assert "\033[2m\033[35m⚙ task research phase\033[0m" in rendered
 
 
 def test_render_saved_log_keeps_non_task_tool_labels_dim(
@@ -909,6 +909,114 @@ def test_run_ralph_task_ignores_idle_after_non_running_pre_prompt_status(
 
     assert result.result == "completed"
     assert result.warnings == []
+
+
+def test_run_ralph_task_suppresses_task_stdout_but_keeps_raw_log(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    server = OpenCodeServer(binary="opencode")
+    log_path = tmp_path / "ralph.log"
+    outcome_path = tmp_path / "result.txt"
+    events = [
+        *_sse_event(
+            {
+                "type": "session.status",
+                "properties": {
+                    "sessionID": "ses_123",
+                    "status": "running",
+                },
+            }
+        ),
+        *_sse_event(
+            {
+                "type": "message.part.updated",
+                "properties": {
+                    "part": {
+                        "type": "tool",
+                        "id": "tool-1",
+                        "tool": "task",
+                        "state": {
+                            "status": "running",
+                            "input": {"description": "research phase"},
+                        },
+                    }
+                },
+            }
+        ),
+        *_sse_event(
+            {
+                "type": "message.part.delta",
+                "properties": {
+                    "field": "text",
+                    "delta": "Spawned research subagent",
+                },
+            }
+        ),
+        *_sse_event(
+            {
+                "type": "message.part.updated",
+                "properties": {
+                    "part": {
+                        "type": "tool",
+                        "id": "tool-1",
+                        "tool": "task",
+                        "state": {"status": "completed"},
+                    }
+                },
+            }
+        ),
+        *_sse_event(
+            {
+                "type": "message.part.delta",
+                "properties": {
+                    "field": "text",
+                    "delta": "Back in the main agent",
+                },
+            }
+        ),
+        *_sse_event(
+            {
+                "type": "session.status",
+                "properties": {
+                    "sessionID": "ses_123",
+                    "status": "idle",
+                },
+            }
+        ),
+    ]
+
+    def fake_http_request(
+        method: str,
+        url: str,
+        *,
+        body: object | None = None,
+        timeout: float = 10.0,
+    ) -> tuple[int, bytes]:
+        if url.endswith("/prompt_async"):
+            return 202, b"{}"
+        return 201, b'{"id": "ses_123"}'
+
+    def fake_urlopen(*args: object, **kwargs: object) -> object:
+        return _ResultWritingSSEStream(events, result_path=outcome_path, write_index=10)
+
+    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.client.urllib.request.urlopen", fake_urlopen)
+
+    result = server.run_ralph_task(
+        root=tmp_path,
+        prompt="Solve the task",
+        log_path=log_path,
+        result_path=outcome_path,
+    )
+
+    assert result.result == "completed"
+    output = capsys.readouterr().out
+    assert output == "Back in the main agent"
+    log_text = log_path.read_text(encoding="utf-8")
+    assert "Spawned research subagent" in log_text
+    assert "research phase" in log_text
 
 
 def test_run_ralph_task_treats_busy_as_active_for_idle_termination(
