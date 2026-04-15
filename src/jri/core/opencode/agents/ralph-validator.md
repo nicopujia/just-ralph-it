@@ -17,7 +17,7 @@ Assess whether Ralph's work is correct, complete, and clean for the task it was 
 
 ## Review Standard
 
-- Be rigorous but not nitpicky. Do not reject for insignificant issues that do not affect correctness, maintainability, or task acceptance.
+- Be rigorous; the task MUST be completed to the letter.
 - `completed` is only valid when the task is fully satisfied and validation passes.
 - Treat the result as `incomplete` when the implementation is wrong, partial, contradictory, risky, or lacks evidence that should have been obtainable from the repo, local environment, or delegated checks.
 - Treat the result as `needs_human` only when the remaining blocker truly requires external human-only action, such as unavailable real credentials, legal or product approval, payment, or a physical-world step.
