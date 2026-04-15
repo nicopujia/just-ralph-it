@@ -69,7 +69,14 @@ from .tasks import (
     validate_draft_promotion,
 )
 from .timeline import TimelineEvent, TimelineStore
-from .ui import follow_status_bar, supports_interactive_footer, task_footer, task_header
+from .ui import (
+    follow_status_bar,
+    follow_status_bar_clear,
+    supports_color,
+    supports_interactive_footer,
+    task_footer,
+    task_header,
+)
 
 _INIT_COMMIT_PATHS = (
     ".jri",
@@ -732,6 +739,8 @@ class JriService:
             command.append("--dogfood")
         env = os.environ.copy()
         env["JRI_INTERNAL_RUN_LOOP"] = "1"
+        if supports_color():
+            env["CLICOLOR_FORCE"] = "1"
 
         log_path = self.paths.ralph_log_path("detached", int(time.time()))
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -785,6 +794,8 @@ class JriService:
             command.append("--dogfood")
         env = os.environ.copy()
         env["JRI_INTERNAL_RUN_LOOP"] = "1"
+        if supports_color():
+            env["CLICOLOR_FORCE"] = "1"
         log_file = run_log_path.open("a", encoding="utf-8")
         process = subprocess.Popen(
             command,
@@ -1977,7 +1988,11 @@ class JriService:
             nonlocal footer_visible, footer_text
             if not footer_enabled or not footer_visible:
                 return
-            sys.stdout.write("\r\033[2K")
+            sys.stdout.write(
+                follow_status_bar_clear(
+                    height=shutil.get_terminal_size((80, 24)).lines,
+                )
+            )
             sys.stdout.flush()
             footer_visible = False
             footer_text = ""
@@ -1991,10 +2006,10 @@ class JriService:
                 confirming_halt=controls.confirming_halt,
                 halt_armed=controls.halt_armed,
                 width=shutil.get_terminal_size((80, 24)).columns,
+                height=shutil.get_terminal_size((80, 24)).lines,
             )
             if footer_visible and next_text == footer_text:
                 return
-            sys.stdout.write("\r\033[2K")
             sys.stdout.write(next_text)
             sys.stdout.flush()
             footer_visible = True
@@ -2028,8 +2043,6 @@ class JriService:
                     if chunk:
                         _clear_footer()
                         sys.stdout.write(chunk)
-                        if footer_enabled and not chunk.endswith("\n"):
-                            sys.stdout.write("\n")
                         sys.stdout.flush()
                     action = controls.poll_action()
                     if action == "detach":

@@ -4,6 +4,7 @@ import pytest
 
 from jri.core.ui import (
     follow_status_bar,
+    follow_status_bar_clear,
     supports_color,
     supports_interactive_footer,
     task_footer,
@@ -47,15 +48,17 @@ def test_task_footer_timeout() -> None:
 
 
 def test_follow_status_bar_shows_task_and_controls() -> None:
-    result = follow_status_bar("my-task", width=60)
+    result = follow_status_bar("my-task", width=60, height=20)
     assert "task: my-task" in result
     assert "d detach" in result
     assert "s stop-next" in result
     assert "h halt" in result
+    assert "\0337\033[20;1H\033[2K" in result
+    assert result.endswith("\0338")
 
 
 def test_follow_status_bar_shows_halt_confirmation_prompt() -> None:
-    result = follow_status_bar("my-task", confirming_halt=True, width=60)
+    result = follow_status_bar("my-task", confirming_halt=True, width=60, height=20)
     assert "task: my-task" in result
     assert "y then Enter" in result
     assert "n cancel" in result
@@ -67,9 +70,14 @@ def test_follow_status_bar_shows_armed_halt_confirmation_prompt() -> None:
         confirming_halt=True,
         halt_armed=True,
         width=60,
+        height=20,
     )
     assert "Enter confirm" in result
     assert "n cancel" in result
+
+
+def test_follow_status_bar_clear_targets_bottom_row() -> None:
+    assert follow_status_bar_clear(height=20) == "\0337\033[20;1H\033[2K\0338"
 
 
 def test_trim_tool_output_returns_none_for_short_text() -> None:
@@ -102,6 +110,20 @@ def test_supports_color_with_no_color_env(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("NO_COLOR", "1")
     with patch("sys.stdout.isatty", return_value=True):
         assert supports_color() is False
+
+
+def test_supports_color_with_force_color_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    with patch("sys.stdout.isatty", return_value=False):
+        assert supports_color() is True
+
+
+def test_supports_color_with_clicolor_force_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CLICOLOR_FORCE", "1")
+    with patch("sys.stdout.isatty", return_value=False):
+        assert supports_color() is True
 
 
 def test_supports_interactive_footer_requires_tty_stdio(

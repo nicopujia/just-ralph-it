@@ -15,11 +15,20 @@ RESET = "\033[0m"
 def supports_color() -> bool:
     if os.environ.get("NO_COLOR") is not None:
         return False
+    if _is_truthy_env(os.environ.get("CLICOLOR_FORCE")):
+        return True
+    if _is_truthy_env(os.environ.get("FORCE_COLOR")):
+        return True
     return sys.stdout.isatty()
 
 
 def supports_interactive_footer() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def follow_status_bar_clear(*, height: int | None = None) -> str:
+    height = max(height or shutil.get_terminal_size((80, 24)).lines, 1)
+    return f"\0337\033[{height};1H\033[2K\0338"
 
 
 def _s(text: str, *codes: str) -> str:
@@ -61,8 +70,10 @@ def follow_status_bar(
     confirming_halt: bool = False,
     halt_armed: bool = False,
     width: int | None = None,
+    height: int | None = None,
 ) -> str:
     width = max(width or shutil.get_terminal_size((80, 24)).columns, 20)
+    height = max(height or shutil.get_terminal_size((80, 24)).lines, 1)
     left = f" task: {task_slug or 'idle'} "
     if confirming_halt:
         right = (
@@ -80,7 +91,8 @@ def follow_status_bar(
 
     padding = max(width - len(left) - len(right), 0)
     bar = f"{left}{' ' * padding}{right}"
-    return _s(bar.ljust(width), BOLD, INVERSE)
+    styled = _s(bar.ljust(width), BOLD, INVERSE)
+    return f"\0337\033[{height};1H\033[2K{styled}\0338"
 
 
 def trim_tool_output(
@@ -114,3 +126,9 @@ def _truncate(text: str, width: int) -> str:
     if width <= 3:
         return text[:width]
     return text[: width - 3] + "..."
+
+
+def _is_truthy_env(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() not in {"", "0", "false", "no"}
