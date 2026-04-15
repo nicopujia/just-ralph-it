@@ -1715,9 +1715,7 @@ class JriService:
     def _attempt_completion_evidence(
         self, attempt: AttemptState
     ) -> dict[str, str] | None:
-        if attempt.finished_at is None:
-            return None
-
+        evidence: dict[str, str] = {}
         history_entry = next(
             (
                 entry
@@ -1728,34 +1726,48 @@ class JriService:
             ),
             None,
         )
-        if history_entry is None:
-            return None
+        if history_entry is not None:
+            evidence["attempt_history"] = (
+                f"{self.git.relative_path(self.paths.attempt_history_path(attempt.task_slug))}"
+                f"#{attempt.number}"
+            )
 
         task_completed_ts = self._timeline_event_ts(
             task_slug=attempt.task_slug,
             event="task_completed",
             not_before=attempt.started_at,
         )
-        if task_completed_ts is None:
-            return None
+        if task_completed_ts is not None:
+            evidence["task_completed_event"] = task_completed_ts
 
-        evidence = {
-            "attempt_history": (
-                f"{self.git.relative_path(self.paths.attempt_history_path(attempt.task_slug))}"
-                f"#{attempt.number}"
-            ),
-            "task_completed_event": task_completed_ts,
-        }
         if (self.root / "Makefile").exists():
             make_check_passed_ts = self._timeline_event_ts(
                 task_slug=attempt.task_slug,
                 event="make_check_passed",
                 not_before=attempt.started_at,
             )
-            if make_check_passed_ts is None:
-                return None
-            evidence["make_check_passed_event"] = make_check_passed_ts
-        return evidence
+            if make_check_passed_ts is not None:
+                evidence["make_check_passed_event"] = make_check_passed_ts
+
+        if self.git.has_tag(tag_name(attempt.task_slug, "end")):
+            evidence["end_tag"] = tag_name(attempt.task_slug, "end")
+
+        if self.paths.task_path("done", attempt.task_slug).exists():
+            evidence["task_status"] = "done"
+
+        if "task_completed_event" in evidence:
+            return evidence
+        if "attempt_history" in evidence and (
+            "make_check_passed_event" in evidence or "end_tag" in evidence
+        ):
+            return evidence
+        if {
+            "task_status",
+            "end_tag",
+            "make_check_passed_event",
+        }.issubset(evidence):
+            return evidence
+        return None
 
     def _timeline_event_ts(
         self,
