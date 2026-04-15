@@ -1296,6 +1296,93 @@ def test_start_reruns_unverified_completed_attempt(git_repo: Path) -> None:
     assert "reason=resume-completed-attempt" not in recovery_log
 
 
+def test_start_does_not_resume_completed_attempt_from_timeline_event_only(
+    git_repo: Path,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="doing",
+        slug="recover-me",
+        title="Recover me",
+        priority=0,
+        assignee="Ralph",
+        body=(
+            "This task needs durable completion evidence before recovery can resume it."
+        ),
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="next-task",
+        title="Next task",
+        priority=1,
+        assignee="Ralph",
+        body="This should remain queued until recover-me is durably complete.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(
+        git_repo,
+        "add",
+        ".jri/tasks/doing/recover-me.md",
+        ".jri/tasks/todo/next-task.md",
+    )
+    git(git_repo, "commit", "-m", "seed timeline-only completion evidence")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    stale_attempt = AttemptState(
+        number=1,
+        task_slug="recover-me",
+        branch="ralph",
+        started_at=123,
+        finished_at=124,
+        log_path=".jri/logs/ralph/recover-me-1970-01-01T00-02-03Z.log",
+        result="completed",
+    )
+    service.state_store.save(
+        State(
+            started_at=123,
+            branch="main",
+            active_attempt=stale_attempt,
+            attempts=[stale_attempt],
+        )
+    )
+
+    from jri.core.timeline import TimelineEvent, TimelineStore
+
+    service.timeline.record(
+        TimelineEvent(
+            ts=TimelineStore.now_iso(),
+            event="task_completed",
+            task="recover-me",
+        )
+    )
+
+    completed = service.start(max_tasks=1, force=True)
+
+    assert completed == 1
+    assert (git_repo / ".jri" / "tasks" / "done" / "recover-me.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "todo" / "next-task.md").exists()
+
+    attempts = cast(
+        list[dict[str, object]],
+        read_json(git_repo / ".jri" / "state.json")["attempts"],
+    )
+    assert [attempt["task_slug"] for attempt in attempts] == [
+        "recover-me",
+        "recover-me",
+    ]
+    assert attempts[0]["result"] == "interrupted"
+    assert attempts[1]["result"] == "completed"
+
+    recovery_log = (git_repo / ".jri" / "logs" / "recovery.log").read_text(
+        encoding="utf-8"
+    )
+    assert "reason=missing-completion-evidence" in recovery_log
+    assert "reason=resume-completed-attempt" not in recovery_log
+
+
 def test_start_recovers_stale_foreground_process(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
@@ -1734,15 +1821,26 @@ def test_follow_controls_cancel_halt_confirmation() -> None:
     assert controls.halt_armed is False
 
 
+def test_follow_controls_mark_stop_requested_after_s() -> None:
+    controls = _FollowControls(enabled=True)
+
+    assert controls.handle_key("s") == "stop"
+    assert controls.stop_requested is True
+    assert controls.confirming_halt is False
+    assert controls.halt_armed is False
+
+
 def test_follow_log_stop_control_writes_stop_signal(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
     log_path = git_repo / ".jri" / "logs" / "ralph" / "running.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text("running\n", encoding="utf-8")
+    log_path.write_text("", encoding="utf-8")
+    footer_frames: list[bool] = []
 
     class FakeControls:
+        stop_requested = True
         confirming_halt = False
         halt_armed = False
         _actions = iter(["stop", None])
@@ -1757,10 +1855,19 @@ def test_follow_log_stop_control_writes_stop_signal(
 
     monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
     monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
-    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: False)
+    pid_states = iter([True, False])
+    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: next(pid_states))
+    monkeypatch.setattr(
+        "jri.core.service.follow_status_bar",
+        lambda *args, **kwargs: (
+            footer_frames.append(kwargs["stop_requested"]) or "footer"
+        ),
+    )
+    monkeypatch.setattr("jri.core.service.time.sleep", lambda _: None)
 
     assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
     assert service.paths.stop_signal_path.exists()
+    assert footer_frames == [True]
 
 
 def test_follow_log_halt_control_invokes_halt(
@@ -1773,6 +1880,7 @@ def test_follow_log_halt_control_invokes_halt(
     halt_calls: list[str] = []
 
     class FakeControls:
+        stop_requested = False
         confirming_halt = False
         halt_armed = True
         _actions = iter(["halt"])
@@ -1791,6 +1899,47 @@ def test_follow_log_halt_control_invokes_halt(
 
     assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
     assert halt_calls == ["halt"]
+
+
+def test_follow_log_clears_previous_footer_row_after_resize(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    log_path = git_repo / ".jri" / "logs" / "ralph" / "running.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("", encoding="utf-8")
+
+    class FakeControls:
+        stop_requested = False
+        confirming_halt = False
+        halt_armed = False
+
+        def poll_action(self) -> str | None:
+            return None
+
+    @contextmanager
+    def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
+        assert enabled is True
+        yield FakeControls()
+
+    terminal_sizes = iter([os.terminal_size((60, 20)), os.terminal_size((60, 10))])
+    pid_states = iter([True, True, False])
+
+    monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
+    monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
+    monkeypatch.setattr(service, "_current_follow_task", lambda: "task-a")
+    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: next(pid_states))
+    monkeypatch.setattr(
+        "jri.core.service.shutil.get_terminal_size",
+        lambda _: next(terminal_sizes),
+    )
+    monkeypatch.setattr("jri.core.service.time.sleep", lambda _: None)
+
+    assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
+
+    output = capsys.readouterr().out
+    assert output.count("\0337\033[20;1H\033[2K") == 2
+    assert output.count("\0337\033[10;1H\033[2K") == 2
 
 
 def test_follow_log_stops_when_spawned_process_has_exited(
@@ -1816,6 +1965,55 @@ def test_follow_log_stops_when_spawned_process_has_exited(
 
     assert detached is False
     assert capsys.readouterr().out == "completed\n"
+
+
+def test_follow_log_renders_saved_events_instead_of_raw_json(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    log_path = git_repo / ".jri" / "logs" / "ralph" / "completed.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "message.part.updated",
+                        "properties": {
+                            "part": {
+                                "type": "tool",
+                                "id": "tool-1",
+                                "tool": "task",
+                                "state": {
+                                    "status": "running",
+                                    "input": {"description": "research phase"},
+                                },
+                            }
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "message.part.delta",
+                        "properties": {
+                            "field": "text",
+                            "delta": "Spawned implementation subagent",
+                        },
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    detached = service._follow_log(log_path, loop_pid=None, allow_detach=False)
+
+    assert detached is False
+    output = capsys.readouterr().out
+    assert "⚙ task research phase" in output
+    assert "Spawned implementation subagent" in output
+    assert '"type": "message.part.updated"' not in output
 
 
 def test_view_inspect_pretty_prints_saved_task_log(

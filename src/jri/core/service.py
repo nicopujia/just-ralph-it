@@ -52,6 +52,7 @@ from .opencode import (
     launch_chat,
     render_saved_log,
 )
+from .opencode.client import SavedLogRenderer
 from .opencode.session import (
     detect_latest_session,
     export_session_if_available,
@@ -112,6 +113,7 @@ check:
 class _FollowControls:
     enabled: bool
     fd: int | None = None
+    stop_requested: bool = False
     confirming_halt: bool = False
     halt_armed: bool = False
 
@@ -138,6 +140,7 @@ class _FollowControls:
             return "detach"
         if key == "s":
             self._reset_halt_confirmation()
+            self.stop_requested = True
             return "stop"
         if self.confirming_halt:
             if key == "n":
@@ -1732,14 +1735,6 @@ class JriService:
                 f"#{attempt.number}"
             )
 
-        task_completed_ts = self._timeline_event_ts(
-            task_slug=attempt.task_slug,
-            event="task_completed",
-            not_before=attempt.started_at,
-        )
-        if task_completed_ts is not None:
-            evidence["task_completed_event"] = task_completed_ts
-
         if (self.root / "Makefile").exists():
             make_check_passed_ts = self._timeline_event_ts(
                 task_slug=attempt.task_slug,
@@ -1755,8 +1750,6 @@ class JriService:
         if self.paths.task_path("done", attempt.task_slug).exists():
             evidence["task_status"] = "done"
 
-        if "task_completed_event" in evidence:
-            return evidence
         if "attempt_history" in evidence and (
             "make_check_passed_event" in evidence or "end_tag" in evidence
         ):
@@ -2154,30 +2147,36 @@ class JriService:
         footer_enabled = allow_detach and supports_interactive_footer()
         footer_visible = False
         footer_text = ""
+        footer_height: int | None = None
 
         def _clear_footer() -> None:
-            nonlocal footer_visible, footer_text
+            nonlocal footer_height, footer_visible, footer_text
             if not footer_enabled or not footer_visible:
                 return
             sys.stdout.write(
                 follow_status_bar_clear(
-                    height=shutil.get_terminal_size((80, 24)).lines,
+                    height=footer_height,
                 )
             )
             sys.stdout.flush()
             footer_visible = False
             footer_text = ""
+            footer_height = None
 
         def _render_footer(controls: _FollowControls) -> None:
-            nonlocal footer_visible, footer_text
+            nonlocal footer_height, footer_visible, footer_text
             if not footer_enabled:
                 return
+            terminal_size = shutil.get_terminal_size((80, 24))
+            if footer_visible and footer_height != terminal_size.lines:
+                sys.stdout.write(follow_status_bar_clear(height=footer_height))
             next_text = follow_status_bar(
                 self._current_follow_task(),
+                stop_requested=controls.stop_requested,
                 confirming_halt=controls.confirming_halt,
                 halt_armed=controls.halt_armed,
-                width=shutil.get_terminal_size((80, 24)).columns,
-                height=shutil.get_terminal_size((80, 24)).lines,
+                width=terminal_size.columns,
+                height=terminal_size.lines,
             )
             if footer_visible and next_text == footer_text:
                 return
@@ -2185,6 +2184,7 @@ class JriService:
             sys.stdout.flush()
             footer_visible = True
             footer_text = next_text
+            footer_height = terminal_size.lines
 
         with self._follow_control_monitor(enabled=footer_enabled) as controls:
             while True:
@@ -2209,11 +2209,18 @@ class JriService:
                 time.sleep(0.05)
 
             with log_path.open("r", encoding="utf-8") as handle:
+                renderer = SavedLogRenderer(
+                    cwd_hint=str(self.root).rstrip("/") + "/",
+                )
                 while True:
                     chunk = handle.read()
                     if chunk:
+                        rendered = renderer.render_chunk(chunk)
+                    else:
+                        rendered = ""
+                    if rendered:
                         _clear_footer()
-                        sys.stdout.write(chunk)
+                        sys.stdout.write(rendered)
                         sys.stdout.flush()
                     action = controls.poll_action()
                     if action == "detach":
@@ -2236,9 +2243,10 @@ class JriService:
                         or not self._is_pid_alive(loop_pid)
                     ):
                         chunk = handle.read()
-                        if chunk:
+                        rendered = renderer.render_chunk(chunk, final=True)
+                        if rendered:
                             _clear_footer()
-                            sys.stdout.write(chunk)
+                            sys.stdout.write(rendered)
                             sys.stdout.flush()
                         _clear_footer()
                         return False
