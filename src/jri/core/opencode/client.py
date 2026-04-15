@@ -15,7 +15,7 @@ from typing import Protocol, cast
 
 from ..errors import JriError
 from ..models import OpenCodeRunResult, RalphResult, RalphResultPayload, Result
-from ..ui import CYAN, DIM, _s, trim_tool_output
+from ..ui import DIM, PURPLE, _s, trim_tool_output
 
 
 def _tool_detail(tool_name: str, input_obj: object, *, cwd_hint: str = "") -> str:
@@ -117,7 +117,7 @@ def render_saved_event(
     if detail:
         label = f"{label} {detail}"
     if tool_name == "task":
-        return _s(label, DIM, CYAN) + "\n", True
+        return _s(label, DIM, PURPLE) + "\n", True
     return _s(label, DIM) + "\n", True
 
 
@@ -151,6 +151,16 @@ class SavedLogRenderer:
             self._buffer = ""
         return "".join(rendered)
 
+    def render_event(self, event: dict[str, object]) -> tuple[str, bool]:
+        self._track_task_state(event)
+        if self._should_suppress_event(event):
+            return "", False
+        return render_saved_event(
+            event,
+            seen_tool_calls=self._seen_tool_calls,
+            cwd_hint=self._cwd_hint,
+        )
+
     def _append_line(self, rendered: list[str], raw_line: str) -> None:
         line = raw_line.rstrip("\n")
         try:
@@ -162,14 +172,7 @@ class SavedLogRenderer:
             return
         if not isinstance(event, dict):
             return
-        self._track_task_state(event)
-        if self._should_suppress_event(event):
-            return
-        text_to_print, newline_before = render_saved_event(
-            event,
-            seen_tool_calls=self._seen_tool_calls,
-            cwd_hint=self._cwd_hint,
-        )
+        text_to_print, newline_before = self.render_event(event)
         if not text_to_print:
             return
         if newline_before and self._last_terminal_char != "\n":
@@ -739,7 +742,10 @@ class OpenCodeServer:
 
         timed_out = False
         deadline = time.monotonic() + timeout if timeout and timeout > 0 else None
-        seen_tool_calls: set[str] = set()
+        renderer = SavedLogRenderer(
+            cwd_hint=getattr(self, "_cwd_hint", ""),
+            suppress_task_output=True,
+        )
         saw_active_status = False
         # 3. Send prompt
         self._start_ralph_prompt(
@@ -774,7 +780,7 @@ class OpenCodeServer:
 
                     self._handle_permission(event)
                     text_to_print, newline_before = self._render_event(
-                        event, session_id, seen_tool_calls
+                        event, session_id, renderer
                     )
                     if text_to_print:
                         if newline_before and last_terminal_char != "\n":
@@ -939,12 +945,8 @@ class OpenCodeServer:
         self,
         event: dict[str, object],
         session_id: str,
-        seen_tool_calls: set[str],
+        renderer: SavedLogRenderer,
     ) -> tuple[str, bool]:
         """Return (text_to_print, force_newline_after)."""
         del session_id
-        return render_saved_event(
-            event,
-            seen_tool_calls=seen_tool_calls,
-            cwd_hint=getattr(self, "_cwd_hint", ""),
-        )
+        return renderer.render_event(event)

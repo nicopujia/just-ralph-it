@@ -8,6 +8,7 @@ GREEN = "\033[32m"
 RED = "\033[31m"
 YELLOW = "\033[33m"
 CYAN = "\033[36m"
+PURPLE = "\033[35m"
 INVERSE = "\033[7m"
 RESET = "\033[0m"
 
