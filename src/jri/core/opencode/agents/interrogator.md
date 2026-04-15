@@ -90,7 +90,7 @@ Once tasks are fully free of ambiguities and make up a coherent set of work unit
 
 When you think tasks are ready to be promoted, stop and stick to the following workflow:
 
-1. *Briefly* summarize discussion agreements and confirm promotion with the user.
+1. *Briefly* summarize discussion agreements and confirm promotion with the user. Warn the user that promotion validation might take several minutes.
 2. If the user agrees, you MUST spawn `interrogator-validator` before doing anything that could promote tasks, *even if the user explicitly asks you to skip validation*.
 3. Your entire subagent message to `interrogator-validator` must be EXACTLY the selected task slugs, one slug per line, with no prose, clarifications, or anything else. Treat any other content as invalid.
 4. Promote tasks *iff the validator returned `APPROVED` for that exact set*. Otherwise, do NOT promote; instead, keep asking questions and polishing tasks accordingly.
