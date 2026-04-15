@@ -1223,6 +1223,79 @@ def test_start_records_retry_attempt_after_interrupted_run(git_repo: Path) -> No
     assert attempts[1]["result"] == "completed"
 
 
+def test_start_reruns_unverified_completed_attempt(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="done",
+        slug="recover-me",
+        title="Recover me",
+        priority=0,
+        assignee="Ralph",
+        body="This task was incorrectly promoted without durable evidence.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="next-task",
+        title="Next task",
+        priority=1,
+        assignee="Ralph",
+        body="This should not start until recover-me is really complete.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(
+        git_repo,
+        "add",
+        ".jri/tasks/done/recover-me.md",
+        ".jri/tasks/todo/next-task.md",
+    )
+    git(git_repo, "commit", "-m", "seed unverified completed attempt")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    stale_attempt = AttemptState(
+        number=1,
+        task_slug="recover-me",
+        branch="ralph",
+        started_at=123,
+        finished_at=124,
+        log_path=".jri/logs/ralph/recover-me-1970-01-01T00-02-03Z.log",
+        result="completed",
+    )
+    service.state_store.save(
+        State(
+            started_at=123,
+            branch="main",
+            active_attempt=stale_attempt,
+            attempts=[stale_attempt],
+        )
+    )
+
+    completed = service.start(max_tasks=1, force=True)
+
+    assert completed == 1
+    assert (git_repo / ".jri" / "tasks" / "done" / "recover-me.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "todo" / "next-task.md").exists()
+
+    attempts = cast(
+        list[dict[str, object]],
+        read_json(git_repo / ".jri" / "state.json")["attempts"],
+    )
+    assert [attempt["task_slug"] for attempt in attempts] == [
+        "recover-me",
+        "recover-me",
+    ]
+    assert attempts[0]["result"] == "interrupted"
+    assert attempts[1]["result"] == "completed"
+
+    recovery_log = (git_repo / ".jri" / "logs" / "recovery.log").read_text(
+        encoding="utf-8"
+    )
+    assert "reason=missing-completion-evidence" in recovery_log
+    assert "reason=resume-completed-attempt" not in recovery_log
+
+
 def test_start_recovers_stale_foreground_process(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
