@@ -20,6 +20,7 @@ _COMMAND_MESSAGES = {
     "reset": "reset complete.",
     "start": "Ralph is running in the background. Use `jri attach` to follow progress.",
     "stop": "stop requested; Ralph will stop after the current task.",
+    "stop_cancel": "stop request canceled.",
 }
 
 
@@ -191,8 +192,14 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     ),
                 )
             case "stop":
-                service.stop(args.reason)
-                _print_command_message("stop")
+                if args.cancel:
+                    if args.reason is not None:
+                        parser.error("unrecognized arguments: reason")
+                    service.cancel_stop()
+                    _print_command_message("stop_cancel")
+                else:
+                    service.stop(args.reason)
+                    _print_command_message("stop")
                 return 0
             case "halt":
                 service.halt()
@@ -293,8 +300,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser(
         "attach",
-        help="Attach to the tracked Ralph runtime.",
-        description="Attach to the tracked Ralph runtime.",
+        help="Follow the tracked Ralph runtime.",
+        description=(
+            "Follow the tracked Ralph runtime, including runs already started "
+            "in the background."
+        ),
     )
 
     chat_parser = subparsers.add_parser(
@@ -481,6 +491,11 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Write a stop signal that prevents the next Ralph task from starting."
         ),
+    )
+    stop_parser.add_argument(
+        "--cancel",
+        action="store_true",
+        help="Delete an existing stop signal so Ralph continues to the next task.",
     )
     stop_parser.add_argument(
         "reason",

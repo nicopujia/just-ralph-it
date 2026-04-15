@@ -26,6 +26,7 @@ from jri.core.models import (
 from jri.core.opencode import OpenCodeServer
 from jri.core.service import JriService, _FollowControls
 from jri.core.tasks import list_tasks, parse_task_file
+from jri.core.ui import CYAN, RESET
 from tests.conftest import run_cli as base_run_cli
 from tests.helpers import git, read_json, write_passing_makefile, write_task
 
@@ -1081,6 +1082,41 @@ def test_start_refuses_when_tracked_process_is_still_alive(git_repo: Path) -> No
         sleeper.wait(timeout=5)
 
 
+def test_ctl_start_suggests_attach_when_tracked_process_is_still_alive(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    capsys.readouterr()
+    write_task(
+        git_repo,
+        status="doing",
+        slug="existing",
+        title="Existing",
+        priority=1,
+        assignee="Ralph",
+        body="Already running.",
+    )
+    sleeper = subprocess.Popen(["sleep", "30"])
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.state_store.save_process(
+        loop_pid=sleeper.pid,
+        child_pid=None,
+        log_path=None,
+        detached=False,
+    )
+
+    try:
+        assert run_cli(["start", "-n", "1", "--force"], cwd=git_repo) == 1
+        assert (
+            "start: a Ralph process is already running; use `jri attach` to follow it"
+            in capsys.readouterr().err
+        )
+    finally:
+        sleeper.terminate()
+        sleeper.wait(timeout=5)
+
+
 def test_start_rejects_multiple_doing_tasks_at_start(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     for slug in ("task-a", "task-b"):
@@ -1830,6 +1866,16 @@ def test_follow_controls_mark_stop_requested_after_s() -> None:
     assert controls.halt_armed is False
 
 
+def test_follow_controls_cancel_stop_after_second_s() -> None:
+    controls = _FollowControls(enabled=True)
+
+    assert controls.handle_key("s") == "stop"
+    assert controls.handle_key("s") == "stop_cancel"
+    assert controls.stop_requested is False
+    assert controls.confirming_halt is False
+    assert controls.halt_armed is False
+
+
 def test_follow_log_stop_control_writes_stop_signal(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1870,6 +1916,78 @@ def test_follow_log_stop_control_writes_stop_signal(
     assert footer_frames == [True]
 
 
+def test_follow_log_detach_notice_is_cyan_when_color_is_enabled(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    log_path = git_repo / ".jri" / "logs" / "ralph" / "running.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("", encoding="utf-8")
+
+    class FakeControls:
+        stop_requested = False
+        confirming_halt = False
+        halt_armed = False
+        _actions = iter(["detach"])
+
+        def poll_action(self) -> str | None:
+            return next(self._actions, None)
+
+    @contextmanager
+    def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
+        assert enabled is True
+        yield FakeControls()
+
+    monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
+    monkeypatch.setattr("jri.core.service.supports_color", lambda: True)
+    monkeypatch.setattr("jri.core.ui.supports_color", lambda: True)
+    monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
+
+    assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is True
+    assert capsys.readouterr().out == (
+        f"{CYAN}Detached. Use `jri attach` to follow the run again.{RESET}\n"
+    )
+
+
+def test_follow_log_shows_saved_stop_request_after_attach(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    log_path = git_repo / ".jri" / "logs" / "ralph" / "running.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text("", encoding="utf-8")
+    service.paths.stop_signal_path.parent.mkdir(parents=True, exist_ok=True)
+    service.paths.stop_signal_path.write_text("requested\n", encoding="utf-8")
+    footer_frames: list[bool] = []
+
+    class FakeControls:
+        confirming_halt = False
+        halt_armed = False
+
+        def poll_action(self) -> str | None:
+            return None
+
+    @contextmanager
+    def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
+        assert enabled is True
+        yield FakeControls()
+
+    monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
+    monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
+    pid_states = iter([True, False])
+    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: next(pid_states))
+    monkeypatch.setattr(
+        "jri.core.service.follow_status_bar",
+        lambda *args, **kwargs: (
+            footer_frames.append(kwargs["stop_requested"]) or "footer"
+        ),
+    )
+    monkeypatch.setattr("jri.core.service.time.sleep", lambda _: None)
+
+    assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
+    assert footer_frames == [True]
+
+
 def test_follow_log_halt_control_invokes_halt(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1901,7 +2019,79 @@ def test_follow_log_halt_control_invokes_halt(
     assert halt_calls == ["halt"]
 
 
-def test_follow_log_clears_previous_footer_row_after_resize(
+def test_follow_log_shows_spinner_for_running_subagent(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    log_path = git_repo / ".jri" / "logs" / "ralph" / "running.log"
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    log_path.write_text(
+        json.dumps(
+            {
+                "type": "message.part.updated",
+                "properties": {
+                    "part": {
+                        "type": "tool",
+                        "id": "tool-1",
+                        "tool": "task",
+                        "state": {
+                            "status": "running",
+                            "input": {"description": "research phase"},
+                        },
+                    }
+                },
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "type": "message.part.delta",
+                "properties": {
+                    "field": "text",
+                    "delta": "Spawned implementation subagent",
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    footer_calls: list[tuple[str | None, str | None]] = []
+
+    class FakeControls:
+        stop_requested = False
+        confirming_halt = False
+        halt_armed = False
+
+        def poll_action(self) -> str | None:
+            return None
+
+    @contextmanager
+    def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
+        assert enabled is True
+        yield FakeControls()
+
+    monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
+    monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
+    pid_states = iter([True, False])
+    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: next(pid_states))
+    monkeypatch.setattr(
+        "jri.core.service.follow_status_bar",
+        lambda *args, **kwargs: (
+            footer_calls.append((kwargs.get("activity"), kwargs.get("spinner_frame")))
+            or "footer"
+        ),
+    )
+    monkeypatch.setattr("jri.core.service.time.sleep", lambda _: None)
+
+    assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
+    assert len(footer_calls) == 1
+    assert footer_calls[0][0] == "research phase"
+    spinner_frame = footer_calls[0][1]
+    assert spinner_frame is not None
+    assert spinner_frame in "|/-\\"
+
+
+def test_follow_log_redraws_footer_across_repeated_resizes(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
@@ -1922,8 +2112,15 @@ def test_follow_log_clears_previous_footer_row_after_resize(
         assert enabled is True
         yield FakeControls()
 
-    terminal_sizes = iter([os.terminal_size((60, 20)), os.terminal_size((60, 10))])
-    pid_states = iter([True, True, False])
+    terminal_sizes = iter(
+        [
+            os.terminal_size((60, 20)),
+            os.terminal_size((60, 10)),
+            os.terminal_size((60, 20)),
+            os.terminal_size((60, 10)),
+        ]
+    )
+    pid_states = iter([True, True, True, True, False])
 
     monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
     monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
@@ -1938,8 +2135,8 @@ def test_follow_log_clears_previous_footer_row_after_resize(
     assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
 
     output = capsys.readouterr().out
-    assert output.count("\0337\033[20;1H\033[2K") == 2
-    assert output.count("\0337\033[10;1H\033[2K") == 2
+    assert output.count("\0337\033[20;1H\033[2K") == 4
+    assert output.count("\0337\033[10;1H\033[2K") == 4
 
 
 def test_follow_log_stops_when_spawned_process_has_exited(
@@ -2011,8 +2208,7 @@ def test_follow_log_renders_saved_events_instead_of_raw_json(
 
     assert detached is False
     output = capsys.readouterr().out
-    assert "⚙ task research phase" in output
-    assert "Spawned implementation subagent" in output
+    assert output == ""
     assert '"type": "message.part.updated"' not in output
 
 
@@ -2265,6 +2461,21 @@ def test_ctl_stop_reports_stop_request(
     assert (git_repo / ".jri" / "signals" / "stop").read_text(
         encoding="utf-8"
     ) == "maintenance\n"
+
+
+def test_ctl_stop_cancel_removes_stop_signal(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service.stop("maintenance")
+    capsys.readouterr()
+
+    assert run_cli(["stop", "--cancel"], cwd=git_repo) == 0
+
+    output = capsys.readouterr().out
+    assert "stop_cancel: stop request canceled." in output
+    assert not (git_repo / ".jri" / "signals" / "stop").exists()
 
 
 def test_reset_returns_repo_to_last_successful_task(git_repo: Path) -> None:

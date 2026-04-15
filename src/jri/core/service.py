@@ -71,6 +71,7 @@ from .tasks import (
 )
 from .timeline import TimelineEvent, TimelineStore
 from .ui import (
+    cyan,
     follow_status_bar,
     follow_status_bar_clear,
     supports_color,
@@ -140,8 +141,8 @@ class _FollowControls:
             return "detach"
         if key == "s":
             self._reset_halt_confirmation()
-            self.stop_requested = True
-            return "stop"
+            self.stop_requested = not self.stop_requested
+            return "stop" if self.stop_requested else "stop_cancel"
         if self.confirming_halt:
             if key == "n":
                 self._reset_halt_confirmation()
@@ -432,6 +433,11 @@ class JriService:
         self.paths.signals_dir.mkdir(parents=True, exist_ok=True)
         content = f"{reason}\n" if reason else ""
         self.paths.stop_signal_path.write_text(content, encoding="utf-8")
+
+    def cancel_stop(self) -> None:
+        self.ensure_initialized()
+        if self.paths.stop_signal_path.exists():
+            self.paths.stop_signal_path.unlink()
 
     def halt(self) -> None:
         self.ensure_initialized()
@@ -1509,7 +1515,9 @@ class JriService:
         process_alive = loop_pid is not None and self._is_pid_alive(loop_pid)
 
         if process_alive:
-            raise JriError("a Ralph process is already running")
+            raise JriError(
+                "a Ralph process is already running; use `jri attach` to follow it"
+            )
 
         if doing_tasks:
             if not force:
@@ -2148,6 +2156,7 @@ class JriService:
         footer_visible = False
         footer_text = ""
         footer_height: int | None = None
+        renderer: SavedLogRenderer | None = None
 
         def _clear_footer() -> None:
             nonlocal footer_height, footer_visible, footer_text
@@ -2170,11 +2179,20 @@ class JriService:
             terminal_size = shutil.get_terminal_size((80, 24))
             if footer_visible and footer_height != terminal_size.lines:
                 sys.stdout.write(follow_status_bar_clear(height=footer_height))
+                footer_visible = False
+                footer_text = ""
+                footer_height = None
             next_text = follow_status_bar(
                 self._current_follow_task(),
-                stop_requested=controls.stop_requested,
+                stop_requested=self.paths.stop_signal_path.exists(),
                 confirming_halt=controls.confirming_halt,
                 halt_armed=controls.halt_armed,
+                activity=renderer.active_task_detail if renderer is not None else None,
+                spinner_frame=(
+                    "|/-\\"[int(time.monotonic() * 10) % 4]
+                    if renderer is not None and renderer.active_task_detail is not None
+                    else None
+                ),
                 width=terminal_size.columns,
                 height=terminal_size.lines,
             )
@@ -2187,15 +2205,18 @@ class JriService:
             footer_height = terminal_size.lines
 
         with self._follow_control_monitor(enabled=footer_enabled) as controls:
+            controls.stop_requested = self.paths.stop_signal_path.exists()
             while True:
                 action = controls.poll_action()
                 if action == "detach":
                     _clear_footer()
-                    print("Detached. Use `jri attach` to follow the run again.")
+                    print(cyan("Detached. Use `jri attach` to follow the run again."))
                     sys.stdout.flush()
                     return True
                 if action == "stop":
                     self.stop()
+                if action == "stop_cancel":
+                    self.cancel_stop()
                 if action == "halt":
                     _clear_footer()
                     self.halt()
@@ -2211,6 +2232,7 @@ class JriService:
             with log_path.open("r", encoding="utf-8") as handle:
                 renderer = SavedLogRenderer(
                     cwd_hint=str(self.root).rstrip("/") + "/",
+                    suppress_task_output=True,
                 )
                 while True:
                     chunk = handle.read()
@@ -2225,11 +2247,15 @@ class JriService:
                     action = controls.poll_action()
                     if action == "detach":
                         _clear_footer()
-                        print("Detached. Use `jri attach` to follow the run again.")
+                        print(
+                            cyan("Detached. Use `jri attach` to follow the run again.")
+                        )
                         sys.stdout.flush()
                         return True
                     if action == "stop":
                         self.stop()
+                    if action == "stop_cancel":
+                        self.cancel_stop()
                     if action == "halt":
                         _clear_footer()
                         self.halt()
