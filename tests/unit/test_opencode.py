@@ -194,6 +194,117 @@ def test_saved_log_renderer_handles_partial_chunks() -> None:
     assert "Spawned research subagent" in rendered
 
 
+def test_saved_log_renderer_suppresses_task_stdout_in_follow_mode() -> None:
+    renderer = SavedLogRenderer(suppress_task_output=True)
+    running_line = json.dumps(
+        {
+            "type": "message.part.updated",
+            "properties": {
+                "part": {
+                    "type": "tool",
+                    "id": "tool-1",
+                    "tool": "task",
+                    "state": {
+                        "status": "running",
+                        "input": {"description": "research phase"},
+                    },
+                }
+            },
+        }
+    )
+    task_text_line = json.dumps(
+        {
+            "type": "message.part.delta",
+            "properties": {"field": "text", "delta": "Spawned research subagent"},
+        }
+    )
+    completed_line = json.dumps(
+        {
+            "type": "message.part.updated",
+            "properties": {
+                "part": {
+                    "type": "tool",
+                    "id": "tool-1",
+                    "tool": "task",
+                    "state": {"status": "completed"},
+                }
+            },
+        }
+    )
+    main_text_line = json.dumps(
+        {
+            "type": "message.part.delta",
+            "properties": {"field": "text", "delta": "Back in the main agent"},
+        }
+    )
+
+    rendered = renderer.render_chunk(f"{running_line}\n{task_text_line}\n")
+
+    assert rendered == ""
+    assert renderer.active_task_detail == "research phase"
+
+    rendered = renderer.render_chunk(
+        f"{completed_line}\n{main_text_line}\n",
+        final=True,
+    )
+
+    assert "Back in the main agent" in rendered
+    assert renderer.active_task_detail is None
+
+
+def test_render_saved_log_colors_task_tool_labels(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("jri.core.ui.supports_color", lambda: True)
+    log = json.dumps(
+        {
+            "type": "message.part.updated",
+            "properties": {
+                "part": {
+                    "type": "tool",
+                    "id": "tool-1",
+                    "tool": "task",
+                    "state": {
+                        "status": "running",
+                        "input": {"description": "research phase"},
+                    },
+                }
+            },
+        }
+    )
+
+    rendered = render_saved_log(log)
+
+    assert "\033[2m\033[36m⚙ task research phase\033[0m" in rendered
+
+
+def test_render_saved_log_keeps_non_task_tool_labels_dim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("jri.core.ui.supports_color", lambda: True)
+    log = json.dumps(
+        {
+            "type": "message.part.updated",
+            "properties": {
+                "part": {
+                    "type": "tool",
+                    "id": "tool-1",
+                    "tool": "read",
+                    "state": {
+                        "status": "running",
+                        "input": {"filePath": ".jri/tasks/doing/task-a.md"},
+                    },
+                }
+            },
+        }
+    )
+
+    rendered = render_saved_log(log)
+
+    assert "\033[2m⚙ read .jri/tasks/doing/task-a.md\033[0m" in rendered
+    assert "\033[36m⚙ read .jri/tasks/doing/task-a.md" not in rendered
+
+
 def test_start_uses_new_free_port_on_each_auto_start(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

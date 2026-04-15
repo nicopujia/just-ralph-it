@@ -37,6 +37,10 @@ def _s(text: str, *codes: str) -> str:
     return "".join(codes) + text + RESET
 
 
+def cyan(text: str) -> str:
+    return _s(text, CYAN)
+
+
 def task_header(task_slug: str) -> str:
     label = f" task: {task_slug} "
     width = 60
@@ -70,12 +74,16 @@ def follow_status_bar(
     stop_requested: bool = False,
     confirming_halt: bool = False,
     halt_armed: bool = False,
+    activity: str | None = None,
+    spinner_frame: str | None = None,
     width: int | None = None,
     height: int | None = None,
 ) -> str:
     width = max(width or shutil.get_terminal_size((80, 24)).columns, 20)
     height = max(height or shutil.get_terminal_size((80, 24)).lines, 1)
     left = f" task: {task_slug or 'idle'} "
+    if activity:
+        left += f"{spinner_frame or '|'} {activity} "
     if confirming_halt:
         right = (
             " halt? Enter confirm  n cancel "
@@ -83,9 +91,9 @@ def follow_status_bar(
             else " halt? y then Enter  n cancel "
         )
     elif stop_requested:
-        right = " stop requested; Ralph will stop after this task "
+        right = " d detach  s stop (requested)  h halt "
     else:
-        right = " d detach  s stop-next  h halt "
+        right = " d detach  s stop  h halt "
 
     if len(left) + len(right) > width:
         left = _truncate(left, max(width - len(right), 1))

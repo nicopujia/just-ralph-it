@@ -15,7 +15,7 @@ from typing import Protocol, cast
 
 from ..errors import JriError
 from ..models import OpenCodeRunResult, RalphResult, RalphResultPayload, Result
-from ..ui import DIM, _s, trim_tool_output
+from ..ui import CYAN, DIM, _s, trim_tool_output
 
 
 def _tool_detail(tool_name: str, input_obj: object, *, cwd_hint: str = "") -> str:
@@ -116,17 +116,24 @@ def render_saved_event(
     label = f"⚙ {tool_name}"
     if detail:
         label = f"{label} {detail}"
+    if tool_name == "task":
+        return _s(label, DIM, CYAN) + "\n", True
     return _s(label, DIM) + "\n", True
 
 
 class SavedLogRenderer:
     """Incrementally reconstruct terminal output from saved OpenCode logs."""
 
-    def __init__(self, *, cwd_hint: str = "") -> None:
+    def __init__(
+        self, *, cwd_hint: str = "", suppress_task_output: bool = False
+    ) -> None:
         self._cwd_hint = cwd_hint
+        self._suppress_task_output = suppress_task_output
         self._seen_tool_calls: set[str] = set()
         self._buffer = ""
         self._last_terminal_char = "\n"
+        self.active_task_detail: str | None = None
+        self._active_task_call_id: str | None = None
 
     def render_chunk(self, text: str, *, final: bool = False) -> str:
         if text:
@@ -155,6 +162,9 @@ class SavedLogRenderer:
             return
         if not isinstance(event, dict):
             return
+        self._track_task_state(event)
+        if self._should_suppress_event(event):
+            return
         text_to_print, newline_before = render_saved_event(
             event,
             seen_tool_calls=self._seen_tool_calls,
@@ -167,10 +177,76 @@ class SavedLogRenderer:
         rendered.append(text_to_print)
         self._last_terminal_char = text_to_print[-1]
 
+    def _track_task_state(self, event: dict[str, object]) -> None:
+        event = _unwrap_event(event)
+        if event.get("type") != "message.part.updated":
+            return
+        properties = event.get("properties")
+        if not isinstance(properties, dict):
+            return
+        properties = cast(dict[str, object], properties)
+        part = properties.get("part")
+        if not isinstance(part, dict):
+            return
+        part = cast(dict[str, object], part)
+        if part.get("type") != "tool" or part.get("tool") != "task":
+            return
+        state = part.get("state")
+        if not isinstance(state, dict):
+            return
+        state = cast(dict[str, object], state)
+        status = state.get("status")
+        call_id = part.get("callID") or part.get("id")
+        if status == "running":
+            detail = _tool_detail("task", state.get("input"), cwd_hint=self._cwd_hint)
+            self.active_task_detail = detail or "task"
+            self._active_task_call_id = call_id if isinstance(call_id, str) else None
+            return
+        if self._active_task_call_id is None or call_id == self._active_task_call_id:
+            self.active_task_detail = None
+            self._active_task_call_id = None
+
+    def _should_suppress_event(self, event: dict[str, object]) -> bool:
+        if not self._suppress_task_output:
+            return False
+        event = _unwrap_event(event)
+        if _is_running_task_event(event):
+            return True
+        if self.active_task_detail is None:
+            return False
+        properties = event.get("properties")
+        if event.get("type") != "message.part.delta" or not isinstance(
+            properties, dict
+        ):
+            return False
+        properties = cast(dict[str, object], properties)
+        return properties.get("field") == "text"
+
 
 def render_saved_log(text: str, *, cwd_hint: str = "") -> str:
     """Reconstruct terminal output from a saved per-task OpenCode log."""
     return SavedLogRenderer(cwd_hint=cwd_hint).render_chunk(text, final=True)
+
+
+def _is_running_task_event(event: dict[str, object]) -> bool:
+    event = _unwrap_event(event)
+    if event.get("type") != "message.part.updated":
+        return False
+    properties = event.get("properties")
+    if not isinstance(properties, dict):
+        return False
+    properties = cast(dict[str, object], properties)
+    part = properties.get("part")
+    if not isinstance(part, dict):
+        return False
+    part = cast(dict[str, object], part)
+    if part.get("type") != "tool" or part.get("tool") != "task":
+        return False
+    state = part.get("state")
+    if not isinstance(state, dict):
+        return False
+    state = cast(dict[str, object], state)
+    return state.get("status") == "running"
 
 
 def _normalize_result(raw: str) -> RalphResult | None:

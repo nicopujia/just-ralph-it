@@ -51,7 +51,7 @@ def test_follow_status_bar_shows_task_and_controls() -> None:
     result = follow_status_bar("my-task", width=60, height=20)
     assert "task: my-task" in result
     assert "d detach" in result
-    assert "s stop-next" in result
+    assert "s stop" in result
     assert "h halt" in result
     assert "\0337\033[20;1H\033[2K" in result
     assert result.endswith("\0338")
@@ -67,8 +67,9 @@ def test_follow_status_bar_shows_halt_confirmation_prompt() -> None:
 def test_follow_status_bar_shows_stop_requested_feedback() -> None:
     result = follow_status_bar("my-task", stop_requested=True, width=90, height=20)
     assert "task: my-task" in result
-    assert "stop requested" in result
-    assert "after this task" in result
+    assert "d detach" in result
+    assert "s stop (requested)" in result
+    assert "h halt" in result
 
 
 def test_follow_status_bar_shows_armed_halt_confirmation_prompt() -> None:
@@ -81,6 +82,18 @@ def test_follow_status_bar_shows_armed_halt_confirmation_prompt() -> None:
     )
     assert "Enter confirm" in result
     assert "n cancel" in result
+
+
+def test_follow_status_bar_shows_active_subagent_spinner() -> None:
+    result = follow_status_bar(
+        "my-task",
+        activity="research phase",
+        spinner_frame="/",
+        width=90,
+        height=20,
+    )
+    assert "task: my-task" in result
+    assert "/ research phase" in result
 
 
 def test_follow_status_bar_clear_targets_bottom_row() -> None:
