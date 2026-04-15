@@ -1526,15 +1526,19 @@ class JriService:
             if active_attempt is not None:
                 if not self._attempt_matches_task(active_attempt, doing_tasks[0]):
                     raise JriError("active attempt does not match the task in progress")
-                if self._attempt_completion_applied(active_attempt):
+                completion_evidence = self._attempt_completion_evidence(active_attempt)
+                if completion_evidence is not None:
                     self._record_recovery(
                         mode=mode,
                         reason="resume-completed-attempt",
                         task_slug=doing_tasks[0].slug,
                         process=process,
+                        evidence=completion_evidence,
                     )
                     self._complete_attempt(active_attempt, doing_task=doing_tasks[0])
                     return
+                if active_attempt.result == "completed":
+                    reason = "missing-completion-evidence"
             self._recover_stale_task(
                 doing_tasks[0],
                 mode=mode,
@@ -1545,14 +1549,25 @@ class JriService:
 
         if state.active_attempt is not None:
             active_attempt = state.active_attempt
-            if self._attempt_completion_applied(active_attempt):
+            completion_evidence = self._attempt_completion_evidence(active_attempt)
+            if completion_evidence is not None:
                 self._record_recovery(
                     mode=mode,
                     reason="resume-completed-attempt",
                     task_slug=active_attempt.task_slug,
                     process=process,
+                    evidence=completion_evidence,
                 )
                 self._complete_attempt(active_attempt, doing_task=None)
+                return
+            task_status = self._tracked_task_status(active_attempt.task_slug)
+            if task_status in {"doing", "done"}:
+                self._recover_unverified_completed_attempt(
+                    active_attempt,
+                    mode=mode,
+                    reason="missing-completion-evidence",
+                    process=process,
+                )
                 return
             if active_attempt.result in {
                 "failed",
@@ -1697,12 +1712,146 @@ class JriService:
         branch_ok = attempt.branch == "ralph"
         return attempt.task_slug == task.slug and branch_ok
 
-    def _attempt_completion_applied(self, attempt: AttemptState) -> bool:
-        if attempt.result == "completed":
-            return True
-        if not self.git.has_local_branch(attempt.branch):
-            return False
-        return self.git.is_ancestor(attempt.branch, self._default_branch())
+    def _attempt_completion_evidence(
+        self, attempt: AttemptState
+    ) -> dict[str, str] | None:
+        if attempt.finished_at is None:
+            return None
+
+        history_entry = next(
+            (
+                entry
+                for entry in self._load_attempt_history(attempt.task_slug)
+                if entry.number == attempt.number
+                and entry.result == "completed"
+                and entry.finished_at is not None
+            ),
+            None,
+        )
+        if history_entry is None:
+            return None
+
+        task_completed_ts = self._timeline_event_ts(
+            task_slug=attempt.task_slug,
+            event="task_completed",
+            not_before=attempt.started_at,
+        )
+        if task_completed_ts is None:
+            return None
+
+        evidence = {
+            "attempt_history": (
+                f"{self.git.relative_path(self.paths.attempt_history_path(attempt.task_slug))}"
+                f"#{attempt.number}"
+            ),
+            "task_completed_event": task_completed_ts,
+        }
+        if (self.root / "Makefile").exists():
+            make_check_passed_ts = self._timeline_event_ts(
+                task_slug=attempt.task_slug,
+                event="make_check_passed",
+                not_before=attempt.started_at,
+            )
+            if make_check_passed_ts is None:
+                return None
+            evidence["make_check_passed_event"] = make_check_passed_ts
+        return evidence
+
+    def _timeline_event_ts(
+        self,
+        *,
+        task_slug: str,
+        event: str,
+        not_before: int | None,
+    ) -> str | None:
+        minimum_ts = (
+            datetime.fromtimestamp(not_before, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+            if not_before is not None
+            else None
+        )
+        for timeline_event in reversed(self.timeline.read()):
+            if timeline_event.task != task_slug or timeline_event.event != event:
+                continue
+            if minimum_ts is not None and timeline_event.ts < minimum_ts:
+                continue
+            return timeline_event.ts
+        return None
+
+    def _tracked_task_status(self, slug: str) -> str | None:
+        for status in _TRACKED_TASK_DIRS:
+            if self.paths.task_path(status, slug).exists():
+                return status
+        return None
+
+    def _recover_unverified_completed_attempt(
+        self,
+        attempt: AttemptState,
+        *,
+        mode: str,
+        reason: str,
+        process: ProcessState | None,
+    ) -> None:
+        try:
+            default = self._default_branch()
+            current_branch = self.git.current_branch()
+
+            if current_branch == default:
+                if self.git.status_short():
+                    raise JriError(
+                        "git working tree must be clean before stale recovery"
+                    )
+            elif current_branch == "ralph":
+                self.git.commit_all_if_needed(
+                    MSG_RALPH_PARTIAL.format(slug=attempt.task_slug)
+                )
+                self.git.checkout(default)
+            else:
+                raise JriError(f"jri start must begin from the {default} branch")
+
+            if self.paths.worktree_dir.exists():
+                wt_git = GitRepo(self.paths.worktree_dir)
+                self._sync_worktree(wt_git)
+
+            task_moved = False
+            for status in ("doing", "done"):
+                task_path = self.paths.task_path(status, attempt.task_slug)
+                if not task_path.exists():
+                    continue
+                move_task(parse_task_file(task_path), self.paths.task_dir("todo"))
+                task_moved = True
+                break
+
+            self._record_recovery(
+                mode=mode,
+                reason=reason,
+                task_slug=attempt.task_slug,
+                process=process,
+            )
+            self._mark_active_attempt_interrupted()
+            self._reset_runtime_state()
+            if task_moved:
+                self.git.commit_all_if_needed(
+                    MSG_RECOVER_STALE.format(slug=attempt.task_slug)
+                )
+        except Exception as recovery_error:
+            self._record_recovery_failure(
+                task_slug=attempt.task_slug,
+                phase="recover-unverified-completed-attempt",
+                error=recovery_error,
+            )
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="cleanup_failed",
+                    task=attempt.task_slug,
+                    detail={
+                        "phase": "recover-unverified-completed-attempt",
+                        "error_type": type(recovery_error).__name__,
+                        "error": str(recovery_error),
+                    },
+                )
+            )
+            raise
 
     def _complete_attempt(
         self,
@@ -1751,25 +1900,30 @@ class JriService:
         reason: str,
         task_slug: str | None,
         process: ProcessState | None,
+        evidence: dict[str, str] | None = None,
     ) -> None:
         timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         loop_pid = process.loop_pid if process is not None else None
         child_pid = process.child_pid if process is not None else None
         detached = process.detached if process is not None else False
         log_path = process.log_path if process is not None else None
-        line = " ".join(
-            (
-                timestamp,
-                "event=stale-run-recovery",
-                f"mode={mode}",
-                f"task={task_slug or '-'}",
-                f"reason={reason}",
-                f"loop_pid={loop_pid if loop_pid is not None else '-'}",
-                f"child_pid={child_pid if child_pid is not None else '-'}",
-                f"detached={'true' if detached else 'false'}",
-                f"log_path={log_path or '-'}",
+        parts = [
+            timestamp,
+            "event=stale-run-recovery",
+            f"mode={mode}",
+            f"task={task_slug or '-'}",
+            f"reason={reason}",
+            f"loop_pid={loop_pid if loop_pid is not None else '-'}",
+            f"child_pid={child_pid if child_pid is not None else '-'}",
+            f"detached={'true' if detached else 'false'}",
+            f"log_path={log_path or '-'}",
+        ]
+        if evidence:
+            evidence_summary = ",".join(
+                f"{key}:{value}" for key, value in sorted(evidence.items())
             )
-        )
+            parts.append(f"evidence={evidence_summary}")
+        line = " ".join(parts)
         self.paths.recovery_log_path.parent.mkdir(parents=True, exist_ok=True)
         with self.paths.recovery_log_path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
@@ -1778,7 +1932,12 @@ class JriService:
                 ts=TimelineStore.now_iso(),
                 event="recovery_completed",
                 task=task_slug,
-                detail={"mode": mode, "reason": reason, "message": line},
+                detail={
+                    "mode": mode,
+                    "reason": reason,
+                    "message": line,
+                    **({"evidence": evidence} if evidence else {}),
+                },
             )
         )
 
