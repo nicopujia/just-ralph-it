@@ -15,6 +15,10 @@ RESET = "\033[0m"
 def supports_color() -> bool:
     if os.environ.get("NO_COLOR") is not None:
         return False
+    if _is_truthy_env(os.environ.get("CLICOLOR_FORCE")):
+        return True
+    if _is_truthy_env(os.environ.get("FORCE_COLOR")):
+        return True
     return sys.stdout.isatty()
 
 
@@ -122,3 +126,9 @@ def _truncate(text: str, width: int) -> str:
     if width <= 3:
         return text[:width]
     return text[: width - 3] + "..."
+
+
+def _is_truthy_env(value: str | None) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() not in {"", "0", "false", "no"}

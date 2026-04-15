@@ -112,6 +112,20 @@ def test_supports_color_with_no_color_env(monkeypatch: pytest.MonkeyPatch) -> No
         assert supports_color() is False
 
 
+def test_supports_color_with_force_color_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FORCE_COLOR", "1")
+    with patch("sys.stdout.isatty", return_value=False):
+        assert supports_color() is True
+
+
+def test_supports_color_with_clicolor_force_env(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("CLICOLOR_FORCE", "1")
+    with patch("sys.stdout.isatty", return_value=False):
+        assert supports_color() is True
+
+
 def test_supports_interactive_footer_requires_tty_stdio(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
