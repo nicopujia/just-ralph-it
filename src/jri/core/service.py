@@ -9,7 +9,7 @@ import termios
 import time
 import tty
 from collections.abc import Iterator
-from contextlib import AbstractContextManager, contextmanager
+from contextlib import AbstractContextManager, contextmanager, nullcontext
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from importlib.resources import files
@@ -71,9 +71,8 @@ from .tasks import (
 )
 from .timeline import TimelineEvent, TimelineStore
 from .ui import (
+    FollowStatusBar,
     cyan,
-    follow_status_bar,
-    follow_status_bar_clear,
     supports_color,
     supports_interactive_footer,
     task_footer,
@@ -102,6 +101,7 @@ _ROOT_SCAFFOLD_PATHS = ("Makefile",)
 _TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
 _MAX_TASK_TITLE_LENGTH = 50
 _DRAFT_TASK_PREFIX = ".jri/tasks/draft/"
+_DETACH_NOTICE = "Detached. Use `jri attach` to follow the run again."
 _DEFAULT_MAKEFILE = """.PHONY: check
 
 check:
@@ -2153,36 +2153,14 @@ class JriService:
         allow_detach: bool,
     ) -> bool:
         footer_enabled = allow_detach and supports_interactive_footer()
-        footer_visible = False
-        footer_text = ""
-        footer_height: int | None = None
         renderer: SavedLogRenderer | None = None
 
-        def _clear_footer() -> None:
-            nonlocal footer_height, footer_visible, footer_text
-            if not footer_enabled or not footer_visible:
+        def _render_footer(
+            bar: FollowStatusBar | None, controls: _FollowControls
+        ) -> None:
+            if bar is None:
                 return
-            sys.stdout.write(
-                follow_status_bar_clear(
-                    height=footer_height,
-                )
-            )
-            sys.stdout.flush()
-            footer_visible = False
-            footer_text = ""
-            footer_height = None
-
-        def _render_footer(controls: _FollowControls) -> None:
-            nonlocal footer_height, footer_visible, footer_text
-            if not footer_enabled:
-                return
-            terminal_size = shutil.get_terminal_size((80, 24))
-            if footer_visible and footer_height != terminal_size.lines:
-                sys.stdout.write(follow_status_bar_clear(height=footer_height))
-                footer_visible = False
-                footer_text = ""
-                footer_height = None
-            next_text = follow_status_bar(
+            bar.update(
                 self._current_follow_task(),
                 stop_requested=self.paths.stop_signal_path.exists(),
                 confirming_halt=controls.confirming_halt,
@@ -2193,63 +2171,15 @@ class JriService:
                     if renderer is not None and renderer.active_task_detail is not None
                     else None
                 ),
-                width=terminal_size.columns,
-                height=terminal_size.lines,
             )
-            if footer_visible and next_text == footer_text:
-                return
-            sys.stdout.write(next_text)
-            sys.stdout.flush()
-            footer_visible = True
-            footer_text = next_text
-            footer_height = terminal_size.lines
 
         with self._follow_control_monitor(enabled=footer_enabled) as controls:
             controls.stop_requested = self.paths.stop_signal_path.exists()
-            while True:
-                action = controls.poll_action()
-                if action == "detach":
-                    _clear_footer()
-                    print(cyan("Detached. Use `jri attach` to follow the run again."))
-                    sys.stdout.flush()
-                    return True
-                if action == "stop":
-                    self.stop()
-                if action == "stop_cancel":
-                    self.cancel_stop()
-                if action == "halt":
-                    _clear_footer()
-                    self.halt()
-                    return False
-                if log_path.exists():
-                    break
-                _render_footer(controls)
-                if loop_pid is None or not self._is_pid_alive(loop_pid):
-                    _clear_footer()
-                    return False
-                time.sleep(0.05)
-
-            with log_path.open("r", encoding="utf-8") as handle:
-                renderer = SavedLogRenderer(
-                    cwd_hint=str(self.root).rstrip("/") + "/",
-                    suppress_task_output=True,
-                )
+            with FollowStatusBar() if footer_enabled else nullcontext(None) as bar:
                 while True:
-                    chunk = handle.read()
-                    if chunk:
-                        rendered = renderer.render_chunk(chunk)
-                    else:
-                        rendered = ""
-                    if rendered:
-                        _clear_footer()
-                        sys.stdout.write(rendered)
-                        sys.stdout.flush()
                     action = controls.poll_action()
                     if action == "detach":
-                        _clear_footer()
-                        print(
-                            cyan("Detached. Use `jri attach` to follow the run again.")
-                        )
+                        print(cyan(_DETACH_NOTICE))
                         sys.stdout.flush()
                         return True
                     if action == "stop":
@@ -2257,27 +2187,57 @@ class JriService:
                     if action == "stop_cancel":
                         self.cancel_stop()
                     if action == "halt":
-                        _clear_footer()
                         self.halt()
                         return False
-                    process_exited = (
-                        loop_process is not None and loop_process.poll() is not None
+                    if log_path.exists():
+                        break
+                    _render_footer(bar, controls)
+                    if loop_pid is None or not self._is_pid_alive(loop_pid):
+                        return False
+                    time.sleep(0.05)
+
+                with log_path.open("r", encoding="utf-8") as handle:
+                    renderer = SavedLogRenderer(
+                        cwd_hint=str(self.root).rstrip("/") + "/",
+                        suppress_task_output=True,
                     )
-                    if (
-                        process_exited
-                        or loop_pid is None
-                        or not self._is_pid_alive(loop_pid)
-                    ):
+                    while True:
                         chunk = handle.read()
-                        rendered = renderer.render_chunk(chunk, final=True)
+                        if chunk:
+                            rendered = renderer.render_chunk(chunk)
+                        else:
+                            rendered = ""
                         if rendered:
-                            _clear_footer()
                             sys.stdout.write(rendered)
                             sys.stdout.flush()
-                        _clear_footer()
-                        return False
-                    _render_footer(controls)
-                    time.sleep(0.1)
+                        action = controls.poll_action()
+                        if action == "detach":
+                            print(cyan(_DETACH_NOTICE))
+                            sys.stdout.flush()
+                            return True
+                        if action == "stop":
+                            self.stop()
+                        if action == "stop_cancel":
+                            self.cancel_stop()
+                        if action == "halt":
+                            self.halt()
+                            return False
+                        process_exited = (
+                            loop_process is not None and loop_process.poll() is not None
+                        )
+                        if (
+                            process_exited
+                            or loop_pid is None
+                            or not self._is_pid_alive(loop_pid)
+                        ):
+                            chunk = handle.read()
+                            rendered = renderer.render_chunk(chunk, final=True)
+                            if rendered:
+                                sys.stdout.write(rendered)
+                                sys.stdout.flush()
+                            return False
+                        _render_footer(bar, controls)
+                        time.sleep(0.1)
 
     @contextmanager
     def _follow_control_monitor(self, *, enabled: bool) -> Iterator[_FollowControls]:

@@ -1894,6 +1894,16 @@ def test_follow_log_stop_control_writes_stop_signal(
         def poll_action(self) -> str | None:
             return next(self._actions, None)
 
+    class FakeBar:
+        def __enter__(self) -> "FakeBar":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def update(self, *args: object, **kwargs: object) -> None:
+            footer_frames.append(bool(kwargs["stop_requested"]))
+
     @contextmanager
     def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
         assert enabled is True
@@ -1901,14 +1911,9 @@ def test_follow_log_stop_control_writes_stop_signal(
 
     monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
     monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
+    monkeypatch.setattr("jri.core.service.FollowStatusBar", FakeBar)
     pid_states = iter([True, False])
     monkeypatch.setattr(service, "_is_pid_alive", lambda pid: next(pid_states))
-    monkeypatch.setattr(
-        "jri.core.service.follow_status_bar",
-        lambda *args, **kwargs: (
-            footer_frames.append(kwargs["stop_requested"]) or "footer"
-        ),
-    )
     monkeypatch.setattr("jri.core.service.time.sleep", lambda _: None)
 
     assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
@@ -1967,6 +1972,16 @@ def test_follow_log_shows_saved_stop_request_after_attach(
         def poll_action(self) -> str | None:
             return None
 
+    class FakeBar:
+        def __enter__(self) -> "FakeBar":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def update(self, *args: object, **kwargs: object) -> None:
+            footer_frames.append(bool(kwargs["stop_requested"]))
+
     @contextmanager
     def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
         assert enabled is True
@@ -1974,14 +1989,9 @@ def test_follow_log_shows_saved_stop_request_after_attach(
 
     monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
     monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
+    monkeypatch.setattr("jri.core.service.FollowStatusBar", FakeBar)
     pid_states = iter([True, False])
     monkeypatch.setattr(service, "_is_pid_alive", lambda pid: next(pid_states))
-    monkeypatch.setattr(
-        "jri.core.service.follow_status_bar",
-        lambda *args, **kwargs: (
-            footer_frames.append(kwargs["stop_requested"]) or "footer"
-        ),
-    )
     monkeypatch.setattr("jri.core.service.time.sleep", lambda _: None)
 
     assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
@@ -2065,6 +2075,21 @@ def test_follow_log_shows_spinner_for_running_subagent(
         def poll_action(self) -> str | None:
             return None
 
+    class FakeBar:
+        def __enter__(self) -> "FakeBar":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def update(self, *args: object, **kwargs: object) -> None:
+            footer_calls.append(
+                cast(
+                    tuple[str | None, str | None],
+                    (kwargs.get("activity"), kwargs.get("spinner_frame")),
+                )
+            )
+
     @contextmanager
     def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
         assert enabled is True
@@ -2072,15 +2097,9 @@ def test_follow_log_shows_spinner_for_running_subagent(
 
     monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
     monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
+    monkeypatch.setattr("jri.core.service.FollowStatusBar", FakeBar)
     pid_states = iter([True, False])
     monkeypatch.setattr(service, "_is_pid_alive", lambda pid: next(pid_states))
-    monkeypatch.setattr(
-        "jri.core.service.follow_status_bar",
-        lambda *args, **kwargs: (
-            footer_calls.append((kwargs.get("activity"), kwargs.get("spinner_frame")))
-            or "footer"
-        ),
-    )
     monkeypatch.setattr("jri.core.service.time.sleep", lambda _: None)
 
     assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
@@ -2091,13 +2110,14 @@ def test_follow_log_shows_spinner_for_running_subagent(
     assert spinner_frame in "|/-\\"
 
 
-def test_follow_log_redraws_footer_across_repeated_resizes(
-    git_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+def test_follow_log_updates_bottombar_while_following(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
     log_path = git_repo / ".jri" / "logs" / "ralph" / "running.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("", encoding="utf-8")
+    updates: list[str | None] = []
 
     class FakeControls:
         stop_requested = False
@@ -2112,31 +2132,27 @@ def test_follow_log_redraws_footer_across_repeated_resizes(
         assert enabled is True
         yield FakeControls()
 
-    terminal_sizes = iter(
-        [
-            os.terminal_size((60, 20)),
-            os.terminal_size((60, 10)),
-            os.terminal_size((60, 20)),
-            os.terminal_size((60, 10)),
-        ]
-    )
+    class FakeBar:
+        def __enter__(self) -> "FakeBar":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def update(self, task_slug: str | None, **kwargs: object) -> None:
+            updates.append(task_slug)
+
     pid_states = iter([True, True, True, True, False])
 
     monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
     monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
+    monkeypatch.setattr("jri.core.service.FollowStatusBar", FakeBar)
     monkeypatch.setattr(service, "_current_follow_task", lambda: "task-a")
     monkeypatch.setattr(service, "_is_pid_alive", lambda pid: next(pid_states))
-    monkeypatch.setattr(
-        "jri.core.service.shutil.get_terminal_size",
-        lambda _: next(terminal_sizes),
-    )
     monkeypatch.setattr("jri.core.service.time.sleep", lambda _: None)
 
     assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
-
-    output = capsys.readouterr().out
-    assert output.count("\0337\033[20;1H\033[2K") == 4
-    assert output.count("\0337\033[10;1H\033[2K") == 4
+    assert updates == ["task-a", "task-a", "task-a", "task-a"]
 
 
 def test_follow_log_stops_when_spawned_process_has_exited(
