@@ -1,6 +1,9 @@
 import os
-import shutil
 import sys
+from contextlib import ExitStack
+from typing import Any
+
+import bottombar
 
 BOLD = "\033[1m"
 DIM = "\033[2m"
@@ -27,9 +30,69 @@ def supports_interactive_footer() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
 
 
-def follow_status_bar_clear(*, height: int | None = None) -> str:
-    height = max(height or shutil.get_terminal_size((80, 24)).lines, 1)
-    return f"\0337\033[{height};1H\033[2K\0338"
+class FollowStatusBar:
+    def __init__(self) -> None:
+        self._stack = ExitStack()
+        self._left_item: Any | None = None
+        self._right_item: Any | None = None
+
+    def __enter__(self) -> "FollowStatusBar":
+        self._left_item = self._stack.enter_context(bottombar.add(""))
+        self._right_item = self._stack.enter_context(bottombar.add("", right=True))
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self._stack.close()
+        self._left_item = None
+        self._right_item = None
+
+    def update(
+        self,
+        task_slug: str | None,
+        *,
+        stop_requested: bool = False,
+        confirming_halt: bool = False,
+        halt_armed: bool = False,
+        activity: str | None = None,
+        spinner_frame: str | None = None,
+    ) -> None:
+        left = _follow_status_left_text(
+            task_slug,
+            activity=activity,
+            spinner_frame=spinner_frame,
+        )
+        right = _follow_status_controls_text(
+            stop_requested=stop_requested,
+            confirming_halt=confirming_halt,
+            halt_armed=halt_armed,
+        )
+        if self._left_item is not None and self._left_item.text != left:
+            self._left_item.text = left
+        if self._right_item is not None and self._right_item.text != right:
+            self._right_item.text = right
+
+
+def follow_status_bar(
+    task_slug: str | None,
+    *,
+    stop_requested: bool = False,
+    confirming_halt: bool = False,
+    halt_armed: bool = False,
+    activity: str | None = None,
+    spinner_frame: str | None = None,
+) -> dict[str, str]:
+    return {
+        "left": _follow_status_left_text(
+            task_slug,
+            activity=activity,
+            spinner_frame=spinner_frame,
+        ),
+        "right": _follow_status_controls_text(
+            stop_requested=stop_requested,
+            confirming_halt=confirming_halt,
+            halt_armed=halt_armed,
+        ),
+    }
 
 
 def _s(text: str, *codes: str) -> str:
@@ -69,42 +132,33 @@ def task_footer(result: str) -> str:
     return _s(text, color, BOLD)
 
 
-def follow_status_bar(
+def _follow_status_left_text(
     task_slug: str | None,
+    *,
+    activity: str | None = None,
+    spinner_frame: str | None = None,
+) -> str:
+    left = f"task: {task_slug or 'idle'}"
+    if activity:
+        left += f" {spinner_frame or '|'} {activity}"
+    return left
+
+
+def _follow_status_controls_text(
     *,
     stop_requested: bool = False,
     confirming_halt: bool = False,
     halt_armed: bool = False,
-    activity: str | None = None,
-    spinner_frame: str | None = None,
-    width: int | None = None,
-    height: int | None = None,
 ) -> str:
-    width = max(width or shutil.get_terminal_size((80, 24)).columns, 20)
-    height = max(height or shutil.get_terminal_size((80, 24)).lines, 1)
-    left = f" task: {task_slug or 'idle'} "
-    if activity:
-        left += f"{spinner_frame or '|'} {activity} "
     if confirming_halt:
-        right = (
-            " halt? Enter confirm  n cancel "
+        return (
+            "halt? Enter confirm  n cancel"
             if halt_armed
-            else " halt? y then Enter  n cancel "
+            else "halt? y then Enter  n cancel"
         )
-    elif stop_requested:
-        right = " d detach  s stop (requested)  h halt "
-    else:
-        right = " d detach  s stop  h halt "
-
-    if len(left) + len(right) > width:
-        left = _truncate(left, max(width - len(right), 1))
-    if len(left) + len(right) > width:
-        right = _truncate(right, max(width - len(left), 1))
-
-    padding = max(width - len(left) - len(right), 0)
-    bar = f"{left}{' ' * padding}{right}"
-    styled = _s(bar.ljust(width), BOLD, INVERSE)
-    return f"\0337\033[{height};1H\033[2K{styled}\0338"
+    if stop_requested:
+        return "d detach  s stop (requested)  h halt"
+    return "d detach  s stop  h halt"
 
 
 def trim_tool_output(
@@ -128,16 +182,6 @@ def trim_tool_output(
 
 def _looks_like_file_list(line: str) -> bool:
     return "/" in line and not line.strip().startswith("#")
-
-
-def _truncate(text: str, width: int) -> str:
-    if width <= 0:
-        return ""
-    if len(text) <= width:
-        return text
-    if width <= 3:
-        return text[:width]
-    return text[: width - 3] + "..."
 
 
 def _is_truthy_env(value: str | None) -> bool:

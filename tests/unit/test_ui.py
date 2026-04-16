@@ -3,8 +3,8 @@ from unittest.mock import patch
 import pytest
 
 from jri.core.ui import (
+    FollowStatusBar,
     follow_status_bar,
-    follow_status_bar_clear,
     supports_color,
     supports_interactive_footer,
     task_footer,
@@ -48,28 +48,22 @@ def test_task_footer_timeout() -> None:
 
 
 def test_follow_status_bar_shows_task_and_controls() -> None:
-    result = follow_status_bar("my-task", width=60, height=20)
-    assert "task: my-task" in result
-    assert "d detach" in result
-    assert "s stop" in result
-    assert "h halt" in result
-    assert "\0337\033[20;1H\033[2K" in result
-    assert result.endswith("\0338")
+    result = follow_status_bar("my-task")
+    assert result["left"] == "task: my-task"
+    assert result["right"] == "d detach  s stop  h halt"
 
 
 def test_follow_status_bar_shows_halt_confirmation_prompt() -> None:
-    result = follow_status_bar("my-task", confirming_halt=True, width=60, height=20)
-    assert "task: my-task" in result
-    assert "y then Enter" in result
-    assert "n cancel" in result
+    result = follow_status_bar("my-task", confirming_halt=True)
+    assert result["left"] == "task: my-task"
+    assert "y then Enter" in result["right"]
+    assert "n cancel" in result["right"]
 
 
 def test_follow_status_bar_shows_stop_requested_feedback() -> None:
-    result = follow_status_bar("my-task", stop_requested=True, width=90, height=20)
-    assert "task: my-task" in result
-    assert "d detach" in result
-    assert "s stop (requested)" in result
-    assert "h halt" in result
+    result = follow_status_bar("my-task", stop_requested=True)
+    assert result["left"] == "task: my-task"
+    assert result["right"] == "d detach  s stop (requested)  h halt"
 
 
 def test_follow_status_bar_shows_armed_halt_confirmation_prompt() -> None:
@@ -77,11 +71,9 @@ def test_follow_status_bar_shows_armed_halt_confirmation_prompt() -> None:
         "my-task",
         confirming_halt=True,
         halt_armed=True,
-        width=60,
-        height=20,
     )
-    assert "Enter confirm" in result
-    assert "n cancel" in result
+    assert "Enter confirm" in result["right"]
+    assert "n cancel" in result["right"]
 
 
 def test_follow_status_bar_shows_active_subagent_spinner() -> None:
@@ -89,15 +81,64 @@ def test_follow_status_bar_shows_active_subagent_spinner() -> None:
         "my-task",
         activity="research phase",
         spinner_frame="/",
-        width=90,
-        height=20,
     )
-    assert "task: my-task" in result
-    assert "/ research phase" in result
+    assert result["left"] == "task: my-task / research phase"
 
 
-def test_follow_status_bar_clear_targets_bottom_row() -> None:
-    assert follow_status_bar_clear(height=20) == "\0337\033[20;1H\033[2K\0338"
+def test_follow_status_bar_updates_bottombar_items(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[tuple[str, object]] = []
+
+    class FakeItem:
+        def __init__(self, text: str) -> None:
+            self._text = text
+
+        @property
+        def text(self) -> str:
+            return self._text
+
+        @text.setter
+        def text(self, value: str) -> None:
+            events.append(("set", value))
+            self._text = value
+
+    class FakeContext:
+        def __init__(self, *, text: str, right: bool) -> None:
+            self.item = FakeItem(text)
+            self.right = right
+
+        def __enter__(self) -> FakeItem:
+            events.append(("enter", self.right))
+            return self.item
+
+        def __exit__(self, *args: object) -> None:
+            events.append(("exit", self.right))
+
+    class FakeBottomBar:
+        def add(self, text: str, *, right: bool = False) -> FakeContext:
+            events.append(("add", (text, right)))
+            return FakeContext(text=text, right=right)
+
+    monkeypatch.setattr("jri.core.ui.bottombar", FakeBottomBar())
+
+    with FollowStatusBar() as bar:
+        bar.update(
+            "my-task",
+            stop_requested=True,
+            activity="research phase",
+            spinner_frame="/",
+        )
+
+    assert events[:4] == [
+        ("add", ("", False)),
+        ("enter", False),
+        ("add", ("", True)),
+        ("enter", True),
+    ]
+    assert ("set", "task: my-task / research phase") in events
+    assert ("set", "d detach  s stop (requested)  h halt") in events
+    assert events[-2:] == [("exit", True), ("exit", False)]
 
 
 def test_trim_tool_output_returns_none_for_short_text() -> None:
