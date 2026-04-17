@@ -3,11 +3,11 @@ from pathlib import Path
 from typing import Literal, Self, cast
 
 Assignee = Literal["Ralph", "Human"]
-RalphResult = Literal["completed", "incomplete", "needs_human"]
-Result = Literal["completed", "incomplete", "needs_human", "failed", "timeout"]
+RalphResult = Literal["completed", "incompleted", "needs_human"]
+Result = Literal["completed", "incompleted", "needs_human", "failed", "timeout"]
 AttemptResult = Literal[
     "completed",
-    "incomplete",
+    "incompleted",
     "needs_human",
     "failed",
     "interrupted",
@@ -293,9 +293,11 @@ def _str_or_none(value: object) -> str | None:
 
 
 def _attempt_result_or_none(value: object) -> AttemptResult | None:
+    if value == "incomplete":
+        return "incompleted"
     if value in {
         "completed",
-        "incomplete",
+        "incompleted",
         "needs_human",
         "failed",
         "interrupted",

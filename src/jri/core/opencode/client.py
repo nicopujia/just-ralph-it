@@ -15,7 +15,7 @@ from typing import Protocol, cast
 
 from ..errors import JriError
 from ..models import OpenCodeRunResult, RalphResult, RalphResultPayload, Result
-from ..ui import DIM, PURPLE, _s, trim_tool_output
+from ..ui import DIM, _s, trim_tool_output
 
 
 def _tool_detail(tool_name: str, input_obj: object, *, cwd_hint: str = "") -> str:
@@ -116,19 +116,14 @@ def render_saved_event(
     label = f"⚙ {tool_name}"
     if detail:
         label = f"{label} {detail}"
-    if tool_name == "task":
-        return _s(label, DIM, PURPLE) + "\n", True
     return _s(label, DIM) + "\n", True
 
 
 class SavedLogRenderer:
     """Incrementally reconstruct terminal output from saved OpenCode logs."""
 
-    def __init__(
-        self, *, cwd_hint: str = "", suppress_task_output: bool = False
-    ) -> None:
+    def __init__(self, *, cwd_hint: str = "") -> None:
         self._cwd_hint = cwd_hint
-        self._suppress_task_output = suppress_task_output
         self._seen_tool_calls: set[str] = set()
         self._buffer = ""
         self._last_terminal_char = "\n"
@@ -153,8 +148,6 @@ class SavedLogRenderer:
 
     def render_event(self, event: dict[str, object]) -> tuple[str, bool]:
         self._track_task_state(event)
-        if self._should_suppress_event(event):
-            return "", False
         return render_saved_event(
             event,
             seen_tool_calls=self._seen_tool_calls,
@@ -209,47 +202,10 @@ class SavedLogRenderer:
             self.active_task_detail = None
             self._active_task_call_id = None
 
-    def _should_suppress_event(self, event: dict[str, object]) -> bool:
-        if not self._suppress_task_output:
-            return False
-        event = _unwrap_event(event)
-        if _is_running_task_event(event):
-            return True
-        if self.active_task_detail is None:
-            return False
-        properties = event.get("properties")
-        if event.get("type") != "message.part.delta" or not isinstance(
-            properties, dict
-        ):
-            return False
-        properties = cast(dict[str, object], properties)
-        return properties.get("field") == "text"
-
 
 def render_saved_log(text: str, *, cwd_hint: str = "") -> str:
     """Reconstruct terminal output from a saved per-task OpenCode log."""
     return SavedLogRenderer(cwd_hint=cwd_hint).render_chunk(text, final=True)
-
-
-def _is_running_task_event(event: dict[str, object]) -> bool:
-    event = _unwrap_event(event)
-    if event.get("type") != "message.part.updated":
-        return False
-    properties = event.get("properties")
-    if not isinstance(properties, dict):
-        return False
-    properties = cast(dict[str, object], properties)
-    part = properties.get("part")
-    if not isinstance(part, dict):
-        return False
-    part = cast(dict[str, object], part)
-    if part.get("type") != "tool" or part.get("tool") != "task":
-        return False
-    state = part.get("state")
-    if not isinstance(state, dict):
-        return False
-    state = cast(dict[str, object], state)
-    return state.get("status") == "running"
 
 
 def _normalize_result(raw: str) -> RalphResult | None:
@@ -257,8 +213,8 @@ def _normalize_result(raw: str) -> RalphResult | None:
         return "completed"
     if raw == "needs_human":
         return "needs_human"
-    if raw == "incomplete":
-        return "incomplete"
+    if raw in {"incomplete", "incompleted"}:
+        return "incompleted"
     return None
 
 
@@ -742,10 +698,7 @@ class OpenCodeServer:
 
         timed_out = False
         deadline = time.monotonic() + timeout if timeout and timeout > 0 else None
-        renderer = SavedLogRenderer(
-            cwd_hint=getattr(self, "_cwd_hint", ""),
-            suppress_task_output=True,
-        )
+        renderer = SavedLogRenderer(cwd_hint=getattr(self, "_cwd_hint", ""))
         saw_active_status = False
         # 3. Send prompt
         self._start_ralph_prompt(

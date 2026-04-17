@@ -45,7 +45,13 @@ Apart from that, *unless the task explicitely asks for it*, Ralph **MUST NEVER**
 
 ## Review Standard
 
-Be rigorous. The task must be completed to the letter. Treat `completed` as the result only when the task validation passes **on its entirety**. If *any* part of the validation fails, treat is as `incompleted`.
+- Be rigorous; the task MUST be completed to the letter.
+- `completed` is only valid when the task is fully satisfied and validation passes.
+- Treat the result as `incompleted` when the implementation is wrong, partial, contradictory, risky, or lacks evidence that should have been obtainable from the repo, local environment, or delegated checks.
+- Treat the result as `needs_human` only when the remaining blocker truly requires external human-only action, such as unavailable real credentials, legal or product approval, payment, or a physical-world step.
+- Do not mark work `needs_human` merely because Ralph failed to attempt a check that was actually possible.
+- Do not reject concise comments or logs with a clear purpose. Reject comments or logging only when they are gratuitous, stale, misleading, or forbidden by the task.
+- For UI work, reject concrete user-facing problems such as unreadable contrast, overflowed or clipped content, overlapping elements, broken responsive layout, hidden or off-screen actions, misleading states, or obvious accessibility regressions, unless the task explicitly asks for that outcome. Do not reject based on subjective visual taste alone unless the task explicitly requires it.
 
 # Output
 
@@ -72,7 +78,7 @@ FAIL
 - <issue>
 - ...
 
-Result: `incompleted`
+Result: incompleted
 ```
 
 # HARD CONSTRAINTS

@@ -339,7 +339,7 @@ def _run_list_tasks(payload: dict[str, Any]) -> str:
 
 def _run_ralph_result(payload: dict[str, Any]) -> str:
     result = payload.get("result")
-    if result not in {"completed", "incomplete", "needs_human"}:
+    if result not in {"completed", "incompleted", "needs_human"}:
         raise ValueError("invalid result")
     if result == "needs_human" and (
         not payload.get("blocker") or payload.get("human_task") is None

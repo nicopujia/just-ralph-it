@@ -151,3 +151,38 @@ def test_state_round_trips_current_task(tmp_path: Path) -> None:
     store.save(expected)
 
     assert store.load() == expected
+
+
+def test_load_normalizes_legacy_incomplete_attempt_result(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    store.path.parent.mkdir(parents=True, exist_ok=True)
+    store.path.write_text(
+        """
+{
+  "attempts": [
+    {
+      "number": 1,
+      "task_slug": "task-a",
+      "branch": "ralph",
+      "started_at": 123,
+      "result": "incomplete"
+    }
+  ],
+  "active_attempt": {
+    "number": 1,
+    "task_slug": "task-a",
+    "branch": "ralph",
+    "started_at": 123,
+    "result": "incomplete"
+  }
+}
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    state = store.load()
+
+    assert state.active_attempt is not None
+    assert state.active_attempt.result == "incompleted"
+    assert state.attempts[0].result == "incompleted"

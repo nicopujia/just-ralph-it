@@ -87,7 +87,7 @@ class _DelayedIdleResultSSEStream(_FakeSSEStream):
             if index == self._split_index:
                 time.sleep(self._delay)
                 self._result_path.write_text(
-                    _result_payload("incomplete"), encoding="utf-8"
+                    _result_payload("incompleted"), encoding="utf-8"
                 )
             yield chunk
 
@@ -194,8 +194,8 @@ def test_saved_log_renderer_handles_partial_chunks() -> None:
     assert "Spawned research subagent" in rendered
 
 
-def test_saved_log_renderer_suppresses_task_stdout_in_follow_mode() -> None:
-    renderer = SavedLogRenderer(suppress_task_output=True)
+def test_saved_log_renderer_keeps_task_stdout_and_tracks_active_task() -> None:
+    renderer = SavedLogRenderer()
     running_line = json.dumps(
         {
             "type": "message.part.updated",
@@ -240,7 +240,8 @@ def test_saved_log_renderer_suppresses_task_stdout_in_follow_mode() -> None:
 
     rendered = renderer.render_chunk(f"{running_line}\n{task_text_line}\n")
 
-    assert rendered == ""
+    assert "⚙ task research phase" in rendered
+    assert "Spawned research subagent" in rendered
     assert renderer.active_task_detail == "research phase"
 
     rendered = renderer.render_chunk(
@@ -252,7 +253,7 @@ def test_saved_log_renderer_suppresses_task_stdout_in_follow_mode() -> None:
     assert renderer.active_task_detail is None
 
 
-def test_render_saved_log_colors_task_tool_labels(
+def test_render_saved_log_keeps_task_tool_labels_dim(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("jri.core.ui.supports_color", lambda: True)
@@ -275,7 +276,7 @@ def test_render_saved_log_colors_task_tool_labels(
 
     rendered = render_saved_log(log)
 
-    assert "\033[2m\033[35m⚙ task research phase\033[0m" in rendered
+    assert "\033[2m⚙ task research phase\033[0m" in rendered
 
 
 def test_render_saved_log_keeps_non_task_tool_labels_dim(
@@ -911,7 +912,7 @@ def test_run_ralph_task_ignores_idle_after_non_running_pre_prompt_status(
     assert result.warnings == []
 
 
-def test_run_ralph_task_suppresses_task_stdout_but_keeps_raw_log(
+def test_run_ralph_task_prints_task_stdout_and_keeps_raw_log(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -1013,7 +1014,9 @@ def test_run_ralph_task_suppresses_task_stdout_but_keeps_raw_log(
 
     assert result.result == "completed"
     output = capsys.readouterr().out
-    assert output == "Back in the main agent"
+    assert output == (
+        "⚙ task research phase\nSpawned research subagentBack in the main agent"
+    )
     log_text = log_path.read_text(encoding="utf-8")
     assert "Spawned research subagent" in log_text
     assert "research phase" in log_text
@@ -1155,7 +1158,7 @@ def test_run_ralph_task_waits_for_idle_after_terminal_result_tool(
         timeout=1,
     )
 
-    assert result.result == "incomplete"
+    assert result.result == "incompleted"
     assert result.returncode == 0
     assert result.warnings == []
 
@@ -1269,7 +1272,7 @@ def test_run_ralph_task_prefers_outcome_file_over_result_tool_outcome(
         return _ResultWritingSSEStream(
             events,
             result_path=outcome_path,
-            result_text=_result_payload("incomplete"),
+            result_text=_result_payload("incompleted"),
             write_index=2,
         )
 
@@ -1283,7 +1286,7 @@ def test_run_ralph_task_prefers_outcome_file_over_result_tool_outcome(
         result_path=outcome_path,
     )
 
-    assert result.result == "incomplete"
+    assert result.result == "incompleted"
     assert result.warnings == []
 
 
