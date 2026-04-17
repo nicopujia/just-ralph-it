@@ -14,7 +14,7 @@ make setup
 make check
 
 # [Optional] Live integration tests
-uv run pytest tests/live -L
+uv run pytest tests/live -L --preset openai
 ```
 
 ## Build

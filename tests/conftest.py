@@ -1,8 +1,18 @@
 from pathlib import Path
+from typing import TypedDict, cast
 
 import pytest
 
+from jri.cli.main import resolve_start_models
+from jri.core.opencode.presets import preset_choices
 from tests.helpers import git
+
+
+class LiveStartModels(TypedDict):
+    model: str | None
+    validator_model: str | None
+    general_model: str | None
+    explore_model: str | None
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -12,6 +22,14 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store_true",
         default=False,
         help="run live tests against a real OpenCode server",
+    )
+    parser.addoption(
+        "--preset",
+        choices=preset_choices(),
+        help=(
+            "Apply the named start preset for live OpenCode tests. "
+            "Use 'default' to match the checked-in config."
+        ),
     )
     parser.addoption(
         "--model",
@@ -50,6 +68,13 @@ def model(request: pytest.FixtureRequest) -> str | None:
 
 
 @pytest.fixture
+def preset(request: pytest.FixtureRequest) -> str | None:
+    value = request.config.getoption("preset")
+    assert isinstance(value, str) or value is None
+    return value
+
+
+@pytest.fixture
 def validator_model(request: pytest.FixtureRequest) -> str | None:
     value = request.config.getoption("validator_model")
     assert isinstance(value, str) or value is None
@@ -68,6 +93,26 @@ def explore_model(request: pytest.FixtureRequest) -> str | None:
     value = request.config.getoption("explore_model")
     assert isinstance(value, str) or value is None
     return value
+
+
+@pytest.fixture
+def live_start_models(
+    preset: str | None,
+    model: str | None,
+    validator_model: str | None,
+    general_model: str | None,
+    explore_model: str | None,
+) -> LiveStartModels:
+    return cast(
+        LiveStartModels,
+        resolve_start_models(
+            preset=preset,
+            model=model,
+            validator_model=validator_model,
+            general_model=general_model,
+            explore_model=explore_model,
+        ),
+    )
 
 
 @pytest.fixture
