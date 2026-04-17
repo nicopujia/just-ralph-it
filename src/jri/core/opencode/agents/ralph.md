@@ -24,7 +24,8 @@ In order to successfully accomplish your goal, it is ABSOLUTELY CRITICAL that yo
 4. **Follow the implementation plan** you created by spawning *one subagent per stage*. Commit frequently. Parallelize the subagents when possible. You may update the plan mid-implementation based on new findings, though NEVER inventing new task requirements.
 5. **Validate your work** by spawning `ralph-validator` with the task slug as input. (Note: this step is *complemental* to the manual testing mentioned above).
     - If it returns `PASS`, treat the task as `completed`.
-    - If it returns `FAIL`, fix the issues and validate again. Do at most 3 additional fix/validate cycles after the first `FAIL`. Stop earlier if the same core issue repeats. If the latest result is still `FAIL`, treat the task as `incomplete`.
+    - If it returns `FAIL`, fix the issues and validate again. Do at most 2 additional fix/validate cycles after the first `FAIL`. Stop earlier if the same core issue repeats. If the latest result is still `FAIL`, treat the task as `incompleted`.
+    - If it returns `BLOCKED`, treat the task as `needs_human` unless you can remove the blocker immediately yourself.
     - NEVER report `completed` unless the latest validator result is `PASS`.
 6. **Report final status** using `ralph-result` tool EXACTLY ONCE as your VERY LAST action.
 

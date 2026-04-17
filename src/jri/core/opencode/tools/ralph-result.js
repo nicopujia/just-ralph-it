@@ -23,9 +23,9 @@ export default tool({
     "Report final status for the current task. This is the canonical way to record Ralph's result, and it must be called exactly once as the final action.",
   args: {
     result: tool.schema
-      .enum(["completed", "incomplete", "needs_human"])
+      .enum(["completed", "incompleted", "needs_human"])
       .describe(
-        "Final task status: completed when validated, incomplete when work was done but validation failed, needs_human when blocked on a specific human action",
+        "Final task status: completed when validated, incompleted when work was done but validation failed, needs_human when blocked on a specific human action",
       ),
     summary: tool.schema
       .string()
