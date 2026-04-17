@@ -152,15 +152,12 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 _print_command_message("init")
                 return 0
             case "start":
-                start_models = resolve_preset_models(
-                    args.preset,
-                    mode="start",
-                    overrides={
-                        "model": args.model,
-                        "validator_model": args.validator_model,
-                        "general_model": args.general_model,
-                        "explore_model": args.explore_model,
-                    },
+                start_models = resolve_start_models(
+                    preset=args.preset,
+                    model=args.model,
+                    validator_model=args.validator_model,
+                    general_model=args.general_model,
+                    explore_model=args.explore_model,
                 )
                 if args.detached:
                     result = service.start(
@@ -252,6 +249,26 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
 
 def _print_command_message(command: str) -> None:
     print(f"{command}: {_COMMAND_MESSAGES[command]}")
+
+
+def resolve_start_models(
+    *,
+    preset: str | None,
+    model: str | None,
+    validator_model: str | None,
+    general_model: str | None,
+    explore_model: str | None,
+) -> dict[str, str | None]:
+    return resolve_preset_models(
+        preset,
+        mode="start",
+        overrides={
+            "model": model,
+            "validator_model": validator_model,
+            "general_model": general_model,
+            "explore_model": explore_model,
+        },
+    )
 
 
 def _finalize_command_return(command: str, returncode: int) -> int:

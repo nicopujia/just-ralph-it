@@ -1,23 +1,16 @@
 from pathlib import Path
-from typing import NotRequired, TypedDict, cast
+from typing import cast
 
 import pytest
 
 from jri.core.service import JriService
 from jri.core.tasks import list_tasks, parse_task_file
-from tests.conftest import run_cli
+from tests.conftest import LiveStartModels, run_cli
 from tests.helpers import git, read_json, write_task
 
 pytestmark = pytest.mark.live
 
 _LIVE_TASK_TIMEOUT_SECONDS = 300
-
-
-class _StartOverrides(TypedDict):
-    model: NotRequired[str]
-    validator_model: NotRequired[str]
-    general_model: NotRequired[str]
-    explore_model: NotRequired[str]
 
 
 def _skip_unless_live(run_live_opencode: bool) -> None:
@@ -29,32 +22,10 @@ def _init_live_repo(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
 
 
-def _start_kwargs(
-    *,
-    model: str | None,
-    validator_model: str | None,
-    general_model: str | None,
-    explore_model: str | None,
-) -> _StartOverrides:
-    kwargs: _StartOverrides = {}
-    if model is not None:
-        kwargs["model"] = model
-    if validator_model is not None:
-        kwargs["validator_model"] = validator_model
-    if general_model is not None:
-        kwargs["general_model"] = general_model
-    if explore_model is not None:
-        kwargs["explore_model"] = explore_model
-    return kwargs
-
-
 def test_start_with_real_opencode_completes_trivial_task(
     git_repo: Path,
     run_live_opencode: bool,
-    model: str | None,
-    validator_model: str | None,
-    general_model: str | None,
-    explore_model: str | None,
+    live_start_models: LiveStartModels,
 ) -> None:
     _skip_unless_live(run_live_opencode)
 
@@ -83,12 +54,7 @@ def test_start_with_real_opencode_completes_trivial_task(
     completed = service.start(
         max_tasks=1,
         task_timeout=_LIVE_TASK_TIMEOUT_SECONDS,
-        **_start_kwargs(
-            model=model,
-            validator_model=validator_model,
-            general_model=general_model,
-            explore_model=explore_model,
-        ),
+        **live_start_models,
     )
 
     assert completed == 1
@@ -102,10 +68,7 @@ def test_start_with_real_opencode_completes_trivial_task(
 def test_start_with_real_opencode_completes_dependency_chain(
     git_repo: Path,
     run_live_opencode: bool,
-    model: str | None,
-    validator_model: str | None,
-    general_model: str | None,
-    explore_model: str | None,
+    live_start_models: LiveStartModels,
 ) -> None:
     _skip_unless_live(run_live_opencode)
 
@@ -168,12 +131,7 @@ def test_start_with_real_opencode_completes_dependency_chain(
 
     completed = service.start(
         task_timeout=_LIVE_TASK_TIMEOUT_SECONDS,
-        **_start_kwargs(
-            model=model,
-            validator_model=validator_model,
-            general_model=general_model,
-            explore_model=explore_model,
-        ),
+        **live_start_models,
     )
 
     assert completed == 3
@@ -214,10 +172,7 @@ def test_start_with_real_opencode_completes_dependency_chain(
 def test_start_with_real_opencode_escalates_needs_human_task(
     git_repo: Path,
     run_live_opencode: bool,
-    model: str | None,
-    validator_model: str | None,
-    general_model: str | None,
-    explore_model: str | None,
+    live_start_models: LiveStartModels,
 ) -> None:
     _skip_unless_live(run_live_opencode)
 
@@ -252,12 +207,7 @@ def test_start_with_real_opencode_escalates_needs_human_task(
     completed = service.start(
         max_tasks=1,
         task_timeout=_LIVE_TASK_TIMEOUT_SECONDS,
-        **_start_kwargs(
-            model=model,
-            validator_model=validator_model,
-            general_model=general_model,
-            explore_model=explore_model,
-        ),
+        **live_start_models,
     )
 
     assert completed == 0

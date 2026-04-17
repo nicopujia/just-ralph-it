@@ -13,7 +13,7 @@ from typing import Any, cast
 
 import pytest
 
-from jri.cli.main import main
+from jri.cli.main import main, resolve_start_models
 from jri.core.errors import HaltRequested, JriError, RestartRequested
 from jri.core.git import MSG_RECOVER_STALE
 from jri.core.models import (
@@ -754,6 +754,21 @@ def test_start_cli_explicit_model_overrides_preset(
         "task_timeout": None,
         "force": False,
         "dogfood": False,
+    }
+
+
+def test_resolve_start_models_applies_preset_and_explicit_overrides() -> None:
+    assert resolve_start_models(
+        preset="openai",
+        model=None,
+        validator_model="openai/gpt-5.4-mini",
+        general_model=None,
+        explore_model=None,
+    ) == {
+        "model": "openai/gpt-5.4",
+        "validator_model": "openai/gpt-5.4-mini",
+        "general_model": "openai/gpt-5-codex",
+        "explore_model": "openai/gpt-5.4-mini",
     }
 
 
