@@ -14,7 +14,7 @@ make setup
 make check
 
 # [Optional] Live integration tests
-uv run pytest tests/live -L -M vercel/alibaba/qwen3.6-plus
+uv run pytest tests/live -L
 ```
 
 ## Build
