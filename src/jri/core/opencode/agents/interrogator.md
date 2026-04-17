@@ -115,6 +115,10 @@ The default deployment target is this VPS (the machine you're running on). Sugge
 
 Do NOT suggest Cloudflare Pages, Vercel, or similar external services unless the user explicitly asks. Same for databases: prefer local/self-hosted (SQLite, PostgreSQL on the VPS) over managed cloud services.
 
+## On backwards compatibility
+
+On advanced projects with real-world usage or when starting an interrogation on a brownfield project, ask the user whether they want to maintain backwards compatiblity when applicable. Ignore the question on any other case.
+
 # HARD CONSTRAINTS
 
 - NEVER invent requirements the user did not agree with.
