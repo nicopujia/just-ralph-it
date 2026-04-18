@@ -1,6 +1,7 @@
 import json
 import os
 import queue
+import signal
 import socket
 import subprocess
 import sys
@@ -486,23 +487,25 @@ class OpenCodeServer:
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
+            deadline = time.monotonic() + _SERVER_HEALTH_TIMEOUT
+            while time.monotonic() < deadline:
+                if self._process.poll() is not None:
+                    self._process = None
+                    raise JriError("opencode serve exited before becoming healthy")
+                if self.is_healthy():
+                    return
+                time.sleep(_SERVER_HEALTH_INTERVAL)
+            timeout_seconds = _SERVER_HEALTH_TIMEOUT
+            raise JriError(
+                f"opencode serve did not become healthy within {timeout_seconds}s"
+            )
         except FileNotFoundError as err:
             raise JriError(
                 f"could not find `{self.binary}` — is OpenCode installed?"
             ) from err
-
-        deadline = time.monotonic() + _SERVER_HEALTH_TIMEOUT
-        while time.monotonic() < deadline:
-            if self._process.poll() is not None:
-                self._process = None
-                raise JriError("opencode serve exited before becoming healthy")
-            if self.is_healthy():
-                return
-            time.sleep(_SERVER_HEALTH_INTERVAL)
-        self.stop()
-        raise JriError(
-            f"opencode serve did not become healthy within {_SERVER_HEALTH_TIMEOUT}s"
-        )
+        except BaseException:
+            self.stop()
+            raise
 
     def stop(self) -> None:
         process = self._process
@@ -512,11 +515,21 @@ class OpenCodeServer:
         if process.poll() is not None:
             return
         try:
-            process.terminate()
+            try:
+                pgid = os.getpgid(process.pid)
+            except (ProcessLookupError, PermissionError, OSError):
+                pgid = None
+            if pgid is not None:
+                os.killpg(pgid, signal.SIGTERM)
+            else:
+                process.terminate()
             try:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                process.kill()
+                if pgid is not None:
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    process.kill()
                 try:
                     process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
