@@ -31,7 +31,9 @@ def runtime_env(*, overrides: dict[str, str | None]) -> Iterator[dict[str, str]]
             target_dir = config_dir / directory
             target_dir.mkdir(parents=True, exist_ok=True)
             for name in iter_directory_assets(directory):
-                target_dir.joinpath(name).write_text(
+                target_path = target_dir / name
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                target_path.write_text(
                     load_asset_text(Path(directory) / name), encoding="utf-8"
                 )
         config_path = bundle_root / "opencode.json"
