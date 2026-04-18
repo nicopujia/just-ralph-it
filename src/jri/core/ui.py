@@ -13,12 +13,12 @@ RESET = "\033[0m"
 
 
 def supports_color() -> bool:
-    if os.environ.get("NO_COLOR") is not None:
-        return False
     if _is_truthy_env(os.environ.get("CLICOLOR_FORCE")):
         return True
     if _is_truthy_env(os.environ.get("FORCE_COLOR")):
         return True
+    if os.environ.get("NO_COLOR") is not None:
+        return False
     return sys.stdout.isatty()
 
 

@@ -147,7 +147,8 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     assert '"model": "provider/interrogator-main"' in config_text
     assert '"write": "deny"' in config_text
     assert '"question": "allow"' in config_text
-    assert '"skill": "allow"' in config_text
+    assert '"skill": {' in config_text
+    assert '"reverse-ralph": "allow"' in config_text
     assert '"*-task*": "allow"' in config_text
     assert '"interrogator-validator": {' in config_text
     assert '"model": "provider/interrogator-validator"' in config_text
@@ -155,7 +156,10 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     assert '"model": "provider/explore-subagent"' in config_text
     assert '"check-draft-promotion": "allow"' in config_text
     assert skill_text.startswith("---\nname: reverse-ralph\n")
-    assert "description: Reconcile a brownfield repo" in skill_text
+    assert (
+        "description: Analyze a brownfield repo and map its functionality into tasks."
+        in skill_text
+    )
     assert not config_path.exists()
     monkeypatch.undo()
 
