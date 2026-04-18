@@ -6,7 +6,7 @@ import pytest
 from jri.core.service import JriService
 from jri.core.tasks import list_tasks, parse_task_file
 from tests.conftest import LiveStartModels, run_cli
-from tests.helpers import git, read_json, write_task
+from tests.helpers import git, read_json, write_live_makefile, write_task
 
 pytestmark = pytest.mark.live
 
@@ -20,6 +20,9 @@ def _skip_unless_live(run_live_opencode: bool) -> None:
 
 def _init_live_repo(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
+    write_live_makefile(git_repo)
+    git(git_repo, "add", "Makefile")
+    git(git_repo, "commit", "-m", "configure live make check")
 
 
 def test_start_with_real_opencode_completes_trivial_task(
