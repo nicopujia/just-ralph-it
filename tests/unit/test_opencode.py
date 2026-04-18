@@ -1,5 +1,6 @@
 import json
 import signal
+import subprocess
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -114,6 +115,20 @@ class _FakeProcess:
     def kill(self) -> None:
         self.killed = True
         self.returncode = -9
+
+
+class _FakeTimeoutThenKillProcess(_FakeProcess):
+    def __init__(self, *, pid: int = 1234) -> None:
+        super().__init__(pid=pid)
+        self._wait_calls = 0
+
+    def wait(self, timeout: float | None = None) -> int:
+        assert timeout is None or timeout >= 0
+        self._wait_calls += 1
+        if self._wait_calls == 1:
+            raise TimeoutError
+        self.returncode = -9
+        return -9
 
 
 def _sse_event(payload: dict[str, object]) -> list[bytes]:
@@ -438,20 +453,9 @@ def test_stop_terminates_process_group_before_fallback_kill(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     server = OpenCodeServer(binary="opencode")
-    process = _FakeProcess(pid=4321)
-    wait_calls = 0
+    process = _FakeTimeoutThenKillProcess(pid=4321)
     killpg_calls: list[tuple[int, signal.Signals]] = []
-
-    def fake_wait(timeout: float | None = None) -> int:
-        nonlocal wait_calls
-        wait_calls += 1
-        if wait_calls == 1:
-            raise TimeoutError
-        process.returncode = -9
-        return -9
-
-    process.wait = fake_wait  # type: ignore[method-assign]
-    server._process = process
+    server._process = cast(subprocess.Popen[bytes], process)
 
     monkeypatch.setattr("jri.core.opencode.client.os.getpgid", lambda pid: pid)
     monkeypatch.setattr(
