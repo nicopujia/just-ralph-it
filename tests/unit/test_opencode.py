@@ -1,4 +1,5 @@
 import json
+import signal
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -391,6 +392,86 @@ def test_start_merges_custom_env_for_server_launch(
 
     assert popen_env["BASE_ENV"] == "from-os"
     assert popen_env["JRI_RESULT_PATH"] == "result.json"
+
+
+def test_start_stops_server_when_health_check_never_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = OpenCodeServer(binary="opencode", port=5005)
+    process = _FakeProcess(pid=4321)
+    killpg_calls: list[tuple[int, signal.Signals]] = []
+
+    def fake_popen(args: list[str], **kwargs: object) -> _FakeProcess:
+        assert args == ["opencode", "serve", "--port", "5005"]
+        assert kwargs["cwd"] == str(tmp_path)
+        return process
+
+    monkeypatch.setattr("jri.core.opencode.client.subprocess.Popen", fake_popen)
+    monkeypatch.setattr(server, "is_healthy", lambda: False)
+
+    monotonic_calls = 0
+
+    def fake_monotonic() -> float:
+        nonlocal monotonic_calls
+        monotonic_calls += 1
+        return 0.0 if monotonic_calls < 3 else 31.0
+
+    monkeypatch.setattr(
+        "jri.core.opencode.client.time.monotonic",
+        fake_monotonic,
+    )
+    monkeypatch.setattr("jri.core.opencode.client.time.sleep", lambda _: None)
+    monkeypatch.setattr("jri.core.opencode.client.os.getpgid", lambda pid: pid)
+    monkeypatch.setattr(
+        "jri.core.opencode.client.os.killpg",
+        lambda pgid, sig: killpg_calls.append((pgid, sig)),
+    )
+
+    with pytest.raises(JriError, match="did not become healthy"):
+        server.start(cwd=tmp_path)
+
+    assert killpg_calls == [(4321, signal.SIGTERM)]
+    assert server._process is None
+
+
+def test_stop_terminates_process_group_before_fallback_kill(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    server = OpenCodeServer(binary="opencode")
+    process = _FakeProcess(pid=4321)
+    wait_calls = 0
+    killpg_calls: list[tuple[int, signal.Signals]] = []
+
+    def fake_wait(timeout: float | None = None) -> int:
+        nonlocal wait_calls
+        wait_calls += 1
+        if wait_calls == 1:
+            raise TimeoutError
+        process.returncode = -9
+        return -9
+
+    process.wait = fake_wait  # type: ignore[method-assign]
+    server._process = process
+
+    monkeypatch.setattr("jri.core.opencode.client.os.getpgid", lambda pid: pid)
+    monkeypatch.setattr(
+        "jri.core.opencode.client.os.killpg",
+        lambda pgid, sig: killpg_calls.append((pgid, sig)),
+    )
+    monkeypatch.setattr(
+        "jri.core.opencode.client.subprocess.TimeoutExpired",
+        TimeoutError,
+    )
+
+    server.stop()
+
+    assert killpg_calls == [
+        (4321, signal.SIGTERM),
+        (4321, signal.SIGKILL),
+    ]
+    assert process.terminated is False
+    assert process.killed is False
+    assert server._process is None
 
 
 def test_launch_chat_merges_custom_env(
