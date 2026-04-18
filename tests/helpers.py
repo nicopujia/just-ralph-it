@@ -25,6 +25,21 @@ def write_passing_makefile(repo: Path) -> None:
     )
 
 
+def write_live_makefile(repo: Path) -> None:
+    (repo / "Makefile").write_text(
+        ".PHONY: check\n\n"
+        "check:\n"
+        "\t@set -- tests/test_*.py tests/*_test.py; \\\n"
+        '\tfor path in "$$@"; do \\\n'
+        '\t\tif [ -f "$$path" ]; then \\\n'
+        "\t\t\tPYTHONPATH=src python -m pytest -q tests; exit $$?; \\\n"
+        "\t\tfi; \\\n"
+        "\tdone; \\\n"
+        "\ttrue\n",
+        encoding="utf-8",
+    )
+
+
 def write_task(
     repo: Path,
     *,
