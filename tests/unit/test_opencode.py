@@ -3,7 +3,7 @@ import signal
 import time
 from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, cast
+from typing import cast
 from urllib.error import URLError
 
 import pytest
@@ -450,8 +450,8 @@ def test_stop_terminates_process_group_before_fallback_kill(
         process.returncode = -9
         return -9
 
-    cast(Any, process).wait = fake_wait
-    cast(Any, server)._process = process
+    process.wait = fake_wait  # type: ignore[method-assign]
+    server._process = process
 
     monkeypatch.setattr("jri.core.opencode.client.os.getpgid", lambda pid: pid)
     monkeypatch.setattr(

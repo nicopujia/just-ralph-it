@@ -2,7 +2,9 @@
   "$schema": "https://opencode.ai/config.json",
   "permission": {
     "external_directory": "allow",
-    "read": "allow"
+    "read": "allow",
+    // prevent user skills to interfere with JRI
+    "skill": "deny"
   },
   "agent": {
     "interrogator": {
@@ -23,6 +25,9 @@
           "README.md": "allow"
         },
         "question": "allow",
+        "skill": {
+          "reverse-ralph": "allow"
+        },
         "*-task*": "allow",
         "task": {
           "*": "deny",
