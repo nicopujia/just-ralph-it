@@ -17,6 +17,9 @@ make check
 uv run pytest tests/live -L --preset openai
 ```
 
+When `-L` is set, pytest capture is disabled so live agent stdout streams
+directly to the terminal while the test is running.
+
 ## Build
 
 ```bash
