@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import TypedDict, cast
 
 import pytest
+from _pytest.capture import CaptureManager
 
 from jri.cli.main import resolve_start_models
 from jri.core.opencode.presets import preset_choices
@@ -15,13 +16,35 @@ class LiveStartModels(TypedDict):
     explore_model: str | None
 
 
+def _disable_pytest_capture_for_live_runs(config: pytest.Config) -> None:
+    if not config.getoption("run_live_opencode"):
+        return
+
+    config.option.capture = "no"
+    pluginmanager = config.pluginmanager
+    capturemanager = pluginmanager.getplugin("capturemanager")
+    if capturemanager is None:
+        return
+
+    pluginmanager.unregister(capturemanager)
+    capturemanager.stop_global_capturing()
+
+    live_capturemanager = CaptureManager("no")
+    pluginmanager.register(live_capturemanager, "capturemanager")
+    live_capturemanager.start_global_capturing()
+    config.add_cleanup(live_capturemanager.stop_global_capturing)
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "-L",
         "--run-live-opencode",
         action="store_true",
         default=False,
-        help="run live tests against a real OpenCode server",
+        help=(
+            "run live tests against a real OpenCode server and disable "
+            "pytest capture so agent output streams live"
+        ),
     )
     parser.addoption(
         "--preset",
@@ -47,6 +70,10 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--explore-model",
         help="Override the explore subagent model for live start tests.",
     )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    _disable_pytest_capture_for_live_runs(config)
 
 
 def run_cli(args: list[str], cwd: Path) -> int:

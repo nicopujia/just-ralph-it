@@ -1,27 +1,47 @@
 import subprocess
-from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 
+from tests.conftest import _disable_pytest_capture_for_live_runs
 from tests.helpers import write_live_makefile
-from tests.live.conftest import show_live_agent_output
 
 
 class _FakeCaptureManager:
-    def __init__(self) -> None:
-        self.entered = 0
-        self.exited = 0
+    def __init__(self, method: str = "fd") -> None:
+        self.method = method
+        self.stop_calls = 0
+        self.start_calls = 0
 
-    @contextmanager
-    def global_and_fixture_disabled(self):
-        self.entered += 1
-        try:
-            yield
-        finally:
-            self.exited += 1
+    def stop_global_capturing(self) -> None:
+        self.stop_calls += 1
+
+    def start_global_capturing(self) -> None:
+        self.start_calls += 1
+
+
+class _FakePluginManager:
+    def __init__(self, capturemanager: _FakeCaptureManager | None) -> None:
+        self.capturemanager = capturemanager
+        self.unregistered: list[object] = []
+        self.registered: list[tuple[object, str]] = []
+
+    def getplugin(self, name: str) -> object | None:
+        if name != "capturemanager":
+            return None
+        return self.capturemanager
+
+    def unregister(self, plugin: object) -> None:
+        self.unregistered.append(plugin)
+        if plugin is self.capturemanager:
+            self.capturemanager = None
+
+    def register(self, plugin: object, name: str) -> None:
+        self.registered.append((plugin, name))
+        if name == "capturemanager":
+            self.capturemanager = cast(_FakeCaptureManager, plugin)
 
 
 def test_live_makefile_passes_without_tests_and_runs_pytest(git_repo: Path) -> None:
@@ -65,50 +85,51 @@ def test_live_makefile_passes_without_tests_and_runs_pytest(git_repo: Path) -> N
     assert "FAILED" in failing_check.stdout
 
 
-def test_live_output_fixture_disables_global_capture_for_live_runs() -> None:
+def test_live_pytest_config_disables_capture_for_live_runs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     capturemanager = _FakeCaptureManager()
-    request = SimpleNamespace(
-        config=SimpleNamespace(
-            pluginmanager=SimpleNamespace(
-                getplugin=lambda name: (
-                    capturemanager if name == "capturemanager" else None
-                )
-            )
-        )
+    pluginmanager = _FakePluginManager(capturemanager)
+    cleanups: list[object] = []
+    config = SimpleNamespace(
+        option=SimpleNamespace(capture="fd"),
+        pluginmanager=pluginmanager,
+        getoption=lambda name: name == "run_live_opencode",
+        add_cleanup=cleanups.append,
     )
 
-    fixture_func = cast(Any, show_live_agent_output).__wrapped__
-    fixture = fixture_func(
-        run_live_opencode=True,
-        request=request,
+    monkeypatch.setattr(
+        "tests.conftest.CaptureManager",
+        _FakeCaptureManager,
     )
 
-    next(fixture)
+    _disable_pytest_capture_for_live_runs(cast(Any, config))
 
-    assert capturemanager.entered == 1
-    assert capturemanager.exited == 0
-    with pytest.raises(StopIteration):
-        next(fixture)
-    assert capturemanager.exited == 1
+    assert config.option.capture == "no"
+    assert capturemanager.stop_calls == 1
+    assert pluginmanager.unregistered == [capturemanager]
+    assert len(pluginmanager.registered) == 1
+    replacement, plugin_name = pluginmanager.registered[0]
+    assert isinstance(replacement, _FakeCaptureManager)
+    assert replacement.method == "no"
+    assert replacement.start_calls == 1
+    assert plugin_name == "capturemanager"
+    assert cleanups == [replacement.stop_global_capturing]
 
 
-def test_live_output_fixture_leaves_non_live_capture_unchanged() -> None:
+def test_live_pytest_config_leaves_non_live_capture_unchanged() -> None:
     capturemanager = _FakeCaptureManager()
-    request = SimpleNamespace(
-        config=SimpleNamespace(
-            pluginmanager=SimpleNamespace(getplugin=lambda name: capturemanager)
-        )
+    pluginmanager = _FakePluginManager(capturemanager)
+    config = SimpleNamespace(
+        option=SimpleNamespace(capture="fd"),
+        pluginmanager=pluginmanager,
+        getoption=lambda name: False,
+        add_cleanup=lambda cleanup: None,
     )
 
-    fixture_func = cast(Any, show_live_agent_output).__wrapped__
-    fixture = fixture_func(
-        run_live_opencode=False,
-        request=request,
-    )
+    _disable_pytest_capture_for_live_runs(cast(Any, config))
 
-    next(fixture)
-
-    assert capturemanager.entered == 0
-    with pytest.raises(StopIteration):
-        next(fixture)
-    assert capturemanager.exited == 0
+    assert config.option.capture == "fd"
+    assert capturemanager.stop_calls == 0
+    assert pluginmanager.unregistered == []
+    assert pluginmanager.registered == []
