@@ -71,6 +71,28 @@ def test_init_creates_scaffold_and_commit(
     assert "make check is not configured yet" in check.stdout
 
 
+def test_init_creates_git_repo_when_missing(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "JRI Tests")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "jri-tests@example.com")
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "JRI Tests")
+    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "jri-tests@example.com")
+
+    exit_code = run_cli(["init"], cwd=repo)
+
+    assert exit_code == 0
+    assert "init: initialization complete." in capsys.readouterr().out
+    assert (repo / ".git").exists()
+    assert git(repo, "branch", "--show-current") == "main"
+    assert git(repo, "log", "-1", "--pretty=%s") == git_module.MSG_INIT
+    assert git(repo, "status", "--short") == ""
+
+
 def test_init_commits_only_scaffold_when_unrelated_changes_exist(
     git_repo: Path,
 ) -> None:

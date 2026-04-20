@@ -17,8 +17,13 @@ from .config import (
 
 
 @contextmanager
-def runtime_env(*, overrides: dict[str, str | None]) -> Iterator[dict[str, str]]:
-    config_text = load_asset_text("config.json")
+def runtime_env(
+    *,
+    overrides: dict[str, str | None],
+    config_name: str = "config.json",
+    included_agents: set[str] | None = None,
+) -> Iterator[dict[str, str]]:
+    config_text = load_asset_text(config_name)
     filtered_overrides = {
         agent: model for agent, model in overrides.items() if model is not None
     }
@@ -31,6 +36,12 @@ def runtime_env(*, overrides: dict[str, str | None]) -> Iterator[dict[str, str]]
             target_dir = config_dir / directory
             target_dir.mkdir(parents=True, exist_ok=True)
             for name in iter_directory_assets(directory):
+                if (
+                    directory == "agents"
+                    and included_agents is not None
+                    and Path(name).stem not in included_agents
+                ):
+                    continue
                 target_path = target_dir / name
                 target_path.parent.mkdir(parents=True, exist_ok=True)
                 target_path.write_text(

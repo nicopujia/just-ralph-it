@@ -55,6 +55,16 @@ class GitRepo:
     def __init__(self, root: Path) -> None:
         self.root = root
 
+    def init(self, *, branch: str = "main") -> None:
+        self.root.mkdir(parents=True, exist_ok=True)
+        result = self.run("init", "-b", branch, check=False)
+        if result.returncode != 0:
+            raise JriError(result.stderr.strip() or "failed to initialize git repo")
+
+    def init_if_needed(self, *, branch: str = "main") -> None:
+        if not self.is_repo():
+            self.init(branch=branch)
+
     def relative_path(self, path: Path | str) -> str:
         candidate = Path(path)
         if candidate.is_absolute():
