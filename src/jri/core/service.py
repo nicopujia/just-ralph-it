@@ -187,7 +187,7 @@ class JriService:
         delete: bool,
         commit_message: str,
     ) -> None:
-        self.git.ensure_repo()
+        self.git.init_if_needed()
 
         # Check for existing managed directories
         jri_exists = self.paths.jri_dir.exists()
@@ -253,6 +253,8 @@ class JriService:
                 "interrogator-validator": validator_model,
                 "explore": explore_model,
             },
+            config_name="chat-config.json",
+            included_agents={"interrogator", "interrogator-validator"},
         ) as env:
             returncode = launch_chat(
                 root=self.root,

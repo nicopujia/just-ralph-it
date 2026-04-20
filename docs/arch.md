@@ -41,7 +41,7 @@ Attempt history is persisted on the main branch under `.jri/attempts/<task-slug>
 
 ## Generated Structure
 
-`jri init` commits project-owned scaffold under `.jri/` and a root `Makefile` when the repo does not already define one. The `.jri/` scaffold comes from packaged template assets. The root `Makefile` is generated explicitly in code so JRI can treat repo-root files more cautiously. The OpenCode agent/tool/config bundle is installation-owned and assembled into a temporary runtime directory for each chat or Ralph run. Alongside the committed scaffold, these `.gitignore`d runtime files are generated as needed:
+`jri init` creates a git repo when needed, then commits project-owned scaffold under `.jri/` and a root `Makefile` when the repo does not already define one. The `.jri/` scaffold comes from packaged template assets. The root `Makefile` is generated explicitly in code so JRI can treat repo-root files more cautiously. The OpenCode agent/tool/config bundle is installation-owned and assembled into a temporary runtime directory for each chat or Ralph run. Alongside the committed scaffold, these `.gitignore`d runtime files are generated as needed:
 
 - `state.json`: active runtime state for sessions, loop tracking, and recovery.
 - `state.json.bak`: backup written while updating runtime state.

@@ -371,8 +371,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     init_parser = subparsers.add_parser(
         "init",
-        help="Initialize JRI in the current git repo.",
-        description=("Create the .jri scaffold and initial state for this project."),
+        help="Initialize JRI in the current project directory.",
+        description=(
+            "Create the .jri scaffold and initial state for this project, "
+            "creating a git repo when needed."
+        ),
     )
     init_parser.add_argument(
         "directory",

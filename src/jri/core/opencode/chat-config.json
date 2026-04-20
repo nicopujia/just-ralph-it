@@ -1,0 +1,81 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "permission": {
+    "external_directory": "allow",
+    "read": "allow",
+    // prevent user skills to interfere with JRI
+    "skill": "deny"
+  },
+  "agent": {
+    "build": {
+      "disable": true
+    },
+    "plan": {
+      "disable": true
+    },
+    "general": {
+      "disable": true
+    },
+    "interrogator": {
+      "model": "vercel/xai/grok-4.20-reasoning",
+      "temperature": 0.7,
+      "description": "Interrogates user and manages tasks.",
+      "mode": "primary",
+      // Yellow, like Ralph Wiggum
+      "color": "#ffd500",
+      "permission": {
+        "*": "deny",
+        "edit": {
+          "*": "deny",
+          "README.md": "allow"
+        },
+        "read": {
+          "*": "deny",
+          "README.md": "allow"
+        },
+        "question": "allow",
+        "skill": {
+          "reverse-ralph": "allow"
+        },
+        "*-task*": "allow",
+        "task": {
+          "*": "deny",
+          "interrogator-validator": "allow",
+          "explore": "allow"
+        }
+      }
+    },
+    "interrogator-validator": {
+      "model": "vercel/deepseek/deepseek-r1",
+      "temperature": 0,
+      "reasoningEffort": "high",
+      "description": "Checks if tasks are free of ambiguities",
+      "mode": "subagent",
+      "hidden": true,
+      "permission": {
+        "*": "deny",
+        "check-draft-promotion": "allow",
+        "read-tasks": "allow"
+      }
+    },
+    "explore": {
+      "model": "vercel/alibaba/qwen3.5-flash",
+      "temperature": 0.2,
+      "hidden": true,
+      "permission": {
+        "ralph-result": "deny",
+        "*-task*": "deny",
+        "task": {
+          "*-validator": "deny"
+        }
+      }
+    }
+  },
+  "mcp": {
+    "grep-mcp": {
+      "type": "local",
+      "command": ["uvx", "grep-mcp"],
+      "enabled": true
+    }
+  }
+}

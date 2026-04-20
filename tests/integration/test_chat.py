@@ -108,6 +108,7 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     ) -> int:
         assert env is not None
         config_path = Path(env["OPENCODE_CONFIG"])
+        agents_dir = Path(env["OPENCODE_CONFIG_DIR"]) / "agents"
         skill_path = Path(env["OPENCODE_CONFIG_DIR"]) / "skills/reverse-ralph/SKILL.md"
         launch_calls.append(
             {
@@ -116,6 +117,7 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
                 "extra_args": extra_args,
                 "env": env,
                 "config_path": config_path,
+                "agent_files": sorted(path.name for path in agents_dir.iterdir()),
                 "config_text": config_path.read_text(encoding="utf-8"),
                 "skill_text": skill_path.read_text(encoding="utf-8"),
             }
@@ -139,22 +141,30 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     call = launch_calls[0]
     env = cast(dict[str, str], call["env"])
     config_path = cast(Path, call["config_path"])
+    agent_files = cast(list[str], call["agent_files"])
     config_text = cast(str, call["config_text"])
     skill_text = cast(str, call["skill_text"])
     assert Path(env["OPENCODE_CONFIG_DIR"]) == config_path.parent / ".opencode"
     assert not config_path.is_relative_to(repo)
+    assert agent_files == ["interrogator-validator.md", "interrogator.md"]
+    assert '"build": {' in config_text
+    assert '"disable": true' in config_text
+    assert '"plan": {' in config_text
+    assert '"general": {' in config_text
     assert '"interrogator": {' in config_text
     assert '"model": "provider/interrogator-main"' in config_text
-    assert '"write": "deny"' in config_text
     assert '"question": "allow"' in config_text
     assert '"skill": {' in config_text
     assert '"reverse-ralph": "allow"' in config_text
     assert '"*-task*": "allow"' in config_text
     assert '"interrogator-validator": {' in config_text
     assert '"model": "provider/interrogator-validator"' in config_text
+    assert '"hidden": true' in config_text
     assert '"explore": {' in config_text
     assert '"model": "provider/explore-subagent"' in config_text
     assert '"check-draft-promotion": "allow"' in config_text
+    assert '"ralph": {' not in config_text
+    assert '"ralph-validator": {' not in config_text
     assert skill_text.startswith("---\nname: reverse-ralph\n")
     assert (
         "description: Analyze a brownfield repo and map its functionality into tasks."
