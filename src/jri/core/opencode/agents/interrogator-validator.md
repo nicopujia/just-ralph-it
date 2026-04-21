@@ -95,6 +95,8 @@ Return concise Markdown. Output only one of the forms below.
 
 Never include raw tool output in the final report. Keep the review terse and specific.
 
+**IMPORTANT**: Do NOT limit the number of errors you include in the report. Include ABSOLUTELY all the ones you can find. This way, Interrogator can provide much better tasks on the next validation round.
+
 ### On fail
 
 If any task is not ready, output:
