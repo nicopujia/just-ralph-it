@@ -148,7 +148,7 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     assert not config_path.is_relative_to(repo)
     assert agent_files == ["interrogator-validator.md", "interrogator.md"]
     assert '"build": {' in config_text
-    assert '"disable": true' in config_text
+    assert '"hidden": true' in config_text
     assert '"plan": {' in config_text
     assert '"general": {' in config_text
     assert '"interrogator": {' in config_text
@@ -163,8 +163,8 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     assert '"explore": {' in config_text
     assert '"model": "provider/explore-subagent"' in config_text
     assert '"check-draft-promotion": "allow"' in config_text
-    assert '"ralph": {' not in config_text
-    assert '"ralph-validator": {' not in config_text
+    assert '"ralph": {' in config_text
+    assert '"ralph-validator": {' in config_text
     assert skill_text.startswith("---\nname: reverse-ralph\n")
     assert (
         "description: Analyze a brownfield repo and map its functionality into tasks."

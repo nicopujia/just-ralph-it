@@ -253,7 +253,6 @@ class JriService:
                 "interrogator-validator": validator_model,
                 "explore": explore_model,
             },
-            config_name="chat-config.json",
             included_agents={"interrogator", "interrogator-validator"},
         ) as env:
             returncode = launch_chat(
