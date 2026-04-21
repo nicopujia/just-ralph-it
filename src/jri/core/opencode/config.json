@@ -38,6 +38,7 @@
       }
     },
     "interrogator-validator": {
+      "hidden": true,
       "model": "vercel/deepseek/deepseek-r1",
       "temperature": 0,
       "reasoningEffort": "high",
@@ -50,6 +51,7 @@
       }
     },
     "ralph": {
+      "hidden": true,
       "model": "vercel/minimax/minimax-m2.7",
       "temperature": 0.3,
       "reasoningEffort": "high",
@@ -70,6 +72,7 @@
       }
     },
     "ralph-validator": {
+      "hidden": true,
       "model": "vercel/zai/glm-5",
       "temperature": 0,
       "reasoningEffort": "high",
@@ -87,6 +90,7 @@
       }
     },
     "explore": {
+      "hidden": true,
       "model": "vercel/alibaba/qwen3.5-flash",
       "temperature": 0.2,
       "permission": {
@@ -98,6 +102,7 @@
       }
     },
     "general": {
+      "hidden": true,
       "model": "vercel/deepseek/deepseek-v3.2",
       "temperature": 0.5,
       "reasoningEffort": "medium",
@@ -109,6 +114,12 @@
           "*-validator": "deny"
         }
       }
+    },
+    "build": {
+      "hidden": true
+    },
+    "plan": {
+      "hidden": true
     }
   },
   "mcp": {
