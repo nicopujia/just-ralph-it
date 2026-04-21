@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 from typing import cast
 
@@ -66,6 +67,73 @@ def test_start_with_real_opencode_completes_trivial_task(
     tags = git(git_repo, "tag").splitlines()
     assert "jri/begin/live-proof" in tags
     assert "jri/end/live-proof" in tags
+
+
+def test_start_with_real_opencode_completes_setup_task(
+    git_repo: Path,
+    run_live_opencode: bool,
+    live_start_models: LiveStartModels,
+) -> None:
+    _skip_unless_live(run_live_opencode)
+
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="setup-quality-entrypoint",
+        title="Setup quality entrypoint",
+        priority=0,
+        assignee="Ralph",
+        body=(
+            "This is the greenfield setup task for this repository. Replace the "
+            "placeholder `Makefile` check target created by `jri init` with a "
+            "working bootstrap quality entrypoint. The resulting `make check` "
+            "must exit successfully in the current repository, and when "
+            "pytest-style tests exist under `tests/`, it must run them with "
+            "`PYTHONPATH=src python -m pytest -q tests`. Keep the setup minimal "
+            "and do not add application code."
+        ),
+        acceptance_criteria=[
+            "`Makefile` no longer contains the placeholder "
+            "`make check is not configured yet` message.",
+            "Running `make check` at the repository root exits successfully.",
+            "The `check` target runs `PYTHONPATH=src python -m pytest -q tests` "
+            "when pytest-style tests exist under `tests/`.",
+        ],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/setup-quality-entrypoint.md")
+    git(git_repo, "commit", "-m", "add live setup task")
+
+    service = JriService(git_repo)
+
+    completed = service.start(
+        max_tasks=1,
+        task_timeout=_LIVE_TASK_TIMEOUT_SECONDS,
+        **live_start_models,
+    )
+
+    assert completed == 1
+    makefile_text = (git_repo / "Makefile").read_text(encoding="utf-8")
+    assert "make check is not configured yet" not in makefile_text
+    assert "PYTHONPATH=src python -m pytest -q tests" in makefile_text
+    check = subprocess.run(
+        ["make", "check"],
+        cwd=git_repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert check.returncode == 0, check.stdout + check.stderr
+    assert (
+        git_repo / ".jri" / "tasks" / "done" / "setup-quality-entrypoint.md"
+    ).exists()
+    tags = git(git_repo, "tag").splitlines()
+    assert "jri/begin/setup-quality-entrypoint" in tags
+    assert "jri/end/setup-quality-entrypoint" in tags
+    state = read_json(git_repo / ".jri" / "state.json")
+    attempts = cast(list[dict[str, object]], state["attempts"])
+    assert len(attempts) == 1
+    assert attempts[0]["result"] == "completed"
 
 
 def test_start_with_real_opencode_completes_dependency_chain(
