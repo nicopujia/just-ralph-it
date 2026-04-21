@@ -16,3 +16,7 @@ After that, start by asking the user if they want anything different from what t
 Once the user's intent is clear, proceed to create tasks. Write them based on behavior, not implementation details, as we aim to craft a much cleaner codebase with a similar or identical (depending on what the user wants) functionality. As long as you focus on I/O, Ralph will ensure to keep it clean.
 
 **IMPORTANT**: Be very specific. Take every single line of legacy code into consideration regarding what it does. This is important because legacy code may have been iterated several times through figuring out edge cases or bugs, thus being filled with patches. Those patches might be messy, but matter *a lot*, and they should definitely be reflected in the tasks.
+
+# Notes
+
+Unless the user says otherwise, it is OK to reference file paths from the legacy codebase because it is expected to be a static, non-fragile artifact Ralph can reliably read from.
