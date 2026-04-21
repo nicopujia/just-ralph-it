@@ -13,6 +13,7 @@
       "temperature": 0.7,
       "description": "Interrogates user and manages tasks.",
       "mode": "primary",
+      "reasoningEffort": "medium",
       // Yellow, like Ralph Wiggum
       "color": "#ffd500",
       "permission": {
@@ -93,6 +94,7 @@
       "hidden": true,
       "model": "vercel/alibaba/qwen3.5-flash",
       "temperature": 0.2,
+      "reasoningEffort": "none",
       "permission": {
         "ralph-result": "deny",
         "*-task*": "deny",
