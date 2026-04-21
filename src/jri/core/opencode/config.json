@@ -4,7 +4,8 @@
     "external_directory": "allow",
     "read": "allow",
     // prevent user skills to interfere with JRI
-    "skill": "deny"
+    "skill": "deny",
+    "mobile-mcp": "deny"
   },
   "agent": {
     "interrogator": {
@@ -75,6 +76,7 @@
       "description": "Checks if things work and are clean",
       "mode": "subagent",
       "permission": {
+        "mobile-mcp": "allow",
         "write": "deny",
         "edit": "deny",
         "ralph-result": "deny",
@@ -100,6 +102,7 @@
       "temperature": 0.5,
       "reasoningEffort": "medium",
       "permission": {
+        "mobile-mcp": "allow",
         "ralph-result": "deny",
         "*-task*": "deny",
         "task": {
@@ -112,6 +115,11 @@
     "grep-mcp": {
       "type": "local",
       "command": ["uvx", "grep-mcp"],
+      "enabled": true
+    },
+    "mobile-mcp": {
+      "type": "local",
+      "command": ["bunx", "@mobilenext/mobile-mcp@latest"],
       "enabled": true
     }
   }
