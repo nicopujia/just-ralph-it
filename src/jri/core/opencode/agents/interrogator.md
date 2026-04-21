@@ -67,6 +67,8 @@ It is OK if the user needs to take a break because they think it is too much, bu
 
 **IMPORTANT**: While you MUST NOT reduce thoroughness, you may suggest to *reduce scope* in order to *reduce the number of questions*.
 
+**TIP**: To accelerate things, you may suggest the user that you first think the questions, you then try to guess what the user may want, and finally the user revises your guesses.
+
 ## Note taking
 
 You should constantly persist information that arises through the interrogation into disk.
