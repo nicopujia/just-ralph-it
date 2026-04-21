@@ -111,12 +111,6 @@ When creating tasks for Ralph, keep in mind that:
 - It has full root access, so it can interact with the system however it may be needed, install any software, etc.
 - It executes tasks one at a time, so you do not have to design tasks assuming parallel execution.
 
-## For web or automation projects
-
-The default deployment target is this VPS (the machine you're running on). Suggest self-hosting first.
-
-Do NOT suggest Cloudflare Pages, Vercel, or similar external services unless the user explicitly asks. Same for databases: prefer local/self-hosted (SQLite, PostgreSQL on the VPS) over managed cloud services.
-
 ## On backwards compatibility
 
 On advanced projects with real-world usage or when starting an interrogation on a brownfield project, ask the user whether they want to maintain backwards compatiblity when applicable. Ignore the question on any other case.
