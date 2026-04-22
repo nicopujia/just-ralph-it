@@ -1277,7 +1277,11 @@ class JriService:
             session_id=result.session_id,
             task_slug=task.slug,
         )
-        attempt = replace(attempt, session_id=result.session_id)
+        attempt = replace(
+            attempt,
+            session_id=result.session_id,
+            result_payload=result.payload,
+        )
         self.state_store.save_active_attempt(attempt)
 
         if isinstance(self.opencode, OpenCodeServer) and result.session_id is not None:

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from jri.core.models import AttemptState, State
+from jri.core.models import AttemptState, RalphResultPayload, State
 from jri.core.state import StateStore
 
 
@@ -110,6 +110,11 @@ def test_state_round_trips_attempt_metadata(tmp_path: Path) -> None:
         log_path=".jri/logs/ralph/task-a-123.log",
         session_id="ses_123",
         result="interrupted",
+        result_payload=RalphResultPayload(
+            result="incompleted",
+            summary="Needs follow-up work.",
+            learnings=["Capture the partial failure context."],
+        ),
     )
     expected = State(
         started_at=123,
