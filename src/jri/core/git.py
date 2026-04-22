@@ -112,6 +112,9 @@ class GitRepo:
             )
         return branch
 
+    def validate_default_branch_name(self, branch: str) -> str:
+        return self._validated_default_branch(branch)
+
     def default_branch(self, *, hint: str | None = None) -> str:
         if hint:
             return self._validated_default_branch(hint)
@@ -191,6 +194,11 @@ class GitRepo:
             check=False,
         )
         return result.returncode == 0
+
+    def ensure_local_branch(self, name: str) -> None:
+        self.validate_default_branch_name(name)
+        if not self.has_local_branch(name):
+            raise JriError(f"default branch '{name}' does not exist")
 
     def add_all(self) -> None:
         self.run("add", "-A")

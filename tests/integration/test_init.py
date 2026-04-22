@@ -93,6 +93,49 @@ def test_init_creates_git_repo_when_missing(
     assert git(repo, "status", "--short") == ""
 
 
+def test_init_creates_git_repo_on_requested_default_branch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "JRI Tests")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "jri-tests@example.com")
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "JRI Tests")
+    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "jri-tests@example.com")
+
+    exit_code = run_cli(["init", "--default-branch", "trunk"], cwd=repo)
+
+    assert exit_code == 0
+    assert git(repo, "branch", "--show-current") == "trunk"
+    assert git(repo, "log", "-1", "--pretty=%s") == git_module.MSG_INIT
+
+
+def test_init_uses_requested_existing_default_branch(git_repo: Path) -> None:
+    git(git_repo, "checkout", "-b", "trunk")
+    git(git_repo, "checkout", "main")
+
+    exit_code = run_cli(["init", "--default-branch", "trunk"], cwd=git_repo)
+
+    assert exit_code == 0
+    assert git(git_repo, "branch", "--show-current") == "trunk"
+    assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_INIT
+    assert '"branch": "trunk"' in (git_repo / ".jri" / "state.json").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_init_rejects_missing_requested_default_branch(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    exit_code = run_cli(["init", "--default-branch", "trunk"], cwd=git_repo)
+
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "default branch 'trunk' does not exist" in captured.err
+    assert not (git_repo / ".jri").exists()
+
+
 def test_init_commits_only_scaffold_when_unrelated_changes_exist(
     git_repo: Path,
 ) -> None:
