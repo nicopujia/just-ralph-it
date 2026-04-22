@@ -111,6 +111,9 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
         assert env is not None
         config_path = Path(env["OPENCODE_CONFIG"])
         agents_dir = Path(env["OPENCODE_CONFIG_DIR"]) / "agents"
+        plugin_path = (
+            Path(env["OPENCODE_CONFIG_DIR"]) / "plugins/ralph-commit-prefix.js"
+        )
         skill_path = Path(env["OPENCODE_CONFIG_DIR"]) / "skills/reverse-ralph/SKILL.md"
         launch_calls.append(
             {
@@ -120,6 +123,7 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
                 "env": env,
                 "config_path": config_path,
                 "agent_files": sorted(path.name for path in agents_dir.iterdir()),
+                "plugin_text": plugin_path.read_text(encoding="utf-8"),
                 "config_text": config_path.read_text(encoding="utf-8"),
                 "skill_text": skill_path.read_text(encoding="utf-8"),
             }
@@ -144,6 +148,7 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     env = cast(dict[str, str], call["env"])
     config_path = cast(Path, call["config_path"])
     agent_files = cast(list[str], call["agent_files"])
+    plugin_text = cast(str, call["plugin_text"])
     config_text = cast(str, call["config_text"])
     skill_text = cast(str, call["skill_text"])
     assert Path(env["OPENCODE_CONFIG_DIR"]) == config_path.parent / ".opencode"
@@ -151,6 +156,8 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     assert Path(env["JRI_PYTHONPATH"]).exists()
     assert not config_path.is_relative_to(repo)
     assert agent_files == ["interrogator-validator.md", "interrogator.md"]
+    assert '"tool.execute.before": async (input, output) => {' in plugin_text
+    assert 'Do not create git commit messages starting with "jri:"' in plugin_text
     assert '"build": {' in config_text
     assert '"hidden": true' in config_text
     assert '"plan": {' in config_text

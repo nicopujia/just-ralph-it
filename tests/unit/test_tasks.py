@@ -242,6 +242,105 @@ def run_contrast_check_tool(
     return result.stdout
 
 
+def run_plugin_tool_execute_before(
+    tmp_path: Path,
+    *,
+    module_name: str,
+    command_text: str,
+) -> dict[str, object]:
+    node = shutil.which("node")
+    assert node is not None, "node is required to run plugin tests"
+
+    harness = tmp_path / f"{module_name}_plugin_harness"
+    harness.mkdir(parents=True, exist_ok=True)
+    (harness / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
+
+    source = (
+        files("jri.core.opencode")
+        .joinpath("plugins", f"{module_name}.js")
+        .read_text(encoding="utf-8")
+    )
+    module_path = harness / f"{module_name}.mjs"
+    module_path.write_text(source, encoding="utf-8")
+
+    script = (
+        "const modulePath = process.argv.at(-2);\n"
+        "const commandText = process.argv.at(-1);\n"
+        "const mod = await import(modulePath);\n"
+        "const hooks = await mod.RalphCommitPrefixPlugin({});\n"
+        "const output = { args: { command: commandText } };\n"
+        "try {\n"
+        "  await hooks['tool.execute.before'](\n"
+        "    { tool: 'bash', sessionID: 'ses_1', callID: 'call_1' },\n"
+        "    output,\n"
+        "  );\n"
+        "  process.stdout.write(\n"
+        "    JSON.stringify({ ok: true, command: output.args.command }),\n"
+        "  );\n"
+        "} catch (error) {\n"
+        "  process.stdout.write(\n"
+        "    JSON.stringify({ ok: false, error: String(error.message || error) }),\n"
+        "  );\n"
+        "}\n"
+    )
+    result = subprocess.run(
+        [
+            node,
+            "--input-type=module",
+            "--eval",
+            script,
+            module_path.as_uri(),
+            command_text,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return cast(dict[str, object], json.loads(result.stdout))
+
+
+def test_ralph_commit_prefix_plugin_blocks_jri_commit_messages(
+    tmp_path: Path,
+) -> None:
+    result = run_plugin_tool_execute_before(
+        tmp_path,
+        module_name="ralph-commit-prefix",
+        command_text='git commit -m "jri: bad prefix"',
+    )
+
+    assert result == {
+        "ok": False,
+        "error": 'Do not create git commit messages starting with "jri:"',
+    }
+
+
+def test_ralph_commit_prefix_plugin_allows_normal_commit_messages(
+    tmp_path: Path,
+) -> None:
+    result = run_plugin_tool_execute_before(
+        tmp_path,
+        module_name="ralph-commit-prefix",
+        command_text='git commit -m "fix opencode cleanup"',
+    )
+
+    assert result == {
+        "ok": True,
+        "command": 'git commit -m "fix opencode cleanup"',
+    }
+
+
+def test_ralph_commit_prefix_plugin_ignores_non_commit_bash_commands(
+    tmp_path: Path,
+) -> None:
+    result = run_plugin_tool_execute_before(
+        tmp_path,
+        module_name="ralph-commit-prefix",
+        command_text="git status",
+    )
+
+    assert result == {"ok": True, "command": "git status"}
+
+
 def inspect_python_tool_spawn_env(
     tmp_path: Path,
     *,
