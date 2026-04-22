@@ -406,6 +406,7 @@ def launch_chat(
 
 _SERVER_HEALTH_TIMEOUT = 30.0
 _SERVER_HEALTH_INTERVAL = 0.25
+_RUN_STALL_TIMEOUT = 300.0
 _MISSING_RESULT_FOLLOW_UP_PROMPT = (
     "Your last response ended without the required result payload. "
     "Final action only: call `ralph-result` exactly once with the correct payload, "
@@ -710,9 +711,11 @@ class OpenCodeServer:
         sse_thread.start()
 
         timed_out = False
+        stalled = False
         deadline = time.monotonic() + timeout if timeout and timeout > 0 else None
         renderer = SavedLogRenderer(cwd_hint=getattr(self, "_cwd_hint", ""))
         saw_active_status = False
+        last_non_heartbeat_at = time.monotonic()
         # 3. Send prompt
         self._start_ralph_prompt(
             session_id,
@@ -730,6 +733,9 @@ class OpenCodeServer:
                     if deadline is not None and time.monotonic() > deadline:
                         timed_out = True
                         break
+                    if time.monotonic() - last_non_heartbeat_at > _RUN_STALL_TIMEOUT:
+                        stalled = True
+                        break
                     poll_timeout = 0.5
                     if deadline is not None:
                         poll_timeout = min(
@@ -743,6 +749,9 @@ class OpenCodeServer:
                         break
                     log_file.write(json.dumps(event) + "\n")
                     log_file.flush()
+
+                    if self._unwrap(event).get("type") != "server.heartbeat":
+                        last_non_heartbeat_at = time.monotonic()
 
                     self._handle_permission(event)
                     text_to_print, newline_before = self._render_event(
@@ -785,6 +794,15 @@ class OpenCodeServer:
             msg = f"opencode prompt killed after {timeout}s timeout"
             print(msg, file=sys.stderr)
             warnings.append(msg)
+        elif stalled:
+            result = "failed"
+            msg = (
+                "opencode prompt stalled after "
+                f"{int(_RUN_STALL_TIMEOUT)}s without non-heartbeat events"
+            )
+            print(msg, file=sys.stderr)
+            warnings.append(msg)
+            self._delete_session(session_id)
         elif result_path.exists():
             payload, warnings = _parse_result_payload(
                 result_path.read_text(encoding="utf-8")

@@ -1310,6 +1310,62 @@ def test_run_ralph_task_times_out_after_terminal_result_tool_without_idle(
     assert result.warnings == ["opencode prompt killed after 1s timeout"]
 
 
+def test_run_ralph_task_fails_fast_on_heartbeat_only_stall(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server = OpenCodeServer(binary="opencode")
+    outcome_path = tmp_path / "result.txt"
+    events = [
+        *_sse_event(
+            {
+                "type": "session.status",
+                "properties": {
+                    "sessionID": "ses_123",
+                    "status": "running",
+                },
+            }
+        ),
+        *_sse_event({"type": "server.heartbeat", "properties": {}}),
+    ]
+    deleted: list[str] = []
+
+    def fake_http_request(
+        method: str,
+        url: str,
+        *,
+        body: object | None = None,
+        timeout: float = 10.0,
+    ) -> tuple[int, bytes]:
+        del body, timeout
+        if method == "DELETE":
+            deleted.append(url.rsplit("/", 1)[-1])
+            return 204, b"{}"
+        if url.endswith("/prompt_async"):
+            return 202, b"{}"
+        return 201, b'{"id": "ses_123"}'
+
+    def fake_urlopen(*args: object, **kwargs: object) -> object:
+        return _HangingAfterChunksSSEStream(events, delay=1.0)
+
+    monkeypatch.setattr("jri.core.opencode.client._RUN_STALL_TIMEOUT", 0.01)
+    monkeypatch.setattr("jri.core.opencode.client._http_request", fake_http_request)
+    monkeypatch.setattr("jri.core.opencode.client.urllib.request.urlopen", fake_urlopen)
+
+    result = server.run_ralph_task(
+        root=tmp_path,
+        prompt="Solve the task",
+        log_path=tmp_path / "ralph.log",
+        result_path=outcome_path,
+    )
+
+    assert result.result == "failed"
+    assert result.returncode == 0
+    assert result.warnings == [
+        "opencode prompt stalled after 0s without non-heartbeat events"
+    ]
+    assert deleted == ["ses_123"]
+
+
 def test_run_ralph_task_prefers_outcome_file_over_result_tool_outcome(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
