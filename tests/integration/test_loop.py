@@ -84,7 +84,14 @@ class SuccessfulFakeOpenCodeClient(FakeOpenCodeServer):
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
         return OpenCodeRunResult(
-            returncode=0, session_id="ses_fake", result="completed"
+            returncode=0,
+            session_id="ses_fake",
+            result="completed",
+            payload=RalphResultPayload(
+                result="completed",
+                summary="Completed the requested work.",
+                learnings=["Keep the implementation minimal."],
+            ),
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
@@ -914,10 +921,17 @@ def test_start_completes_single_task(git_repo: Path) -> None:
     assert attempts[0]["branch"] == "ralph/main"
     assert attempts[0]["result"] == "completed"
     assert attempts[0]["session_id"] == "ses_fake"
+    assert attempts[0]["result_payload"] == {
+        "result": "completed",
+        "summary": "Completed the requested work.",
+        "learnings": ["Keep the implementation minimal."],
+    }
     assert git(git_repo, "rev-parse", "--verify", "refs/heads/ralph/main")
     attempt_history = read_json(git_repo / ".jri" / "attempts" / "implement-file.json")
     assert attempt_history["task_slug"] == "implement-file"
-    assert len(cast(list[dict[str, object]], attempt_history["attempts"])) == 1
+    history_attempts = cast(list[dict[str, object]], attempt_history["attempts"])
+    assert len(history_attempts) == 1
+    assert history_attempts[0]["result_payload"] == attempts[0]["result_payload"]
     assert git(git_repo, "status", "--short") == ""
 
 
@@ -2658,6 +2672,23 @@ def test_needs_human_generates_human_followup_and_blocks_original_task(
     ).exists()
     assert not (git_repo / ".jri" / "tasks" / "doing" / "needs-human-task.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "done" / "needs-human-task.md").exists()
+    state = read_json(git_repo / ".jri" / "state.json")
+    attempts = cast(list[dict[str, object]], state["attempts"])
+    assert attempts[0]["result"] == "needs_human"
+    assert attempts[0]["result_payload"] == {
+        "result": "needs_human",
+        "blocker": "A human action is required.",
+        "human_task": {
+            "title": "Provide missing input",
+            "body": "A human must provide the missing input.",
+            "acceptance_criteria": ["Required input is provided"],
+        },
+    }
+    attempt_history = read_json(
+        git_repo / ".jri" / "attempts" / "needs-human-task.json"
+    )
+    history_attempts = cast(list[dict[str, object]], attempt_history["attempts"])
+    assert history_attempts[0]["result_payload"] == attempts[0]["result_payload"]
     assert git(git_repo, "branch", "--show-current") == "main"
     tags = git(git_repo, "tag").splitlines()
     assert "jri/1" not in tags
@@ -2816,7 +2847,14 @@ class IncompleteFakeOpenCodeClient(FakeOpenCodeServer):
         self.calls.append((prompt, log_path))
         log_path.write_text("fake incompleted run\n", encoding="utf-8")
         return OpenCodeRunResult(
-            returncode=0, session_id="ses_incomplete", result="incompleted"
+            returncode=0,
+            session_id="ses_incomplete",
+            result="incompleted",
+            payload=RalphResultPayload(
+                result="incompleted",
+                summary="The task needs another pass.",
+                learnings=["A retry should resume from the partial state."],
+            ),
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
@@ -2909,6 +2947,11 @@ def test_incomplete_result_triggers_retryable_recovery(git_repo: Path) -> None:
     state = read_json(git_repo / ".jri" / "state.json")
     attempts = cast(list[dict[str, object]], state["attempts"])
     assert attempts[0]["result"] == "incompleted"
+    assert attempts[0]["result_payload"] == {
+        "result": "incompleted",
+        "summary": "The task needs another pass.",
+        "learnings": ["A retry should resume from the partial state."],
+    }
     assert [
         t
         for t in list_tasks(git_repo / ".jri" / "tasks" / "todo")

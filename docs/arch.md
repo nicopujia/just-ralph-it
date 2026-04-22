@@ -14,7 +14,7 @@ Solves exactly one task. Acts as orchestrator, spawning subagents instead of doi
 - `incompleted`: task is retryable later, but with learnings included.
 - `needs_human`: blocked, generates a Human task from Ralph's structured payload.
 
-The structured `ralph-result` payload written to `.jri/signals/result` is the sole authoritative Ralph run result contract. Missing or invalid payloads are treated as JRI-level `failed` runs.
+The structured `ralph-result` payload written to `.jri/signals/result` remains the authoritative runtime Ralph run result contract. Missing or invalid payloads are treated as JRI-level `failed` runs, and valid payloads are copied onto the persisted attempt record for auditability.
 
 ## Flow
 

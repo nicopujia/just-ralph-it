@@ -132,6 +132,7 @@ class AttemptState:
     log_path: str | None = None
     session_id: str | None = None
     result: AttemptResult | None = None
+    result_payload: RalphResultPayload | None = None
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {
@@ -148,6 +149,8 @@ class AttemptState:
             payload["session_id"] = self.session_id
         if self.result is not None:
             payload["result"] = self.result
+        if self.result_payload is not None:
+            payload["result_payload"] = self.result_payload.to_payload()
         return payload
 
     @classmethod
@@ -161,6 +164,13 @@ class AttemptState:
             log_path=_str_or_none(payload.get("log_path")),
             session_id=_str_or_none(payload.get("session_id")),
             result=_attempt_result_or_none(payload.get("result")),
+            result_payload=(
+                RalphResultPayload.from_payload(
+                    cast(dict[str, object], payload["result_payload"])
+                )
+                if isinstance(payload.get("result_payload"), dict)
+                else None
+            ),
         )
 
 
