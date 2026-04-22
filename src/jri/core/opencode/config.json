@@ -5,7 +5,7 @@
     "read": "allow",
     // prevent user skills to interfere with JRI
     "skill": "deny",
-    "mobile-mcp": "deny"
+    "*mcp": "deny"
   },
   "agent": {
     "interrogator": {
@@ -80,7 +80,7 @@
       "description": "Checks if things work and are clean",
       "mode": "subagent",
       "permission": {
-        "mobile-mcp": "allow",
+        "*mcp": "allow",
         "write": "deny",
         "edit": "deny",
         "ralph-result": "deny",
@@ -96,6 +96,7 @@
       "temperature": 0.2,
       "reasoningEffort": "none",
       "permission": {
+        "*mcp": "allow",
         "ralph-result": "deny",
         "*-task*": "deny",
         "task": {
@@ -109,7 +110,7 @@
       "temperature": 0.5,
       "reasoningEffort": "medium",
       "permission": {
-        "mobile-mcp": "allow",
+        "*mcp": "allow",
         "ralph-result": "deny",
         "*-task*": "deny",
         "task": {
@@ -118,10 +119,10 @@
       }
     },
     "build": {
-      "hidden": true
+      "disable": true
     },
     "plan": {
-      "hidden": true
+      "disable": true
     }
   },
   "mcp": {
