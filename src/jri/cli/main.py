@@ -209,7 +209,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     has_uncommitted = bool(service.git.status_short())
                     has_ralph = service.git.has_local_branch("ralph")
 
-                    parts = [f"This will reset to {target_tag}."]
+                    parts = [f"This will reset to just before {target_tag}."]
                     if has_uncommitted:
                         parts.append("Uncommitted changes will be discarded.")
                     if has_ralph:
@@ -406,11 +406,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
     reset_parser = subparsers.add_parser(
         "reset",
-        help="Reset the default branch to the latest task tag.",
+        help="Reset the default branch to just before the latest task tag.",
         description=(
-            "Hard-reset the default branch to the latest task tag. "
-            "By default, resets to the most recent jri/end/{task} tag. "
-            "Optionally specify a task slug to reset to a specific task's end tag. "
+            "Hard-reset the default branch to just before the latest task tag commit. "
+            "By default, resets to just before the most recent jri/end/{task} tag. "
+            "Optionally specify a task slug to reset to just before a specific "
+            "task tag. "
             "Discards all uncommitted changes, commits, "
             "and task state since that task. Clears in-progress "
             "runtime state (process tracking, active attempt). "
@@ -420,7 +421,7 @@ def _build_parser() -> argparse.ArgumentParser:
     reset_parser.add_argument(
         "task",
         nargs="?",
-        help="Optional task slug to reset to a specific task's end tag.",
+        help="Optional task slug to reset to just before that task's tag.",
     )
     reset_parser.add_argument(
         "-f",

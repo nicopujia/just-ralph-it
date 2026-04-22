@@ -540,7 +540,7 @@ class JriService:
             raise JriError(str(exc)) from exc
 
     def reset(self, target_task: str | None = None) -> None:
-        """Reset the repository to a specific task tag.
+        """Reset the repository to just before a specific task tag commit.
 
         If target_task is provided, prefer jri/end/{target_task} and fall back to
         jri/begin/{target_task}. Otherwise, find the most recent end tag and fall
@@ -549,13 +549,14 @@ class JriService:
         self.ensure_initialized()
         state = self.state_store.load()
         target_tag = self._resolve_reset_target_tag(target_task)
+        target_ref = self._resolve_reset_target_ref(target_tag)
 
         self._cleanup_tracked_processes(required=False)
         default = self.git.default_branch(hint=state.branch)
         current = self.git.current_branch()
         if current != default:
             self.git.run("checkout", "-f", default)
-        self.git.reset_hard(target_tag)
+        self.git.reset_hard(target_ref)
         # Clean up worktree and ralph branch
         if self.paths.worktree_dir.exists():
             self.git.remove_worktree(self.paths.worktree_dir)
@@ -617,6 +618,9 @@ class JriService:
         if target_tag is None:
             raise JriError("no task tag found — run `jri start` first")
         return target_tag
+
+    def _resolve_reset_target_ref(self, target_tag: str) -> str:
+        return self.git.rev_parse(f"{target_tag}^")
 
     def ensure_initialized(self) -> None:
         self.git.ensure_repo()

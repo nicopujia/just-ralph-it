@@ -162,6 +162,8 @@ def test_reset_after_successful_task(git_repo: Path) -> None:
 
     assert not (git_repo / "extra.txt").exists()
     assert (git_repo / "implemented.txt").read_text(encoding="utf-8") == "implemented\n"
+    assert (git_repo / ".jri" / "tasks" / "doing" / "implement-file.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
 
     state = read_json(git_repo / ".jri" / "state.json")
@@ -211,6 +213,9 @@ def test_reset_prefers_latest_end_tag(
     assert (git_repo / "first.txt").exists()
     assert (git_repo / "second.txt").exists()
     assert not (git_repo / "extra.txt").exists()
+    assert (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "doing" / "task-b.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "task-b.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
 
 
@@ -254,6 +259,8 @@ def test_reset_after_failed_task(git_repo: Path) -> None:
 
     assert not (git_repo / "extra-after-fail.txt").exists()
     assert (git_repo / "implemented.txt").read_text(encoding="utf-8") == "implemented\n"
+    assert (git_repo / ".jri" / "tasks" / "doing" / "task-a.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
 
 
@@ -287,7 +294,8 @@ def test_reset_falls_back_to_begin_tag_when_no_end_tag(git_repo: Path) -> None:
 
     assert begin_tag in git(git_repo, "tag").splitlines()
     assert not (git_repo / "after-begin.txt").exists()
-    assert (git_repo / ".jri" / "tasks" / "doing" / "task-a.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "todo" / "task-a.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "task-a.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
 
 
@@ -415,7 +423,8 @@ def test_reset_falls_back_to_begin_tag_after_failed_run(git_repo: Path) -> None:
     service.reset()
 
     assert not (git_repo / "after-failure.txt").exists()
-    assert (git_repo / ".jri" / "tasks" / "doing" / "failing-task.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "failing-task.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "done" / "failing-task.md").exists()
 
 
