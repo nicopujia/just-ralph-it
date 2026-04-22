@@ -371,6 +371,7 @@ def test_chat_help_includes_preset_flag(capsys: pytest.CaptureFixture[str]) -> N
     assert exc_info.value.code == 0
     help_text = capsys.readouterr().out
 
+    assert "-p {default,openai}" in help_text
     assert "--preset {default,openai}" in help_text
 
 
@@ -483,7 +484,7 @@ def test_chat_cli_preset_sets_models(initialized_repo: Path) -> None:
     monkeypatch = pytest.MonkeyPatch()
     monkeypatch.setattr(JriService, "chat", fake_chat)
 
-    result = main(["chat", "--preset", "openai", "--prompt", "hello"], cwd=repo)
+    result = main(["chat", "-p", "openai", "--prompt", "hello"], cwd=repo)
 
     assert result == 0
     assert captured == {
@@ -522,7 +523,7 @@ def test_chat_cli_explicit_model_overrides_preset(initialized_repo: Path) -> Non
     result = main(
         [
             "chat",
-            "--preset",
+            "-p",
             "openai",
             "--model",
             "openai/gpt-5-codex",

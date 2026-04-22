@@ -649,7 +649,9 @@ def test_ctl_start_help_includes_preset_flag(
         run_cli(["start", "--help"], cwd=git_repo)
 
     assert exc_info.value.code == 0
-    assert "--preset {default,openai}" in capsys.readouterr().out
+    help_text = capsys.readouterr().out
+    assert "-p {default,openai}" in help_text
+    assert "--preset {default,openai}" in help_text
 
 
 def test_start_cli_preset_sets_models(
@@ -686,7 +688,7 @@ def test_start_cli_preset_sets_models(
 
     monkeypatch.setattr(JriService, "start_attached", fake_start_attached)
 
-    result = main(["start", "--preset", "openai", "--tasks", "2"], cwd=git_repo)
+    result = main(["start", "-p", "openai", "--tasks", "2"], cwd=git_repo)
 
     assert result == 0
     assert captured == {
@@ -738,7 +740,7 @@ def test_start_cli_explicit_model_overrides_preset(
     result = main(
         [
             "start",
-            "--preset",
+            "-p",
             "openai",
             "--general-model",
             "openai/gpt-5.4",
@@ -909,8 +911,10 @@ def test_start_completes_single_task(git_repo: Path) -> None:
     assert len(attempts) == 1
     assert attempts[0]["number"] == 1
     assert attempts[0]["task_slug"] == "implement-file"
+    assert attempts[0]["branch"] == "ralph/main"
     assert attempts[0]["result"] == "completed"
     assert attempts[0]["session_id"] == "ses_fake"
+    assert git(git_repo, "rev-parse", "--verify", "refs/heads/ralph/main")
     attempt_history = read_json(git_repo / ".jri" / "attempts" / "implement-file.json")
     assert attempt_history["task_slug"] == "implement-file"
     assert len(cast(list[dict[str, object]], attempt_history["attempts"])) == 1
@@ -2657,9 +2661,10 @@ def test_needs_human_generates_human_followup_and_blocks_original_task(
     assert git(git_repo, "branch", "--show-current") == "main"
     tags = git(git_repo, "tag").splitlines()
     assert "jri/1" not in tags
-    # The feature branch should be deleted
+    # The persistent Ralph worktree branch remains available.
     branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
-    assert not any("ralph/" in b for b in branches)
+    assert "ralph/main" in branches
+    assert "ralph" not in branches
 
 
 def test_needs_human_block_is_durable_across_runs(git_repo: Path) -> None:
@@ -2875,7 +2880,8 @@ def test_failed_outcome_triggers_recovery(git_repo: Path) -> None:
     assert not (git_repo / ".jri" / "tasks" / "done" / "failing-task.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
     branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
-    assert not any("ralph/" in b for b in branches)
+    assert "ralph/main" in branches
+    assert "ralph" not in branches
 
 
 def test_incomplete_result_triggers_retryable_recovery(git_repo: Path) -> None:
@@ -3055,9 +3061,10 @@ def test_failing_make_check_triggers_recovery(git_repo: Path) -> None:
     assert not (git_repo / ".jri" / "tasks" / "doing" / "implement-file.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
-    # The feature branch should be deleted
+    # The persistent Ralph worktree branch remains available.
     branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
-    assert not any("ralph/" in b for b in branches)
+    assert "ralph/main" in branches
+    assert "ralph" not in branches
 
 
 def test_failed_task_is_retried_after_first_failure(git_repo: Path) -> None:
