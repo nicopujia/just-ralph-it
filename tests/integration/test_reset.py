@@ -756,7 +756,7 @@ def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
 
 
 def test_reset_cli_prompt_shows_ralph_branch(git_repo: Path) -> None:
-    """Test that the confirmation prompt mentions the ralph branch to be deleted."""
+    """Test that the confirmation prompt mentions the Ralph worktree branch."""
     assert run_cli(["init"], cwd=git_repo) == 0
     _run_successful_task(git_repo)
 
@@ -770,8 +770,8 @@ def test_reset_cli_prompt_shows_ralph_branch(git_repo: Path) -> None:
     )
 
     assert result.returncode == 1
-    # The prompt should mention the ralph branch and worktree
-    assert "The ralph branch and worktree will be deleted." in result.stdout
+    # The prompt should mention the Ralph worktree branch and worktree
+    assert "The Ralph worktree branch and worktree will be deleted." in result.stdout
 
 
 def test_reset_cli_help_shows_force_flag(git_repo: Path) -> None:

@@ -573,11 +573,12 @@ class JriService:
         if current != default:
             self.git.run("checkout", "-f", default)
         self.git.reset_hard(target_ref)
-        # Clean up worktree and ralph branch
+        # Clean up worktree and Ralph's branch.
         if self.paths.worktree_dir.exists():
             self.git.remove_worktree(self.paths.worktree_dir)
-        if self.git.has_local_branch("ralph"):
-            self.git.delete_branch("ralph")
+        for branch in self._managed_ralph_branches():
+            if self.git.has_local_branch(branch):
+                self.git.delete_branch(branch)
         self.state_store.save(
             State(
                 finished_at=state.finished_at,
@@ -713,6 +714,22 @@ class JriService:
 
     def _default_branch(self) -> str:
         return self.git.default_branch(hint=self.state_store.load().branch)
+
+    def _ralph_branch(self) -> str:
+        return self.git.ralph_branch(hint=self.state_store.load().branch)
+
+    def _managed_ralph_branches(self) -> tuple[str, ...]:
+        branch = self._ralph_branch()
+        return (branch, "ralph") if branch != "ralph" else (branch,)
+
+    def has_managed_ralph_branch(self) -> bool:
+        return any(
+            self.git.has_local_branch(branch)
+            for branch in self._managed_ralph_branches()
+        )
+
+    def _is_managed_ralph_branch(self, branch: str) -> bool:
+        return branch in self._managed_ralph_branches()
 
     def _create_scaffold(self) -> list[Path]:
         created_files: list[Path] = []
@@ -1093,9 +1110,9 @@ class JriService:
         return True
 
     def _ensure_worktree(self) -> tuple[GitRepo, JriPaths]:
-        """Ensure the persistent ``ralph`` worktree exists and return helpers."""
+        """Ensure the persistent Ralph worktree exists and return helpers."""
         wt_dir = self.paths.worktree_dir
-        branch = "ralph"
+        branch = self._ralph_branch()
 
         if not self.git.has_local_branch(branch):
             default_ref = self.git.rev_parse(self._default_branch())
@@ -1108,10 +1125,11 @@ class JriService:
         return GitRepo(wt_dir), JriPaths(wt_dir)
 
     def _sync_worktree(self, wt_git: GitRepo) -> None:
-        """Reset the ``ralph`` branch to the default-branch tip."""
+        """Reset Ralph's worktree branch to the default-branch tip."""
+        branch = self._ralph_branch()
         default_ref = self.git.rev_parse(self._default_branch())
-        self.git.reset_branch("ralph", default_ref)
-        wt_git.run("checkout", "--force", "ralph")
+        self.git.reset_branch(branch, default_ref)
+        wt_git.run("checkout", "--force", branch)
         wt_git.run("clean", "-fd")
 
     def _run_task(self, task: Task, task_timeout: int | None = None) -> Result:
@@ -1119,7 +1137,7 @@ class JriService:
         started_at = int(time.time())
         log_path = self.paths.ralph_log_path(task.slug, started_at)
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        branch = "ralph"
+        branch = self._ralph_branch()
         print(task_header(task.slug))
         sys.stdout.flush()
 
@@ -1679,7 +1697,7 @@ class JriService:
                     raise JriError(
                         "git working tree must be clean before stale recovery"
                     )
-            elif current_branch == "ralph":
+            elif self._is_managed_ralph_branch(current_branch):
                 self.git.commit_all_if_needed(
                     MSG_RALPH_PARTIAL.format(slug=doing_task.slug)
                 )
@@ -1757,7 +1775,7 @@ class JriService:
         self.state_store.clear_active_attempt()
 
     def _attempt_matches_task(self, attempt: AttemptState, task: Task) -> bool:
-        branch_ok = attempt.branch == "ralph"
+        branch_ok = self._is_managed_ralph_branch(attempt.branch)
         return attempt.task_slug == task.slug and branch_ok
 
     def _attempt_completion_evidence(
@@ -1850,7 +1868,7 @@ class JriService:
                     raise JriError(
                         "git working tree must be clean before stale recovery"
                     )
-            elif current_branch == "ralph":
+            elif self._is_managed_ralph_branch(current_branch):
                 self.git.commit_all_if_needed(
                     MSG_RALPH_PARTIAL.format(slug=attempt.task_slug)
                 )

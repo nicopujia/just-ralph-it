@@ -105,11 +105,6 @@ class GitRepo:
         return self.run("branch", "--show-current").stdout.strip()
 
     def _validated_default_branch(self, branch: str) -> str:
-        if branch == "ralph":
-            raise JriError(
-                "detected default branch 'ralph'; change the repository "
-                "default branch name before running jri"
-            )
         return branch
 
     def validate_default_branch_name(self, branch: str) -> str:
@@ -166,6 +161,9 @@ class GitRepo:
             if len(branches) == 1:
                 return self._validated_default_branch(branches[0])
         return self._validated_default_branch("main")
+
+    def ralph_branch(self, *, hint: str | None = None) -> str:
+        return f"ralph/{self.default_branch(hint=hint)}"
 
     def ensure_default_branch(self, *, hint: str | None = None) -> None:
         default = self.default_branch(hint=hint)

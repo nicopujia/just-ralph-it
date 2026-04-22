@@ -19,7 +19,7 @@ Along the way, however, Ralph may also perform the following acceptable actions 
 - Refactor a part of the codebase.
 - Create draft tasks under `.jri/tasks/draft/`.
 - Update `.jri/learnings.md` with **repo-wide learnings** (not task-specific) in a **concise way**.
-- Commit on the `ralph` branch.
+- Commit on the Ralph worktree branch.
 - Follow TDD principles when it makes sense (i.e. skipping TDD for nonsense scenarios like making docs or config changes)
 
 ### Forbidden behavior

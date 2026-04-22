@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-from jri.core.errors import JriError
 from jri.core.git import GitRepo
 from jri.core.service import JriService
 from tests.conftest import run_cli
@@ -45,16 +44,16 @@ def test_default_branch_uses_local_branch_when_repo_is_detached(tmp_path: Path) 
     assert GitRepo(repo).default_branch() == "trunk"
 
 
-def test_default_branch_rejects_ralph(tmp_path: Path) -> None:
+def test_default_branch_allows_ralph(tmp_path: Path) -> None:
     repo = make_git_repo(tmp_path, branch="ralph")
 
-    with pytest.raises(
-        JriError,
-        match=(
-            "detected default branch 'ralph'; change the repository default branch name"
-        ),
-    ):
-        GitRepo(repo).default_branch()
+    assert GitRepo(repo).default_branch() == "ralph"
+
+
+def test_ralph_branch_uses_detected_default_branch(tmp_path: Path) -> None:
+    repo = make_git_repo(tmp_path, branch="trunk")
+
+    assert GitRepo(repo).ralph_branch() == "ralph/trunk"
 
 
 def test_handle_wrong_branch_prompts_for_detected_default_branch(

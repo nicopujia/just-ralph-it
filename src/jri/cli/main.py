@@ -208,14 +208,16 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     target_tag = service._resolve_reset_target_tag(args.task)
 
                     has_uncommitted = bool(service.git.status_short())
-                    has_ralph = service.git.has_local_branch("ralph")
+                    has_ralph = service.has_managed_ralph_branch()
 
                     reset_target = service._describe_reset_target(target_tag)
                     parts = [f"This will reset to {reset_target}."]
                     if has_uncommitted:
                         parts.append("Uncommitted changes will be discarded.")
                     if has_ralph:
-                        parts.append("The ralph branch and worktree will be deleted.")
+                        parts.append(
+                            "The Ralph worktree branch and worktree will be deleted."
+                        )
                     parts.append("Are you sure? [y/N]")
 
                     print(" ".join(parts))
@@ -341,6 +343,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Clear the existing interrogator session and start fresh.",
     )
     chat_parser.add_argument(
+        "-p",
         "--preset",
         choices=preset_choices(),
         help=(
@@ -467,6 +470,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Run the loop in the background and track it in .jri/state.json.",
     )
     start_parser.add_argument(
+        "-p",
         "--preset",
         choices=preset_choices(),
         help=(
