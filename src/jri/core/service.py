@@ -540,11 +540,14 @@ class JriService:
             raise JriError(str(exc)) from exc
 
     def reset(self, target_task: str | None = None) -> None:
-        """Reset the repository to just before a specific task tag commit.
+        """Reset the repository to the appropriate task tag boundary.
 
         If target_task is provided, prefer jri/end/{target_task} and fall back to
         jri/begin/{target_task}. Otherwise, find the most recent end tag and fall
         back to the most recent begin tag when no end tag exists.
+
+        Resets to jri/end/{task} keep the tagged commit. Resets to
+        jri/begin/{task} land just before the tagged commit.
         """
         self.ensure_initialized()
         state = self.state_store.load()
@@ -620,7 +623,22 @@ class JriService:
         return target_tag
 
     def _resolve_reset_target_ref(self, target_tag: str) -> str:
-        return self.git.rev_parse(f"{target_tag}^")
+        parsed = parse_tag_name(target_tag)
+        if parsed is None:
+            return self.git.rev_parse(target_tag)
+        stage, _ = parsed
+        if stage == "begin":
+            return self.git.rev_parse(f"{target_tag}^")
+        return self.git.rev_parse(target_tag)
+
+    def _describe_reset_target(self, target_tag: str) -> str:
+        parsed = parse_tag_name(target_tag)
+        if parsed is None:
+            return target_tag
+        stage, _ = parsed
+        if stage == "begin":
+            return f"just before {target_tag}"
+        return target_tag
 
     def ensure_initialized(self) -> None:
         self.git.ensure_repo()

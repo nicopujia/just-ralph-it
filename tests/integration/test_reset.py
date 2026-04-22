@@ -162,8 +162,8 @@ def test_reset_after_successful_task(git_repo: Path) -> None:
 
     assert not (git_repo / "extra.txt").exists()
     assert (git_repo / "implemented.txt").read_text(encoding="utf-8") == "implemented\n"
-    assert (git_repo / ".jri" / "tasks" / "doing" / "implement-file.md").exists()
-    assert not (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "implement-file.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
 
     state = read_json(git_repo / ".jri" / "state.json")
@@ -214,8 +214,8 @@ def test_reset_prefers_latest_end_tag(
     assert (git_repo / "second.txt").exists()
     assert not (git_repo / "extra.txt").exists()
     assert (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
-    assert (git_repo / ".jri" / "tasks" / "doing" / "task-b.md").exists()
-    assert not (git_repo / ".jri" / "tasks" / "done" / "task-b.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "task-b.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "done" / "task-b.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
 
 
@@ -259,8 +259,8 @@ def test_reset_after_failed_task(git_repo: Path) -> None:
 
     assert not (git_repo / "extra-after-fail.txt").exists()
     assert (git_repo / "implemented.txt").read_text(encoding="utf-8") == "implemented\n"
-    assert (git_repo / ".jri" / "tasks" / "doing" / "task-a.md").exists()
-    assert not (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "task-a.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
 
 
@@ -632,7 +632,7 @@ def test_reset_cli_prompt_includes_target_tag(git_repo: Path) -> None:
     )
 
     assert result.returncode == 1
-    # The prompt should mention the end tag for the completed task
+    assert "This will reset to jri/end/implement-file." in result.stdout
     assert "jri/end/implement-file" in result.stdout
 
 
@@ -673,8 +673,64 @@ def test_reset_cli_prompt_uses_requested_task_tag(git_repo: Path) -> None:
     )
 
     assert result.returncode == 1
+    assert "This will reset to jri/end/task-a." in result.stdout
     assert "jri/end/task-a" in result.stdout
     assert "jri/end/task-b" not in result.stdout
+
+
+def test_reset_to_begin_tag_lands_before_tagged_commit(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="Complete task A.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/task-a.md")
+    git(git_repo, "commit", "-m", "add task-a")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    assert service.start(max_tasks=1) == 1
+
+    git(git_repo, "tag", "-d", "jri/end/task-a")
+    service.reset(target_task="task-a")
+
+    assert (git_repo / ".jri" / "tasks" / "todo" / "task-a.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "task-a.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
+
+
+def test_reset_cli_prompt_describes_begin_tag_as_before_commit(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="Complete task A.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/task-a.md")
+    git(git_repo, "commit", "-m", "add task-a")
+
+    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    assert service.start(max_tasks=1) == 1
+    git(git_repo, "tag", "-d", "jri/end/task-a")
+
+    result = subprocess_module.run(
+        [sys.executable, "-m", "jri", "reset", "task-a"],
+        cwd=git_repo,
+        input="n\n",
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "This will reset to just before jri/begin/task-a." in result.stdout
 
 
 def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
@@ -730,3 +786,5 @@ def test_reset_cli_help_shows_force_flag(git_repo: Path) -> None:
     assert result.returncode == 0
     assert "--force" in result.stdout
     assert "-f" in result.stdout
+    assert "jri/end/{task} tag commit" in result.stdout
+    assert "jri/begin/{task} tag when no end tag exists" in result.stdout
