@@ -1,7 +1,7 @@
 from importlib.resources import files
 from pathlib import Path
 
-COPYABLE_DIRECTORIES = ("agents", "skills", "tools")
+COPYABLE_DIRECTORIES = ("agents", "plugins", "skills", "tools")
 
 
 def iter_directory_assets(directory: str) -> tuple[str, ...]:
