@@ -443,6 +443,8 @@ def test_start_server_model_overrides_use_temporary_config(git_repo: Path) -> No
     assert Path(server.started_env["OPENCODE_CONFIG_DIR"]) == (
         server.config_path.parent / ".opencode"
     )
+    assert server.started_env["JRI_PYTHON"]
+    assert Path(server.started_env["JRI_PYTHONPATH"]).exists()
     assert not server.config_path.is_relative_to(git_repo)
     assert '"ralph": {' in server.config_text
     assert '"model": "provider/ralph-main"' in server.config_text

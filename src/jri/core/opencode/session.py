@@ -49,9 +49,12 @@ def runtime_env(
                 )
         config_path = bundle_root / "opencode.json"
         config_path.write_text(config_text, encoding="utf-8")
+        pythonpath_entry = str(Path(__file__).resolve().parents[3])
         yield {
             "OPENCODE_CONFIG": str(config_path.resolve()),
             "OPENCODE_CONFIG_DIR": str(config_dir.resolve()),
+            "JRI_PYTHON": sys.executable,
+            "JRI_PYTHONPATH": pythonpath_entry,
         }
 
 

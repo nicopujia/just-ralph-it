@@ -5,7 +5,7 @@ import subprocess
 import sys
 from importlib.resources import files
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import pytest
 
@@ -242,6 +242,56 @@ def run_contrast_check_tool(
     return result.stdout
 
 
+def inspect_python_tool_spawn_env(
+    tmp_path: Path,
+    *,
+    env: dict[str, str],
+) -> dict[str, object]:
+    node = shutil.which("node")
+    assert node is not None, "node is required to inspect Python tool env"
+
+    harness = tmp_path / "python_tool_env_harness"
+    harness.mkdir(parents=True, exist_ok=True)
+    capture_path = harness / "capture.json"
+    source = (
+        files("jri.core.opencode")
+        .joinpath("tools", "_run-python-tool.mjs")
+        .read_text(encoding="utf-8")
+        .replace(
+            'import { spawnSync } from "child_process";',
+            'import { spawnSync } from "./child_process.mjs";',
+            1,
+        )
+    )
+    (harness / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
+    (harness / "_run-python-tool.mjs").write_text(source, encoding="utf-8")
+    (harness / "child_process.mjs").write_text(
+        "import { writeFileSync } from 'node:fs';\n"
+        "export function spawnSync(command, args, options) {\n"
+        "  writeFileSync(\n"
+        "    process.env.JRI_CAPTURE_PATH,\n"
+        "    JSON.stringify({ command, args, env: options.env }),\n"
+        "    'utf-8',\n"
+        "  );\n"
+        "  return { status: 0, stdout: 'ok\\n', stderr: '' };\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    script = (
+        "import { runPythonTool } from './_run-python-tool.mjs';\n"
+        "runPythonTool('ralph-result', { result: 'completed' });\n"
+    )
+    subprocess.run(
+        [node, "--input-type=module", "--eval", script],
+        cwd=harness,
+        check=True,
+        capture_output=True,
+        text=True,
+        env={**env, "JRI_CAPTURE_PATH": str(capture_path)},
+    )
+    return json.loads(capture_path.read_text(encoding="utf-8"))
+
+
 def make_task(
     slug: str,
     *,
@@ -387,6 +437,26 @@ def test_packaged_schemas_are_available() -> None:
     assert builtins.joinpath("tools", "read-tasks.js").is_file()
     assert builtins.joinpath("tools", "rename-task.js").is_file()
     assert builtins.joinpath("tools", "upsert-task.js").is_file()
+
+
+def test_run_python_tool_uses_forwarded_pythonpath(tmp_path: Path) -> None:
+    captured = inspect_python_tool_spawn_env(
+        tmp_path,
+        env={
+            "PATH": os.environ["PATH"],
+            "JRI_PYTHON": sys.executable,
+            "JRI_PYTHONPATH": "/tmp/jri-src",
+            "PYTHONPATH": "/tmp/existing-path",
+        },
+    )
+
+    assert captured["command"] == sys.executable
+    assert captured["args"] == ["-m", "jri.core.opencode.tools", "ralph-result"]
+    spawned_env = captured["env"]
+    assert isinstance(spawned_env, dict)
+    assert cast(dict[str, str], spawned_env)["PYTHONPATH"] == (
+        "/tmp/jri-src:/tmp/existing-path"
+    )
 
 
 def test_upsert_task_tool_writes_parseable_draft_and_overwrites(

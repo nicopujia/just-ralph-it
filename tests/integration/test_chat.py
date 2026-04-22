@@ -79,6 +79,8 @@ def test_chat_without_fresh_reuses_session(initialized_repo: Path) -> None:
     assert env is not None
     assert Path(env["OPENCODE_CONFIG"]).name == "opencode.json"
     assert Path(env["OPENCODE_CONFIG_DIR"]).name == ".opencode"
+    assert env["JRI_PYTHON"]
+    assert Path(env["JRI_PYTHONPATH"]).exists()
     assert not Path(env["OPENCODE_CONFIG"]).is_relative_to(repo)
     assert not Path(env["OPENCODE_CONFIG_DIR"]).is_relative_to(repo)
     assert server.export_calls == [
@@ -145,6 +147,8 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     config_text = cast(str, call["config_text"])
     skill_text = cast(str, call["skill_text"])
     assert Path(env["OPENCODE_CONFIG_DIR"]) == config_path.parent / ".opencode"
+    assert env["JRI_PYTHON"]
+    assert Path(env["JRI_PYTHONPATH"]).exists()
     assert not config_path.is_relative_to(repo)
     assert agent_files == ["interrogator-validator.md", "interrogator.md"]
     assert '"build": {' in config_text
