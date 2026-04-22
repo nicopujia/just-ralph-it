@@ -1,15 +1,23 @@
 import { spawnSync } from "child_process";
+import path from "node:path";
 
 export function runPythonTool(toolName, payload) {
   const candidates = [process.env.JRI_PYTHON, "python3", "python"].filter(
     Boolean,
   );
+  const env = { ...process.env };
+  const pythonPath = [process.env.JRI_PYTHONPATH, process.env.PYTHONPATH]
+    .filter(Boolean)
+    .join(path.delimiter);
+  if (pythonPath) {
+    env.PYTHONPATH = pythonPath;
+  }
 
   for (const command of candidates) {
     const result = spawnSync(command, ["-m", "jri.core.opencode.tools", toolName], {
       input: JSON.stringify(payload),
       encoding: "utf-8",
-      env: process.env,
+      env,
     });
     if (result.error && result.error.code === "ENOENT") {
       continue;
