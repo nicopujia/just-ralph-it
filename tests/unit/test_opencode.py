@@ -720,6 +720,37 @@ def test_parse_result_payload_rejects_malformed_needs_human_human_task(
     assert "`human_task.title` must be a non-empty string" in capsys.readouterr().err
 
 
+def test_parse_result_payload_rejects_human_task_slug(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from jri.core.opencode import _parse_result_payload
+
+    payload, warnings = _parse_result_payload(
+        json.dumps(
+            {
+                "result": "needs_human",
+                "blocker": "Waiting on human input",
+                "human_task": {
+                    "slug": "custom-human-task",
+                    "title": "Please help",
+                    "body": "Please help",
+                    "acceptance_criteria": ["done"],
+                },
+            }
+        )
+    )
+
+    assert payload is None
+    assert warnings == [
+        "invalid result payload; treating run as failed: "
+        "`human_task.slug` is not supported; JRI derives the Human task slug"
+    ]
+    assert (
+        "`human_task.slug` is not supported; JRI derives the Human task slug"
+        in capsys.readouterr().err
+    )
+
+
 def test_parse_result_payload_rejects_failed_result(
     capsys: pytest.CaptureFixture[str],
 ) -> None:

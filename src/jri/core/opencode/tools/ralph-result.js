@@ -44,7 +44,7 @@ export default tool({
     human_task: humanTaskSchema
       .optional()
       .describe(
-        "REQUIRED when result is needs_human: structured Human task with title, body, acceptance_criteria, and optional priority",
+        "REQUIRED when result is needs_human: structured Human task with title, body, acceptance_criteria, and optional priority. Do not provide a slug; JRI derives the Human task slug automatically.",
       ),
   },
   async execute(args) {
