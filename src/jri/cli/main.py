@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 init_service.init(
                     delete=args.delete,
                     commit_message=MSG_INIT,
-                    default_branch=args.default_branch,
+                    branch=args.branch,
                 )
                 _print_command_message("init")
                 return 0
@@ -398,11 +398,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help=("Skip prompts and overwrite existing .jri/ contents."),
     )
     init_parser.add_argument(
-        "--default-branch",
+        "-b",
+        "--branch",
         help=(
             "Use this branch as the project's default branch. For a fresh "
             "directory, jri creates the repo on that branch. For an existing "
-            "repo, the branch must already exist."
+            "repo, jri switches to it or creates it when missing."
         ),
     )
 
