@@ -157,7 +157,10 @@ def test_chat_model_overrides_use_temporary_config(initialized_repo: Path) -> No
     assert not config_path.is_relative_to(repo)
     assert agent_files == ["interrogator-validator.md", "interrogator.md"]
     assert '"tool.execute.before": async (input, output) => {' in plugin_text
-    assert 'Do not create git commit messages starting with "jri:"' in plugin_text
+    assert (
+        'Prefix "${RESERVERD_PREFIX}" is reserved for JRI-managed commits.'
+        in plugin_text
+    )
     assert '"build": {' in config_text
     assert '"hidden": true' in config_text
     assert '"plan": {' in config_text
