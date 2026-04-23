@@ -310,7 +310,10 @@ def test_ralph_commit_prefix_plugin_blocks_jri_commit_messages(
 
     assert result == {
         "ok": False,
-        "error": 'Do not create git commit messages starting with "jri:"',
+        "error": (
+            'Prefix "jri:" is reserved for JRI-managed commits. '
+            "Update your commit message."
+        ),
     }
 
 
