@@ -331,6 +331,9 @@ def _validate_human_task_payload(payload: dict[str, object]) -> str | None:
         return "`human_task` must be an object"
     human_task = cast(dict[str, object], human_task)
 
+    if "slug" in human_task:
+        return "`human_task.slug` is not supported; JRI derives the Human task slug"
+
     title = human_task.get("title")
     if not isinstance(title, str) or not title.strip():
         return "`human_task.title` must be a non-empty string"

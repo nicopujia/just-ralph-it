@@ -2654,6 +2654,7 @@ def test_needs_human_generates_human_followup_and_blocks_original_task(
     assert completed == 0
     assert len(human_tasks) == 1
     human_task = human_tasks[0]
+    assert human_task.slug == "needs-human-task--needs-human"
     assert human_task.metadata.title == "Provide missing input"
     assert human_task.metadata.priority == 0
     assert human_task.metadata.acceptance_criteria == ["Required input is provided"]
