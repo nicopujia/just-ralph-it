@@ -180,6 +180,15 @@ class GitRepo:
         if result.returncode != 0:
             raise JriError(result.stderr.strip() or f"failed to checkout {name}")
 
+    def checkout_or_create_branch(self, name: str) -> None:
+        self.validate_default_branch_name(name)
+        if self.current_branch() == name:
+            return
+        if self.has_local_branch(name):
+            self.checkout(name)
+            return
+        self.checkout_new_branch(name)
+
     def delete_branch(self, name: str) -> None:
         self.run("branch", "-D", name, check=False)
 

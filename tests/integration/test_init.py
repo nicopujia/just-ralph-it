@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 import jri.core.git as git_module
+from jri.cli.main import _build_parser
 from tests.conftest import run_cli
 from tests.helpers import git
 
@@ -104,7 +105,7 @@ def test_init_creates_git_repo_on_requested_default_branch(
     monkeypatch.setenv("GIT_COMMITTER_NAME", "JRI Tests")
     monkeypatch.setenv("GIT_COMMITTER_EMAIL", "jri-tests@example.com")
 
-    exit_code = run_cli(["init", "--default-branch", "trunk"], cwd=repo)
+    exit_code = run_cli(["init", "--branch", "trunk"], cwd=repo)
 
     assert exit_code == 0
     assert git(repo, "branch", "--show-current") == "trunk"
@@ -115,7 +116,7 @@ def test_init_uses_requested_existing_default_branch(git_repo: Path) -> None:
     git(git_repo, "checkout", "-b", "trunk")
     git(git_repo, "checkout", "main")
 
-    exit_code = run_cli(["init", "--default-branch", "trunk"], cwd=git_repo)
+    exit_code = run_cli(["init", "--branch", "trunk"], cwd=git_repo)
 
     assert exit_code == 0
     assert git(git_repo, "branch", "--show-current") == "trunk"
@@ -125,15 +126,51 @@ def test_init_uses_requested_existing_default_branch(git_repo: Path) -> None:
     )
 
 
-def test_init_rejects_missing_requested_default_branch(
-    git_repo: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    exit_code = run_cli(["init", "--default-branch", "trunk"], cwd=git_repo)
+def test_init_creates_requested_branch_when_missing(git_repo: Path) -> None:
+    main_ref = git(git_repo, "rev-parse", "main")
 
-    assert exit_code == 1
-    captured = capsys.readouterr()
-    assert "default branch 'trunk' does not exist" in captured.err
-    assert not (git_repo / ".jri").exists()
+    exit_code = run_cli(["init", "--branch", "trunk"], cwd=git_repo)
+
+    assert exit_code == 0
+    assert git(git_repo, "branch", "--show-current") == "trunk"
+    assert git(git_repo, "rev-parse", "trunk^") == main_ref
+    assert git(git_repo, "rev-parse", "main") == main_ref
+    assert '"branch": "trunk"' in (git_repo / ".jri" / "state.json").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_init_accepts_branch_short_flag(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setenv("GIT_AUTHOR_NAME", "JRI Tests")
+    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "jri-tests@example.com")
+    monkeypatch.setenv("GIT_COMMITTER_NAME", "JRI Tests")
+    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "jri-tests@example.com")
+
+    exit_code = run_cli(["init", "-b", "trunk"], cwd=repo)
+
+    assert exit_code == 0
+    assert git(repo, "branch", "--show-current") == "trunk"
+
+
+def test_init_help_includes_branch_flags(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser = _build_parser()
+
+    with pytest.raises(SystemExit) as exc_info:
+        parser.parse_args(["init", "--help"])
+
+    assert exc_info.value.code == 0
+    help_text = capsys.readouterr().out
+
+    assert "-b BRANCH" in help_text
+    assert "--branch BRANCH" in help_text
+    assert "--default-branch" not in help_text
 
 
 def test_init_commits_only_scaffold_when_unrelated_changes_exist(

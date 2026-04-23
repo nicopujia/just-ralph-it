@@ -186,21 +186,19 @@ class JriService:
         *,
         delete: bool,
         commit_message: str,
-        default_branch: str | None = None,
+        branch: str | None = None,
     ) -> None:
         repo_exists = self.git.is_repo()
         requested_branch = (
-            self.git.validate_default_branch_name(default_branch)
-            if default_branch is not None
+            self.git.validate_default_branch_name(branch)
+            if branch is not None
             else None
         )
         init_branch = requested_branch or "main"
         self.git.init_if_needed(branch=init_branch)
 
         if repo_exists and requested_branch is not None:
-            self.git.ensure_local_branch(requested_branch)
-            if self.git.current_branch() != requested_branch:
-                self.git.checkout(requested_branch)
+            self.git.checkout_or_create_branch(requested_branch)
 
         # Check for existing managed directories
         jri_exists = self.paths.jri_dir.exists()
