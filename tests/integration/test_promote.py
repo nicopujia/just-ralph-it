@@ -47,8 +47,10 @@ def test_promote_moves_selected_drafts_and_records_confirmation(git_repo: Path) 
         acceptance_criteria=["The UI is implemented."],
     )
 
+    approved = service.approve_draft_promotion(slugs=["clarify-scope", "build-ui"])
     promoted = service.promote_drafts(slugs=["clarify-scope", "build-ui"])
 
+    assert [task.slug for task in approved] == ["build-ui", "clarify-scope"]
     assert [task.slug for task in promoted] == ["build-ui", "clarify-scope"]
     assert not (git_repo / ".jri" / "tasks" / "draft" / "clarify-scope.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "draft" / "build-ui.md").exists()
@@ -56,12 +58,7 @@ def test_promote_moves_selected_drafts_and_records_confirmation(git_repo: Path) 
     assert (git_repo / ".jri" / "tasks" / "todo" / "build-ui.md").exists()
 
     state = read_json(git_repo / ".jri" / "state.json")
-    promotion = cast(dict[str, object], state["promotion"])
-    assert promotion == {
-        "confirmed_at": promotion["confirmed_at"],
-        "task_slugs": ["build-ui", "clarify-scope"],
-        "target_status": "todo",
-    }
+    assert "promotion" not in state
     assert git_module.MSG_PROMOTE in git(
         git_repo,
         "log",
@@ -96,6 +93,72 @@ def test_promote_rejects_dependency_on_unselected_draft(git_repo: Path) -> None:
 
     with pytest.raises(Exception, match="outside the promotion batch"):
         service.promote_drafts(slugs=["build-ui"])
+
+
+def test_promote_rejects_without_validator_approval(git_repo: Path) -> None:
+    service = _init(git_repo)
+    write_task(
+        git_repo,
+        status="draft",
+        slug="clarify-scope",
+        title="Clarify scope",
+        priority=0,
+        assignee="Ralph",
+        body="Clarify the scope.\n",
+        acceptance_criteria=["The scope is written down."],
+    )
+
+    with pytest.raises(Exception, match="approved"):
+        service.promote_drafts(slugs=["clarify-scope"])
+
+
+def test_approve_draft_promotion_records_content_digests(git_repo: Path) -> None:
+    service = _init(git_repo)
+    write_task(
+        git_repo,
+        status="draft",
+        slug="clarify-scope",
+        title="Clarify scope",
+        priority=0,
+        assignee="Ralph",
+        body="Clarify the scope.\n",
+        acceptance_criteria=["The scope is written down."],
+    )
+
+    selected = service.approve_draft_promotion(slugs=["clarify-scope"])
+
+    assert [task.slug for task in selected] == ["clarify-scope"]
+    state = read_json(git_repo / ".jri" / "state.json")
+    promotion = cast(dict[str, object], state["promotion"])
+    assert promotion["task_slugs"] == ["clarify-scope"]
+    digests = cast(dict[str, object], promotion["content_digests"])
+    assert list(digests) == ["clarify-scope"]
+    assert isinstance(digests["clarify-scope"], str)
+
+
+def test_promote_rejects_when_approved_draft_changes(git_repo: Path) -> None:
+    service = _init(git_repo)
+    draft_path = write_task(
+        git_repo,
+        status="draft",
+        slug="clarify-scope",
+        title="Clarify scope",
+        priority=0,
+        assignee="Ralph",
+        body="Clarify the scope.\n",
+        acceptance_criteria=["The scope is written down."],
+    )
+    service.approve_draft_promotion(slugs=["clarify-scope"])
+    draft_path.write_text(
+        draft_path.read_text(encoding="utf-8") + "\nChanged after approval.\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(Exception, match="changed since approval"):
+        service.promote_drafts(slugs=["clarify-scope"])
+
+    state = read_json(git_repo / ".jri" / "state.json")
+    assert "promotion" not in state
 
 
 def test_promote_check_validates_without_moving_tasks(git_repo: Path) -> None:

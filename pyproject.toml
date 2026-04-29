@@ -26,7 +26,7 @@ dev = [
 
 [tool.pytest.ini_options]
 markers = [
-    "live: tests that call real OpenCode models",
+    "live: tests that call real Pi models",
 ]
 
 [tool.uv]

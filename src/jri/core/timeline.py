@@ -37,7 +37,7 @@ class TimelineEvent:
             payload["task"] = self.task
         if self.detail is not None:
             payload["detail"] = self.detail
-        return json.dumps(payload, sort_keys=True)
+        return json.dumps(payload, separators=(",", ":"), sort_keys=True)
 
 
 @dataclass

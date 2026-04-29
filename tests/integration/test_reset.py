@@ -8,7 +8,7 @@ from typing import cast
 import pytest
 
 from jri.core.errors import JriError
-from jri.core.models import AttemptState, OpenCodeRunResult, ProcessState, State
+from jri.core.models import AgentRunResult, AttemptState, ProcessState, State
 from jri.core.service import JriService
 from tests.conftest import run_cli as base_run_cli
 from tests.helpers import git, read_json, write_passing_makefile, write_task
@@ -23,7 +23,7 @@ def run_cli(args: list[str], cwd: Path) -> int:
     return exit_code
 
 
-class FakeOpenCodeServer:
+class FakeAgentRuntime:
     def __init__(self, *, model: str | None = None) -> None:
         self.model = model
 
@@ -39,14 +39,14 @@ class FakeOpenCodeServer:
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         raise NotImplementedError
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text("{}\n", encoding="utf-8")
 
 
-class SuccessfulFakeOpenCodeClient(FakeOpenCodeServer):
+class SuccessfulFakeAgentRuntime(FakeAgentRuntime):
     def __init__(self) -> None:
         super().__init__(model=None)
         self.calls: list[tuple[str, Path]] = []
@@ -60,19 +60,17 @@ class SuccessfulFakeOpenCodeClient(FakeOpenCodeServer):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         self.calls.append((prompt, log_path))
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
-        return OpenCodeRunResult(
-            returncode=0, session_id="ses_fake", result="completed"
-        )
+        return AgentRunResult(returncode=0, session_id="ses_fake", result="completed")
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
 
 
-class FailedFakeOpenCodeClient(FakeOpenCodeServer):
+class FailedFakeAgentRuntime(FakeAgentRuntime):
     def __init__(self) -> None:
         super().__init__(model=None)
         self.calls: list[tuple[str, Path]] = []
@@ -86,16 +84,16 @@ class FailedFakeOpenCodeClient(FakeOpenCodeServer):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         self.calls.append((prompt, log_path))
         log_path.write_text("fake failed run\n", encoding="utf-8")
-        return OpenCodeRunResult(returncode=0, session_id="ses_failed", result="failed")
+        return AgentRunResult(returncode=0, session_id="ses_failed", result="failed")
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake_failed"}\n', encoding="utf-8")
 
 
-class DistinctFileFakeOpenCodeClient(FakeOpenCodeServer):
+class DistinctFileFakeAgentRuntime(FakeAgentRuntime):
     def __init__(self) -> None:
         super().__init__(model=None)
         self.calls: list[tuple[str, Path]] = []
@@ -109,14 +107,14 @@ class DistinctFileFakeOpenCodeClient(FakeOpenCodeServer):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         self.calls.append((prompt, log_path))
         filename = "first.txt" if len(self.calls) == 1 else "second.txt"
         (root / filename).write_text(f"{filename}\n", encoding="utf-8")
         git(root, "add", filename)
         git(root, "commit", "-m", f"add {filename}")
         log_path.write_text(f"fake {filename} run\n", encoding="utf-8")
-        return OpenCodeRunResult(
+        return AgentRunResult(
             returncode=0,
             session_id=f"ses_{len(self.calls)}",
             result="completed",
@@ -144,7 +142,7 @@ def _run_successful_task(repo: Path) -> JriService:
     )
     git(repo, "add", ".jri/tasks/todo/implement-file.md")
     git(repo, "commit", "-m", "add task")
-    service = JriService(repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert service.start(max_tasks=1) == 1
     return service
 
@@ -198,7 +196,7 @@ def test_reset_prefers_latest_end_tag(
     git(git_repo, "add", ".jri/tasks/todo")
     git(git_repo, "commit", "-m", "add two tasks")
 
-    service = JriService(git_repo, opencode_client=DistinctFileFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=DistinctFileFakeAgentRuntime())
 
     assert service.start(max_tasks=1, force=True) == 1
     time.sleep(1)
@@ -233,7 +231,7 @@ def test_reset_after_failed_task(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/task-a.md")
     git(git_repo, "commit", "-m", "add task-a")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert service.start(max_tasks=1) == 1
 
     write_task(
@@ -248,7 +246,7 @@ def test_reset_after_failed_task(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/task-b.md")
     git(git_repo, "commit", "-m", "add task-b")
 
-    fail_service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    fail_service = JriService(git_repo, agent_runtime=FailedFakeAgentRuntime())
     assert fail_service.start(max_tasks=1) == 0
 
     (git_repo / "extra-after-fail.txt").write_text("extra\n", encoding="utf-8")
@@ -278,7 +276,7 @@ def test_reset_falls_back_to_begin_tag_when_no_end_tag(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/task-a.md")
     git(git_repo, "commit", "-m", "add task-a")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert service.start(max_tasks=1) == 1
 
     end_tag = "jri/end/task-a"
@@ -313,7 +311,7 @@ def test_reset_from_feature_branch_with_stale_state(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/first-task.md")
     git(git_repo, "commit", "-m", "add first task")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert service.start(max_tasks=1) == 1
     prior_state = service.state_store.load()
 
@@ -391,7 +389,7 @@ def test_reset_refuses_when_no_task_tag(
     """When no task has completed, reset requires an end tag."""
     assert run_cli(["init"], cwd=git_repo) == 0
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     with pytest.raises(JriError, match="no task tag found.*jri start"):
         service.reset()
@@ -412,14 +410,14 @@ def test_reset_falls_back_to_begin_tag_after_failed_run(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
     git(git_repo, "commit", "-m", "add failing task")
 
-    fail_service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    fail_service = JriService(git_repo, agent_runtime=FailedFakeAgentRuntime())
     assert fail_service.start(max_tasks=1) == 0
 
     (git_repo / "after-failure.txt").write_text("later\n", encoding="utf-8")
     git(git_repo, "add", "after-failure.txt")
     git(git_repo, "commit", "-m", "add later file")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.reset()
 
     assert not (git_repo / "after-failure.txt").exists()
@@ -517,7 +515,7 @@ def test_reset_preserves_attempt_history(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/task-a.md")
     git(git_repo, "commit", "-m", "add task-a")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert service.start(max_tasks=1) == 1
 
     write_task(
@@ -532,7 +530,7 @@ def test_reset_preserves_attempt_history(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/task-b.md")
     git(git_repo, "commit", "-m", "add task-b")
 
-    fail_service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    fail_service = JriService(git_repo, agent_runtime=FailedFakeAgentRuntime())
     assert fail_service.start(max_tasks=1) == 0
 
     service.reset()
@@ -659,7 +657,7 @@ def test_reset_cli_prompt_uses_requested_task_tag(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo")
     git(git_repo, "commit", "-m", "add two tasks")
 
-    service = JriService(git_repo, opencode_client=DistinctFileFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=DistinctFileFakeAgentRuntime())
     assert service.start(max_tasks=1, force=True) == 1
     time.sleep(1)
     assert service.start(max_tasks=1, force=True) == 1
@@ -692,7 +690,7 @@ def test_reset_to_begin_tag_lands_before_tagged_commit(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/task-a.md")
     git(git_repo, "commit", "-m", "add task-a")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert service.start(max_tasks=1) == 1
 
     git(git_repo, "tag", "-d", "jri/end/task-a")
@@ -717,7 +715,7 @@ def test_reset_cli_prompt_describes_begin_tag_as_before_commit(git_repo: Path) -
     git(git_repo, "add", ".jri/tasks/todo/task-a.md")
     git(git_repo, "commit", "-m", "add task-a")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert service.start(max_tasks=1) == 1
     git(git_repo, "tag", "-d", "jri/end/task-a")
 

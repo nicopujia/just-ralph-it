@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import select
@@ -17,6 +18,19 @@ from pathlib import Path
 from types import FrameType
 from typing import Any
 
+from .agents import (
+    AgentRuntime,
+    PiRuntime,
+    launch_chat,
+    render_saved_log,
+)
+from .agents.client import SavedLogRenderer
+from .agents.session import (
+    detect_latest_session,
+    export_session_if_available,
+    list_sessions,
+    runtime_env,
+)
 from .errors import HaltRequested, JriError, RestartRequested
 from .git import (
     MSG_CHECK_PROMOTE,
@@ -42,22 +56,11 @@ from .models import (
     PromotionRecord,
     RalphResultPayload,
     Result,
+    RunOutcome,
+    RunSummary,
     State,
     Task,
     TaskMetadata,
-)
-from .opencode import (
-    OpenCodeProgrammatic,
-    OpenCodeServer,
-    launch_chat,
-    render_saved_log,
-)
-from .opencode.client import SavedLogRenderer
-from .opencode.session import (
-    detect_latest_session,
-    export_session_if_available,
-    list_sessions,
-    runtime_env,
 )
 from .paths import JriPaths
 from .state import StateStore
@@ -170,7 +173,7 @@ class JriService:
         self,
         root: Path,
         *,
-        opencode_client: OpenCodeProgrammatic | None = None,
+        agent_runtime: AgentRuntime | None = None,
     ) -> None:
         self.root = root.resolve()
         self.paths = JriPaths(self.root)
@@ -178,8 +181,9 @@ class JriService:
         self.state_store = StateStore(self.paths.state_path)
         self.timeline = TimelineStore(self.paths.timeline_path)
         self.metrics = MetricsStore(self.paths.metrics_path)
-        self.opencode = opencode_client or OpenCodeServer()
+        self.agent_runtime = agent_runtime or PiRuntime()
         self._halt_requested = False
+        self._previous_agent_model: str | None = None
 
     def init(
         self,
@@ -249,14 +253,14 @@ class JriService:
             self.state_store.save_session(None)
         before = {
             session_id
-            for session in list_sessions(self.opencode, root=self.root)
+            for session in list_sessions(self.agent_runtime, root=self.root)
             if isinstance((session_id := session.get("id")), str)
         }
         state = self.state_store.load()
         binary = (
-            self.opencode.binary
-            if isinstance(self.opencode, OpenCodeServer)
-            else "opencode"
+            self.agent_runtime.binary
+            if isinstance(self.agent_runtime, PiRuntime)
+            else "pi"
         )
         with runtime_env(
             overrides={
@@ -275,14 +279,14 @@ class JriService:
             )
         session_id = state.session
         if session_id is None:
-            after = list_sessions(self.opencode, root=self.root)
+            after = list_sessions(self.agent_runtime, root=self.root)
             session_id = detect_latest_session(
                 root=self.root, before=before, sessions=after
             )
             if session_id is not None:
                 self.state_store.save_session(session_id)
         export_session_if_available(
-            self.opencode,
+            self.agent_runtime,
             root=self.root,
             destination_dir=self.paths.chat_logs_dir,
             timeline=self.timeline,
@@ -349,13 +353,13 @@ class JriService:
         if recover:
             self._recover_stale_start_state(mode=mode, force=force)
 
-        if isinstance(self.opencode, OpenCodeServer):
+        if isinstance(self.agent_runtime, PiRuntime):
             return self._run_loop(
                 max_tasks,
                 task_timeout=task_timeout,
                 force=force,
                 dogfood=dogfood,
-                opencode_overrides={
+                model_overrides={
                     "ralph": model,
                     "ralph-validator": validator_model,
                     "general": general_model,
@@ -363,8 +367,8 @@ class JriService:
                 },
             )
 
-        previous_model = self.opencode.model
-        self.opencode.model = model
+        previous_model = self.agent_runtime.model
+        self.agent_runtime.model = model
         try:
             return self._run_loop(
                 max_tasks,
@@ -373,7 +377,48 @@ class JriService:
                 dogfood=dogfood,
             )
         finally:
-            self.opencode.model = previous_model
+            self.agent_runtime.model = previous_model
+
+    def start_summary(
+        self,
+        *,
+        max_tasks: int | None = None,
+        model: str | None = None,
+        validator_model: str | None = None,
+        general_model: str | None = None,
+        explore_model: str | None = None,
+        task_timeout: int | None = None,
+        force: bool = False,
+        dogfood: bool = False,
+    ) -> RunSummary:
+        self.ensure_initialized()
+        self._ensure_not_managed_worktree()
+        self._recover_stale_start_state(mode="foreground", force=force)
+        if isinstance(self.agent_runtime, PiRuntime):
+            return self._run_loop_summary(
+                max_tasks,
+                task_timeout=task_timeout,
+                force=force,
+                dogfood=dogfood,
+                model_overrides={
+                    "ralph": model,
+                    "ralph-validator": validator_model,
+                    "general": general_model,
+                    "explore": explore_model,
+                },
+            )
+
+        previous_model = self.agent_runtime.model
+        self.agent_runtime.model = model
+        try:
+            return self._run_loop_summary(
+                max_tasks,
+                task_timeout=task_timeout,
+                force=force,
+                dogfood=dogfood,
+            )
+        finally:
+            self.agent_runtime.model = previous_model
 
     def start_attached(
         self,
@@ -504,18 +549,14 @@ class JriService:
         draft_tasks = self._list_tasks("draft")
         selected = self._select_draft_tasks(draft_tasks, slugs)
         self._validate_selected_drafts_for_promotion(selected, draft_tasks=draft_tasks)
+        self._validate_promotion_approval(selected)
 
         promoted_tasks: list[Task] = []
         for task in selected:
             promoted_task = move_task(task, self.paths.task_dir("todo"))
             promoted_tasks.append(promoted_task)
 
-        self.state_store.save_promotion(
-            PromotionRecord(
-                confirmed_at=int(time.time()),
-                task_slugs=[task.slug for task in promoted_tasks],
-            )
-        )
+        self.state_store.clear_promotion()
         self.git.commit_paths_if_needed(
             MSG_PROMOTE,
             [
@@ -524,6 +565,25 @@ class JriService:
             ],
         )
         return promoted_tasks
+
+    def approve_draft_promotion(self, *, slugs: list[str]) -> list[Task]:
+        self.ensure_initialized()
+
+        draft_tasks = self._list_tasks("draft")
+        selected = self._select_draft_tasks(draft_tasks, slugs)
+        self._validate_selected_drafts_for_promotion(selected, draft_tasks=draft_tasks)
+        self.state_store.save_promotion(
+            PromotionRecord(
+                confirmed_at=int(time.time()),
+                task_slugs=[task.slug for task in selected],
+                content_digests=self._draft_content_digests(selected),
+            )
+        )
+        self.git.commit_paths_if_needed(
+            MSG_CHECK_PROMOTE,
+            [self.git.relative_path(self.paths.state_path)],
+        )
+        return selected
 
     def check_draft_promotion(self, *, slugs: list[str]) -> list[Task]:
         self.ensure_initialized()
@@ -549,6 +609,29 @@ class JriService:
             )
         except ValueError as exc:
             raise JriError(str(exc)) from exc
+
+    def _draft_content_digests(self, tasks: list[Task]) -> dict[str, str]:
+        return {
+            task.slug: hashlib.sha256(task.path.read_bytes()).hexdigest()
+            for task in tasks
+        }
+
+    def _validate_promotion_approval(self, selected: list[Task]) -> None:
+        state = self.state_store.load()
+        approval = state.promotion
+        if approval is None:
+            raise JriError("draft promotion must be approved by the validator first")
+
+        selected_slugs = [task.slug for task in selected]
+        if approval.task_slugs != selected_slugs:
+            raise JriError(
+                "draft promotion must match the latest validator-approved draft set"
+            )
+
+        current_digests = self._draft_content_digests(selected)
+        if approval.content_digests != current_digests:
+            self.state_store.clear_promotion()
+            raise JriError("draft promotion approval changed since approval")
 
     def reset(self, target_task: str | None = None) -> None:
         """Reset the repository to the appropriate task tag boundary.
@@ -890,8 +973,24 @@ class JriService:
         task_timeout: int | None = None,
         force: bool = False,
         dogfood: bool = False,
-        opencode_overrides: dict[str, str | None] | None = None,
+        model_overrides: dict[str, str | None] | None = None,
     ) -> int:
+        return self._run_loop_summary(
+            max_tasks,
+            task_timeout=task_timeout,
+            force=force,
+            dogfood=dogfood,
+            model_overrides=model_overrides,
+        ).completed
+
+    def _run_loop_summary(
+        self,
+        max_tasks: int | None,
+        task_timeout: int | None = None,
+        force: bool = False,
+        dogfood: bool = False,
+        model_overrides: dict[str, str | None] | None = None,
+    ) -> RunSummary:
         try:
             doing = list_tasks(self.paths.task_dir("doing"), git_repo=self.git)
         except ValueError as exc:
@@ -904,17 +1003,19 @@ class JriService:
             self.paths.stop_signal_path.unlink()
 
         completed = 0
+        task_results: dict[str, Result] = {}
+        outcome: RunOutcome = "no_work"
         failed_slugs: set[str] = set()
         self._halt_requested = False
         old_handlers = self._install_signal_handlers()
-        server_started_here = False
-        server_runtime: AbstractContextManager[dict[str, str]] | None = None
-        refresh_runtime = isinstance(self.opencode, OpenCodeServer) and dogfood
+        runtime_started_here = False
+        runtime_context: AbstractContextManager[dict[str, str]] | None = None
+        refresh_runtime = isinstance(self.agent_runtime, PiRuntime) and dogfood
         try:
-            if isinstance(self.opencode, OpenCodeServer) and not refresh_runtime:
-                server_started_here = True
-                server_runtime = self._start_opencode_server(
-                    overrides=opencode_overrides or {}
+            if isinstance(self.agent_runtime, PiRuntime) and not refresh_runtime:
+                runtime_started_here = True
+                runtime_context = self._start_pi_runtime(
+                    overrides=model_overrides or {}
                 )
             while max_tasks is None or completed < max_tasks:
                 if self._halt_requested:
@@ -954,14 +1055,14 @@ class JriService:
                     break
 
                 if refresh_runtime:
-                    with self._running_opencode_server(
-                        overrides=opencode_overrides or {}
-                    ):
+                    with self._running_pi_runtime(overrides=model_overrides or {}):
                         result = self._run_task(next_task, task_timeout=task_timeout)
                 else:
                     result = self._run_task(next_task, task_timeout=task_timeout)
                 if result == "completed":
                     completed += 1
+                    task_results[next_task.slug] = result
+                    outcome = "completed"
                     if self._should_restart_process_after_iteration(
                         dogfood=dogfood,
                         max_tasks=max_tasks,
@@ -972,10 +1073,16 @@ class JriService:
                         )
                         raise RestartRequested(remaining_tasks=remaining_tasks)
                 elif result in {"failed", "incompleted"}:
+                    task_results[next_task.slug] = result
+                    outcome = "task_failure"
                     failed_slugs.add(next_task.slug)
                 elif result == "needs_human":
+                    task_results[next_task.slug] = result
+                    outcome = "needs_human"
                     failed_slugs.add(next_task.slug)
                 elif result == "timeout":
+                    task_results[next_task.slug] = result
+                    outcome = "timeout"
                     failed_slugs.add(next_task.slug)
                     self.timeline.record(
                         TimelineEvent(
@@ -1005,12 +1112,16 @@ class JriService:
                     )
                 )
         finally:
-            if server_started_here and isinstance(self.opencode, OpenCodeServer):
-                self._stop_opencode_server(server_runtime)
+            if runtime_started_here and isinstance(self.agent_runtime, PiRuntime):
+                self._stop_pi_runtime(runtime_context)
             self._restore_signal_handlers(old_handlers)
             self.state_store.clear_process()
 
-        return completed
+        return RunSummary(
+            completed=completed,
+            outcome=outcome,
+            task_results=task_results,
+        )
 
     def _should_restart_process_after_iteration(
         self,
@@ -1030,47 +1141,55 @@ class JriService:
         return True
 
     @contextmanager
-    def _running_opencode_server(
+    def _running_pi_runtime(
         self, *, overrides: dict[str, str | None]
     ) -> Iterator[None]:
-        runtime = self._start_opencode_server(overrides=overrides)
+        runtime = self._start_pi_runtime(overrides=overrides)
         try:
             yield
         finally:
-            self._stop_opencode_server(runtime)
+            self._stop_pi_runtime(runtime)
 
-    def _start_opencode_server(
+    def _start_pi_runtime(
         self, *, overrides: dict[str, str | None]
     ) -> AbstractContextManager[dict[str, str]]:
-        if not isinstance(self.opencode, OpenCodeServer):
-            raise JriError("OpenCode server runtime requested for non-server client")
+        if not isinstance(self.agent_runtime, PiRuntime):
+            raise JriError("Pi runtime requested for non-Pi agent runtime")
         result_path = self.paths.jri_dir / "signals" / "result"
         result_path.parent.mkdir(parents=True, exist_ok=True)
-        # Ensure the worktree exists before the server starts so Ralph's tools
+        # Ensure the worktree exists before Pi starts so Ralph's tools
         # resolve paths against the worktree, not the main repo.
         wt_git, _ = self._ensure_worktree()
         self._sync_worktree(wt_git)
         runtime = runtime_env(overrides=overrides)
-        opencode_env = runtime.__enter__()
+        pi_env = runtime.__enter__()
+        previous_model = self.agent_runtime.model
+        if overrides.get("ralph") is not None:
+            self.agent_runtime.model = overrides["ralph"]
+        self._previous_agent_model = previous_model
         try:
-            self.opencode.start(
+            self.agent_runtime.start(
                 env={
-                    **opencode_env,
+                    **pi_env,
                     "JRI_RESULT_PATH": str(result_path.resolve()),
                 },
                 cwd=self.paths.worktree_dir,
             )
         except BaseException as exc:
+            self.agent_runtime.model = previous_model
+            self._previous_agent_model = None
             runtime.__exit__(type(exc), exc, exc.__traceback__)
             raise
         return runtime
 
-    def _stop_opencode_server(
+    def _stop_pi_runtime(
         self, runtime: AbstractContextManager[dict[str, str]] | None
     ) -> None:
-        if not isinstance(self.opencode, OpenCodeServer):
+        if not isinstance(self.agent_runtime, PiRuntime):
             return
-        self.opencode.stop()
+        self.agent_runtime.stop()
+        self.agent_runtime.model = self._previous_agent_model
+        self._previous_agent_model = None
         if runtime is not None:
             runtime.__exit__(None, None, None)
 
@@ -1130,6 +1249,34 @@ class JriService:
         wt_git.run("checkout", "--force", branch)
         wt_git.run("clean", "-fd")
 
+    def _previous_attempts_prompt_section(self, task_slug: str) -> str:
+        attempts = [
+            attempt
+            for attempt in self._load_attempt_history(task_slug)
+            if attempt.result in {"incompleted", "needs_human", "failed", "timeout"}
+        ][-3:]
+        if not attempts:
+            return ""
+
+        lines = ["Previous attempts:"]
+        for attempt in attempts:
+            lines.append(f"- Attempt {attempt.number}")
+            if attempt.result is not None:
+                lines.append(f"  Result: {attempt.result}")
+            payload = attempt.result_payload
+            if payload is None:
+                continue
+            if payload.summary:
+                lines.append(f"  Summary: {_single_line(payload.summary, limit=240)}")
+            if payload.blocker:
+                lines.append(f"  Blocker: {_single_line(payload.blocker, limit=240)}")
+            if payload.learnings:
+                lines.append("  Actionable learnings:")
+                for learning in payload.learnings[:5]:
+                    lines.append(f"  - {_single_line(learning, limit=220)}")
+        rendered = "\n".join(lines)
+        return rendered[:2000]
+
     def _run_task(self, task: Task, task_timeout: int | None = None) -> Result:
         state = self.state_store.load()
         started_at = int(time.time())
@@ -1187,19 +1334,22 @@ class JriService:
         del main_doing_task
         self._save_runtime_process(child_pid=None, task_log_path=log_path)
 
+        previous_attempts = self._previous_attempts_prompt_section(task.slug)
         prompt_text = (
             f"Solve `{doing_task.path.relative_to(wt_paths.root)}`. Commit frequently. "
             "Stay on the Ralph worktree/branch; the runtime handles integration, "
             "so do not "
             "merge to the default branch yourself."
         )
+        if previous_attempts:
+            prompt_text = f"{prompt_text}\n\n{previous_attempts}"
         on_start_cb = lambda child_pid: self._save_runtime_process(  # noqa: E731
             child_pid=child_pid,
             task_log_path=log_path,
         )
         result_path = self.paths.jri_dir / "signals" / "result"
         result_path.parent.mkdir(parents=True, exist_ok=True)
-        result = self.opencode.run_ralph_task(
+        result = self.agent_runtime.run_ralph_task(
             root=wt_paths.root,
             prompt=prompt_text,
             log_path=log_path,
@@ -1208,9 +1358,18 @@ class JriService:
             timeout=task_timeout,
         )
 
+        attempt = replace(
+            attempt,
+            session_id=result.session_id,
+            result_payload=result.payload,
+        )
+        self.state_store.save_active_attempt(attempt)
+
         # Check for task timeout
         finished_at = int(time.time())
-        if deadline is not None and finished_at > deadline:
+        if result.result == "timeout" or (
+            deadline is not None and finished_at > deadline
+        ):
             timeout_msg = (
                 f"Task {task.slug} exceeded timeout of {task_timeout}s "
                 f"(took {finished_at - started_at}s)"
@@ -1225,7 +1384,7 @@ class JriService:
                 )
             )
             self._recover_failed_task_wt(doing_task, wt_git)
-            self._finish_attempt(attempt, result="failed")
+            self._finish_attempt(attempt, result="timeout")
             self.timeline.record(
                 TimelineEvent(
                     ts=TimelineStore.now_iso(),
@@ -1238,7 +1397,7 @@ class JriService:
             sys.stdout.flush()
             return "timeout"
 
-        # Record any warnings from the OpenCode run (e.g., missing result payload)
+        # Record any warnings from the Pi run (e.g., missing result payload)
         for warning in result.warnings:
             self.timeline.record(
                 TimelineEvent(
@@ -1265,26 +1424,16 @@ class JriService:
             )
             print(task_footer("failed"))
             sys.stdout.flush()
-            raise JriError(f"OpenCode exited with status {result.returncode}")
+            return "failed"
 
         export_path = export_session_if_available(
-            self.opencode,
+            self.agent_runtime,
             root=self.root,
-            destination_dir=self.paths.external_opencode_dir,
+            destination_dir=self.paths.external_pi_dir,
             timeline=self.timeline,
             session_id=result.session_id,
             task_slug=task.slug,
         )
-        attempt = replace(
-            attempt,
-            session_id=result.session_id,
-            result_payload=result.payload,
-        )
-        self.state_store.save_active_attempt(attempt)
-
-        if isinstance(self.opencode, OpenCodeServer) and result.session_id is not None:
-            self.opencode._delete_session(result.session_id)
-
         if not doing_task.path.exists():
             self._recover_failed_task_wt(doing_task, wt_git)
             self._finish_attempt(attempt, result="failed")
@@ -1316,6 +1465,23 @@ class JriService:
             print(task_footer("needs_human"))
             sys.stdout.flush()
             return "needs_human"
+
+        if result.result == "incompleted" and (
+            result.payload is None or not result.payload.learnings
+        ):
+            self._recover_failed_task_wt(doing_task, wt_git)
+            self._finish_attempt(attempt, result="failed")
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="task_failed",
+                    task=task.slug,
+                    detail={"reason": "incompleted_missing_learnings"},
+                )
+            )
+            print(task_footer("failed"))
+            sys.stdout.flush()
+            return "failed"
 
         if result.result in {"failed", "incompleted"}:
             self._recover_failed_task_wt(doing_task, wt_git)
@@ -2112,6 +2278,28 @@ class JriService:
                 self.git.commit_all_if_needed(
                     MSG_ESCALATE_HUMAN.format(slug=doing_task.slug)
                 )
+                active_attempt = self.state_store.load().active_attempt
+                self.timeline.record(
+                    TimelineEvent(
+                        ts=TimelineStore.now_iso(),
+                        event="task_escalated",
+                        task=doing_task.slug,
+                        detail={
+                            "attempt": (
+                                active_attempt.number
+                                if active_attempt is not None
+                                else None
+                            ),
+                            "blocker": (
+                                result_payload.blocker
+                                if result_payload is not None
+                                else None
+                            ),
+                            "human_task": human_task.slug,
+                            "session_id": session_id,
+                        },
+                    )
+                )
             self._reset_runtime_state()
             self.timeline.record(
                 TimelineEvent(
@@ -2488,8 +2676,8 @@ class JriService:
                     "",
                     "## Run artifacts",
                     f"- Ralph log: `{log_relative}`",
-                    f"- OpenCode session: `{session_label}`",
-                    f"- OpenCode export: `{export_relative}`",
+                    f"- Pi session: `{session_label}`",
+                    f"- Pi export: `{export_relative}`",
                     "",
                     "## Ralph task description",
                     original_task.body,
@@ -2527,3 +2715,10 @@ def _template_resource_parts(name: str) -> tuple[str, ...]:
     if parts and parts[0] == ".jri":
         return parts[1:]
     return parts
+
+
+def _single_line(text: str, *, limit: int) -> str:
+    line = " ".join(text.split())
+    if len(line) <= limit:
+        return line
+    return line[: limit - 3].rstrip() + "..."

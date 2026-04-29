@@ -8,9 +8,9 @@ from typing import Any
 
 import yaml
 
-from ..models import Task
-from ..service import JriService
-from ..tasks import list_tasks
+from ...models import Task
+from ...service import JriService
+from ...tasks import list_tasks
 
 SLUG_RE = re.compile(r"^[a-zA-Z0-9][-a-zA-Z0-9_.]*$")
 
@@ -292,6 +292,14 @@ def _run_promote_tasks(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _run_approve_draft_promotion(payload: dict[str, Any]) -> str:
+    slugs = _assert_slug_list("slugs", payload.get("slugs")) or []
+    selected = JriService(Path.cwd()).approve_draft_promotion(slugs=slugs)
+    lines = [f"Approved promotion for {len(selected)} draft task(s)."]
+    lines.extend(f"  - {task.slug}" for task in selected)
+    return "\n".join(lines)
+
+
 def _task_to_payload(task: Task) -> dict[str, object]:
     return {
         "status": task.path.parent.name,
@@ -341,6 +349,8 @@ def _run_ralph_result(payload: dict[str, Any]) -> str:
     result = payload.get("result")
     if result not in {"completed", "incompleted", "needs_human"}:
         raise ValueError("invalid result")
+    if result == "incompleted" and not payload.get("learnings"):
+        raise ValueError("incompleted requires non-empty learnings")
     if result == "needs_human" and (
         not payload.get("blocker") or payload.get("human_task") is None
     ):
@@ -460,6 +470,7 @@ _HANDLERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "upsert-task": _run_upsert_task,
     "rename-task": _run_rename_task,
     "delete-task": _run_delete_task,
+    "approve-draft-promotion": _run_approve_draft_promotion,
     "promote-tasks": _run_promote_tasks,
     "ralph-result": _run_ralph_result,
 }

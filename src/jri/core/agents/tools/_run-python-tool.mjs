@@ -14,7 +14,7 @@ export function runPythonTool(toolName, payload) {
   }
 
   for (const command of candidates) {
-    const result = spawnSync(command, ["-m", "jri.core.opencode.tools", toolName], {
+    const result = spawnSync(command, ["-m", "jri.core.agents.tools", toolName], {
       input: JSON.stringify(payload),
       encoding: "utf-8",
       env,

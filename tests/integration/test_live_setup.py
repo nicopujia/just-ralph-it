@@ -94,7 +94,7 @@ def test_live_pytest_config_disables_capture_for_live_runs(
     config = SimpleNamespace(
         option=SimpleNamespace(capture="fd"),
         pluginmanager=pluginmanager,
-        getoption=lambda name: name == "run_live_opencode",
+        getoption=lambda name: name == "run_live_pi",
         add_cleanup=cleanups.append,
     )
 
