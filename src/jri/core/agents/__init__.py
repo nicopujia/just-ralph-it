@@ -1,6 +1,6 @@
 from .client import (
-    OpenCodeProgrammatic,
-    OpenCodeServer,
+    AgentRuntime,
+    PiRuntime,
     SavedLogRenderer,
     _missing_result_payload,
     _parse_event_line,
@@ -10,8 +10,8 @@ from .client import (
 )
 
 __all__ = [
-    "OpenCodeProgrammatic",
-    "OpenCodeServer",
+    "AgentRuntime",
+    "PiRuntime",
     "SavedLogRenderer",
     "launch_chat",
     "render_saved_log",

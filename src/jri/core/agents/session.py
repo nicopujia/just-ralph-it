@@ -1,4 +1,3 @@
-import re
 import sys
 import tempfile
 from collections.abc import Callable, Iterator
@@ -8,7 +7,7 @@ from typing import Any
 
 from ..errors import JriError
 from ..timeline import TimelineEvent, TimelineStore
-from .client import OpenCodeProgrammatic, OpenCodeServer
+from .client import AgentRuntime, PiRuntime
 from .config import (
     COPYABLE_DIRECTORIES,
     iter_directory_assets,
@@ -20,24 +19,18 @@ from .config import (
 def runtime_env(
     *,
     overrides: dict[str, str | None],
-    config_name: str = "config.json",
+    config_name: str = "package.json",
     included_agents: set[str] | None = None,
 ) -> Iterator[dict[str, str]]:
-    config_text = load_asset_text(config_name)
-    filtered_overrides = {
-        agent: model for agent, model in overrides.items() if model is not None
-    }
-    if filtered_overrides:
-        config_text = _apply_agent_model_overrides(config_text, filtered_overrides)
-    with tempfile.TemporaryDirectory(prefix="jri-opencode-") as tmp_dir:
+    del config_name
+    with tempfile.TemporaryDirectory(prefix="jri-pi-") as tmp_dir:
         bundle_root = Path(tmp_dir)
-        config_dir = bundle_root / ".opencode"
         for directory in COPYABLE_DIRECTORIES:
-            target_dir = config_dir / directory
+            target_dir = bundle_root / directory
             target_dir.mkdir(parents=True, exist_ok=True)
             for name in iter_directory_assets(directory):
                 if (
-                    directory == "agents"
+                    directory == "prompts"
                     and included_agents is not None
                     and Path(name).stem not in included_agents
                 ):
@@ -47,40 +40,38 @@ def runtime_env(
                 target_path.write_text(
                     load_asset_text(Path(directory) / name), encoding="utf-8"
                 )
-        config_path = bundle_root / "opencode.json"
-        config_path.write_text(config_text, encoding="utf-8")
+        _write_package_manifest(bundle_root, overrides=overrides)
         pythonpath_entry = str(Path(__file__).resolve().parents[3])
         yield {
-            "OPENCODE_CONFIG": str(config_path.resolve()),
-            "OPENCODE_CONFIG_DIR": str(config_dir.resolve()),
+            "JRI_PI_PACKAGE": str(bundle_root.resolve()),
             "JRI_PYTHON": sys.executable,
             "JRI_PYTHONPATH": pythonpath_entry,
         }
 
 
-def call_with_server(
-    opencode: OpenCodeProgrammatic,
+def call_with_runtime(
+    runtime: AgentRuntime,
     *,
     root: Path,
     operation: Callable[[], Any],
 ) -> Any:
-    if isinstance(opencode, OpenCodeServer) and not opencode.is_healthy():
+    if isinstance(runtime, PiRuntime) and not runtime.is_healthy():
         with runtime_env(overrides={}) as env:
-            opencode.start(env=env, cwd=root)
+            runtime.start(env=env, cwd=root)
             try:
                 return operation()
             finally:
-                opencode.stop()
+                runtime.stop()
     return operation()
 
 
 def list_sessions(
-    opencode: OpenCodeProgrammatic,
+    runtime: AgentRuntime,
     *,
     root: Path,
 ) -> list[dict[str, object]]:
-    return call_with_server(
-        opencode, root=root, operation=lambda: opencode.list_sessions(root=root)
+    return call_with_runtime(
+        runtime, root=root, operation=lambda: runtime.list_sessions(root=root)
     )
 
 
@@ -109,7 +100,7 @@ def detect_latest_session(
 
 
 def export_session_if_available(
-    opencode: OpenCodeProgrammatic,
+    runtime: AgentRuntime,
     *,
     root: Path,
     destination_dir: Path,
@@ -122,10 +113,10 @@ def export_session_if_available(
     export_path = destination_dir / f"{session_id}.json"
     export_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        call_with_server(
-            opencode,
+        call_with_runtime(
+            runtime,
             root=root,
-            operation=lambda: opencode.export_session(session_id, export_path),
+            operation=lambda: runtime.export_session(session_id, export_path),
         )
     except JriError as exc:
         error_msg = f"Failed to export session {session_id}: {exc}"
@@ -145,14 +136,23 @@ def export_session_if_available(
     return export_path
 
 
-def _apply_agent_model_overrides(config_text: str, overrides: dict[str, str]) -> str:
-    updated = config_text
-    for agent, model in overrides.items():
-        pattern = re.compile(
-            rf'("{re.escape(agent)}"\s*:\s*\{{.*?"model"\s*:\s*")([^"]+)(")',
-            re.DOTALL,
-        )
-        updated, count = pattern.subn(rf"\g<1>{model}\g<3>", updated, count=1)
-        if count != 1:
-            raise JriError(f"failed to apply model override for agent '{agent}'")
-    return updated
+def _write_package_manifest(
+    bundle_root: Path, *, overrides: dict[str, str | None]
+) -> None:
+    package = {
+        "name": "jri-pi-runtime",
+        "private": True,
+        "keywords": ["pi-package"],
+        "pi": {
+            "extensions": ["./extensions/jri.ts"],
+            "skills": ["./skills"],
+            "prompts": ["./prompts"],
+            "tools": ["./tools"],
+        },
+        "jri": {
+            "models": {name: model for name, model in overrides.items() if model},
+        },
+    }
+    (bundle_root / "package.json").write_text(
+        __import__("json").dumps(package, indent=2) + "\n", encoding="utf-8"
+    )

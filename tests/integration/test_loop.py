@@ -14,16 +14,16 @@ from typing import Any, cast
 import pytest
 
 from jri.cli.main import main, resolve_start_models
+from jri.core.agents import PiRuntime
 from jri.core.errors import HaltRequested, JriError, RestartRequested
 from jri.core.git import MSG_RECOVER_STALE
 from jri.core.models import (
+    AgentRunResult,
     AttemptState,
     HumanTaskPayload,
-    OpenCodeRunResult,
     RalphResultPayload,
     State,
 )
-from jri.core.opencode import OpenCodeServer
 from jri.core.service import JriService, _FollowControls
 from jri.core.tasks import list_tasks, parse_task_file
 from jri.core.ui import CYAN, RESET
@@ -40,7 +40,7 @@ def run_cli(args: list[str], cwd: Path) -> int:
     return exit_code
 
 
-class FakeOpenCodeServer:
+class FakeAgentRuntime:
     def __init__(self, *, model: str | None = None) -> None:
         self.model = model
 
@@ -56,14 +56,14 @@ class FakeOpenCodeServer:
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         raise NotImplementedError
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text("{}\n", encoding="utf-8")
 
 
-class SuccessfulFakeOpenCodeClient(FakeOpenCodeServer):
+class SuccessfulFakeAgentRuntime(FakeAgentRuntime):
     def __init__(self) -> None:
         super().__init__(model=None)
         self.calls: list[tuple[str, Path]] = []
@@ -78,12 +78,12 @@ class SuccessfulFakeOpenCodeClient(FakeOpenCodeServer):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         self.calls.append((prompt, log_path))
         self.models_used.append(self.model)
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
-        return OpenCodeRunResult(
+        return AgentRunResult(
             returncode=0,
             session_id="ses_fake",
             result="completed",
@@ -98,7 +98,7 @@ class SuccessfulFakeOpenCodeClient(FakeOpenCodeServer):
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
 
 
-class NeedsHumanFakeOpenCodeClient(FakeOpenCodeServer):
+class NeedsHumanFakeAgentRuntime(FakeAgentRuntime):
     """Simulates Ralph resolving the task as needs human."""
 
     def __init__(self) -> None:
@@ -114,10 +114,10 @@ class NeedsHumanFakeOpenCodeClient(FakeOpenCodeServer):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         self.calls.append((prompt, log_path))
         log_path.write_text("fake needs-human run\n", encoding="utf-8")
-        return OpenCodeRunResult(
+        return AgentRunResult(
             returncode=0,
             session_id="ses_needs_human",
             result="needs_human",
@@ -136,7 +136,7 @@ class NeedsHumanFakeOpenCodeClient(FakeOpenCodeServer):
         destination.write_text('{"session": "fake_needs_human"}\n', encoding="utf-8")
 
 
-class NeedsHumanThenSuccessfulFakeOpenCodeClient(FakeOpenCodeServer):
+class NeedsHumanThenSuccessfulFakeAgentRuntime(FakeAgentRuntime):
     """Returns needs human for the first call, successful for the second."""
 
     def __init__(self) -> None:
@@ -153,12 +153,12 @@ class NeedsHumanThenSuccessfulFakeOpenCodeClient(FakeOpenCodeServer):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         self.calls.append((prompt, log_path))
         self._call_count += 1
         log_path.write_text(f"fake run #{self._call_count}\n", encoding="utf-8")
         if self._call_count == 1:
-            return OpenCodeRunResult(
+            return AgentRunResult(
                 returncode=0,
                 session_id="ses_needs_human",
                 result="needs_human",
@@ -173,13 +173,13 @@ class NeedsHumanThenSuccessfulFakeOpenCodeClient(FakeOpenCodeServer):
                 ),
             )
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
-        return OpenCodeRunResult(returncode=0, session_id="ses_ok", result="completed")
+        return AgentRunResult(returncode=0, session_id="ses_ok", result="completed")
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
 
 
-class MissingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
+class MissingDoingTaskAgentRuntime(SuccessfulFakeAgentRuntime):
     def run_ralph_task(
         self,
         *,
@@ -189,7 +189,7 @@ class MissingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         (root / ".jri" / "tasks" / "doing" / "implement-file.md").unlink()
         return super().run_ralph_task(
             root=root,
@@ -201,7 +201,7 @@ class MissingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         )
 
 
-class MutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
+class MutatingDoingTaskAgentRuntime(SuccessfulFakeAgentRuntime):
     def run_ralph_task(
         self,
         *,
@@ -211,7 +211,7 @@ class MutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         doing_path = root / ".jri" / "tasks" / "doing" / "implement-file.md"
         doing_path.write_text(
             doing_path.read_text(encoding="utf-8") + "\nMutated in place.\n",
@@ -227,7 +227,7 @@ class MutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         )
 
 
-class CommittedMutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
+class CommittedMutatingDoingTaskAgentRuntime(SuccessfulFakeAgentRuntime):
     def run_ralph_task(
         self,
         *,
@@ -237,7 +237,7 @@ class CommittedMutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         doing_path = root / ".jri" / "tasks" / "doing" / "implement-file.md"
         doing_path.write_text(
             doing_path.read_text(encoding="utf-8") + "\nCommitted mutation.\n",
@@ -255,7 +255,7 @@ class CommittedMutatingDoingTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         )
 
 
-class FollowUpDraftOpenCodeClient(SuccessfulFakeOpenCodeClient):
+class FollowUpDraftAgentRuntime(SuccessfulFakeAgentRuntime):
     def run_ralph_task(
         self,
         *,
@@ -265,7 +265,7 @@ class FollowUpDraftOpenCodeClient(SuccessfulFakeOpenCodeClient):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         write_task(
             root,
             status="draft",
@@ -286,9 +286,9 @@ class FollowUpDraftOpenCodeClient(SuccessfulFakeOpenCodeClient):
         )
 
 
-class InterruptedStartupOpenCodeServer(OpenCodeServer):
+class InterruptedStartupPiRuntime(PiRuntime):
     def __init__(self) -> None:
-        super().__init__(binary="opencode")
+        super().__init__(binary="pi")
         self.stop_calls = 0
 
     def start(
@@ -305,12 +305,12 @@ class InterruptedStartupOpenCodeServer(OpenCodeServer):
         self._process = None
 
 
-class CapturingStartupOpenCodeServer(InterruptedStartupOpenCodeServer):
+class CapturingStartupPiRuntime(InterruptedStartupPiRuntime):
     def __init__(self) -> None:
         super().__init__()
         self.started_env: dict[str, str] | None = None
-        self.config_text: str | None = None
-        self.config_path: Path | None = None
+        self.manifest_text: str | None = None
+        self.package_root: Path | None = None
 
     def start(
         self,
@@ -320,15 +320,17 @@ class CapturingStartupOpenCodeServer(InterruptedStartupOpenCodeServer):
     ) -> None:
         assert env is not None
         self.started_env = env
-        self.config_path = Path(env["OPENCODE_CONFIG"])
-        self.config_text = self.config_path.read_text(encoding="utf-8")
+        self.package_root = Path(env["JRI_PI_PACKAGE"])
+        self.manifest_text = (self.package_root / "package.json").read_text(
+            encoding="utf-8"
+        )
         super().start(env=env, cwd=cwd)
 
 
-class RefreshCapturingOpenCodeServer(OpenCodeServer):
+class RefreshCapturingPiRuntime(PiRuntime):
     def __init__(self) -> None:
-        super().__init__(binary="opencode")
-        self.start_config_paths: list[Path] = []
+        super().__init__(binary="pi")
+        self.start_package_roots: list[Path] = []
         self.stop_calls = 0
 
     def is_healthy(self) -> bool:
@@ -344,10 +346,10 @@ class RefreshCapturingOpenCodeServer(OpenCodeServer):
         cwd: Path | None = None,
     ) -> None:
         assert env is not None
-        self.start_config_paths.append(Path(env["OPENCODE_CONFIG"]))
+        self.start_package_roots.append(Path(env["JRI_PI_PACKAGE"]))
         self._process = cast(
             Any,
-            FakeDetachedProcess(7000 + len(self.start_config_paths)),
+            FakeDetachedProcess(7000 + len(self.start_package_roots)),
         )
 
     def stop(self) -> None:
@@ -363,14 +365,14 @@ class RefreshCapturingOpenCodeServer(OpenCodeServer):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         del result_path, timeout
         if on_start is not None and self._process is not None:
             cast(Any, on_start)(self._process.pid)
         slug = _extract_task_slug(prompt)
         (root / f"{slug}.txt").write_text(f"{slug}\n", encoding="utf-8")
         log_path.write_text(f"completed {slug}\n", encoding="utf-8")
-        return OpenCodeRunResult(
+        return AgentRunResult(
             returncode=0,
             session_id=f"ses_{slug}",
             result="completed",
@@ -416,8 +418,8 @@ def test_start_uses_explicit_model_override(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
 
-    client = SuccessfulFakeOpenCodeClient()
-    service = JriService(git_repo, opencode_client=client)
+    client = SuccessfulFakeAgentRuntime()
+    service = JriService(git_repo, agent_runtime=client)
 
     completed = service.start(
         max_tasks=1, model="vercel/alibaba/qwen3.6-plus", force=True
@@ -428,11 +430,11 @@ def test_start_uses_explicit_model_override(git_repo: Path) -> None:
     assert client.model is None
 
 
-def test_start_server_model_overrides_use_temporary_config(git_repo: Path) -> None:
+def test_start_model_overrides_use_temporary_pi_package(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
 
-    server = CapturingStartupOpenCodeServer()
-    service = JriService(git_repo, opencode_client=server)
+    runtime = CapturingStartupPiRuntime()
+    service = JriService(git_repo, agent_runtime=runtime)
 
     with pytest.raises(HaltRequested, match="Ralph halt requested"):
         service.run_loop_process(
@@ -444,27 +446,21 @@ def test_start_server_model_overrides_use_temporary_config(git_repo: Path) -> No
             force=True,
         )
 
-    assert server.started_env is not None
-    assert server.config_path is not None
-    assert server.config_text is not None
-    assert Path(server.started_env["OPENCODE_CONFIG_DIR"]) == (
-        server.config_path.parent / ".opencode"
-    )
-    assert server.started_env["JRI_PYTHON"]
-    assert Path(server.started_env["JRI_PYTHONPATH"]).exists()
-    assert not server.config_path.is_relative_to(git_repo)
-    assert '"ralph": {' in server.config_text
-    assert '"model": "provider/ralph-main"' in server.config_text
-    assert '"ralph-validator": {' in server.config_text
-    assert '"model": "provider/ralph-validator"' in server.config_text
-    assert '"explore": {' in server.config_text
-    assert '"model": "provider/explore-subagent"' in server.config_text
-    assert '"general": {' in server.config_text
-    assert '"model": "provider/general-subagent"' in server.config_text
-    assert not server.config_path.exists()
+    assert runtime.started_env is not None
+    assert runtime.package_root is not None
+    assert runtime.manifest_text is not None
+    assert Path(runtime.started_env["JRI_PI_PACKAGE"]) == runtime.package_root
+    assert runtime.started_env["JRI_PYTHON"]
+    assert Path(runtime.started_env["JRI_PYTHONPATH"]).exists()
+    assert not runtime.package_root.is_relative_to(git_repo)
+    assert '"ralph": "provider/ralph-main"' in runtime.manifest_text
+    assert '"ralph-validator": "provider/ralph-validator"' in runtime.manifest_text
+    assert '"explore": "provider/explore-subagent"' in runtime.manifest_text
+    assert '"general": "provider/general-subagent"' in runtime.manifest_text
+    assert not runtime.package_root.exists()
 
 
-def test_start_refreshes_server_runtime_each_iteration_in_dogfood_mode(
+def test_start_refreshes_pi_runtime_each_iteration_in_dogfood_mode(
     git_repo: Path,
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
@@ -482,18 +478,18 @@ def test_start_refreshes_server_runtime_each_iteration_in_dogfood_mode(
     git(git_repo, "add", ".jri/tasks/todo/")
     git(git_repo, "commit", "-m", "add self-hosting tasks")
 
-    server = RefreshCapturingOpenCodeServer()
-    service = JriService(git_repo, opencode_client=server)
+    runtime = RefreshCapturingPiRuntime()
+    service = JriService(git_repo, agent_runtime=runtime)
 
     completed = service.start(max_tasks=2, force=True, dogfood=True)
 
     assert completed == 2
-    assert len(server.start_config_paths) == 2
-    assert server.start_config_paths[0] != server.start_config_paths[1]
-    assert server.stop_calls == 2
+    assert len(runtime.start_package_roots) == 2
+    assert runtime.start_package_roots[0] != runtime.start_package_roots[1]
+    assert runtime.stop_calls == 2
 
 
-def test_start_keeps_single_server_runtime_without_dogfood(git_repo: Path) -> None:
+def test_start_keeps_single_pi_runtime_without_dogfood(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     for slug in ("task-a", "task-b"):
         write_task(
@@ -509,21 +505,21 @@ def test_start_keeps_single_server_runtime_without_dogfood(git_repo: Path) -> No
     git(git_repo, "add", ".jri/tasks/todo/")
     git(git_repo, "commit", "-m", "add regular tasks")
 
-    server = RefreshCapturingOpenCodeServer()
-    service = JriService(git_repo, opencode_client=server)
+    runtime = RefreshCapturingPiRuntime()
+    service = JriService(git_repo, agent_runtime=runtime)
 
     completed = service.start(max_tasks=2, force=True)
 
     assert completed == 2
-    assert len(server.start_config_paths) == 1
-    assert server.stop_calls == 1
+    assert len(runtime.start_package_roots) == 1
+    assert runtime.stop_calls == 1
 
 
 def test_start_detached_passes_validator_model_to_child(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     popen_calls: list[list[str]] = []
     popen_envs: list[dict[str, str]] = []
@@ -899,7 +895,7 @@ def test_start_completes_single_task(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -949,8 +945,8 @@ def test_start_passes_doing_task_path_to_ralph(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
 
-    client = SuccessfulFakeOpenCodeClient()
-    service = JriService(git_repo, opencode_client=client)
+    client = SuccessfulFakeAgentRuntime()
+    service = JriService(git_repo, agent_runtime=client)
 
     assert service.start(max_tasks=1, force=True) == 1
     assert len(client.calls) == 1
@@ -962,16 +958,16 @@ def test_start_passes_doing_task_path_to_ralph(git_repo: Path) -> None:
     )
 
 
-def test_start_interrupt_during_server_start_stops_opencode(git_repo: Path) -> None:
+def test_start_interrupt_during_pi_start_stops_pi(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
 
-    server = InterruptedStartupOpenCodeServer()
-    service = JriService(git_repo, opencode_client=server)
+    runtime = InterruptedStartupPiRuntime()
+    service = JriService(git_repo, agent_runtime=runtime)
 
     with pytest.raises(HaltRequested, match="Ralph halt requested"):
         service.start(max_tasks=1, force=True)
 
-    assert server.stop_calls == 1
+    assert runtime.stop_calls == 1
     state = read_json(git_repo / ".jri" / "state.json")
     assert state.get("process") is None
 
@@ -990,7 +986,7 @@ def test_start_fails_cleanly_when_doing_task_disappears(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
 
-    service = JriService(git_repo, opencode_client=MissingDoingTaskOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=MissingDoingTaskAgentRuntime())
 
     with pytest.raises(JriError, match="disappeared during Ralph run"):
         service.start(max_tasks=1, force=True)
@@ -1016,7 +1012,7 @@ def test_start_restores_in_place_mutation_of_doing_task(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
 
-    service = JriService(git_repo, opencode_client=MutatingDoingTaskOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=MutatingDoingTaskAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
     assert completed == 1
@@ -1050,7 +1046,7 @@ def test_start_restores_committed_in_place_mutation_of_doing_task(
 
     service = JriService(
         git_repo,
-        opencode_client=CommittedMutatingDoingTaskOpenCodeClient(),
+        agent_runtime=CommittedMutatingDoingTaskAgentRuntime(),
     )
 
     completed = service.start(max_tasks=1, force=True)
@@ -1075,7 +1071,7 @@ def test_start_allows_additive_follow_up_draft_tasks(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
 
-    service = JriService(git_repo, opencode_client=FollowUpDraftOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=FollowUpDraftAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -1101,7 +1097,7 @@ def test_start_refuses_when_tracked_process_is_still_alive(git_repo: Path) -> No
     )
     sleeper = subprocess.Popen(["sleep", "30"])
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save_process(
         loop_pid=sleeper.pid,
         child_pid=None,
@@ -1133,7 +1129,7 @@ def test_ctl_start_suggests_attach_when_tracked_process_is_still_alive(
     )
     sleeper = subprocess.Popen(["sleep", "30"])
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save_process(
         loop_pid=sleeper.pid,
         child_pid=None,
@@ -1168,7 +1164,7 @@ def test_start_rejects_multiple_doing_tasks_at_start(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/doing")
     git(git_repo, "commit", "-m", "seed multiple doing tasks")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     with pytest.raises(JriError, match="multiple tasks are already in progress"):
         service.start(max_tasks=1, force=True)
@@ -1189,7 +1185,7 @@ def test_start_rejects_active_attempt_task_slug_mismatch(git_repo: Path) -> None
     git(git_repo, "add", ".jri/tasks/doing/implement-file.md")
     git(git_repo, "commit", "-m", "seed mismatched active attempt")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save(
         State(
             active_attempt=AttemptState(
@@ -1230,7 +1226,7 @@ def test_start_recovers_clean_foreground_interruption(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/doing/implement-file.md")
     git(git_repo, "commit", "-m", "seed interrupted task")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -1261,7 +1257,7 @@ def test_start_records_retry_attempt_after_interrupted_run(git_repo: Path) -> No
     git(git_repo, "add", ".jri/tasks/doing/implement-file.md")
     git(git_repo, "commit", "-m", "seed interrupted attempt")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     interrupted_attempt = AttemptState(
         number=1,
         task_slug="implement-file",
@@ -1324,7 +1320,7 @@ def test_start_reruns_unverified_completed_attempt(git_repo: Path) -> None:
     )
     git(git_repo, "commit", "-m", "seed unverified completed attempt")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     stale_attempt = AttemptState(
         number=1,
         task_slug="recover-me",
@@ -1401,7 +1397,7 @@ def test_start_does_not_resume_completed_attempt_from_timeline_event_only(
     )
     git(git_repo, "commit", "-m", "seed timeline-only completion evidence")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     stale_attempt = AttemptState(
         number=1,
         task_slug="recover-me",
@@ -1469,7 +1465,7 @@ def test_start_recovers_stale_foreground_process(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/doing/implement-file.md")
     git(git_repo, "commit", "-m", "seed stale process task")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save_process(
         loop_pid=_dead_pid(),
         child_pid=None,
@@ -1506,7 +1502,7 @@ def test_start_clears_stale_process_metadata_without_doing_task(git_repo: Path) 
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "seed stale process metadata")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save_process(
         loop_pid=_dead_pid(),
         child_pid=None,
@@ -1540,7 +1536,7 @@ def test_start_prunes_stale_worktree_metadata_before_recreating_worktree(
         git(git_repo, "add", f".jri/tasks/todo/{slug}.md")
         git(git_repo, "commit", "-m", f"add {slug}")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     assert service.start(max_tasks=1, force=True) == 1
 
@@ -1586,7 +1582,7 @@ def test_start_recovers_clean_detached_interruption(
         return FakeDetachedProcess(424242)
 
     monkeypatch.setattr("jri.core.service.subprocess.Popen", fake_popen)
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     assert service.start(max_tasks=1, detached=True, force=True) == 0
     assert popen_calls == [expected_command]
@@ -1621,7 +1617,7 @@ def test_start_recovers_stale_detached_process(
     git(git_repo, "add", ".jri/tasks/doing/implement-file.md")
     git(git_repo, "commit", "-m", "seed stale detached process")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save_process(
         loop_pid=_dead_pid(),
         child_pid=None,
@@ -1771,7 +1767,7 @@ def test_start_does_not_force_color_without_tty(
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     original_popen = cast(Any, subprocess.Popen)
     expected_command = [sys.executable, "-m", "jri", "-n", "1"]
 
@@ -1814,7 +1810,7 @@ def test_ctl_attach_replays_tracked_run_output(
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("first line\nsecond line\n", encoding="utf-8")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save_process(
         loop_pid=_dead_pid(),
         child_pid=None,
@@ -1836,7 +1832,7 @@ def test_ctl_attach_allows_detach(
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("first line\n", encoding="utf-8")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save_process(
         loop_pid=_dead_pid(),
         child_pid=None,
@@ -1914,7 +1910,7 @@ def test_follow_controls_cancel_stop_after_second_s() -> None:
 def test_follow_log_stop_control_writes_stop_signal(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     log_path = git_repo / ".jri" / "logs" / "ralph" / "running.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("", encoding="utf-8")
@@ -1954,7 +1950,7 @@ def test_follow_log_stop_control_writes_stop_signal(
 def test_follow_log_detach_notice_is_cyan_when_color_is_enabled(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     log_path = git_repo / ".jri" / "logs" / "ralph" / "running.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("", encoding="utf-8")
@@ -1987,7 +1983,7 @@ def test_follow_log_detach_notice_is_cyan_when_color_is_enabled(
 def test_follow_log_shows_saved_stop_request_after_attach(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     log_path = git_repo / ".jri" / "logs" / "ralph" / "running.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("", encoding="utf-8")
@@ -2026,7 +2022,7 @@ def test_follow_log_shows_saved_stop_request_after_attach(
 def test_follow_log_halt_control_invokes_halt(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     log_path = git_repo / ".jri" / "logs" / "ralph" / "running.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("running\n", encoding="utf-8")
@@ -2057,7 +2053,7 @@ def test_follow_log_halt_control_invokes_halt(
 def test_follow_log_shows_spinner_for_running_subagent(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     log_path = git_repo / ".jri" / "logs" / "ralph" / "running.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(
@@ -2134,7 +2130,7 @@ def test_follow_log_shows_spinner_for_running_subagent(
 def test_follow_log_redraws_footer_across_repeated_resizes(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     log_path = git_repo / ".jri" / "logs" / "ralph" / "running.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("", encoding="utf-8")
@@ -2183,7 +2179,7 @@ def test_follow_log_redraws_footer_across_repeated_resizes(
 def test_follow_log_stops_when_spawned_process_has_exited(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     log_path = git_repo / ".jri" / "logs" / "ralph" / "completed.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text("completed\n", encoding="utf-8")
@@ -2208,7 +2204,7 @@ def test_follow_log_stops_when_spawned_process_has_exited(
 def test_follow_log_renders_saved_events_instead_of_raw_json(
     git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     log_path = git_repo / ".jri" / "logs" / "ralph" / "completed.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_path.write_text(
@@ -2300,7 +2296,7 @@ def test_view_inspect_pretty_prints_saved_task_log(
         log_path=str(log_path),
         result="completed",
     )
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save(State(attempts=[attempt]))
 
     assert run_cli(["inspect", "task-a"], cwd=git_repo) == 0
@@ -2326,7 +2322,7 @@ def test_view_inspect_defaults_to_active_attempt(
         started_at=1,
         log_path=str(log_path),
     )
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save(State(active_attempt=attempt, attempts=[attempt]))
 
     assert run_cli(["inspect"], cwd=git_repo) == 0
@@ -2438,8 +2434,8 @@ def test_start_retries_after_interrupted_completion_without_rerunning_task(
     git(git_repo, "add", ".jri/tasks/todo")
     git(git_repo, "commit", "-m", "add retry tasks")
 
-    first_client = SuccessfulFakeOpenCodeClient()
-    first_service = JriService(git_repo, opencode_client=first_client)
+    first_client = SuccessfulFakeAgentRuntime()
+    first_service = JriService(git_repo, agent_runtime=first_client)
 
     def interrupted_mark_task_finished(*, task_slug: str, finished_at: int) -> None:
         raise KeyboardInterrupt("simulated interruption during completion")
@@ -2463,8 +2459,8 @@ def test_start_retries_after_interrupted_completion_without_rerunning_task(
     assert git(git_repo, "branch", "--show-current") == "main"
     assert "jri/end/task-a" in git(git_repo, "tag").splitlines()
 
-    retry_client = SuccessfulFakeOpenCodeClient()
-    retry_service = JriService(git_repo, opencode_client=retry_client)
+    retry_client = SuccessfulFakeAgentRuntime()
+    retry_service = JriService(git_repo, agent_runtime=retry_client)
 
     assert retry_service.start(max_tasks=1, force=True) == 1
     assert len(retry_client.calls) == 1
@@ -2481,7 +2477,7 @@ def test_start_retries_after_interrupted_completion_without_rerunning_task(
 
 def test_stop_creates_stop_signal(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     service.stop("maintenance window")
 
@@ -2509,7 +2505,7 @@ def test_ctl_stop_cancel_removes_stop_signal(
     git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.stop("maintenance")
     capsys.readouterr()
 
@@ -2533,7 +2529,7 @@ def test_reset_returns_repo_to_last_successful_task(git_repo: Path) -> None:
     )
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert service.start(max_tasks=1, force=True) == 1
     service.state_store.save_session("ses_interrogation")
 
@@ -2552,7 +2548,7 @@ def test_reset_returns_repo_to_last_successful_task(git_repo: Path) -> None:
 def test_halt_terminates_tracked_process(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     sleeper = subprocess.Popen(["sleep", "30"])
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save_process(
         loop_pid=sleeper.pid, child_pid=None, log_path=None, detached=True
     )
@@ -2573,7 +2569,7 @@ def test_ctl_halt_reports_success(
     assert run_cli(["init"], cwd=git_repo) == 0
     capsys.readouterr()
     sleeper = subprocess.Popen(["sleep", "30"])
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save_process(
         loop_pid=sleeper.pid, child_pid=None, log_path=None, detached=True
     )
@@ -2593,7 +2589,7 @@ def test_halt_skips_current_process_and_terminates_tracked_child(
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save_process(
         loop_pid=os.getpid(),
         child_pid=424242,
@@ -2641,7 +2637,7 @@ def test_needs_human_generates_human_followup_and_blocks_original_task(
     git(git_repo, "add", ".jri/tasks/todo/needs-human-task.md")
     git(git_repo, "commit", "-m", "add needs human task")
 
-    service = JriService(git_repo, opencode_client=NeedsHumanFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=NeedsHumanFakeAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -2667,9 +2663,9 @@ def test_needs_human_generates_human_followup_and_blocks_original_task(
     assert ".jri/tasks/todo/needs-human-task.md" in human_task.body
     assert ".jri/logs/ralph/" in human_task.body
     assert "ses_needs_human" in human_task.body
-    assert ".jri/logs/external/opencode/ses_needs_human.json" in human_task.body
+    assert ".jri/logs/external/pi/ses_needs_human.json" in human_task.body
     assert (
-        git_repo / ".jri" / "logs" / "external" / "opencode" / "ses_needs_human.json"
+        git_repo / ".jri" / "logs" / "external" / "pi" / "ses_needs_human.json"
     ).exists()
     assert not (git_repo / ".jri" / "tasks" / "doing" / "needs-human-task.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "done" / "needs-human-task.md").exists()
@@ -2690,6 +2686,27 @@ def test_needs_human_generates_human_followup_and_blocks_original_task(
     )
     history_attempts = cast(list[dict[str, object]], attempt_history["attempts"])
     assert history_attempts[0]["result_payload"] == attempts[0]["result_payload"]
+
+    timeline = [
+        json.loads(line)
+        for line in (git_repo / ".jri" / "logs" / "timeline.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+    ]
+    escalated = [event for event in timeline if event["event"] == "task_escalated"]
+    assert escalated == [
+        {
+            "ts": escalated[0]["ts"],
+            "event": "task_escalated",
+            "task": "needs-human-task",
+            "detail": {
+                "attempt": 1,
+                "blocker": "A human action is required.",
+                "human_task": human_tasks[0].slug,
+                "session_id": "ses_needs_human",
+            },
+        }
+    ]
     assert git(git_repo, "branch", "--show-current") == "main"
     tags = git(git_repo, "tag").splitlines()
     assert "jri/1" not in tags
@@ -2713,12 +2730,12 @@ def test_needs_human_block_is_durable_across_runs(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/needs-human-task.md")
     git(git_repo, "commit", "-m", "add needs human task")
 
-    service = JriService(git_repo, opencode_client=NeedsHumanFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=NeedsHumanFakeAgentRuntime())
 
     assert service.start(max_tasks=1, force=True) == 0
 
-    retry_client = SuccessfulFakeOpenCodeClient()
-    retry_service = JriService(git_repo, opencode_client=retry_client)
+    retry_client = SuccessfulFakeAgentRuntime()
+    retry_service = JriService(git_repo, agent_runtime=retry_client)
 
     assert retry_service.start(max_tasks=1, force=True) == 0
     assert retry_client.calls == []
@@ -2748,8 +2765,8 @@ def test_needs_human_then_successful_completes_one(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/")
     git(git_repo, "commit", "-m", "add two tasks")
 
-    client = NeedsHumanThenSuccessfulFakeOpenCodeClient()
-    service = JriService(git_repo, opencode_client=client)
+    client = NeedsHumanThenSuccessfulFakeAgentRuntime()
+    service = JriService(git_repo, agent_runtime=client)
 
     completed = service.start(max_tasks=2, force=True)
 
@@ -2772,7 +2789,7 @@ def test_needs_human_then_successful_completes_one(git_repo: Path) -> None:
     assert git(git_repo, "branch", "--show-current") == "main"
 
 
-class MakeCheckFailsFakeOpenCodeClient(FakeOpenCodeServer):
+class MakeCheckFailsFakeAgentRuntime(FakeAgentRuntime):
     """Successful Ralph run, but the project has a failing make check."""
 
     def __init__(self) -> None:
@@ -2788,19 +2805,17 @@ class MakeCheckFailsFakeOpenCodeClient(FakeOpenCodeServer):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         self.calls.append((prompt, log_path))
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
-        return OpenCodeRunResult(
-            returncode=0, session_id="ses_fake", result="completed"
-        )
+        return AgentRunResult(returncode=0, session_id="ses_fake", result="completed")
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
 
 
-class FailedFakeOpenCodeClient(FakeOpenCodeServer):
+class FailedFakeAgentRuntime(FakeAgentRuntime):
     """Simulates a runtime-level failed run.
 
     Ralph does not produce a valid result.
@@ -2819,16 +2834,16 @@ class FailedFakeOpenCodeClient(FakeOpenCodeServer):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         self.calls.append((prompt, log_path))
         log_path.write_text("fake failed run\n", encoding="utf-8")
-        return OpenCodeRunResult(returncode=0, session_id="ses_failed", result="failed")
+        return AgentRunResult(returncode=0, session_id="ses_failed", result="failed")
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake_failed"}\n', encoding="utf-8")
 
 
-class IncompleteFakeOpenCodeClient(FakeOpenCodeServer):
+class IncompleteFakeAgentRuntime(FakeAgentRuntime):
     """Simulates Ralph returning an incompleted result."""
 
     def __init__(self) -> None:
@@ -2844,10 +2859,10 @@ class IncompleteFakeOpenCodeClient(FakeOpenCodeServer):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         self.calls.append((prompt, log_path))
         log_path.write_text("fake incompleted run\n", encoding="utf-8")
-        return OpenCodeRunResult(
+        return AgentRunResult(
             returncode=0,
             session_id="ses_incomplete",
             result="incompleted",
@@ -2862,7 +2877,88 @@ class IncompleteFakeOpenCodeClient(FakeOpenCodeServer):
         destination.write_text('{"session": "fake_incomplete"}\n', encoding="utf-8")
 
 
-class MalformedNeedsHumanFakeOpenCodeClient(FakeOpenCodeServer):
+class IncompleteWithoutLearningsFakeAgentRuntime(FakeAgentRuntime):
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        result_path: Path,
+        on_start: object | None = None,
+        timeout: int | None = None,
+    ) -> AgentRunResult:
+        del root, prompt, result_path, on_start, timeout
+        log_path.write_text("fake incompleted run\n", encoding="utf-8")
+        return AgentRunResult(
+            returncode=0,
+            session_id="ses_incomplete",
+            result="incompleted",
+            payload=RalphResultPayload(
+                result="incompleted",
+                summary="The task needs another pass.",
+            ),
+        )
+
+
+class LearningSensitiveFakeAgentRuntime(FakeAgentRuntime):
+    def __init__(self) -> None:
+        super().__init__(model=None)
+        self.calls: list[str] = []
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        result_path: Path,
+        on_start: object | None = None,
+        timeout: int | None = None,
+    ) -> AgentRunResult:
+        del result_path, on_start, timeout
+        self.calls.append(prompt)
+        log_path.write_text("fake learning-sensitive run\n", encoding="utf-8")
+        if "Use the existing helper." not in prompt:
+            return AgentRunResult(
+                returncode=0,
+                session_id="ses_incomplete",
+                result="incompleted",
+                payload=RalphResultPayload(
+                    result="incompleted",
+                    summary="The helper was missed.",
+                    learnings=["Use the existing helper."],
+                ),
+            )
+        (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
+        return AgentRunResult(
+            returncode=0,
+            session_id="ses_ok",
+            result="completed",
+            payload=RalphResultPayload(result="completed", summary="Done."),
+        )
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        destination.write_text(f'{{"session": "{session_id}"}}\n', encoding="utf-8")
+
+
+class NonzeroFakeAgentRuntime(FakeAgentRuntime):
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        result_path: Path,
+        on_start: object | None = None,
+        timeout: int | None = None,
+    ) -> AgentRunResult:
+        del root, prompt, result_path, on_start, timeout
+        log_path.write_text("fake nonzero run\n", encoding="utf-8")
+        return AgentRunResult(returncode=7, session_id="ses_nonzero", result="failed")
+
+
+class MalformedNeedsHumanFakeAgentRuntime(FakeAgentRuntime):
     """Simulates a malformed structured needs_human payload from Ralph."""
 
     def __init__(self) -> None:
@@ -2877,9 +2973,9 @@ class MalformedNeedsHumanFakeOpenCodeClient(FakeOpenCodeServer):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         log_path.write_text("fake malformed needs-human run\n", encoding="utf-8")
-        return OpenCodeRunResult(
+        return AgentRunResult(
             returncode=0,
             session_id="ses_bad_needs_human",
             result="failed",
@@ -2909,7 +3005,7 @@ def test_failed_outcome_triggers_recovery(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
     git(git_repo, "commit", "-m", "add failing task")
 
-    service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=FailedFakeAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -2921,6 +3017,41 @@ def test_failed_outcome_triggers_recovery(git_repo: Path) -> None:
     branches = git(git_repo, "branch", "--format=%(refname:short)").splitlines()
     assert "ralph/main" in branches
     assert "ralph" not in branches
+
+
+def test_start_summary_distinguishes_task_failure(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="failing-task",
+        title="Failing task",
+        priority=0,
+        assignee="Ralph",
+        body="This will fail.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
+    git(git_repo, "commit", "-m", "add failing task")
+
+    service = JriService(git_repo, agent_runtime=FailedFakeAgentRuntime())
+
+    summary = service.start_summary(max_tasks=1, force=True)
+
+    assert summary.completed == 0
+    assert summary.outcome == "task_failure"
+    assert summary.task_results == {"failing-task": "failed"}
+
+
+def test_start_summary_distinguishes_no_work(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
+
+    summary = service.start_summary(max_tasks=1, force=True)
+
+    assert summary.completed == 0
+    assert summary.outcome == "no_work"
+    assert summary.task_results == {}
 
 
 def test_incomplete_result_triggers_retryable_recovery(git_repo: Path) -> None:
@@ -2937,7 +3068,7 @@ def test_incomplete_result_triggers_retryable_recovery(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/incomplete-task.md")
     git(git_repo, "commit", "-m", "add incomplete task")
 
-    service = JriService(git_repo, opencode_client=IncompleteFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=IncompleteFakeAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -2960,6 +3091,94 @@ def test_incomplete_result_triggers_retryable_recovery(git_repo: Path) -> None:
     ] == []
 
 
+def test_incomplete_result_requires_learnings(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="incomplete-task",
+        title="Incomplete task",
+        priority=0,
+        assignee="Ralph",
+        body="This will be left incomplete.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/incomplete-task.md")
+    git(git_repo, "commit", "-m", "add incomplete task")
+
+    service = JriService(
+        git_repo,
+        agent_runtime=IncompleteWithoutLearningsFakeAgentRuntime(),
+    )
+
+    completed = service.start(max_tasks=1, force=True)
+
+    assert completed == 0
+    attempts = cast(
+        list[dict[str, object]],
+        read_json(git_repo / ".jri" / "state.json")["attempts"],
+    )
+    assert attempts[0]["result"] == "failed"
+
+
+def test_retry_prompt_includes_previous_attempt_learnings(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="retry-task",
+        title="Retry task",
+        priority=0,
+        assignee="Ralph",
+        body="This task needs the retry learning.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/retry-task.md")
+    git(git_repo, "commit", "-m", "add retry task")
+
+    runtime = LearningSensitiveFakeAgentRuntime()
+    first = JriService(git_repo, agent_runtime=runtime)
+    assert first.start(max_tasks=1, force=True) == 0
+
+    second = JriService(git_repo, agent_runtime=runtime)
+    assert second.start(max_tasks=1, force=True) == 1
+
+    assert len(runtime.calls) == 2
+    assert "Previous attempts" not in runtime.calls[0]
+    assert "Previous attempts" in runtime.calls[1]
+    assert "Result: incompleted" in runtime.calls[1]
+    assert "Summary: The helper was missed." in runtime.calls[1]
+    assert "- Use the existing helper." in runtime.calls[1]
+
+
+def test_nonzero_agent_return_records_failed_attempt_without_crashing(
+    git_repo: Path,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="nonzero-task",
+        title="Nonzero task",
+        priority=0,
+        assignee="Ralph",
+        body="This returns a nonzero runtime code.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/nonzero-task.md")
+    git(git_repo, "commit", "-m", "add nonzero task")
+
+    service = JriService(git_repo, agent_runtime=NonzeroFakeAgentRuntime())
+
+    assert service.start(max_tasks=1, force=True) == 0
+    attempts = cast(
+        list[dict[str, object]],
+        read_json(git_repo / ".jri" / "state.json")["attempts"],
+    )
+    assert attempts[0]["result"] == "failed"
+    timeline = (git_repo / ".jri" / "logs" / "timeline.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert '"reason":"nonzero_returncode"' in timeline
+
+
 def test_malformed_needs_human_payload_is_treated_as_failed(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
@@ -2976,7 +3195,7 @@ def test_malformed_needs_human_payload_is_treated_as_failed(git_repo: Path) -> N
 
     service = JriService(
         git_repo,
-        opencode_client=MalformedNeedsHumanFakeOpenCodeClient(),
+        agent_runtime=MalformedNeedsHumanFakeAgentRuntime(),
     )
 
     completed = service.start(max_tasks=1, force=True)
@@ -3007,7 +3226,7 @@ def test_make_check_runs_after_completion(git_repo: Path) -> None:
     git(git_repo, "add", "Makefile")
     git(git_repo, "commit", "-m", "add task and makefile")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -3035,7 +3254,7 @@ def test_make_check_pass_records_metric(git_repo: Path) -> None:
     git(git_repo, "add", "Makefile")
     git(git_repo, "commit", "-m", "add task and makefile")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     completed = service.start(max_tasks=1, force=True)
 
     assert completed == 1
@@ -3066,7 +3285,7 @@ def test_failing_make_check_records_metric(git_repo: Path) -> None:
     git(git_repo, "add", "Makefile")
     git(git_repo, "commit", "-m", "add task and makefile")
 
-    service = JriService(git_repo, opencode_client=MakeCheckFailsFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=MakeCheckFailsFakeAgentRuntime())
     completed = service.start(max_tasks=1, force=True)
 
     assert completed == 0
@@ -3095,7 +3314,7 @@ def test_failing_make_check_triggers_recovery(git_repo: Path) -> None:
     git(git_repo, "add", "Makefile")
     git(git_repo, "commit", "-m", "add task and makefile")
 
-    service = JriService(git_repo, opencode_client=MakeCheckFailsFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=MakeCheckFailsFakeAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -3127,8 +3346,8 @@ def test_failed_task_is_retried_after_first_failure(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "add failing task")
 
     # First run fails
-    fail_client = FailedFakeOpenCodeClient()
-    fail_service = JriService(git_repo, opencode_client=fail_client)
+    fail_client = FailedFakeAgentRuntime()
+    fail_service = JriService(git_repo, agent_runtime=fail_client)
     completed = fail_service.start(max_tasks=1, force=True)
 
     assert completed == 0
@@ -3143,8 +3362,8 @@ def test_failed_task_is_retried_after_first_failure(git_repo: Path) -> None:
     assert len(cast(list[dict[str, object]], history["attempts"])) == 1
 
     # Second run succeeds (task is retried)
-    success_client = SuccessfulFakeOpenCodeClient()
-    success_service = JriService(git_repo, opencode_client=success_client)
+    success_client = SuccessfulFakeAgentRuntime()
+    success_service = JriService(git_repo, agent_runtime=success_client)
     completed = success_service.start(max_tasks=1, force=True)
 
     assert completed == 1
@@ -3169,19 +3388,19 @@ def test_failed_task_is_retried_up_to_three_times(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "add failing task")
 
     # First run fails
-    service1 = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    service1 = JriService(git_repo, agent_runtime=FailedFakeAgentRuntime())
     assert service1.start(max_tasks=1, force=True) == 0
 
     # Second run also fails
-    service2 = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    service2 = JriService(git_repo, agent_runtime=FailedFakeAgentRuntime())
     assert service2.start(max_tasks=1, force=True) == 0
 
     # Task is still in todo, not escalated yet
     assert (git_repo / ".jri" / "tasks" / "todo" / "failing-task.md").exists()
 
     # Third run succeeds (task is still retryable)
-    success_client = SuccessfulFakeOpenCodeClient()
-    service3 = JriService(git_repo, opencode_client=success_client)
+    success_client = SuccessfulFakeAgentRuntime()
+    service3 = JriService(git_repo, agent_runtime=success_client)
     assert service3.start(max_tasks=1, force=True) == 1
     assert (git_repo / ".jri" / "tasks" / "done" / "failing-task.md").exists()
     assert len(success_client.calls) == 1
@@ -3203,16 +3422,16 @@ def test_failed_task_can_keep_retrying_without_escalation(git_repo: Path) -> Non
     git(git_repo, "commit", "-m", "add failing task")
 
     # First failure
-    service1 = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    service1 = JriService(git_repo, agent_runtime=FailedFakeAgentRuntime())
     assert service1.start(max_tasks=1, force=True) == 0
 
     # Second failure
-    service2 = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    service2 = JriService(git_repo, agent_runtime=FailedFakeAgentRuntime())
     assert service2.start(max_tasks=1, force=True) == 0
 
     # Third failure still leaves the task retryable later
-    fail_client3 = FailedFakeOpenCodeClient()
-    service3 = JriService(git_repo, opencode_client=fail_client3)
+    fail_client3 = FailedFakeAgentRuntime()
+    service3 = JriService(git_repo, agent_runtime=fail_client3)
     assert service3.start(max_tasks=1, force=True) == 0
 
     # Original task is back in todo and no Human task was generated
@@ -3234,8 +3453,8 @@ def test_failed_task_can_keep_retrying_without_escalation(git_repo: Path) -> Non
     assert len(failed_for_task) == 3
 
     # Subsequent start still retries the task
-    success_client = SuccessfulFakeOpenCodeClient()
-    service4 = JriService(git_repo, opencode_client=success_client)
+    success_client = SuccessfulFakeAgentRuntime()
+    service4 = JriService(git_repo, agent_runtime=success_client)
     assert service4.start(max_tasks=1, force=True) == 1
     assert len(success_client.calls) == 1
 
@@ -3256,8 +3475,8 @@ def test_failed_task_recovery_logs_failure(
     git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
     git(git_repo, "commit", "-m", "add failing task")
 
-    client = FailedFakeOpenCodeClient()
-    service = JriService(git_repo, opencode_client=client)
+    client = FailedFakeAgentRuntime()
+    service = JriService(git_repo, agent_runtime=client)
 
     monkeypatch.setattr(
         JriService,
@@ -3298,8 +3517,8 @@ def test_needs_human_recovery_logs_failure(
     git(git_repo, "add", ".jri/tasks/todo/needs-human-task.md")
     git(git_repo, "commit", "-m", "add needs human task")
 
-    client = NeedsHumanFakeOpenCodeClient()
-    service = JriService(git_repo, opencode_client=client)
+    client = NeedsHumanFakeAgentRuntime()
+    service = JriService(git_repo, agent_runtime=client)
 
     monkeypatch.setattr(
         JriService,
@@ -3339,7 +3558,7 @@ def test_stale_task_recovery_logs_failure_and_propagates_error(
     git(git_repo, "add", ".jri/tasks/doing/stale-task.md")
     git(git_repo, "commit", "-m", "seed stale task")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     import jri.core.service as service_module
 
@@ -3377,8 +3596,8 @@ def test_state_is_understandable_after_partial_recovery_failure(
     git(git_repo, "add", ".jri/tasks/todo/failing-task.md")
     git(git_repo, "commit", "-m", "add failing task")
 
-    client = FailedFakeOpenCodeClient()
-    service = JriService(git_repo, opencode_client=client)
+    client = FailedFakeAgentRuntime()
+    service = JriService(git_repo, agent_runtime=client)
 
     monkeypatch.setattr(
         JriService,
@@ -3434,7 +3653,7 @@ def test_successful_task_saves_diff_artifact(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -3471,8 +3690,8 @@ def test_diff_artifact_is_created_for_recovered_completion(
     git(git_repo, "add", ".jri/tasks/todo")
     git(git_repo, "commit", "-m", "add retry tasks")
 
-    first_client = SuccessfulFakeOpenCodeClient()
-    first_service = JriService(git_repo, opencode_client=first_client)
+    first_client = SuccessfulFakeAgentRuntime()
+    first_service = JriService(git_repo, agent_runtime=first_client)
 
     def interrupted_save_diff(task_slug: str) -> None:
         raise KeyboardInterrupt("simulated interruption during diff save")
@@ -3486,7 +3705,7 @@ def test_diff_artifact_is_created_for_recovered_completion(
     diff_path = git_repo / ".jri" / "logs" / "diffs" / "task-a.diff"
     assert not diff_path.exists()
 
-    retry_service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    retry_service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert retry_service.start(max_tasks=1, force=True) == 1
 
     assert diff_path.exists()
@@ -3511,7 +3730,7 @@ def test_successful_task_records_timeline_events(git_repo: Path) -> None:
 
     from jri.core.timeline import TimelineStore
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -3547,7 +3766,7 @@ def test_failed_task_records_timeline_events(git_repo: Path) -> None:
 
     from jri.core.timeline import TimelineStore
 
-    service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=FailedFakeAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -3581,7 +3800,7 @@ def test_needs_human_task_records_timeline_events(git_repo: Path) -> None:
 
     from jri.core.timeline import TimelineStore
 
-    service = JriService(git_repo, opencode_client=NeedsHumanFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=NeedsHumanFakeAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -3613,7 +3832,7 @@ def test_timeline_cli_shows_events(
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert service.start(max_tasks=1, force=True) == 1
 
     rc = run_cli(["timeline"], cwd=git_repo)
@@ -3641,7 +3860,7 @@ def test_timeline_cli_outputs_jsonl(
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert service.start(max_tasks=1, force=True) == 1
 
     # Flush task header/footer output before CLI call
@@ -3716,7 +3935,7 @@ def test_task_limit_stops_loop_after_n_tasks(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo")
     git(git_repo, "commit", "-m", "add three tasks")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     # Only run 2 tasks even though there are 3 tasks
     completed = service.start(max_tasks=2, force=True)
@@ -3757,7 +3976,7 @@ def test_task_limit_records_timeline_event(git_repo: Path) -> None:
 
     from jri.core.timeline import TimelineStore
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.start(max_tasks=1, force=True)
 
     timeline_path = git_repo / ".jri" / "logs" / "timeline.jsonl"
@@ -3771,7 +3990,7 @@ def test_task_limit_records_timeline_event(git_repo: Path) -> None:
     assert loop_stopped_events[0].detail.get("limit") == 1
 
 
-class SlowFakeOpenCodeClient(FakeOpenCodeServer):
+class SlowFakeAgentRuntime(FakeAgentRuntime):
     """Simulates a task that takes a long time to complete."""
 
     def __init__(self, delay_seconds: int = 0) -> None:
@@ -3788,7 +4007,7 @@ class SlowFakeOpenCodeClient(FakeOpenCodeServer):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         import time
 
         self.calls.append((prompt, log_path))
@@ -3796,9 +4015,7 @@ class SlowFakeOpenCodeClient(FakeOpenCodeServer):
             time.sleep(self.delay_seconds)
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake slow run\n", encoding="utf-8")
-        return OpenCodeRunResult(
-            returncode=0, session_id="ses_slow", result="completed"
-        )
+        return AgentRunResult(returncode=0, session_id="ses_slow", result="completed")
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "slow"}\n', encoding="utf-8")
@@ -3821,8 +4038,8 @@ def test_task_timeout_stops_slow_task(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "add slow task")
 
     # Task takes 2 seconds but timeout is 1 second
-    client = SlowFakeOpenCodeClient(delay_seconds=2)
-    service = JriService(git_repo, opencode_client=client)
+    client = SlowFakeAgentRuntime(delay_seconds=2)
+    service = JriService(git_repo, agent_runtime=client)
 
     completed = service.start(max_tasks=1, task_timeout=1, force=True)
 
@@ -3832,6 +4049,11 @@ def test_task_timeout_stops_slow_task(git_repo: Path) -> None:
     assert (git_repo / ".jri" / "tasks" / "todo" / "slow-task.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "doing" / "slow-task.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "done" / "slow-task.md").exists()
+    attempts = cast(
+        list[dict[str, object]],
+        read_json(git_repo / ".jri" / "state.json")["attempts"],
+    )
+    assert attempts[0]["result"] == "timeout"
 
 
 def test_task_timeout_records_timeline_event(git_repo: Path) -> None:
@@ -3852,8 +4074,8 @@ def test_task_timeout_records_timeline_event(git_repo: Path) -> None:
 
     from jri.core.timeline import TimelineStore
 
-    client = SlowFakeOpenCodeClient(delay_seconds=2)
-    service = JriService(git_repo, opencode_client=client)
+    client = SlowFakeAgentRuntime(delay_seconds=2)
+    service = JriService(git_repo, agent_runtime=client)
 
     service.start(max_tasks=1, task_timeout=1, force=True)
 
@@ -3899,7 +4121,7 @@ def test_successful_task_run_persists_logs(git_repo: Path) -> None:
 
     from jri.core.timeline import TimelineStore
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -3946,7 +4168,7 @@ def test_failed_task_run_persists_logs(git_repo: Path) -> None:
 
     from jri.core.timeline import TimelineStore
 
-    service = JriService(git_repo, opencode_client=FailedFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=FailedFakeAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -3997,7 +4219,7 @@ def test_needs_human_task_run_persists_logs(git_repo: Path) -> None:
 
     from jri.core.timeline import TimelineStore
 
-    service = JriService(git_repo, opencode_client=NeedsHumanFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=NeedsHumanFakeAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -4050,7 +4272,7 @@ def test_timeline_records_stderr_warnings(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "add warning test task")
 
     # Create a client that returns warnings
-    class WarningFakeOpenCodeClient(SuccessfulFakeOpenCodeClient):
+    class WarningFakeAgentRuntime(SuccessfulFakeAgentRuntime):
         def run_ralph_task(
             self,
             *,
@@ -4060,7 +4282,7 @@ def test_timeline_records_stderr_warnings(git_repo: Path) -> None:
             result_path: Path,
             on_start: object | None = None,
             timeout: int | None = None,
-        ) -> OpenCodeRunResult:
+        ) -> AgentRunResult:
             result = super().run_ralph_task(
                 root=root,
                 prompt=prompt,
@@ -4069,7 +4291,7 @@ def test_timeline_records_stderr_warnings(git_repo: Path) -> None:
                 on_start=on_start,
                 timeout=timeout,
             )
-            return OpenCodeRunResult(
+            return AgentRunResult(
                 returncode=result.returncode,
                 session_id=result.session_id,
                 result=result.result,
@@ -4079,7 +4301,7 @@ def test_timeline_records_stderr_warnings(git_repo: Path) -> None:
 
     from jri.core.timeline import TimelineStore
 
-    service = JriService(git_repo, opencode_client=WarningFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=WarningFakeAgentRuntime())
 
     service.start(max_tasks=1, force=True)
 
@@ -4095,7 +4317,7 @@ def test_timeline_records_stderr_warnings(git_repo: Path) -> None:
     assert warning_events[0].detail.get("message") == "Test warning message"
 
 
-class StopAfterFirstTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
+class StopAfterFirstTaskAgentRuntime(SuccessfulFakeAgentRuntime):
     """Client that creates a stop signal after completing the first task."""
 
     def __init__(self, signals_dir: Path) -> None:
@@ -4112,7 +4334,7 @@ class StopAfterFirstTaskOpenCodeClient(SuccessfulFakeOpenCodeClient):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         self._call_count += 1
         result = super().run_ralph_task(
             root=root,
@@ -4159,7 +4381,7 @@ def test_stop_during_active_work_stops_after_task(git_repo: Path) -> None:
 
     signals_dir = git_repo / ".jri" / "signals"
     service = JriService(
-        git_repo, opencode_client=StopAfterFirstTaskOpenCodeClient(signals_dir)
+        git_repo, agent_runtime=StopAfterFirstTaskAgentRuntime(signals_dir)
     )
 
     # Run the loop - client will create stop signal during first iteration
@@ -4197,7 +4419,7 @@ def test_stop_signal_consumed_on_start(git_repo: Path) -> None:
     stop_signal.write_text("pre-existing stop signal\n", encoding="utf-8")
     assert stop_signal.exists()
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     # Start the service - stop signal should be consumed at start
     completed = service.start(max_tasks=1, force=True)
@@ -4213,7 +4435,7 @@ def test_stop_reason_preserved_in_signal(git_repo: Path) -> None:
     """Stop signal preserves the reason text provided."""
     assert run_cli(["init"], cwd=git_repo) == 0
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     # Create stop signal with a specific reason
     reason = "Scheduled maintenance window at 2024-01-15 02:00 UTC"
@@ -4230,7 +4452,7 @@ def test_halt_raises_error_when_no_tracked_process(git_repo: Path) -> None:
     """Halt raises JriError when no process is currently tracked."""
     assert run_cli(["init"], cwd=git_repo) == 0
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     # Verify halt raises error when no process is tracked
     with pytest.raises(JriError, match="no Ralph process is currently tracked"):
@@ -4241,7 +4463,7 @@ def test_halt_clears_process_state(git_repo: Path) -> None:
     """Halt clears the process state from state.json after terminating."""
     assert run_cli(["init"], cwd=git_repo) == 0
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     # Save a fake process to state (simulating a running process)
     service.state_store.save_process(
@@ -4296,7 +4518,7 @@ def test_stop_then_start_recovery_consistency(git_repo: Path) -> None:
 
     # First service instance - client creates stop signal during first iteration
     service1 = JriService(
-        git_repo, opencode_client=StopAfterFirstTaskOpenCodeClient(signals_dir)
+        git_repo, agent_runtime=StopAfterFirstTaskAgentRuntime(signals_dir)
     )
 
     # Run - completes one task then stops
@@ -4306,7 +4528,7 @@ def test_stop_then_start_recovery_consistency(git_repo: Path) -> None:
     assert (git_repo / ".jri" / "tasks" / "todo" / "task-b.md").exists()
 
     # Second service instance - should continue with remaining tasks
-    service2 = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service2 = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     completed2 = service2.start(max_tasks=10, force=True)
 
     # Should complete the second task
@@ -4331,7 +4553,7 @@ def test_halt_then_start_recovery_consistency(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "seed interrupted task")
 
     # Create an active attempt simulating interrupted work
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     interrupted_attempt = AttemptState(
         number=1,
         task_slug="interrupted-task",
@@ -4388,7 +4610,7 @@ def test_stop_signal_persists_across_invocations(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "add task")
 
     # Create service and stop signal
-    service1 = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service1 = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service1.stop("persisted stop signal")
 
     stop_signal = git_repo / ".jri" / "signals" / "stop"
@@ -4396,7 +4618,7 @@ def test_stop_signal_persists_across_invocations(git_repo: Path) -> None:
 
     # Create a new service instance (simulating new invocation)
     # Stop signal should still exist
-    service2 = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service2 = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert stop_signal.exists()
 
     # Run loop - signal should be consumed
@@ -4405,7 +4627,7 @@ def test_stop_signal_persists_across_invocations(git_repo: Path) -> None:
     assert not stop_signal.exists()
 
 
-class ExportFailingFakeOpenCodeClient(FakeOpenCodeServer):
+class ExportFailingFakeAgentRuntime(FakeAgentRuntime):
     """Simulates export failures."""
 
     def __init__(self) -> None:
@@ -4421,11 +4643,11 @@ class ExportFailingFakeOpenCodeClient(FakeOpenCodeServer):
         result_path: Path,
         on_start: object | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         self.calls.append((prompt, log_path))
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
-        return OpenCodeRunResult(
+        return AgentRunResult(
             returncode=0, session_id="ses_export_fail", result="completed"
         )
 
@@ -4451,8 +4673,8 @@ def test_export_failure_is_visible_in_timeline(git_repo: Path) -> None:
 
     from jri.core.timeline import TimelineStore
 
-    client = ExportFailingFakeOpenCodeClient()
-    service = JriService(git_repo, opencode_client=client)
+    client = ExportFailingFakeAgentRuntime()
+    service = JriService(git_repo, agent_runtime=client)
 
     # Task should still complete even if export fails
     completed = service.start(max_tasks=1, force=True)
@@ -4490,7 +4712,7 @@ def test_export_failure_during_failed_recovery_is_visible(git_repo: Path) -> Non
     from jri.core.timeline import TimelineStore
 
     # Create a client that fails at the runtime level and also fails on export
-    class FailingWithExportFail(FakeOpenCodeServer):
+    class FailingWithExportFail(FakeAgentRuntime):
         def __init__(self) -> None:
             super().__init__(model=None)
             self.call_count = 0
@@ -4504,11 +4726,11 @@ def test_export_failure_during_failed_recovery_is_visible(git_repo: Path) -> Non
             result_path: Path,
             on_start: object | None = None,
             timeout: int | None = None,
-        ) -> OpenCodeRunResult:
+        ) -> AgentRunResult:
             self.call_count += 1
             log_path.write_text(f"failed run #{self.call_count}\n", encoding="utf-8")
             # Process exited cleanly, but the runtime marked the run failed.
-            return OpenCodeRunResult(
+            return AgentRunResult(
                 returncode=0,
                 session_id=f"ses_fail_{self.call_count}",
                 result="failed",
@@ -4518,7 +4740,7 @@ def test_export_failure_during_failed_recovery_is_visible(git_repo: Path) -> Non
             raise JriError(f"Export failed for {session_id}")
 
     client = FailingWithExportFail()
-    service = JriService(git_repo, opencode_client=client)
+    service = JriService(git_repo, agent_runtime=client)
     service.start(max_tasks=1, force=True)
 
     # Verify timeline has export_failed events during recovery
@@ -4556,7 +4778,7 @@ def test_start_stashes_dirty_workdir_with_force(git_repo: Path) -> None:
     (git_repo / "dirty.txt").write_text("dirty\n", encoding="utf-8")
     git(git_repo, "add", "dirty.txt")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     completed = service.start(max_tasks=1, force=True)
 
     assert completed == 1
@@ -4589,7 +4811,7 @@ def test_start_allows_dirty_draft_tasks_without_force(git_repo: Path) -> None:
         body="Capture open questions.",
     )
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     completed = service.start(max_tasks=1)
 
     assert completed == 1
@@ -4625,7 +4847,7 @@ def test_start_force_stashes_when_dirty_paths_are_not_draft_only(
     (git_repo / "dirty.txt").write_text("dirty\n", encoding="utf-8")
     git(git_repo, "add", "dirty.txt")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     completed = service.start(max_tasks=1, force=True)
 
     assert completed == 1
@@ -4651,7 +4873,7 @@ def test_start_switches_branch_with_force(git_repo: Path) -> None:
     # Switch to a feature branch
     git(git_repo, "checkout", "-b", "feature/x")
 
-    service = JriService(git_repo, opencode_client=SuccessfulFakeOpenCodeClient())
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     completed = service.start(max_tasks=1, force=True)
 
     assert completed == 1

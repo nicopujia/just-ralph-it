@@ -5,7 +5,7 @@ import pytest
 from _pytest.capture import CaptureManager
 
 from jri.cli.main import resolve_start_models
-from jri.core.opencode.presets import preset_choices
+from jri.core.agents.presets import preset_choices
 from tests.helpers import git
 
 
@@ -17,7 +17,7 @@ class LiveStartModels(TypedDict):
 
 
 def _disable_pytest_capture_for_live_runs(config: pytest.Config) -> None:
-    if not config.getoption("run_live_opencode"):
+    if not config.getoption("run_live_pi"):
         return
 
     config.option.capture = "no"
@@ -38,11 +38,11 @@ def _disable_pytest_capture_for_live_runs(config: pytest.Config) -> None:
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "-L",
-        "--run-live-opencode",
+        "--run-live-pi",
         action="store_true",
         default=False,
         help=(
-            "run live tests against a real OpenCode server and disable "
+            "run live tests against a real Pi runtime and disable "
             "pytest capture so agent output streams live"
         ),
     )
@@ -50,7 +50,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--preset",
         choices=preset_choices(),
         help=(
-            "Apply the named start preset for live OpenCode tests. "
+            "Apply the named start preset for live Pi tests. "
             "Use 'default' to match the checked-in config."
         ),
     )
@@ -83,8 +83,8 @@ def run_cli(args: list[str], cwd: Path) -> int:
 
 
 @pytest.fixture
-def run_live_opencode(request: pytest.FixtureRequest) -> bool:
-    return bool(request.config.getoption("run_live_opencode"))
+def run_live_pi(request: pytest.FixtureRequest) -> bool:
+    return bool(request.config.getoption("run_live_pi"))
 
 
 @pytest.fixture

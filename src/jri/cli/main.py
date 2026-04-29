@@ -5,9 +5,9 @@ import sys
 from pathlib import Path
 from typing import NoReturn
 
+from ..core.agents.presets import preset_choices, resolve_preset_models
 from ..core.errors import JriError, RestartRequested
 from ..core.git import MSG_INIT
-from ..core.opencode.presets import preset_choices, resolve_preset_models
 from ..core.service import JriService
 
 _ALLOW_SELF_RESTART_ENV = "JRI_ALLOW_SELF_RESTART"

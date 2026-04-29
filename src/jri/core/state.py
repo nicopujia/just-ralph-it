@@ -63,6 +63,10 @@ class StateStore:
         state = self.load()
         self.save(replace(state, promotion=promotion))
 
+    def clear_promotion(self) -> None:
+        state = self.load()
+        self.save(replace(state, promotion=None))
+
     def start_attempt(self, attempt: AttemptState) -> None:
         state = self.load()
         self.save(

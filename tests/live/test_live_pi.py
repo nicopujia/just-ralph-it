@@ -14,9 +14,9 @@ pytestmark = pytest.mark.live
 _LIVE_TASK_TIMEOUT_SECONDS = 300
 
 
-def _skip_unless_live(run_live_opencode: bool) -> None:
-    if not run_live_opencode:
-        pytest.skip("pass --run-live-opencode to enable live OpenCode tests")
+def _skip_unless_live(run_live_pi: bool) -> None:
+    if not run_live_pi:
+        pytest.skip("pass --run-live-pi to enable live Pi tests")
 
 
 def _init_live_repo(git_repo: Path) -> None:
@@ -26,12 +26,12 @@ def _init_live_repo(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "configure live make check")
 
 
-def test_start_with_real_opencode_completes_trivial_task(
+def test_start_with_real_pi_completes_trivial_task(
     git_repo: Path,
-    run_live_opencode: bool,
+    run_live_pi: bool,
     live_start_models: LiveStartModels,
 ) -> None:
-    _skip_unless_live(run_live_opencode)
+    _skip_unless_live(run_live_pi)
 
     _init_live_repo(git_repo)
     write_task(
@@ -69,12 +69,12 @@ def test_start_with_real_opencode_completes_trivial_task(
     assert "jri/end/live-proof" in tags
 
 
-def test_start_with_real_opencode_completes_setup_task(
+def test_start_with_real_pi_completes_setup_task(
     git_repo: Path,
-    run_live_opencode: bool,
+    run_live_pi: bool,
     live_start_models: LiveStartModels,
 ) -> None:
-    _skip_unless_live(run_live_opencode)
+    _skip_unless_live(run_live_pi)
 
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
@@ -136,12 +136,12 @@ def test_start_with_real_opencode_completes_setup_task(
     assert attempts[0]["result"] == "completed"
 
 
-def test_start_with_real_opencode_completes_dependency_chain(
+def test_start_with_real_pi_completes_dependency_chain(
     git_repo: Path,
-    run_live_opencode: bool,
+    run_live_pi: bool,
     live_start_models: LiveStartModels,
 ) -> None:
-    _skip_unless_live(run_live_opencode)
+    _skip_unless_live(run_live_pi)
 
     _init_live_repo(git_repo)
     write_task(
@@ -240,12 +240,12 @@ def test_start_with_real_opencode_completes_dependency_chain(
     ]
 
 
-def test_start_with_real_opencode_escalates_needs_human_task(
+def test_start_with_real_pi_escalates_needs_human_task(
     git_repo: Path,
-    run_live_opencode: bool,
+    run_live_pi: bool,
     live_start_models: LiveStartModels,
 ) -> None:
-    _skip_unless_live(run_live_opencode)
+    _skip_unless_live(run_live_pi)
 
     _init_live_repo(git_repo)
     write_task(
@@ -314,6 +314,6 @@ def test_start_with_real_opencode_escalates_needs_human_task(
     assert attempts[0]["result"] == "needs_human"
 
     exported_sessions = list(
-        (git_repo / ".jri" / "logs" / "external" / "opencode").glob("*.json")
+        (git_repo / ".jri" / "logs" / "external" / "pi").glob("*.json")
     )
     assert exported_sessions

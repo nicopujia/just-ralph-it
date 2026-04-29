@@ -106,7 +106,7 @@ class Task:
 
 
 @dataclass(frozen=True)
-class OpenCodeRunResult:
+class AgentRunResult:
     returncode: int
     session_id: str | None = None
     result: Result = "failed"
@@ -178,12 +178,14 @@ class AttemptState:
 class PromotionRecord:
     confirmed_at: int
     task_slugs: list[str]
+    content_digests: dict[str, str] = field(default_factory=dict)
     target_status: Literal["todo"] = "todo"
 
     def to_payload(self) -> dict[str, object]:
         return {
             "confirmed_at": self.confirmed_at,
             "task_slugs": self.task_slugs,
+            "content_digests": self.content_digests,
             "target_status": self.target_status,
         }
 
@@ -198,8 +200,35 @@ class PromotionRecord:
         return cls(
             confirmed_at=_int_or_default(payload.get("confirmed_at"), default=0),
             task_slugs=task_slugs,
+            content_digests=(
+                {
+                    str(key): value
+                    for key, value in cast(
+                        dict[str, object], payload.get("content_digests")
+                    ).items()
+                    if isinstance(value, str)
+                }
+                if isinstance(payload.get("content_digests"), dict)
+                else {}
+            ),
             target_status="todo",
         )
+
+
+RunOutcome = Literal[
+    "completed",
+    "no_work",
+    "task_failure",
+    "timeout",
+    "needs_human",
+]
+
+
+@dataclass(frozen=True)
+class RunSummary:
+    completed: int
+    outcome: RunOutcome
+    task_results: dict[str, Result] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

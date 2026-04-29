@@ -17,7 +17,7 @@ from pathlib import Path
 from re import search
 from typing import cast
 
-from jri.core.models import OpenCodeRunResult
+from jri.core.models import AgentRunResult
 from jri.core.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git, read_json, write_task
@@ -59,14 +59,14 @@ class _SelfHostingFakeClient:
         result_path: Path,
         on_start: Callable[[int], None] | None = None,
         timeout: int | None = None,
-    ) -> OpenCodeRunResult:
+    ) -> AgentRunResult:
         slug = _extract_slug(prompt)
         if slug in _TASK_ARTIFACTS:
             relative_path, content = _TASK_ARTIFACTS[slug]
             target = root / relative_path
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text(content, encoding="utf-8")
-        return OpenCodeRunResult(
+        return AgentRunResult(
             returncode=0,
             result="completed",
             session_id=f"ses_proof_{slug}",
@@ -95,7 +95,7 @@ def test_self_hosting_proof_idea_to_convergence(git_repo: Path) -> None:
 
     # Phase 3: loop (the runtime executes the full task pipeline)
     client = _SelfHostingFakeClient()
-    service = JriService(git_repo, opencode_client=client)
+    service = JriService(git_repo, agent_runtime=client)
     completed = service.start()
 
     # Phase 4: assert convergence
@@ -190,9 +190,10 @@ def _create_and_promote_tasks(repo: Path) -> None:
     git(repo, "commit", "-m", "refine draft tasks for promotion")
 
     # Promotion is an internal interrogator workflow, not a public CLI command.
-    JriService(repo).promote_drafts(
-        slugs=["implement-greet", "add-greet-tests", "update-changelog"]
-    )
+    service = JriService(repo)
+    promotion_slugs = ["implement-greet", "add-greet-tests", "update-changelog"]
+    service.approve_draft_promotion(slugs=promotion_slugs)
+    service.promote_drafts(slugs=promotion_slugs)
 
 
 def _assert_convergence(repo: Path, completed: int) -> None:

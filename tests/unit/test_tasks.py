@@ -9,9 +9,9 @@ from typing import Literal, cast
 
 import pytest
 
+from jri.core.agents.tools import _run_contrast_check, _run_upsert_task
 from jri.core.git import GitRepo
 from jri.core.models import Task, TaskMetadata
-from jri.core.opencode.tools import _run_contrast_check, _run_upsert_task
 from jri.core.tasks import (
     dump_task,
     list_tasks,
@@ -25,323 +25,30 @@ from tests.conftest import run_cli
 from tests.helpers import git, write_task
 
 
-def run_upsert_task_tool(cwd: Path, tmp_path: Path, payload: dict[str, object]) -> str:
-    node = shutil.which("node")
-    assert node is not None, "node is required to run upsert-task tool tests"
-
-    harness = tmp_path / "create_task_harness"
-    harness.mkdir(parents=True, exist_ok=True)
-    (harness / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
-    (harness / "plugin.mjs").write_text(
-        "function schemaBuilder() {\n"
-        "  const schema = {};\n"
-        "  schema.describe = () => schema;\n"
-        "  schema.optional = () => schema;\n"
-        "  schema.int = () => schema;\n"
-        "  schema.min = () => schema;\n"
-        "  schema.max = () => schema;\n"
-        "  schema.array = () => schemaBuilder();\n"
-        "  return schema;\n"
-        "}\n"
-        "export function tool(definition) { return definition; }\n"
-        "tool.schema = {\n"
-        "  string: () => schemaBuilder(),\n"
-        "  enum: () => schemaBuilder(),\n"
-        "  number: () => schemaBuilder(),\n"
-        "  array: () => schemaBuilder(),\n"
-        "};\n",
-        encoding="utf-8",
-    )
-    (harness / "_run-python-tool.mjs").write_text(
-        files("jri.core.opencode")
-        .joinpath("tools", "_run-python-tool.mjs")
-        .read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
-
-    module_path = harness / "upsert-task.mjs"
-    source = (
-        files("jri.core.opencode")
-        .joinpath("tools", "upsert-task.js")
-        .read_text(encoding="utf-8")
-    )
-    module_path.write_text(
-        source.replace(
-            'import { tool } from "@opencode-ai/plugin";',
-            'import { tool } from "./plugin.mjs";',
-            1,
-        ),
-        encoding="utf-8",
-    )
-    script = (
-        "const modulePath = process.argv.at(-2);\n"
-        "const payloadText = process.argv.at(-1);\n"
-        "const mod = await import(modulePath);\n"
-        "const result = await mod.default.execute(JSON.parse(payloadText));\n"
-        "process.stdout.write(result);\n"
-    )
+def run_agent_tool(cwd: Path, payload: dict[str, object], tool_name: str) -> str:
     result = subprocess.run(
-        [
-            node,
-            "--input-type=module",
-            "--eval",
-            script,
-            module_path.as_uri(),
-            json.dumps(payload),
-        ],
+        [sys.executable, "-m", "jri.core.agents.tools", tool_name],
         cwd=cwd,
+        input=json.dumps(payload),
         check=True,
         capture_output=True,
         text=True,
-        env={**os.environ, "JRI_PYTHON": sys.executable},
     )
     return result.stdout
 
 
-def run_promote_task_tool(
-    cwd: Path,
-    tmp_path: Path,
-    payload: dict[str, object],
-    *,
-    module_name: str = "promote-tasks",
-) -> str:
-    node = shutil.which("node")
-    assert node is not None, "node is required to run promote-tasks tool tests"
-
-    harness = tmp_path / f"{module_name}_harness"
-    harness.mkdir(parents=True, exist_ok=True)
-    (harness / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
-    (harness / "plugin.mjs").write_text(
-        "function schemaBuilder() {\n"
-        "  const schema = {};\n"
-        "  schema.describe = () => schema;\n"
-        "  schema.optional = () => schema;\n"
-        "  schema.boolean = () => schema;\n"
-        "  schema.array = () => schemaBuilder();\n"
-        "  return schema;\n"
-        "}\n"
-        "export function tool(definition) { return definition; }\n"
-        "tool.schema = {\n"
-        "  string: () => schemaBuilder(),\n"
-        "  enum: () => schemaBuilder(),\n"
-        "  boolean: () => schemaBuilder(),\n"
-        "  array: () => schemaBuilder(),\n"
-        "};\n",
-        encoding="utf-8",
-    )
-    (harness / "_run-python-tool.mjs").write_text(
-        files("jri.core.opencode")
-        .joinpath("tools", "_run-python-tool.mjs")
-        .read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
-
-    module_path = harness / f"{module_name}.mjs"
+def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
     source = (
-        files("jri.core.opencode")
-        .joinpath("tools", f"{module_name}.js")
-        .read_text(encoding="utf-8")
-    )
-    module_path.write_text(
-        source.replace(
-            'import { tool } from "@opencode-ai/plugin";',
-            'import { tool } from "./plugin.mjs";',
-            1,
-        ),
-        encoding="utf-8",
-    )
-    script = (
-        "const modulePath = process.argv.at(-2);\n"
-        "const payloadText = process.argv.at(-1);\n"
-        "const mod = await import(modulePath);\n"
-        "const result = await mod.default.execute(JSON.parse(payloadText));\n"
-        "process.stdout.write(result);\n"
-    )
-    result = subprocess.run(
-        [
-            node,
-            "--input-type=module",
-            "--eval",
-            script,
-            module_path.as_uri(),
-            json.dumps(payload),
-        ],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-        env={**os.environ, "JRI_PYTHON": sys.executable},
-    )
-    return result.stdout
-
-
-def run_contrast_check_tool(
-    cwd: Path, tmp_path: Path, payload: dict[str, object]
-) -> str:
-    node = shutil.which("node")
-    assert node is not None, "node is required to run check-contrast tool tests"
-
-    harness = tmp_path / "contrast_check_harness"
-    harness.mkdir(parents=True, exist_ok=True)
-    (harness / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
-    (harness / "plugin.mjs").write_text(
-        "function schemaBuilder() {\n"
-        "  const schema = {};\n"
-        "  schema.describe = () => schema;\n"
-        "  return schema;\n"
-        "}\n"
-        "export function tool(definition) { return definition; }\n"
-        "tool.schema = {\n"
-        "  string: () => schemaBuilder(),\n"
-        "};\n",
-        encoding="utf-8",
-    )
-    (harness / "_run-python-tool.mjs").write_text(
-        files("jri.core.opencode")
-        .joinpath("tools", "_run-python-tool.mjs")
-        .read_text(encoding="utf-8"),
-        encoding="utf-8",
+        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
     )
 
-    module_path = harness / "check-contrast.mjs"
-    source = (
-        files("jri.core.opencode")
-        .joinpath("tools", "check-contrast.js")
-        .read_text(encoding="utf-8")
-    )
-    module_path.write_text(
-        source.replace(
-            'import { tool } from "@opencode-ai/plugin";',
-            'import { tool } from "./plugin.mjs";',
-            1,
-        ),
-        encoding="utf-8",
-    )
-    script = (
-        "const modulePath = process.argv.at(-2);\n"
-        "const payloadText = process.argv.at(-1);\n"
-        "const mod = await import(modulePath);\n"
-        "const result = await mod.default.execute(JSON.parse(payloadText));\n"
-        "process.stdout.write(result);\n"
-    )
-    result = subprocess.run(
-        [
-            node,
-            "--input-type=module",
-            "--eval",
-            script,
-            module_path.as_uri(),
-            json.dumps(payload),
-        ],
-        cwd=cwd,
-        check=True,
-        capture_output=True,
-        text=True,
-        env={**os.environ, "JRI_PYTHON": sys.executable},
-    )
-    return result.stdout
-
-
-def run_plugin_tool_execute_before(
-    tmp_path: Path,
-    *,
-    module_name: str,
-    command_text: str,
-) -> dict[str, object]:
-    node = shutil.which("node")
-    assert node is not None, "node is required to run plugin tests"
-
-    harness = tmp_path / f"{module_name}_plugin_harness"
-    harness.mkdir(parents=True, exist_ok=True)
-    (harness / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
-
-    source = (
-        files("jri.core.opencode")
-        .joinpath("plugins", f"{module_name}.js")
-        .read_text(encoding="utf-8")
-    )
-    module_path = harness / f"{module_name}.mjs"
-    module_path.write_text(source, encoding="utf-8")
-
-    script = (
-        "const modulePath = process.argv.at(-2);\n"
-        "const commandText = process.argv.at(-1);\n"
-        "const mod = await import(modulePath);\n"
-        "const hooks = await mod.RalphCommitPrefixPlugin({});\n"
-        "const output = { args: { command: commandText } };\n"
-        "try {\n"
-        "  await hooks['tool.execute.before'](\n"
-        "    { tool: 'bash', sessionID: 'ses_1', callID: 'call_1' },\n"
-        "    output,\n"
-        "  );\n"
-        "  process.stdout.write(\n"
-        "    JSON.stringify({ ok: true, command: output.args.command }),\n"
-        "  );\n"
-        "} catch (error) {\n"
-        "  process.stdout.write(\n"
-        "    JSON.stringify({ ok: false, error: String(error.message || error) }),\n"
-        "  );\n"
-        "}\n"
-    )
-    result = subprocess.run(
-        [
-            node,
-            "--input-type=module",
-            "--eval",
-            script,
-            module_path.as_uri(),
-            command_text,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return cast(dict[str, object], json.loads(result.stdout))
-
-
-def test_ralph_commit_prefix_plugin_blocks_jri_commit_messages(
-    tmp_path: Path,
-) -> None:
-    result = run_plugin_tool_execute_before(
-        tmp_path,
-        module_name="ralph-commit-prefix",
-        command_text='git commit -m "jri: bad prefix"',
-    )
-
-    assert result == {
-        "ok": False,
-        "error": (
-            'Prefix "jri:" is reserved for JRI-managed commits. '
-            "Update your commit message."
-        ),
-    }
-
-
-def test_ralph_commit_prefix_plugin_allows_normal_commit_messages(
-    tmp_path: Path,
-) -> None:
-    result = run_plugin_tool_execute_before(
-        tmp_path,
-        module_name="ralph-commit-prefix",
-        command_text='git commit -m "fix opencode cleanup"',
-    )
-
-    assert result == {
-        "ok": True,
-        "command": 'git commit -m "fix opencode cleanup"',
-    }
-
-
-def test_ralph_commit_prefix_plugin_ignores_non_commit_bash_commands(
-    tmp_path: Path,
-) -> None:
-    result = run_plugin_tool_execute_before(
-        tmp_path,
-        module_name="ralph-commit-prefix",
-        command_text="git status",
-    )
-
-    assert result == {"ok": True, "command": "git status"}
+    assert 'pi.on("tool_call"' in source
+    assert 'event.toolName !== "bash"' in source
+    assert 'RESERVED_PREFIX = "jri:"' in source
+    assert "block: true" in source
+    assert 'registerPythonTool(\n    pi,\n    "upsert-task"' in source
+    assert 'registerPythonTool(\n    pi,\n    "approve-draft-promotion"' in source
+    assert 'registerPythonTool(\n    pi,\n    "ralph-result"' in source
 
 
 def inspect_python_tool_spawn_env(
@@ -356,7 +63,7 @@ def inspect_python_tool_spawn_env(
     harness.mkdir(parents=True, exist_ok=True)
     capture_path = harness / "capture.json"
     source = (
-        files("jri.core.opencode")
+        files("jri.core.agents")
         .joinpath("tools", "_run-python-tool.mjs")
         .read_text(encoding="utf-8")
         .replace(
@@ -512,8 +219,32 @@ def test_validate_state_payload_allows_promotion_record() -> None:
             "promotion": {
                 "confirmed_at": 1,
                 "task_slugs": ["clarify-scope"],
+                "content_digests": {
+                    "clarify-scope": "a" * 64,
+                },
                 "target_status": "todo",
             },
+        }
+    )
+
+
+def test_validate_state_payload_allows_attempt_result_payload() -> None:
+    validate_state_payload(
+        {
+            "attempts": [
+                {
+                    "number": 1,
+                    "task_slug": "retry-task",
+                    "branch": "ralph/main",
+                    "started_at": 1,
+                    "result": "incompleted",
+                    "result_payload": {
+                        "result": "incompleted",
+                        "summary": "Partial progress.",
+                        "learnings": ["Use the existing helper."],
+                    },
+                }
+            ]
         }
     )
 
@@ -523,22 +254,15 @@ def test_packaged_schemas_are_available() -> None:
     assert files("jri.core.schemas").joinpath("state.json").is_file()
     scaffold = files("jri.core.template")
     assert scaffold.joinpath("learnings.md").is_file()
-    builtins = files("jri.core.opencode")
-    assert builtins.joinpath("config.json").is_file()
-    assert builtins.joinpath("agents", "interrogator.md").is_file()
-    assert builtins.joinpath("agents", "interrogator-validator.md").is_file()
-    assert builtins.joinpath("agents", "ralph.md").is_file()
-    assert builtins.joinpath("agents", "ralph-validator.md").is_file()
+    builtins = files("jri.core.agents")
+    assert builtins.joinpath("prompts", "interrogator.md").is_file()
+    assert builtins.joinpath("prompts", "interrogator-validator.md").is_file()
+    assert builtins.joinpath("prompts", "ralph.md").is_file()
+    assert builtins.joinpath("prompts", "ralph-validator.md").is_file()
+    assert builtins.joinpath("extensions", "jri.ts").is_file()
+    assert builtins.joinpath("tools", "__init__.py").is_file()
+    assert builtins.joinpath("tools", "__main__.py").is_file()
     assert builtins.joinpath("tools", "_run-python-tool.mjs").is_file()
-    assert builtins.joinpath("tools", "check-contrast.js").is_file()
-    assert builtins.joinpath("tools", "check-draft-promotion.js").is_file()
-    assert builtins.joinpath("tools", "delete-task.js").is_file()
-    assert builtins.joinpath("tools", "list-tasks.js").is_file()
-    assert builtins.joinpath("tools", "promote-tasks.js").is_file()
-    assert builtins.joinpath("tools", "ralph-result.js").is_file()
-    assert builtins.joinpath("tools", "read-tasks.js").is_file()
-    assert builtins.joinpath("tools", "rename-task.js").is_file()
-    assert builtins.joinpath("tools", "upsert-task.js").is_file()
 
 
 def test_run_python_tool_uses_forwarded_pythonpath(tmp_path: Path) -> None:
@@ -553,7 +277,7 @@ def test_run_python_tool_uses_forwarded_pythonpath(tmp_path: Path) -> None:
     )
 
     assert captured["command"] == sys.executable
-    assert captured["args"] == ["-m", "jri.core.opencode.tools", "ralph-result"]
+    assert captured["args"] == ["-m", "jri.core.agents.tools", "ralph-result"]
     spawned_env = captured["env"]
     assert isinstance(spawned_env, dict)
     assert cast(dict[str, str], spawned_env)["PYTHONPATH"] == (
@@ -567,9 +291,8 @@ def test_upsert_task_tool_writes_parseable_draft_and_overwrites(
     repo = tmp_path / "repo"
     (repo / ".jri" / "tasks").mkdir(parents=True)
 
-    created = run_upsert_task_tool(
+    created = run_agent_tool(
         repo,
-        tmp_path,
         {
             "title": "Clarify scope",
             "body": "Draft the scope.\n",
@@ -578,6 +301,7 @@ def test_upsert_task_tool_writes_parseable_draft_and_overwrites(
             "depends_on": ["setup"],
             "acceptance_criteria": ["Scope is approved"],
         },
+        "upsert-task",
     )
 
     assert created == "created draft task: .jri/tasks/draft/clarify-scope.md"
@@ -593,9 +317,8 @@ def test_upsert_task_tool_writes_parseable_draft_and_overwrites(
     assert created_task.metadata.acceptance_criteria == ["Scope is approved"]
     assert created_task.body == "Draft the scope.\n"
 
-    updated = run_upsert_task_tool(
+    updated = run_agent_tool(
         repo,
-        tmp_path,
         {
             "title": "Clarify scope",
             "slug": "clarify-scope",
@@ -605,6 +328,7 @@ def test_upsert_task_tool_writes_parseable_draft_and_overwrites(
             "depends_on": [],
             "acceptance_criteria": ["Scope is approved"],
         },
+        "upsert-task",
     )
 
     assert updated == "updated draft task: .jri/tasks/draft/clarify-scope.md"
@@ -623,9 +347,8 @@ def test_upsert_task_tool_rejects_invalid_slug(tmp_path: Path) -> None:
         subprocess.CalledProcessError,
         match="returned non-zero exit status",
     ):
-        run_upsert_task_tool(
+        run_agent_tool(
             repo,
-            tmp_path,
             {
                 "title": "Clarify scope",
                 "slug": "../escape",
@@ -634,6 +357,7 @@ def test_upsert_task_tool_rejects_invalid_slug(tmp_path: Path) -> None:
                 "priority": 1,
                 "acceptance_criteria": ["Scope is approved"],
             },
+            "upsert-task",
         )
 
 
@@ -681,11 +405,34 @@ def test_promote_task_tool_rejects_non_slug_entries(tmp_path: Path) -> None:
         subprocess.CalledProcessError,
         match="returned non-zero exit status",
     ):
-        run_promote_task_tool(
+        run_agent_tool(
             repo,
-            tmp_path,
             {"slugs": ["title: Build README\npriority: 1"], "check_only": True},
+            "promote-tasks",
         )
+
+
+def test_approve_draft_promotion_tool_records_approval(tmp_path: Path) -> None:
+    repo = make_git_repo(tmp_path)
+    assert run_cli(["init"], cwd=repo) == 0
+    write_task(
+        repo,
+        status="draft",
+        slug="clarify-scope",
+        title="Clarify scope",
+        priority=1,
+        assignee="Ralph",
+        body="Clarify the scope.\n",
+        acceptance_criteria=["Scope is approved"],
+    )
+
+    output = run_agent_tool(
+        repo,
+        {"slugs": ["clarify-scope"]},
+        "approve-draft-promotion",
+    )
+
+    assert output == "Approved promotion for 1 draft task(s).\n  - clarify-scope"
 
 
 def test_contrast_check_matches_webaim_thresholds() -> None:
@@ -722,15 +469,15 @@ def test_contrast_check_supports_foreground_alpha() -> None:
     }
 
 
-def test_contrast_check_tool_executes_via_js_wrapper(tmp_path: Path) -> None:
+def test_contrast_check_tool_executes_via_agent_tool_module(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
 
     result = json.loads(
-        run_contrast_check_tool(
+        run_agent_tool(
             repo,
-            tmp_path,
             {"foreground": "000000", "background": "FFFFFF", "standard": "AAA"},
+            "check-contrast",
         )
     )
 
@@ -781,19 +528,17 @@ def test_read_tasks_tool_reads_requested_slugs(tmp_path: Path) -> None:
     )
 
     single = json.loads(
-        run_promote_task_tool(
+        run_agent_tool(
             repo,
-            tmp_path,
             {"slugs": ["clarify-scope"]},
-            module_name="read-tasks",
+            "read-tasks",
         )
     )
     multiple = json.loads(
-        run_promote_task_tool(
+        run_agent_tool(
             repo,
-            tmp_path,
             {"slugs": ["ship-ui", "clarify-scope"]},
-            module_name="read-tasks",
+            "read-tasks",
         )
     )
 
@@ -812,17 +557,16 @@ def test_read_tasks_tool_rejects_missing_or_invalid_inputs(tmp_path: Path) -> No
         subprocess.CalledProcessError,
         match="returned non-zero exit status",
     ):
-        run_promote_task_tool(repo, tmp_path, {}, module_name="read-tasks")
+        run_agent_tool(repo, {}, "read-tasks")
 
     with pytest.raises(
         subprocess.CalledProcessError,
         match="returned non-zero exit status",
     ):
-        run_promote_task_tool(
+        run_agent_tool(
             repo,
-            tmp_path,
             {"slugs": []},
-            module_name="read-tasks",
+            "read-tasks",
         )
 
 
@@ -850,15 +594,12 @@ def test_list_tasks_tool_lists_and_filters_by_status(tmp_path: Path) -> None:
         acceptance_criteria=["Setup is complete"],
     )
 
-    all_tasks = json.loads(
-        run_promote_task_tool(repo, tmp_path, {}, module_name="list-tasks")
-    )
+    all_tasks = json.loads(run_agent_tool(repo, {}, "list-tasks"))
     done_tasks = json.loads(
-        run_promote_task_tool(
+        run_agent_tool(
             repo,
-            tmp_path,
             {"status": "done"},
-            module_name="list-tasks",
+            "list-tasks",
         )
     )
 
@@ -887,11 +628,10 @@ def test_list_tasks_tool_rejects_invalid_status(tmp_path: Path) -> None:
         subprocess.CalledProcessError,
         match="returned non-zero exit status",
     ):
-        run_promote_task_tool(
+        run_agent_tool(
             repo,
-            tmp_path,
             {"status": "blocked"},
-            module_name="list-tasks",
+            "list-tasks",
         )
 
 
@@ -906,9 +646,8 @@ def test_upsert_task_tool_rejects_symlinked_draft_dir(tmp_path: Path) -> None:
         subprocess.CalledProcessError,
         match="returned non-zero exit status",
     ):
-        run_upsert_task_tool(
+        run_agent_tool(
             repo,
-            tmp_path,
             {
                 "title": "Clarify scope",
                 "body": "Draft the scope.\n",
@@ -916,6 +655,7 @@ def test_upsert_task_tool_rejects_symlinked_draft_dir(tmp_path: Path) -> None:
                 "priority": 1,
                 "acceptance_criteria": ["Scope is approved"],
             },
+            "upsert-task",
         )
 
     assert list(outside.iterdir()) == []
@@ -937,9 +677,8 @@ def test_upsert_task_tool_rejects_symlinked_parent_dir(
         subprocess.CalledProcessError,
         match="returned non-zero exit status",
     ):
-        run_upsert_task_tool(
+        run_agent_tool(
             repo,
-            tmp_path,
             {
                 "title": "Clarify scope",
                 "body": "Draft the scope.\n",
@@ -947,6 +686,7 @@ def test_upsert_task_tool_rejects_symlinked_parent_dir(
                 "priority": 1,
                 "acceptance_criteria": ["Scope is approved"],
             },
+            "upsert-task",
         )
 
     assert list(outside.iterdir()) == []
@@ -964,9 +704,8 @@ def test_upsert_task_tool_rejects_symlinked_draft_file(tmp_path: Path) -> None:
         subprocess.CalledProcessError,
         match="returned non-zero exit status",
     ):
-        run_upsert_task_tool(
+        run_agent_tool(
             repo,
-            tmp_path,
             {
                 "title": "Clarify scope",
                 "slug": "clarify-scope",
@@ -975,6 +714,7 @@ def test_upsert_task_tool_rejects_symlinked_draft_file(tmp_path: Path) -> None:
                 "priority": 1,
                 "acceptance_criteria": ["Scope is approved"],
             },
+            "upsert-task",
         )
 
     assert outside.read_text(encoding="utf-8") == "outside\n"
@@ -991,9 +731,8 @@ def test_upsert_task_tool_requires_non_empty_acceptance_criteria(
         subprocess.CalledProcessError,
         match="returned non-zero exit status",
     ):
-        run_upsert_task_tool(
+        run_agent_tool(
             repo,
-            tmp_path,
             {
                 "title": "Clarify scope",
                 "body": "Draft the scope.\n",
@@ -1001,6 +740,7 @@ def test_upsert_task_tool_requires_non_empty_acceptance_criteria(
                 "priority": 1,
                 "acceptance_criteria": criteria,
             },
+            "upsert-task",
         )
 
 

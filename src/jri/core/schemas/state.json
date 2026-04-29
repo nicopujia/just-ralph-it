@@ -37,6 +37,48 @@
             "interrupted",
             "timeout"
           ]
+        },
+        "result_payload": {
+          "type": "object",
+          "properties": {
+            "result": {
+              "type": "string",
+              "enum": ["completed", "incompleted", "needs_human"]
+            },
+            "summary": {
+              "type": "string"
+            },
+            "learnings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "blocker": {
+              "type": "string"
+            },
+            "human_task": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "acceptance_criteria": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "priority": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "required": ["result"]
         }
       },
       "required": [
@@ -60,6 +102,13 @@
           "minItems": 1,
           "uniqueItems": true
         },
+        "content_digests": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
         "target_status": {
           "type": "string",
           "enum": ["todo"]
@@ -68,6 +117,7 @@
       "required": [
         "confirmed_at",
         "task_slugs",
+        "content_digests",
         "target_status"
       ]
     }
@@ -84,7 +134,7 @@
     },
     "session": {
       "type": "string",
-      "description": "OpenCode session ID pointing to the current project's interrogation."
+      "description": "Pi session ID pointing to the current project's interrogation."
     },
     "branch": {
       "type": "string",
@@ -104,7 +154,7 @@
         },
         "child_pid": {
           "type": ["integer", "null"],
-          "description": "PID of the currently running OpenCode subprocess, if any."
+          "description": "PID of the currently running Pi subprocess, if any."
         },
         "log_path": {
           "type": ["string", "null"],

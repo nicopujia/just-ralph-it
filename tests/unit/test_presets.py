@@ -1,7 +1,7 @@
 import pytest
 
+from jri.core.agents.presets import preset_choices, resolve_preset_models
 from jri.core.errors import JriError
-from jri.core.opencode.presets import preset_choices, resolve_preset_models
 
 
 def test_preset_choices_are_stable() -> None:

@@ -33,10 +33,10 @@ def test_init_creates_scaffold_and_commit(
     assert not (git_repo / ".jri" / "logs").exists()
     assert not (git_repo / ".jri" / "worktree").exists()
     assert (git_repo / ".jri" / "state.json").exists()
-    assert not (git_repo / ".opencode").exists()
-    assert not (git_repo / "opencode.json").exists()
-    assert not (git_repo / ".jri" / ".opencode").exists()
-    assert not (git_repo / ".jri" / "opencode.json").exists()
+    assert not (git_repo / ".pi").exists()
+    assert not (git_repo / "pi.json").exists()
+    assert not (git_repo / ".jri" / ".pi").exists()
+    assert not (git_repo / ".jri" / "pi.json").exists()
     assert not (git_repo / ".gitignore").exists()
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_INIT
     changed_files = set(
@@ -259,7 +259,7 @@ def test_init_force_removes_custom_jri_state(git_repo: Path) -> None:
 
     assert exit_code == 0
     assert not custom_file.exists()
-    assert not (git_repo / ".jri" / ".opencode").exists()
+    assert not (git_repo / ".jri" / ".pi").exists()
 
 
 def test_init_leaves_existing_makefile_untouched(git_repo: Path) -> None:
