@@ -1,12 +1,16 @@
 # Just Ralph It (JRI)
 
-> The proper tool around the Ralph Wiggum technique.
+> Intent discovery and convergence for technical owner-operators.
+
+JRI turns rough product intent into validated, executable work.
+The Interrogator pressure-tests intent until guesses become explicit, user-confirmed assumptions.
+Ralph is the execution engine: it works only inside that validated intent, then reports the concrete runtime outcome back to JRI.
 
 ## Quickstart
 
 ### Prerequisites
 
-- **Mandatory**: [Git](https://git-scm.com/install/), [Make](https://www.gnu.org/software/make/), [uv](https://docs.astral.sh/uv/getting-started/installation/), [Bun](https://bun.sh/), [OpenCode](https://opencode.ai/docs/#install)
+- **Mandatory**: [Git](https://git-scm.com/install/), [Make](https://www.gnu.org/software/make/), [uv](https://docs.astral.sh/uv/getting-started/installation/), [Bun](https://bun.sh/), [Pi](https://pi.dev/docs/latest)
 - **Recommended**: Run on a VPS. For example, [Contabo](https://contabo.com/en/vps)'s are very cheap.
 
 ### Install and run
