@@ -377,7 +377,9 @@ def launch_chat(
         merged_env["JRI_PYTHON"] = sys.executable
         if env:
             merged_env.update(env)
-        return subprocess.run(command, cwd=root, env=merged_env, check=False).returncode
+        merged_env["JRI_CHAT_RUNTIME"] = "1"
+        result = subprocess.run(command, cwd=root, env=merged_env, check=False)
+        return result.returncode
     except FileNotFoundError as err:
         raise JriError(f"could not find `{binary}` — is Pi installed?") from err
 
@@ -419,16 +421,24 @@ class PiRuntime:
         if self._process is not None and self._process.poll() is None:
             return
         merged_env = os.environ.copy()
+        merged_env.pop("JRI_CHAT_RUNTIME", None)
         if env:
             merged_env.update(env)
+        merged_env.pop("JRI_CHAT_RUNTIME", None)
         self._env = dict(env or {})
         self._cwd = cwd
         command = [self.binary, "--mode", "rpc"]
         if self.model:
             command.extend(["--model", self.model])
         if package_root := self._env.get("JRI_PI_PACKAGE"):
-            extension_path = Path(package_root) / "extensions" / "jri.ts"
+            package_path = Path(package_root)
+            extension_path = package_path / "extensions" / "jri.ts"
+            prompt_path = package_path / "prompts" / "ralph.md"
             command.extend(["--extension", str(extension_path)])
+            command.extend(["--prompt-template", str(prompt_path)])
+            for skill_path in sorted((package_path / "skills").iterdir()):
+                if skill_path.is_dir():
+                    command.extend(["--skill", str(skill_path)])
         try:
             self._process = subprocess.Popen(
                 command,

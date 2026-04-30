@@ -11,6 +11,7 @@ from jri.core.agents import (
     _missing_result_payload,
     _parse_event_line,
     _parse_result_payload,
+    launch_chat,
     render_saved_log,
 )
 from jri.core.errors import JriError
@@ -155,6 +156,103 @@ def test_pi_runtime_rpc_request_reads_matching_response() -> None:
 
     assert response["success"] is True
     assert json.loads(stdin.getvalue()) == {"type": "get_state"}
+
+
+def test_pi_runtime_start_loads_ralph_prompt_and_skills(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package_root = tmp_path / "package"
+    (package_root / "extensions").mkdir(parents=True)
+    (package_root / "prompts").mkdir()
+    (package_root / "skills" / "hosted-projects").mkdir(parents=True)
+    (package_root / "skills" / "reverse-ralph").mkdir()
+    (package_root / "extensions" / "jri.ts").write_text("", encoding="utf-8")
+    (package_root / "prompts" / "ralph.md").write_text("", encoding="utf-8")
+
+    popen_calls: list[list[str]] = []
+    popen_envs: list[dict[str, str]] = []
+
+    def fake_popen(*args: object, **kwargs: object) -> object:
+        popen_calls.append(cast(list[str], args[0]))
+        popen_envs.append(cast(dict[str, str], kwargs["env"]))
+        return SimpleNamespace(
+            pid=123,
+            stdin=io.StringIO(),
+            stdout=io.StringIO(
+                '{"type":"response","command":"get_state","success":true}\n'
+            ),
+            poll=lambda: None,
+        )
+
+    monkeypatch.setattr("jri.core.agents.client.subprocess.Popen", fake_popen)
+    monkeypatch.setenv("JRI_CHAT_RUNTIME", "1")
+
+    runtime = PiRuntime(binary="pi")
+    runtime.start(
+        env={"JRI_PI_PACKAGE": str(package_root), "JRI_CHAT_RUNTIME": "1"},
+        cwd=tmp_path,
+    )
+
+    assert popen_calls == [
+        [
+            "pi",
+            "--mode",
+            "rpc",
+            "--extension",
+            str(package_root / "extensions" / "jri.ts"),
+            "--prompt-template",
+            str(package_root / "prompts" / "ralph.md"),
+            "--skill",
+            str(package_root / "skills" / "hosted-projects"),
+            "--skill",
+            str(package_root / "skills" / "reverse-ralph"),
+        ]
+    ]
+    assert str(package_root / "extensions" / "jri-validator.ts") not in popen_calls[0]
+    assert "JRI_CHAT_RUNTIME" not in popen_envs[0]
+
+
+def test_launch_chat_loads_only_ordinary_interrogator_extension(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package_root = tmp_path / "package"
+    (package_root / "extensions").mkdir(parents=True)
+    (package_root / "prompts").mkdir()
+    (package_root / "extensions" / "jri.ts").write_text("", encoding="utf-8")
+    (package_root / "extensions" / "jri-validator.ts").write_text("", encoding="utf-8")
+    (package_root / "prompts" / "interrogator.md").write_text("", encoding="utf-8")
+    run_calls: list[list[str]] = []
+    run_envs: list[dict[str, str]] = []
+
+    def fake_run(*args: object, **kwargs: object) -> object:
+        run_calls.append(cast(list[str], args[0]))
+        run_envs.append(cast(dict[str, str], kwargs["env"]))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr("jri.core.agents.client.subprocess.run", fake_run)
+
+    assert (
+        launch_chat(
+            root=tmp_path,
+            session_id=None,
+            extra_args=[],
+            binary="pi",
+            env={"JRI_PI_PACKAGE": str(package_root), "JRI_CHAT_RUNTIME": "0"},
+        )
+        == 0
+    )
+
+    assert run_calls == [
+        [
+            "pi",
+            "--extension",
+            str(package_root / "extensions" / "jri.ts"),
+            "--prompt-template",
+            str(package_root / "prompts" / "interrogator.md"),
+        ]
+    ]
+    assert str(package_root / "extensions" / "jri-validator.ts") not in run_calls[0]
+    assert run_envs[0]["JRI_CHAT_RUNTIME"] == "1"
 
 
 def test_pi_runtime_export_session_copies_session_file(tmp_path: Path) -> None:
