@@ -420,6 +420,8 @@ class PiRuntime:
     ) -> None:
         if self._process is not None and self._process.poll() is None:
             return
+        self._session_id = None
+        self._session_file = None
         merged_env = os.environ.copy()
         merged_env.pop("JRI_CHAT_RUNTIME", None)
         if env:
@@ -537,8 +539,9 @@ class PiRuntime:
         on_start: Callable[[int], None] | None = None,
         timeout: int | None = None,
     ) -> AgentRunResult:
-        if not self.is_healthy():
-            self.start(env=self._env, cwd=root)
+        if self.is_healthy():
+            self.stop()
+        self.start(env=self._env, cwd=root)
         if self._process is None or self._process.stdout is None:
             raise JriError("pi rpc process is not running")
         log_path.parent.mkdir(parents=True, exist_ok=True)

@@ -212,6 +212,74 @@ def test_pi_runtime_start_loads_ralph_prompt_and_skills(
     assert "JRI_CHAT_RUNTIME" not in popen_envs[0]
 
 
+def test_pi_runtime_uses_fresh_rpc_process_for_each_ralph_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = PiRuntime(binary="pi")
+    runtime._env = {"JRI_PI_PACKAGE": "package"}
+    runtime._process = cast(
+        Any,
+        SimpleNamespace(
+            pid=111,
+            stdin=io.StringIO(),
+            stdout=io.StringIO(),
+            poll=lambda: None,
+        ),
+    )
+    result_path = tmp_path / "result.json"
+    starts: list[Path | None] = []
+    stops: list[int] = []
+
+    def fake_stop() -> None:
+        stops.append(1)
+        runtime._process = None
+
+    def fake_start(
+        *, env: dict[str, str] | None = None, cwd: Path | None = None
+    ) -> None:
+        assert env == {"JRI_PI_PACKAGE": "package"}
+        starts.append(cwd)
+        runtime._process = cast(
+            Any,
+            SimpleNamespace(
+                pid=222,
+                stdin=io.StringIO(),
+                stdout=io.StringIO(),
+                poll=lambda: None,
+            ),
+        )
+        runtime._session_id = "ses_fresh"
+
+    def fake_rpc_request(
+        command: str, extra: dict[str, object] | None = None
+    ) -> dict[str, object]:
+        assert command == "prompt"
+        assert extra is not None
+        return {"type": "response", "command": command, "success": True}
+
+    def fake_read_rpc_line(*, timeout: float) -> dict[str, object] | None:
+        del timeout
+        result_path.write_text(_result_payload(), encoding="utf-8")
+        return {"type": "agent_end"}
+
+    monkeypatch.setattr(runtime, "stop", fake_stop)
+    monkeypatch.setattr(runtime, "start", fake_start)
+    monkeypatch.setattr(runtime, "_rpc_request", fake_rpc_request)
+    monkeypatch.setattr(runtime, "_read_rpc_line", fake_read_rpc_line)
+
+    result = runtime.run_ralph_task(
+        root=tmp_path,
+        prompt="do task",
+        log_path=tmp_path / "ralph.log",
+        result_path=result_path,
+    )
+
+    assert stops == [1]
+    assert starts == [tmp_path]
+    assert result.session_id == "ses_fresh"
+    assert result.result == "completed"
+
+
 def test_launch_chat_loads_only_ordinary_interrogator_extension(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
