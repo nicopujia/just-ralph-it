@@ -1,8 +1,13 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import { spawnSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { runPythonTool } from "../tools/_run-python-tool.mjs";
 
 const RESERVED_PREFIX = "jri:";
+const SLUG_RE = /^[a-zA-Z0-9][-a-zA-Z0-9_.]*$/;
 
 function extractCommitMessage(command: string): string | null {
   const patterns = [
@@ -54,6 +59,114 @@ function registerMappedPythonTool(
     parameters,
     async execute(_toolCallId, params) {
       return text(runPythonTool(toolName, mapParams(params as Record<string, unknown>)));
+    },
+  });
+}
+
+function finalAssistantText(stdout: string): string {
+  let final = "";
+  for (const line of stdout.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line);
+      if (event?.type !== "message_end" || event?.message?.role !== "assistant") {
+        continue;
+      }
+      const parts = event.message.content;
+      if (!Array.isArray(parts)) continue;
+      const textParts = parts
+        .filter((part) => part?.type === "text" && typeof part.text === "string")
+        .map((part) => part.text);
+      if (textParts.length > 0) final = textParts.join("");
+    } catch {
+      continue;
+    }
+  }
+  return final.trim() || stdout.trim();
+}
+
+function validatorModel(packageRoot: string): string | undefined {
+  try {
+    const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf-8"));
+    const model = manifest?.jri?.models?.["interrogator-validator"];
+    return typeof model === "string" && model ? model : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function getPiInvocation(args: string[]): { command: string; args: string[] } {
+  const currentScript = process.argv[1];
+  const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
+  if (currentScript && !isBunVirtualScript && existsSync(currentScript)) {
+    return { command: process.execPath, args: [currentScript, ...args] };
+  }
+
+  const execName = basename(process.execPath).toLowerCase();
+  const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
+  if (!isGenericRuntime) {
+    return { command: process.execPath, args };
+  }
+
+  return { command: "pi", args };
+}
+
+function registerInterrogatorValidator(pi: ExtensionAPI) {
+  const extensionDir = dirname(fileURLToPath(import.meta.url));
+  const packageRoot = dirname(extensionDir);
+  const jriExtension = join(extensionDir, "jri.ts");
+  const validatorExtension = join(extensionDir, "jri-validator.ts");
+  const validatorPrompt = join(packageRoot, "prompts", "interrogator-validator.md");
+
+  pi.registerTool({
+    name: "interrogator-validator",
+    label: "interrogator-validator",
+    description: "Run the Interrogator validator in an isolated runtime for selected draft task slugs.",
+    parameters: Type.Object({ slugs: Type.Array(Type.String()) }),
+    async execute(_toolCallId, params) {
+      const slugs = (params as { slugs?: unknown }).slugs;
+      if (
+        !Array.isArray(slugs) ||
+        !slugs.every((slug) => typeof slug === "string" && SLUG_RE.test(slug))
+      ) {
+        return text("`slugs` must be an array of valid task slugs");
+      }
+      const args = [
+        "--mode",
+        "json",
+        "-p",
+        "--no-session",
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-context-files",
+        "--extension",
+        jriExtension,
+        "--extension",
+        validatorExtension,
+        "--append-system-prompt",
+        validatorPrompt,
+        "--tools",
+        "read-tasks,check-draft-promotion,approve-draft-promotion",
+      ];
+      const model = validatorModel(packageRoot);
+      if (model) args.push("--model", model);
+      args.push(slugs.join("\n"));
+
+      const invocation = getPiInvocation(args);
+      const childEnv = { ...process.env };
+      delete childEnv.JRI_CHAT_RUNTIME;
+      const result = spawnSync(invocation.command, invocation.args, {
+        cwd: process.cwd(),
+        env: childEnv,
+        encoding: "utf-8",
+      });
+      const output = finalAssistantText(result.stdout ?? "");
+      if (result.status !== 0) {
+        const stderr = (result.stderr ?? "").trim();
+        return text(stderr ? `${output}\n${stderr}`.trim() : output);
+      }
+      return text(output);
     },
   });
 }
@@ -129,12 +242,6 @@ export default function (pi: ExtensionAPI) {
   );
   registerPythonTool(
     pi,
-    "approve-draft-promotion",
-    "Record validator approval for an exact draft task promotion set.",
-    Type.Object({ slugs: Type.Optional(Type.Array(Type.String())) }),
-  );
-  registerPythonTool(
-    pi,
     "promote-tasks",
     "Validate or promote draft tasks to todo using the core promotion logic.",
     Type.Object({
@@ -171,4 +278,7 @@ export default function (pi: ExtensionAPI) {
       })),
     }),
   );
+  if (process.env.JRI_CHAT_RUNTIME === "1") {
+    registerInterrogatorValidator(pi);
+  }
 }

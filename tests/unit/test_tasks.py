@@ -47,8 +47,48 @@ def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
     assert 'RESERVED_PREFIX = "jri:"' in source
     assert "block: true" in source
     assert 'registerPythonTool(\n    pi,\n    "upsert-task"' in source
-    assert 'registerPythonTool(\n    pi,\n    "approve-draft-promotion"' in source
     assert 'registerPythonTool(\n    pi,\n    "ralph-result"' in source
+
+
+def test_pi_extension_does_not_register_validator_approval_tool() -> None:
+    source = (
+        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
+    )
+
+    assert 'registerPythonTool(\n    pi,\n    "approve-draft-promotion"' not in source
+
+
+def test_pi_extension_launches_validator_runtime_with_approval_extension() -> None:
+    source = (
+        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
+    )
+
+    assert 'name: "interrogator-validator"' in source
+    assert '"jri-validator.ts"' in source
+    assert "approve-draft-promotion" in source
+    assert 'process.env.JRI_CHAT_RUNTIME === "1"' in source
+    assert "SLUG_RE.test(slug)" in source
+    assert "delete childEnv.JRI_CHAT_RUNTIME" in source
+    assert "env: childEnv" in source
+
+
+def test_validator_extension_registers_approval_tool_only() -> None:
+    source = (
+        files("jri.core.agents")
+        .joinpath("extensions", "jri-validator.ts")
+        .read_text("utf-8")
+    )
+
+    assert 'registerPythonTool(\n    pi,\n    "approve-draft-promotion"' in source
+    assert (
+        'runPythonTool("approve-draft-promotion", { slugs: requestedSlugs })' in source
+    )
+    assert "validator approval is recorded automatically after APPROVED" in source
+    assert (
+        'event.toolName === "approve-draft-promotion" && !event.isError' not in source
+    )
+    assert "promote-tasks" not in source
+    assert "upsert-task" not in source
 
 
 def inspect_python_tool_spawn_env(
@@ -260,6 +300,7 @@ def test_packaged_schemas_are_available() -> None:
     assert builtins.joinpath("prompts", "ralph.md").is_file()
     assert builtins.joinpath("prompts", "ralph-validator.md").is_file()
     assert builtins.joinpath("extensions", "jri.ts").is_file()
+    assert builtins.joinpath("extensions", "jri-validator.ts").is_file()
     assert builtins.joinpath("tools", "__init__.py").is_file()
     assert builtins.joinpath("tools", "__main__.py").is_file()
     assert builtins.joinpath("tools", "_run-python-tool.mjs").is_file()
