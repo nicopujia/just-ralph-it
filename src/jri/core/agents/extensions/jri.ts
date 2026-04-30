@@ -8,6 +8,7 @@ import { runPythonTool } from "../tools/_run-python-tool.mjs";
 
 const RESERVED_PREFIX = "jri:";
 const SLUG_RE = /^[a-zA-Z0-9][-a-zA-Z0-9_.]*$/;
+const CHILD_PI_MAX_BUFFER = 64 * 1024 * 1024;
 
 function extractCommitMessage(command: string): string | null {
   const patterns = [
@@ -63,21 +64,45 @@ function registerMappedPythonTool(
   });
 }
 
+function textParts(parts: unknown): string {
+  if (!Array.isArray(parts)) return "";
+  return parts
+    .filter(
+      (part): part is { type: string; text: string } =>
+        typeof part === "object" &&
+        part !== null &&
+        "type" in part &&
+        "text" in part &&
+        part.type === "text" &&
+        typeof part.text === "string",
+    )
+    .map((part) => part.text)
+    .join("");
+}
+
 function finalAssistantText(stdout: string): string {
   let final = "";
   for (const line of stdout.split("\n")) {
     if (!line.trim()) continue;
     try {
       const event = JSON.parse(line);
-      if (event?.type !== "message_end" || event?.message?.role !== "assistant") {
+      if (event?.type === "message_end" && event?.message?.role === "assistant") {
+        const text = textParts(event.message.content);
+        if (text) final = text;
         continue;
       }
-      const parts = event.message.content;
-      if (!Array.isArray(parts)) continue;
-      const textParts = parts
-        .filter((part) => part?.type === "text" && typeof part.text === "string")
-        .map((part) => part.text);
-      if (textParts.length > 0) final = textParts.join("");
+      if (event?.type === "agent_end" && event?.message?.role === "assistant") {
+        const text = textParts(event.message.content);
+        if (text) final = text;
+        continue;
+      }
+      if (
+        event?.type === "message_update" &&
+        event?.assistantMessageEvent?.type === "text_end" &&
+        typeof event.assistantMessageEvent.content === "string"
+      ) {
+        final = event.assistantMessageEvent.content;
+      }
     } catch {
       continue;
     }
@@ -85,10 +110,10 @@ function finalAssistantText(stdout: string): string {
   return final.trim() || stdout.trim();
 }
 
-function validatorModel(packageRoot: string): string | undefined {
+function configuredModel(packageRoot: string, name: string): string | undefined {
   try {
     const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf-8"));
-    const model = manifest?.jri?.models?.["interrogator-validator"];
+    const model = manifest?.jri?.models?.[name];
     return typeof model === "string" && model ? model : undefined;
   } catch {
     return undefined;
@@ -149,7 +174,7 @@ function registerInterrogatorValidator(pi: ExtensionAPI) {
         "--tools",
         "read-tasks,check-draft-promotion,approve-draft-promotion",
       ];
-      const model = validatorModel(packageRoot);
+      const model = configuredModel(packageRoot, "interrogator-validator");
       if (model) args.push("--model", model);
       args.push(slugs.join("\n"));
 
@@ -160,8 +185,70 @@ function registerInterrogatorValidator(pi: ExtensionAPI) {
         cwd: process.cwd(),
         env: childEnv,
         encoding: "utf-8",
+        maxBuffer: CHILD_PI_MAX_BUFFER,
       });
       const output = finalAssistantText(result.stdout ?? "");
+      if (result.error) {
+        return text(`${output}\n${result.error.message}`.trim());
+      }
+      if (result.status !== 0) {
+        const stderr = (result.stderr ?? "").trim();
+        return text(stderr ? `${output}\n${stderr}`.trim() : output);
+      }
+      return text(output);
+    },
+  });
+}
+
+function registerRalphValidator(pi: ExtensionAPI) {
+  const extensionDir = dirname(fileURLToPath(import.meta.url));
+  const packageRoot = dirname(extensionDir);
+  const jriExtension = join(extensionDir, "jri.ts");
+  const validatorPrompt = join(packageRoot, "prompts", "ralph-validator.md");
+
+  pi.registerTool({
+    name: "ralph-validator",
+    label: "ralph-validator",
+    description: "Run the Ralph validator in an isolated read-only runtime for one task slug.",
+    parameters: Type.Object({ slug: Type.String() }),
+    async execute(_toolCallId, params) {
+      const slug = (params as { slug?: unknown }).slug;
+      if (typeof slug !== "string" || !SLUG_RE.test(slug)) {
+        return text("`slug` must be a valid task slug");
+      }
+      const args = [
+        "--mode",
+        "json",
+        "-p",
+        "--no-session",
+        "--no-extensions",
+        "--no-skills",
+        "--no-prompt-templates",
+        "--no-context-files",
+        "--extension",
+        jriExtension,
+        "--append-system-prompt",
+        validatorPrompt,
+        "--tools",
+        "read,bash,grep,find,ls,list-tasks,read-tasks,check-contrast",
+      ];
+      const model = configuredModel(packageRoot, "ralph-validator");
+      if (model) args.push("--model", model);
+      args.push(slug);
+
+      const invocation = getPiInvocation(args);
+      const childEnv = { ...process.env };
+      delete childEnv.JRI_CHAT_RUNTIME;
+      const result = spawnSync(invocation.command, invocation.args, {
+        cwd: process.cwd(),
+        env: childEnv,
+        encoding: "utf-8",
+        maxBuffer: CHILD_PI_MAX_BUFFER,
+      });
+      const output = finalAssistantText(result.stdout ?? "");
+      if (result.error) {
+        return text(`${output}\n${result.error.message}`.trim());
+      }
       if (result.status !== 0) {
         const stderr = (result.stderr ?? "").trim();
         return text(stderr ? `${output}\n${stderr}`.trim() : output);
@@ -280,5 +367,7 @@ export default function (pi: ExtensionAPI) {
   );
   if (process.env.JRI_CHAT_RUNTIME === "1") {
     registerInterrogatorValidator(pi);
+  } else {
+    registerRalphValidator(pi);
   }
 }

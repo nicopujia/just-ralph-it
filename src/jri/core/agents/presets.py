@@ -11,15 +11,15 @@ _PRESET_CHOICES = ("default", "openai")
 _PRESET_CONFIG: dict[str, object] = {
     "openai": {
         "chat": {
-            "model": "openai/gpt-5.4",
-            "validator_model": "openai/gpt-5.4",
-            "explore_model": "openai/gpt-5.4-mini",
+            "model": "openai-codex/gpt-5.4",
+            "validator_model": "openai-codex/gpt-5.4",
+            "explore_model": "openai-codex/gpt-5.4-mini",
         },
         "start": {
-            "model": "openai/gpt-5.4",
-            "validator_model": "openai/gpt-5.4",
-            "general_model": "openai/gpt-5-codex",
-            "explore_model": "openai/gpt-5.4-mini",
+            "model": "openai-codex/gpt-5.4",
+            "validator_model": "openai-codex/gpt-5.4",
+            "general_model": "openai-codex/gpt-5.3-codex",
+            "explore_model": "openai-codex/gpt-5.4-mini",
         },
     }
 }

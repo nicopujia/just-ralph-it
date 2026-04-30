@@ -72,6 +72,20 @@ def test_pi_extension_launches_validator_runtime_with_approval_extension() -> No
     assert "env: childEnv" in source
 
 
+def test_pi_extension_launches_ralph_validator_runtime() -> None:
+    source = (
+        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
+    )
+
+    assert 'name: "ralph-validator"' in source
+    assert '"prompts", "ralph-validator.md"' in source
+    assert 'configuredModel(packageRoot, "ralph-validator")' in source
+    assert '"read,bash,grep,find,ls,list-tasks,read-tasks,check-contrast"' in source
+    assert "CHILD_PI_MAX_BUFFER" in source
+    assert 'process.env.JRI_CHAT_RUNTIME === "1"' in source
+    assert "registerRalphValidator(pi)" in source
+
+
 def test_validator_extension_registers_approval_tool_only() -> None:
     source = (
         files("jri.core.agents")

@@ -696,10 +696,10 @@ def test_start_cli_preset_sets_models(
     assert result == 0
     assert captured == {
         "max_tasks": 2,
-        "model": "openai/gpt-5.4",
-        "validator_model": "openai/gpt-5.4",
-        "general_model": "openai/gpt-5-codex",
-        "explore_model": "openai/gpt-5.4-mini",
+        "model": "openai-codex/gpt-5.4",
+        "validator_model": "openai-codex/gpt-5.4",
+        "general_model": "openai-codex/gpt-5.3-codex",
+        "explore_model": "openai-codex/gpt-5.4-mini",
         "task_timeout": None,
         "force": False,
         "dogfood": False,
@@ -754,10 +754,10 @@ def test_start_cli_explicit_model_overrides_preset(
     assert result == 0
     assert captured == {
         "max_tasks": None,
-        "model": "openai/gpt-5.4",
-        "validator_model": "openai/gpt-5.4",
+        "model": "openai-codex/gpt-5.4",
+        "validator_model": "openai-codex/gpt-5.4",
         "general_model": "openai/gpt-5.4",
-        "explore_model": "openai/gpt-5.4-mini",
+        "explore_model": "openai-codex/gpt-5.4-mini",
         "task_timeout": None,
         "force": False,
         "dogfood": False,
@@ -772,10 +772,10 @@ def test_resolve_start_models_applies_preset_and_explicit_overrides() -> None:
         general_model=None,
         explore_model=None,
     ) == {
-        "model": "openai/gpt-5.4",
+        "model": "openai-codex/gpt-5.4",
         "validator_model": "openai/gpt-5.4-mini",
-        "general_model": "openai/gpt-5-codex",
-        "explore_model": "openai/gpt-5.4-mini",
+        "general_model": "openai-codex/gpt-5.3-codex",
+        "explore_model": "openai-codex/gpt-5.4-mini",
     }
 
 
