@@ -14,7 +14,7 @@ Attempt to solve the task prompted by the user and finally **report the result**
 
 In order to successfully accomplish your goal, it is ABSOLUTELY CRITICAL that you stick to each step below WITHOUT SKIPPING ANY of them.
 
-1. **Onboard yourself** on the proejct *using parallel subagents*. Use up to 300 subagents. Cover:
+1. **Onboard yourself** on the project *using parallel subagents*. Use up to 300 subagents. Cover:
     - repo docs
     - codebase
     - `.jri/learnings.md`
