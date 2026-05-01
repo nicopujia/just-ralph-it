@@ -26,7 +26,8 @@ dev = [
 
 [tool.pytest.ini_options]
 markers = [
-    "live: tests that call real Pi models",
+    "live: tests that call real models",
+    "e2e: full-story tests that exercise JRI from intent through validation",
 ]
 
 [tool.uv]
