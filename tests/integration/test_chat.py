@@ -4,6 +4,7 @@ from typing import cast
 import pytest
 
 import jri.core.service as service_module
+from jri.core.agents.client import PiRuntime
 from jri.core.service import JriService
 from tests.conftest import run_cli
 
@@ -24,6 +25,26 @@ class FakeAgentRuntimeForChat:
     def export_session(self, session_id: str, destination: Path) -> None:
         self.export_calls.append((session_id, destination))
         destination.write_text("{}\n", encoding="utf-8")
+
+    def add_session(self, session_id: str, *, root: Path | None = None) -> None:
+        session: dict[str, object] = {"id": session_id}
+        if root is not None:
+            session["directory"] = str(root.resolve())
+        self._sessions.append(session)
+
+
+class FakePiRuntimeForChat(PiRuntime):
+    def __init__(self) -> None:
+        super().__init__(binary="pi")
+        self._sessions: list[dict[str, object]] = []
+        self.export_calls: list[tuple[str, Path]] = []
+
+    def list_sessions(self, *, root: Path, limit: int = 20) -> list[dict[str, object]]:
+        del root, limit
+        return list(self._sessions)
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        self.export_calls.append((session_id, destination))
 
     def add_session(self, session_id: str, *, root: Path | None = None) -> None:
         session: dict[str, object] = {"id": session_id}
@@ -202,3 +223,68 @@ def test_chat_detects_and_exports_new_session(initialized_repo: Path) -> None:
     assert client.export_calls == [
         ("new-session-id", service.paths.chat_logs_dir / "new-session-id.json")
     ]
+
+
+def test_chat_does_not_save_pi_rpc_session_after_chat(
+    initialized_repo: Path,
+) -> None:
+    repo = initialized_repo
+    client = FakePiRuntimeForChat()
+
+    def fake_launch_chat(
+        *,
+        root: Path,
+        session_id: str | None,
+        extra_args: list[str],
+        binary: str = "pi",
+        env: dict[str, str] | None = None,
+    ) -> int:
+        del session_id, extra_args, binary, env
+        client.add_session("temporary-rpc-session", root=root)
+        return 0
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(service_module, "launch_chat", fake_launch_chat)
+    service = JriService(repo, agent_runtime=client)
+
+    try:
+        assert service.chat([], fresh=False) == 0
+    finally:
+        monkeypatch.undo()
+
+    assert service.state_store.load().session is None
+    assert client.export_calls == []
+
+
+def test_chat_starts_fresh_when_saved_pi_session_exists(
+    initialized_repo: Path,
+) -> None:
+    repo = initialized_repo
+    client = FakePiRuntimeForChat()
+    session_ids: list[str | None] = []
+
+    def fake_launch_chat(
+        *,
+        root: Path,
+        session_id: str | None,
+        extra_args: list[str],
+        binary: str = "pi",
+        env: dict[str, str] | None = None,
+    ) -> int:
+        del root, extra_args, binary, env
+        session_ids.append(session_id)
+        return 0
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(service_module, "launch_chat", fake_launch_chat)
+    service = JriService(repo, agent_runtime=client)
+    service.state_store.save_session("stale-session")
+
+    try:
+        assert service.chat([], fresh=False) == 0
+    finally:
+        monkeypatch.undo()
+
+    assert session_ids == [None]
+    assert service.state_store.load().session is None
+    assert client.export_calls == []

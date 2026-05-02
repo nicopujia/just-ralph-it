@@ -256,12 +256,17 @@ class JriService:
             for session in list_sessions(self.agent_runtime, root=self.root)
             if isinstance((session_id := session.get("id")), str)
         }
-        state = self.state_store.load()
         binary = (
             self.agent_runtime.binary
             if isinstance(self.agent_runtime, PiRuntime)
             else "pi"
         )
+        is_pi_chat_runtime = isinstance(self.agent_runtime, PiRuntime)
+        state = self.state_store.load()
+        session_id = state.session
+        if is_pi_chat_runtime and session_id is not None:
+            self.state_store.save_session(None)
+            session_id = None
         with runtime_env(
             overrides={
                 "interrogator": model,
@@ -272,12 +277,15 @@ class JriService:
         ) as env:
             returncode = launch_chat(
                 root=self.root,
-                session_id=state.session,
+                session_id=session_id,
                 extra_args=extra_args,
                 binary=binary,
                 env=env,
             )
-        session_id = state.session
+        if returncode != 0:
+            return returncode
+        if is_pi_chat_runtime:
+            return returncode
         if session_id is None:
             after = list_sessions(self.agent_runtime, root=self.root)
             session_id = detect_latest_session(
