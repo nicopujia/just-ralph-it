@@ -1,6 +1,6 @@
 # Architecture
 
-JRI is an intent discovery and convergence system for technical owner-operators.
+JRI is an intent discovery and convergence system for project owners.
 Its autonomy is bounded by validated intent: Interrogator converts ambiguity into explicit user-confirmed assumptions, and Ralph executes only the promoted work that follows from those assumptions.
 
 ## Agents

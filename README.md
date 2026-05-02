@@ -1,8 +1,7 @@
 # Just Ralph It (JRI)
 
-> Intent discovery and convergence for technical owner-operators.
+> Turn human intent into validated tasks that autonomous agents execute until the intended software converges.
 
-JRI turns rough product intent into validated, executable work.
 The Interrogator pressure-tests intent until guesses become explicit, user-confirmed assumptions.
 Ralph is the execution engine: it works only inside that validated intent, then reports the concrete runtime outcome back to JRI.
 
