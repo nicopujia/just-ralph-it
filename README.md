@@ -1,9 +1,6 @@
 # Just Ralph It (JRI)
 
-> Turn human intent into validated tasks that autonomous agents execute until the intended software converges.
-
-The Interrogator pressure-tests intent until guesses become explicit, user-confirmed assumptions.
-Ralph is the execution engine: it works only inside that validated intent, then reports the concrete runtime outcome back to JRI.
+Turn human intent into validated tasks that autonomous agents execute until the intended software converges.
 
 ## Quickstart
 
@@ -15,8 +12,13 @@ Ralph is the execution engine: it works only inside that validated intent, then 
 ### Install and run
 
 ```bash
+# Globally
 uv tool install -e .
 jri --help
+
+# Locally
+make setup
+uv run jri --help
 ```
 
 ## Docs
