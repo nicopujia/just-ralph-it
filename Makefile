@@ -1,4 +1,4 @@
-.PHONY: setup check lint format typecheck schema-check test
+.PHONY: setup check lint format typecheck schema-check test coverage
 
 setup:
 	uv sync
@@ -21,3 +21,7 @@ schema-check:
 
 test:
 	uv run pytest
+
+coverage:
+	uv run coverage run -m pytest
+	uv run coverage report

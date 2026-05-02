@@ -13,6 +13,9 @@ make setup
 # Verify things work
 make check
 
+# Measure test coverage
+make coverage
+
 # [Optional] Live integration tests
 uv run pytest tests/live --run-live-agent --preset openai
 ```
