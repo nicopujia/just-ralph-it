@@ -330,3 +330,40 @@ def test_chat_resumes_saved_pi_session_when_it_exists(
     assert session_ids == ["existing-pi-session"]
     assert service.state_store.load().session == "existing-pi-session"
     assert client.export_calls == []
+
+
+def test_chat_saves_newer_pi_session_when_chat_creates_one(
+    initialized_repo: Path,
+) -> None:
+    repo = initialized_repo
+    client = FakePiRuntimeForChat()
+    client.add_session("existing-pi-session", root=repo)
+    session_ids: list[str | None] = []
+
+    def fake_launch_chat(
+        *,
+        root: Path,
+        session_id: str | None,
+        extra_args: list[str],
+        binary: str = "pi",
+        env: dict[str, str] | None = None,
+        session_dir: Path | None = None,
+    ) -> int:
+        del extra_args, binary, env, session_dir
+        session_ids.append(session_id)
+        client.add_session("newer-pi-session", root=root)
+        return 0
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(service_module, "launch_chat", fake_launch_chat)
+    service = JriService(repo, agent_runtime=client)
+    service.state_store.save_session("existing-pi-session")
+
+    try:
+        assert service.chat([], fresh=False) == 0
+    finally:
+        monkeypatch.undo()
+
+    assert session_ids == ["existing-pi-session"]
+    assert service.state_store.load().session == "newer-pi-session"
+    assert client.export_calls == []

@@ -286,13 +286,14 @@ class JriService:
             )
         if returncode != 0:
             return returncode
-        if session_id is None:
-            after = list_sessions(self.agent_runtime, root=self.root)
-            session_id = detect_latest_session(
-                root=self.root, before=before, sessions=after
-            )
-            if session_id is not None:
-                self.state_store.save_session(session_id)
+        after = list_sessions(self.agent_runtime, root=self.root)
+        detected_session_id = detect_latest_session(
+            root=self.root, before=before, sessions=after
+        )
+        if detected_session_id is not None:
+            session_id = detected_session_id
+        if session_id is not None:
+            self.state_store.save_session(session_id)
         if not is_pi_chat_runtime:
             export_session_if_available(
                 self.agent_runtime,
