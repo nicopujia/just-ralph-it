@@ -18,6 +18,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "coverage>=7.13.5",
     "pre-commit>=4.5.1",
     "pytest>=8.4.2",
     "ruff>=0.15.8",
@@ -29,6 +30,13 @@ markers = [
     "live: tests that call real models",
     "e2e: full-story tests that exercise JRI from intent through validation",
 ]
+
+[tool.coverage.run]
+branch = true
+source = ["jri"]
+
+[tool.coverage.report]
+show_missing = true
 
 [tool.uv]
 package = true
