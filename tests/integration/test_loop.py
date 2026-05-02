@@ -1689,7 +1689,10 @@ def test_ctl_start_detaches_foreground_follow(
         loop_process: object | None = None,
         allow_detach: bool,
     ) -> bool:
-        assert log_path.name.startswith("run-")
+        assert re.match(
+            r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z-run\.log$",
+            log_path.name,
+        )
         assert loop_pid == 515151
         assert loop_process is not None
         assert allow_detach is True
@@ -4133,6 +4136,10 @@ def test_successful_task_run_persists_logs(git_repo: Path) -> None:
     log_files = list(ralph_logs_dir.glob("*.log"))
     assert len(log_files) == 1
     ralph_log = log_files[0]
+    assert re.match(
+        r"^\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}Z-log-test-task\.log$",
+        ralph_log.name,
+    )
     assert ralph_log.read_text(encoding="utf-8") == "fake run\n"
 
     # Verify timeline has attempt_started event with log_path
