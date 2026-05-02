@@ -318,14 +318,35 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
             "pi",
             "--session-dir",
             str(tmp_path / ".jri" / "logs" / "chat"),
+            "--no-extensions",
+            "--no-skills",
+            "--no-prompt-templates",
+            "--no-context-files",
             "--extension",
             str(package_root / "extensions" / "jri.ts"),
             "--append-system-prompt",
             str(package_root / "prompts" / "interrogator.md"),
+            "--tools",
+            (
+                "list-tasks,read-tasks,read-readme,edit-readme,upsert-task,"
+                "edit-draft-task,rename-task,delete-task,promote-tasks,"
+                "check-draft-promotion,explore,interrogator-validator"
+            ),
         ]
     ]
     assert str(package_root / "extensions" / "jri-validator.ts") not in run_calls[0]
     assert run_envs[0]["JRI_CHAT_RUNTIME"] == "1"
+
+
+def test_launch_chat_rejects_capability_args(tmp_path: Path) -> None:
+    with pytest.raises(JriError, match="manages Pi capabilities"):
+        launch_chat(
+            root=tmp_path,
+            session_id=None,
+            extra_args=["--tools", "read"],
+            binary="pi",
+            env={},
+        )
 
 
 def test_pi_runtime_lists_repo_session_files(tmp_path: Path) -> None:

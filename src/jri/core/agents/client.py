@@ -364,6 +364,7 @@ def launch_chat(
     env: dict[str, str] | None = None,
     session_dir: Path | None = None,
 ) -> int:
+    _reject_chat_capability_args(extra_args)
     command = [binary]
     if session_dir is not None:
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -373,8 +374,37 @@ def launch_chat(
     if env and (package_root := env.get("JRI_PI_PACKAGE")):
         extension_path = Path(package_root) / "extensions" / "jri.ts"
         prompt_path = Path(package_root) / "prompts" / "interrogator.md"
+        command.extend(
+            [
+                "--no-extensions",
+                "--no-skills",
+                "--no-prompt-templates",
+                "--no-context-files",
+            ]
+        )
         command.extend(["--extension", str(extension_path)])
         command.extend(["--append-system-prompt", str(prompt_path)])
+        command.extend(
+            [
+                "--tools",
+                ",".join(
+                    [
+                        "list-tasks",
+                        "read-tasks",
+                        "read-readme",
+                        "edit-readme",
+                        "upsert-task",
+                        "edit-draft-task",
+                        "rename-task",
+                        "delete-task",
+                        "promote-tasks",
+                        "check-draft-promotion",
+                        "explore",
+                        "interrogator-validator",
+                    ]
+                ),
+            ]
+        )
     command.extend(extra_args)
     try:
         merged_env = os.environ.copy()
@@ -386,6 +416,37 @@ def launch_chat(
         return result.returncode
     except FileNotFoundError as err:
         raise JriError(f"could not find `{binary}` — is Pi installed?") from err
+
+
+_CHAT_CAPABILITY_FLAGS = {
+    "--tools",
+    "-t",
+    "--no-tools",
+    "-nt",
+    "--no-builtin-tools",
+    "-nbt",
+    "--extension",
+    "-e",
+    "--no-extensions",
+    "-ne",
+    "--skill",
+    "--no-skills",
+    "-ns",
+    "--prompt-template",
+    "--no-prompt-templates",
+    "-np",
+    "--no-context-files",
+    "-nc",
+}
+
+
+def _reject_chat_capability_args(extra_args: list[str]) -> None:
+    for arg in extra_args:
+        flag = arg.split("=", 1)[0]
+        if flag in _CHAT_CAPABILITY_FLAGS:
+            raise JriError(
+                f"`jri chat` manages Pi capabilities; unsupported arg: {flag}"
+            )
 
 
 _RUN_STALL_TIMEOUT = 300.0

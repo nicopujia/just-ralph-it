@@ -100,6 +100,13 @@ def test_chat_reuses_existing_session_and_exports_it(initialized_repo: Path) -> 
                     if env is not None
                     else False
                 ),
+                "explorer_exists": (
+                    Path(env["JRI_PI_PACKAGE"])
+                    .joinpath("prompts", "explorer.md")
+                    .is_file()
+                    if env is not None
+                    else False
+                ),
                 "ralph_exists": (
                     Path(env["JRI_PI_PACKAGE"]).joinpath("prompts", "ralph.md").exists()
                     if env is not None
@@ -152,6 +159,7 @@ def test_chat_reuses_existing_session_and_exports_it(initialized_repo: Path) -> 
     assert call["package_exists"] is True
     assert call["interrogator_exists"] is True
     assert call["validator_exists"] is True
+    assert call["explorer_exists"] is True
     assert call["ralph_exists"] is False
     assert call["skill_exists"] is True
     assert call["extension_exists"] is True

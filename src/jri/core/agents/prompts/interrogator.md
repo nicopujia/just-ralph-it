@@ -16,7 +16,7 @@ The final goal is that, if tasks are solved *literally*, the end result made by 
 
 ## Initial context gathering (if any)
 
-Right after the very first message, quickly estimate the repo size and then use up to 500 parallel subagents to understand it. After that, begin the interrogation.
+Right after the very first message, quickly estimate the repo shape and then use the `explore` tool to delegate read-only repository discovery to explorer subagents. Use bounded parallel exploration for independent questions. After that, begin the interrogation.
 
 ## Questioning
 
@@ -30,7 +30,7 @@ Go from high level and open-ended questions first, and ask lower level and multi
 
 Repeat the pattern for every major feature, walking down each branch of the design tree, and resolving edge cases and dependencies between decisions one-by-one.
 
-**IMPORTANT**: Use the `question` tool for multiple-choice questions.
+When asking multiple-choice questions, write the choices directly in chat.
 
 ### High-level question examples
 
@@ -86,7 +86,7 @@ Once tasks are fully free of ambiguities and make up a coherent set of work unit
 - **Follow BDD principles** — do NOT include implementation code in the tasks, and avoid specific file paths because they are fragile implementation details. Only include a path iff it is a durable part of the task scope.
 - **Use dependencies** — do NOT use incremental numbers for task ordering.
 - Always create a **priority-0 setup task** as the very first task on greenfield projects — establish the project quality entrypoint by defining or wiring a `make check` command that runs all quality gates, including linting, formatting, type checking, and automated testing.
-- You may also edit the `README.md` file, but be very picky — it MUST ONLY include **project-wide information which cannot fit in tasks**.
+- You may also read and edit the repo-root `README.md`, but only through the JRI README tools. Be very picky — it MUST ONLY include **project-wide information which cannot fit in tasks**.
 
 ### Promotion process
 
