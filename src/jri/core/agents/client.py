@@ -362,8 +362,12 @@ def launch_chat(
     extra_args: list[str],
     binary: str = "pi",
     env: dict[str, str] | None = None,
+    session_dir: Path | None = None,
 ) -> int:
     command = [binary]
+    if session_dir is not None:
+        session_dir.mkdir(parents=True, exist_ok=True)
+        command.extend(["--session-dir", str(session_dir)])
     if session_id:
         command.extend(["--session", session_id])
     if env and (package_root := env.get("JRI_PI_PACKAGE")):
@@ -392,6 +396,56 @@ _MISSING_RESULT_FOLLOW_UP_PROMPT = (
 )
 
 
+def _repo_pi_session_dir(root: Path) -> Path:
+    return root / ".jri" / "logs" / "external" / "pi" / "sessions"
+
+
+def _pi_session_dirs(root: Path) -> list[Path]:
+    return [_repo_pi_session_dir(root)]
+
+
+def _list_pi_session_files(root: Path, *, limit: int) -> list[dict[str, object]]:
+    root_resolved = root.resolve()
+    sessions: list[tuple[float, dict[str, object]]] = []
+    for session_dir in _pi_session_dirs(root):
+        if not session_dir.exists():
+            continue
+        for session_file in session_dir.rglob("*.jsonl"):
+            session = _read_pi_session_header(session_file)
+            if session is None:
+                continue
+            directory = session.get("directory")
+            if not isinstance(directory, str):
+                continue
+            try:
+                if Path(directory).resolve() != root_resolved:
+                    continue
+            except OSError:
+                continue
+            sessions.append((session_file.stat().st_mtime, session))
+    sessions.sort(key=lambda item: item[0], reverse=True)
+    return [session for _, session in sessions[:limit]]
+
+
+def _read_pi_session_header(session_file: Path) -> dict[str, object] | None:
+    try:
+        first_line = session_file.read_text(encoding="utf-8").splitlines()[0]
+        payload = json.loads(first_line)
+    except (OSError, IndexError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    session_id = payload.get("id")
+    directory = payload.get("cwd")
+    if not isinstance(session_id, str) or not isinstance(directory, str):
+        return None
+    return {
+        "id": session_id,
+        "directory": directory,
+        "sessionFile": str(session_file),
+    }
+
+
 class PiRuntime:
     """Drives Ralph sessions through `pi --mode rpc`."""
 
@@ -408,6 +462,7 @@ class PiRuntime:
         self._process: subprocess.Popen[str] | None = None
         self._session_id: str | None = None
         self._session_file: Path | None = None
+        self._listed_session_files: dict[str, Path] = {}
         self._cwd_hint = ""
         self._env: dict[str, str] = {}
         self._cwd: Path | None = None
@@ -432,6 +487,10 @@ class PiRuntime:
         command = [self.binary, "--mode", "rpc"]
         if self.model:
             command.extend(["--model", self.model])
+        if cwd is not None:
+            session_dir = _repo_pi_session_dir(cwd)
+            session_dir.mkdir(parents=True, exist_ok=True)
+            command.extend(["--session-dir", str(session_dir)])
         if package_root := self._env.get("JRI_PI_PACKAGE"):
             package_path = Path(package_root)
             extension_path = package_path / "extensions" / "jri.ts"
@@ -504,30 +563,45 @@ class PiRuntime:
         return self._process is not None and self._process.poll() is None
 
     def list_sessions(self, *, root: Path, limit: int = 20) -> list[dict[str, object]]:
-        del limit
-        if not self.is_healthy():
-            return []
-        state = self._rpc_request("get_state")
-        data = state.get("data")
-        if not isinstance(data, dict):
-            return []
-        data = cast(dict[str, object], data)
-        session_id = data.get("sessionId")
-        session_file = data.get("sessionFile")
-        session = {
-            "id": session_id,
-            "directory": str(root.resolve()),
-            "sessionFile": session_file,
-        }
-        return [session] if isinstance(session_id, str) else []
+        sessions = _list_pi_session_files(root=root, limit=limit)
+        self._listed_session_files.update(
+            {
+                cast(str, session["id"]): Path(cast(str, session["sessionFile"]))
+                for session in sessions
+                if isinstance(session.get("id"), str)
+                and isinstance(session.get("sessionFile"), str)
+            }
+        )
+        if self.is_healthy():
+            state = self._rpc_request("get_state")
+            data = state.get("data")
+            if isinstance(data, dict):
+                data = cast(dict[str, object], data)
+                session_id = data.get("sessionId")
+                session_file = data.get("sessionFile")
+                if isinstance(session_id, str):
+                    sessions.insert(
+                        0,
+                        {
+                            "id": session_id,
+                            "directory": str(root.resolve()),
+                            "sessionFile": session_file,
+                        },
+                    )
+                    if isinstance(session_file, str):
+                        self._listed_session_files[session_id] = Path(session_file)
+        return sessions
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        if session_id != self._session_id:
+        session_file = self._listed_session_files.get(session_id)
+        if session_file is None and session_id == self._session_id:
+            session_file = self._session_file
+        if session_file is None:
             raise JriError(f"unknown pi session '{session_id}'")
-        if self._session_file is None or not self._session_file.exists():
+        if not session_file.exists():
             raise JriError(f"pi session file is unavailable for '{session_id}'")
-        shutil.copyfile(self._session_file, destination)
+        shutil.copyfile(session_file, destination)
 
     def run_ralph_task(
         self,

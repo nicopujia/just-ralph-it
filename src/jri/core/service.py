@@ -264,9 +264,12 @@ class JriService:
         is_pi_chat_runtime = isinstance(self.agent_runtime, PiRuntime)
         state = self.state_store.load()
         session_id = state.session
-        if is_pi_chat_runtime and session_id is not None:
+        if is_pi_chat_runtime and session_id is not None and session_id not in before:
             self.state_store.save_session(None)
             session_id = None
+        session_dir = (
+            self.paths.external_pi_dir / "sessions" if is_pi_chat_runtime else None
+        )
         with runtime_env(
             overrides={
                 "interrogator": model,
@@ -281,10 +284,9 @@ class JriService:
                 extra_args=extra_args,
                 binary=binary,
                 env=env,
+                session_dir=session_dir,
             )
         if returncode != 0:
-            return returncode
-        if is_pi_chat_runtime:
             return returncode
         if session_id is None:
             after = list_sessions(self.agent_runtime, root=self.root)
