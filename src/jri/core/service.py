@@ -274,7 +274,7 @@ class JriService:
                 "interrogator-validator": validator_model,
                 "explore": explore_model,
             },
-            included_agents={"interrogator", "interrogator-validator"},
+            included_agents={"interrogator", "interrogator-validator", "explorer"},
         ) as env:
             returncode = launch_chat(
                 root=self.root,

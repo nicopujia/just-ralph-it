@@ -86,6 +86,37 @@ def test_pi_extension_launches_ralph_validator_runtime() -> None:
     assert "registerRalphValidator(pi)" in source
 
 
+def test_pi_extension_splits_chat_and_ralph_tool_registration() -> None:
+    source = (
+        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
+    )
+
+    assert "function registerChatTools" in source
+    assert "function registerRalphTools" in source
+    assert 'process.env.JRI_CHAT_RUNTIME === "1"' in source
+    assert 'registerPythonTool(\n    pi,\n    "read-readme"' in source
+    assert 'registerPythonTool(\n    pi,\n    "edit-readme"' in source
+    assert 'registerPythonTool(\n    pi,\n    "edit-draft-task"' in source
+    assert "registerExplorer(pi)" in source
+
+
+def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
+    source = (
+        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
+    )
+
+    assert 'name: "explore"' in source
+    assert '"prompts", "explorer.md"' in source
+    assert '"--no-session"' in source
+    assert '"--no-extensions"' in source
+    assert '"--no-skills"' in source
+    assert '"--no-prompt-templates"' in source
+    assert '"--no-context-files"' in source
+    assert '"read,grep,find,ls"' in source
+    assert "EXPLORER_MAX_TASKS = 8" in source
+    assert "EXPLORER_MAX_CONCURRENCY = 4" in source
+
+
 def test_validator_extension_registers_approval_tool_only() -> None:
     source = (
         files("jri.core.agents")
@@ -311,6 +342,7 @@ def test_packaged_schemas_are_available() -> None:
     builtins = files("jri.core.agents")
     assert builtins.joinpath("prompts", "interrogator.md").is_file()
     assert builtins.joinpath("prompts", "interrogator-validator.md").is_file()
+    assert builtins.joinpath("prompts", "explorer.md").is_file()
     assert builtins.joinpath("prompts", "ralph.md").is_file()
     assert builtins.joinpath("prompts", "ralph-validator.md").is_file()
     assert builtins.joinpath("extensions", "jri.ts").is_file()
@@ -392,6 +424,141 @@ def test_upsert_task_tool_writes_parseable_draft_and_overwrites(
     assert updated_task.metadata.priority == 0
     assert updated_task.metadata.acceptance_criteria == ["Scope is approved"]
     assert updated_task.body == "Refined draft.\n"
+
+
+def test_edit_draft_task_tool_applies_exact_replacement(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".jri" / "tasks").mkdir(parents=True)
+    run_agent_tool(
+        repo,
+        {
+            "title": "Clarify scope",
+            "body": "Draft the scope.\n",
+            "assignee": "Ralph",
+            "priority": 1,
+            "acceptance_criteria": ["Scope is approved"],
+        },
+        "upsert-task",
+    )
+
+    output = run_agent_tool(
+        repo,
+        {
+            "slug": "clarify-scope",
+            "edits": [{"oldText": "Draft the scope.", "newText": "Refine the scope."}],
+        },
+        "edit-draft-task",
+    )
+
+    result = json.loads(output)
+    assert result["path"] == ".jri/tasks/draft/clarify-scope.md"
+    assert result["replacements"] == 1
+    assert "-Draft the scope." in result["diff"]
+    task = parse_task_file(repo / ".jri" / "tasks" / "draft" / "clarify-scope.md")
+    assert task.body == "Refine the scope.\n"
+
+
+def test_edit_draft_task_tool_rejects_invalid_result(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".jri" / "tasks").mkdir(parents=True)
+    run_agent_tool(
+        repo,
+        {
+            "title": "Clarify scope",
+            "body": "Draft the scope.\n",
+            "assignee": "Ralph",
+            "priority": 1,
+            "acceptance_criteria": ["Scope is approved"],
+        },
+        "upsert-task",
+    )
+
+    with pytest.raises(subprocess.CalledProcessError):
+        run_agent_tool(
+            repo,
+            {
+                "slug": "clarify-scope",
+                "edits": [{"oldText": "assignee: Ralph", "newText": "assignee: Bot"}],
+            },
+            "edit-draft-task",
+        )
+
+
+def test_edit_draft_task_tool_rejects_promoted_task(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".jri" / "tasks" / "todo").mkdir(parents=True)
+    write_task(
+        repo,
+        status="todo",
+        slug="clarify-scope",
+        title="Clarify scope",
+        priority=1,
+        assignee="Ralph",
+        body="body",
+    )
+
+    with pytest.raises(subprocess.CalledProcessError):
+        run_agent_tool(
+            repo,
+            {
+                "slug": "clarify-scope",
+                "edits": [{"oldText": "body", "newText": "updated"}],
+            },
+            "edit-draft-task",
+        )
+
+
+def test_readme_tools_read_and_apply_exact_replacement(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "README.md").write_text("# Project\n\nOld summary.\n", encoding="utf-8")
+
+    assert run_agent_tool(repo, {}, "read-readme") == "# Project\n\nOld summary.\n"
+    output = run_agent_tool(
+        repo,
+        {"edits": [{"oldText": "Old summary.", "newText": "New summary."}]},
+        "edit-readme",
+    )
+
+    result = json.loads(output)
+    assert result["path"] == "README.md"
+    assert result["replacements"] == 1
+    assert "+New summary." in result["diff"]
+    assert (repo / "README.md").read_text(encoding="utf-8") == (
+        "# Project\n\nNew summary.\n"
+    )
+
+
+def test_edit_readme_tool_rejects_missing_old_text(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "README.md").write_text("# Project\n", encoding="utf-8")
+
+    with pytest.raises(subprocess.CalledProcessError):
+        run_agent_tool(
+            repo,
+            {"edits": [{"oldText": "Missing", "newText": "Replacement"}]},
+            "edit-readme",
+        )
+
+
+def test_readme_tools_reject_symlink(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    outside = tmp_path / "README.md"
+    outside.write_text("# Outside\n", encoding="utf-8")
+    (repo / "README.md").symlink_to(outside)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        run_agent_tool(repo, {}, "read-readme")
+    with pytest.raises(subprocess.CalledProcessError):
+        run_agent_tool(
+            repo,
+            {"edits": [{"oldText": "Outside", "newText": "Inside"}]},
+            "edit-readme",
+        )
 
 
 def test_upsert_task_tool_rejects_invalid_slug(tmp_path: Path) -> None:

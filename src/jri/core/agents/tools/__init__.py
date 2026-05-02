@@ -3,14 +3,15 @@ import os
 import re
 import sys
 from collections.abc import Callable
+from difflib import unified_diff
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 
 from ...models import Task
 from ...service import JriService
-from ...tasks import list_tasks
+from ...tasks import list_tasks, validate_task_metadata
 
 SLUG_RE = re.compile(r"^[a-zA-Z0-9][-a-zA-Z0-9_.]*$")
 
@@ -80,6 +81,10 @@ def _ensure_task_path_within(directory: Path, slug: str) -> Path:
 
 def _read_task(task_path: Path) -> tuple[dict[str, Any], str]:
     source = task_path.read_text(encoding="utf-8")
+    return _read_task_source(task_path, source)
+
+
+def _read_task_source(task_path: Path, source: str) -> tuple[dict[str, Any], str]:
     if not source.startswith("---\n"):
         raise ValueError(f"invalid task format: {task_path}")
     boundary = source.find("\n---\n", 4)
@@ -95,6 +100,7 @@ def _read_task(task_path: Path) -> tuple[dict[str, Any], str]:
         raise ValueError(f"invalid task metadata YAML: {task_path}") from exc
     if not isinstance(metadata, dict):
         raise ValueError(f"invalid task metadata object: {task_path}")
+    validate_task_metadata(metadata)
     depends_on = metadata.get("depends_on")
     if depends_on is not None:
         _assert_string_list("depends_on", depends_on)
@@ -107,6 +113,67 @@ def _read_task(task_path: Path) -> tuple[dict[str, Any], str]:
 def _serialize_task(metadata: dict[str, Any], body: str) -> str:
     frontmatter = yaml.safe_dump(metadata, sort_keys=False, allow_unicode=False).strip()
     return f"---\n{frontmatter}\n---\n\n{body}"
+
+
+def _assert_exact_edits(payload: dict[str, Any]) -> list[dict[str, str]]:
+    edits = payload.get("edits")
+    if not isinstance(edits, list) or not edits:
+        raise ValueError("`edits` must be a non-empty list")
+    normalized: list[dict[str, str]] = []
+    for index, edit in enumerate(edits, start=1):
+        if not isinstance(edit, dict):
+            raise ValueError(f"`edits[{index}]` must be an object")
+        edit_payload = cast(dict[str, Any], edit)
+        old_text = edit_payload.get("oldText")
+        new_text = edit_payload.get("newText")
+        if not isinstance(old_text, str) or not old_text:
+            raise ValueError(f"`edits[{index}].oldText` must be a non-empty string")
+        if not isinstance(new_text, str):
+            raise ValueError(f"`edits[{index}].newText` must be a string")
+        normalized.append({"oldText": old_text, "newText": new_text})
+    return normalized
+
+
+def _apply_exact_edits(source: str, edits: list[dict[str, str]]) -> tuple[str, int]:
+    updated = source
+    replacements = 0
+    for index, edit in enumerate(edits, start=1):
+        old_text = edit["oldText"]
+        count = updated.count(old_text)
+        if count == 0:
+            raise ValueError(f"`edits[{index}].oldText` was not found")
+        if count > 1:
+            raise ValueError(
+                f"`edits[{index}].oldText` matched {count} blocks; make it unique"
+            )
+        updated = updated.replace(old_text, edit["newText"], 1)
+        replacements += 1
+    return updated, replacements
+
+
+def _diff_text(path_label: str, before: str, after: str) -> str:
+    return "".join(
+        unified_diff(
+            before.splitlines(keepends=True),
+            after.splitlines(keepends=True),
+            fromfile=f"a/{path_label}",
+            tofile=f"b/{path_label}",
+        )
+    )
+
+
+def _repo_root() -> Path:
+    return Path.cwd().resolve()
+
+
+def _repo_root_child(name: str) -> Path:
+    root = _repo_root()
+    path = root / name
+    try:
+        path.resolve().relative_to(root)
+    except ValueError as exc:
+        raise ValueError(f"refusing to access outside repo root: {name}") from exc
+    return path
 
 
 def _draft_task_dirs(root: Path) -> tuple[Path, Path, Path, Path]:
@@ -275,6 +342,39 @@ def _run_delete_task(payload: dict[str, Any]) -> str:
     return f"deleted draft task: .jri/tasks/draft/{slug}.md"
 
 
+def _run_edit_draft_task(payload: dict[str, Any]) -> str:
+    slug = _assert_slug("slug", payload.get("slug"))
+    edits = _assert_exact_edits(payload)
+    draft_dir, todo_dir, doing_dir, done_dir = _draft_task_dirs(Path.cwd())
+    task_path = _ensure_task_path_within(draft_dir, slug)
+    if not task_path.exists():
+        for directory, label in (
+            (todo_dir, "todo"),
+            (doing_dir, "doing"),
+            (done_dir, "done"),
+        ):
+            promoted_path = _ensure_task_path_within(directory, slug)
+            if promoted_path.exists():
+                raise ValueError(
+                    f"refusing to edit promoted task: .jri/tasks/{label}/{slug}.md"
+                )
+        raise ValueError(f"draft task does not exist: .jri/tasks/draft/{slug}.md")
+    if task_path.is_symlink():
+        raise ValueError("refusing to edit symlinked draft task")
+
+    source = task_path.read_text(encoding="utf-8")
+    updated, replacements = _apply_exact_edits(source, edits)
+    _read_task_source(task_path, updated)
+    task_path.write_text(updated, encoding="utf-8")
+    relative = f".jri/tasks/draft/{slug}.md"
+    result = {
+        "path": relative,
+        "replacements": replacements,
+        "diff": _diff_text(relative, source, updated),
+    }
+    return json.dumps(result, indent=2) + "\n"
+
+
 def _run_promote_tasks(payload: dict[str, Any]) -> str:
     slugs = _assert_slug_list("slugs", payload.get("slugs")) or []
     check_only = payload.get("check_only", False)
@@ -343,6 +443,36 @@ def _run_list_tasks(payload: dict[str, Any]) -> str:
         tasks_dir = service.paths.tasks_dir / status
         tasks = list_tasks(tasks_dir, git_repo=service.git)
     return json.dumps([_task_to_payload(task) for task in tasks], indent=2) + "\n"
+
+
+def _run_read_readme(_payload: dict[str, Any]) -> str:
+    readme_path = _repo_root_child("README.md")
+    if readme_path.is_symlink():
+        raise ValueError("refusing to read symlinked README.md")
+    if not readme_path.exists():
+        raise ValueError("README.md does not exist")
+    return readme_path.read_text(encoding="utf-8")
+
+
+def _run_edit_readme(payload: dict[str, Any]) -> str:
+    edits = _assert_exact_edits(payload)
+    readme_path = _repo_root_child("README.md")
+    if readme_path.is_symlink():
+        raise ValueError("refusing to edit symlinked README.md")
+    if not readme_path.exists():
+        raise ValueError("README.md does not exist")
+    if not readme_path.is_file():
+        raise ValueError("README.md is not a regular file")
+
+    source = readme_path.read_text(encoding="utf-8")
+    updated, replacements = _apply_exact_edits(source, edits)
+    readme_path.write_text(updated, encoding="utf-8")
+    result = {
+        "path": "README.md",
+        "replacements": replacements,
+        "diff": _diff_text("README.md", source, updated),
+    }
+    return json.dumps(result, indent=2) + "\n"
 
 
 def _run_ralph_result(payload: dict[str, Any]) -> str:
@@ -465,8 +595,11 @@ def _run_contrast_check(payload: dict[str, Any]) -> str:
 
 _HANDLERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "check-contrast": _run_contrast_check,
+    "edit-draft-task": _run_edit_draft_task,
+    "edit-readme": _run_edit_readme,
     "list-tasks": _run_list_tasks,
     "read-tasks": _run_read_tasks,
+    "read-readme": _run_read_readme,
     "upsert-task": _run_upsert_task,
     "rename-task": _run_rename_task,
     "delete-task": _run_delete_task,
