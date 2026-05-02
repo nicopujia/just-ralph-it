@@ -14,10 +14,10 @@ make setup
 make check
 
 # [Optional] Live integration tests
-uv run pytest tests/live --run-live-pi --preset openai
+uv run pytest tests/live --run-live-agent --preset openai
 ```
 
-When `--run-live-pi` is set, pytest capture is disabled so live agent stdout
+When `--run-live-agent` is set, pytest capture is disabled so live agent stdout
 streams directly to the terminal while the test is running.
 
 ## Build
