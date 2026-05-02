@@ -14,9 +14,9 @@ pytestmark = pytest.mark.live
 _LIVE_TASK_TIMEOUT_SECONDS = 300
 
 
-def _skip_unless_live(run_live_pi: bool) -> None:
-    if not run_live_pi:
-        pytest.skip("pass --run-live-pi to enable live Pi tests")
+def _skip_unless_live(run_live_agent: bool) -> None:
+    if not run_live_agent:
+        pytest.skip("pass --run-live-agent to enable live agent tests")
 
 
 def _init_live_repo(git_repo: Path) -> None:
@@ -28,10 +28,10 @@ def _init_live_repo(git_repo: Path) -> None:
 
 def test_start_with_real_pi_completes_trivial_task(
     git_repo: Path,
-    run_live_pi: bool,
+    run_live_agent: bool,
     live_start_models: LiveStartModels,
 ) -> None:
-    _skip_unless_live(run_live_pi)
+    _skip_unless_live(run_live_agent)
 
     _init_live_repo(git_repo)
     write_task(
@@ -71,10 +71,10 @@ def test_start_with_real_pi_completes_trivial_task(
 
 def test_start_with_real_pi_completes_setup_task(
     git_repo: Path,
-    run_live_pi: bool,
+    run_live_agent: bool,
     live_start_models: LiveStartModels,
 ) -> None:
-    _skip_unless_live(run_live_pi)
+    _skip_unless_live(run_live_agent)
 
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
@@ -138,10 +138,10 @@ def test_start_with_real_pi_completes_setup_task(
 
 def test_start_with_real_pi_completes_dependency_chain(
     git_repo: Path,
-    run_live_pi: bool,
+    run_live_agent: bool,
     live_start_models: LiveStartModels,
 ) -> None:
-    _skip_unless_live(run_live_pi)
+    _skip_unless_live(run_live_agent)
 
     _init_live_repo(git_repo)
     write_task(
@@ -242,10 +242,10 @@ def test_start_with_real_pi_completes_dependency_chain(
 
 def test_start_with_real_pi_escalates_needs_human_task(
     git_repo: Path,
-    run_live_pi: bool,
+    run_live_agent: bool,
     live_start_models: LiveStartModels,
 ) -> None:
-    _skip_unless_live(run_live_pi)
+    _skip_unless_live(run_live_agent)
 
     _init_live_repo(git_repo)
     write_task(

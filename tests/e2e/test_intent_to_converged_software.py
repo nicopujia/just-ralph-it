@@ -21,12 +21,12 @@ _START_PROCESS_TIMEOUT_SECONDS = 2400
 
 def test_e2e_intent_to_converged_software(
     git_repo: Path,
-    run_live_pi: bool,
+    run_live_agent: bool,
     preset: str | None,
     tmp_path: Path,
 ) -> None:
-    if not run_live_pi:
-        pytest.skip("pass -L/--run-live-pi to enable live model E2E tests")
+    if not run_live_agent:
+        pytest.skip("pass -L/--run-live-agent to enable live agent E2E tests")
 
     env = _isolated_live_env(tmp_path)
     _run(["jri", "init"], cwd=git_repo, env=env)
