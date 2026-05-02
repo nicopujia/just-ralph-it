@@ -819,6 +819,60 @@ def test_ctl_run_loop_is_not_a_public_command(
     assert "invalid choice" in capsys.readouterr().err
 
 
+def test_unknown_args_are_rejected_outside_chat(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        base_run_cli(["status", "--bogus"], cwd=git_repo)
+
+    assert exc_info.value.code == 2
+    assert "unrecognized arguments: --bogus" in capsys.readouterr().err
+
+
+def test_chat_preserves_unknown_args_for_agent_runtime(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_chat(
+        self: JriService,
+        extra_args: list[str],
+        *,
+        fresh: bool = False,
+        model: str | None = None,
+        validator_model: str | None = None,
+        explore_model: str | None = None,
+    ) -> int:
+        captured.update(
+            {
+                "root": self.root,
+                "extra_args": extra_args,
+                "fresh": fresh,
+                "model": model,
+                "validator_model": validator_model,
+                "explore_model": explore_model,
+            }
+        )
+        return 0
+
+    monkeypatch.setattr(JriService, "chat", fake_chat)
+
+    result = base_run_cli(
+        ["chat", "--fresh", "--", "--agent-flag", "value"],
+        cwd=git_repo,
+    )
+
+    assert result == 0
+    assert captured == {
+        "root": git_repo.resolve(),
+        "extra_args": ["--", "--agent-flag", "value"],
+        "fresh": True,
+        "model": None,
+        "validator_model": None,
+        "explore_model": None,
+    }
+
+
 def test_internal_run_loop_uses_remaining_task_budget(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3333,6 +3387,55 @@ def test_failing_make_check_triggers_recovery(git_repo: Path) -> None:
     assert "ralph" not in branches
 
 
+def test_missing_make_binary_records_failure_and_recovers(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import jri.core.service as service_module
+    from jri.core.timeline import TimelineStore
+
+    assert run_cli(["init"], cwd=git_repo) == 0
+    (git_repo / "Makefile").write_text("check:\n\t@true\n", encoding="utf-8")
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md", "Makefile")
+    git(git_repo, "commit", "-m", "add task and makefile")
+
+    real_run = service_module.subprocess.run
+
+    def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        if args and args[0] == ["make", "check"]:
+            raise FileNotFoundError("make")
+        return real_run(*args, **kwargs)
+
+    monkeypatch.setattr(service_module.subprocess, "run", fake_run)
+
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
+
+    completed = service.start(max_tasks=1, force=True)
+
+    assert completed == 0
+    assert "make: command not found" in capsys.readouterr().err
+    assert (git_repo / ".jri" / "tasks" / "todo" / "implement-file.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
+    metrics = json.loads(
+        (git_repo / ".jri" / "metrics.json").read_text(encoding="utf-8")
+    )
+    assert metrics == [
+        {"task": "implement-file", "ts": metrics[0]["ts"], "result": "fail"}
+    ]
+    events = TimelineStore(git_repo / ".jri" / "logs" / "timeline.jsonl").read()
+    warning_events = [event for event in events if event.event == "stderr_warning"]
+    assert warning_events[-1].task == "implement-file"
+    assert warning_events[-1].detail == {"message": "make: command not found"}
+
+
 def test_failed_task_is_retried_after_first_failure(git_repo: Path) -> None:
     """A task that fails once is retried on the next loop invocation."""
     assert run_cli(["init"], cwd=git_repo) == 0
@@ -3900,6 +4003,51 @@ def test_timeline_cli_outputs_empty_json_array_when_history_is_empty(
     assert run_cli(["timeline", "--json"], cwd=git_repo) == 0
 
     assert capsys.readouterr().out.strip() == "[]"
+
+
+def test_timeline_cli_outputs_empty_json_array_for_unmatched_task_filter(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from jri.core.timeline import TimelineEvent, TimelineStore
+
+    assert run_cli(["init"], cwd=git_repo) == 0
+    TimelineStore(git_repo / ".jri" / "logs" / "timeline.jsonl").record(
+        TimelineEvent(ts="2026-05-02T00:00:00Z", event="task_completed", task="task-a")
+    )
+    capsys.readouterr()
+
+    assert run_cli(["timeline", "--task", "task-b", "--json"], cwd=git_repo) == 0
+
+    assert capsys.readouterr().out.strip() == "[]"
+
+
+def test_reset_cli_aborts_on_negative_confirmation_in_process(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
+    assert service.start(max_tasks=1, force=True) == 1
+    monkeypatch.setattr("builtins.input", lambda: "n")
+    capsys.readouterr()
+
+    assert run_cli(["reset"], cwd=git_repo) == 1
+
+    captured = capsys.readouterr()
+    assert "Are you sure? [y/N]" in captured.out
+    assert "Reset aborted." in captured.err
+    assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
 
 
 def test_task_limit_stops_loop_after_n_tasks(git_repo: Path) -> None:
@@ -4885,3 +5033,30 @@ def test_start_switches_branch_with_force(git_repo: Path) -> None:
 
     assert completed == 1
     assert git(git_repo, "branch", "--show-current") == "main"
+
+
+def test_start_rejects_wrong_branch_confirmation(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+    git(git_repo, "checkout", "-b", "feature/reject")
+    monkeypatch.setattr("builtins.input", lambda: "n")
+
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
+
+    with pytest.raises(JriError, match="aborted by user"):
+        service.start(max_tasks=1, force=False)
+
+    assert git(git_repo, "branch", "--show-current") == "feature/reject"
+    assert (git_repo / ".jri" / "tasks" / "todo" / "implement-file.md").exists()
