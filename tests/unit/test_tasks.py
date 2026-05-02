@@ -112,7 +112,10 @@ def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
     assert '"--no-skills"' in source
     assert '"--no-prompt-templates"' in source
     assert '"--no-context-files"' in source
-    assert '"read,grep,find,ls"' in source
+    assert '"read,grep,find,ls,web-search"' in source
+    assert "JRI_EXPLORER_RUNTIME" in source
+    assert 'name: "web-search"' in source
+    assert "https://html.duckduckgo.com/html/" in source
     assert "EXPLORER_MAX_TASKS = 8" in source
     assert "EXPLORER_MAX_CONCURRENCY = 4" in source
 
