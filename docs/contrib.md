@@ -17,7 +17,7 @@ make check
 make coverage
 
 # [Optional] Live integration tests
-uv run pytest tests/live --run-live-agent --preset openai
+uv run pytest tests/integration/live --run-live-agent --preset openai
 ```
 
 When `--run-live-agent` is set, pytest capture is disabled so live agent stdout
