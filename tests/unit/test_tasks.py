@@ -37,9 +37,14 @@ def run_agent_tool(cwd: Path, payload: dict[str, object], tool_name: str) -> str
     return result.stdout
 
 
+def read_extension_sources(*names: str) -> str:
+    extensions = files("jri.core.agents").joinpath("extensions")
+    return "\n".join(extensions.joinpath(name).read_text("utf-8") for name in names)
+
+
 def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
-    source = (
-        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
+    source = read_extension_sources(
+        "jri.ts", "commit-guard.ts", "chat-tools.ts", "ralph-tools.ts"
     )
 
     assert 'pi.on("tool_call"' in source
@@ -51,17 +56,13 @@ def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
 
 
 def test_pi_extension_does_not_register_validator_approval_tool() -> None:
-    source = (
-        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
-    )
+    source = read_extension_sources("jri.ts", "chat-tools.ts", "ralph-tools.ts")
 
     assert 'registerPythonTool(\n    pi,\n    "approve-draft-promotion"' not in source
 
 
 def test_pi_extension_launches_validator_runtime_with_approval_extension() -> None:
-    source = (
-        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
-    )
+    source = read_extension_sources("jri.ts", "validators.ts")
 
     assert 'name: "interrogator-validator"' in source
     assert '"jri-validator.ts"' in source
@@ -73,9 +74,7 @@ def test_pi_extension_launches_validator_runtime_with_approval_extension() -> No
 
 
 def test_pi_extension_launches_ralph_validator_runtime() -> None:
-    source = (
-        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
-    )
+    source = read_extension_sources("jri.ts", "validators.ts", "ralph-tools.ts")
 
     assert 'name: "ralph-validator"' in source
     assert '"prompts", "ralph-validator.md"' in source
@@ -87,9 +86,7 @@ def test_pi_extension_launches_ralph_validator_runtime() -> None:
 
 
 def test_pi_extension_splits_chat_and_ralph_tool_registration() -> None:
-    source = (
-        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
-    )
+    source = read_extension_sources("jri.ts", "chat-tools.ts", "ralph-tools.ts")
 
     assert "function registerChatTools" in source
     assert "function registerRalphTools" in source
@@ -101,9 +98,7 @@ def test_pi_extension_splits_chat_and_ralph_tool_registration() -> None:
 
 
 def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
-    source = (
-        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
-    )
+    source = read_extension_sources("jri.ts", "explorer.ts")
 
     assert 'name: "explore"' in source
     assert '"prompts", "explorer.md"' in source
@@ -349,7 +344,14 @@ def test_packaged_schemas_are_available() -> None:
     assert builtins.joinpath("prompts", "ralph.md").is_file()
     assert builtins.joinpath("prompts", "ralph-validator.md").is_file()
     assert builtins.joinpath("extensions", "jri.ts").is_file()
+    assert builtins.joinpath("extensions", "chat-tools.ts").is_file()
+    assert builtins.joinpath("extensions", "common.ts").is_file()
+    assert builtins.joinpath("extensions", "commit-guard.ts").is_file()
+    assert builtins.joinpath("extensions", "explorer.ts").is_file()
     assert builtins.joinpath("extensions", "jri-validator.ts").is_file()
+    assert builtins.joinpath("extensions", "python-bridge.ts").is_file()
+    assert builtins.joinpath("extensions", "ralph-tools.ts").is_file()
+    assert builtins.joinpath("extensions", "validators.ts").is_file()
     assert builtins.joinpath("tools", "__init__.py").is_file()
     assert builtins.joinpath("tools", "__main__.py").is_file()
     assert builtins.joinpath("tools", "_run-python-tool.mjs").is_file()
