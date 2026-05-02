@@ -199,7 +199,7 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
             "--mode",
             "rpc",
             "--session-dir",
-            str(tmp_path / ".jri" / "logs" / "external" / "pi" / "sessions"),
+            str(tmp_path / ".jri" / "logs" / "sessions"),
             "--extension",
             str(package_root / "extensions" / "jri.ts"),
             "--append-system-prompt",
@@ -308,7 +308,7 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
             extra_args=[],
             binary="pi",
             env={"JRI_PI_PACKAGE": str(package_root), "JRI_CHAT_RUNTIME": "0"},
-            session_dir=tmp_path / ".jri" / "logs" / "external" / "pi" / "sessions",
+            session_dir=tmp_path / ".jri" / "logs" / "sessions",
         )
         == 0
     )
@@ -317,7 +317,7 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
         [
             "pi",
             "--session-dir",
-            str(tmp_path / ".jri" / "logs" / "external" / "pi" / "sessions"),
+            str(tmp_path / ".jri" / "logs" / "sessions"),
             "--extension",
             str(package_root / "extensions" / "jri.ts"),
             "--append-system-prompt",
@@ -331,7 +331,7 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
 def test_pi_runtime_lists_repo_session_files(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
-    session_dir = repo / ".jri" / "logs" / "external" / "pi" / "sessions"
+    session_dir = repo / ".jri" / "logs" / "sessions"
     cwd_dir = session_dir / "--repo--"
     cwd_dir.mkdir(parents=True)
     session_file = cwd_dir / "2026-05-02T00-00-00-000Z_ses_123.jsonl"

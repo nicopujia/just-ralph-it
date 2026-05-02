@@ -397,7 +397,7 @@ _MISSING_RESULT_FOLLOW_UP_PROMPT = (
 
 
 def _repo_pi_session_dir(root: Path) -> Path:
-    return root / ".jri" / "logs" / "external" / "pi" / "sessions"
+    return root / ".jri" / "logs" / "sessions"
 
 
 def _pi_session_dirs(root: Path) -> list[Path]:
