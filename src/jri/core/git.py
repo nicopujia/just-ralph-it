@@ -105,6 +105,20 @@ class GitRepo:
         return self.run("branch", "--show-current").stdout.strip()
 
     def _validated_default_branch(self, branch: str) -> str:
+        if (
+            not branch
+            or branch.startswith("-")
+            or branch.startswith("/")
+            or branch.endswith("/")
+            or branch.endswith(".")
+            or ".." in branch
+            or "//" in branch
+            or "@{" in branch
+            or "\\" in branch
+            or branch.endswith(".lock")
+            or any(char.isspace() or char in "~^:?*[" for char in branch)
+        ):
+            raise JriError(f"invalid default branch name: {branch!r}")
         return branch
 
     def validate_default_branch_name(self, branch: str) -> str:
