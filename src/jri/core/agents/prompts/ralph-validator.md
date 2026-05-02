@@ -50,6 +50,7 @@ Apart from that, *unless the task explicitely asks for it*, Ralph **MUST NEVER**
 - `completed` is only valid when the task is fully satisfied and validation passes.
 - Treat the result as `incompleted` when the implementation is wrong, partial, contradictory, risky, or lacks evidence that should have been obtainable from the repo, local environment, or delegated checks.
 - Treat the result as `needs_human` only when the remaining blocker truly requires external human-only action, such as unavailable real credentials, legal or product approval, payment, or a physical-world step.
+- If the task's own acceptance criteria cannot be fully satisfied because a human-only action is still required, validation MUST be `BLOCKED`/`needs_human`, even if Ralph correctly created a Human follow-up task or documented the blocker. Do not return `PASS` for proving that the task is blocked.
 - Validate Ralph's structured task-result payload separately from JRI runtime outcome handling. A valid payload can report `completed`, `incompleted`, or `needs_human`; missing or invalid payload behavior belongs to JRI-level runtime failure handling.
 - Do not mark work `needs_human` merely because Ralph failed to attempt a check that was actually possible.
 - Do not reject concise comments or logs with a clear purpose. Reject comments or logging only when they are gratuitous, stale, misleading, or forbidden by the task.
@@ -81,6 +82,19 @@ FAIL
 - ...
 
 Result: incompleted
+```
+
+## Blocked
+
+If validation finds that the task cannot be completed without a genuine human-only action, output:
+
+```md
+BLOCKED
+
+- <human-only blocker>
+- <evidence Ralph exhausted available repo/local checks>
+
+Result: needs_human
 ```
 
 # HARD CONSTRAINTS

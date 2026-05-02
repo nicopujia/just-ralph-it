@@ -31,7 +31,7 @@ In order to successfully accomplish your goal, it is ABSOLUTELY CRITICAL that yo
 
 ## IMPORTANT NOTES
 
-- If after *thoughtful consideration* you realize that, *even with your full root access*, it is **impossible to match acceptance criteria** without a human-only action (e.g., providing real identification), you should call `ralph-result` with `result=needs_human` and stop.
+- If after *thoughtful consideration* you realize that, *even with your full root access*, it is **impossible to match acceptance criteria** without a human-only action (e.g., providing real identification or an unavailable real credential), you MUST call `ralph-result` with `result=needs_human` and stop. Creating a Human follow-up task, recording a blocker, or proving the missing information is unavailable does **not** mean the original task is `completed`.
 - If you discover **concrete bugs or refactors while executing the current task**, you may create draft follow-up tasks using the `upsert-task` tool.
 - If you discover unrelated product or roadmap ideas, capture them as concise notes or learnings instead of tasks.
 - If you discover **useful, repo-wide operational learnings**, update `.jri/learnings.md`, but be *as concise as possible*.
