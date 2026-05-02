@@ -71,7 +71,9 @@ def test_chat_reuses_existing_session_and_exports_it(initialized_repo: Path) -> 
         extra_args: list[str],
         binary: str = "pi",
         env: dict[str, str] | None = None,
+        session_dir: Path | None = None,
     ) -> int:
+        del session_dir
         launch_calls.append(
             {
                 "root": root,
@@ -175,8 +177,9 @@ def test_chat_fresh_clears_existing_session(initialized_repo: Path) -> None:
         extra_args: list[str],
         binary: str = "pi",
         env: dict[str, str] | None = None,
+        session_dir: Path | None = None,
     ) -> int:
-        del root, extra_args, binary, env
+        del root, extra_args, binary, env, session_dir
         session_ids.append(session_id)
         return 0
 
@@ -205,8 +208,9 @@ def test_chat_detects_and_exports_new_session(initialized_repo: Path) -> None:
         extra_args: list[str],
         binary: str = "pi",
         env: dict[str, str] | None = None,
+        session_dir: Path | None = None,
     ) -> int:
-        del session_id, extra_args, binary, env
+        del session_id, extra_args, binary, env, session_dir
         client.add_session("new-session-id", root=root)
         return 0
 
@@ -225,7 +229,7 @@ def test_chat_detects_and_exports_new_session(initialized_repo: Path) -> None:
     ]
 
 
-def test_chat_does_not_save_pi_rpc_session_after_chat(
+def test_chat_detects_and_exports_new_pi_session_after_chat(
     initialized_repo: Path,
 ) -> None:
     repo = initialized_repo
@@ -238,8 +242,9 @@ def test_chat_does_not_save_pi_rpc_session_after_chat(
         extra_args: list[str],
         binary: str = "pi",
         env: dict[str, str] | None = None,
+        session_dir: Path | None = None,
     ) -> int:
-        del session_id, extra_args, binary, env
+        del session_id, extra_args, binary, env, session_dir
         client.add_session("temporary-rpc-session", root=root)
         return 0
 
@@ -252,11 +257,16 @@ def test_chat_does_not_save_pi_rpc_session_after_chat(
     finally:
         monkeypatch.undo()
 
-    assert service.state_store.load().session is None
-    assert client.export_calls == []
+    assert service.state_store.load().session == "temporary-rpc-session"
+    assert client.export_calls == [
+        (
+            "temporary-rpc-session",
+            service.paths.chat_logs_dir / "temporary-rpc-session.json",
+        )
+    ]
 
 
-def test_chat_starts_fresh_when_saved_pi_session_exists(
+def test_chat_starts_fresh_when_saved_pi_session_is_missing(
     initialized_repo: Path,
 ) -> None:
     repo = initialized_repo
@@ -270,8 +280,9 @@ def test_chat_starts_fresh_when_saved_pi_session_exists(
         extra_args: list[str],
         binary: str = "pi",
         env: dict[str, str] | None = None,
+        session_dir: Path | None = None,
     ) -> int:
-        del root, extra_args, binary, env
+        del root, extra_args, binary, env, session_dir
         session_ids.append(session_id)
         return 0
 
@@ -288,3 +299,44 @@ def test_chat_starts_fresh_when_saved_pi_session_exists(
     assert session_ids == [None]
     assert service.state_store.load().session is None
     assert client.export_calls == []
+
+
+def test_chat_resumes_saved_pi_session_when_it_exists(
+    initialized_repo: Path,
+) -> None:
+    repo = initialized_repo
+    client = FakePiRuntimeForChat()
+    client.add_session("existing-pi-session", root=repo)
+    session_ids: list[str | None] = []
+
+    def fake_launch_chat(
+        *,
+        root: Path,
+        session_id: str | None,
+        extra_args: list[str],
+        binary: str = "pi",
+        env: dict[str, str] | None = None,
+        session_dir: Path | None = None,
+    ) -> int:
+        del root, extra_args, binary, env, session_dir
+        session_ids.append(session_id)
+        return 0
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(service_module, "launch_chat", fake_launch_chat)
+    service = JriService(repo, agent_runtime=client)
+    service.state_store.save_session("existing-pi-session")
+
+    try:
+        assert service.chat([], fresh=False) == 0
+    finally:
+        monkeypatch.undo()
+
+    assert session_ids == ["existing-pi-session"]
+    assert service.state_store.load().session == "existing-pi-session"
+    assert client.export_calls == [
+        (
+            "existing-pi-session",
+            service.paths.chat_logs_dir / "existing-pi-session.json",
+        )
+    ]

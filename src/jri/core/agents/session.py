@@ -70,6 +70,8 @@ def list_sessions(
     *,
     root: Path,
 ) -> list[dict[str, object]]:
+    if isinstance(runtime, PiRuntime):
+        return runtime.list_sessions(root=root)
     return call_with_runtime(
         runtime, root=root, operation=lambda: runtime.list_sessions(root=root)
     )
