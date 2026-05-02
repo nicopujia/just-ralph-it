@@ -280,6 +280,8 @@ function runExplorerTask(
   packageRoot: string,
   request: ExplorerRequest,
 ): Promise<ExplorerResult> {
+  const extensionDir = join(packageRoot, "extensions");
+  const jriExtension = join(extensionDir, "jri.ts");
   const explorerPrompt = join(packageRoot, "prompts", "explorer.md");
   const args = [
     "--mode",
@@ -290,10 +292,12 @@ function runExplorerTask(
     "--no-skills",
     "--no-prompt-templates",
     "--no-context-files",
+    "--extension",
+    jriExtension,
     "--append-system-prompt",
     explorerPrompt,
     "--tools",
-    "read,grep,find,ls",
+    "read,grep,find,ls,web-search",
   ];
   const model = configuredModel(packageRoot, "explore");
   if (model) args.push("--model", model);
@@ -301,9 +305,12 @@ function runExplorerTask(
 
   const invocation = getPiInvocation(args);
   return new Promise((resolve) => {
+    const childEnv = { ...process.env };
+    delete childEnv.JRI_CHAT_RUNTIME;
+    childEnv.JRI_EXPLORER_RUNTIME = "1";
     const child = spawn(invocation.command, invocation.args, {
       cwd: process.cwd(),
-      env: { ...process.env },
+      env: childEnv,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -333,6 +340,96 @@ function runExplorerTask(
         stderr: stderr.trim(),
       });
     });
+  });
+}
+
+function decodeHtml(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, "/");
+}
+
+function stripTags(value: string): string {
+  return decodeHtml(value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim());
+}
+
+function extractDuckDuckGoUrl(rawUrl: string): string {
+  const decoded = decodeHtml(rawUrl);
+  const normalized = decoded.startsWith("//") ? `https:${decoded}` : decoded;
+  try {
+    const url = new URL(normalized);
+    const uddg = url.searchParams.get("uddg");
+    return uddg ? decodeURIComponent(uddg) : normalized;
+  } catch {
+    return normalized;
+  }
+}
+
+function parseDuckDuckGoResults(html: string, maxResults: number) {
+  const results: { title: string; url: string; snippet: string }[] = [];
+  const resultPattern =
+    /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+  let match: RegExpExecArray | null;
+  while ((match = resultPattern.exec(html)) !== null && results.length < maxResults) {
+    results.push({
+      title: stripTags(match[2]),
+      url: extractDuckDuckGoUrl(match[1]),
+      snippet: stripTags(match[3]),
+    });
+  }
+  return results;
+}
+
+function registerExplorerTools(pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "web-search",
+    label: "web-search",
+    description:
+      "Search the public web and return concise result titles, URLs, and snippets for explorer research.",
+    parameters: Type.Object({
+      query: Type.String(),
+      max_results: Type.Optional(Type.Number()),
+    }),
+    async execute(_toolCallId, params) {
+      const query = (params as { query?: unknown }).query;
+      const rawMaxResults = (params as { max_results?: unknown }).max_results;
+      if (typeof query !== "string" || !query.trim()) {
+        return text("`query` must be a non-empty string");
+      }
+      const maxResults =
+        typeof rawMaxResults === "number" && Number.isFinite(rawMaxResults)
+          ? Math.max(1, Math.min(10, Math.floor(rawMaxResults)))
+          : 5;
+      const url = new URL("https://html.duckduckgo.com/html/");
+      url.searchParams.set("q", query.trim());
+      const response = await fetch(url, {
+        headers: {
+          "user-agent": "jri-explorer/1.0",
+        },
+      });
+      if (!response.ok) {
+        return {
+          ...text(`web search failed with HTTP ${response.status}`),
+          isError: true,
+        };
+      }
+      const html = await response.text();
+      const results = parseDuckDuckGoResults(html, maxResults);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({ query: query.trim(), results }, null, 2),
+          },
+        ],
+        details: { query: query.trim(), results },
+      };
+    },
   });
 }
 
@@ -598,7 +695,9 @@ function registerRalphTools(pi: ExtensionAPI) {
 
 export default function (pi: ExtensionAPI) {
   registerCommitPrefixGuard(pi);
-  if (process.env.JRI_CHAT_RUNTIME === "1") {
+  if (process.env.JRI_EXPLORER_RUNTIME === "1") {
+    registerExplorerTools(pi);
+  } else if (process.env.JRI_CHAT_RUNTIME === "1") {
     registerChatTools(pi);
   } else if (process.env.JRI_INTERROGATOR_VALIDATOR_RUNTIME === "1") {
     registerInterrogatorValidationTools(pi);
