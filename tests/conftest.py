@@ -17,7 +17,7 @@ class LiveStartModels(TypedDict):
 
 
 def _disable_pytest_capture_for_live_runs(config: pytest.Config) -> None:
-    if not config.getoption("run_live_pi"):
+    if not config.getoption("run_live_agent"):
         return
 
     config.option.capture = "no"
@@ -38,11 +38,11 @@ def _disable_pytest_capture_for_live_runs(config: pytest.Config) -> None:
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "-L",
-        "--run-live-pi",
+        "--run-live-agent",
         action="store_true",
         default=False,
         help=(
-            "run live tests against a real Pi runtime and disable "
+            "run live tests against a real agent runtime and disable "
             "pytest capture so agent output streams live"
         ),
     )
@@ -50,7 +50,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--preset",
         choices=preset_choices(),
         help=(
-            "Apply the named start preset for live Pi tests. "
+            "Apply the named start preset for live agent tests. "
             "Use 'default' to match the checked-in config."
         ),
     )
@@ -83,8 +83,8 @@ def run_cli(args: list[str], cwd: Path) -> int:
 
 
 @pytest.fixture
-def run_live_pi(request: pytest.FixtureRequest) -> bool:
-    return bool(request.config.getoption("run_live_pi"))
+def run_live_agent(request: pytest.FixtureRequest) -> bool:
+    return bool(request.config.getoption("run_live_agent"))
 
 
 @pytest.fixture
