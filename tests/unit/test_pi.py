@@ -158,7 +158,7 @@ def test_pi_runtime_rpc_request_reads_matching_response() -> None:
     assert json.loads(stdin.getvalue()) == {"type": "get_state"}
 
 
-def test_pi_runtime_start_loads_ralph_prompt_and_skills(
+def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     package_root = tmp_path / "package"
@@ -200,7 +200,7 @@ def test_pi_runtime_start_loads_ralph_prompt_and_skills(
             "rpc",
             "--extension",
             str(package_root / "extensions" / "jri.ts"),
-            "--prompt-template",
+            "--append-system-prompt",
             str(package_root / "prompts" / "ralph.md"),
             "--skill",
             str(package_root / "skills" / "hosted-projects"),
@@ -280,7 +280,7 @@ def test_pi_runtime_uses_fresh_rpc_process_for_each_ralph_task(
     assert result.result == "completed"
 
 
-def test_launch_chat_loads_only_ordinary_interrogator_extension(
+def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     package_root = tmp_path / "package"
@@ -315,7 +315,7 @@ def test_launch_chat_loads_only_ordinary_interrogator_extension(
             "pi",
             "--extension",
             str(package_root / "extensions" / "jri.ts"),
-            "--prompt-template",
+            "--append-system-prompt",
             str(package_root / "prompts" / "interrogator.md"),
         ]
     ]
