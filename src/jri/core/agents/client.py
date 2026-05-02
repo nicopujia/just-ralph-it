@@ -396,12 +396,16 @@ _MISSING_RESULT_FOLLOW_UP_PROMPT = (
 )
 
 
-def _repo_pi_session_dir(root: Path) -> Path:
-    return root / ".jri" / "logs" / "sessions"
+def _repo_pi_chat_session_dir(root: Path) -> Path:
+    return root / ".jri" / "logs" / "chat"
+
+
+def _repo_pi_ralph_session_dir(root: Path) -> Path:
+    return root / ".jri" / "logs" / "external" / "pi" / "sessions"
 
 
 def _pi_session_dirs(root: Path) -> list[Path]:
-    return [_repo_pi_session_dir(root)]
+    return [_repo_pi_chat_session_dir(root)]
 
 
 def _list_pi_session_files(root: Path, *, limit: int) -> list[dict[str, object]]:
@@ -488,7 +492,7 @@ class PiRuntime:
         if self.model:
             command.extend(["--model", self.model])
         if cwd is not None:
-            session_dir = _repo_pi_session_dir(cwd)
+            session_dir = _repo_pi_ralph_session_dir(cwd)
             session_dir.mkdir(parents=True, exist_ok=True)
             command.extend(["--session-dir", str(session_dir)])
         if package_root := self._env.get("JRI_PI_PACKAGE"):

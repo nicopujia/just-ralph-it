@@ -267,7 +267,7 @@ class JriService:
         if is_pi_chat_runtime and session_id is not None and session_id not in before:
             self.state_store.save_session(None)
             session_id = None
-        session_dir = self.paths.logs_dir / "sessions" if is_pi_chat_runtime else None
+        session_dir = self.paths.chat_logs_dir if is_pi_chat_runtime else None
         with runtime_env(
             overrides={
                 "interrogator": model,
@@ -293,13 +293,14 @@ class JriService:
             )
             if session_id is not None:
                 self.state_store.save_session(session_id)
-        export_session_if_available(
-            self.agent_runtime,
-            root=self.root,
-            destination_dir=self.paths.chat_logs_dir,
-            timeline=self.timeline,
-            session_id=session_id,
-        )
+        if not is_pi_chat_runtime:
+            export_session_if_available(
+                self.agent_runtime,
+                root=self.root,
+                destination_dir=self.paths.chat_logs_dir,
+                timeline=self.timeline,
+                session_id=session_id,
+            )
         return returncode
 
     def start(

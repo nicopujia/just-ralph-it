@@ -81,7 +81,7 @@ class JriPaths:
         timestamp = datetime.fromtimestamp(started_at, UTC).strftime(
             "%Y-%m-%dT%H-%M-%SZ"
         )
-        return self.ralph_logs_dir / f"{task_slug}-{timestamp}.log"
+        return self.ralph_logs_dir / f"{timestamp}-{task_slug}.log"
 
     @property
     def timeline_path(self) -> Path:

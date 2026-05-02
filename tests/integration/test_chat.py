@@ -229,7 +229,7 @@ def test_chat_detects_and_exports_new_session(initialized_repo: Path) -> None:
     ]
 
 
-def test_chat_detects_and_exports_new_pi_session_after_chat(
+def test_chat_detects_new_pi_session_after_chat(
     initialized_repo: Path,
 ) -> None:
     repo = initialized_repo
@@ -258,12 +258,7 @@ def test_chat_detects_and_exports_new_pi_session_after_chat(
         monkeypatch.undo()
 
     assert service.state_store.load().session == "temporary-rpc-session"
-    assert client.export_calls == [
-        (
-            "temporary-rpc-session",
-            service.paths.chat_logs_dir / "temporary-rpc-session.json",
-        )
-    ]
+    assert client.export_calls == []
 
 
 def test_chat_starts_fresh_when_saved_pi_session_is_missing(
@@ -334,9 +329,4 @@ def test_chat_resumes_saved_pi_session_when_it_exists(
 
     assert session_ids == ["existing-pi-session"]
     assert service.state_store.load().session == "existing-pi-session"
-    assert client.export_calls == [
-        (
-            "existing-pi-session",
-            service.paths.chat_logs_dir / "existing-pi-session.json",
-        )
-    ]
+    assert client.export_calls == []
