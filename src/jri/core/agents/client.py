@@ -370,7 +370,7 @@ def launch_chat(
         extension_path = Path(package_root) / "extensions" / "jri.ts"
         prompt_path = Path(package_root) / "prompts" / "interrogator.md"
         command.extend(["--extension", str(extension_path)])
-        command.extend(["--prompt-template", str(prompt_path)])
+        command.extend(["--append-system-prompt", str(prompt_path)])
     command.extend(extra_args)
     try:
         merged_env = os.environ.copy()
@@ -437,7 +437,7 @@ class PiRuntime:
             extension_path = package_path / "extensions" / "jri.ts"
             prompt_path = package_path / "prompts" / "ralph.md"
             command.extend(["--extension", str(extension_path)])
-            command.extend(["--prompt-template", str(prompt_path)])
+            command.extend(["--append-system-prompt", str(prompt_path)])
             for skill_path in sorted((package_path / "skills").iterdir()):
                 if skill_path.is_dir():
                     command.extend(["--skill", str(skill_path)])
