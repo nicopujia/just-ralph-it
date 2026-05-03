@@ -8,3 +8,8 @@ dist/
 .ruff_cache/
 htmlcov/
 coverage.xml
+.sisyphus/tmp/
+.sisyphus/artifacts/
+.sisyphus/runs/
+.sisyphus/*.log
+.sisyphus/*.jsonl
