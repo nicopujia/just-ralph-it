@@ -21,7 +21,7 @@ from .validation import (
 )
 
 
-def _run_upsert_task(payload: dict[str, Any]) -> str:
+def run_upsert_task(payload: dict[str, Any]) -> str:
     title = payload.get("title")
     body = payload.get("body")
     assignee = payload.get("assignee")
@@ -73,7 +73,7 @@ def _run_upsert_task(payload: dict[str, Any]) -> str:
     return f"{action} draft task: .jri/tasks/draft/{task_slug}.md"
 
 
-def _run_rename_task(payload: dict[str, Any]) -> str:
+def run_rename_task(payload: dict[str, Any]) -> str:
     from_slug = _assert_slug("from_slug", payload.get("from_slug"))
     to_slug = _assert_slug("to_slug", payload.get("to_slug"))
     if from_slug == to_slug:
@@ -128,7 +128,7 @@ def _run_rename_task(payload: dict[str, Any]) -> str:
     return message
 
 
-def _run_delete_task(payload: dict[str, Any]) -> str:
+def run_delete_task(payload: dict[str, Any]) -> str:
     slug = _assert_slug("slug", payload.get("slug"))
     draft_dir, todo_dir, doing_dir, done_dir = _draft_task_dirs(Path.cwd())
     task_path = _ensure_task_path_within(draft_dir, slug)
@@ -166,7 +166,7 @@ def _run_delete_task(payload: dict[str, Any]) -> str:
     return f"deleted draft task: .jri/tasks/draft/{slug}.md"
 
 
-def _run_edit_draft_task(payload: dict[str, Any]) -> str:
+def run_edit_draft_task(payload: dict[str, Any]) -> str:
     slug = _assert_slug("slug", payload.get("slug"))
     edits = _assert_exact_edits(payload)
     draft_dir, todo_dir, doing_dir, done_dir = _draft_task_dirs(Path.cwd())
@@ -213,7 +213,7 @@ def _task_to_payload(task: Task) -> dict[str, object]:
     }
 
 
-def _run_read_tasks(payload: dict[str, Any]) -> str:
+def run_read_tasks(payload: dict[str, Any]) -> str:
     slugs = _assert_slug_list("slugs", payload.get("slugs"))
     if not slugs:
         raise ValueError("`slugs` must be a non-empty list of task slugs")
@@ -231,7 +231,7 @@ def _run_read_tasks(payload: dict[str, Any]) -> str:
     return json.dumps(result, indent=2) + "\n"
 
 
-def _run_list_tasks(payload: dict[str, Any]) -> str:
+def run_list_tasks(payload: dict[str, Any]) -> str:
     status = payload.get("status")
     service = _service(Path.cwd())
     if status is None:

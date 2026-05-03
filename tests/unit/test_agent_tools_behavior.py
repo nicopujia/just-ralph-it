@@ -544,12 +544,12 @@ def test_ralph_result_writes_valid_payload(
 
 def test_contrast_check_reports_pass_and_fail() -> None:
     passing = json.loads(
-        tools._run_contrast_check(
+        tools.run_contrast_check(
             {"foreground": "000000", "background": "ffffff", "standard": "AAA"}
         )
     )
     failing = json.loads(
-        tools._run_contrast_check(
+        tools.run_contrast_check(
             {"foreground": "777777", "background": "888888", "standard": "AA"}
         )
     )

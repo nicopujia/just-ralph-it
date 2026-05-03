@@ -9,7 +9,7 @@ from .validation import (
 )
 
 
-def _run_read_readme(_payload: dict[str, Any]) -> str:
+def run_read_readme(_payload: dict[str, Any]) -> str:
     readme_path = _repo_root_child("README.md")
     if readme_path.is_symlink():
         raise ValueError("refusing to read symlinked README.md")
@@ -18,7 +18,7 @@ def _run_read_readme(_payload: dict[str, Any]) -> str:
     return readme_path.read_text(encoding="utf-8")
 
 
-def _run_edit_readme(payload: dict[str, Any]) -> str:
+def run_edit_readme(payload: dict[str, Any]) -> str:
     edits = _assert_exact_edits(payload)
     readme_path = _repo_root_child("README.md")
     if readme_path.is_symlink():

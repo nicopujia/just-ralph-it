@@ -4,7 +4,7 @@ from typing import Any
 from .validation import _assert_slug_list, _service
 
 
-def _run_promote_tasks(payload: dict[str, Any]) -> str:
+def run_promote_tasks(payload: dict[str, Any]) -> str:
     slugs = _assert_slug_list("slugs", payload.get("slugs")) or []
     check_only = payload.get("check_only", False)
     if not isinstance(check_only, bool):
@@ -21,7 +21,7 @@ def _run_promote_tasks(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _run_approve_draft_promotion(payload: dict[str, Any]) -> str:
+def run_approve_draft_promotion(payload: dict[str, Any]) -> str:
     slugs = _assert_slug_list("slugs", payload.get("slugs")) or []
     selected = _service(Path.cwd()).approve_draft_promotion(slugs=slugs)
     lines = [f"Approved promotion for {len(selected)} draft task(s)."]

@@ -9,7 +9,7 @@ from typing import Literal, cast
 
 import pytest
 
-from jri.core.agents.tools import _run_contrast_check, _run_upsert_task
+from jri.core.agents.tools import run_contrast_check, run_upsert_task
 from jri.core.git import GitRepo
 from jri.core.models import Task, TaskMetadata
 from jri.core.tasks import (
@@ -596,7 +596,7 @@ def test_run_upsert_task_accepts_75_char_titles(
     monkeypatch.chdir(repo)
 
     title = "a" * 75
-    result = _run_upsert_task(
+    result = run_upsert_task(
         {
             "title": title,
             "body": "Draft the scope.\n",
@@ -613,7 +613,7 @@ def test_run_upsert_task_accepts_75_char_titles(
 
 def test_run_upsert_task_rejects_titles_over_75_chars() -> None:
     with pytest.raises(ValueError, match="75 characters or fewer"):
-        _run_upsert_task(
+        run_upsert_task(
             {
                 "title": "a" * 76,
                 "body": "Draft the scope.\n",
@@ -664,7 +664,7 @@ def test_approve_draft_promotion_tool_records_approval(tmp_path: Path) -> None:
 
 def test_contrast_check_matches_webaim_thresholds() -> None:
     result = json.loads(
-        _run_contrast_check(
+        run_contrast_check(
             {"foreground": "777777", "background": "FFFFFF", "standard": "AA"}
         )
     )
@@ -679,7 +679,7 @@ def test_contrast_check_matches_webaim_thresholds() -> None:
 
 def test_contrast_check_supports_foreground_alpha() -> None:
     result = json.loads(
-        _run_contrast_check(
+        run_contrast_check(
             {
                 "foreground": "0000FF80",
                 "background": "FFFFFF",
@@ -714,14 +714,14 @@ def test_contrast_check_tool_executes_via_agent_tool_module(tmp_path: Path) -> N
 
 def test_contrast_check_rejects_invalid_hex() -> None:
     with pytest.raises(ValueError, match="`foreground` must be a valid"):
-        _run_contrast_check(
+        run_contrast_check(
             {"foreground": "blue", "background": "FFFFFF", "standard": "AA"}
         )
 
 
 def test_contrast_check_rejects_invalid_standard() -> None:
     with pytest.raises(ValueError, match="`standard` must be one of"):
-        _run_contrast_check(
+        run_contrast_check(
             {
                 "foreground": "000000",
                 "background": "FFFFFF",

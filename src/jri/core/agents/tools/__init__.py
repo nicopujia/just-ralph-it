@@ -1,84 +1,44 @@
 from ...service import JriService
-from .contrast import (
-    _assert_contrast_standard,
-    _hex_to_rgba,
-    _normalize_hex_color,
-    _relative_luminance,
-    _run_contrast_check,
-    _srgb_channel_to_linear,
-)
-from .promotion import _run_approve_draft_promotion, _run_promote_tasks
-from .ralph_result import _run_ralph_result
-from .readme import _run_edit_readme, _run_read_readme
-from .registry import _HANDLERS, main
+from .colors import run_contrast_check
+from .promotion import run_approve_draft_promotion, run_promote_tasks
+from .ralph_result import run_ralph_result
+from .readme import run_edit_readme, run_read_readme
+from .registry import main
 from .tasks import (
-    _run_delete_task,
-    _run_edit_draft_task,
-    _run_list_tasks,
-    _run_read_tasks,
-    _run_rename_task,
-    _run_upsert_task,
-    _task_to_payload,
+    run_delete_task,
+    run_edit_draft_task,
+    run_list_tasks,
+    run_read_tasks,
+    run_rename_task,
+    run_upsert_task,
 )
-from .validation import (
-    SLUG_RE,
-    _apply_exact_edits,
-    _assert_exact_edits,
-    _assert_slug,
-    _assert_slug_list,
-    _assert_string_list,
-    _diff_text,
-    _draft_task_dirs,
-    _ensure_expected_real_path,
-    _ensure_task_path_within,
-    _load_payload,
-    _print_result,
-    _read_task,
-    _read_task_source,
-    _repo_root,
-    _repo_root_child,
-    _serialize_task,
-    _slugify,
-)
+
+_run_approve_draft_promotion = run_approve_draft_promotion
+_run_contrast_check = run_contrast_check
+_run_delete_task = run_delete_task
+_run_edit_draft_task = run_edit_draft_task
+_run_edit_readme = run_edit_readme
+_run_list_tasks = run_list_tasks
+_run_promote_tasks = run_promote_tasks
+_run_ralph_result = run_ralph_result
+_run_read_readme = run_read_readme
+_run_read_tasks = run_read_tasks
+_run_rename_task = run_rename_task
+_run_upsert_task = run_upsert_task
 
 __all__ = [
     "JriService",
-    "SLUG_RE",
-    "_HANDLERS",
-    "_apply_exact_edits",
-    "_assert_contrast_standard",
-    "_assert_exact_edits",
-    "_assert_slug",
-    "_assert_slug_list",
-    "_assert_string_list",
-    "_diff_text",
-    "_draft_task_dirs",
-    "_ensure_expected_real_path",
-    "_ensure_task_path_within",
-    "_hex_to_rgba",
-    "_load_payload",
-    "_normalize_hex_color",
-    "_print_result",
-    "_read_task",
-    "_read_task_source",
-    "_relative_luminance",
-    "_repo_root",
-    "_repo_root_child",
-    "_run_approve_draft_promotion",
-    "_run_contrast_check",
-    "_run_delete_task",
-    "_run_edit_draft_task",
-    "_run_edit_readme",
-    "_run_list_tasks",
-    "_run_promote_tasks",
-    "_run_ralph_result",
-    "_run_read_readme",
-    "_run_read_tasks",
-    "_run_rename_task",
-    "_run_upsert_task",
-    "_serialize_task",
-    "_slugify",
-    "_srgb_channel_to_linear",
-    "_task_to_payload",
     "main",
+    "run_approve_draft_promotion",
+    "run_contrast_check",
+    "run_delete_task",
+    "run_edit_draft_task",
+    "run_edit_readme",
+    "run_list_tasks",
+    "run_promote_tasks",
+    "run_ralph_result",
+    "run_read_readme",
+    "run_read_tasks",
+    "run_rename_task",
+    "run_upsert_task",
 ]
