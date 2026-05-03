@@ -3,7 +3,7 @@ import os
 from typing import Any
 
 
-def _run_ralph_result(payload: dict[str, Any]) -> str:
+def run_ralph_result(payload: dict[str, Any]) -> str:
     result = payload.get("result")
     if result not in {"completed", "incompleted", "needs_human"}:
         raise ValueError("invalid result")

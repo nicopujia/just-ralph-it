@@ -2,33 +2,33 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
-from .contrast import _run_contrast_check
-from .promotion import _run_approve_draft_promotion, _run_promote_tasks
-from .ralph_result import _run_ralph_result
-from .readme import _run_edit_readme, _run_read_readme
+from .colors import run_contrast_check
+from .promotion import run_approve_draft_promotion, run_promote_tasks
+from .ralph_result import run_ralph_result
+from .readme import run_edit_readme, run_read_readme
 from .tasks import (
-    _run_delete_task,
-    _run_edit_draft_task,
-    _run_list_tasks,
-    _run_read_tasks,
-    _run_rename_task,
-    _run_upsert_task,
+    run_delete_task,
+    run_edit_draft_task,
+    run_list_tasks,
+    run_read_tasks,
+    run_rename_task,
+    run_upsert_task,
 )
 from .validation import _load_payload, _print_result
 
 _HANDLERS: dict[str, Callable[[dict[str, Any]], str]] = {
-    "check-contrast": _run_contrast_check,
-    "edit-draft-task": _run_edit_draft_task,
-    "edit-readme": _run_edit_readme,
-    "list-tasks": _run_list_tasks,
-    "read-tasks": _run_read_tasks,
-    "read-readme": _run_read_readme,
-    "upsert-task": _run_upsert_task,
-    "rename-task": _run_rename_task,
-    "delete-task": _run_delete_task,
-    "approve-draft-promotion": _run_approve_draft_promotion,
-    "promote-tasks": _run_promote_tasks,
-    "ralph-result": _run_ralph_result,
+    "check-contrast": run_contrast_check,
+    "edit-draft-task": run_edit_draft_task,
+    "edit-readme": run_edit_readme,
+    "list-tasks": run_list_tasks,
+    "read-tasks": run_read_tasks,
+    "read-readme": run_read_readme,
+    "upsert-task": run_upsert_task,
+    "rename-task": run_rename_task,
+    "delete-task": run_delete_task,
+    "approve-draft-promotion": run_approve_draft_promotion,
+    "promote-tasks": run_promote_tasks,
+    "ralph-result": run_ralph_result,
 }
 
 

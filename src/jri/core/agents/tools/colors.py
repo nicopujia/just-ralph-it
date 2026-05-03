@@ -62,7 +62,7 @@ def _assert_contrast_standard(value: Any) -> tuple[str, float]:
     return value, thresholds[value]
 
 
-def _run_contrast_check(payload: dict[str, Any]) -> str:
+def run_contrast_check(payload: dict[str, Any]) -> str:
     foreground = _normalize_hex_color(
         "foreground", payload.get("foreground"), allow_alpha=True
     )
