@@ -715,13 +715,17 @@ class PiRuntime:
         renderer = SavedLogRenderer(cwd_hint=self._cwd_hint)
         last_terminal_char = "\n"
         sent_missing_result_follow_up = False
+        active_tool_executions = 0
 
         with log_path.open("a", encoding="utf-8") as log_file:
             while True:
                 if deadline is not None and time.monotonic() > deadline:
                     timed_out = True
                     break
-                if time.monotonic() - last_non_heartbeat_at > _RUN_STALL_TIMEOUT:
+                if (
+                    active_tool_executions == 0
+                    and time.monotonic() - last_non_heartbeat_at > _RUN_STALL_TIMEOUT
+                ):
                     stalled = True
                     break
                 event = self._read_rpc_line(timeout=0.5)
@@ -729,6 +733,11 @@ class PiRuntime:
                     continue
                 log_file.write(json.dumps(event) + "\n")
                 log_file.flush()
+                event_type = _unwrap_event(event).get("type")
+                if event_type == "tool_execution_start":
+                    active_tool_executions += 1
+                elif event_type in {"tool_execution_end", "tool_execution_error"}:
+                    active_tool_executions = max(0, active_tool_executions - 1)
                 if event.get("type") not in {"heartbeat", "server.heartbeat"}:
                     last_non_heartbeat_at = time.monotonic()
                 text_to_print, newline_before = renderer.render_event(event)

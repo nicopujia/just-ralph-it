@@ -295,6 +295,66 @@ def test_pi_runtime_run_ralph_task_returns_timeout_result(
     assert stops == [1]
 
 
+def test_pi_runtime_does_not_stall_during_active_tool_execution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = PiRuntime(binary="pi")
+
+    def fake_start(
+        *, env: dict[str, str] | None = None, cwd: Path | None = None
+    ) -> None:
+        del env
+        assert cwd == tmp_path
+        runtime._process = cast(Any, FakeProcess())
+        runtime._session_id = "ses_tool"
+
+    monkeypatch.setattr(runtime, "start", fake_start)
+    monkeypatch.setattr(runtime, "stop", lambda: None)
+
+    def fake_rpc_request(
+        command: str, extra: dict[str, object] | None = None
+    ) -> dict[str, object]:
+        assert extra == {"message": "/ralph do task"}
+        return {"type": "response", "command": command, "success": True}
+
+    events: list[dict[str, object] | None] = [
+        {
+            "type": "tool_execution_start",
+            "toolCallId": "call_1",
+            "toolName": "ralph-validator",
+        },
+        None,
+        {"type": "tool_execution_end", "toolCallId": "call_1", "output": "PASS"},
+        {"type": "agent_end"},
+    ]
+
+    def fake_read_rpc_line(*, timeout: float) -> dict[str, object] | None:
+        assert timeout == 0.5
+        return events.pop(0)
+
+    result_path = tmp_path / "result.json"
+
+    def fake_monotonic() -> float:
+        if not events:
+            result_path.write_text('{"result":"completed"}', encoding="utf-8")
+        return 0.0 if len(events) >= 3 else 301.0
+
+    monkeypatch.setattr(runtime, "_rpc_request", fake_rpc_request)
+    monkeypatch.setattr(runtime, "_read_rpc_line", fake_read_rpc_line)
+    monkeypatch.setattr("jri.core.agents.client._RUN_STALL_TIMEOUT", 300.0)
+    monkeypatch.setattr("jri.core.agents.client.time.monotonic", fake_monotonic)
+
+    result = runtime.run_ralph_task(
+        root=tmp_path,
+        prompt="do task",
+        log_path=tmp_path / "logs" / "ralph.log",
+        result_path=result_path,
+    )
+
+    assert result.result == "completed"
+    assert result.warnings == []
+
+
 def test_pi_runtime_rpc_request_times_out(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
