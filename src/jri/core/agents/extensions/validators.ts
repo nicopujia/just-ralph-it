@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { spawnSync } from "node:child_process";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { registerMappedPythonTool, registerPythonTool, SLUG_RE, text } from "./common.ts";
@@ -10,13 +10,14 @@ import {
   finalAssistantText,
   getPiInvocation,
 } from "./python-bridge.ts";
+import { resourcePath } from "../resources.ts";
 
 export function registerInterrogatorValidator(pi: ExtensionAPI) {
   const extensionDir = dirname(fileURLToPath(import.meta.url));
   const packageRoot = dirname(extensionDir);
-  const jriExtension = join(extensionDir, "jri.ts");
-  const validatorExtension = join(extensionDir, "jri-validator.ts");
-  const validatorPrompt = join(packageRoot, "prompts", "interrogator-validator.md");
+  const jriExtension = resourcePath("extensions.default", packageRoot);
+  const validatorExtension = resourcePath("extensions.validator", packageRoot);
+  const validatorPrompt = resourcePath("prompts.interrogatorValidator", packageRoot);
 
   pi.registerTool({
     name: "interrogator-validator",
@@ -79,8 +80,8 @@ export function registerInterrogatorValidator(pi: ExtensionAPI) {
 export function registerRalphValidator(pi: ExtensionAPI) {
   const extensionDir = dirname(fileURLToPath(import.meta.url));
   const packageRoot = dirname(extensionDir);
-  const jriExtension = join(extensionDir, "jri.ts");
-  const validatorPrompt = join(packageRoot, "prompts", "ralph-validator.md");
+  const jriExtension = resourcePath("extensions.default", packageRoot);
+  const validatorPrompt = resourcePath("prompts.ralphValidator", packageRoot);
 
   pi.registerTool({
     name: "ralph-validator",

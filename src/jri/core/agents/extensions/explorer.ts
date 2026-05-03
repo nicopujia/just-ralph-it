@@ -1,10 +1,11 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { spawn } from "node:child_process";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { text } from "./common.ts";
 import { configuredModel, finalAssistantText, getPiInvocation } from "./python-bridge.ts";
+import { resourcePath } from "../resources.ts";
 
 const EXPLORER_MAX_TASKS = 8;
 const EXPLORER_MAX_CONCURRENCY = 4;
@@ -23,9 +24,8 @@ function runExplorerTask(
   packageRoot: string,
   request: ExplorerRequest,
 ): Promise<ExplorerResult> {
-  const extensionDir = join(packageRoot, "extensions");
-  const jriExtension = join(extensionDir, "jri.ts");
-  const explorerPrompt = join(packageRoot, "prompts", "explorer.md");
+  const jriExtension = resourcePath("extensions.default", packageRoot);
+  const explorerPrompt = resourcePath("prompts.explorer", packageRoot);
   const args = [
     "--mode",
     "json",

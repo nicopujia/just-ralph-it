@@ -70,7 +70,7 @@ def test_pi_extension_launches_validator_runtime_with_approval_extension() -> No
     source = read_extension_sources("jri.ts", "validators.ts")
 
     assert 'name: "interrogator-validator"' in source
-    assert '"jri-validator.ts"' in source
+    assert 'resourcePath("extensions.validator", packageRoot)' in source
     assert "approve-draft-promotion" in source
     assert 'process.env.JRI_CHAT_RUNTIME === "1"' in source
     assert "SLUG_RE.test(slug)" in source
@@ -82,7 +82,7 @@ def test_pi_extension_launches_ralph_validator_runtime() -> None:
     source = read_extension_sources("jri.ts", "validators.ts", "ralph-tools.ts")
 
     assert 'name: "ralph-validator"' in source
-    assert '"prompts", "ralph-validator.md"' in source
+    assert 'resourcePath("prompts.ralphValidator", packageRoot)' in source
     assert 'configuredModel(packageRoot, "ralph-validator")' in source
     assert '"read,bash,grep,find,ls,list-tasks,read-tasks,check-contrast"' in source
     assert "CHILD_PI_MAX_BUFFER" in source
@@ -106,7 +106,7 @@ def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
     source = read_extension_sources("jri.ts", "explorer.ts")
 
     assert 'name: "explore"' in source
-    assert '"prompts", "explorer.md"' in source
+    assert 'resourcePath("prompts.explorer", packageRoot)' in source
     assert '"--no-session"' in source
     assert '"--no-extensions"' in source
     assert '"--no-skills"' in source
