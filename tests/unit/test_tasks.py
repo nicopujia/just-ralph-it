@@ -9,6 +9,11 @@ from typing import Literal, cast
 
 import pytest
 
+from jri.core.agents.resources import (
+    resource_manifest,
+    resource_path,
+    resource_relative_path,
+)
 from jri.core.agents.tools import run_contrast_check, run_upsert_task
 from jri.core.git import GitRepo
 from jri.core.models import Task, TaskMetadata
@@ -355,6 +360,125 @@ def test_packaged_schemas_are_available() -> None:
     assert builtins.joinpath("tools", "__init__.py").is_file()
     assert builtins.joinpath("tools", "__main__.py").is_file()
     assert builtins.joinpath("tools", "_run-python-tool.mjs").is_file()
+
+
+def test_agent_resource_manifest_resolves_current_package_resources() -> None:
+    expected = {
+        "extensions.default": "extensions/jri.ts",
+        "extensions.validator": "extensions/jri-validator.ts",
+        "prompts.ralph": "prompts/ralph.md",
+        "prompts.interrogator": "prompts/interrogator.md",
+        "prompts.ralphValidator": "prompts/ralph-validator.md",
+        "prompts.interrogatorValidator": "prompts/interrogator-validator.md",
+        "prompts.explorer": "prompts/explorer.md",
+        "tools.pythonRunner": "tools/_run-python-tool.mjs",
+        "themes.modernYellow": "themes/modern-yellow.json",
+        "skills.hostedProjects": "skills/hosted-projects/SKILL.md",
+        "skills.reverseRalph": "skills/reverse-ralph/SKILL.md",
+    }
+
+    assert resource_manifest() == expected
+    for resource_id, relative_path in expected.items():
+        assert resource_relative_path(resource_id) == relative_path
+        resolved = resource_path(resource_id)
+        assert str(resolved).endswith(relative_path)
+        if resource_id != "themes.modernYellow":
+            assert resolved.is_file()
+
+
+def test_agent_resource_manifest_rejects_invalid_ids() -> None:
+    with pytest.raises(KeyError, match="unknown agent resource ID: missing.resource"):
+        resource_relative_path("missing.resource")
+
+
+def test_agent_resource_manifest_rejects_unsafe_paths() -> None:
+    from jri.core.agents.resources import _validate_manifest_path
+
+    with pytest.raises(ValueError, match="relative"):
+        _validate_manifest_path("bad.absolute", "/etc/passwd")
+    with pytest.raises(ValueError, match="traverse"):
+        _validate_manifest_path("bad.parent", "../outside")
+    with pytest.raises(ValueError, match="POSIX"):
+        _validate_manifest_path("bad.separator", "extensions\\jri.ts")
+
+
+def test_typescript_agent_resource_manifest_agrees_with_python() -> None:
+    bun = shutil.which("bun")
+    assert bun is not None, "bun is required to check the TypeScript resolver"
+
+    script = """
+import {
+  resourceManifest,
+  resourcePath,
+  resourceRelativePath,
+} from './src/jri/core/agents/resources.ts';
+
+let invalidIdMessage = '';
+try {
+  resourceRelativePath('missing.resource');
+} catch (error) {
+  invalidIdMessage = error instanceof Error ? error.message : String(error);
+}
+
+console.log(JSON.stringify({
+  manifest: resourceManifest(),
+  extensionRelative: resourceRelativePath('extensions.default'),
+  extensionPath: resourcePath('extensions.default'),
+  invalidIdMessage,
+}));
+"""
+
+    result = subprocess.run(
+        [bun, "--eval", script],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["manifest"] == resource_manifest()
+    assert payload["extensionRelative"] == "extensions/jri.ts"
+    assert payload["extensionPath"].endswith("extensions/jri.ts")
+    assert payload["invalidIdMessage"] == "unknown agent resource ID: missing.resource"
+
+
+def test_typescript_agent_resource_manifest_rejects_unsafe_paths(
+    tmp_path: Path,
+) -> None:
+    bun = shutil.which("bun")
+    assert bun is not None, "bun is required to check the TypeScript resolver"
+
+    source_dir = Path(__file__).resolve().parents[2] / "src" / "jri" / "core" / "agents"
+    harness = tmp_path / "agents"
+    harness.mkdir()
+    shutil.copyfile(source_dir / "resources.ts", harness / "resources.ts")
+    (harness / "resource-manifest.json").write_text(
+        json.dumps({"bad.parent": "../outside"}) + "\n",
+        encoding="utf-8",
+    )
+
+    script = """
+import { resourceManifest } from './resources.ts';
+
+try {
+  resourceManifest();
+} catch (error) {
+  console.log(error instanceof Error ? error.message : String(error));
+}
+"""
+
+    result = subprocess.run(
+        [bun, "--eval", script],
+        cwd=harness,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout.strip() == (
+        "agent resource 'bad.parent' path must not traverse parents"
+    )
 
 
 def test_run_python_tool_uses_forwarded_pythonpath(tmp_path: Path) -> None:
