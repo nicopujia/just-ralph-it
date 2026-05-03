@@ -199,20 +199,6 @@ def run_edit_draft_task(payload: dict[str, Any]) -> str:
     return json.dumps(result, indent=2) + "\n"
 
 
-def _task_to_payload(task: Task) -> dict[str, object]:
-    return {
-        "status": task.path.parent.name,
-        "slug": task.slug,
-        "path": str(task.path),
-        "title": task.metadata.title,
-        "priority": task.metadata.priority,
-        "assignee": task.metadata.assignee,
-        "depends_on": task.metadata.depends_on,
-        "acceptance_criteria": task.metadata.acceptance_criteria,
-        "body": task.body,
-    }
-
-
 def run_read_tasks(payload: dict[str, Any]) -> str:
     slugs = _assert_slug_list("slugs", payload.get("slugs"))
     if not slugs:
@@ -242,3 +228,17 @@ def run_list_tasks(payload: dict[str, Any]) -> str:
         tasks_dir = service.paths.tasks_dir / status
         tasks = list_tasks(tasks_dir, git_repo=service.git)
     return json.dumps([_task_to_payload(task) for task in tasks], indent=2) + "\n"
+
+
+def _task_to_payload(task: Task) -> dict[str, object]:
+    return {
+        "status": task.path.parent.name,
+        "slug": task.slug,
+        "path": str(task.path),
+        "title": task.metadata.title,
+        "priority": task.metadata.priority,
+        "assignee": task.metadata.assignee,
+        "depends_on": task.metadata.depends_on,
+        "acceptance_criteria": task.metadata.acceptance_criteria,
+        "body": task.body,
+    }

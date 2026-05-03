@@ -20,6 +20,112 @@ type ExplorerResult = {
   index?: number;
 };
 
+export function registerExplorerTools(pi: ExtensionAPI) {
+  pi.registerTool({
+    name: "web-search",
+    label: "web-search",
+    description:
+      "Search the public web and return concise result titles, URLs, and snippets for explorer research.",
+    parameters: Type.Object({
+      query: Type.String(),
+      max_results: Type.Optional(Type.Number()),
+    }),
+    async execute(_toolCallId, params) {
+      const query = (params as { query?: unknown }).query;
+      const rawMaxResults = (params as { max_results?: unknown }).max_results;
+      if (typeof query !== "string" || !query.trim()) {
+        return text("`query` must be a non-empty string");
+      }
+      const maxResults =
+        typeof rawMaxResults === "number" && Number.isFinite(rawMaxResults)
+          ? Math.max(1, Math.min(10, Math.floor(rawMaxResults)))
+          : 5;
+      const url = new URL("https://html.duckduckgo.com/html/");
+      url.searchParams.set("q", query.trim());
+      const response = await fetch(url, {
+        headers: {
+          "user-agent": "jri-explorer/1.0",
+        },
+      });
+      if (!response.ok) {
+        return {
+          ...text(`web search failed with HTTP ${response.status}`),
+          isError: true,
+        };
+      }
+      const html = await response.text();
+      const results = parseDuckDuckGoResults(html, maxResults);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({ query: query.trim(), results }, null, 2),
+          },
+        ],
+        details: { query: query.trim(), results },
+      };
+    },
+  });
+}
+
+export function registerExplorer(pi: ExtensionAPI) {
+  const extensionDir = dirname(fileURLToPath(import.meta.url));
+  const packageRoot = dirname(extensionDir);
+  const TaskItem = Type.Object({ task: Type.String() });
+
+  pi.registerTool({
+    name: "explore",
+    label: "explore",
+    description:
+      "Delegate read-only repository exploration to isolated explorer subagents. Explorers cannot edit files or call JRI tools.",
+    parameters: Type.Object({
+      task: Type.Optional(Type.String()),
+      tasks: Type.Optional(Type.Array(TaskItem)),
+    }),
+    async execute(_toolCallId, params) {
+      const singleTask = (params as { task?: unknown }).task;
+      const taskItems = (params as { tasks?: unknown }).tasks;
+      const requests: ExplorerRequest[] = [];
+      if (typeof singleTask === "string" && singleTask.trim()) {
+        requests.push({ task: singleTask.trim() });
+      }
+      if (Array.isArray(taskItems)) {
+        for (let index = 0; index < taskItems.length; index++) {
+          const item = taskItems[index];
+          if (
+            typeof item !== "object" ||
+            item === null ||
+            typeof (item as { task?: unknown }).task !== "string" ||
+            !(item as { task: string }).task.trim()
+          ) {
+            return text("`tasks` must contain objects with non-empty `task` strings");
+          }
+          requests.push({ task: (item as { task: string }).task.trim(), index });
+        }
+      }
+      if (requests.length === 0) {
+        return text("provide either `task` or `tasks`");
+      }
+      if (requests.length > EXPLORER_MAX_TASKS) {
+        return text(`too many explorer tasks (${requests.length}); max is ${EXPLORER_MAX_TASKS}`);
+      }
+
+      const results = await mapExplorerTasks(packageRoot, requests);
+      const failed = results.filter((result) => result.exitCode !== 0 || result.error);
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({ results }, null, 2),
+          },
+        ],
+        details: { results },
+        isError: failed.length > 0,
+      };
+    },
+  });
+}
+
 function runExplorerTask(
   packageRoot: string,
   request: ExplorerRequest,
@@ -128,54 +234,6 @@ function parseDuckDuckGoResults(html: string, maxResults: number) {
   return results;
 }
 
-export function registerExplorerTools(pi: ExtensionAPI) {
-  pi.registerTool({
-    name: "web-search",
-    label: "web-search",
-    description:
-      "Search the public web and return concise result titles, URLs, and snippets for explorer research.",
-    parameters: Type.Object({
-      query: Type.String(),
-      max_results: Type.Optional(Type.Number()),
-    }),
-    async execute(_toolCallId, params) {
-      const query = (params as { query?: unknown }).query;
-      const rawMaxResults = (params as { max_results?: unknown }).max_results;
-      if (typeof query !== "string" || !query.trim()) {
-        return text("`query` must be a non-empty string");
-      }
-      const maxResults =
-        typeof rawMaxResults === "number" && Number.isFinite(rawMaxResults)
-          ? Math.max(1, Math.min(10, Math.floor(rawMaxResults)))
-          : 5;
-      const url = new URL("https://html.duckduckgo.com/html/");
-      url.searchParams.set("q", query.trim());
-      const response = await fetch(url, {
-        headers: {
-          "user-agent": "jri-explorer/1.0",
-        },
-      });
-      if (!response.ok) {
-        return {
-          ...text(`web search failed with HTTP ${response.status}`),
-          isError: true,
-        };
-      }
-      const html = await response.text();
-      const results = parseDuckDuckGoResults(html, maxResults);
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify({ query: query.trim(), results }, null, 2),
-          },
-        ],
-        details: { query: query.trim(), results },
-      };
-    },
-  });
-}
-
 async function mapExplorerTasks(
   packageRoot: string,
   requests: ExplorerRequest[],
@@ -192,62 +250,4 @@ async function mapExplorerTasks(
     }),
   );
   return results;
-}
-
-export function registerExplorer(pi: ExtensionAPI) {
-  const extensionDir = dirname(fileURLToPath(import.meta.url));
-  const packageRoot = dirname(extensionDir);
-  const TaskItem = Type.Object({ task: Type.String() });
-
-  pi.registerTool({
-    name: "explore",
-    label: "explore",
-    description:
-      "Delegate read-only repository exploration to isolated explorer subagents. Explorers cannot edit files or call JRI tools.",
-    parameters: Type.Object({
-      task: Type.Optional(Type.String()),
-      tasks: Type.Optional(Type.Array(TaskItem)),
-    }),
-    async execute(_toolCallId, params) {
-      const singleTask = (params as { task?: unknown }).task;
-      const taskItems = (params as { tasks?: unknown }).tasks;
-      const requests: ExplorerRequest[] = [];
-      if (typeof singleTask === "string" && singleTask.trim()) {
-        requests.push({ task: singleTask.trim() });
-      }
-      if (Array.isArray(taskItems)) {
-        for (let index = 0; index < taskItems.length; index++) {
-          const item = taskItems[index];
-          if (
-            typeof item !== "object" ||
-            item === null ||
-            typeof (item as { task?: unknown }).task !== "string" ||
-            !(item as { task: string }).task.trim()
-          ) {
-            return text("`tasks` must contain objects with non-empty `task` strings");
-          }
-          requests.push({ task: (item as { task: string }).task.trim(), index });
-        }
-      }
-      if (requests.length === 0) {
-        return text("provide either `task` or `tasks`");
-      }
-      if (requests.length > EXPLORER_MAX_TASKS) {
-        return text(`too many explorer tasks (${requests.length}); max is ${EXPLORER_MAX_TASKS}`);
-      }
-
-      const results = await mapExplorerTasks(packageRoot, requests);
-      const failed = results.filter((result) => result.exitCode !== 0 || result.error);
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify({ results }, null, 2),
-          },
-        ],
-        details: { results },
-        isError: failed.length > 0,
-      };
-    },
-  });
 }
