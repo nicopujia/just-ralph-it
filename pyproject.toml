@@ -43,7 +43,17 @@ package = true
 
 [tool.hatch.build]
 exclude = [
-    "src/jri/core/agents/**",
+    "/.coverage",
+    "/coverage.xml",
+    "/htmlcov/**",
+    "/.pytest_cache/**",
+    "/.ruff_cache/**",
+    "/.sisyphus/**",
+    "**/.env",
+    "**/.env.*",
+    "**/__pycache__/**",
+    "**/*.pyc",
+    "**/*.pyo",
 ]
 
 [tool.hatch.build.targets.wheel]
