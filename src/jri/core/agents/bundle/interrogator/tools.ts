@@ -13,6 +13,7 @@ import {
   runUntilTerminalOutput,
 } from "../_shared/subagents.ts";
 import { resourcePath } from "../_shared/assets.ts";
+import { runPythonTool } from "../_shared/tools/runner.ts";
 
 export function registerChatTools(pi: ExtensionAPI) {
   registerPythonTool(
@@ -149,7 +150,6 @@ export function registerInterrogatorValidator(pi: ExtensionAPI) {
         env: childEnv,
         timeoutMs: VALIDATOR_TIMEOUT_MS,
         maxBuffer: CHILD_PI_MAX_BUFFER,
-        requireAgentEnd: true,
       });
       const output = finalAssistantText(result.stdout);
       if (result.error) {
@@ -159,9 +159,17 @@ export function registerInterrogatorValidator(pi: ExtensionAPI) {
         const stderr = result.stderr.trim();
         return text(stderr ? `${output}\n${stderr}`.trim() : output);
       }
+      if (normalizedFinalAssistantText(output) === "APPROVED") {
+        runPythonTool("approve-draft-promotion", { slugs });
+      }
       return text(output);
     },
   });
+}
+
+function normalizedFinalAssistantText(output: string): string {
+  const match = output.match(/^```(?:md|markdown)?\s*\n([\s\S]*?)\n```$/i);
+  return (match ? match[1] : output).trim();
 }
 
 

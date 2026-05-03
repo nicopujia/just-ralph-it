@@ -202,12 +202,13 @@ def test_validator_extension_registers_approval_tool_only() -> None:
     )
     assert "normalizedFinalAssistantText(event.messages)" in source
     assert "text.match" in source
-    tools_source = (
+    parent_source = (
         files("jri.core.agents.bundle")
         .joinpath("interrogator", "tools.ts")
         .read_text("utf-8")
     )
-    assert "requireAgentEnd: true" in tools_source
+    assert 'runPythonTool("approve-draft-promotion", { slugs })' in parent_source
+    assert "requireAgentEnd: true" not in parent_source
     assert "validator approval is recorded automatically after APPROVED" in source
     assert (
         'event.toolName === "approve-draft-promotion" && !event.isError' not in source
