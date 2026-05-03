@@ -164,8 +164,8 @@ def test_package_manifest_uses_resource_manifest_paths(
 ) -> None:
     resource_paths = {
         "extensions.default": "extension.ts",
-        "skills.hostedProjects": "skills/hosted-projects/SKILL.md",
-        "prompts.interrogator": "prompts/interrogator.md",
+        "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
+        "prompts.interrogator": "interrogator/prompt.md",
         "tools.pythonRunner": "tools/run-python-tool.ts",
     }
     resolved_ids: list[str] = []
@@ -184,8 +184,8 @@ def test_package_manifest_uses_resource_manifest_paths(
     package = json.loads((tmp_path / "package.json").read_text(encoding="utf-8"))
     assert package["pi"] == {
         "extensions": ["./extension.ts"],
-        "skills": ["./skills"],
-        "prompts": ["./prompts"],
+        "skills": ["./ralph/skills"],
+        "prompts": ["./interrogator"],
         "tools": ["./tools"],
     }
     assert resolved_ids == [
@@ -201,18 +201,16 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     package_root = tmp_path / "package"
-    (package_root / "extensions").mkdir(parents=True)
-    (package_root / "prompts").mkdir()
-    (package_root / "skills" / "hosted-projects").mkdir(parents=True)
-    (package_root / "skills" / "reverse-ralph").mkdir()
+    (package_root / "ralph" / "skills" / "hosted-projects").mkdir(parents=True)
+    (package_root / "ralph" / "skills" / "reverse-ralph").mkdir()
     (package_root / "extension.ts").write_text("", encoding="utf-8")
-    (package_root / "prompts" / "ralph.md").write_text("", encoding="utf-8")
+    (package_root / "ralph" / "prompt.md").write_text("", encoding="utf-8")
 
     resolved_ids: list[str] = []
     resource_paths = {
         "extensions.default": "extension.ts",
-        "prompts.ralph": "prompts/ralph.md",
-        "skills.hostedProjects": "skills/hosted-projects/SKILL.md",
+        "prompts.ralph": "ralph/prompt.md",
+        "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
     }
 
     def fake_resource_relative_path(resource_id: str) -> str:
@@ -258,11 +256,11 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
             "--extension",
             str(package_root / "extension.ts"),
             "--append-system-prompt",
-            str(package_root / "prompts" / "ralph.md"),
+            str(package_root / "ralph" / "prompt.md"),
             "--skill",
-            str(package_root / "skills" / "hosted-projects"),
+            str(package_root / "ralph" / "skills" / "hosted-projects"),
             "--skill",
-            str(package_root / "skills" / "reverse-ralph"),
+            str(package_root / "ralph" / "skills" / "reverse-ralph"),
         ]
     ]
     assert (
@@ -349,18 +347,17 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     package_root = tmp_path / "package"
-    (package_root / "extensions").mkdir(parents=True)
-    (package_root / "prompts").mkdir()
+    package_root.mkdir()
     (package_root / "extension.ts").write_text("", encoding="utf-8")
     (package_root / "interrogator" / "validator").mkdir(parents=True)
     (package_root / "interrogator" / "validator" / "extension.ts").write_text(
         "", encoding="utf-8"
     )
-    (package_root / "prompts" / "interrogator.md").write_text("", encoding="utf-8")
+    (package_root / "interrogator" / "prompt.md").write_text("", encoding="utf-8")
     resolved_ids: list[str] = []
     resource_paths = {
         "extensions.default": "extension.ts",
-        "prompts.interrogator": "prompts/interrogator.md",
+        "prompts.interrogator": "interrogator/prompt.md",
     }
 
     def fake_resource_relative_path(resource_id: str) -> str:
@@ -406,7 +403,7 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
             "--extension",
             str(package_root / "extension.ts"),
             "--append-system-prompt",
-            str(package_root / "prompts" / "interrogator.md"),
+            str(package_root / "interrogator" / "prompt.md"),
             "--tools",
             (
                 "list-tasks,read-tasks,read-readme,edit-readme,upsert-task,"

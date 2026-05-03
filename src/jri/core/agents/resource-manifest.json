@@ -1,13 +1,13 @@
 {
   "extensions.default": "extension.ts",
   "extensions.validator": "interrogator/validator/extension.ts",
-  "prompts.ralph": "prompts/ralph.md",
-  "prompts.interrogator": "prompts/interrogator.md",
-  "prompts.ralphValidator": "prompts/ralph-validator.md",
-  "prompts.interrogatorValidator": "prompts/interrogator-validator.md",
-  "prompts.explorer": "prompts/explorer.md",
+  "prompts.ralph": "ralph/prompt.md",
+  "prompts.interrogator": "interrogator/prompt.md",
+  "prompts.ralphValidator": "ralph/validator/prompt.md",
+  "prompts.interrogatorValidator": "interrogator/validator/prompt.md",
+  "prompts.explorer": "explorer/prompt.md",
   "tools.pythonRunner": "tools/run-python-tool.ts",
   "themes.modernYellow": "themes/modern-yellow.json",
-  "skills.hostedProjects": "skills/hosted-projects/SKILL.md",
-  "skills.reverseRalph": "skills/reverse-ralph/SKILL.md"
+  "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
+  "skills.reverseRalph": "ralph/skills/reverse-ralph/SKILL.md"
 }

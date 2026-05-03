@@ -50,9 +50,9 @@ def read_agent_sources(*names: str) -> str:
 def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
     source = read_agent_sources(
         "extension.ts",
-        "extensions/commit-guard.ts",
-        "extensions/chat-tools.ts",
-        "extensions/ralph-tools.ts",
+        "commit-guard.ts",
+        "interrogator/tools.ts",
+        "ralph/tools.ts",
     )
 
     assert 'pi.on("tool_call"' in source
@@ -65,14 +65,14 @@ def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
 
 def test_pi_extension_does_not_register_validator_approval_tool() -> None:
     source = read_agent_sources(
-        "extension.ts", "extensions/chat-tools.ts", "extensions/ralph-tools.ts"
+        "extension.ts", "interrogator/tools.ts", "ralph/tools.ts"
     )
 
     assert 'registerPythonTool(\n    pi,\n    "approve-draft-promotion"' not in source
 
 
 def test_pi_extension_launches_validator_runtime_with_approval_extension() -> None:
-    source = read_agent_sources("extension.ts", "extensions/validators.ts")
+    source = read_agent_sources("extension.ts", "interrogator/tools.ts")
 
     assert 'name: "interrogator-validator"' in source
     assert 'resourcePath("extensions.validator", packageRoot)' in source
@@ -85,7 +85,7 @@ def test_pi_extension_launches_validator_runtime_with_approval_extension() -> No
 
 def test_pi_extension_launches_ralph_validator_runtime() -> None:
     source = read_agent_sources(
-        "extension.ts", "extensions/validators.ts", "extensions/ralph-tools.ts"
+        "extension.ts", "ralph/validator/tools.ts", "ralph/tools.ts"
     )
 
     assert 'name: "ralph-validator"' in source
@@ -99,7 +99,7 @@ def test_pi_extension_launches_ralph_validator_runtime() -> None:
 
 def test_pi_extension_splits_chat_and_ralph_tool_registration() -> None:
     source = read_agent_sources(
-        "extension.ts", "extensions/chat-tools.ts", "extensions/ralph-tools.ts"
+        "extension.ts", "interrogator/tools.ts", "ralph/tools.ts"
     )
 
     assert "function registerChatTools" in source
@@ -112,7 +112,7 @@ def test_pi_extension_splits_chat_and_ralph_tool_registration() -> None:
 
 
 def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
-    source = read_agent_sources("extension.ts", "extensions/explorer.ts")
+    source = read_agent_sources("extension.ts", "explorer/tools.ts")
 
     assert 'name: "explore"' in source
     assert 'resourcePath("prompts.explorer", packageRoot)' in source
@@ -357,20 +357,22 @@ def test_packaged_schemas_are_available() -> None:
     scaffold = files("jri.core.template")
     assert scaffold.joinpath("learnings.md").is_file()
     builtins = files("jri.core.agents")
-    assert builtins.joinpath("prompts", "interrogator.md").is_file()
-    assert builtins.joinpath("prompts", "interrogator-validator.md").is_file()
-    assert builtins.joinpath("prompts", "explorer.md").is_file()
-    assert builtins.joinpath("prompts", "ralph.md").is_file()
-    assert builtins.joinpath("prompts", "ralph-validator.md").is_file()
+    assert builtins.joinpath("interrogator", "prompt.md").is_file()
+    assert builtins.joinpath("interrogator", "validator", "prompt.md").is_file()
+    assert builtins.joinpath("explorer", "prompt.md").is_file()
+    assert builtins.joinpath("ralph", "prompt.md").is_file()
+    assert builtins.joinpath("ralph", "validator", "prompt.md").is_file()
     assert builtins.joinpath("extension.ts").is_file()
-    assert builtins.joinpath("extensions", "chat-tools.ts").is_file()
-    assert builtins.joinpath("extensions", "common.ts").is_file()
-    assert builtins.joinpath("extensions", "commit-guard.ts").is_file()
-    assert builtins.joinpath("extensions", "explorer.ts").is_file()
+    assert builtins.joinpath("interrogator", "tools.ts").is_file()
+    assert builtins.joinpath("common.ts").is_file()
+    assert builtins.joinpath("commit-guard.ts").is_file()
+    assert builtins.joinpath("resources.ts").is_file()
+    assert builtins.joinpath("resource-manifest.json").is_file()
+    assert builtins.joinpath("explorer", "tools.ts").is_file()
     assert builtins.joinpath("interrogator", "validator", "extension.ts").is_file()
-    assert builtins.joinpath("extensions", "python-bridge.ts").is_file()
-    assert builtins.joinpath("extensions", "ralph-tools.ts").is_file()
-    assert builtins.joinpath("extensions", "validators.ts").is_file()
+    assert builtins.joinpath("python-bridge.ts").is_file()
+    assert builtins.joinpath("ralph", "tools.ts").is_file()
+    assert builtins.joinpath("ralph", "validator", "tools.ts").is_file()
     assert builtins.joinpath("tools", "__init__.py").is_file()
     assert builtins.joinpath("tools", "__main__.py").is_file()
     assert builtins.joinpath("tools", "run-python-tool.ts").is_file()
@@ -380,15 +382,15 @@ def test_agent_resource_manifest_resolves_current_package_resources() -> None:
     expected = {
         "extensions.default": "extension.ts",
         "extensions.validator": "interrogator/validator/extension.ts",
-        "prompts.ralph": "prompts/ralph.md",
-        "prompts.interrogator": "prompts/interrogator.md",
-        "prompts.ralphValidator": "prompts/ralph-validator.md",
-        "prompts.interrogatorValidator": "prompts/interrogator-validator.md",
-        "prompts.explorer": "prompts/explorer.md",
+        "prompts.ralph": "ralph/prompt.md",
+        "prompts.interrogator": "interrogator/prompt.md",
+        "prompts.ralphValidator": "ralph/validator/prompt.md",
+        "prompts.interrogatorValidator": "interrogator/validator/prompt.md",
+        "prompts.explorer": "explorer/prompt.md",
         "tools.pythonRunner": "tools/run-python-tool.ts",
         "themes.modernYellow": "themes/modern-yellow.json",
-        "skills.hostedProjects": "skills/hosted-projects/SKILL.md",
-        "skills.reverseRalph": "skills/reverse-ralph/SKILL.md",
+        "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
+        "skills.reverseRalph": "ralph/skills/reverse-ralph/SKILL.md",
     }
 
     assert resource_manifest() == expected

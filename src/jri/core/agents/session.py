@@ -33,10 +33,8 @@ def runtime_env(
             target_dir = bundle_root / directory
             target_dir.mkdir(parents=True, exist_ok=True)
             for name in iter_directory_assets(directory):
-                if (
-                    directory == "prompts"
-                    and included_agents is not None
-                    and Path(name).stem not in included_agents
+                if not _should_copy_agent_asset(
+                    directory, Path(name), included_agents=included_agents
                 ):
                     continue
                 target_path = target_dir / name
@@ -142,6 +140,18 @@ def export_session_if_available(
     return export_path
 
 
+def _should_copy_agent_asset(
+    directory: str, name: Path, *, included_agents: set[str] | None
+) -> bool:
+    if included_agents is None or directory == "tools":
+        return True
+    if directory in included_agents:
+        return True
+    return directory == "ralph" and (
+        name.suffix == ".ts" or name.parts[:1] == ("skills",)
+    )
+
+
 def _write_package_manifest(
     bundle_root: Path, *, overrides: dict[str, str | None]
 ) -> None:
@@ -151,7 +161,7 @@ def _write_package_manifest(
         "keywords": ["pi-package"],
         "pi": {
             "extensions": [_manifest_reference("extensions.default")],
-            "skills": [_manifest_top_level_reference("skills.hostedProjects")],
+            "skills": [_manifest_skill_root_reference("skills.hostedProjects")],
             "prompts": [_manifest_top_level_reference("prompts.interrogator")],
             "tools": [_manifest_top_level_reference("tools.pythonRunner")],
         },
@@ -170,3 +180,8 @@ def _manifest_reference(resource_id: str) -> str:
 
 def _manifest_top_level_reference(resource_id: str) -> str:
     return f"./{PurePosixPath(resource_relative_path(resource_id)).parts[0]}"
+
+
+def _manifest_skill_root_reference(resource_id: str) -> str:
+    relative_path = PurePosixPath(resource_relative_path(resource_id))
+    return f"./{PurePosixPath(*relative_path.parts[:-2]).as_posix()}"

@@ -88,33 +88,33 @@ def test_chat_reuses_existing_session_and_exports_it(initialized_repo: Path) -> 
                 ),
                 "interrogator_exists": (
                     Path(env["JRI_PI_PACKAGE"])
-                    .joinpath("prompts", "interrogator.md")
+                    .joinpath("interrogator", "prompt.md")
                     .is_file()
                     if env is not None
                     else False
                 ),
                 "validator_exists": (
                     Path(env["JRI_PI_PACKAGE"])
-                    .joinpath("prompts", "interrogator-validator.md")
+                    .joinpath("interrogator", "validator", "prompt.md")
                     .is_file()
                     if env is not None
                     else False
                 ),
                 "explorer_exists": (
                     Path(env["JRI_PI_PACKAGE"])
-                    .joinpath("prompts", "explorer.md")
+                    .joinpath("explorer", "prompt.md")
                     .is_file()
                     if env is not None
                     else False
                 ),
                 "ralph_exists": (
-                    Path(env["JRI_PI_PACKAGE"]).joinpath("prompts", "ralph.md").exists()
+                    Path(env["JRI_PI_PACKAGE"]).joinpath("ralph", "prompt.md").exists()
                     if env is not None
                     else True
                 ),
                 "skill_exists": (
                     Path(env["JRI_PI_PACKAGE"])
-                    .joinpath("skills", "reverse-ralph", "SKILL.md")
+                    .joinpath("ralph", "skills", "reverse-ralph", "SKILL.md")
                     .is_file()
                     if env is not None
                     else False
