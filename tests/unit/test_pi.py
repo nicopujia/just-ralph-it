@@ -14,6 +14,7 @@ from jri.core.agents import (
     launch_chat,
     render_saved_log,
 )
+from jri.core.agents.session import _write_package_manifest
 from jri.core.errors import JriError
 
 
@@ -158,6 +159,44 @@ def test_pi_runtime_rpc_request_reads_matching_response() -> None:
     assert json.loads(stdin.getvalue()) == {"type": "get_state"}
 
 
+def test_package_manifest_uses_resource_manifest_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    resource_paths = {
+        "extensions.default": "extensions/jri.ts",
+        "skills.hostedProjects": "skills/hosted-projects/SKILL.md",
+        "prompts.interrogator": "prompts/interrogator.md",
+        "tools.pythonRunner": "tools/_run-python-tool.mjs",
+    }
+    resolved_ids: list[str] = []
+
+    def fake_resource_relative_path(resource_id: str) -> str:
+        resolved_ids.append(resource_id)
+        return resource_paths[resource_id]
+
+    monkeypatch.setattr(
+        "jri.core.agents.session.resource_relative_path",
+        fake_resource_relative_path,
+    )
+
+    _write_package_manifest(tmp_path, overrides={"ralph": "test-model"})
+
+    package = json.loads((tmp_path / "package.json").read_text(encoding="utf-8"))
+    assert package["pi"] == {
+        "extensions": ["./extensions/jri.ts"],
+        "skills": ["./skills"],
+        "prompts": ["./prompts"],
+        "tools": ["./tools"],
+    }
+    assert resolved_ids == [
+        "extensions.default",
+        "skills.hostedProjects",
+        "prompts.interrogator",
+        "tools.pythonRunner",
+    ]
+    assert package["jri"]["models"] == {"ralph": "test-model"}
+
+
 def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -168,6 +207,22 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
     (package_root / "skills" / "reverse-ralph").mkdir()
     (package_root / "extensions" / "jri.ts").write_text("", encoding="utf-8")
     (package_root / "prompts" / "ralph.md").write_text("", encoding="utf-8")
+
+    resolved_ids: list[str] = []
+    resource_paths = {
+        "extensions.default": "extensions/jri.ts",
+        "prompts.ralph": "prompts/ralph.md",
+        "skills.hostedProjects": "skills/hosted-projects/SKILL.md",
+    }
+
+    def fake_resource_relative_path(resource_id: str) -> str:
+        resolved_ids.append(resource_id)
+        return resource_paths[resource_id]
+
+    monkeypatch.setattr(
+        "jri.core.agents.client.resource_relative_path",
+        fake_resource_relative_path,
+    )
 
     popen_calls: list[list[str]] = []
     popen_envs: list[dict[str, str]] = []
@@ -211,6 +266,11 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
         ]
     ]
     assert str(package_root / "extensions" / "jri-validator.ts") not in popen_calls[0]
+    assert resolved_ids == [
+        "extensions.default",
+        "prompts.ralph",
+        "skills.hostedProjects",
+    ]
     assert "JRI_CHAT_RUNTIME" not in popen_envs[0]
 
 
@@ -291,6 +351,21 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
     (package_root / "extensions" / "jri.ts").write_text("", encoding="utf-8")
     (package_root / "extensions" / "jri-validator.ts").write_text("", encoding="utf-8")
     (package_root / "prompts" / "interrogator.md").write_text("", encoding="utf-8")
+    resolved_ids: list[str] = []
+    resource_paths = {
+        "extensions.default": "extensions/jri.ts",
+        "prompts.interrogator": "prompts/interrogator.md",
+    }
+
+    def fake_resource_relative_path(resource_id: str) -> str:
+        resolved_ids.append(resource_id)
+        return resource_paths[resource_id]
+
+    monkeypatch.setattr(
+        "jri.core.agents.client.resource_relative_path",
+        fake_resource_relative_path,
+    )
+
     run_calls: list[list[str]] = []
     run_envs: list[dict[str, str]] = []
 
@@ -335,6 +410,7 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
         ]
     ]
     assert str(package_root / "extensions" / "jri-validator.ts") not in run_calls[0]
+    assert resolved_ids == ["extensions.default", "prompts.interrogator"]
     assert run_envs[0]["JRI_CHAT_RUNTIME"] == "1"
 
 

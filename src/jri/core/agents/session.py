@@ -2,7 +2,7 @@ import sys
 import tempfile
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from ..errors import JriError
@@ -13,6 +13,7 @@ from .config import (
     iter_directory_assets,
     load_asset_text,
 )
+from .resources import resource_relative_path
 
 
 @contextmanager
@@ -146,10 +147,10 @@ def _write_package_manifest(
         "private": True,
         "keywords": ["pi-package"],
         "pi": {
-            "extensions": ["./extensions/jri.ts"],
-            "skills": ["./skills"],
-            "prompts": ["./prompts"],
-            "tools": ["./tools"],
+            "extensions": [_manifest_reference("extensions.default")],
+            "skills": [_manifest_top_level_reference("skills.hostedProjects")],
+            "prompts": [_manifest_top_level_reference("prompts.interrogator")],
+            "tools": [_manifest_top_level_reference("tools.pythonRunner")],
         },
         "jri": {
             "models": {name: model for name, model in overrides.items() if model},
@@ -158,3 +159,11 @@ def _write_package_manifest(
     (bundle_root / "package.json").write_text(
         __import__("json").dumps(package, indent=2) + "\n", encoding="utf-8"
     )
+
+
+def _manifest_reference(resource_id: str) -> str:
+    return f"./{resource_relative_path(resource_id)}"
+
+
+def _manifest_top_level_reference(resource_id: str) -> str:
+    return f"./{PurePosixPath(resource_relative_path(resource_id)).parts[0]}"
