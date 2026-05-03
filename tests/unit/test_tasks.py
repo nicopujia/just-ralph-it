@@ -200,6 +200,12 @@ def test_validator_extension_registers_approval_tool_only() -> None:
     assert (
         'runPythonTool("approve-draft-promotion", { slugs: requestedSlugs })' in source
     )
+    tools_source = (
+        files("jri.core.agents.bundle")
+        .joinpath("interrogator", "tools.ts")
+        .read_text("utf-8")
+    )
+    assert "requireAgentEnd: true" in tools_source
     assert "validator approval is recorded automatically after APPROVED" in source
     assert (
         'event.toolName === "approve-draft-promotion" && !event.isError' not in source

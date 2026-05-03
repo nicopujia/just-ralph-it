@@ -66,6 +66,23 @@ export function finalAssistantText(stdout: string): string {
   return terminalAssistantText(stdout) ?? stdout.trim();
 }
 
+export function terminalAgentEndText(stdout: string): string | undefined {
+  let final = "";
+  for (const line of stdout.split("\n")) {
+    if (!line.trim()) continue;
+    try {
+      const event = JSON.parse(line);
+      if (event?.type === "agent_end" && event?.message?.role === "assistant") {
+        const text = textParts(event.message.content);
+        if (text) final = text;
+      }
+    } catch {
+      continue;
+    }
+  }
+  return final.trim() || undefined;
+}
+
 export function configuredModel(packageRoot: string, name: string): string | undefined {
   try {
     const manifest = JSON.parse(readFileSync(join(packageRoot, "package.json"), "utf-8"));
@@ -100,6 +117,7 @@ export function runUntilTerminalOutput(
     env: NodeJS.ProcessEnv;
     timeoutMs: number;
     maxBuffer?: number;
+    requireAgentEnd?: boolean;
   },
 ): Promise<ChildProcessResult> {
   return new Promise((resolve) => {
@@ -144,7 +162,10 @@ export function runUntilTerminalOutput(
       return next;
     };
     const finishIfTerminal = () => {
-      if (!terminalAssistantText(stdout)) return;
+      const text = options.requireAgentEnd
+        ? terminalAgentEndText(stdout)
+        : terminalAssistantText(stdout);
+      if (!text) return;
       killChild();
       finish({
         status: truncated ? 1 : 0,

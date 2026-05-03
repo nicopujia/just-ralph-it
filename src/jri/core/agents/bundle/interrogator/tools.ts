@@ -149,6 +149,7 @@ export function registerInterrogatorValidator(pi: ExtensionAPI) {
         env: childEnv,
         timeoutMs: VALIDATOR_TIMEOUT_MS,
         maxBuffer: CHILD_PI_MAX_BUFFER,
+        requireAgentEnd: true,
       });
       const output = finalAssistantText(result.stdout);
       if (result.error) {
