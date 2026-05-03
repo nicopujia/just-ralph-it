@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Any
 
-from .validation import _assert_slug_list, _service
+from ._validation import _assert_slug_list, _service
 
 
 def run_promote_tasks(payload: dict[str, Any]) -> str:

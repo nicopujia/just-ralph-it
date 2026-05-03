@@ -25,9 +25,9 @@ REQUIRED_AGENT_RESOURCES = {
     "src/jri/core/agents/tools/colors.py",
     "src/jri/core/agents/tools/promotion.py",
     "src/jri/core/agents/tools/readme.py",
-    "src/jri/core/agents/tools/registry.py",
+    "src/jri/core/agents/tools/_registry.py",
     "src/jri/core/agents/tools/tasks.py",
-    "src/jri/core/agents/tools/validation.py",
+    "src/jri/core/agents/tools/_validation.py",
     "src/jri/core/agents/tools/ralph_result.py",
 }
 
