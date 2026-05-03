@@ -8,19 +8,23 @@ _CHAT_FIELDS = ("model", "validator_model", "explore_model")
 _START_FIELDS = ("model", "validator_model", "general_model", "explore_model")
 
 _PRESET_CHOICES = ("default", "openai")
-_DEFAULT_MODEL = "cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.6"
+_DEFAULT_CHAT_MODEL = "openrouter/z-ai/glm-5.1"
+_DEFAULT_START_MODEL = "openrouter/moonshotai/kimi-k2.6"
+_DEFAULT_VALIDATOR_MODEL = "openrouter/deepseek/deepseek-r1-0528"
+_DEFAULT_GENERAL_MODEL = "openrouter/qwen/qwen3-30b-a3b-thinking-2507"
+_DEFAULT_EXPLORE_MODEL = "openrouter/z-ai/glm-4.7-flash"
 _PRESET_CONFIG: dict[str, object] = {
     "default": {
         "chat": {
-            "model": _DEFAULT_MODEL,
-            "validator_model": _DEFAULT_MODEL,
-            "explore_model": _DEFAULT_MODEL,
+            "model": _DEFAULT_CHAT_MODEL,
+            "validator_model": _DEFAULT_VALIDATOR_MODEL,
+            "explore_model": _DEFAULT_EXPLORE_MODEL,
         },
         "start": {
-            "model": _DEFAULT_MODEL,
-            "validator_model": _DEFAULT_MODEL,
-            "general_model": _DEFAULT_MODEL,
-            "explore_model": _DEFAULT_MODEL,
+            "model": _DEFAULT_START_MODEL,
+            "validator_model": _DEFAULT_VALIDATOR_MODEL,
+            "general_model": _DEFAULT_GENERAL_MODEL,
+            "explore_model": _DEFAULT_EXPLORE_MODEL,
         },
     },
     "openai": {

@@ -3,7 +3,11 @@ import pytest
 from jri.core.agents.presets import preset_choices, resolve_preset_models
 from jri.core.errors import JriError
 
-DEFAULT_MODEL = "cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.6"
+DEFAULT_CHAT_MODEL = "openrouter/z-ai/glm-5.1"
+DEFAULT_EXPLORE_MODEL = "openrouter/z-ai/glm-4.7-flash"
+DEFAULT_START_MODEL = "openrouter/moonshotai/kimi-k2.6"
+DEFAULT_VALIDATOR_MODEL = "openrouter/deepseek/deepseek-r1-0528"
+DEFAULT_GENERAL_MODEL = "openrouter/qwen/qwen3-30b-a3b-thinking-2507"
 
 
 def test_preset_choices_are_stable() -> None:
@@ -23,10 +27,10 @@ def test_resolve_preset_models_uses_default_start_bundle() -> None:
     )
 
     assert resolved == {
-        "model": DEFAULT_MODEL,
-        "validator_model": DEFAULT_MODEL,
-        "general_model": DEFAULT_MODEL,
-        "explore_model": DEFAULT_MODEL,
+        "model": DEFAULT_START_MODEL,
+        "validator_model": DEFAULT_VALIDATOR_MODEL,
+        "general_model": DEFAULT_GENERAL_MODEL,
+        "explore_model": DEFAULT_EXPLORE_MODEL,
     }
 
 
@@ -42,9 +46,9 @@ def test_resolve_preset_models_uses_default_chat_bundle() -> None:
     )
 
     assert resolved == {
-        "model": DEFAULT_MODEL,
-        "validator_model": DEFAULT_MODEL,
-        "explore_model": DEFAULT_MODEL,
+        "model": DEFAULT_CHAT_MODEL,
+        "validator_model": DEFAULT_VALIDATOR_MODEL,
+        "explore_model": DEFAULT_EXPLORE_MODEL,
     }
 
 
