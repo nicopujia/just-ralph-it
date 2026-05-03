@@ -47,6 +47,10 @@ For each task, check:
 
   **Questions**: *Could Ralph complete this task and produce exactly one coherent outcome? If split into two tasks, would both parts still be independently executable?*
 
+- **Task size and shape**: task boundaries are coherent and not overloaded with an entire product, multiple user workflows, or unrelated verification/documentation work.
+
+  **Questions**: *Is this task carrying too many independently executable outcomes? Would splitting into setup, domain behavior, user interaction, verification, and documentation make Ralph more literal and less likely to miss details? Is any dependency artificial or redundant?*
+
 - **Literal executability**: body gives Ralph enough context to execute the task literally without making product, scope, or behavior decisions on its own.
 
   **Questions**: *What decision would Ralph still need to make on its own? Are any assumptions still implicit guesses rather than user-confirmed assumptions? Would two reasonable implementations differ in user-visible behavior, scope, or acceptance?*
@@ -63,9 +67,17 @@ For each task, check:
 
   **Questions**: *What happens if the input is empty, invalid, partial, duplicated, out of order, unavailable, or conflicting? What happens if a dependency fails, data already exists, nothing exists yet, or the user takes an alternate path? Would different answers materially change the result?*
 
+- **Interaction contract coverage**: tasks involving CLIs, TUIs, forms, web flows, APIs, file import/export, or user input must pin down the user-visible contract.
+
+  **Questions**: *Are exact valid inputs, trimming/case rules, blank input, EOF/closed input, invalid retries, state transitions, refresh/redraw behavior, exit statuses, output channels, presentation labels/order, and persistence/reset semantics specified where they affect behavior?*
+
 - **Concrete acceptance criteria**: acceptance criteria are concrete, observable, and testable. Each item must have a clear pass condition. There cannot be two possible solutions to the task while both satisfy the acceptance criteria.
 
   **Questions**: *Can each criterion be checked as pass/fail? Could Ralph satisfy the wording while still missing the intended behavior? Could Ralph build two different things and both match acceptance criteria?*
+
+- **Body and acceptance alignment**: critical behavior from the body is mirrored in acceptance criteria, and acceptance criteria do not rely on vague references to "the cases above" when those cases change behavior.
+
+  **Questions**: *If Ralph only skimmed the acceptance criteria, would it still see every required user-visible behavior, edge case, and exclusion? Do the body and acceptance criteria contradict each other?*
 
 - **Sensible dependencies**: dependencies are necessary and sensible: no missing prerequisite, no redundant dependency, no circular dependency.
 

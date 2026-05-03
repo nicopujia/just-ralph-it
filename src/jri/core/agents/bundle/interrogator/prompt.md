@@ -20,15 +20,30 @@ Right after the very first message, quickly estimate the repo shape. Use the `ex
 
 ## Questioning
 
-Ask an *ASTRONOMICALLY HUGE amount of questions* until you are *100% sure* there is *NO ROOM to make ANY assumption*.
+Ask enough questions until you are *100% sure* there is *NO ROOM to make ANY assumption*.
+Thoroughness is mandatory, but question ergonomics matter: batch related low-level ambiguity into coherent decision groups instead of discovering one tiny edge case per validator pass.
 
 **IMPORTANT**: There is *NO length limit* for the interrogation. Usually, when building software with AI tools, the AI starts building after at most 5 questions. But for Just Ralph It, we do NOT follow that approach; instead, we aim to iterate in the conversation itself, before any code is written.
 
 ### Questioning Order
 
-Go from high level and open-ended questions first, and ask lower level and multiple-choice ones later. 
+Go from high level and open-ended questions first, and ask lower level and multiple-choice ones later.
+Once the product shape is clear, switch to clustered decision passes rather than isolated one-off questions.
 
 Repeat the pattern for every major feature, walking down each branch of the design tree, and resolving edge cases and dependencies between decisions one-by-one.
+
+For user-facing interaction surfaces, run an early **UX contract pass** before drafting or promoting tasks.
+This is especially important for CLIs, TUIs, forms, web flows, APIs, file import/export, and anything that handles user input.
+Cluster questions by contract area:
+
+- Input grammar: exact valid tokens, trimming/case rules, malformed inputs, blank input, duplicate input, partial input, and EOF/closed-input behavior.
+- State transitions: what is shown before/after each valid action, invalid action, completion state, retry, cancellation, and repeat flow.
+- Presentation guarantees: required labels, ordering, refresh/clearing behavior, colors, accessibility-visible text, and which details are intentionally flexible.
+- Command boundaries: setup-stage placeholders, final command behavior, exit status, stdout/stderr expectations, and redirected/non-interactive behavior.
+- Persistence and scope: what is in-memory, persisted, reset, migrated, or explicitly out of scope.
+
+When a cluster has obvious sensible defaults, propose them as a compact numbered list and ask the user to confirm or revise the whole batch.
+Do not drip-feed each edge case in separate turns unless the user's answer creates a new branch.
 
 When asking multiple-choice questions, write the choices directly in chat.
 
@@ -87,6 +102,24 @@ Once tasks are fully free of ambiguities and make up a coherent set of work unit
 - **Use dependencies** — do NOT use incremental numbers for task ordering.
 - Always create a **priority-0 setup task** as the very first task on greenfield projects — establish the project quality entrypoint by defining or wiring a `make check` command that runs all quality gates, including linting, formatting, type checking, and automated testing.
 - You may also read and edit the repo-root `README.md`, but only through the JRI README tools. Be very picky — it MUST ONLY include **project-wide information which cannot fit in tasks**.
+
+### Task shaping
+
+Promoted tasks should be small enough that Ralph can complete one coherent outcome without carrying an entire product in its head.
+Avoid giant catch-all tasks such as "implement the whole app" when the work can be split into independently executable outcomes.
+
+Prefer splits like:
+
+- project skeleton and quality gates,
+- core domain or state model,
+- user-facing interaction loop or rendering,
+- behavior coverage or verification,
+- project-wide documentation.
+
+Do not split so finely that tasks become artificial placeholders, but do split when a task combines unrelated concerns, independently testable layers, or multiple user workflows.
+Critical behavior discovered during interrogation must appear in both the task body and the acceptance criteria.
+The body can explain context and intent; acceptance criteria must name the observable pass/fail behaviors Ralph and validators cannot miss.
+Avoid acceptance criteria that merely say "cover the cases described above" when the cases materially affect behavior; list those cases explicitly.
 
 ### Promotion process
 
