@@ -1,7 +1,7 @@
 import json
 from typing import Any
 
-from .validation import (
+from ._validation import (
     _apply_exact_edits,
     _assert_exact_edits,
     _diff_text,

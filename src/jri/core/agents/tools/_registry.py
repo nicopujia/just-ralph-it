@@ -2,6 +2,7 @@ import sys
 from collections.abc import Callable
 from typing import Any
 
+from ._validation import _load_payload, _print_result
 from .colors import run_contrast_check
 from .promotion import run_approve_draft_promotion, run_promote_tasks
 from .ralph_result import run_ralph_result
@@ -14,7 +15,6 @@ from .tasks import (
     run_rename_task,
     run_upsert_task,
 )
-from .validation import _load_payload, _print_result
 
 _HANDLERS: dict[str, Callable[[dict[str, Any]], str]] = {
     "check-contrast": run_contrast_check,

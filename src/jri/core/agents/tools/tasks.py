@@ -4,7 +4,7 @@ from typing import Any
 
 from ...models import Task
 from ...tasks import list_tasks
-from .validation import (
+from ._validation import (
     _apply_exact_edits,
     _assert_exact_edits,
     _assert_slug,

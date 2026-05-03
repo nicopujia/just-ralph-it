@@ -1,9 +1,9 @@
-from ...service import JriService
+from ...service import JriService as _JriService
+from ._registry import main as _main
 from .colors import run_contrast_check
 from .promotion import run_approve_draft_promotion, run_promote_tasks
 from .ralph_result import run_ralph_result
 from .readme import run_edit_readme, run_read_readme
-from .registry import main
 from .tasks import (
     run_delete_task,
     run_edit_draft_task,
@@ -12,6 +12,9 @@ from .tasks import (
     run_rename_task,
     run_upsert_task,
 )
+
+JriService = _JriService
+main = _main
 
 _run_approve_draft_promotion = run_approve_draft_promotion
 _run_contrast_check = run_contrast_check
@@ -27,8 +30,6 @@ _run_rename_task = run_rename_task
 _run_upsert_task = run_upsert_task
 
 __all__ = [
-    "JriService",
-    "main",
     "run_approve_draft_promotion",
     "run_contrast_check",
     "run_delete_task",

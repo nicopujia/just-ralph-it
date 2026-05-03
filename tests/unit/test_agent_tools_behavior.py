@@ -19,6 +19,23 @@ def invoke_tool(
     return tools.main([tool_name])
 
 
+def test_tools_package_exports_only_public_handlers() -> None:
+    assert tools.__all__ == [
+        "run_approve_draft_promotion",
+        "run_contrast_check",
+        "run_delete_task",
+        "run_edit_draft_task",
+        "run_edit_readme",
+        "run_list_tasks",
+        "run_promote_tasks",
+        "run_ralph_result",
+        "run_read_readme",
+        "run_read_tasks",
+        "run_rename_task",
+        "run_upsert_task",
+    ]
+
+
 def task_payload(
     title: str = "Build safe tool tests",
     body: str = "Implement meaningful coverage.",
