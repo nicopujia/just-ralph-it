@@ -29,7 +29,7 @@ def resource_relative_path(resource_id: str) -> str:
     try:
         return resource_manifest()[resource_id]
     except KeyError as exc:
-        raise KeyError(f"unknown agent resource ID: {resource_id}") from exc
+        raise ValueError(f"unknown agent resource ID: {resource_id}") from exc
 
 
 def resource_path(resource_id: str) -> Traversable:

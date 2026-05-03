@@ -387,7 +387,7 @@ def test_agent_resource_manifest_resolves_current_package_resources() -> None:
 
 
 def test_agent_resource_manifest_rejects_invalid_ids() -> None:
-    with pytest.raises(KeyError, match="unknown agent resource ID: missing.resource"):
+    with pytest.raises(ValueError, match="unknown agent resource ID: missing.resource"):
         resource_relative_path("missing.resource")
 
 
