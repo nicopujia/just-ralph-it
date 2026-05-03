@@ -11,6 +11,7 @@ import {
   configuredModel,
   finalAssistantText,
   getPiInvocation,
+  terminalAssistantText,
 } from "../_shared/subagents.ts";
 import { resourcePath } from "../_shared/assets.ts";
 
@@ -265,6 +266,19 @@ function runExplorerTask(
         child.kill("SIGTERM");
       }
     };
+    const finishIfTerminal = () => {
+      const output = terminalAssistantText(stdout);
+      if (!output) return;
+      killChild();
+      finish({
+        task: request.task,
+        index: request.index,
+        exitCode: truncated ? 1 : 0,
+        output,
+        stderr: stderr.trim(),
+        error: truncated ? "explorer task output exceeded buffer limit" : undefined,
+      });
+    };
     const timer = setTimeout(() => {
       killChild();
       finish({
@@ -290,6 +304,7 @@ function runExplorerTask(
     };
     child.stdout.on("data", (data) => {
       stdout = append(stdout, data);
+      finishIfTerminal();
     });
     child.stderr.on("data", (data) => {
       stderr = append(stderr, data);

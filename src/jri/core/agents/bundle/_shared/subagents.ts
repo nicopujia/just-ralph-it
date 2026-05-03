@@ -24,7 +24,7 @@ function textParts(parts: unknown): string {
     .join("");
 }
 
-export function finalAssistantText(stdout: string): string {
+export function terminalAssistantText(stdout: string): string | undefined {
   let final = "";
   for (const line of stdout.split("\n")) {
     if (!line.trim()) continue;
@@ -51,7 +51,11 @@ export function finalAssistantText(stdout: string): string {
       continue;
     }
   }
-  return final.trim() || stdout.trim();
+  return final.trim() || undefined;
+}
+
+export function finalAssistantText(stdout: string): string {
+  return terminalAssistantText(stdout) ?? stdout.trim();
 }
 
 export function configuredModel(packageRoot: string, name: string): string | undefined {
