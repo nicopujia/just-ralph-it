@@ -1,14 +1,10 @@
 from importlib.resources import files
 from pathlib import Path
 
-COPYABLE_DIRECTORIES = ("tools", "ralph", "interrogator", "explorer")
+COPYABLE_DIRECTORIES = ("_shared", "ralph", "interrogator", "explorer")
 COPYABLE_FILES = (
     "extension.ts",
-    "common.ts",
-    "python-bridge.ts",
-    "commit-guard.ts",
-    "resources.ts",
-    "resource-manifest.json",
+    "manifest.json",
     "theme.json",
 )
 
@@ -31,4 +27,4 @@ def load_asset_text(name: str | Path) -> str:
 
 
 def _resource_path(name: str | Path):
-    return files("jri.core.agents").joinpath(*Path(name).parts)
+    return files("jri.core.agents.bundle").joinpath(*Path(name).parts)

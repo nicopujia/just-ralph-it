@@ -8,7 +8,7 @@ from typing import cast
 
 import pytest
 
-from jri.core.agents import tools
+from jri.core.agents.bundle._shared import tools
 from jri.core.agents.client import (
     SavedLogRenderer,
     _parse_event_line,

@@ -3,9 +3,9 @@ import { spawn } from "node:child_process";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
-import { text } from "../common.ts";
-import { configuredModel, finalAssistantText, getPiInvocation } from "../python-bridge.ts";
-import { resourcePath } from "../resources.ts";
+import { text } from "../_shared/registry.ts";
+import { configuredModel, finalAssistantText, getPiInvocation } from "../_shared/subagents.ts";
+import { resourcePath } from "../_shared/assets.ts";
 
 const EXPLORER_MAX_TASKS = 8;
 const EXPLORER_MAX_CONCURRENCY = 4;

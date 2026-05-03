@@ -3,15 +3,15 @@ import { Type } from "typebox";
 import { spawnSync } from "node:child_process";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ExactEdit, registerMappedPythonTool, registerPythonTool, SLUG_RE, text } from "../common.ts";
+import { ExactEdit, registerMappedPythonTool, registerPythonTool, SLUG_RE, text } from "../_shared/registry.ts";
 import { registerExplorer } from "../explorer/tools.ts";
 import {
   CHILD_PI_MAX_BUFFER,
   configuredModel,
   finalAssistantText,
   getPiInvocation,
-} from "../python-bridge.ts";
-import { resourcePath } from "../resources.ts";
+} from "../_shared/subagents.ts";
+import { resourcePath } from "../_shared/assets.ts";
 
 export function registerChatTools(pi: ExtensionAPI) {
   registerPythonTool(

@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import yaml
 
-from ...tasks import validate_task_metadata
+from .....tasks import validate_task_metadata
 
 SLUG_RE = re.compile(r"^[a-zA-Z0-9][-a-zA-Z0-9_.]*$")
 
@@ -194,8 +194,8 @@ def _slugify(title: str) -> str:
 
 
 def _service(root: Path):
-    package = sys.modules.get("jri.core.agents.tools")
+    package = sys.modules.get("jri.core.agents.bundle._shared.tools")
     service_type = getattr(package, "JriService", None) if package is not None else None
     if service_type is None:
-        from ...service import JriService as service_type
+        from .....service import JriService as service_type
     return service_type(root)

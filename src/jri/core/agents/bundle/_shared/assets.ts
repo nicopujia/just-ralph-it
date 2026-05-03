@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const manifestPath = new URL("./resource-manifest.json", import.meta.url);
+const manifestPath = new URL("../manifest.json", import.meta.url);
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 
 let cachedManifest: Readonly<Record<string, string>> | undefined;
