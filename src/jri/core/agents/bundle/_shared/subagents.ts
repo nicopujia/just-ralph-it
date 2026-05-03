@@ -2,6 +2,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
 export const CHILD_PI_MAX_BUFFER = 64 * 1024 * 1024;
+export const EXPLORER_TASK_TIMEOUT_MS = 180_000;
+export const VALIDATOR_TIMEOUT_MS = 300_000;
+export const WEB_SEARCH_TIMEOUT_MS = 15_000;
+export const PYTHON_TOOL_TIMEOUT_MS = 30_000;
+export const PYTHON_TOOL_MAX_BUFFER = 4 * 1024 * 1024;
 
 function textParts(parts: unknown): string {
   if (!Array.isArray(parts)) return "";

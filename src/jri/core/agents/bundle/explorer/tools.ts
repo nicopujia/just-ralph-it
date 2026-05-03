@@ -4,7 +4,14 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { text } from "../_shared/registry.ts";
-import { configuredModel, finalAssistantText, getPiInvocation } from "../_shared/subagents.ts";
+import {
+  CHILD_PI_MAX_BUFFER,
+  EXPLORER_TASK_TIMEOUT_MS,
+  WEB_SEARCH_TIMEOUT_MS,
+  configuredModel,
+  finalAssistantText,
+  getPiInvocation,
+} from "../_shared/subagents.ts";
 import { resourcePath } from "../_shared/assets.ts";
 
 const EXPLORER_MAX_TASKS = 8;
@@ -42,18 +49,32 @@ export function registerExplorerTools(pi: ExtensionAPI) {
           : 5;
       const url = new URL("https://html.duckduckgo.com/html/");
       url.searchParams.set("q", query.trim());
-      const response = await fetch(url, {
-        headers: {
-          "user-agent": "jri-explorer/1.0",
-        },
-      });
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), WEB_SEARCH_TIMEOUT_MS);
+      let response: Response;
+      try {
+        response = await fetch(url, {
+          headers: {
+            "user-agent": "jri-explorer/1.0",
+          },
+          signal: controller.signal,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          ...text(`web search failed: ${message}`),
+          isError: true,
+        };
+      } finally {
+        clearTimeout(timeout);
+      }
       if (!response.ok) {
         return {
           ...text(`web search failed with HTTP ${response.status}`),
           isError: true,
         };
       }
-      const html = await response.text();
+      const html = (await response.text()).slice(0, 1_000_000);
       const results = parseDuckDuckGoResults(html, maxResults);
       return {
         content: [
@@ -221,17 +242,60 @@ function runExplorerTask(
       cwd: process.cwd(),
       env: childEnv,
       stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
     });
     let stdout = "";
     let stderr = "";
+    let truncated = false;
+    let settled = false;
+    const finish = (result: ExplorerResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const killChild = () => {
+      try {
+        if (process.platform !== "win32") {
+          process.kill(-child.pid, "SIGTERM");
+        } else {
+          child.kill("SIGTERM");
+        }
+      } catch {
+        child.kill("SIGTERM");
+      }
+    };
+    const timer = setTimeout(() => {
+      killChild();
+      finish({
+        task: request.task,
+        index: request.index,
+        exitCode: 1,
+        output: finalAssistantText(stdout),
+        stderr: stderr.trim(),
+        error: `explorer task timed out after ${EXPLORER_TASK_TIMEOUT_MS}ms`,
+      });
+    }, EXPLORER_TASK_TIMEOUT_MS);
+    const append = (current: string, data: unknown) => {
+      if (current.length >= CHILD_PI_MAX_BUFFER) {
+        truncated = true;
+        return current;
+      }
+      const next = current + String(data);
+      if (next.length > CHILD_PI_MAX_BUFFER) {
+        truncated = true;
+        return next.slice(0, CHILD_PI_MAX_BUFFER);
+      }
+      return next;
+    };
     child.stdout.on("data", (data) => {
-      stdout += data.toString();
+      stdout = append(stdout, data);
     });
     child.stderr.on("data", (data) => {
-      stderr += data.toString();
+      stderr = append(stderr, data);
     });
     child.on("error", (error) => {
-      resolve({
+      finish({
         task: request.task,
         index: request.index,
         exitCode: 1,
@@ -241,12 +305,13 @@ function runExplorerTask(
       });
     });
     child.on("close", (code) => {
-      resolve({
+      finish({
         task: request.task,
         index: request.index,
-        exitCode: code ?? 0,
+        exitCode: truncated ? 1 : (code ?? 0),
         output: finalAssistantText(stdout),
         stderr: stderr.trim(),
+        error: truncated ? "explorer task output exceeded buffer limit" : undefined,
       });
     });
   });

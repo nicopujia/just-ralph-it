@@ -147,6 +147,8 @@ def test_pi_extension_launches_ralph_validator_runtime() -> None:
     assert 'configuredModel(packageRoot, "ralph-validator")' in source
     assert '"read,bash,grep,find,ls,list-tasks,read-tasks,check-contrast"' in source
     assert "CHILD_PI_MAX_BUFFER" in source
+    assert "VALIDATOR_TIMEOUT_MS" in source
+    assert 'killSignal: "SIGTERM"' in source
     assert 'process.env.JRI_CHAT_RUNTIME === "1"' in source
     assert "registerRalphValidator(pi)" in source
 
@@ -181,6 +183,10 @@ def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
     assert "https://html.duckduckgo.com/html/" in source
     assert "EXPLORER_MAX_TASKS = 8" in source
     assert "EXPLORER_MAX_CONCURRENCY = 4" in source
+    assert "EXPLORER_TASK_TIMEOUT_MS" in source
+    assert "WEB_SEARCH_TIMEOUT_MS" in source
+    assert "AbortController" in source
+    assert "process.kill(-child.pid" in source
 
 
 def test_validator_extension_registers_approval_tool_only() -> None:
@@ -222,12 +228,26 @@ def inspect_python_tool_spawn_env(
             'import { spawnSync } from "./child_process.ts";',
             1,
         )
+        .replace(
+            (
+                "import { PYTHON_TOOL_MAX_BUFFER, PYTHON_TOOL_TIMEOUT_MS } "
+                'from "../subagents.ts";'
+            ),
+            "const PYTHON_TOOL_MAX_BUFFER = 4 * 1024 * 1024;\n"
+            "const PYTHON_TOOL_TIMEOUT_MS = 30_000;",
+            1,
+        )
     )
     (harness / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
     (harness / "runner.ts").write_text(source, encoding="utf-8")
     (harness / "child_process.ts").write_text(
         "import { writeFileSync } from 'node:fs';\n"
-        "type SpawnOptions = { env: Record<string, string> };\n"
+        "type SpawnOptions = {\n"
+        "  env: Record<string, string>;\n"
+        "  maxBuffer?: number;\n"
+        "  timeout?: number;\n"
+        "  killSignal?: string;\n"
+        "};\n"
         "export function spawnSync(\n"
         "  command: string,\n"
         "  args: string[],\n"
@@ -235,7 +255,7 @@ def inspect_python_tool_spawn_env(
         ") {\n"
         "  writeFileSync(\n"
         "    process.env.JRI_CAPTURE_PATH,\n"
-        "    JSON.stringify({ command, args, env: options.env }),\n"
+        "    JSON.stringify({ command, args, options }),\n"
         "    'utf-8',\n"
         "  );\n"
         "  return { status: 0, stdout: 'ok\\n', stderr: '' };\n"
@@ -590,7 +610,13 @@ def test_run_python_tool_uses_forwarded_pythonpath(tmp_path: Path) -> None:
         "jri.core.agents.bundle._shared.tools",
         "ralph-result",
     ]
-    spawned_env = captured["env"]
+    options_obj = captured["options"]
+    assert isinstance(options_obj, dict)
+    options = cast(dict[str, object], options_obj)
+    assert options["timeout"] == 30_000
+    assert options["maxBuffer"] == 4 * 1024 * 1024
+    assert options["killSignal"] == "SIGTERM"
+    spawned_env = options["env"]
     assert isinstance(spawned_env, dict)
     assert cast(dict[str, str], spawned_env)["PYTHONPATH"] == (
         "/tmp/jri-src:/tmp/existing-path"

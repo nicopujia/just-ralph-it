@@ -16,7 +16,7 @@ The final goal is that, if tasks are solved *literally*, the end result made by 
 
 ## Initial context gathering (if any)
 
-Right after the very first message, quickly estimate the repo shape and then use the `explore` tool to delegate read-only repository discovery to explorer subagents. Use bounded parallel exploration for independent questions. After that, begin the interrogation.
+Right after the very first message, quickly estimate the repo shape. Use the `explore` tool for bounded read-only repository discovery when the repo has existing code or the user's request depends on unknown project structure. If the repo is empty or nearly empty, say that directly and begin interrogation instead of launching broad exploration.
 
 ## Questioning
 

@@ -6,6 +6,7 @@ import { Type } from "typebox";
 import { SLUG_RE, text } from "../../_shared/registry.ts";
 import {
   CHILD_PI_MAX_BUFFER,
+  VALIDATOR_TIMEOUT_MS,
   configuredModel,
   finalAssistantText,
   getPiInvocation,
@@ -56,6 +57,8 @@ export function registerRalphValidator(pi: ExtensionAPI) {
         env: childEnv,
         encoding: "utf-8",
         maxBuffer: CHILD_PI_MAX_BUFFER,
+        timeout: VALIDATOR_TIMEOUT_MS,
+        killSignal: "SIGTERM",
       });
       const output = finalAssistantText(result.stdout ?? "");
       if (result.error) {
