@@ -133,9 +133,7 @@ def test_chat_reuses_existing_session_and_exports_it(initialized_repo: Path) -> 
                     else False
                 ),
                 "theme_exists": (
-                    Path(env["JRI_PI_PACKAGE"])
-                    .joinpath("themes", "modern-yellow.json")
-                    .is_file()
+                    Path(env["JRI_PI_PACKAGE"]).joinpath("theme.json").is_file()
                     if env is not None
                     else False
                 ),

@@ -11,7 +11,7 @@ REQUIRED_AGENT_RESOURCES = {
     "src/jri/core/agents/commit-guard.ts",
     "src/jri/core/agents/resources.ts",
     "src/jri/core/agents/resources.py",
-    "src/jri/core/agents/themes/modern-yellow.json",
+    "src/jri/core/agents/theme.json",
     "src/jri/core/agents/ralph/prompt.md",
     "src/jri/core/agents/interrogator/prompt.md",
     "src/jri/core/agents/explorer/prompt.md",

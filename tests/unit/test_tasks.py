@@ -422,6 +422,7 @@ def test_packaged_schemas_are_available() -> None:
     assert builtins.joinpath("commit-guard.ts").is_file()
     assert builtins.joinpath("resources.ts").is_file()
     assert builtins.joinpath("resource-manifest.json").is_file()
+    assert builtins.joinpath("theme.json").is_file()
     assert builtins.joinpath("explorer", "tools.ts").is_file()
     assert builtins.joinpath("interrogator", "validator", "extension.ts").is_file()
     assert builtins.joinpath("python-bridge.ts").is_file()
@@ -442,7 +443,7 @@ def test_agent_resource_manifest_resolves_current_package_resources() -> None:
         "prompts.interrogatorValidator": "interrogator/validator/prompt.md",
         "prompts.explorer": "explorer/prompt.md",
         "tools.pythonRunner": "tools/run-python-tool.ts",
-        "themes.modernYellow": "themes/modern-yellow.json",
+        "themes.modernYellow": "theme.json",
         "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
         "skills.reverseRalph": "ralph/skills/reverse-ralph/SKILL.md",
     }

@@ -7,7 +7,7 @@
   "prompts.interrogatorValidator": "interrogator/validator/prompt.md",
   "prompts.explorer": "explorer/prompt.md",
   "tools.pythonRunner": "tools/run-python-tool.ts",
-  "themes.modernYellow": "themes/modern-yellow.json",
+  "themes.modernYellow": "theme.json",
   "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
   "skills.reverseRalph": "ralph/skills/reverse-ralph/SKILL.md"
 }
