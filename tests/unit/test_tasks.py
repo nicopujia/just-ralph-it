@@ -177,8 +177,13 @@ def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
     assert '"--no-skills"' in source
     assert '"--no-prompt-templates"' in source
     assert '"--no-context-files"' in source
-    assert '"read,grep,find,ls,web-search"' in source
+    assert '"read,grep,find,ls,fetch-url,web-search"' in source
     assert "JRI_EXPLORER_RUNTIME" in source
+    assert 'name: "fetch-url"' in source
+    assert "validatePublicHttpUrl" in source
+    assert "WEB_FETCH_MAX_REDIRECTS = 5" in source
+    assert "WEB_FETCH_MAX_CHARS = 200_000" in source
+    assert "private or local hosts are not allowed" in source
     assert 'name: "web-search"' in source
     assert "https://html.duckduckgo.com/html/" in source
     assert "EXPLORER_MAX_TASKS = 8" in source
