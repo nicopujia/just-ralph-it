@@ -177,7 +177,11 @@ class GitRepo:
         return self._validated_default_branch("main")
 
     def ralph_branch(self, *, hint: str | None = None) -> str:
-        return f"ralph/{self.default_branch(hint=hint)}"
+        default = self.default_branch(hint=hint)
+        branch = f"ralph/{default}"
+        if self.has_local_branch("ralph") and not self.has_local_branch(branch):
+            return f"ralph-{default}"
+        return branch
 
     def ensure_default_branch(self, *, hint: str | None = None) -> None:
         default = self.default_branch(hint=hint)

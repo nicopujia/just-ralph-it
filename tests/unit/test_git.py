@@ -58,6 +58,16 @@ def test_ralph_branch_uses_detected_default_branch(tmp_path: Path) -> None:
     assert GitRepo(repo).ralph_branch() == "ralph/trunk"
 
 
+def test_ralph_branch_falls_back_when_legacy_ralph_branch_exists(
+    tmp_path: Path,
+) -> None:
+    repo = make_git_repo(tmp_path, branch="main")
+    git(repo, "checkout", "-b", "ralph")
+    git(repo, "checkout", "main")
+
+    assert GitRepo(repo).ralph_branch() == "ralph-main"
+
+
 def test_handle_wrong_branch_prompts_for_detected_default_branch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
