@@ -3,12 +3,14 @@ import pytest
 from jri.core.agents.presets import preset_choices, resolve_preset_models
 from jri.core.errors import JriError
 
+DEFAULT_MODEL = "cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.6"
+
 
 def test_preset_choices_are_stable() -> None:
     assert preset_choices() == ("default", "openai")
 
 
-def test_resolve_preset_models_default_is_noop() -> None:
+def test_resolve_preset_models_uses_default_start_bundle() -> None:
     resolved = resolve_preset_models(
         "default",
         mode="start",
@@ -21,10 +23,28 @@ def test_resolve_preset_models_default_is_noop() -> None:
     )
 
     assert resolved == {
-        "model": None,
-        "validator_model": None,
-        "general_model": None,
-        "explore_model": None,
+        "model": DEFAULT_MODEL,
+        "validator_model": DEFAULT_MODEL,
+        "general_model": DEFAULT_MODEL,
+        "explore_model": DEFAULT_MODEL,
+    }
+
+
+def test_resolve_preset_models_uses_default_chat_bundle() -> None:
+    resolved = resolve_preset_models(
+        "default",
+        mode="chat",
+        overrides={
+            "model": None,
+            "validator_model": None,
+            "explore_model": None,
+        },
+    )
+
+    assert resolved == {
+        "model": DEFAULT_MODEL,
+        "validator_model": DEFAULT_MODEL,
+        "explore_model": DEFAULT_MODEL,
     }
 
 
