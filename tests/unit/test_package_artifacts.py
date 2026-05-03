@@ -1,7 +1,7 @@
 import subprocess
 import tarfile
 import zipfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 REQUIRED_AGENT_RESOURCES = {
     "src/jri/core/agents/resource-manifest.json",
@@ -68,8 +68,10 @@ def test_built_wheel_and_sdist_include_agent_runtime_resources(
         required_paths={name.removeprefix("src/") for name in REQUIRED_AGENT_RESOURCES},
     )
     _assert_required_resources(
-        _sdist_names(sdist_paths[0]),
-        required_paths={f"jri-0.1.0/{name}" for name in REQUIRED_AGENT_RESOURCES},
+        sdist_names := _sdist_names(sdist_paths[0]),
+        required_paths={
+            f"{_sdist_root(sdist_names)}/{name}" for name in REQUIRED_AGENT_RESOURCES
+        },
     )
 
 
@@ -81,6 +83,14 @@ def _wheel_names(path: Path) -> set[str]:
 def _sdist_names(path: Path) -> set[str]:
     with tarfile.open(path) as sdist:
         return set(sdist.getnames())
+
+
+def _sdist_root(names: set[str]) -> str:
+    roots = {
+        PurePosixPath(name).parts[0] for name in names if PurePosixPath(name).parts
+    }
+    assert len(roots) == 1
+    return roots.pop()
 
 
 def _assert_required_resources(names: set[str], *, required_paths: set[str]) -> None:
