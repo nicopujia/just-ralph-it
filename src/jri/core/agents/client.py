@@ -7,12 +7,13 @@ import subprocess
 import sys
 import time
 from collections.abc import Callable
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import IO, Protocol, cast
 
 from ..errors import JriError
 from ..models import AgentRunResult, RalphResult, RalphResultPayload, Result
 from ..ui import DIM, _s, trim_tool_output
+from .resources import resource_relative_path
 
 
 def _tool_detail(tool_name: str, input_obj: object, *, cwd_hint: str = "") -> str:
@@ -372,8 +373,8 @@ def launch_chat(
     if session_id:
         command.extend(["--session", session_id])
     if env and (package_root := env.get("JRI_PI_PACKAGE")):
-        extension_path = Path(package_root) / "extensions" / "jri.ts"
-        prompt_path = Path(package_root) / "prompts" / "interrogator.md"
+        extension_path = _package_resource_path(package_root, "extensions.default")
+        prompt_path = _package_resource_path(package_root, "prompts.interrogator")
         command.extend(
             [
                 "--no-extensions",
@@ -447,6 +448,11 @@ def _reject_chat_capability_args(extra_args: list[str]) -> None:
             raise JriError(
                 f"`jri chat` manages Pi capabilities; unsupported arg: {flag}"
             )
+
+
+def _package_resource_path(package_root: str, resource_id: str) -> Path:
+    relative_path = PurePosixPath(resource_relative_path(resource_id))
+    return Path(package_root).joinpath(*relative_path.parts)
 
 
 _RUN_STALL_TIMEOUT = 300.0
@@ -557,12 +563,14 @@ class PiRuntime:
             session_dir.mkdir(parents=True, exist_ok=True)
             command.extend(["--session-dir", str(session_dir)])
         if package_root := self._env.get("JRI_PI_PACKAGE"):
-            package_path = Path(package_root)
-            extension_path = package_path / "extensions" / "jri.ts"
-            prompt_path = package_path / "prompts" / "ralph.md"
+            extension_path = _package_resource_path(package_root, "extensions.default")
+            prompt_path = _package_resource_path(package_root, "prompts.ralph")
             command.extend(["--extension", str(extension_path)])
             command.extend(["--append-system-prompt", str(prompt_path)])
-            for skill_path in sorted((package_path / "skills").iterdir()):
+            skill_root = _package_resource_path(
+                package_root, "skills.hostedProjects"
+            ).parent.parent
+            for skill_path in sorted(skill_root.iterdir()):
                 if skill_path.is_dir():
                     command.extend(["--skill", str(skill_path)])
         try:

@@ -1,7 +1,12 @@
 from importlib.resources import files
 from pathlib import Path
 
-COPYABLE_DIRECTORIES = ("prompts", "skills", "extensions", "tools")
+COPYABLE_DIRECTORIES = ("_shared", "ralph", "interrogator", "explorer")
+COPYABLE_FILES = (
+    "extension.ts",
+    "manifest.json",
+    "theme.json",
+)
 
 
 def iter_directory_assets(directory: str) -> tuple[str, ...]:
@@ -22,4 +27,4 @@ def load_asset_text(name: str | Path) -> str:
 
 
 def _resource_path(name: str | Path):
-    return files("jri.core.agents").joinpath(*Path(name).parts)
+    return files("jri.core.agents.bundle").joinpath(*Path(name).parts)

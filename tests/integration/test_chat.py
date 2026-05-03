@@ -20,6 +20,7 @@ class FakeAgentRuntimeForChat:
         return list(self._sessions)
 
     def run_ralph_task(self, **kwargs):  # pragma: no cover - not used here
+        del kwargs
         raise AssertionError("run_ralph_task should not be called in chat tests")
 
     def export_session(self, session_id: str, destination: Path) -> None:
@@ -88,48 +89,51 @@ def test_chat_reuses_existing_session_and_exports_it(initialized_repo: Path) -> 
                 ),
                 "interrogator_exists": (
                     Path(env["JRI_PI_PACKAGE"])
-                    .joinpath("prompts", "interrogator.md")
+                    .joinpath("interrogator", "prompt.md")
                     .is_file()
                     if env is not None
                     else False
                 ),
                 "validator_exists": (
                     Path(env["JRI_PI_PACKAGE"])
-                    .joinpath("prompts", "interrogator-validator.md")
+                    .joinpath("interrogator", "validator", "prompt.md")
                     .is_file()
                     if env is not None
                     else False
                 ),
                 "explorer_exists": (
                     Path(env["JRI_PI_PACKAGE"])
-                    .joinpath("prompts", "explorer.md")
+                    .joinpath("explorer", "prompt.md")
                     .is_file()
                     if env is not None
                     else False
                 ),
                 "ralph_exists": (
-                    Path(env["JRI_PI_PACKAGE"]).joinpath("prompts", "ralph.md").exists()
+                    Path(env["JRI_PI_PACKAGE"]).joinpath("ralph", "prompt.md").exists()
                     if env is not None
                     else True
                 ),
                 "skill_exists": (
                     Path(env["JRI_PI_PACKAGE"])
-                    .joinpath("skills", "reverse-ralph", "SKILL.md")
+                    .joinpath("ralph", "skills", "reverse-ralph", "SKILL.md")
                     .is_file()
                     if env is not None
                     else False
                 ),
                 "extension_exists": (
-                    Path(env["JRI_PI_PACKAGE"])
-                    .joinpath("extensions", "jri.ts")
-                    .is_file()
+                    Path(env["JRI_PI_PACKAGE"]).joinpath("extension.ts").is_file()
                     if env is not None
                     else False
                 ),
                 "tool_runner_exists": (
                     Path(env["JRI_PI_PACKAGE"])
-                    .joinpath("tools", "_run-python-tool.mjs")
+                    .joinpath("_shared", "tools", "runner.ts")
                     .is_file()
+                    if env is not None
+                    else False
+                ),
+                "theme_exists": (
+                    Path(env["JRI_PI_PACKAGE"]).joinpath("theme.json").is_file()
                     if env is not None
                     else False
                 ),
@@ -164,6 +168,7 @@ def test_chat_reuses_existing_session_and_exports_it(initialized_repo: Path) -> 
     assert call["skill_exists"] is True
     assert call["extension_exists"] is True
     assert call["tool_runner_exists"] is True
+    assert call["theme_exists"] is True
     assert not package_root.is_relative_to(repo)
     assert client.export_calls == [
         (

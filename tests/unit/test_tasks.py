@@ -9,7 +9,12 @@ from typing import Literal, cast
 
 import pytest
 
-from jri.core.agents.tools import _run_contrast_check, _run_upsert_task
+from jri.core.agents.bundle._shared.tools import run_contrast_check, run_upsert_task
+from jri.core.agents.resources import (
+    resource_manifest,
+    resource_path,
+    resource_relative_path,
+)
 from jri.core.git import GitRepo
 from jri.core.models import Task, TaskMetadata
 from jri.core.tasks import (
@@ -24,10 +29,64 @@ from jri.core.tasks import (
 from tests.conftest import run_cli
 from tests.helpers import git, write_task
 
+PI_REQUIRED_THEME_COLOR_TOKENS = (
+    "accent",
+    "border",
+    "borderAccent",
+    "borderMuted",
+    "success",
+    "error",
+    "warning",
+    "muted",
+    "dim",
+    "text",
+    "thinkingText",
+    "selectedBg",
+    "userMessageBg",
+    "userMessageText",
+    "customMessageBg",
+    "customMessageText",
+    "customMessageLabel",
+    "toolPendingBg",
+    "toolSuccessBg",
+    "toolErrorBg",
+    "toolTitle",
+    "toolOutput",
+    "mdHeading",
+    "mdLink",
+    "mdLinkUrl",
+    "mdCode",
+    "mdCodeBlock",
+    "mdCodeBlockBorder",
+    "mdQuote",
+    "mdQuoteBorder",
+    "mdHr",
+    "mdListBullet",
+    "toolDiffAdded",
+    "toolDiffRemoved",
+    "toolDiffContext",
+    "syntaxComment",
+    "syntaxKeyword",
+    "syntaxFunction",
+    "syntaxVariable",
+    "syntaxString",
+    "syntaxNumber",
+    "syntaxType",
+    "syntaxOperator",
+    "syntaxPunctuation",
+    "thinkingOff",
+    "thinkingMinimal",
+    "thinkingLow",
+    "thinkingMedium",
+    "thinkingHigh",
+    "thinkingXhigh",
+    "bashMode",
+)
+
 
 def run_agent_tool(cwd: Path, payload: dict[str, object], tool_name: str) -> str:
     result = subprocess.run(
-        [sys.executable, "-m", "jri.core.agents.tools", tool_name],
+        [sys.executable, "-m", "jri.core.agents.bundle._shared.tools", tool_name],
         cwd=cwd,
         input=json.dumps(payload),
         check=True,
@@ -37,9 +96,17 @@ def run_agent_tool(cwd: Path, payload: dict[str, object], tool_name: str) -> str
     return result.stdout
 
 
+def read_agent_sources(*names: str) -> str:
+    agents = files("jri.core.agents.bundle")
+    return "\n".join(agents.joinpath(name).read_text("utf-8") for name in names)
+
+
 def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
-    source = (
-        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
+    source = read_agent_sources(
+        "extension.ts",
+        "_shared/commits.ts",
+        "interrogator/tools.ts",
+        "ralph/tools.ts",
     )
 
     assert 'pi.on("tool_call"' in source
@@ -51,20 +118,18 @@ def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
 
 
 def test_pi_extension_does_not_register_validator_approval_tool() -> None:
-    source = (
-        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
+    source = read_agent_sources(
+        "extension.ts", "interrogator/tools.ts", "ralph/tools.ts"
     )
 
     assert 'registerPythonTool(\n    pi,\n    "approve-draft-promotion"' not in source
 
 
 def test_pi_extension_launches_validator_runtime_with_approval_extension() -> None:
-    source = (
-        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
-    )
+    source = read_agent_sources("extension.ts", "interrogator/tools.ts")
 
     assert 'name: "interrogator-validator"' in source
-    assert '"jri-validator.ts"' in source
+    assert 'resourcePath("extensions.validator", packageRoot)' in source
     assert "approve-draft-promotion" in source
     assert 'process.env.JRI_CHAT_RUNTIME === "1"' in source
     assert "SLUG_RE.test(slug)" in source
@@ -73,12 +138,12 @@ def test_pi_extension_launches_validator_runtime_with_approval_extension() -> No
 
 
 def test_pi_extension_launches_ralph_validator_runtime() -> None:
-    source = (
-        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
+    source = read_agent_sources(
+        "extension.ts", "ralph/validator/tools.ts", "ralph/tools.ts"
     )
 
     assert 'name: "ralph-validator"' in source
-    assert '"prompts", "ralph-validator.md"' in source
+    assert 'resourcePath("prompts.ralphValidator", packageRoot)' in source
     assert 'configuredModel(packageRoot, "ralph-validator")' in source
     assert '"read,bash,grep,find,ls,list-tasks,read-tasks,check-contrast"' in source
     assert "CHILD_PI_MAX_BUFFER" in source
@@ -87,8 +152,8 @@ def test_pi_extension_launches_ralph_validator_runtime() -> None:
 
 
 def test_pi_extension_splits_chat_and_ralph_tool_registration() -> None:
-    source = (
-        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
+    source = read_agent_sources(
+        "extension.ts", "interrogator/tools.ts", "ralph/tools.ts"
     )
 
     assert "function registerChatTools" in source
@@ -101,12 +166,10 @@ def test_pi_extension_splits_chat_and_ralph_tool_registration() -> None:
 
 
 def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
-    source = (
-        files("jri.core.agents").joinpath("extensions", "jri.ts").read_text("utf-8")
-    )
+    source = read_agent_sources("extension.ts", "explorer/tools.ts")
 
     assert 'name: "explore"' in source
-    assert '"prompts", "explorer.md"' in source
+    assert 'resourcePath("prompts.explorer", packageRoot)' in source
     assert '"--no-session"' in source
     assert '"--no-extensions"' in source
     assert '"--no-skills"' in source
@@ -122,8 +185,8 @@ def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
 
 def test_validator_extension_registers_approval_tool_only() -> None:
     source = (
-        files("jri.core.agents")
-        .joinpath("extensions", "jri-validator.ts")
+        files("jri.core.agents.bundle")
+        .joinpath("interrogator", "validator", "extension.ts")
         .read_text("utf-8")
     )
 
@@ -144,27 +207,32 @@ def inspect_python_tool_spawn_env(
     *,
     env: dict[str, str],
 ) -> dict[str, object]:
-    node = shutil.which("node")
-    assert node is not None, "node is required to inspect Python tool env"
+    bun = shutil.which("bun")
+    assert bun is not None, "bun is required to inspect TypeScript Python tool env"
 
     harness = tmp_path / "python_tool_env_harness"
     harness.mkdir(parents=True, exist_ok=True)
     capture_path = harness / "capture.json"
     source = (
-        files("jri.core.agents")
-        .joinpath("tools", "_run-python-tool.mjs")
+        files("jri.core.agents.bundle")
+        .joinpath("_shared", "tools", "runner.ts")
         .read_text(encoding="utf-8")
         .replace(
-            'import { spawnSync } from "child_process";',
-            'import { spawnSync } from "./child_process.mjs";',
+            'import { spawnSync } from "node:child_process";',
+            'import { spawnSync } from "./child_process.ts";',
             1,
         )
     )
     (harness / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
-    (harness / "_run-python-tool.mjs").write_text(source, encoding="utf-8")
-    (harness / "child_process.mjs").write_text(
+    (harness / "runner.ts").write_text(source, encoding="utf-8")
+    (harness / "child_process.ts").write_text(
         "import { writeFileSync } from 'node:fs';\n"
-        "export function spawnSync(command, args, options) {\n"
+        "type SpawnOptions = { env: Record<string, string> };\n"
+        "export function spawnSync(\n"
+        "  command: string,\n"
+        "  args: string[],\n"
+        "  options: SpawnOptions,\n"
+        ") {\n"
         "  writeFileSync(\n"
         "    process.env.JRI_CAPTURE_PATH,\n"
         "    JSON.stringify({ command, args, env: options.env }),\n"
@@ -175,11 +243,11 @@ def inspect_python_tool_spawn_env(
         encoding="utf-8",
     )
     script = (
-        "import { runPythonTool } from './_run-python-tool.mjs';\n"
+        "import { runPythonTool } from './runner.ts';\n"
         "runPythonTool('ralph-result', { result: 'completed' });\n"
     )
     subprocess.run(
-        [node, "--input-type=module", "--eval", script],
+        [bun, "--eval", script],
         cwd=harness,
         check=True,
         capture_output=True,
@@ -342,17 +410,167 @@ def test_packaged_schemas_are_available() -> None:
     assert files("jri.core.schemas").joinpath("state.json").is_file()
     scaffold = files("jri.core.template")
     assert scaffold.joinpath("learnings.md").is_file()
-    builtins = files("jri.core.agents")
-    assert builtins.joinpath("prompts", "interrogator.md").is_file()
-    assert builtins.joinpath("prompts", "interrogator-validator.md").is_file()
-    assert builtins.joinpath("prompts", "explorer.md").is_file()
-    assert builtins.joinpath("prompts", "ralph.md").is_file()
-    assert builtins.joinpath("prompts", "ralph-validator.md").is_file()
-    assert builtins.joinpath("extensions", "jri.ts").is_file()
-    assert builtins.joinpath("extensions", "jri-validator.ts").is_file()
-    assert builtins.joinpath("tools", "__init__.py").is_file()
-    assert builtins.joinpath("tools", "__main__.py").is_file()
-    assert builtins.joinpath("tools", "_run-python-tool.mjs").is_file()
+    builtins = files("jri.core.agents.bundle")
+    assert builtins.joinpath("interrogator", "prompt.md").is_file()
+    assert builtins.joinpath("interrogator", "validator", "prompt.md").is_file()
+    assert builtins.joinpath("explorer", "prompt.md").is_file()
+    assert builtins.joinpath("ralph", "prompt.md").is_file()
+    assert builtins.joinpath("ralph", "validator", "prompt.md").is_file()
+    assert builtins.joinpath("extension.ts").is_file()
+    assert builtins.joinpath("interrogator", "tools.ts").is_file()
+    assert builtins.joinpath("_shared", "registry.ts").is_file()
+    assert builtins.joinpath("_shared", "commits.ts").is_file()
+    assert builtins.joinpath("_shared", "assets.ts").is_file()
+    assert builtins.joinpath("manifest.json").is_file()
+    assert builtins.joinpath("theme.json").is_file()
+    assert builtins.joinpath("explorer", "tools.ts").is_file()
+    assert builtins.joinpath("interrogator", "validator", "extension.ts").is_file()
+    assert builtins.joinpath("_shared", "subagents.ts").is_file()
+    assert builtins.joinpath("ralph", "tools.ts").is_file()
+    assert builtins.joinpath("ralph", "validator", "tools.ts").is_file()
+    assert builtins.joinpath("_shared", "tools", "__init__.py").is_file()
+    assert builtins.joinpath("_shared", "tools", "__main__.py").is_file()
+    assert builtins.joinpath("_shared", "tools", "runner.ts").is_file()
+
+
+def test_agent_resource_manifest_resolves_current_package_resources() -> None:
+    expected = {
+        "extensions.default": "extension.ts",
+        "extensions.validator": "interrogator/validator/extension.ts",
+        "prompts.ralph": "ralph/prompt.md",
+        "prompts.interrogator": "interrogator/prompt.md",
+        "prompts.ralphValidator": "ralph/validator/prompt.md",
+        "prompts.interrogatorValidator": "interrogator/validator/prompt.md",
+        "prompts.explorer": "explorer/prompt.md",
+        "tools.pythonRunner": "_shared/tools/runner.ts",
+        "themes.modernYellow": "theme.json",
+        "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
+        "skills.reverseRalph": "ralph/skills/reverse-ralph/SKILL.md",
+    }
+
+    assert resource_manifest() == expected
+    for resource_id, relative_path in expected.items():
+        assert resource_relative_path(resource_id) == relative_path
+        resolved = resource_path(resource_id)
+        assert str(resolved).endswith(relative_path)
+        assert resolved.is_file()
+
+
+def test_modern_yellow_theme_matches_pi_schema_tokens() -> None:
+    theme = json.loads(resource_path("themes.modernYellow").read_text(encoding="utf-8"))
+
+    assert theme["$schema"] == (
+        "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/"
+        "coding-agent/src/modes/interactive/theme/theme-schema.json"
+    )
+    assert theme["name"] == "modern-yellow"
+    assert theme["vars"]["primary"].lower() == "#f6c944"
+    assert set(theme["colors"]) == set(PI_REQUIRED_THEME_COLOR_TOKENS)
+    assert list(theme["colors"]) == list(PI_REQUIRED_THEME_COLOR_TOKENS)
+
+
+def test_agent_resource_manifest_rejects_invalid_ids() -> None:
+    with pytest.raises(ValueError, match="unknown agent resource ID: missing.resource"):
+        resource_relative_path("missing.resource")
+
+
+def test_agent_resource_manifest_rejects_unsafe_paths() -> None:
+    from jri.core.agents.resources import _validate_manifest_path
+
+    with pytest.raises(ValueError, match="relative"):
+        _validate_manifest_path("bad.absolute", "/etc/passwd")
+    with pytest.raises(ValueError, match="traverse"):
+        _validate_manifest_path("bad.parent", "../outside")
+    with pytest.raises(ValueError, match="POSIX"):
+        _validate_manifest_path("bad.separator", "extensions\\bad.ts")
+
+
+def test_typescript_agent_resource_manifest_agrees_with_python() -> None:
+    bun = shutil.which("bun")
+    assert bun is not None, "bun is required to check the TypeScript resolver"
+
+    script = """
+import {
+  resourceManifest,
+  resourcePath,
+  resourceRelativePath,
+} from './src/jri/core/agents/bundle/_shared/assets.ts';
+
+let invalidIdMessage = '';
+try {
+  resourceRelativePath('missing.resource');
+} catch (error) {
+  invalidIdMessage = error instanceof Error ? error.message : String(error);
+}
+
+console.log(JSON.stringify({
+  manifest: resourceManifest(),
+  extensionRelative: resourceRelativePath('extensions.default'),
+  extensionPath: resourcePath('extensions.default'),
+  invalidIdMessage,
+}));
+"""
+
+    result = subprocess.run(
+        [bun, "--eval", script],
+        cwd=Path(__file__).resolve().parents[2],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(result.stdout)
+
+    assert payload["manifest"] == resource_manifest()
+    assert payload["extensionRelative"] == "extension.ts"
+    assert payload["extensionPath"].endswith("extension.ts")
+    assert payload["invalidIdMessage"] == "unknown agent resource ID: missing.resource"
+
+
+def test_typescript_agent_resource_manifest_rejects_unsafe_paths(
+    tmp_path: Path,
+) -> None:
+    bun = shutil.which("bun")
+    assert bun is not None, "bun is required to check the TypeScript resolver"
+
+    source_dir = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "jri"
+        / "core"
+        / "agents"
+        / "bundle"
+        / "_shared"
+    )
+    harness = tmp_path / "agents"
+    shared = harness / "_shared"
+    shared.mkdir(parents=True)
+    shutil.copyfile(source_dir / "assets.ts", shared / "assets.ts")
+    (harness / "manifest.json").write_text(
+        json.dumps({"bad.parent": "../outside"}) + "\n",
+        encoding="utf-8",
+    )
+
+    script = """
+import { resourceManifest } from './_shared/assets.ts';
+
+try {
+  resourceManifest();
+} catch (error) {
+  console.log(error instanceof Error ? error.message : String(error));
+}
+"""
+
+    result = subprocess.run(
+        [bun, "--eval", script],
+        cwd=harness,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stdout.strip() == (
+        "agent resource 'bad.parent' path must not traverse parents"
+    )
 
 
 def test_run_python_tool_uses_forwarded_pythonpath(tmp_path: Path) -> None:
@@ -367,7 +585,11 @@ def test_run_python_tool_uses_forwarded_pythonpath(tmp_path: Path) -> None:
     )
 
     assert captured["command"] == sys.executable
-    assert captured["args"] == ["-m", "jri.core.agents.tools", "ralph-result"]
+    assert captured["args"] == [
+        "-m",
+        "jri.core.agents.bundle._shared.tools",
+        "ralph-result",
+    ]
     spawned_env = captured["env"]
     assert isinstance(spawned_env, dict)
     assert cast(dict[str, str], spawned_env)["PYTHONPATH"] == (
@@ -594,7 +816,7 @@ def test_run_upsert_task_accepts_75_char_titles(
     monkeypatch.chdir(repo)
 
     title = "a" * 75
-    result = _run_upsert_task(
+    result = run_upsert_task(
         {
             "title": title,
             "body": "Draft the scope.\n",
@@ -611,7 +833,7 @@ def test_run_upsert_task_accepts_75_char_titles(
 
 def test_run_upsert_task_rejects_titles_over_75_chars() -> None:
     with pytest.raises(ValueError, match="75 characters or fewer"):
-        _run_upsert_task(
+        run_upsert_task(
             {
                 "title": "a" * 76,
                 "body": "Draft the scope.\n",
@@ -662,7 +884,7 @@ def test_approve_draft_promotion_tool_records_approval(tmp_path: Path) -> None:
 
 def test_contrast_check_matches_webaim_thresholds() -> None:
     result = json.loads(
-        _run_contrast_check(
+        run_contrast_check(
             {"foreground": "777777", "background": "FFFFFF", "standard": "AA"}
         )
     )
@@ -677,7 +899,7 @@ def test_contrast_check_matches_webaim_thresholds() -> None:
 
 def test_contrast_check_supports_foreground_alpha() -> None:
     result = json.loads(
-        _run_contrast_check(
+        run_contrast_check(
             {
                 "foreground": "0000FF80",
                 "background": "FFFFFF",
@@ -712,14 +934,14 @@ def test_contrast_check_tool_executes_via_agent_tool_module(tmp_path: Path) -> N
 
 def test_contrast_check_rejects_invalid_hex() -> None:
     with pytest.raises(ValueError, match="`foreground` must be a valid"):
-        _run_contrast_check(
+        run_contrast_check(
             {"foreground": "blue", "background": "FFFFFF", "standard": "AA"}
         )
 
 
 def test_contrast_check_rejects_invalid_standard() -> None:
     with pytest.raises(ValueError, match="`standard` must be one of"):
-        _run_contrast_check(
+        run_contrast_check(
             {
                 "foreground": "000000",
                 "background": "FFFFFF",
