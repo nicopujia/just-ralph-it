@@ -166,7 +166,7 @@ def test_package_manifest_uses_resource_manifest_paths(
         "extensions.default": "extension.ts",
         "skills.hostedProjects": "skills/hosted-projects/SKILL.md",
         "prompts.interrogator": "prompts/interrogator.md",
-        "tools.pythonRunner": "tools/_run-python-tool.mjs",
+        "tools.pythonRunner": "tools/run-python-tool.ts",
     }
     resolved_ids: list[str] = []
 

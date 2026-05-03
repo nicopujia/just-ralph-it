@@ -153,27 +153,32 @@ def inspect_python_tool_spawn_env(
     *,
     env: dict[str, str],
 ) -> dict[str, object]:
-    node = shutil.which("node")
-    assert node is not None, "node is required to inspect Python tool env"
+    bun = shutil.which("bun")
+    assert bun is not None, "bun is required to inspect TypeScript Python tool env"
 
     harness = tmp_path / "python_tool_env_harness"
     harness.mkdir(parents=True, exist_ok=True)
     capture_path = harness / "capture.json"
     source = (
         files("jri.core.agents")
-        .joinpath("tools", "_run-python-tool.mjs")
+        .joinpath("tools", "run-python-tool.ts")
         .read_text(encoding="utf-8")
         .replace(
-            'import { spawnSync } from "child_process";',
-            'import { spawnSync } from "./child_process.mjs";',
+            'import { spawnSync } from "node:child_process";',
+            'import { spawnSync } from "./child_process.ts";',
             1,
         )
     )
     (harness / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
-    (harness / "_run-python-tool.mjs").write_text(source, encoding="utf-8")
-    (harness / "child_process.mjs").write_text(
+    (harness / "run-python-tool.ts").write_text(source, encoding="utf-8")
+    (harness / "child_process.ts").write_text(
         "import { writeFileSync } from 'node:fs';\n"
-        "export function spawnSync(command, args, options) {\n"
+        "type SpawnOptions = { env: Record<string, string> };\n"
+        "export function spawnSync(\n"
+        "  command: string,\n"
+        "  args: string[],\n"
+        "  options: SpawnOptions,\n"
+        ") {\n"
         "  writeFileSync(\n"
         "    process.env.JRI_CAPTURE_PATH,\n"
         "    JSON.stringify({ command, args, env: options.env }),\n"
@@ -184,11 +189,11 @@ def inspect_python_tool_spawn_env(
         encoding="utf-8",
     )
     script = (
-        "import { runPythonTool } from './_run-python-tool.mjs';\n"
+        "import { runPythonTool } from './run-python-tool.ts';\n"
         "runPythonTool('ralph-result', { result: 'completed' });\n"
     )
     subprocess.run(
-        [node, "--input-type=module", "--eval", script],
+        [bun, "--eval", script],
         cwd=harness,
         check=True,
         capture_output=True,
@@ -368,7 +373,7 @@ def test_packaged_schemas_are_available() -> None:
     assert builtins.joinpath("extensions", "validators.ts").is_file()
     assert builtins.joinpath("tools", "__init__.py").is_file()
     assert builtins.joinpath("tools", "__main__.py").is_file()
-    assert builtins.joinpath("tools", "_run-python-tool.mjs").is_file()
+    assert builtins.joinpath("tools", "run-python-tool.ts").is_file()
 
 
 def test_agent_resource_manifest_resolves_current_package_resources() -> None:
@@ -380,7 +385,7 @@ def test_agent_resource_manifest_resolves_current_package_resources() -> None:
         "prompts.ralphValidator": "prompts/ralph-validator.md",
         "prompts.interrogatorValidator": "prompts/interrogator-validator.md",
         "prompts.explorer": "prompts/explorer.md",
-        "tools.pythonRunner": "tools/_run-python-tool.mjs",
+        "tools.pythonRunner": "tools/run-python-tool.ts",
         "themes.modernYellow": "themes/modern-yellow.json",
         "skills.hostedProjects": "skills/hosted-projects/SKILL.md",
         "skills.reverseRalph": "skills/reverse-ralph/SKILL.md",
