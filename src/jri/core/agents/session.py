@@ -143,7 +143,7 @@ def export_session_if_available(
 def _should_copy_agent_asset(
     directory: str, name: Path, *, included_agents: set[str] | None
 ) -> bool:
-    if included_agents is None or directory in {"tools", "themes"}:
+    if included_agents is None or directory == "tools":
         return True
     if directory in included_agents:
         return True
