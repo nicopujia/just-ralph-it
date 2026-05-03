@@ -53,32 +53,6 @@ def _normalize_hex_color(name: str, value: Any, *, allow_alpha: bool) -> str:
     return normalized.upper()
 
 
-def _srgb_channel_to_linear(channel: float) -> float:
-    normalized = channel / 255.0
-    if normalized <= 0.03928:
-        return normalized / 12.92
-    return ((normalized + 0.055) / 1.055) ** 2.4
-
-
-def _relative_luminance(red: float, green: float, blue: float) -> float:
-    return (
-        0.2126 * _srgb_channel_to_linear(red)
-        + 0.7152 * _srgb_channel_to_linear(green)
-        + 0.0722 * _srgb_channel_to_linear(blue)
-    )
-
-
-def _hex_to_rgba(color: str) -> tuple[int, int, int, int | None]:
-    if len(color) == 6:
-        return int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16), None
-    return (
-        int(color[0:2], 16),
-        int(color[2:4], 16),
-        int(color[4:6], 16),
-        int(color[6:8], 16),
-    )
-
-
 def _assert_contrast_standard(value: Any) -> tuple[str, float]:
     thresholds = {
         "AA": 4.5,
@@ -92,3 +66,29 @@ def _assert_contrast_standard(value: Any) -> tuple[str, float]:
             "`standard` must be one of: AA, AALarge, AAA, AAALarge, GraphicsAA"
         )
     return value, thresholds[value]
+
+
+def _hex_to_rgba(color: str) -> tuple[int, int, int, int | None]:
+    if len(color) == 6:
+        return int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16), None
+    return (
+        int(color[0:2], 16),
+        int(color[2:4], 16),
+        int(color[4:6], 16),
+        int(color[6:8], 16),
+    )
+
+
+def _relative_luminance(red: float, green: float, blue: float) -> float:
+    return (
+        0.2126 * _srgb_channel_to_linear(red)
+        + 0.7152 * _srgb_channel_to_linear(green)
+        + 0.0722 * _srgb_channel_to_linear(blue)
+    )
+
+
+def _srgb_channel_to_linear(channel: float) -> float:
+    normalized = channel / 255.0
+    if normalized <= 0.03928:
+        return normalized / 12.92
+    return ((normalized + 0.055) / 1.055) ** 2.4
