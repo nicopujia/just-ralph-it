@@ -143,7 +143,7 @@ def export_session_if_available(
 def _should_copy_agent_asset(
     directory: str, name: Path, *, included_agents: set[str] | None
 ) -> bool:
-    if included_agents is None or directory == "tools":
+    if included_agents is None or directory in {"tools", "themes"}:
         return True
     if directory in included_agents:
         return True
@@ -164,6 +164,7 @@ def _write_package_manifest(
             "skills": [_manifest_skill_root_reference("skills.hostedProjects")],
             "prompts": [_manifest_top_level_reference("prompts.interrogator")],
             "tools": [_manifest_top_level_reference("tools.pythonRunner")],
+            "themes": [_manifest_top_level_reference("themes.modernYellow")],
         },
         "jri": {
             "models": {name: model for name, model in overrides.items() if model},

@@ -20,6 +20,7 @@ class FakeAgentRuntimeForChat:
         return list(self._sessions)
 
     def run_ralph_task(self, **kwargs):  # pragma: no cover - not used here
+        del kwargs
         raise AssertionError("run_ralph_task should not be called in chat tests")
 
     def export_session(self, session_id: str, destination: Path) -> None:
@@ -131,6 +132,13 @@ def test_chat_reuses_existing_session_and_exports_it(initialized_repo: Path) -> 
                     if env is not None
                     else False
                 ),
+                "theme_exists": (
+                    Path(env["JRI_PI_PACKAGE"])
+                    .joinpath("themes", "modern-yellow.json")
+                    .is_file()
+                    if env is not None
+                    else False
+                ),
             }
         )
         return 0
@@ -162,6 +170,7 @@ def test_chat_reuses_existing_session_and_exports_it(initialized_repo: Path) -> 
     assert call["skill_exists"] is True
     assert call["extension_exists"] is True
     assert call["tool_runner_exists"] is True
+    assert call["theme_exists"] is True
     assert not package_root.is_relative_to(repo)
     assert client.export_calls == [
         (
