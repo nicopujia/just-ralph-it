@@ -200,6 +200,8 @@ def test_validator_extension_registers_approval_tool_only() -> None:
     assert (
         'runPythonTool("approve-draft-promotion", { slugs: requestedSlugs })' in source
     )
+    assert "normalizedFinalAssistantText(event.messages)" in source
+    assert "text.match" in source
     tools_source = (
         files("jri.core.agents.bundle")
         .joinpath("interrogator", "tools.ts")

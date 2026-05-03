@@ -48,7 +48,7 @@ export default function (pi: ExtensionAPI) {
       approvalRecorded ||
       !promotionCheckPassed ||
       requestedSlugs === null ||
-      finalAssistantText(event.messages) !== "APPROVED"
+      normalizedFinalAssistantText(event.messages) !== "APPROVED"
     ) {
       return;
     }
@@ -96,6 +96,12 @@ function finalAssistantText(messages: unknown): string {
       .trim();
   }
   return "";
+}
+
+function normalizedFinalAssistantText(messages: unknown): string {
+  const text = finalAssistantText(messages);
+  const match = text.match(/^```(?:md|markdown)?\s*\n([\s\S]*?)\n```$/i);
+  return (match ? match[1] : text).trim();
 }
 
 function text(content: string) {
