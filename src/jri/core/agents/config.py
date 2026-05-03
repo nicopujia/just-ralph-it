@@ -1,7 +1,7 @@
 from importlib.resources import files
 from pathlib import Path
 
-COPYABLE_DIRECTORIES = ("tools", "ralph", "interrogator", "explorer")
+COPYABLE_DIRECTORIES = ("tools", "themes", "ralph", "interrogator", "explorer")
 COPYABLE_FILES = (
     "extension.ts",
     "common.ts",

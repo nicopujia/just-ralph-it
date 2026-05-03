@@ -29,6 +29,60 @@ from jri.core.tasks import (
 from tests.conftest import run_cli
 from tests.helpers import git, write_task
 
+PI_REQUIRED_THEME_COLOR_TOKENS = (
+    "accent",
+    "border",
+    "borderAccent",
+    "borderMuted",
+    "success",
+    "error",
+    "warning",
+    "muted",
+    "dim",
+    "text",
+    "thinkingText",
+    "selectedBg",
+    "userMessageBg",
+    "userMessageText",
+    "customMessageBg",
+    "customMessageText",
+    "customMessageLabel",
+    "toolPendingBg",
+    "toolSuccessBg",
+    "toolErrorBg",
+    "toolTitle",
+    "toolOutput",
+    "mdHeading",
+    "mdLink",
+    "mdLinkUrl",
+    "mdCode",
+    "mdCodeBlock",
+    "mdCodeBlockBorder",
+    "mdQuote",
+    "mdQuoteBorder",
+    "mdHr",
+    "mdListBullet",
+    "toolDiffAdded",
+    "toolDiffRemoved",
+    "toolDiffContext",
+    "syntaxComment",
+    "syntaxKeyword",
+    "syntaxFunction",
+    "syntaxVariable",
+    "syntaxString",
+    "syntaxNumber",
+    "syntaxType",
+    "syntaxOperator",
+    "syntaxPunctuation",
+    "thinkingOff",
+    "thinkingMinimal",
+    "thinkingLow",
+    "thinkingMedium",
+    "thinkingHigh",
+    "thinkingXhigh",
+    "bashMode",
+)
+
 
 def run_agent_tool(cwd: Path, payload: dict[str, object], tool_name: str) -> str:
     result = subprocess.run(
@@ -398,8 +452,20 @@ def test_agent_resource_manifest_resolves_current_package_resources() -> None:
         assert resource_relative_path(resource_id) == relative_path
         resolved = resource_path(resource_id)
         assert str(resolved).endswith(relative_path)
-        if resource_id != "themes.modernYellow":
-            assert resolved.is_file()
+        assert resolved.is_file()
+
+
+def test_modern_yellow_theme_matches_pi_schema_tokens() -> None:
+    theme = json.loads(resource_path("themes.modernYellow").read_text(encoding="utf-8"))
+
+    assert theme["$schema"] == (
+        "https://raw.githubusercontent.com/badlogic/pi-mono/main/packages/"
+        "coding-agent/src/modes/interactive/theme/theme-schema.json"
+    )
+    assert theme["name"] == "modern-yellow"
+    assert theme["vars"]["primary"].lower() == "#f6c944"
+    assert set(theme["colors"]) == set(PI_REQUIRED_THEME_COLOR_TOKENS)
+    assert list(theme["colors"]) == list(PI_REQUIRED_THEME_COLOR_TOKENS)
 
 
 def test_agent_resource_manifest_rejects_invalid_ids() -> None:

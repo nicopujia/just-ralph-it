@@ -167,6 +167,7 @@ def test_package_manifest_uses_resource_manifest_paths(
         "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
         "prompts.interrogator": "interrogator/prompt.md",
         "tools.pythonRunner": "tools/run-python-tool.ts",
+        "themes.modernYellow": "themes/modern-yellow.json",
     }
     resolved_ids: list[str] = []
 
@@ -187,12 +188,14 @@ def test_package_manifest_uses_resource_manifest_paths(
         "skills": ["./ralph/skills"],
         "prompts": ["./interrogator"],
         "tools": ["./tools"],
+        "themes": ["./themes"],
     }
     assert resolved_ids == [
         "extensions.default",
         "skills.hostedProjects",
         "prompts.interrogator",
         "tools.pythonRunner",
+        "themes.modernYellow",
     ]
     assert package["jri"]["models"] == {"ralph": "test-model"}
 
