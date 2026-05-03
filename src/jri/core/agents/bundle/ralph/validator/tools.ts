@@ -1,5 +1,4 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { spawnSync } from "node:child_process";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
@@ -10,6 +9,7 @@ import {
   configuredModel,
   finalAssistantText,
   getPiInvocation,
+  runUntilTerminalOutput,
 } from "../../_shared/subagents.ts";
 import { resourcePath } from "../../_shared/assets.ts";
 
@@ -52,20 +52,18 @@ export function registerRalphValidator(pi: ExtensionAPI) {
       const invocation = getPiInvocation(args);
       const childEnv = { ...process.env };
       delete childEnv.JRI_CHAT_RUNTIME;
-      const result = spawnSync(invocation.command, invocation.args, {
+      const result = await runUntilTerminalOutput(invocation.command, invocation.args, {
         cwd: process.cwd(),
         env: childEnv,
-        encoding: "utf-8",
+        timeoutMs: VALIDATOR_TIMEOUT_MS,
         maxBuffer: CHILD_PI_MAX_BUFFER,
-        timeout: VALIDATOR_TIMEOUT_MS,
-        killSignal: "SIGTERM",
       });
-      const output = finalAssistantText(result.stdout ?? "");
+      const output = finalAssistantText(result.stdout);
       if (result.error) {
-        return text(`${output}\n${result.error.message}`.trim());
+        return text(`${output}\n${result.error}`.trim());
       }
       if (result.status !== 0) {
-        const stderr = (result.stderr ?? "").trim();
+        const stderr = result.stderr.trim();
         return text(stderr ? `${output}\n${stderr}`.trim() : output);
       }
       return text(output);

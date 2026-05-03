@@ -148,7 +148,7 @@ def test_pi_extension_launches_ralph_validator_runtime() -> None:
     assert '"read,bash,grep,find,ls,list-tasks,read-tasks,check-contrast"' in source
     assert "CHILD_PI_MAX_BUFFER" in source
     assert "VALIDATOR_TIMEOUT_MS" in source
-    assert 'killSignal: "SIGTERM"' in source
+    assert "runUntilTerminalOutput" in source
     assert 'process.env.JRI_CHAT_RUNTIME === "1"' in source
     assert "registerRalphValidator(pi)" in source
 

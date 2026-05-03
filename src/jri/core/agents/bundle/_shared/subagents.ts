@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
@@ -7,6 +8,13 @@ export const VALIDATOR_TIMEOUT_MS = 300_000;
 export const WEB_SEARCH_TIMEOUT_MS = 15_000;
 export const PYTHON_TOOL_TIMEOUT_MS = 30_000;
 export const PYTHON_TOOL_MAX_BUFFER = 4 * 1024 * 1024;
+
+export type ChildProcessResult = {
+  status: number;
+  stdout: string;
+  stderr: string;
+  error?: string;
+};
 
 function textParts(parts: unknown): string {
   if (!Array.isArray(parts)) return "";
@@ -82,4 +90,95 @@ export function getPiInvocation(args: string[]): { command: string; args: string
   }
 
   return { command: "pi", args };
+}
+
+export function runUntilTerminalOutput(
+  command: string,
+  args: string[],
+  options: {
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    timeoutMs: number;
+    maxBuffer?: number;
+  },
+): Promise<ChildProcessResult> {
+  return new Promise((resolve) => {
+    const maxBuffer = options.maxBuffer ?? CHILD_PI_MAX_BUFFER;
+    const child = spawn(command, args, {
+      cwd: options.cwd,
+      env: options.env,
+      stdio: ["ignore", "pipe", "pipe"],
+      detached: process.platform !== "win32",
+    });
+    let stdout = "";
+    let stderr = "";
+    let truncated = false;
+    let settled = false;
+    const killChild = () => {
+      try {
+        if (process.platform !== "win32") {
+          process.kill(-child.pid, "SIGTERM");
+        } else {
+          child.kill("SIGTERM");
+        }
+      } catch {
+        child.kill("SIGTERM");
+      }
+    };
+    const finish = (result: ChildProcessResult) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const append = (current: string, data: unknown) => {
+      if (current.length >= maxBuffer) {
+        truncated = true;
+        return current;
+      }
+      const next = current + String(data);
+      if (next.length > maxBuffer) {
+        truncated = true;
+        return next.slice(0, maxBuffer);
+      }
+      return next;
+    };
+    const finishIfTerminal = () => {
+      if (!terminalAssistantText(stdout)) return;
+      killChild();
+      finish({
+        status: truncated ? 1 : 0,
+        stdout,
+        stderr: stderr.trim(),
+        error: truncated ? "child process output exceeded buffer limit" : undefined,
+      });
+    };
+    const timer = setTimeout(() => {
+      killChild();
+      finish({
+        status: 1,
+        stdout,
+        stderr: stderr.trim(),
+        error: `child process timed out after ${options.timeoutMs}ms`,
+      });
+    }, options.timeoutMs);
+    child.stdout.on("data", (data) => {
+      stdout = append(stdout, data);
+      finishIfTerminal();
+    });
+    child.stderr.on("data", (data) => {
+      stderr = append(stderr, data);
+    });
+    child.on("error", (error) => {
+      finish({ status: 1, stdout, stderr: stderr.trim(), error: error.message });
+    });
+    child.on("close", (code) => {
+      finish({
+        status: truncated ? 1 : (code ?? 0),
+        stdout,
+        stderr: stderr.trim(),
+        error: truncated ? "child process output exceeded buffer limit" : undefined,
+      });
+    });
+  });
 }
