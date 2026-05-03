@@ -810,17 +810,17 @@ class JriService:
         return self.git.ralph_branch(hint=self.state_store.load().branch)
 
     def _managed_ralph_branches(self) -> tuple[str, ...]:
-        branch = self._ralph_branch()
-        return (branch, "ralph") if branch != "ralph" else (branch,)
+        default = self._default_branch()
+        return (f"ralph/{default}", f"ralph-{default}")
 
     def has_managed_ralph_branch(self) -> bool:
         return any(
             self.git.has_local_branch(branch)
-            for branch in self._managed_ralph_branches()
+            for branch in ("ralph", *self._managed_ralph_branches())
         )
 
     def _is_managed_ralph_branch(self, branch: str) -> bool:
-        return branch in self._managed_ralph_branches()
+        return branch == "ralph" or branch in self._managed_ralph_branches()
 
     def _create_scaffold(self) -> list[Path]:
         created_files: list[Path] = []

@@ -786,3 +786,35 @@ def test_reset_cli_help_shows_force_flag(git_repo: Path) -> None:
     assert "-f" in result.stdout
     assert "jri/end/{task} tag commit" in result.stdout
     assert "jri/begin/{task} tag when no end tag exists" in result.stdout
+
+
+def test_start_and_reset_preserve_legacy_ralph_branch(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    git(git_repo, "checkout", "-b", "ralph")
+    git(git_repo, "checkout", "main")
+
+    write_task(
+        git_repo,
+        status="todo",
+        slug="legacy-branch-task",
+        title="Legacy branch task",
+        priority=0,
+        assignee="Ralph",
+        body="Complete the task.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/legacy-branch-task.md")
+    git(git_repo, "commit", "-m", "add legacy branch task")
+
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
+
+    assert service.start(max_tasks=1) == 1
+    assert git(git_repo, "rev-parse", "--verify", "refs/heads/ralph")
+    assert git(git_repo, "rev-parse", "--verify", "refs/heads/ralph-main")
+    assert (git_repo / ".jri" / "worktree").exists()
+
+    service.reset()
+
+    assert git(git_repo, "rev-parse", "--verify", "refs/heads/ralph")
+    with pytest.raises(subprocess.CalledProcessError):
+        git(git_repo, "rev-parse", "--verify", "refs/heads/ralph-main")
+    assert not (git_repo / ".jri" / "worktree").exists()
