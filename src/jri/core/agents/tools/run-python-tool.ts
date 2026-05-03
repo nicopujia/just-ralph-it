@@ -1,9 +1,9 @@
-import { spawnSync } from "child_process";
+import { spawnSync } from "node:child_process";
 import path from "node:path";
 
-export function runPythonTool(toolName, payload) {
+export function runPythonTool(toolName: string, payload: unknown): string {
   const candidates = [process.env.JRI_PYTHON, "python3", "python"].filter(
-    Boolean,
+    (candidate): candidate is string => Boolean(candidate),
   );
   const env = { ...process.env };
   const pythonPath = [process.env.JRI_PYTHONPATH, process.env.PYTHONPATH]
@@ -19,7 +19,7 @@ export function runPythonTool(toolName, payload) {
       encoding: "utf-8",
       env,
     });
-    if (result.error && result.error.code === "ENOENT") {
+    if (result.error && "code" in result.error && result.error.code === "ENOENT") {
       continue;
     }
     if (result.error) {
