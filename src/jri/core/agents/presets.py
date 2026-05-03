@@ -8,7 +8,21 @@ _CHAT_FIELDS = ("model", "validator_model", "explore_model")
 _START_FIELDS = ("model", "validator_model", "general_model", "explore_model")
 
 _PRESET_CHOICES = ("default", "openai")
+_DEFAULT_MODEL = "cloudflare-ai-gateway/workers-ai/@cf/moonshotai/kimi-k2.6"
 _PRESET_CONFIG: dict[str, object] = {
+    "default": {
+        "chat": {
+            "model": _DEFAULT_MODEL,
+            "validator_model": _DEFAULT_MODEL,
+            "explore_model": _DEFAULT_MODEL,
+        },
+        "start": {
+            "model": _DEFAULT_MODEL,
+            "validator_model": _DEFAULT_MODEL,
+            "general_model": _DEFAULT_MODEL,
+            "explore_model": _DEFAULT_MODEL,
+        },
+    },
     "openai": {
         "chat": {
             "model": "openai-codex/gpt-5.4",
@@ -21,7 +35,7 @@ _PRESET_CONFIG: dict[str, object] = {
             "general_model": "openai-codex/gpt-5.3-codex",
             "explore_model": "openai-codex/gpt-5.4-mini",
         },
-    }
+    },
 }
 
 
@@ -47,7 +61,7 @@ def resolve_preset_models(
 
 
 def _preset_models(preset: str | None, *, mode: PresetMode) -> dict[str, str]:
-    if preset is None or preset == "default":
+    if preset is None:
         return {}
     if preset in _PRESET_CHOICES:
         return _configured_preset_models(preset, mode=mode)
