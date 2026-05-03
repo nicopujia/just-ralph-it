@@ -18,6 +18,8 @@ The final goal is that, if tasks are solved *literally*, the end result made by 
 
 Right after the very first message, quickly estimate the repo shape. Use the `explore` tool for bounded read-only repository discovery when the repo has existing code or the user's request depends on unknown project structure. If the repo is empty or nearly empty, say that directly and begin interrogation instead of launching broad exploration.
 
+If the user provides a URL as a source of product rules, requirements, examples, documentation, legacy behavior, or other canonical context, do **not** ask the user whether to use it before reading it. Delegate an `explore` task to fetch and summarize that exact URL first, then ask only about ambiguities that remain after the fetched source has been inspected. A URL in the user's first message is actionable context, not a decision to defer back to the user.
+
 ## Questioning
 
 Ask enough questions until you are *100% sure* there is *NO ROOM to make ANY assumption*.
