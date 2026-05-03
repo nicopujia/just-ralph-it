@@ -10,6 +10,7 @@ from ..timeline import TimelineEvent, TimelineStore
 from .client import AgentRuntime, PiRuntime
 from .config import (
     COPYABLE_DIRECTORIES,
+    COPYABLE_FILES,
     iter_directory_assets,
     load_asset_text,
 )
@@ -26,6 +27,8 @@ def runtime_env(
     del config_name
     with tempfile.TemporaryDirectory(prefix="jri-pi-") as tmp_dir:
         bundle_root = Path(tmp_dir)
+        for name in COPYABLE_FILES:
+            (bundle_root / name).write_text(load_asset_text(name), encoding="utf-8")
         for directory in COPYABLE_DIRECTORIES:
             target_dir = bundle_root / directory
             target_dir.mkdir(parents=True, exist_ok=True)

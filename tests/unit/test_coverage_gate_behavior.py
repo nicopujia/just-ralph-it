@@ -241,7 +241,7 @@ def test_launch_chat_builds_managed_capability_command(
     ]
     assert "--no-extensions" in command
     assert "--extension" in command
-    assert str(package_root / "extensions" / "jri.ts") in command
+    assert str(package_root / "extension.ts") in command
     assert str(package_root / "prompts" / "interrogator.md") in command
 
     with pytest.raises(JriError, match="unsupported arg: --tools"):
