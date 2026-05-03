@@ -9,12 +9,12 @@ from typing import Literal, cast
 
 import pytest
 
+from jri.core.agents.bundle._shared.tools import run_contrast_check, run_upsert_task
 from jri.core.agents.resources import (
     resource_manifest,
     resource_path,
     resource_relative_path,
 )
-from jri.core.agents.tools import run_contrast_check, run_upsert_task
 from jri.core.git import GitRepo
 from jri.core.models import Task, TaskMetadata
 from jri.core.tasks import (
@@ -86,7 +86,7 @@ PI_REQUIRED_THEME_COLOR_TOKENS = (
 
 def run_agent_tool(cwd: Path, payload: dict[str, object], tool_name: str) -> str:
     result = subprocess.run(
-        [sys.executable, "-m", "jri.core.agents.tools", tool_name],
+        [sys.executable, "-m", "jri.core.agents.bundle._shared.tools", tool_name],
         cwd=cwd,
         input=json.dumps(payload),
         check=True,
@@ -97,14 +97,14 @@ def run_agent_tool(cwd: Path, payload: dict[str, object], tool_name: str) -> str
 
 
 def read_agent_sources(*names: str) -> str:
-    agents = files("jri.core.agents")
+    agents = files("jri.core.agents.bundle")
     return "\n".join(agents.joinpath(name).read_text("utf-8") for name in names)
 
 
 def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
     source = read_agent_sources(
         "extension.ts",
-        "commit-guard.ts",
+        "_shared/commits.ts",
         "interrogator/tools.ts",
         "ralph/tools.ts",
     )
@@ -185,7 +185,7 @@ def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
 
 def test_validator_extension_registers_approval_tool_only() -> None:
     source = (
-        files("jri.core.agents")
+        files("jri.core.agents.bundle")
         .joinpath("interrogator", "validator", "extension.ts")
         .read_text("utf-8")
     )
@@ -214,8 +214,8 @@ def inspect_python_tool_spawn_env(
     harness.mkdir(parents=True, exist_ok=True)
     capture_path = harness / "capture.json"
     source = (
-        files("jri.core.agents")
-        .joinpath("tools", "run-python-tool.ts")
+        files("jri.core.agents.bundle")
+        .joinpath("_shared", "tools", "runner.ts")
         .read_text(encoding="utf-8")
         .replace(
             'import { spawnSync } from "node:child_process";',
@@ -224,7 +224,7 @@ def inspect_python_tool_spawn_env(
         )
     )
     (harness / "package.json").write_text('{"type":"module"}\n', encoding="utf-8")
-    (harness / "run-python-tool.ts").write_text(source, encoding="utf-8")
+    (harness / "runner.ts").write_text(source, encoding="utf-8")
     (harness / "child_process.ts").write_text(
         "import { writeFileSync } from 'node:fs';\n"
         "type SpawnOptions = { env: Record<string, string> };\n"
@@ -243,7 +243,7 @@ def inspect_python_tool_spawn_env(
         encoding="utf-8",
     )
     script = (
-        "import { runPythonTool } from './run-python-tool.ts';\n"
+        "import { runPythonTool } from './runner.ts';\n"
         "runPythonTool('ralph-result', { result: 'completed' });\n"
     )
     subprocess.run(
@@ -410,7 +410,7 @@ def test_packaged_schemas_are_available() -> None:
     assert files("jri.core.schemas").joinpath("state.json").is_file()
     scaffold = files("jri.core.template")
     assert scaffold.joinpath("learnings.md").is_file()
-    builtins = files("jri.core.agents")
+    builtins = files("jri.core.agents.bundle")
     assert builtins.joinpath("interrogator", "prompt.md").is_file()
     assert builtins.joinpath("interrogator", "validator", "prompt.md").is_file()
     assert builtins.joinpath("explorer", "prompt.md").is_file()
@@ -418,19 +418,19 @@ def test_packaged_schemas_are_available() -> None:
     assert builtins.joinpath("ralph", "validator", "prompt.md").is_file()
     assert builtins.joinpath("extension.ts").is_file()
     assert builtins.joinpath("interrogator", "tools.ts").is_file()
-    assert builtins.joinpath("common.ts").is_file()
-    assert builtins.joinpath("commit-guard.ts").is_file()
-    assert builtins.joinpath("resources.ts").is_file()
-    assert builtins.joinpath("resource-manifest.json").is_file()
+    assert builtins.joinpath("_shared", "registry.ts").is_file()
+    assert builtins.joinpath("_shared", "commits.ts").is_file()
+    assert builtins.joinpath("_shared", "assets.ts").is_file()
+    assert builtins.joinpath("manifest.json").is_file()
     assert builtins.joinpath("theme.json").is_file()
     assert builtins.joinpath("explorer", "tools.ts").is_file()
     assert builtins.joinpath("interrogator", "validator", "extension.ts").is_file()
-    assert builtins.joinpath("python-bridge.ts").is_file()
+    assert builtins.joinpath("_shared", "subagents.ts").is_file()
     assert builtins.joinpath("ralph", "tools.ts").is_file()
     assert builtins.joinpath("ralph", "validator", "tools.ts").is_file()
-    assert builtins.joinpath("tools", "__init__.py").is_file()
-    assert builtins.joinpath("tools", "__main__.py").is_file()
-    assert builtins.joinpath("tools", "run-python-tool.ts").is_file()
+    assert builtins.joinpath("_shared", "tools", "__init__.py").is_file()
+    assert builtins.joinpath("_shared", "tools", "__main__.py").is_file()
+    assert builtins.joinpath("_shared", "tools", "runner.ts").is_file()
 
 
 def test_agent_resource_manifest_resolves_current_package_resources() -> None:
@@ -442,7 +442,7 @@ def test_agent_resource_manifest_resolves_current_package_resources() -> None:
         "prompts.ralphValidator": "ralph/validator/prompt.md",
         "prompts.interrogatorValidator": "interrogator/validator/prompt.md",
         "prompts.explorer": "explorer/prompt.md",
-        "tools.pythonRunner": "tools/run-python-tool.ts",
+        "tools.pythonRunner": "_shared/tools/runner.ts",
         "themes.modernYellow": "theme.json",
         "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
         "skills.reverseRalph": "ralph/skills/reverse-ralph/SKILL.md",
@@ -494,7 +494,7 @@ import {
   resourceManifest,
   resourcePath,
   resourceRelativePath,
-} from './src/jri/core/agents/resources.ts';
+} from './src/jri/core/agents/bundle/_shared/assets.ts';
 
 let invalidIdMessage = '';
 try {
@@ -532,17 +532,26 @@ def test_typescript_agent_resource_manifest_rejects_unsafe_paths(
     bun = shutil.which("bun")
     assert bun is not None, "bun is required to check the TypeScript resolver"
 
-    source_dir = Path(__file__).resolve().parents[2] / "src" / "jri" / "core" / "agents"
+    source_dir = (
+        Path(__file__).resolve().parents[2]
+        / "src"
+        / "jri"
+        / "core"
+        / "agents"
+        / "bundle"
+        / "_shared"
+    )
     harness = tmp_path / "agents"
-    harness.mkdir()
-    shutil.copyfile(source_dir / "resources.ts", harness / "resources.ts")
-    (harness / "resource-manifest.json").write_text(
+    shared = harness / "_shared"
+    shared.mkdir(parents=True)
+    shutil.copyfile(source_dir / "assets.ts", shared / "assets.ts")
+    (harness / "manifest.json").write_text(
         json.dumps({"bad.parent": "../outside"}) + "\n",
         encoding="utf-8",
     )
 
     script = """
-import { resourceManifest } from './resources.ts';
+import { resourceManifest } from './_shared/assets.ts';
 
 try {
   resourceManifest();
@@ -576,7 +585,11 @@ def test_run_python_tool_uses_forwarded_pythonpath(tmp_path: Path) -> None:
     )
 
     assert captured["command"] == sys.executable
-    assert captured["args"] == ["-m", "jri.core.agents.tools", "ralph-result"]
+    assert captured["args"] == [
+        "-m",
+        "jri.core.agents.bundle._shared.tools",
+        "ralph-result",
+    ]
     spawned_env = captured["env"]
     assert isinstance(spawned_env, dict)
     assert cast(dict[str, str], spawned_env)["PYTHONPATH"] == (

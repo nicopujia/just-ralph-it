@@ -166,7 +166,7 @@ def test_package_manifest_uses_resource_manifest_paths(
         "extensions.default": "extension.ts",
         "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
         "prompts.interrogator": "interrogator/prompt.md",
-        "tools.pythonRunner": "tools/run-python-tool.ts",
+        "tools.pythonRunner": "_shared/tools/runner.ts",
         "themes.modernYellow": "theme.json",
     }
     resolved_ids: list[str] = []
@@ -187,7 +187,7 @@ def test_package_manifest_uses_resource_manifest_paths(
         "extensions": ["./extension.ts"],
         "skills": ["./ralph/skills"],
         "prompts": ["./interrogator"],
-        "tools": ["./tools"],
+        "tools": ["./_shared/tools"],
         "themes": ["./theme.json"],
     }
     assert resolved_ids == [

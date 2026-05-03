@@ -14,7 +14,7 @@ export function runPythonTool(toolName: string, payload: unknown): string {
   }
 
   for (const command of candidates) {
-    const result = spawnSync(command, ["-m", "jri.core.agents.tools", toolName], {
+    const result = spawnSync(command, ["-m", "jri.core.agents.bundle._shared.tools", toolName], {
       input: JSON.stringify(payload),
       encoding: "utf-8",
       env,

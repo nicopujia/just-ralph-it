@@ -143,7 +143,7 @@ def export_session_if_available(
 def _should_copy_agent_asset(
     directory: str, name: Path, *, included_agents: set[str] | None
 ) -> bool:
-    if included_agents is None or directory == "tools":
+    if included_agents is None or directory == "_shared":
         return True
     if directory in included_agents:
         return True
@@ -163,7 +163,7 @@ def _write_package_manifest(
             "extensions": [_manifest_reference("extensions.default")],
             "skills": [_manifest_skill_root_reference("skills.hostedProjects")],
             "prompts": [_manifest_top_level_reference("prompts.interrogator")],
-            "tools": [_manifest_top_level_reference("tools.pythonRunner")],
+            "tools": [_manifest_parent_reference("tools.pythonRunner")],
             "themes": [_manifest_top_level_reference("themes.modernYellow")],
         },
         "jri": {
@@ -181,6 +181,11 @@ def _manifest_reference(resource_id: str) -> str:
 
 def _manifest_top_level_reference(resource_id: str) -> str:
     return f"./{PurePosixPath(resource_relative_path(resource_id)).parts[0]}"
+
+
+def _manifest_parent_reference(resource_id: str) -> str:
+    relative_path = PurePosixPath(resource_relative_path(resource_id))
+    return f"./{PurePosixPath(*relative_path.parts[:-1]).as_posix()}"
 
 
 def _manifest_skill_root_reference(resource_id: str) -> str:

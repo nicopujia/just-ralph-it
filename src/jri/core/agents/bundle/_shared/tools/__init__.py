@@ -1,4 +1,4 @@
-from ...service import JriService as _JriService
+from .....service import JriService as _JriService
 from ._registry import main as _main
 from .colors import run_contrast_check
 from .promotion import run_approve_draft_promotion, run_promote_tasks

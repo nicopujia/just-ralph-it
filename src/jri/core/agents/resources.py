@@ -4,8 +4,8 @@ from importlib.resources import files
 from importlib.resources.abc import Traversable
 from pathlib import PurePosixPath, PureWindowsPath
 
-_PACKAGE = "jri.core.agents"
-_MANIFEST_NAME = "resource-manifest.json"
+_PACKAGE = "jri.core.agents.bundle"
+_MANIFEST_NAME = "manifest.json"
 
 
 @cache

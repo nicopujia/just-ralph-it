@@ -127,7 +127,7 @@ def test_chat_reuses_existing_session_and_exports_it(initialized_repo: Path) -> 
                 ),
                 "tool_runner_exists": (
                     Path(env["JRI_PI_PACKAGE"])
-                    .joinpath("tools", "run-python-tool.ts")
+                    .joinpath("_shared", "tools", "runner.ts")
                     .is_file()
                     if env is not None
                     else False

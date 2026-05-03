@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from jri.core.agents import tools
+from jri.core.agents.bundle._shared import tools
 from jri.core.models import Task, TaskMetadata
 
 

@@ -3,14 +3,14 @@ import { spawnSync } from "node:child_process";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
-import { SLUG_RE, text } from "../../common.ts";
+import { SLUG_RE, text } from "../../_shared/registry.ts";
 import {
   CHILD_PI_MAX_BUFFER,
   configuredModel,
   finalAssistantText,
   getPiInvocation,
-} from "../../python-bridge.ts";
-import { resourcePath } from "../../resources.ts";
+} from "../../_shared/subagents.ts";
+import { resourcePath } from "../../_shared/assets.ts";
 
 export function registerRalphValidator(pi: ExtensionAPI) {
   const extensionDir = dirname(fileURLToPath(import.meta.url));

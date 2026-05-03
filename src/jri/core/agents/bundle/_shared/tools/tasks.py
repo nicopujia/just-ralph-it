@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ...models import Task
-from ...tasks import list_tasks
+from .....models import Task
+from .....tasks import list_tasks
 from ._validation import (
     _apply_exact_edits,
     _assert_exact_edits,
