@@ -49,6 +49,7 @@ exclude = [
     "/.pytest_cache/**",
     "/.ruff_cache/**",
     "/.sisyphus/**",
+    "/.jri/**",
     "**/.env",
     "**/.env.*",
     "**/__pycache__/**",

@@ -35,6 +35,7 @@ REQUIRED_AGENT_RESOURCES = {
 FORBIDDEN_ARTIFACT_PARTS = {
     "__pycache__",
     ".sisyphus",
+    ".jri",
     "htmlcov",
     ".pytest_cache",
 }
@@ -47,6 +48,11 @@ FORBIDDEN_ARTIFACT_NAMES = {
 FORBIDDEN_ARTIFACT_SUFFIXES = {
     ".pyc",
     ".pyo",
+}
+
+FORBIDDEN_PACKAGED_JAVASCRIPT_SUFFIXES = {
+    ".js",
+    ".mjs",
 }
 
 
@@ -100,9 +106,20 @@ def _assert_required_resources(names: set[str], *, required_paths: set[str]) -> 
 
 
 def _is_forbidden_artifact(name: str) -> bool:
-    path = Path(name)
+    path = PurePosixPath(name)
     return (
         any(part in FORBIDDEN_ARTIFACT_PARTS for part in path.parts)
         or path.name in FORBIDDEN_ARTIFACT_NAMES
         or path.suffix in FORBIDDEN_ARTIFACT_SUFFIXES
+        or _is_packaged_stale_javascript(path)
+    )
+
+
+def _is_packaged_stale_javascript(path: PurePosixPath) -> bool:
+    if path.suffix not in FORBIDDEN_PACKAGED_JAVASCRIPT_SUFFIXES:
+        return False
+
+    parts = path.parts
+    return parts[0] == "jri" or any(
+        parts[index : index + 2] == ("src", "jri") for index in range(len(parts) - 1)
     )
