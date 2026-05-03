@@ -197,10 +197,11 @@ def test_launch_chat_builds_managed_capability_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     package_root = tmp_path / "package"
-    (package_root / "extensions").mkdir(parents=True)
-    (package_root / "prompts").mkdir()
-    (package_root / "skills" / "alpha").mkdir(parents=True)
-    (package_root / "skills" / "file.txt").write_text("ignored", encoding="utf-8")
+    (package_root / "interrogator").mkdir(parents=True)
+    (package_root / "ralph" / "skills" / "alpha").mkdir(parents=True)
+    (package_root / "ralph" / "skills" / "file.txt").write_text(
+        "ignored", encoding="utf-8"
+    )
     calls: list[tuple[list[str], Path, dict[str, str]]] = []
 
     def fake_run(
@@ -242,7 +243,7 @@ def test_launch_chat_builds_managed_capability_command(
     assert "--no-extensions" in command
     assert "--extension" in command
     assert str(package_root / "extension.ts") in command
-    assert str(package_root / "prompts" / "interrogator.md") in command
+    assert str(package_root / "interrogator" / "prompt.md") in command
 
     with pytest.raises(JriError, match="unsupported arg: --tools"):
         launch_chat(

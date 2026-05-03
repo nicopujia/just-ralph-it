@@ -455,11 +455,6 @@ def _package_resource_path(package_root: str, resource_id: str) -> Path:
     return Path(package_root).joinpath(*relative_path.parts)
 
 
-def _package_resource_top_level_path(package_root: str, resource_id: str) -> Path:
-    relative_path = PurePosixPath(resource_relative_path(resource_id))
-    return Path(package_root) / relative_path.parts[0]
-
-
 _RUN_STALL_TIMEOUT = 300.0
 _MISSING_RESULT_FOLLOW_UP_PROMPT = (
     "Your last response ended without the required result payload. "
@@ -572,11 +567,10 @@ class PiRuntime:
             prompt_path = _package_resource_path(package_root, "prompts.ralph")
             command.extend(["--extension", str(extension_path)])
             command.extend(["--append-system-prompt", str(prompt_path)])
-            for skill_path in sorted(
-                _package_resource_top_level_path(
-                    package_root, "skills.hostedProjects"
-                ).iterdir()
-            ):
+            skill_root = _package_resource_path(
+                package_root, "skills.hostedProjects"
+            ).parent.parent
+            for skill_path in sorted(skill_root.iterdir()):
                 if skill_path.is_dir():
                     command.extend(["--skill", str(skill_path)])
         try:

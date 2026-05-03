@@ -1,8 +1,15 @@
 from importlib.resources import files
 from pathlib import Path
 
-COPYABLE_DIRECTORIES = ("prompts", "skills", "extensions", "tools", "interrogator")
-COPYABLE_FILES = ("extension.ts",)
+COPYABLE_DIRECTORIES = ("tools", "ralph", "interrogator", "explorer")
+COPYABLE_FILES = (
+    "extension.ts",
+    "common.ts",
+    "python-bridge.ts",
+    "commit-guard.ts",
+    "resources.ts",
+    "resource-manifest.json",
+)
 
 
 def iter_directory_assets(directory: str) -> tuple[str, ...]:

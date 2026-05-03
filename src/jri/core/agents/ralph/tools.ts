@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
-import { registerPythonTool } from "./common.ts";
-import { registerRalphValidator } from "./validators.ts";
+import { registerPythonTool } from "../common.ts";
+import { registerRalphValidator } from "./validator/tools.ts";
 
 export function registerRalphTools(pi: ExtensionAPI) {
   registerPythonTool(

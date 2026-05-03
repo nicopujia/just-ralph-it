@@ -3,8 +3,8 @@ import { spawn } from "node:child_process";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
-import { text } from "./common.ts";
-import { configuredModel, finalAssistantText, getPiInvocation } from "./python-bridge.ts";
+import { text } from "../common.ts";
+import { configuredModel, finalAssistantText, getPiInvocation } from "../python-bridge.ts";
 import { resourcePath } from "../resources.ts";
 
 const EXPLORER_MAX_TASKS = 8;
