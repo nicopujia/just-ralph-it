@@ -42,14 +42,17 @@ def run_agent_tool(cwd: Path, payload: dict[str, object], tool_name: str) -> str
     return result.stdout
 
 
-def read_extension_sources(*names: str) -> str:
-    extensions = files("jri.core.agents").joinpath("extensions")
-    return "\n".join(extensions.joinpath(name).read_text("utf-8") for name in names)
+def read_agent_sources(*names: str) -> str:
+    agents = files("jri.core.agents")
+    return "\n".join(agents.joinpath(name).read_text("utf-8") for name in names)
 
 
 def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
-    source = read_extension_sources(
-        "jri.ts", "commit-guard.ts", "chat-tools.ts", "ralph-tools.ts"
+    source = read_agent_sources(
+        "extension.ts",
+        "extensions/commit-guard.ts",
+        "extensions/chat-tools.ts",
+        "extensions/ralph-tools.ts",
     )
 
     assert 'pi.on("tool_call"' in source
@@ -61,13 +64,15 @@ def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
 
 
 def test_pi_extension_does_not_register_validator_approval_tool() -> None:
-    source = read_extension_sources("jri.ts", "chat-tools.ts", "ralph-tools.ts")
+    source = read_agent_sources(
+        "extension.ts", "extensions/chat-tools.ts", "extensions/ralph-tools.ts"
+    )
 
     assert 'registerPythonTool(\n    pi,\n    "approve-draft-promotion"' not in source
 
 
 def test_pi_extension_launches_validator_runtime_with_approval_extension() -> None:
-    source = read_extension_sources("jri.ts", "validators.ts")
+    source = read_agent_sources("extension.ts", "extensions/validators.ts")
 
     assert 'name: "interrogator-validator"' in source
     assert 'resourcePath("extensions.validator", packageRoot)' in source
@@ -79,7 +84,9 @@ def test_pi_extension_launches_validator_runtime_with_approval_extension() -> No
 
 
 def test_pi_extension_launches_ralph_validator_runtime() -> None:
-    source = read_extension_sources("jri.ts", "validators.ts", "ralph-tools.ts")
+    source = read_agent_sources(
+        "extension.ts", "extensions/validators.ts", "extensions/ralph-tools.ts"
+    )
 
     assert 'name: "ralph-validator"' in source
     assert 'resourcePath("prompts.ralphValidator", packageRoot)' in source
@@ -91,7 +98,9 @@ def test_pi_extension_launches_ralph_validator_runtime() -> None:
 
 
 def test_pi_extension_splits_chat_and_ralph_tool_registration() -> None:
-    source = read_extension_sources("jri.ts", "chat-tools.ts", "ralph-tools.ts")
+    source = read_agent_sources(
+        "extension.ts", "extensions/chat-tools.ts", "extensions/ralph-tools.ts"
+    )
 
     assert "function registerChatTools" in source
     assert "function registerRalphTools" in source
@@ -103,7 +112,7 @@ def test_pi_extension_splits_chat_and_ralph_tool_registration() -> None:
 
 
 def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
-    source = read_extension_sources("jri.ts", "explorer.ts")
+    source = read_agent_sources("extension.ts", "extensions/explorer.ts")
 
     assert 'name: "explore"' in source
     assert 'resourcePath("prompts.explorer", packageRoot)' in source
@@ -123,7 +132,7 @@ def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
 def test_validator_extension_registers_approval_tool_only() -> None:
     source = (
         files("jri.core.agents")
-        .joinpath("extensions", "jri-validator.ts")
+        .joinpath("interrogator", "validator", "extension.ts")
         .read_text("utf-8")
     )
 
@@ -348,12 +357,12 @@ def test_packaged_schemas_are_available() -> None:
     assert builtins.joinpath("prompts", "explorer.md").is_file()
     assert builtins.joinpath("prompts", "ralph.md").is_file()
     assert builtins.joinpath("prompts", "ralph-validator.md").is_file()
-    assert builtins.joinpath("extensions", "jri.ts").is_file()
+    assert builtins.joinpath("extension.ts").is_file()
     assert builtins.joinpath("extensions", "chat-tools.ts").is_file()
     assert builtins.joinpath("extensions", "common.ts").is_file()
     assert builtins.joinpath("extensions", "commit-guard.ts").is_file()
     assert builtins.joinpath("extensions", "explorer.ts").is_file()
-    assert builtins.joinpath("extensions", "jri-validator.ts").is_file()
+    assert builtins.joinpath("interrogator", "validator", "extension.ts").is_file()
     assert builtins.joinpath("extensions", "python-bridge.ts").is_file()
     assert builtins.joinpath("extensions", "ralph-tools.ts").is_file()
     assert builtins.joinpath("extensions", "validators.ts").is_file()
@@ -364,8 +373,8 @@ def test_packaged_schemas_are_available() -> None:
 
 def test_agent_resource_manifest_resolves_current_package_resources() -> None:
     expected = {
-        "extensions.default": "extensions/jri.ts",
-        "extensions.validator": "extensions/jri-validator.ts",
+        "extensions.default": "extension.ts",
+        "extensions.validator": "interrogator/validator/extension.ts",
         "prompts.ralph": "prompts/ralph.md",
         "prompts.interrogator": "prompts/interrogator.md",
         "prompts.ralphValidator": "prompts/ralph-validator.md",
@@ -399,7 +408,7 @@ def test_agent_resource_manifest_rejects_unsafe_paths() -> None:
     with pytest.raises(ValueError, match="traverse"):
         _validate_manifest_path("bad.parent", "../outside")
     with pytest.raises(ValueError, match="POSIX"):
-        _validate_manifest_path("bad.separator", "extensions\\jri.ts")
+        _validate_manifest_path("bad.separator", "extensions\\bad.ts")
 
 
 def test_typescript_agent_resource_manifest_agrees_with_python() -> None:
@@ -438,8 +447,8 @@ console.log(JSON.stringify({
     payload = json.loads(result.stdout)
 
     assert payload["manifest"] == resource_manifest()
-    assert payload["extensionRelative"] == "extensions/jri.ts"
-    assert payload["extensionPath"].endswith("extensions/jri.ts")
+    assert payload["extensionRelative"] == "extension.ts"
+    assert payload["extensionPath"].endswith("extension.ts")
     assert payload["invalidIdMessage"] == "unknown agent resource ID: missing.resource"
 
 

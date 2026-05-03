@@ -1,6 +1,6 @@
 {
-  "extensions.default": "extensions/jri.ts",
-  "extensions.validator": "extensions/jri-validator.ts",
+  "extensions.default": "extension.ts",
+  "extensions.validator": "interrogator/validator/extension.ts",
   "prompts.ralph": "prompts/ralph.md",
   "prompts.interrogator": "prompts/interrogator.md",
   "prompts.ralphValidator": "prompts/ralph-validator.md",

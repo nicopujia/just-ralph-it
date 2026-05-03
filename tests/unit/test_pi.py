@@ -163,7 +163,7 @@ def test_package_manifest_uses_resource_manifest_paths(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     resource_paths = {
-        "extensions.default": "extensions/jri.ts",
+        "extensions.default": "extension.ts",
         "skills.hostedProjects": "skills/hosted-projects/SKILL.md",
         "prompts.interrogator": "prompts/interrogator.md",
         "tools.pythonRunner": "tools/_run-python-tool.mjs",
@@ -183,7 +183,7 @@ def test_package_manifest_uses_resource_manifest_paths(
 
     package = json.loads((tmp_path / "package.json").read_text(encoding="utf-8"))
     assert package["pi"] == {
-        "extensions": ["./extensions/jri.ts"],
+        "extensions": ["./extension.ts"],
         "skills": ["./skills"],
         "prompts": ["./prompts"],
         "tools": ["./tools"],
@@ -205,12 +205,12 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
     (package_root / "prompts").mkdir()
     (package_root / "skills" / "hosted-projects").mkdir(parents=True)
     (package_root / "skills" / "reverse-ralph").mkdir()
-    (package_root / "extensions" / "jri.ts").write_text("", encoding="utf-8")
+    (package_root / "extension.ts").write_text("", encoding="utf-8")
     (package_root / "prompts" / "ralph.md").write_text("", encoding="utf-8")
 
     resolved_ids: list[str] = []
     resource_paths = {
-        "extensions.default": "extensions/jri.ts",
+        "extensions.default": "extension.ts",
         "prompts.ralph": "prompts/ralph.md",
         "skills.hostedProjects": "skills/hosted-projects/SKILL.md",
     }
@@ -256,7 +256,7 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
             "--session-dir",
             str(tmp_path / ".jri" / "logs" / "external" / "pi" / "sessions"),
             "--extension",
-            str(package_root / "extensions" / "jri.ts"),
+            str(package_root / "extension.ts"),
             "--append-system-prompt",
             str(package_root / "prompts" / "ralph.md"),
             "--skill",
@@ -265,7 +265,10 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
             str(package_root / "skills" / "reverse-ralph"),
         ]
     ]
-    assert str(package_root / "extensions" / "jri-validator.ts") not in popen_calls[0]
+    assert (
+        str(package_root / "interrogator" / "validator" / "extension.ts")
+        not in popen_calls[0]
+    )
     assert resolved_ids == [
         "extensions.default",
         "prompts.ralph",
@@ -348,12 +351,15 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
     package_root = tmp_path / "package"
     (package_root / "extensions").mkdir(parents=True)
     (package_root / "prompts").mkdir()
-    (package_root / "extensions" / "jri.ts").write_text("", encoding="utf-8")
-    (package_root / "extensions" / "jri-validator.ts").write_text("", encoding="utf-8")
+    (package_root / "extension.ts").write_text("", encoding="utf-8")
+    (package_root / "interrogator" / "validator").mkdir(parents=True)
+    (package_root / "interrogator" / "validator" / "extension.ts").write_text(
+        "", encoding="utf-8"
+    )
     (package_root / "prompts" / "interrogator.md").write_text("", encoding="utf-8")
     resolved_ids: list[str] = []
     resource_paths = {
-        "extensions.default": "extensions/jri.ts",
+        "extensions.default": "extension.ts",
         "prompts.interrogator": "prompts/interrogator.md",
     }
 
@@ -398,7 +404,7 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
             "--no-prompt-templates",
             "--no-context-files",
             "--extension",
-            str(package_root / "extensions" / "jri.ts"),
+            str(package_root / "extension.ts"),
             "--append-system-prompt",
             str(package_root / "prompts" / "interrogator.md"),
             "--tools",
@@ -409,7 +415,10 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
             ),
         ]
     ]
-    assert str(package_root / "extensions" / "jri-validator.ts") not in run_calls[0]
+    assert (
+        str(package_root / "interrogator" / "validator" / "extension.ts")
+        not in run_calls[0]
+    )
     assert resolved_ids == ["extensions.default", "prompts.interrogator"]
     assert run_envs[0]["JRI_CHAT_RUNTIME"] == "1"
 
