@@ -3,6 +3,38 @@ import re
 from typing import Any
 
 
+def run_contrast_check(payload: dict[str, Any]) -> str:
+    foreground = _normalize_hex_color(
+        "foreground", payload.get("foreground"), allow_alpha=True
+    )
+    background = _normalize_hex_color(
+        "background", payload.get("background"), allow_alpha=False
+    )
+    standard, threshold = _assert_contrast_standard(payload.get("standard"))
+
+    fg_red, fg_green, fg_blue, fg_alpha = _hex_to_rgba(foreground)
+    bg_red, bg_green, bg_blue, _bg_alpha = _hex_to_rgba(background)
+    alpha = 1.0 if fg_alpha is None else fg_alpha / 255.0
+
+    composite_red = fg_red * alpha + bg_red * (1.0 - alpha)
+    composite_green = fg_green * alpha + bg_green * (1.0 - alpha)
+    composite_blue = fg_blue * alpha + bg_blue * (1.0 - alpha)
+
+    fg_luminance = _relative_luminance(composite_red, composite_green, composite_blue)
+    bg_luminance = _relative_luminance(bg_red, bg_green, bg_blue)
+    lighter = max(fg_luminance, bg_luminance)
+    darker = min(fg_luminance, bg_luminance)
+    ratio = (lighter + 0.05) / (darker + 0.05)
+
+    result = {
+        "standard": standard,
+        "ratio": round(ratio, 2),
+        "threshold": threshold,
+        "result": "pass" if ratio >= threshold else "fail",
+    }
+    return json.dumps(result, indent=2) + "\n"
+
+
 def _normalize_hex_color(name: str, value: Any, *, allow_alpha: bool) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"`{name}` must be a non-empty hex color string")
@@ -60,35 +92,3 @@ def _assert_contrast_standard(value: Any) -> tuple[str, float]:
             "`standard` must be one of: AA, AALarge, AAA, AAALarge, GraphicsAA"
         )
     return value, thresholds[value]
-
-
-def run_contrast_check(payload: dict[str, Any]) -> str:
-    foreground = _normalize_hex_color(
-        "foreground", payload.get("foreground"), allow_alpha=True
-    )
-    background = _normalize_hex_color(
-        "background", payload.get("background"), allow_alpha=False
-    )
-    standard, threshold = _assert_contrast_standard(payload.get("standard"))
-
-    fg_red, fg_green, fg_blue, fg_alpha = _hex_to_rgba(foreground)
-    bg_red, bg_green, bg_blue, _bg_alpha = _hex_to_rgba(background)
-    alpha = 1.0 if fg_alpha is None else fg_alpha / 255.0
-
-    composite_red = fg_red * alpha + bg_red * (1.0 - alpha)
-    composite_green = fg_green * alpha + bg_green * (1.0 - alpha)
-    composite_blue = fg_blue * alpha + bg_blue * (1.0 - alpha)
-
-    fg_luminance = _relative_luminance(composite_red, composite_green, composite_blue)
-    bg_luminance = _relative_luminance(bg_red, bg_green, bg_blue)
-    lighter = max(fg_luminance, bg_luminance)
-    darker = min(fg_luminance, bg_luminance)
-    ratio = (lighter + 0.05) / (darker + 0.05)
-
-    result = {
-        "standard": standard,
-        "ratio": round(ratio, 2),
-        "threshold": threshold,
-        "result": "pass" if ratio >= threshold else "fail",
-    }
-    return json.dumps(result, indent=2) + "\n"
