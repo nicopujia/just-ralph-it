@@ -7,7 +7,7 @@ Turn human intent into validated tasks that autonomous agents execute until the 
 ### Prerequisites
 
 - **Mandatory**: [Git](https://git-scm.com/install/), [Make](https://www.gnu.org/software/make/), [uv](https://docs.astral.sh/uv/getting-started/installation/), [Bun](https://bun.sh/), [Pi](https://pi.dev/docs/latest)
-- **Recommended**: Run on a VPS. For example, [Contabo](https://contabo.com/en/vps)'s are very cheap.
+- **Recommended**: Run on a VPS. For example, [OVHcloud](https://ovhcloud.com/)'s are very cheap.
 
 ### Install and run
 
