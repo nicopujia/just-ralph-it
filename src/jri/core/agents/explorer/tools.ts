@@ -192,15 +192,19 @@ function runExplorerTask(
   });
 }
 
-function decodeHtml(value: string): string {
-  return value
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#x27;/g, "'")
-    .replace(/&#x2F;/g, "/");
+function parseDuckDuckGoResults(html: string, maxResults: number) {
+  const results: { title: string; url: string; snippet: string }[] = [];
+  const resultPattern =
+    /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+  let match: RegExpExecArray | null;
+  while ((match = resultPattern.exec(html)) !== null && results.length < maxResults) {
+    results.push({
+      title: stripTags(match[2]),
+      url: extractDuckDuckGoUrl(match[1]),
+      snippet: stripTags(match[3]),
+    });
+  }
+  return results;
 }
 
 function stripTags(value: string): string {
@@ -219,19 +223,15 @@ function extractDuckDuckGoUrl(rawUrl: string): string {
   }
 }
 
-function parseDuckDuckGoResults(html: string, maxResults: number) {
-  const results: { title: string; url: string; snippet: string }[] = [];
-  const resultPattern =
-    /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
-  let match: RegExpExecArray | null;
-  while ((match = resultPattern.exec(html)) !== null && results.length < maxResults) {
-    results.push({
-      title: stripTags(match[2]),
-      url: extractDuckDuckGoUrl(match[1]),
-      snippet: stripTags(match[3]),
-    });
-  }
-  return results;
+function decodeHtml(value: string): string {
+  return value
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/g, "'")
+    .replace(/&#x2F;/g, "/");
 }
 
 async function mapExplorerTasks(
@@ -250,4 +250,70 @@ async function mapExplorerTasks(
     }),
   );
   return results;
+}
+
+function runExplorerTask(
+  packageRoot: string,
+  request: ExplorerRequest,
+): Promise<ExplorerResult> {
+  const jriExtension = resourcePath("extensions.default", packageRoot);
+  const explorerPrompt = resourcePath("prompts.explorer", packageRoot);
+  const args = [
+    "--mode",
+    "json",
+    "-p",
+    "--no-session",
+    "--no-extensions",
+    "--no-skills",
+    "--no-prompt-templates",
+    "--no-context-files",
+    "--extension",
+    jriExtension,
+    "--append-system-prompt",
+    explorerPrompt,
+    "--tools",
+    "read,grep,find,ls,web-search",
+  ];
+  const model = configuredModel(packageRoot, "explore");
+  if (model) args.push("--model", model);
+  args.push(request.task);
+
+  const invocation = getPiInvocation(args);
+  return new Promise((resolve) => {
+    const childEnv = { ...process.env };
+    delete childEnv.JRI_CHAT_RUNTIME;
+    childEnv.JRI_EXPLORER_RUNTIME = "1";
+    const child = spawn(invocation.command, invocation.args, {
+      cwd: process.cwd(),
+      env: childEnv,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (data) => {
+      stdout += data.toString();
+    });
+    child.stderr.on("data", (data) => {
+      stderr += data.toString();
+    });
+    child.on("error", (error) => {
+      resolve({
+        task: request.task,
+        index: request.index,
+        exitCode: 1,
+        output: finalAssistantText(stdout),
+        stderr,
+        error: error.message,
+      });
+    });
+    child.on("close", (code) => {
+      resolve({
+        task: request.task,
+        index: request.index,
+        exitCode: code ?? 0,
+        output: finalAssistantText(stdout),
+        stderr: stderr.trim(),
+      });
+    });
+  });
 }
