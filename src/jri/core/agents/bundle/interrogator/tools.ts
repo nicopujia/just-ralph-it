@@ -15,6 +15,10 @@ import {
 import { resourcePath } from "../_shared/assets.ts";
 import { runPythonTool } from "../_shared/tools/runner.ts";
 
+const INTERROGATOR_VALIDATOR_VISIBLE_OUTPUT_LIMIT = 12 * 1024;
+const INTERROGATOR_VALIDATOR_TRUNCATION_MARKER =
+  `[interrogator-validator output truncated to ${INTERROGATOR_VALIDATOR_VISIBLE_OUTPUT_LIMIT} characters]`;
+
 export function registerChatTools(pi: ExtensionAPI) {
   registerPythonTool(
     pi,
@@ -153,18 +157,32 @@ export function registerInterrogatorValidator(pi: ExtensionAPI) {
       });
       const output = finalAssistantText(result.stdout);
       if (result.error) {
-        return text(`${output}\n${result.error}`.trim());
+        return text(boundedInterrogatorValidatorOutput(`${output}\n${result.error}`.trim()));
       }
       if (result.status !== 0) {
         const stderr = result.stderr.trim();
-        return text(stderr ? `${output}\n${stderr}`.trim() : output);
+        return text(
+          boundedInterrogatorValidatorOutput(stderr ? `${output}\n${stderr}`.trim() : output),
+        );
       }
       if (normalizedFinalAssistantText(output) === "APPROVED") {
         runPythonTool("approve-draft-promotion", { slugs });
       }
-      return text(output);
+      return text(boundedInterrogatorValidatorOutput(output));
     },
   });
+}
+
+function boundedInterrogatorValidatorOutput(output: string): string {
+  if (output.length <= INTERROGATOR_VALIDATOR_VISIBLE_OUTPUT_LIMIT) {
+    return output;
+  }
+  const visibleOutputLimit =
+    INTERROGATOR_VALIDATOR_VISIBLE_OUTPUT_LIMIT - INTERROGATOR_VALIDATOR_TRUNCATION_MARKER.length;
+  if (visibleOutputLimit <= 0) {
+    return INTERROGATOR_VALIDATOR_TRUNCATION_MARKER.slice(0, INTERROGATOR_VALIDATOR_VISIBLE_OUTPUT_LIMIT);
+  }
+  return `${output.slice(0, visibleOutputLimit)}${INTERROGATOR_VALIDATOR_TRUNCATION_MARKER}`;
 }
 
 function normalizedFinalAssistantText(output: string): string {

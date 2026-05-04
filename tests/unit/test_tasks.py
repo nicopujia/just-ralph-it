@@ -212,9 +212,42 @@ def test_validator_extension_registers_approval_tool_only() -> None:
         .joinpath("interrogator", "tools.ts")
         .read_text("utf-8")
     )
+    assert "INTERROGATOR_VALIDATOR_VISIBLE_OUTPUT_LIMIT = 12 * 1024" in parent_source
+    assert (
+        "INTERROGATOR_VALIDATOR_TRUNCATION_MARKER =\n"
+        "  `[interrogator-validator output truncated to "
+        "${INTERROGATOR_VALIDATOR_VISIBLE_OUTPUT_LIMIT} characters]`;" in parent_source
+    )
+    assert (
+        "function boundedInterrogatorValidatorOutput(output: string): string"
+        in parent_source
+    )
+    assert (
+        "if (output.length <= INTERROGATOR_VALIDATOR_VISIBLE_OUTPUT_LIMIT) {"
+        in parent_source
+    )
+    assert (
+        "const visibleOutputLimit =\n"
+        "    INTERROGATOR_VALIDATOR_VISIBLE_OUTPUT_LIMIT - "
+        "INTERROGATOR_VALIDATOR_TRUNCATION_MARKER.length;" in parent_source
+    )
+    assert (
+        "return `${output.slice(0, visibleOutputLimit)}"
+        "${INTERROGATOR_VALIDATOR_TRUNCATION_MARKER}`;" in parent_source
+    )
+    assert (
+        "return text(boundedInterrogatorValidatorOutput(`${output}\\n"
+        "${result.error}`.trim()));" in parent_source
+    )
+    assert (
+        "return text(\n          boundedInterrogatorValidatorOutput(stderr ? "
+        "`${output}\\n${stderr}`.trim() : output),\n        );" in parent_source
+    )
+    assert "return text(boundedInterrogatorValidatorOutput(output));" in parent_source
     assert 'runPythonTool("approve-draft-promotion", { slugs })' in parent_source
     assert "requireAgentEnd: true" not in parent_source
     assert "validator approval is recorded automatically after APPROVED" in source
+    assert 'normalizedFinalAssistantText(output) === "APPROVED"' in parent_source
     assert (
         'event.toolName === "approve-draft-promotion" && !event.isError' not in source
     )
