@@ -75,9 +75,9 @@ For each task, check:
 
   **Questions**: *Can each criterion be checked as pass/fail? Could Ralph satisfy the wording while still missing the intended behavior? Could Ralph build two different things and both match acceptance criteria?*
 
-- **Bounded operational evidence**: for deployment, setup, diagnostics, or other operational tasks, allow bounded execution-time evidence fields when the task defines what is observed, where it is recorded, and which terminal outcomes are possible. Do not require every runtime-discovered value, log excerpt, status string, or report field value to be enumerated ahead of time unless choosing among those values would change behavior, scope, rollback, safety, or acceptance.
+- **Bounded operational evidence**: for deployment, setup, diagnostics, or other operational tasks, allow bounded execution-time evidence fields when the task defines the intended operational outcomes, what is observed, where it is recorded, and any required stop/rollback/reporting behavior. Do not require every runtime-discovered value, log excerpt, status string, report field value, or incidental local I/O/tool failure to have a bespoke terminal outcome unless choosing how to handle it would change behavior, scope, rollback, safety, or acceptance.
 
-  **Questions**: *Are the allowed actions, touched resources, rollback/stop behavior, and terminal outcomes bounded? Are report fields merely evidence of observed execution, or would different values require Ralph to make a behavior decision? Is there a concrete success/failure contract even if the exact observed command output is unknown until execution?*
+  **Questions**: *Are the allowed actions, touched resources, safety exclusions, required rollback/stop behavior, and material terminal outcomes bounded? Are report fields merely evidence of observed execution, or would different values require Ralph to make a behavior decision? Is there a concrete success/failure/stop contract for the operational goal even if incidental write, restore, report-write, or tool failures are handled by the normal executor failure/reporting path?*
 
 - **Body and acceptance alignment**: critical behavior from the body is mirrored in acceptance criteria, and acceptance criteria do not rely on vague references to "the cases above" when those cases change behavior.
 
@@ -104,6 +104,7 @@ When rejecting, prefer stating the concrete unanswered question or decision gap 
 - Avoid specific file paths. They are usually fragile implementation details rather than durable task scope. Tolerate them only when the path itself is part of the durable scope or repo contract.
 - For operational tasks, tolerate durable file paths, service names, commands, domains, ports, and report destinations when they define the real deployment or diagnostic contract.
 - Do not reject bounded reporting requirements merely because they say to record observed command results, statuses, or evidence. Reject only when the missing report format or value set would let Ralph choose different behavior, hide an unsafe side effect, or make acceptance unverifiable.
+- Do not reject operational tasks merely because incidental local I/O or tool failures use the normal executor failure path instead of bespoke terminal outcomes. Reject only when the task omits a material safety, rollback, stop, scope, behavior, or acceptance decision, or when a generic failure/reporting convention would make the final state unverifiable.
 - Ralph has full root access, so do not mark a task `Human` for routine local implementation, debugging, installation, or system interaction.
 - Ralph's autonomy is bounded by validated intent; reject tasks that depend on unconfirmed guesses.
 - Do not lower the bar just because Interrogator already wants to promote the tasks. Validation exists precisely to catch remaining ambiguity.
