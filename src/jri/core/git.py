@@ -15,6 +15,7 @@ MSG_ESCALATE_HUMAN = "jri: escalate {slug} for human help"
 MSG_RECORD_ATTEMPT_HISTORY = "jri: record attempt history for {slug}"
 MSG_RALPH_FINALIZE = "jri: finalize {slug}"
 MSG_RALPH_PARTIAL = "jri: partial work on {slug}"
+MSG_RALPH_INTEGRATE = "jri: integrate {slug}"
 
 
 def tag_name(slug: str, suffix: str) -> str:
@@ -270,6 +271,14 @@ class GitRepo:
         result = self.run("merge", "--ff-only", branch, check=False)
         if result.returncode != 0:
             raise JriError(result.stderr.strip() or f"failed to merge {branch}")
+
+    def merge_no_ff(self, branch: str, *, message: str) -> None:
+        result = self.run("merge", "--no-ff", "-m", message, branch, check=False)
+        if result.returncode == 0:
+            return
+        error = result.stderr.strip() or f"failed to merge {branch}"
+        self.run("merge", "--abort", check=False)
+        raise JriError(error)
 
     def create_tag(self, name: str) -> None:
         result = self.run("tag", name, check=False)

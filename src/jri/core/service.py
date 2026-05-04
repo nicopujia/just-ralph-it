@@ -37,6 +37,7 @@ from .git import (
     MSG_ESCALATE_HUMAN,
     MSG_PROMOTE,
     MSG_RALPH_FINALIZE,
+    MSG_RALPH_INTEGRATE,
     MSG_RALPH_PARTIAL,
     MSG_RECORD_ATTEMPT_HISTORY,
     MSG_RECOVER_FAILED,
@@ -1254,10 +1255,50 @@ class JriService:
     def _sync_worktree(self, wt_git: GitRepo) -> None:
         """Reset Ralph's worktree branch to the default-branch tip."""
         branch = self._ralph_branch()
+        active_attempt = self.state_store.load().active_attempt
+        if (
+            active_attempt is not None
+            and active_attempt.branch == branch
+            and self._is_completed_attempt_payload(active_attempt)
+            and self._attempt_has_unintegrated_branch_work(active_attempt)
+        ):
+            wt_git.run("checkout", "--force", branch)
+            wt_git.run("clean", "-fd")
+            return
         default_ref = self.git.rev_parse(self._default_branch())
         self.git.reset_branch(branch, default_ref)
         wt_git.run("checkout", "--force", branch)
         wt_git.run("clean", "-fd")
+
+    def _is_completed_attempt_payload(self, attempt: AttemptState) -> bool:
+        return attempt.result == "completed" or (
+            attempt.result_payload is not None
+            and attempt.result_payload.result == "completed"
+        )
+
+    def _attempt_has_unintegrated_branch_work(self, attempt: AttemptState) -> bool:
+        if not self._is_managed_ralph_branch(attempt.branch):
+            return False
+        if not self.git.has_local_branch(attempt.branch):
+            return False
+        return not self.git.is_ancestor(attempt.branch, self._default_branch())
+
+    def _integrate_completed_branch(self, *, task_slug: str, branch: str) -> None:
+        if not self.git.has_local_branch(branch):
+            return
+        default = self._default_branch()
+        if self.git.is_ancestor(branch, default):
+            return
+        if self.git.current_branch() != default:
+            self.git.checkout(default)
+        if self.git.status_short():
+            raise JriError(
+                "git working tree must be clean before integrating Ralph work"
+            )
+        if self.git.is_ancestor(default, branch):
+            self.git.merge_ff_only(branch)
+            return
+        self.git.merge_no_ff(branch, message=MSG_RALPH_INTEGRATE.format(slug=task_slug))
 
     def _previous_attempts_prompt_section(self, task_slug: str) -> str:
         attempts = [
@@ -1589,8 +1630,11 @@ class JriService:
                 )
             )
 
-        # Merge worktree branch into default
-        self.git.merge_ff_only(branch)
+        finished_at = int(time.time())
+        attempt = replace(attempt, finished_at=finished_at, result="completed")
+        self.state_store.save_active_attempt(attempt)
+
+        self._integrate_completed_branch(task_slug=task.slug, branch=branch)
 
         if not (self.paths.task_path("doing", task.slug)).exists():
             relative_path = f".jri/tasks/doing/{task.slug}.md"
@@ -1608,8 +1652,6 @@ class JriService:
         if self.git.has_remote():
             self.git.push_task_refs(branch=branch, tag=end_tag)
 
-        finished_at = int(time.time())
-        attempt = replace(attempt, finished_at=finished_at, result="completed")
         self.state_store.save_active_attempt(attempt)
         self._persist_attempt_history(attempt)
         self.state_store.mark_task_finished(
@@ -1991,9 +2033,16 @@ class JriService:
         if self.paths.task_path("done", attempt.task_slug).exists():
             evidence["task_status"] = "done"
 
+        if self._is_completed_attempt_payload(
+            attempt
+        ) and self._attempt_has_unintegrated_branch_work(attempt):
+            evidence["branch_work"] = attempt.branch
+
         if "attempt_history" in evidence and (
             "make_check_passed_event" in evidence or "end_tag" in evidence
         ):
+            return evidence
+        if "branch_work" in evidence and self._is_completed_attempt_payload(attempt):
             return evidence
         if {
             "task_status",
@@ -2115,6 +2164,11 @@ class JriService:
             self.git.checkout(default)
         elif current_branch != default:
             raise JriError(f"jri start must begin from the {default} branch")
+
+        self._integrate_completed_branch(
+            task_slug=attempt.task_slug,
+            branch=attempt.branch,
+        )
 
         if doing_task is not None and doing_task.path.exists():
             move_task(doing_task, self.paths.task_dir("done"))

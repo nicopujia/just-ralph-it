@@ -102,6 +102,31 @@ class SuccessfulFakeAgentRuntime(FakeAgentRuntime):
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
 
 
+class DivergingMainSuccessfulFakeAgentRuntime(SuccessfulFakeAgentRuntime):
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        result_path: Path,
+        on_start: object | None = None,
+        timeout: int | None = None,
+    ) -> AgentRunResult:
+        repo_root = root.parent.parent
+        (repo_root / "concurrent.txt").write_text("concurrent\n", encoding="utf-8")
+        git(repo_root, "add", "concurrent.txt")
+        git(repo_root, "commit", "-m", "concurrent main work")
+        return super().run_ralph_task(
+            root=root,
+            prompt=prompt,
+            log_path=log_path,
+            result_path=result_path,
+            on_start=on_start,
+            timeout=timeout,
+        )
+
+
 class NeedsHumanFakeAgentRuntime(FakeAgentRuntime):
     """Simulates Ralph resolving the task as needs human."""
 
@@ -986,6 +1011,39 @@ def test_start_completes_single_task(git_repo: Path) -> None:
     history_attempts = cast(list[dict[str, object]], attempt_history["attempts"])
     assert len(history_attempts) == 1
     assert history_attempts[0]["result_payload"] == attempts[0]["result_payload"]
+    assert git(git_repo, "status", "--short") == ""
+
+
+def test_start_integrates_completed_ralph_work_when_main_diverges(
+    git_repo: Path,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    service = JriService(
+        git_repo,
+        agent_runtime=DivergingMainSuccessfulFakeAgentRuntime(),
+    )
+
+    completed = service.start(max_tasks=1, force=True)
+
+    assert completed == 1
+    assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
+    assert (git_repo / "implemented.txt").read_text(encoding="utf-8") == "implemented\n"
+    assert (git_repo / "concurrent.txt").read_text(encoding="utf-8") == "concurrent\n"
+    history = git(git_repo, "log", "--oneline", "--max-count=8")
+    assert "jri: integrate implement-file" in history
     assert git(git_repo, "status", "--short") == ""
 
 
@@ -5776,6 +5834,7 @@ def test_complete_attempt_commits_partial_work_on_ralph_branch(
 
     assert git(git_repo, "branch", "--show-current") == "main"
     assert (git_repo / ".jri" / "tasks" / "done" / "done-task.md").exists()
+    assert (git_repo / "partial.txt").read_text(encoding="utf-8") == "partial\n"
     assert service.state_store.load().active_attempt is None
 
 
@@ -6056,6 +6115,64 @@ def test_recover_stale_start_state_resumes_doing_task_with_evidence(
     )
     assert "reason=resume-completed-attempt" in recovery_log
     assert "evidence=end_tag:jri/end/task-a" in recovery_log
+
+
+def test_start_completes_stale_completed_attempt_with_branch_work(
+    git_repo: Path,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="doing",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="Done but interrupted.",
+        acceptance_criteria=["branch-work.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/doing/task-a.md")
+    git(git_repo, "commit", "-m", "seed stale completed task")
+    git(git_repo, "tag", "jri/begin/task-a")
+    git(git_repo, "checkout", "-b", "ralph/main")
+    (git_repo / "branch-work.txt").write_text("branch work\n", encoding="utf-8")
+    git(git_repo, "add", "branch-work.txt")
+    git(git_repo, "commit", "-m", "complete task on ralph")
+    git(git_repo, "checkout", "main")
+    (git_repo / "main-work.txt").write_text("main work\n", encoding="utf-8")
+    git(git_repo, "add", "main-work.txt")
+    git(git_repo, "commit", "-m", "concurrent main work")
+
+    runtime = SuccessfulFakeAgentRuntime()
+    service = JriService(git_repo, agent_runtime=runtime)
+    attempt = AttemptState(
+        number=1,
+        task_slug="task-a",
+        branch="ralph/main",
+        started_at=1,
+        finished_at=2,
+        result_payload=RalphResultPayload(result="completed"),
+    )
+    service.state_store.save(
+        State(started_at=1, branch="main", active_attempt=attempt, attempts=[attempt])
+    )
+
+    assert service.start(max_tasks=1, force=True) == 0
+
+    assert runtime.calls == []
+    assert (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
+    assert (git_repo / "branch-work.txt").read_text(encoding="utf-8") == "branch work\n"
+    assert (git_repo / "main-work.txt").read_text(encoding="utf-8") == "main work\n"
+    attempts = cast(
+        list[dict[str, object]],
+        read_json(git_repo / ".jri" / "state.json")["attempts"],
+    )
+    assert [item["result"] for item in attempts] == ["completed"]
+    recovery_log = (git_repo / ".jri" / "logs" / "recovery.log").read_text(
+        encoding="utf-8"
+    )
+    assert "reason=resume-completed-attempt" in recovery_log
+    assert "branch_work:ralph/main" in recovery_log
 
 
 def test_recover_stale_start_state_handles_finished_active_attempt_without_task(
