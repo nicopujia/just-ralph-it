@@ -123,6 +123,11 @@ Critical behavior discovered during interrogation must appear in both the task b
 The body can explain context and intent; acceptance criteria must name the observable pass/fail behaviors Ralph and validators cannot miss.
 Avoid acceptance criteria that merely say "cover the cases described above" when the cases materially affect behavior; list those cases explicitly.
 
+For operational tasks such as deployment, system setup, diagnostics, or environment inspection, distinguish behavior decisions from execution evidence.
+Pin down the resources Ralph may touch, commands or surfaces it may use, stop/rollback behavior, safety exclusions, and terminal outcomes.
+It is acceptable for a task to record observed command output, runtime status, logs, or evidence discovered during execution without enumerating every possible value up front, as long as those values do not require Ralph to choose product behavior, scope, safety, or acceptance on its own.
+Do not turn every report field into a separate product decision; make reporting bounded and auditable instead.
+
 ### Promotion process
 
 When you think tasks are ready to be promoted, stop and stick to the following workflow:
