@@ -65,6 +65,70 @@ def test_status_shows_counts_and_human_tasks(git_repo: Path, capsys) -> None:
     assert "ralph-task" not in out.split("Tasks assigned to Human")[1]
 
 
+def test_status_explains_actionable_human_blocker(git_repo: Path, capsys) -> None:
+    _init(git_repo)
+    write_task(
+        git_repo,
+        status="todo",
+        slug="needs-human-task",
+        title="Needs human task",
+        priority=0,
+        assignee="Ralph",
+        body="Blocked until a Human task is complete.",
+        depends_on=["needs-human-task--needs-human"],
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="needs-human-task--needs-human",
+        title="Provide missing input",
+        priority=0,
+        assignee="Human",
+        body="Provide the missing input.",
+    )
+
+    rc = run_cli(["status"], cwd=git_repo)
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert (
+        "Action needed: complete Human task needs-human-task--needs-human, "
+        "then run `jri complete-human needs-human-task--needs-human`." in out
+    )
+
+
+def test_status_explains_completed_human_blocker_leaves_ralph_retry(
+    git_repo: Path, capsys
+) -> None:
+    _init(git_repo)
+    write_task(
+        git_repo,
+        status="todo",
+        slug="needs-human-task",
+        title="Needs human task",
+        priority=0,
+        assignee="Ralph",
+        body="Retry after the Human task is complete.",
+        depends_on=["needs-human-task--needs-human"],
+    )
+    write_task(
+        git_repo,
+        status="done",
+        slug="needs-human-task--needs-human",
+        title="Provide missing input",
+        priority=0,
+        assignee="Human",
+        body="Provided the missing input.",
+    )
+
+    rc = run_cli(["status"], cwd=git_repo)
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "[done  ] [P0] needs-human-task--needs-human" in out
+    assert "Action needed: run `jri start` to retry needs-human-task." in out
+
+
 def test_status_no_human_tasks(git_repo: Path, capsys) -> None:
     _init(git_repo)
     write_task(
@@ -142,6 +206,35 @@ def test_status_shows_stale_tracked_ralph_process(git_repo: Path, capsys) -> Non
     assert rc == 0
     out = capsys.readouterr().out
     assert "Ralph: not running (previous run was interrupted)" in out
+    assert (
+        "Action needed: run `jri start --force` "
+        "to recover interrupted Ralph state." in out
+    )
+
+
+def test_status_shows_stale_doing_without_tracked_process(
+    git_repo: Path, capsys
+) -> None:
+    _init(git_repo)
+    write_task(
+        git_repo,
+        status="doing",
+        slug="stale-task",
+        title="Stale task",
+        priority=0,
+        assignee="Ralph",
+        body="A crashed run left this in doing.",
+    )
+
+    rc = run_cli(["status"], cwd=git_repo)
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Ralph: not running (task left in doing)" in out
+    assert (
+        "Action needed: run `jri start --force` "
+        "to recover interrupted Ralph state." in out
+    )
 
 
 def test_status_shows_human_tasks_across_all_states(git_repo: Path, capsys) -> None:

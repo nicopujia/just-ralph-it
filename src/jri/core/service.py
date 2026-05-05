@@ -517,6 +517,75 @@ class JriService:
         except ValueError as exc:
             raise JriError(str(exc)) from exc
 
+    def status_action_needed(self, tasks_by_status: dict[str, list[Task]]) -> str:
+        self.ensure_initialized()
+        if self._has_stale_runtime_state(tasks_by_status):
+            return "run `jri start --force` to recover interrupted Ralph state."
+
+        todo_tasks = tasks_by_status.get("todo", [])
+        doing_tasks = tasks_by_status.get("doing", [])
+        done_tasks = tasks_by_status.get("done", [])
+        done_slugs = {task.slug for task in done_tasks}
+        actionable_human_slugs = {
+            task.slug
+            for status in ("draft", "todo", "doing")
+            for task in tasks_by_status.get(status, [])
+            if task.metadata.assignee == "Human"
+        }
+
+        for task in sorted(
+            todo_tasks,
+            key=lambda item: (item.metadata.priority, item.slug),
+        ):
+            if task.metadata.assignee != "Ralph":
+                continue
+            blocking_humans = [
+                slug
+                for slug in task.metadata.depends_on
+                if slug in actionable_human_slugs
+            ]
+            if blocking_humans:
+                slug = sorted(blocking_humans)[0]
+                return (
+                    f"complete Human task {slug}, then run `jri complete-human {slug}`."
+                )
+
+        try:
+            next_task = select_next_task(
+                todo_tasks,
+                done_slugs=done_slugs,
+                doing_tasks=doing_tasks,
+            )
+        except ValueError:
+            next_task = None
+        if next_task is not None:
+            verb = (
+                "retry"
+                if next_task.metadata.depends_on
+                or self._latest_attempt_result(next_task.slug)
+                else "work on"
+            )
+            return f"run `jri start` to {verb} {next_task.slug}."
+
+        blocked = [
+            task
+            for task in todo_tasks
+            if task.metadata.assignee == "Ralph"
+            and not set(task.metadata.depends_on).issubset(done_slugs)
+        ]
+        if blocked:
+            task = sorted(
+                blocked,
+                key=lambda item: (item.metadata.priority, item.slug),
+            )[0]
+            missing = sorted(set(task.metadata.depends_on) - done_slugs)
+            if missing:
+                return (
+                    f"waiting for dependency {missing[0]} before {task.slug} can start."
+                )
+
+        return "none."
+
     def complete_human(self, slug: str) -> Task:
         self.ensure_initialized()
         task_by_status = self._known_task_by_status(slug)
@@ -572,7 +641,50 @@ class JriService:
         if process is not None:
             return "Ralph: not running (previous run was interrupted)"
 
+        try:
+            doing_tasks = list_tasks(self.paths.task_dir("doing"), git_repo=self.git)
+        except ValueError as exc:
+            raise JriError(str(exc)) from exc
+        if any(task.metadata.assignee == "Ralph" for task in doing_tasks):
+            return "Ralph: not running (task left in doing)"
+
+        if (
+            state.active_attempt is not None
+            and state.active_attempt.finished_at is None
+        ):
+            return "Ralph: not running (previous run was interrupted)"
+
         return "Ralph: not running"
+
+    def _has_stale_runtime_state(self, tasks_by_status: dict[str, list[Task]]) -> bool:
+        state = self.state_store.load()
+        process = state.process
+        loop_pid = process.loop_pid if process is not None else None
+        if loop_pid is not None and self._is_pid_alive(loop_pid):
+            return False
+        if process is not None:
+            return True
+        if any(
+            task.metadata.assignee == "Ralph"
+            for task in tasks_by_status.get("doing", [])
+        ):
+            return True
+        return (
+            state.active_attempt is not None
+            and state.active_attempt.finished_at is None
+        )
+
+    def _latest_attempt_result(self, task_slug: str) -> str | None:
+        attempts = [
+            attempt
+            for attempt in (
+                self.state_store.load().attempts + self._load_attempt_history(task_slug)
+            )
+            if attempt.task_slug == task_slug and attempt.result is not None
+        ]
+        if not attempts:
+            return None
+        return max(attempts, key=lambda attempt: attempt.number).result
 
     def metrics_summary(self) -> str | None:
         """Return a human-readable metrics summary, or None if no metrics."""
@@ -2491,20 +2603,45 @@ class JriService:
             if state.active_attempt is not None:
                 return state.active_attempt
             if state.attempts:
-                return state.attempts[-1]
+                latest = state.attempts[-1]
+                return self._best_inspect_attempt(
+                    [latest, *self._load_attempt_history(latest.task_slug)]
+                )
             raise JriError("no task attempts recorded")
         matches = [attempt for attempt in state.attempts if attempt.task_slug == slug]
         if state.active_attempt is not None and state.active_attempt.task_slug == slug:
             matches.append(state.active_attempt)
-        if not matches:
-            matches = self._load_attempt_history(slug)
+        matches.extend(self._load_attempt_history(slug))
         if not matches:
             raise JriError(f"task '{slug}' has no recorded attempts")
-        return max(matches, key=lambda attempt: attempt.number)
+        return self._best_inspect_attempt(matches)
+
+    def _best_inspect_attempt(self, attempts: list[AttemptState]) -> AttemptState:
+        latest_number = max(attempt.number for attempt in attempts)
+        latest_attempts = [
+            attempt for attempt in attempts if attempt.number == latest_number
+        ]
+        inspectable = [
+            attempt for attempt in latest_attempts if self._attempt_log_exists(attempt)
+        ]
+        if inspectable:
+            return inspectable[-1]
+        return latest_attempts[-1]
+
+    def _attempt_log_exists(self, attempt: AttemptState) -> bool:
+        if attempt.log_path is None:
+            return False
+        return self._resolve_attempt_log_path(attempt.log_path).exists()
+
+    def _resolve_attempt_log_path(self, log_path: str) -> Path:
+        path = Path(log_path)
+        if path.is_absolute():
+            return path
+        return self.root / path
 
     def _inspect_log_path(self, attempt: AttemptState) -> Path:
         if attempt.log_path is not None:
-            log_path = Path(attempt.log_path)
+            log_path = self._resolve_attempt_log_path(attempt.log_path)
             if log_path.exists():
                 return log_path
         return self._recover_missing_inspect_log(attempt)

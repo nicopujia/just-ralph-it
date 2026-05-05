@@ -2538,6 +2538,57 @@ def test_view_inspect_reads_historical_attempt_when_runtime_state_is_missing(
     assert "completed" in output
 
 
+def test_view_inspect_prefers_recovered_history_log_for_same_failed_attempt(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    missing_log_path = git_repo / ".jri" / "logs" / "ralph" / "missing-original.log"
+    recovered_log_path = git_repo / ".jri" / "logs" / "ralph" / "recovered-safe.log"
+    recovered_log_path.parent.mkdir(parents=True, exist_ok=True)
+    recovered_log_path.write_text(
+        "JRI recovered missing inspect log.\n"
+        "Task: failed-task\n"
+        "Attempt: 1\n"
+        "Result: failed\n"
+        f"Original log path: {missing_log_path}\n",
+        encoding="utf-8",
+    )
+    state_attempt = AttemptState(
+        number=1,
+        task_slug="failed-task",
+        branch="ralph",
+        started_at=1,
+        finished_at=2,
+        log_path=str(missing_log_path),
+        result="failed",
+    )
+    history_attempt = AttemptState(
+        number=1,
+        task_slug="failed-task",
+        branch="ralph",
+        started_at=1,
+        finished_at=2,
+        log_path=str(recovered_log_path),
+        result="failed",
+    )
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
+    service.state_store.save(State(attempts=[state_attempt]))
+    service._persist_attempt_history(history_attempt)
+    capsys.readouterr()
+
+    assert run_cli(["inspect", "failed-task"], cwd=git_repo) == 0
+
+    output = capsys.readouterr().out
+    assert "failed-task" in output
+    assert "recovered missing inspect log" in output
+    assert "Original log path:" in output
+    assert "failed" in output
+    recovered_logs = list(
+        (git_repo / ".jri" / "logs" / "ralph").glob("*inspect-recovered*.log")
+    )
+    assert recovered_logs == []
+
+
 def test_start_retries_after_interrupted_completion_without_rerunning_task(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

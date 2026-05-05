@@ -91,6 +91,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 total = sum(len(t) for t in tasks_by_status.values())
                 print(f"Tasks: {total} total")
                 print(service.ralph_status_summary())
+                print(f"Action needed: {service.status_action_needed(tasks_by_status)}")
                 print()
                 max_label = max(len(s) for s in tasks_by_status)
                 for status, tasks in tasks_by_status.items():
@@ -148,9 +149,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         if event.task is not None:
                             parts.append(f"task={event.task}")
                         if event.detail:
-                            detail_str = " ".join(
-                                f"{k}={v}" for k, v in event.detail.items()
-                            )
+                            detail_str = _format_timeline_detail(event.detail)
                             parts.append(detail_str)
                         print(" ".join(parts))
                 return 0
@@ -268,6 +267,31 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
 
 def _print_command_message(command: str) -> None:
     print(f"{command}: {_COMMAND_MESSAGES[command]}")
+
+
+def _format_timeline_detail(detail: dict[str, object]) -> str:
+    enriched = dict(detail)
+    reason = enriched.get("reason")
+    if isinstance(reason, str):
+        explanation = _timeline_reason_explanation(reason)
+        if explanation is not None:
+            enriched.setdefault("summary", explanation)
+    return " ".join(f"{key}={value}" for key, value in enriched.items())
+
+
+def _timeline_reason_explanation(reason: str) -> str | None:
+    explanations = {
+        "needs_human": "Human-task-created",
+        "inspect_log_missing": "Recovered-safe-inspect-log",
+        "missing_result_payload": "Failed-JRI-attempt-missing-payload",
+        "dead-tracked-process": "Tracked-runtime-exited",
+        "no-tracked-process": "Task-left-in-doing-without-runtime",
+        "resume-completed-attempt": "Runtime-success-bookkeeping-recovered",
+        "missing-completion-evidence": "Completed-state-lacked-durable-evidence",
+        "stale-task-state": "Runtime-state-left-behind",
+        "task_failed": "Task-returned-to-todo",
+    }
+    return explanations.get(reason)
 
 
 def resolve_start_models(
