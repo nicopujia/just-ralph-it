@@ -2962,6 +2962,26 @@ class FailedFakeAgentRuntime(FakeAgentRuntime):
         destination.write_text('{"session": "fake_failed"}\n', encoding="utf-8")
 
 
+class StartupErrorFakeAgentRuntime(FakeAgentRuntime):
+    def __init__(self) -> None:
+        super().__init__(model=None)
+        self.calls: list[Path] = []
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        result_path: Path,
+        on_start: object | None = None,
+        timeout: int | None = None,
+    ) -> AgentRunResult:
+        del root, prompt, result_path, on_start, timeout
+        self.calls.append(log_path)
+        raise JriError("pi rpc command 'get_state' timed out")
+
+
 class IncompleteFakeAgentRuntime(FakeAgentRuntime):
     """Simulates Ralph returning an incompleted result."""
 
@@ -3296,6 +3316,53 @@ def test_nonzero_agent_return_records_failed_attempt_without_crashing(
         encoding="utf-8"
     )
     assert '"reason":"nonzero_returncode"' in timeline
+
+
+def test_agent_startup_exception_recovers_task_and_persists_inspectable_log(
+    git_repo: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="startup-error-task",
+        title="Startup error task",
+        priority=0,
+        assignee="Ralph",
+        body="The runtime raises before writing a log.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/startup-error-task.md")
+    git(git_repo, "commit", "-m", "add startup error task")
+
+    runtime = StartupErrorFakeAgentRuntime()
+    service = JriService(git_repo, agent_runtime=runtime)
+
+    assert service.start(max_tasks=1, force=True) == 0
+
+    state = read_json(git_repo / ".jri" / "state.json")
+    assert state.get("active_attempt") is None
+    attempts = cast(list[dict[str, object]], state["attempts"])
+    assert attempts[0]["result"] == "failed"
+    log_path = Path(cast(str, attempts[0]["log_path"]))
+    assert log_path.exists()
+    assert "pi rpc command 'get_state' timed out" in log_path.read_text(
+        encoding="utf-8"
+    )
+    assert (git_repo / ".jri" / "tasks" / "todo" / "startup-error-task.md").exists()
+    assert not (
+        git_repo / ".jri" / "tasks" / "doing" / "startup-error-task.md"
+    ).exists()
+
+    service.inspect()
+    output = capsys.readouterr().out
+    assert "startup-error-task" in output
+    assert "failed" in output
+
+    timeline = (git_repo / ".jri" / "logs" / "timeline.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert '"reason":"agent_runtime_exception"' in timeline
 
 
 def test_malformed_needs_human_payload_is_treated_as_failed(git_repo: Path) -> None:
@@ -4201,6 +4268,45 @@ def test_task_limit_records_timeline_event(git_repo: Path) -> None:
     assert loop_stopped_events[0].detail is not None
     assert loop_stopped_events[0].detail.get("reason") == "task_limit"
     assert loop_stopped_events[0].detail.get("limit") == 1
+
+
+def test_task_limit_counts_failed_attempt_as_consumed(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="This task fails.",
+    )
+    write_task(
+        git_repo,
+        status="todo",
+        slug="task-b",
+        title="Task B",
+        priority=1,
+        assignee="Ralph",
+        body="This task must not start in the same one-task run.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo")
+    git(git_repo, "commit", "-m", "add two tasks")
+
+    runtime = FailedFakeAgentRuntime()
+    service = JriService(git_repo, agent_runtime=runtime)
+
+    assert service.start(max_tasks=1, force=True) == 0
+
+    assert len(runtime.calls) == 1
+    assert (git_repo / ".jri" / "tasks" / "todo" / "task-a.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "todo" / "task-b.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "doing" / "task-b.md").exists()
+    timeline = (git_repo / ".jri" / "logs" / "timeline.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert timeline.count('"event":"attempt_started"') == 1
+    assert '"reason":"task_limit"' in timeline
 
 
 class SlowFakeAgentRuntime(FakeAgentRuntime):

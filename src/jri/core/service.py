@@ -1013,6 +1013,7 @@ class JriService:
         if self.paths.stop_signal_path.exists():
             self.paths.stop_signal_path.unlink()
 
+        attempted = 0
         completed = 0
         task_results: dict[str, Result] = {}
         outcome: RunOutcome = "no_work"
@@ -1028,7 +1029,7 @@ class JriService:
                 runtime_context = self._start_pi_runtime(
                     overrides=model_overrides or {}
                 )
-            while max_tasks is None or completed < max_tasks:
+            while max_tasks is None or attempted < max_tasks:
                 if self._halt_requested:
                     raise HaltRequested("Ralph halt requested")
 
@@ -1061,8 +1062,7 @@ class JriService:
                         print("No todo tasks found.")
                     break
 
-                # Check if we've reached the task limit before starting
-                if max_tasks is not None and completed >= max_tasks:
+                if max_tasks is not None and attempted >= max_tasks:
                     break
 
                 if refresh_runtime:
@@ -1070,6 +1070,7 @@ class JriService:
                         result = self._run_task(next_task, task_timeout=task_timeout)
                 else:
                     result = self._run_task(next_task, task_timeout=task_timeout)
+                attempted += 1
                 if result == "completed":
                     completed += 1
                     task_results[next_task.slug] = result
@@ -1077,10 +1078,10 @@ class JriService:
                     if self._should_restart_process_after_iteration(
                         dogfood=dogfood,
                         max_tasks=max_tasks,
-                        completed=completed,
+                        completed=attempted,
                     ):
                         remaining_tasks = (
-                            max_tasks - completed if max_tasks is not None else None
+                            max_tasks - attempted if max_tasks is not None else None
                         )
                         raise RestartRequested(remaining_tasks=remaining_tasks)
                 elif result in {"failed", "incompleted"}:
@@ -1113,7 +1114,11 @@ class JriService:
                     break
 
             # Record if we stopped due to task limit
-            if max_tasks is not None and completed >= max_tasks:
+            if (
+                max_tasks is not None
+                and attempted >= max_tasks
+                and outcome != "timeout"
+            ):
                 self.timeline.record(
                     TimelineEvent(
                         ts=TimelineStore.now_iso(),
@@ -1333,6 +1338,7 @@ class JriService:
         started_at = int(time.time())
         log_path = self.paths.ralph_log_path(task.slug, started_at)
         log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.touch(exist_ok=True)
         branch = self._ralph_branch()
         print(task_header(task.slug))
         sys.stdout.flush()
@@ -1400,14 +1406,45 @@ class JriService:
         )
         result_path = self.paths.jri_dir / "signals" / "result"
         result_path.parent.mkdir(parents=True, exist_ok=True)
-        result = self.agent_runtime.run_ralph_task(
-            root=wt_paths.root,
-            prompt=prompt_text,
-            log_path=log_path,
-            result_path=result_path,
-            on_start=on_start_cb,
-            timeout=task_timeout,
-        )
+        try:
+            result = self.agent_runtime.run_ralph_task(
+                root=wt_paths.root,
+                prompt=prompt_text,
+                log_path=log_path,
+                result_path=result_path,
+                on_start=on_start_cb,
+                timeout=task_timeout,
+            )
+        except Exception as exc:
+            message = f"JRI failed to run Ralph task: {type(exc).__name__}: {exc}"
+            with log_path.open("a", encoding="utf-8") as log_file:
+                log_file.write(f"{message}\n")
+            print(message, file=sys.stderr)
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="stderr_warning",
+                    task=task.slug,
+                    detail={"message": message},
+                )
+            )
+            self._recover_failed_task_wt(doing_task, wt_git)
+            self._finish_attempt(attempt, result="failed")
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="task_failed",
+                    task=task.slug,
+                    detail={
+                        "reason": "agent_runtime_exception",
+                        "error_type": type(exc).__name__,
+                        "error": str(exc),
+                    },
+                )
+            )
+            print(task_footer("failed"))
+            sys.stdout.flush()
+            return "failed"
 
         attempt = replace(
             attempt,
