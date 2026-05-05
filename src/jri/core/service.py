@@ -34,6 +34,7 @@ from .agents.session import (
 from .errors import HaltRequested, JriError, RestartRequested
 from .git import (
     MSG_CHECK_PROMOTE,
+    MSG_COMPLETE_HUMAN,
     MSG_ESCALATE_HUMAN,
     MSG_PROMOTE,
     MSG_RALPH_FINALIZE,
@@ -516,6 +517,36 @@ class JriService:
         except ValueError as exc:
             raise JriError(str(exc)) from exc
 
+    def complete_human(self, slug: str) -> Task:
+        self.ensure_initialized()
+        task_by_status = self._known_task_by_status(slug)
+        if task_by_status is None:
+            raise JriError(f"human task not found: {slug}")
+        status, task = task_by_status
+        if task.metadata.assignee != "Human":
+            raise JriError(
+                f"task '{slug}' is assigned to {task.metadata.assignee}, not Human"
+            )
+        if status == "done":
+            raise JriError(f"human task '{slug}' is already done")
+        if status not in {"todo", "doing"}:
+            raise JriError(f"human task '{slug}' is not actionable from {status}")
+        source_path = self.git.relative_path(task.path)
+        completed = move_task(task, self.paths.task_dir("done"))
+        destination_path = self.git.relative_path(completed.path)
+        self.git.commit_paths_if_needed(
+            MSG_COMPLETE_HUMAN.format(slug=slug),
+            [source_path, destination_path],
+        )
+        self.timeline.record(
+            TimelineEvent(
+                ts=TimelineStore.now_iso(),
+                event="human_task_completed",
+                task=slug,
+            )
+        )
+        return completed
+
     def ralph_status_summary(self) -> str:
         self.ensure_initialized()
         state = self.state_store.load()
@@ -764,6 +795,13 @@ class JriService:
             return list_tasks(self.paths.task_dir(status), git_repo=self.git)
         except ValueError as exc:
             raise JriError(str(exc)) from exc
+
+    def _known_task_by_status(self, slug: str) -> tuple[str, Task] | None:
+        for status in _TRACKED_TASK_DIRS:
+            for task in self._list_tasks(status):
+                if task.slug == slug:
+                    return status, task
+        return None
 
     def _select_draft_tasks(
         self, draft_tasks: list[Task], slugs: list[str]

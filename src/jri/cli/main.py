@@ -15,6 +15,7 @@ _INTERNAL_RUN_LOOP_ENV = "JRI_INTERNAL_RUN_LOOP"
 _REMAINING_TASKS_ENV = "JRI_REMAINING_TASKS"
 
 _COMMAND_MESSAGES = {
+    "complete-human": "human task completed.",
     "halt": "tracked Ralph process stopped.",
     "init": "initialization complete.",
     "reset": "reset complete.",
@@ -81,6 +82,10 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         explore_model=chat_models["explore_model"],
                     ),
                 )
+            case "complete-human":
+                service.complete_human(args.slug)
+                _print_command_message("complete-human")
+                return 0
             case "status":
                 tasks_by_status = service.status()
                 total = sum(len(t) for t in tasks_by_status.values())
@@ -102,10 +107,20 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 )
                 print("\nTasks assigned to Human:\n")
                 if human_tasks:
-                    for status, task in human_tasks:
-                        p = task.metadata.priority
-                        title = task.metadata.title
-                        print(f"  [{status:<6}] [P{p}] {task.slug} — {title}")
+                    actionable = [item for item in human_tasks if item[0] != "done"]
+                    completed = [item for item in human_tasks if item[0] == "done"]
+                    if actionable:
+                        print("  Actionable Human tasks:")
+                        for status, task in actionable:
+                            p = task.metadata.priority
+                            title = task.metadata.title
+                            print(f"  [{status:<6}] [P{p}] {task.slug} — {title}")
+                    if completed:
+                        print("  Completed Human tasks:")
+                        for status, task in completed:
+                            p = task.metadata.priority
+                            title = task.metadata.title
+                            print(f"  [{status:<6}] [P{p}] {task.slug} — {title}")
                 else:
                     print("  No tasks assigned to Human.")
                 metrics = service.metrics_summary()
@@ -365,6 +380,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override the explore subagent model for this chat run only.",
     )
 
+    complete_human_parser = subparsers.add_parser(
+        "complete-human",
+        help="Mark a Human task complete by slug.",
+        description=(
+            "Move a known Human task from an actionable task state to done. "
+            "Dependent Ralph tasks remain todo and only complete after a normal "
+            "Ralph retry succeeds."
+        ),
+    )
+    complete_human_parser.add_argument(
+        "slug",
+        help="Slug of a tracked Human task to mark done.",
+    )
+
     subparsers.add_parser(
         "halt",
         help="Terminate the currently tracked Ralph process immediately.",
@@ -519,10 +548,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser(
         "status",
-        help="Show task counts by status and list human todo tasks.",
+        help="Show task counts by status and list Human task states.",
         description=(
             "Display the total number of tasks, broken down by status, "
-            "and list all todo tasks assigned to Human."
+            "and list actionable and completed tasks assigned to Human."
         ),
     )
     stop_parser = subparsers.add_parser(

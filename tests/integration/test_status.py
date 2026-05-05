@@ -188,6 +188,8 @@ def test_status_shows_human_tasks_across_all_states(git_repo: Path, capsys) -> N
     assert rc == 0
     out = capsys.readouterr().out
     # All Human tasks should appear with their status
+    assert "Actionable Human tasks:" in out
+    assert "Completed Human tasks:" in out
     assert "[draft ] [P0] human-draft" in out
     assert "[todo  ] [P1] human-todo" in out
     assert "[doing ] [P2] human-doing" in out

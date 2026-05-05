@@ -10,6 +10,7 @@ TimelineEventType = Literal[
     "task_completed",
     "task_failed",
     "task_needs_human",
+    "human_task_completed",
     "make_check_passed",
     "make_check_failed",
     "recovery_started",

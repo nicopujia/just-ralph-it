@@ -833,6 +833,7 @@ def test_top_level_help_lists_commands_alphabetically(git_repo: Path) -> None:
     command_positions = [
         result.stdout.index("attach"),
         result.stdout.index("chat"),
+        result.stdout.index("complete-human"),
         result.stdout.index("halt"),
         result.stdout.index("init"),
         result.stdout.index("inspect"),
@@ -2867,6 +2868,143 @@ def test_needs_human_block_is_durable_across_runs(git_repo: Path) -> None:
 
     assert retry_service.start(max_tasks=1, force=True) == 0
     assert retry_client.calls == []
+
+
+def test_complete_human_unblocks_original_for_retry(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="needs-human-task",
+        title="Needs human task",
+        priority=0,
+        assignee="Ralph",
+        body="This will need human help.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/needs-human-task.md")
+    git(git_repo, "commit", "-m", "add needs human task")
+
+    service = JriService(git_repo, agent_runtime=NeedsHumanFakeAgentRuntime())
+    assert service.start(max_tasks=1, force=True) == 0
+
+    assert (
+        run_cli(["complete-human", "needs-human-task--needs-human"], cwd=git_repo) == 0
+    )
+
+    human_done = (
+        git_repo / ".jri" / "tasks" / "done" / "needs-human-task--needs-human.md"
+    )
+    original_todo = git_repo / ".jri" / "tasks" / "todo" / "needs-human-task.md"
+    assert human_done.exists()
+    assert original_todo.exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "needs-human-task.md").exists()
+
+    retry_client = SuccessfulFakeAgentRuntime()
+    retry_service = JriService(git_repo, agent_runtime=retry_client)
+    assert retry_service.start(max_tasks=1, force=True) == 1
+    assert len(retry_client.calls) == 1
+    assert "needs-human-task" in retry_client.calls[0][0]
+    assert (git_repo / ".jri" / "tasks" / "done" / "needs-human-task.md").exists()
+
+
+def test_complete_human_does_not_commit_unrelated_dirty_files(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="needs-human-task",
+        title="Needs human task",
+        priority=0,
+        assignee="Ralph",
+        body="This will need human help.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    (git_repo / "unrelated.txt").write_text("before\n", encoding="utf-8")
+    git(git_repo, "add", ".jri/tasks/todo/needs-human-task.md", "unrelated.txt")
+    git(git_repo, "commit", "-m", "add needs human task and unrelated file")
+
+    service = JriService(git_repo, agent_runtime=NeedsHumanFakeAgentRuntime())
+    assert service.start(max_tasks=1, force=True) == 0
+    (git_repo / "unrelated.txt").write_text("after\n", encoding="utf-8")
+
+    assert (
+        run_cli(["complete-human", "needs-human-task--needs-human"], cwd=git_repo) == 0
+    )
+
+    assert (git_repo / "unrelated.txt").read_text(encoding="utf-8") == "after\n"
+    assert git(git_repo, "show", "HEAD:unrelated.txt") == "before"
+    assert (
+        git(git_repo, "status", "--short", "--", "unrelated.txt") == "M unrelated.txt"
+    )
+    committed_paths = git(
+        git_repo,
+        "show",
+        "--name-status",
+        "--format=",
+        "--no-renames",
+        "HEAD",
+    )
+    assert "D\t.jri/tasks/todo/needs-human-task--needs-human.md" in committed_paths
+    assert "A\t.jri/tasks/done/needs-human-task--needs-human.md" in committed_paths
+    assert "unrelated.txt" not in committed_paths
+
+
+def test_complete_human_does_not_fake_original_success_when_retry_fails(
+    git_repo: Path,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="needs-human-task",
+        title="Needs human task",
+        priority=0,
+        assignee="Ralph",
+        body="This will need human help.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/needs-human-task.md")
+    git(git_repo, "commit", "-m", "add needs human task")
+
+    service = JriService(git_repo, agent_runtime=NeedsHumanFakeAgentRuntime())
+    assert service.start(max_tasks=1, force=True) == 0
+    assert (
+        run_cli(["complete-human", "needs-human-task--needs-human"], cwd=git_repo) == 0
+    )
+
+    retry_service = JriService(git_repo, agent_runtime=FailedFakeAgentRuntime())
+    assert retry_service.start(max_tasks=1, force=True) == 0
+
+    assert (
+        git_repo / ".jri" / "tasks" / "done" / "needs-human-task--needs-human.md"
+    ).exists()
+    assert (git_repo / ".jri" / "tasks" / "todo" / "needs-human-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "needs-human-task.md").exists()
+    attempts = cast(
+        list[dict[str, object]],
+        read_json(git_repo / ".jri" / "state.json")["attempts"],
+    )
+    assert [attempt["result"] for attempt in attempts] == ["needs_human", "failed"]
+
+
+def test_complete_human_rejects_unknown_or_non_human_slugs(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="ralph-task",
+        title="Ralph task",
+        priority=0,
+        assignee="Ralph",
+        body="Ralph work.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/ralph-task.md")
+    git(git_repo, "commit", "-m", "add ralph task")
+
+    assert run_cli(["complete-human", "../ralph-task"], cwd=git_repo) == 1
+    assert run_cli(["complete-human", "ralph-task"], cwd=git_repo) == 1
+    assert (git_repo / ".jri" / "tasks" / "todo" / "ralph-task.md").exists()
 
 
 def test_needs_human_then_successful_completes_one(git_repo: Path) -> None:
