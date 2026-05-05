@@ -483,6 +483,7 @@ def test_packaged_schemas_are_available() -> None:
     assert builtins.joinpath("explorer", "prompt.md").is_file()
     assert builtins.joinpath("ralph", "prompt.md").is_file()
     assert builtins.joinpath("ralph", "validator", "prompt.md").is_file()
+    assert builtins.joinpath("ralph", "skills", "project-setup", "SKILL.md").is_file()
     assert builtins.joinpath("extension.ts").is_file()
     assert builtins.joinpath("interrogator", "tools.ts").is_file()
     assert builtins.joinpath("_shared", "registry.ts").is_file()
@@ -511,6 +512,7 @@ def test_agent_resource_manifest_resolves_current_package_resources() -> None:
         "prompts.explorer": "explorer/prompt.md",
         "tools.pythonRunner": "_shared/tools/runner.ts",
         "themes.modernYellow": "theme.json",
+        "skills.projectSetup": "ralph/skills/project-setup/SKILL.md",
         "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
         "skills.reverseRalph": "ralph/skills/reverse-ralph/SKILL.md",
     }

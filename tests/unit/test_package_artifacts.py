@@ -18,6 +18,7 @@ REQUIRED_AGENT_RESOURCES = {
     "src/jri/core/agents/bundle/ralph/validator/prompt.md",
     "src/jri/core/agents/bundle/interrogator/validator/prompt.md",
     "src/jri/core/agents/bundle/interrogator/validator/extension.ts",
+    "src/jri/core/agents/bundle/ralph/skills/project-setup/SKILL.md",
     "src/jri/core/agents/bundle/ralph/skills/hosted-projects/SKILL.md",
     "src/jri/core/agents/bundle/ralph/skills/reverse-ralph/SKILL.md",
     "src/jri/core/agents/bundle/_shared/tools/runner.ts",

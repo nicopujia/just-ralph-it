@@ -205,6 +205,7 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
 ) -> None:
     package_root = tmp_path / "package"
     (package_root / "ralph" / "skills" / "hosted-projects").mkdir(parents=True)
+    (package_root / "ralph" / "skills" / "project-setup").mkdir(parents=True)
     (package_root / "ralph" / "skills" / "reverse-ralph").mkdir()
     (package_root / "extension.ts").write_text("", encoding="utf-8")
     (package_root / "ralph" / "prompt.md").write_text("", encoding="utf-8")
@@ -213,6 +214,7 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
     resource_paths = {
         "extensions.default": "extension.ts",
         "prompts.ralph": "ralph/prompt.md",
+        "skills.projectSetup": "ralph/skills/project-setup/SKILL.md",
         "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
     }
 
@@ -262,6 +264,8 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
             str(package_root / "ralph" / "prompt.md"),
             "--skill",
             str(package_root / "ralph" / "skills" / "hosted-projects"),
+            "--skill",
+            str(package_root / "ralph" / "skills" / "project-setup"),
             "--skill",
             str(package_root / "ralph" / "skills" / "reverse-ralph"),
         ]
