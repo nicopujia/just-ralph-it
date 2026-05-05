@@ -187,10 +187,22 @@ def run_edit_draft_task(payload: dict[str, Any]) -> str:
         raise ValueError("refusing to edit symlinked draft task")
 
     source = task_path.read_text(encoding="utf-8")
-    updated, replacements = _apply_exact_edits(source, edits)
-    _read_task_source(task_path, updated)
-    task_path.write_text(updated, encoding="utf-8")
     relative = f".jri/tasks/draft/{slug}.md"
+    try:
+        updated, replacements = _apply_exact_edits(source, edits)
+    except ValueError as exc:
+        raise ValueError(
+            f"draft edit conflict for {relative}: {exc}; "
+            "re-read the draft task and retry with exact current text"
+        ) from exc
+    try:
+        _read_task_source(task_path, updated)
+    except ValueError as exc:
+        raise ValueError(
+            f"draft edit rejected for {relative}: updated task would be invalid "
+            f"({exc}); draft unchanged"
+        ) from exc
+    task_path.write_text(updated, encoding="utf-8")
     result = {
         "path": relative,
         "replacements": replacements,

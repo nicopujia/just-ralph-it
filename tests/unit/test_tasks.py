@@ -756,7 +756,47 @@ def test_edit_draft_task_tool_applies_exact_replacement(tmp_path: Path) -> None:
     assert task.body == "Refine the scope.\n"
 
 
-def test_edit_draft_task_tool_rejects_invalid_result(tmp_path: Path) -> None:
+def test_edit_draft_task_tool_reports_stale_conflict_without_changing_draft(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".jri" / "tasks").mkdir(parents=True)
+    run_agent_tool(
+        repo,
+        {
+            "title": "Clarify scope",
+            "body": "Current draft scope.\n",
+            "assignee": "Ralph",
+            "priority": 1,
+            "acceptance_criteria": ["Scope is approved"],
+        },
+        "upsert-task",
+    )
+    task_path = repo / ".jri" / "tasks" / "draft" / "clarify-scope.md"
+    original = task_path.read_text(encoding="utf-8")
+
+    with pytest.raises(subprocess.CalledProcessError) as exc_info:
+        run_agent_tool(
+            repo,
+            {
+                "slug": "clarify-scope",
+                "edits": [
+                    {"oldText": "Outdated draft scope.", "newText": "Refined scope."}
+                ],
+            },
+            "edit-draft-task",
+        )
+
+    assert "draft edit conflict" in exc_info.value.stderr
+    assert "re-read the draft task" in exc_info.value.stderr
+    assert task_path.read_text(encoding="utf-8") == original
+    assert parse_task_file(task_path).body == "Current draft scope.\n"
+
+
+def test_edit_draft_task_tool_rejects_invalid_frontmatter_without_changing_draft(
+    tmp_path: Path,
+) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     (repo / ".jri" / "tasks").mkdir(parents=True)
@@ -771,16 +811,24 @@ def test_edit_draft_task_tool_rejects_invalid_result(tmp_path: Path) -> None:
         },
         "upsert-task",
     )
+    task_path = repo / ".jri" / "tasks" / "draft" / "clarify-scope.md"
+    original = task_path.read_text(encoding="utf-8")
 
-    with pytest.raises(subprocess.CalledProcessError):
+    with pytest.raises(subprocess.CalledProcessError) as exc_info:
         run_agent_tool(
             repo,
             {
                 "slug": "clarify-scope",
-                "edits": [{"oldText": "assignee: Ralph", "newText": "assignee: Bot"}],
+                "edits": [{"oldText": "assignee: Ralph", "newText": "assignee: ["}],
             },
             "edit-draft-task",
         )
+
+    assert "draft edit rejected" in exc_info.value.stderr
+    assert "updated task would be invalid" in exc_info.value.stderr
+    assert "draft unchanged" in exc_info.value.stderr
+    assert task_path.read_text(encoding="utf-8") == original
+    assert parse_task_file(task_path).metadata.assignee == "Ralph"
 
 
 def test_edit_draft_task_tool_rejects_promoted_task(tmp_path: Path) -> None:

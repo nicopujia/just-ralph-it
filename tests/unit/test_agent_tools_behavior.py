@@ -273,7 +273,8 @@ def test_edit_draft_task_rejects_duplicate_old_text(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    write_draft_task(tmp_path, "duplicates", body="repeat\nrepeat\n")
+    task_path = write_draft_task(tmp_path, "duplicates", body="repeat\nrepeat\n")
+    original = task_path.read_text(encoding="utf-8")
 
     assert (
         invoke_tool(
@@ -287,7 +288,10 @@ def test_edit_draft_task_rejects_duplicate_old_text(
         == 1
     )
 
-    assert "matched 2 blocks" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "draft edit conflict" in err
+    assert "matched 2 blocks" in err
+    assert task_path.read_text(encoding="utf-8") == original
 
 
 def test_edit_draft_task_validates_edit_payload(
