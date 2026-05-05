@@ -14,10 +14,10 @@ Generates/refines tasks. Asks many questions, pressure-tests intent, and convert
 Execution engine for exactly one task. Acts as orchestrator, spawning subagents instead of doing the work itself. Ralph's autonomy is bounded by the validated intent encoded in the task. Ralph can report three task-result outcomes in its structured payload:
 
 - `completed`: task finished and validated.
-- `incompleted`: task is retryable later, but with learnings included.
-- `needs_human`: blocked by a genuine human-only action, generates a Human task from Ralph's structured payload.
+- `incompleted`: task is retryable later, with learnings included.
+- `needs_human`: task is blocked by a genuine human-only action. JRI creates a separate Human task from Ralph's structured payload and leaves the original Ralph task retryable.
 
-Runtime outcome and Ralph result payload are separate layers. The structured `ralph-result` payload written to `.jri/signals/result` is Ralph's authoritative task-result contract. JRI interprets the runtime around that payload separately: missing or invalid payloads are JRI-level `failed` runs, while valid payloads are copied onto the persisted attempt record for auditability.
+Runtime outcome and Ralph result payload are separate layers. The structured `ralph-result` payload written to `.jri/signals/result` is Ralph's authoritative task-result contract. JRI interprets the runtime around that payload separately: missing or invalid payloads are JRI-level `failed` runs, while valid payloads are copied onto the persisted attempt record for auditability. This keeps a failed JRI runtime from being confused with Ralph's own `completed`, `incompleted`, or `needs_human` result.
 
 Ralph may create draft follow-up tasks only for concrete bugs or refactors discovered while executing the current task. Unrelated product or roadmap ideas are captured as concise notes or learnings instead of tasks.
 
@@ -39,6 +39,9 @@ draft -> todo -> doing -> done
 
 - There is always **at most one** `doing` task at a time.
 - Promoted (todo/doing/done) tasks are append-only; changes go in new draft tasks.
+- Human blockers are promoted tasks assigned to `Human`. Completing one with `jri complete-human <slug>` moves only that Human task to `done`, unblocks dependent Ralph work, and does not mark the original Ralph task complete.
+- Every started Ralph task has persisted attempt history. `jri inspect` reads the active or latest attempt and can recover a safe placeholder log when the original inspect log is missing, so failed and recovered attempts stay inspectable.
+- Missing local diagnostics tools, such as an unavailable LSP, are recorded as evidence rather than hidden. Ralph should use project-native substitutes such as `make check`, lint, typecheck, build, tests, schema checks, or a small driver when optional diagnostics are unavailable.
 
 ### Git History
 

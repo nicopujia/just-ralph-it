@@ -406,16 +406,17 @@ def _build_parser() -> argparse.ArgumentParser:
 
     complete_human_parser = subparsers.add_parser(
         "complete-human",
-        help="Mark a Human task complete by slug.",
+        help="Complete a Human blocker task by slug.",
         description=(
-            "Move a known Human task from an actionable task state to done. "
-            "Dependent Ralph tasks remain todo and only complete after a normal "
-            "Ralph retry succeeds."
+            "Mark the tracked Human task identified by slug as done after the "
+            "human-only blocker has been handled. This unblocks dependent Ralph "
+            "tasks for a later retry, but it does not mark the original Ralph "
+            "task complete."
         ),
     )
     complete_human_parser.add_argument(
         "slug",
-        help="Slug of a tracked Human task to mark done.",
+        help="Slug of the tracked Human task to complete.",
     )
 
     subparsers.add_parser(
@@ -575,7 +576,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Show task counts by status and list Human task states.",
         description=(
             "Display the total number of tasks, broken down by status, "
-            "and list actionable and completed tasks assigned to Human."
+            "list actionable and completed tasks assigned to Human, and show "
+            "the next safe action when a Human blocker, stale runtime, or "
+            "retryable Ralph task needs attention."
         ),
     )
     stop_parser = subparsers.add_parser(

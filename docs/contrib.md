@@ -37,4 +37,5 @@ uv build
 - Lowercase commit messages, abbreviations encouraged.
 - Code changes require corresponding docs updates if docs reference that part of the code.
 - Follow TDD principles.
+- Do not write tests for docs or prompts.
 - Keep docs concise, split lines at sentence boundaries.
