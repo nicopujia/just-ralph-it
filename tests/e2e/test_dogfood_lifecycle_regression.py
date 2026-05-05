@@ -14,7 +14,7 @@ from tests.helpers import git, read_json, write_passing_makefile, write_task
 pytestmark = pytest.mark.e2e
 
 
-class TriposDogfoodFakeAgentRuntime:
+class DogfoodFakeAgentRuntime:
     def __init__(self) -> None:
         self.model: str | None = None
         self.calls: list[str] = []
@@ -67,7 +67,9 @@ class TriposDogfoodFakeAgentRuntime:
                     blocker="A deterministic human approval is required.",
                     human_task=HumanTaskPayload(
                         title="Approve deterministic dogfood input",
-                        body="Confirm the synthetic Tripos-derived input is available.",
+                        body=(
+                            "Confirm the synthetic dogfood-derived input is available."
+                        ),
                         acceptance_criteria=["The synthetic input is approved"],
                     ),
                 ),
@@ -101,7 +103,7 @@ class TriposDogfoodFakeAgentRuntime:
         )
 
 
-def test_tripos_derived_jri_lifecycle_regression(
+def test_dogfood_jri_lifecycle_regression(
     git_repo: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -111,7 +113,7 @@ def test_tripos_derived_jri_lifecycle_regression(
     git(git_repo, "commit", "-m", "configure deterministic check")
     _write_dogfood_tasks(git_repo)
 
-    runtime = TriposDogfoodFakeAgentRuntime()
+    runtime = DogfoodFakeAgentRuntime()
     service = JriService(git_repo, agent_runtime=runtime)
 
     first_summary = service.start_summary(max_tasks=3, force=True)
