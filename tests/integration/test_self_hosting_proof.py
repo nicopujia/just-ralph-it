@@ -17,7 +17,7 @@ from pathlib import Path
 from re import search
 from typing import cast
 
-from jri.core.models import AgentRunResult
+from jri.core.models import AgentRunResult, RalphResultPayload
 from jri.core.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git, read_json, write_task
@@ -70,6 +70,10 @@ class _SelfHostingFakeClient:
             returncode=0,
             result="completed",
             session_id=f"ses_proof_{slug}",
+            payload=RalphResultPayload(
+                result="completed",
+                summary=f"Completed {slug}.",
+            ),
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:

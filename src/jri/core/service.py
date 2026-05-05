@@ -51,6 +51,9 @@ from .git import (
 )
 from .metrics import MetricEntry, MetricsStore
 from .models import (
+    ATTEMPT_RESULT_VALUES,
+    TASK_STATUSES,
+    AgentRunResult,
     AttemptState,
     HumanTaskPayload,
     ProcessState,
@@ -103,7 +106,7 @@ _SCAFFOLD_TEMPLATE_PATHS = (
     ".jri/attempts/.gitkeep",
 )
 _ROOT_SCAFFOLD_PATHS = ("Makefile",)
-_TRACKED_TASK_DIRS = ("draft", "todo", "doing", "done")
+_TRACKED_TASK_DIRS = TASK_STATUSES
 _MAX_TASK_TITLE_LENGTH = 50
 _DRAFT_TASK_PREFIX = ".jri/tasks/draft/"
 _DETACH_NOTICE = "Detached. Use `jri attach` to follow the run again."
@@ -474,24 +477,14 @@ class JriService:
     def inspect(self, slug: str | None = None) -> None:
         self.ensure_initialized()
         attempt = self._resolve_inspect_attempt(slug)
-        if attempt.log_path is None:
-            raise JriError(f"task '{attempt.task_slug}' has no saved log")
-        log_path = Path(attempt.log_path)
-        if not log_path.exists():
-            raise JriError(f"task log not found: {log_path}")
+        log_path = self._inspect_log_path(attempt)
         print(task_header(attempt.task_slug))
         rendered = render_saved_log(log_path.read_text(encoding="utf-8"))
         if rendered:
             sys.stdout.write(rendered)
             if not rendered.endswith("\n"):
                 sys.stdout.write("\n")
-        if attempt.result in {
-            "completed",
-            "incompleted",
-            "needs_human",
-            "failed",
-            "timeout",
-        }:
+        if attempt.result in ATTEMPT_RESULT_VALUES:
             print(task_footer(attempt.result))
         elif attempt.result is not None:
             print(attempt.result)
@@ -1281,6 +1274,15 @@ class JriService:
             and attempt.result_payload.result == "completed"
         )
 
+    def _result_payload_violation(self, result: AgentRunResult) -> str | None:
+        if result.result not in {"completed", "incompleted", "needs_human"}:
+            return None
+        if result.payload is None:
+            return "missing_result_payload"
+        if result.payload.result != result.result:
+            return "result_payload_mismatch"
+        return None
+
     def _attempt_has_unintegrated_branch_work(self, attempt: AttemptState) -> bool:
         if not self._is_managed_ralph_branch(attempt.branch):
             return False
@@ -1495,6 +1497,22 @@ class JriService:
                     detail={"message": warning},
                 )
             )
+
+        payload_violation = self._result_payload_violation(result)
+        if payload_violation is not None:
+            self._recover_failed_task_wt(doing_task, wt_git)
+            self._finish_attempt(attempt, result="failed")
+            self.timeline.record(
+                TimelineEvent(
+                    ts=TimelineStore.now_iso(),
+                    event="task_failed",
+                    task=task.slug,
+                    detail={"reason": payload_violation},
+                )
+            )
+            print(task_footer("failed"))
+            sys.stdout.flush()
+            return "failed"
 
         if result.returncode != 0:
             self._recover_failed_task_wt(doing_task, wt_git)
@@ -2445,6 +2463,70 @@ class JriService:
         if not matches:
             raise JriError(f"task '{slug}' has no recorded attempts")
         return max(matches, key=lambda attempt: attempt.number)
+
+    def _inspect_log_path(self, attempt: AttemptState) -> Path:
+        if attempt.log_path is not None:
+            log_path = Path(attempt.log_path)
+            if log_path.exists():
+                return log_path
+        return self._recover_missing_inspect_log(attempt)
+
+    def _recover_missing_inspect_log(self, attempt: AttemptState) -> Path:
+        log_path = self.paths.ralph_log_path(
+            f"{attempt.task_slug}-inspect-recovered",
+            int(time.time()),
+        )
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(
+            "\n".join(
+                (
+                    "JRI recovered missing inspect log.",
+                    f"Task: {attempt.task_slug}",
+                    f"Attempt: {attempt.number}",
+                    f"Result: {attempt.result or 'unknown'}",
+                    f"Original log path: {attempt.log_path or 'not recorded'}",
+                )
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        recovered_attempt = replace(attempt, log_path=str(log_path))
+        self._save_recovered_inspect_attempt(recovered_attempt)
+        self.timeline.record(
+            TimelineEvent(
+                ts=TimelineStore.now_iso(),
+                event="recovery_completed",
+                task=attempt.task_slug,
+                detail={
+                    "reason": "inspect_log_missing",
+                    "attempt": attempt.number,
+                    "log_path": str(log_path),
+                },
+            )
+        )
+        return log_path
+
+    def _save_recovered_inspect_attempt(self, attempt: AttemptState) -> None:
+        state = self.state_store.load()
+        attempts = [
+            attempt if self._same_attempt(existing, attempt) else existing
+            for existing in state.attempts
+        ]
+        already_recorded = any(
+            self._same_attempt(existing, attempt) for existing in state.attempts
+        )
+        if not already_recorded:
+            attempts.append(attempt)
+        active_attempt = state.active_attempt
+        if active_attempt is not None and self._same_attempt(active_attempt, attempt):
+            active_attempt = attempt
+        self.state_store.save(
+            replace(state, active_attempt=active_attempt, attempts=attempts)
+        )
+        self._persist_attempt_history(attempt)
+
+    def _same_attempt(self, left: AttemptState, right: AttemptState) -> bool:
+        return left.task_slug == right.task_slug and left.number == right.number
 
     def _load_attempt_history(self, slug: str) -> list[AttemptState]:
         history_path = self.paths.attempt_history_path(slug)

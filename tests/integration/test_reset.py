@@ -8,7 +8,13 @@ from typing import cast
 import pytest
 
 from jri.core.errors import JriError
-from jri.core.models import AgentRunResult, AttemptState, ProcessState, State
+from jri.core.models import (
+    AgentRunResult,
+    AttemptState,
+    ProcessState,
+    RalphResultPayload,
+    State,
+)
 from jri.core.service import JriService
 from tests.conftest import run_cli as base_run_cli
 from tests.helpers import git, read_json, write_passing_makefile, write_task
@@ -64,7 +70,12 @@ class SuccessfulFakeAgentRuntime(FakeAgentRuntime):
         self.calls.append((prompt, log_path))
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
-        return AgentRunResult(returncode=0, session_id="ses_fake", result="completed")
+        return AgentRunResult(
+            returncode=0,
+            session_id="ses_fake",
+            result="completed",
+            payload=RalphResultPayload(result="completed", summary="Done."),
+        )
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
@@ -118,6 +129,7 @@ class DistinctFileFakeAgentRuntime(FakeAgentRuntime):
             returncode=0,
             session_id=f"ses_{len(self.calls)}",
             result="completed",
+            payload=RalphResultPayload(result="completed", summary="Done."),
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:

@@ -202,7 +202,12 @@ class NeedsHumanThenSuccessfulFakeAgentRuntime(FakeAgentRuntime):
                 ),
             )
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
-        return AgentRunResult(returncode=0, session_id="ses_ok", result="completed")
+        return AgentRunResult(
+            returncode=0,
+            session_id="ses_ok",
+            result="completed",
+            payload=RalphResultPayload(result="completed", summary="Done."),
+        )
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
@@ -405,6 +410,10 @@ class RefreshCapturingPiRuntime(PiRuntime):
             returncode=0,
             session_id=f"ses_{slug}",
             result="completed",
+            payload=RalphResultPayload(
+                result="completed",
+                summary=f"Completed {slug}.",
+            ),
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
@@ -2928,7 +2937,12 @@ class MakeCheckFailsFakeAgentRuntime(FakeAgentRuntime):
         self.calls.append((prompt, log_path))
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
-        return AgentRunResult(returncode=0, session_id="ses_fake", result="completed")
+        return AgentRunResult(
+            returncode=0,
+            session_id="ses_fake",
+            result="completed",
+            payload=RalphResultPayload(result="completed", summary="Done."),
+        )
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "fake"}\n', encoding="utf-8")
@@ -3095,6 +3109,59 @@ class NonzeroFakeAgentRuntime(FakeAgentRuntime):
         del root, prompt, result_path, on_start, timeout
         log_path.write_text("fake nonzero run\n", encoding="utf-8")
         return AgentRunResult(returncode=7, session_id="ses_nonzero", result="failed")
+
+
+class MissingResultPayloadFakeAgentRuntime(FakeAgentRuntime):
+    def __init__(self) -> None:
+        super().__init__(model=None)
+        self.calls: list[str] = []
+
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        result_path: Path,
+        on_start: object | None = None,
+        timeout: int | None = None,
+    ) -> AgentRunResult:
+        del root, result_path, on_start, timeout
+        self.calls.append(prompt)
+        log_path.write_text("fake run without result payload\n", encoding="utf-8")
+        return AgentRunResult(
+            returncode=0,
+            session_id="ses_missing_payload",
+            result="completed",
+        )
+
+    def export_session(self, session_id: str, destination: Path) -> None:
+        destination.write_text('{"session": "missing_payload"}\n', encoding="utf-8")
+
+
+class MismatchedResultPayloadFakeAgentRuntime(FakeAgentRuntime):
+    def run_ralph_task(
+        self,
+        *,
+        root: Path,
+        prompt: str,
+        log_path: Path,
+        result_path: Path,
+        on_start: object | None = None,
+        timeout: int | None = None,
+    ) -> AgentRunResult:
+        del root, prompt, result_path, on_start, timeout
+        log_path.write_text("fake mismatched payload run\n", encoding="utf-8")
+        return AgentRunResult(
+            returncode=0,
+            session_id="ses_mismatched_payload",
+            result="completed",
+            payload=RalphResultPayload(
+                result="incompleted",
+                summary="Wrong result layer.",
+                learnings=["Payload result must match runtime result."],
+            ),
+        )
 
 
 class MalformedNeedsHumanFakeAgentRuntime(FakeAgentRuntime):
@@ -3316,6 +3383,88 @@ def test_nonzero_agent_return_records_failed_attempt_without_crashing(
         encoding="utf-8"
     )
     assert '"reason":"nonzero_returncode"' in timeline
+
+
+def test_missing_result_payload_records_failed_attempt_without_advancing_queue(
+    git_repo: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    for slug, priority in (("payload-task", 0), ("next-task", 1)):
+        write_task(
+            git_repo,
+            status="todo",
+            slug=slug,
+            title=slug.replace("-", " ").title(),
+            priority=priority,
+            assignee="Ralph",
+            body="This task exercises missing result payload recovery.",
+            acceptance_criteria=["The lifecycle invariant is enforced"],
+        )
+    git(git_repo, "add", ".jri/tasks/todo")
+    git(git_repo, "commit", "-m", "add payload tasks")
+
+    runtime = MissingResultPayloadFakeAgentRuntime()
+    service = JriService(git_repo, agent_runtime=runtime)
+
+    assert service.start(max_tasks=1, force=True) == 0
+
+    state = read_json(git_repo / ".jri" / "state.json")
+    assert state.get("active_attempt") is None
+    attempts = cast(list[dict[str, object]], state["attempts"])
+    assert len(attempts) == 1
+    assert attempts[0]["task_slug"] == "payload-task"
+    assert attempts[0]["result"] == "failed"
+    assert "result_payload" not in attempts[0]
+    assert len(runtime.calls) == 1
+    assert (git_repo / ".jri" / "tasks" / "todo" / "payload-task.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "todo" / "next-task.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "payload-task.md").exists()
+
+    timeline = (git_repo / ".jri" / "logs" / "timeline.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert '"reason":"missing_result_payload"' in timeline
+    service.inspect("payload-task")
+    output = capsys.readouterr().out
+    assert "payload-task" in output
+    assert "fake run without result payload" in output
+    assert "failed" in output
+
+
+def test_result_payload_mismatch_records_failed_attempt(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="mismatch-task",
+        title="Mismatch task",
+        priority=0,
+        assignee="Ralph",
+        body="This task returns a mismatched result payload.",
+        acceptance_criteria=["The lifecycle invariant is enforced"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/mismatch-task.md")
+    git(git_repo, "commit", "-m", "add mismatch task")
+
+    service = JriService(
+        git_repo,
+        agent_runtime=MismatchedResultPayloadFakeAgentRuntime(),
+    )
+
+    assert service.start(max_tasks=1, force=True) == 0
+    state = read_json(git_repo / ".jri" / "state.json")
+    attempts = cast(list[dict[str, object]], state["attempts"])
+    assert attempts[0]["result"] == "failed"
+    assert attempts[0]["result_payload"] == {
+        "result": "incompleted",
+        "summary": "Wrong result layer.",
+        "learnings": ["Payload result must match runtime result."],
+    }
+    timeline = (git_repo / ".jri" / "logs" / "timeline.jsonl").read_text(
+        encoding="utf-8"
+    )
+    assert '"reason":"result_payload_mismatch"' in timeline
 
 
 def test_agent_startup_exception_recovers_task_and_persists_inspectable_log(
@@ -4334,7 +4483,12 @@ class SlowFakeAgentRuntime(FakeAgentRuntime):
             time.sleep(self.delay_seconds)
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake slow run\n", encoding="utf-8")
-        return AgentRunResult(returncode=0, session_id="ses_slow", result="completed")
+        return AgentRunResult(
+            returncode=0,
+            session_id="ses_slow",
+            result="completed",
+            payload=RalphResultPayload(result="completed", summary="Done."),
+        )
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text('{"session": "slow"}\n', encoding="utf-8")
@@ -4971,7 +5125,10 @@ class ExportFailingFakeAgentRuntime(FakeAgentRuntime):
         (root / "implemented.txt").write_text("implemented\n", encoding="utf-8")
         log_path.write_text("fake run\n", encoding="utf-8")
         return AgentRunResult(
-            returncode=0, session_id="ses_export_fail", result="completed"
+            returncode=0,
+            session_id="ses_export_fail",
+            result="completed",
+            payload=RalphResultPayload(result="completed", summary="Done."),
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
@@ -5332,7 +5489,10 @@ def test_attach_rejects_missing_tracked_run(git_repo: Path) -> None:
         JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime()).attach()
 
 
-def test_inspect_reports_missing_attempt_and_log_errors(git_repo: Path) -> None:
+def test_inspect_reports_missing_attempt_and_recovers_missing_logs(
+    git_repo: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
@@ -5350,8 +5510,15 @@ def test_inspect_reports_missing_attempt_and_log_errors(git_repo: Path) -> None:
             ]
         )
     )
-    with pytest.raises(JriError, match="has no saved log"):
-        service.inspect("task-a")
+    service.inspect("task-a")
+    output = capsys.readouterr().out
+    assert "JRI recovered missing inspect log." in output
+    assert "task-a" in output
+    state = read_json(git_repo / ".jri" / "state.json")
+    recovered = cast(list[dict[str, object]], state["attempts"])[0]
+    recovered_log = Path(cast(str, recovered["log_path"]))
+    assert recovered_log.exists()
+    assert "inspect-recovered" in recovered_log.name
     service.state_store.save(
         State(
             attempts=[
@@ -5365,8 +5532,10 @@ def test_inspect_reports_missing_attempt_and_log_errors(git_repo: Path) -> None:
             ]
         )
     )
-    with pytest.raises(JriError, match="task log not found"):
-        service.inspect("task-b")
+    service.inspect("task-b")
+    output = capsys.readouterr().out
+    assert "JRI recovered missing inspect log." in output
+    assert "Original log path:" in output
     with pytest.raises(JriError, match="task 'task-c' has no recorded attempts"):
         service.inspect("task-c")
 
