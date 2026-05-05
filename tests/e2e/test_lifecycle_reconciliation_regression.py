@@ -14,7 +14,7 @@ from tests.helpers import git, read_json, write_passing_makefile, write_task
 pytestmark = pytest.mark.e2e
 
 
-class DogfoodFakeAgentRuntime:
+class LifecycleReconciliationFakeAgentRuntime:
     def __init__(self) -> None:
         self.model: str | None = None
         self.calls: list[str] = []
@@ -50,7 +50,7 @@ class DogfoodFakeAgentRuntime:
                 result="completed",
                 payload=RalphResultPayload(
                     result="completed",
-                    summary="Completed the first deterministic dogfood task.",
+                    summary="Completed the first deterministic lifecycle task.",
                 ),
             )
 
@@ -66,9 +66,10 @@ class DogfoodFakeAgentRuntime:
                     result="needs_human",
                     blocker="A deterministic human approval is required.",
                     human_task=HumanTaskPayload(
-                        title="Approve deterministic dogfood input",
+                        title="Approve deterministic lifecycle input",
                         body=(
-                            "Confirm the synthetic dogfood-derived input is available."
+                            "Confirm the synthetic lifecycle-derived "
+                            "input is available."
                         ),
                         acceptance_criteria=["The synthetic input is approved"],
                     ),
@@ -103,7 +104,7 @@ class DogfoodFakeAgentRuntime:
         )
 
 
-def test_dogfood_jri_lifecycle_regression(
+def test_lifecycle_reconciliation_regression(
     git_repo: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -111,9 +112,9 @@ def test_dogfood_jri_lifecycle_regression(
     write_passing_makefile(git_repo)
     git(git_repo, "add", "Makefile")
     git(git_repo, "commit", "-m", "configure deterministic check")
-    _write_dogfood_tasks(git_repo)
+    _write_lifecycle_tasks(git_repo)
 
-    runtime = DogfoodFakeAgentRuntime()
+    runtime = LifecycleReconciliationFakeAgentRuntime()
     service = JriService(git_repo, agent_runtime=runtime)
 
     first_summary = service.start_summary(max_tasks=3, force=True)
@@ -256,12 +257,12 @@ def test_dogfood_jri_lifecycle_regression(
     }
 
 
-def _write_dogfood_tasks(repo: Path) -> None:
+def _write_lifecycle_tasks(repo: Path) -> None:
     write_task(
         repo,
         status="todo",
         slug="complete-first",
-        title="Complete first deterministic dogfood task",
+        title="Complete first deterministic lifecycle task",
         priority=0,
         assignee="Ralph",
         body="Create complete-first.txt with deterministic content.",
@@ -288,7 +289,7 @@ def _write_dogfood_tasks(repo: Path) -> None:
         acceptance_criteria=["The failed attempt is recovered and inspectable"],
     )
     git(repo, "add", ".jri/tasks/todo")
-    git(repo, "commit", "-m", "add deterministic dogfood tasks")
+    git(repo, "commit", "-m", "add deterministic lifecycle tasks")
 
 
 def _extract_task_slug(prompt: str) -> str:
