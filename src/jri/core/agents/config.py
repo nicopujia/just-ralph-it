@@ -1,16 +1,9 @@
 from importlib.resources import files
 from pathlib import Path
 
-COPYABLE_DIRECTORIES = ("_shared", "ralph", "interrogator", "explorer")
-COPYABLE_FILES = (
-    "extension.ts",
-    "manifest.json",
-    "theme.json",
-)
 
-
-def iter_directory_assets(directory: str) -> tuple[str, ...]:
-    root = _resource_path(directory)
+def iter_bundle_assets() -> tuple[str, ...]:
+    root = _resource_path("")
     return tuple(
         sorted(
             str(item.relative_to(root))

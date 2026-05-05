@@ -8,12 +8,7 @@ from typing import Any
 from ..errors import JriError
 from ..timeline import TimelineEvent, TimelineStore
 from .client import AgentRuntime, PiRuntime
-from .config import (
-    COPYABLE_DIRECTORIES,
-    COPYABLE_FILES,
-    iter_directory_assets,
-    load_asset_text,
-)
+from .config import iter_bundle_assets, load_asset_text
 from .resources import resource_relative_path
 
 
@@ -24,24 +19,13 @@ def runtime_env(
     config_name: str = "package.json",
     included_agents: set[str] | None = None,
 ) -> Iterator[dict[str, str]]:
-    del config_name
+    del config_name, included_agents
     with tempfile.TemporaryDirectory(prefix="jri-pi-") as tmp_dir:
         bundle_root = Path(tmp_dir)
-        for name in COPYABLE_FILES:
-            (bundle_root / name).write_text(load_asset_text(name), encoding="utf-8")
-        for directory in COPYABLE_DIRECTORIES:
-            target_dir = bundle_root / directory
-            target_dir.mkdir(parents=True, exist_ok=True)
-            for name in iter_directory_assets(directory):
-                if not _should_copy_agent_asset(
-                    directory, Path(name), included_agents=included_agents
-                ):
-                    continue
-                target_path = target_dir / name
-                target_path.parent.mkdir(parents=True, exist_ok=True)
-                target_path.write_text(
-                    load_asset_text(Path(directory) / name), encoding="utf-8"
-                )
+        for name in iter_bundle_assets():
+            target_path = bundle_root / name
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            target_path.write_text(load_asset_text(name), encoding="utf-8")
         _write_package_manifest(bundle_root, overrides=overrides)
         pythonpath_entry = str(Path(__file__).resolve().parents[3])
         yield {
@@ -140,18 +124,6 @@ def export_session_if_available(
     return export_path
 
 
-def _should_copy_agent_asset(
-    directory: str, name: Path, *, included_agents: set[str] | None
-) -> bool:
-    if included_agents is None or directory == "_shared":
-        return True
-    if directory in included_agents:
-        return True
-    return directory == "ralph" and (
-        name.suffix == ".ts" or name.parts[:1] == ("skills",)
-    )
-
-
 def _write_package_manifest(
     bundle_root: Path, *, overrides: dict[str, str | None]
 ) -> None:
@@ -161,7 +133,7 @@ def _write_package_manifest(
         "keywords": ["pi-package"],
         "pi": {
             "extensions": [_manifest_reference("extensions.default")],
-            "skills": [_manifest_skill_root_reference("skills.hostedProjects")],
+            "skills": ["./ralph/skills"],
             "prompts": [_manifest_top_level_reference("prompts.interrogator")],
             "tools": [_manifest_parent_reference("tools.pythonRunner")],
             "themes": [_manifest_top_level_reference("themes.modernYellow")],
@@ -186,8 +158,3 @@ def _manifest_top_level_reference(resource_id: str) -> str:
 def _manifest_parent_reference(resource_id: str) -> str:
     relative_path = PurePosixPath(resource_relative_path(resource_id))
     return f"./{PurePosixPath(*relative_path.parts[:-1]).as_posix()}"
-
-
-def _manifest_skill_root_reference(resource_id: str) -> str:
-    relative_path = PurePosixPath(resource_relative_path(resource_id))
-    return f"./{PurePosixPath(*relative_path.parts[:-2]).as_posix()}"

@@ -164,7 +164,7 @@ def test_chat_reuses_existing_session_and_exports_it(initialized_repo: Path) -> 
     assert call["interrogator_exists"] is True
     assert call["validator_exists"] is True
     assert call["explorer_exists"] is True
-    assert call["ralph_exists"] is False
+    assert call["ralph_exists"] is True
     assert call["skill_exists"] is True
     assert call["extension_exists"] is True
     assert call["tool_runner_exists"] is True

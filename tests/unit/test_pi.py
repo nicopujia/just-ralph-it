@@ -14,7 +14,7 @@ from jri.core.agents import (
     launch_chat,
     render_saved_log,
 )
-from jri.core.agents.session import _write_package_manifest
+from jri.core.agents.session import _write_package_manifest, runtime_env
 from jri.core.errors import JriError
 
 
@@ -164,7 +164,6 @@ def test_package_manifest_uses_resource_manifest_paths(
 ) -> None:
     resource_paths = {
         "extensions.default": "extension.ts",
-        "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
         "prompts.interrogator": "interrogator/prompt.md",
         "tools.pythonRunner": "_shared/tools/runner.ts",
         "themes.modernYellow": "theme.json",
@@ -192,12 +191,25 @@ def test_package_manifest_uses_resource_manifest_paths(
     }
     assert resolved_ids == [
         "extensions.default",
-        "skills.hostedProjects",
         "prompts.interrogator",
         "tools.pythonRunner",
         "themes.modernYellow",
     ]
     assert package["jri"]["models"] == {"ralph": "test-model"}
+
+
+def test_runtime_env_copies_complete_agent_bundle() -> None:
+    with runtime_env(overrides={}) as env:
+        package_root = Path(env["JRI_PI_PACKAGE"])
+
+        assert (package_root / "__init__.py").is_file()
+        assert (package_root / "manifest.json").is_file()
+        assert (package_root / "interrogator" / "validator" / "extension.ts").is_file()
+        project_setup_skill = (
+            package_root / "ralph" / "skills" / "project-setup" / "SKILL.md"
+        )
+        assert project_setup_skill.is_file()
+        assert not any("__pycache__" in path.parts for path in package_root.rglob("*"))
 
 
 def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
@@ -214,8 +226,6 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
     resource_paths = {
         "extensions.default": "extension.ts",
         "prompts.ralph": "ralph/prompt.md",
-        "skills.projectSetup": "ralph/skills/project-setup/SKILL.md",
-        "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
     }
 
     def fake_resource_relative_path(resource_id: str) -> str:
@@ -277,7 +287,6 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
     assert resolved_ids == [
         "extensions.default",
         "prompts.ralph",
-        "skills.hostedProjects",
     ]
     assert "JRI_CHAT_RUNTIME" not in popen_envs[0]
 

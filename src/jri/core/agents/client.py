@@ -455,6 +455,13 @@ def _package_resource_path(package_root: str, resource_id: str) -> Path:
     return Path(package_root).joinpath(*relative_path.parts)
 
 
+def _package_agent_skill_paths(package_root: str, agent: str) -> list[Path]:
+    skill_root = Path(package_root) / agent / "skills"
+    if not skill_root.is_dir():
+        return []
+    return [path for path in sorted(skill_root.iterdir()) if path.is_dir()]
+
+
 _RUN_STALL_TIMEOUT = 300.0
 _MISSING_RESULT_FOLLOW_UP_PROMPT = (
     "Your last response ended without the required result payload. "
@@ -567,12 +574,8 @@ class PiRuntime:
             prompt_path = _package_resource_path(package_root, "prompts.ralph")
             command.extend(["--extension", str(extension_path)])
             command.extend(["--append-system-prompt", str(prompt_path)])
-            skill_root = _package_resource_path(
-                package_root, "skills.hostedProjects"
-            ).parent.parent
-            for skill_path in sorted(skill_root.iterdir()):
-                if skill_path.is_dir():
-                    command.extend(["--skill", str(skill_path)])
+            for skill_path in _package_agent_skill_paths(package_root, "ralph"):
+                command.extend(["--skill", str(skill_path)])
         try:
             self._process = subprocess.Popen(
                 command,

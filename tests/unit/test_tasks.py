@@ -512,9 +512,6 @@ def test_agent_resource_manifest_resolves_current_package_resources() -> None:
         "prompts.explorer": "explorer/prompt.md",
         "tools.pythonRunner": "_shared/tools/runner.ts",
         "themes.modernYellow": "theme.json",
-        "skills.projectSetup": "ralph/skills/project-setup/SKILL.md",
-        "skills.hostedProjects": "ralph/skills/hosted-projects/SKILL.md",
-        "skills.reverseRalph": "ralph/skills/reverse-ralph/SKILL.md",
     }
 
     assert resource_manifest() == expected
