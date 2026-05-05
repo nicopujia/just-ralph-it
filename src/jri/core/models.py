@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import Literal, Self, cast
 
 Assignee = Literal["Ralph", "Human"]
+TaskStatus = Literal["draft", "todo", "doing", "done"]
 RalphResult = Literal["completed", "incompleted", "needs_human"]
 Result = Literal["completed", "incompleted", "needs_human", "failed", "timeout"]
 AttemptResult = Literal[
@@ -13,6 +14,113 @@ AttemptResult = Literal[
     "interrupted",
     "timeout",
 ]
+RuntimeProcessState = Literal["running", "not_running", "stale"]
+AttemptLifecycleState = Literal["active", "persisted"]
+PayloadLifecycleState = Literal["present", "missing", "invalid"]
+LogLifecycleState = Literal["present", "missing", "recovered"]
+
+TASK_STATUSES: tuple[TaskStatus, ...] = ("draft", "todo", "doing", "done")
+PROMOTED_TASK_STATUSES: tuple[TaskStatus, ...] = ("todo", "doing", "done")
+RALPH_RESULT_VALUES: tuple[RalphResult, ...] = (
+    "completed",
+    "incompleted",
+    "needs_human",
+)
+RESULT_VALUES: tuple[Result, ...] = (
+    "completed",
+    "incompleted",
+    "needs_human",
+    "failed",
+    "timeout",
+)
+ATTEMPT_RESULT_VALUES: tuple[AttemptResult, ...] = (
+    "completed",
+    "incompleted",
+    "needs_human",
+    "failed",
+    "interrupted",
+    "timeout",
+)
+RUNTIME_PROCESS_STATES: tuple[RuntimeProcessState, ...] = (
+    "running",
+    "not_running",
+    "stale",
+)
+ATTEMPT_LIFECYCLE_STATES: tuple[AttemptLifecycleState, ...] = (
+    "active",
+    "persisted",
+)
+PAYLOAD_LIFECYCLE_STATES: tuple[PayloadLifecycleState, ...] = (
+    "present",
+    "missing",
+    "invalid",
+)
+LOG_LIFECYCLE_STATES: tuple[LogLifecycleState, ...] = (
+    "present",
+    "missing",
+    "recovered",
+)
+
+
+@dataclass(frozen=True)
+class LifecycleInvariant:
+    surface: str
+    vocabulary: tuple[str, ...]
+    invariant: str
+
+
+JRI_LIFECYCLE_INVARIANTS: tuple[LifecycleInvariant, ...] = (
+    LifecycleInvariant(
+        surface="task_files",
+        vocabulary=TASK_STATUSES,
+        invariant=(
+            "draft promotes to todo; Ralph owns one doing task; "
+            "acceptance moves doing to done"
+        ),
+    ),
+    LifecycleInvariant(
+        surface="runtime_process",
+        vocabulary=RUNTIME_PROCESS_STATES,
+        invariant=(
+            "a stale or missing runtime cannot keep a task in doing without recovery"
+        ),
+    ),
+    LifecycleInvariant(
+        surface="active_attempt",
+        vocabulary=ATTEMPT_LIFECYCLE_STATES,
+        invariant=(
+            "active_attempt exists only while execution or final bookkeeping is pending"
+        ),
+    ),
+    LifecycleInvariant(
+        surface="persisted_attempts",
+        vocabulary=ATTEMPT_RESULT_VALUES,
+        invariant=(
+            "every started Ralph task has an inspectable persisted attempt result"
+        ),
+    ),
+    LifecycleInvariant(
+        surface="result_payload",
+        vocabulary=PAYLOAD_LIFECYCLE_STATES,
+        invariant=(
+            "completed, incompleted, and needs_human require a valid Ralph "
+            "result payload"
+        ),
+    ),
+    LifecycleInvariant(
+        surface="logs",
+        vocabulary=LOG_LIFECYCLE_STATES,
+        invariant="inspect always uses a saved log or a JRI-generated recovery log",
+    ),
+    LifecycleInvariant(
+        surface="human_blockers",
+        vocabulary=("todo", "depends_on", "needs_human"),
+        invariant=(
+            "needs_human creates a Human todo task and blocks the original "
+            "Ralph todo task"
+        ),
+    ),
+)
 
 
 @dataclass(frozen=True)

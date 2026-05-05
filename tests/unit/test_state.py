@@ -2,7 +2,14 @@ from pathlib import Path
 
 import pytest
 
-from jri.core.models import AttemptState, RalphResultPayload, State
+from jri.core.models import (
+    ATTEMPT_RESULT_VALUES,
+    JRI_LIFECYCLE_INVARIANTS,
+    TASK_STATUSES,
+    AttemptState,
+    RalphResultPayload,
+    State,
+)
 from jri.core.state import StateStore
 
 
@@ -156,6 +163,27 @@ def test_state_round_trips_current_task(tmp_path: Path) -> None:
     store.save(expected)
 
     assert store.load() == expected
+
+
+def test_lifecycle_invariant_vocabulary_covers_state_surfaces() -> None:
+    invariants = {
+        invariant.surface: invariant for invariant in JRI_LIFECYCLE_INVARIANTS
+    }
+
+    assert tuple(TASK_STATUSES) == ("draft", "todo", "doing", "done")
+    assert invariants["task_files"].vocabulary == TASK_STATUSES
+    assert invariants["persisted_attempts"].vocabulary == ATTEMPT_RESULT_VALUES
+    assert invariants["result_payload"].vocabulary == (
+        "present",
+        "missing",
+        "invalid",
+    )
+    assert invariants["logs"].vocabulary == ("present", "missing", "recovered")
+    assert invariants["human_blockers"].vocabulary == (
+        "todo",
+        "depends_on",
+        "needs_human",
+    )
 
 
 def test_load_normalizes_legacy_incomplete_attempt_result(tmp_path: Path) -> None:
