@@ -1,7 +1,7 @@
 .PHONY: setup check lint format typecheck schema-check test
 
 setup:
-	uv sync
+	uv sync --all-groups
 	./.venv/bin/python -m pre_commit install
 	./.venv/bin/python -m pre_commit install --hook-type pre-push
 
