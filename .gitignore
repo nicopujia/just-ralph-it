@@ -1,15 +1,22 @@
+# Environment
 .env*
+.venv/
+
+# MacOS
 .DS_Store
+
+# Cache
 __pycache__/
 .pytest_cache/
-.coverage
-.venv/
-dist/
 .ruff_cache/
+
+# Coverage
 htmlcov/
+.coverage
 coverage.xml
-.sisyphus/tmp/
-.sisyphus/artifacts/
-.sisyphus/runs/
-.sisyphus/*.log
-.sisyphus/*.jsonl
+
+# Build artifacts
+dist/
+
+# AI agents
+.sisyphus/
