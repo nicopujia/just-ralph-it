@@ -20,7 +20,7 @@ schema-check:
 	uv run python -m jri.checks.schema
 
 test:
-	uv run pytest
+	PYTHONPATH=$(PWD)/src uv run pytest
 
 coverage:
 	uv run coverage run -m pytest
