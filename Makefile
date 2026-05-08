@@ -1,4 +1,4 @@
-.PHONY: setup check lint format typecheck schema-check test coverage
+.PHONY: setup check lint format typecheck schema-check test
 
 setup:
 	uv sync
@@ -20,8 +20,5 @@ schema-check:
 	uv run python -m jri.checks.schema
 
 test:
-	PYTHONPATH=$(PWD)/src uv run pytest
-
-coverage:
-	uv run coverage run -m pytest
-	uv run coverage report
+	PYTHONPATH=$(PWD)/src uv run coverage run -m pytest
+	PYTHONPATH=$(PWD)/src uv run coverage report
