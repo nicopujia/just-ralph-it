@@ -11,7 +11,8 @@ lint:
 	uv run ruff check .
 
 format:
-	uv run ruff format --check .
+	uv run ruff format .
+	uv run ruff check --select I --fix .
 
 typecheck:
 	RAYON_NUM_THREADS=1 uv run ty check
