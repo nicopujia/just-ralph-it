@@ -1,27 +1,27 @@
 import json
 from pathlib import Path
-from typing import Any
+from typing import cast
 
 from .....models import Task
 from .....tasks import list_tasks
 from ._validation import (
-    _apply_exact_edits,
-    _assert_exact_edits,
-    _assert_slug,
-    _assert_slug_list,
-    _assert_string_list,
-    _diff_text,
-    _draft_task_dirs,
-    _ensure_task_path_within,
-    _read_task,
-    _read_task_source,
-    _serialize_task,
-    _service,
-    _slugify,
+    apply_exact_edits,
+    assert_exact_edits,
+    assert_slug,
+    assert_slug_list,
+    assert_string_list,
+    diff_text,
+    draft_task_dirs,
+    ensure_task_path_within,
+    read_task,
+    read_task_source,
+    serialize_task,
+    service,
+    slugify,
 )
 
 
-def run_upsert_task(payload: dict[str, Any]) -> str:
+def run_upsert_task(payload: dict[str, object]) -> str:
     title = payload.get("title")
     body = payload.get("body")
     assignee = payload.get("assignee")
@@ -43,10 +43,10 @@ def run_upsert_task(payload: dict[str, Any]) -> str:
 
     slug_value = payload.get("slug")
     task_slug = (
-        _assert_slug("slug", slug_value) if slug_value is not None else _slugify(title)
+        assert_slug("slug", slug_value) if slug_value is not None else slugify(title)
     )
-    depends_on = _assert_string_list("depends_on", payload.get("depends_on")) or []
-    acceptance_criteria = _assert_string_list(
+    depends_on = assert_string_list("depends_on", payload.get("depends_on")) or []
+    acceptance_criteria = assert_string_list(
         "acceptance_criteria", payload.get("acceptance_criteria")
     )
     if not acceptance_criteria:
@@ -54,8 +54,8 @@ def run_upsert_task(payload: dict[str, Any]) -> str:
             "`acceptance_criteria` must be a non-empty list of non-empty strings"
         )
 
-    draft_dir, _, _, _ = _draft_task_dirs(Path.cwd())
-    task_path = _ensure_task_path_within(draft_dir, task_slug)
+    draft_dir, _, _, _ = draft_task_dirs(Path.cwd())
+    task_path = ensure_task_path_within(draft_dir, task_slug)
     if task_path.exists() and task_path.is_symlink():
         raise ValueError("refusing to overwrite symlinked draft task")
 
@@ -65,22 +65,21 @@ def run_upsert_task(payload: dict[str, Any]) -> str:
         "assignee": assignee,
         "depends_on": depends_on,
     }
-    if acceptance_criteria is not None:
-        metadata["acceptance_criteria"] = acceptance_criteria
+    metadata["acceptance_criteria"] = acceptance_criteria
 
     action = "updated" if task_path.exists() else "created"
-    task_path.write_text(_serialize_task(metadata, body), encoding="utf-8")
+    task_path.write_text(serialize_task(metadata, body), encoding="utf-8")
     return f"{action} draft task: .jri/tasks/draft/{task_slug}.md"
 
 
-def run_rename_task(payload: dict[str, Any]) -> str:
-    from_slug = _assert_slug("from_slug", payload.get("from_slug"))
-    to_slug = _assert_slug("to_slug", payload.get("to_slug"))
+def run_rename_task(payload: dict[str, object]) -> str:
+    from_slug = assert_slug("from_slug", payload.get("from_slug"))
+    to_slug = assert_slug("to_slug", payload.get("to_slug"))
     if from_slug == to_slug:
         return f"draft task already uses slug: .jri/tasks/draft/{from_slug}.md"
 
-    draft_dir, todo_dir, doing_dir, done_dir = _draft_task_dirs(Path.cwd())
-    from_path = _ensure_task_path_within(draft_dir, from_slug)
+    draft_dir, todo_dir, doing_dir, done_dir = draft_task_dirs(Path.cwd())
+    from_path = ensure_task_path_within(draft_dir, from_slug)
     if not from_path.exists():
         raise ValueError(f"draft task does not exist: .jri/tasks/draft/{from_slug}.md")
     if from_path.is_symlink():
@@ -92,7 +91,7 @@ def run_rename_task(payload: dict[str, Any]) -> str:
         (doing_dir, "doing"),
         (done_dir, "done"),
     ):
-        collision_path = _ensure_task_path_within(directory, to_slug)
+        collision_path = ensure_task_path_within(directory, to_slug)
         if collision_path.exists():
             raise ValueError(
                 f"target slug already exists in .jri/tasks/{label}/{to_slug}.md"
@@ -104,17 +103,21 @@ def run_rename_task(payload: dict[str, Any]) -> str:
             raise ValueError("refusing to inspect symlinked draft task entry")
         if task_path == from_path:
             continue
-        metadata, body = _read_task(task_path)
-        depends_on = metadata.get("depends_on", [])
+        metadata, body = read_task(task_path)
+        depends_on_raw = metadata.get("depends_on", [])
+        depends_on = (
+            cast(list[str], depends_on_raw) if isinstance(depends_on_raw, list) else []
+        )
         if from_slug not in depends_on:
             continue
         metadata["depends_on"] = [
-            to_slug if slug == from_slug else slug for slug in depends_on
+            to_slug if dependency == from_slug else dependency
+            for dependency in depends_on
         ]
-        task_path.write_text(_serialize_task(metadata, body), encoding="utf-8")
+        task_path.write_text(serialize_task(metadata, body), encoding="utf-8")
         updated_dependencies.append(task_path.name)
 
-    to_path = _ensure_task_path_within(draft_dir, to_slug)
+    to_path = ensure_task_path_within(draft_dir, to_slug)
     from_path.rename(to_path)
     message = (
         f"renamed draft task: .jri/tasks/draft/{from_slug}.md -> "
@@ -128,17 +131,17 @@ def run_rename_task(payload: dict[str, Any]) -> str:
     return message
 
 
-def run_delete_task(payload: dict[str, Any]) -> str:
-    slug = _assert_slug("slug", payload.get("slug"))
-    draft_dir, todo_dir, doing_dir, done_dir = _draft_task_dirs(Path.cwd())
-    task_path = _ensure_task_path_within(draft_dir, slug)
+def run_delete_task(payload: dict[str, object]) -> str:
+    slug = assert_slug("slug", payload.get("slug"))
+    draft_dir, todo_dir, doing_dir, done_dir = draft_task_dirs(Path.cwd())
+    task_path = ensure_task_path_within(draft_dir, slug)
     if not task_path.exists():
         for directory, label in (
             (todo_dir, "todo"),
             (doing_dir, "doing"),
             (done_dir, "done"),
         ):
-            promoted_path = _ensure_task_path_within(directory, slug)
+            promoted_path = ensure_task_path_within(directory, slug)
             if promoted_path.exists():
                 raise ValueError(
                     f"refusing to delete promoted task: .jri/tasks/{label}/{slug}.md"
@@ -153,8 +156,11 @@ def run_delete_task(payload: dict[str, Any]) -> str:
             raise ValueError("refusing to inspect symlinked draft task entry")
         if other_path == task_path:
             continue
-        metadata, _body = _read_task(other_path)
-        depends_on = metadata.get("depends_on", [])
+        metadata, _body = read_task(other_path)
+        depends_on_raw = metadata.get("depends_on", [])
+        depends_on = (
+            cast(list[str], depends_on_raw) if isinstance(depends_on_raw, list) else []
+        )
         if slug in depends_on:
             blockers.append(other_path.name)
     if blockers:
@@ -166,18 +172,18 @@ def run_delete_task(payload: dict[str, Any]) -> str:
     return f"deleted draft task: .jri/tasks/draft/{slug}.md"
 
 
-def run_edit_draft_task(payload: dict[str, Any]) -> str:
-    slug = _assert_slug("slug", payload.get("slug"))
-    edits = _assert_exact_edits(payload)
-    draft_dir, todo_dir, doing_dir, done_dir = _draft_task_dirs(Path.cwd())
-    task_path = _ensure_task_path_within(draft_dir, slug)
+def run_edit_draft_task(payload: dict[str, object]) -> str:
+    slug = assert_slug("slug", payload.get("slug"))
+    edits = assert_exact_edits(payload)
+    draft_dir, todo_dir, doing_dir, done_dir = draft_task_dirs(Path.cwd())
+    task_path = ensure_task_path_within(draft_dir, slug)
     if not task_path.exists():
         for directory, label in (
             (todo_dir, "todo"),
             (doing_dir, "doing"),
             (done_dir, "done"),
         ):
-            promoted_path = _ensure_task_path_within(directory, slug)
+            promoted_path = ensure_task_path_within(directory, slug)
             if promoted_path.exists():
                 raise ValueError(
                     f"refusing to edit promoted task: .jri/tasks/{label}/{slug}.md"
@@ -189,14 +195,14 @@ def run_edit_draft_task(payload: dict[str, Any]) -> str:
     source = task_path.read_text(encoding="utf-8")
     relative = f".jri/tasks/draft/{slug}.md"
     try:
-        updated, replacements = _apply_exact_edits(source, edits)
+        updated, replacements = apply_exact_edits(source, edits)
     except ValueError as exc:
         raise ValueError(
             f"draft edit conflict for {relative}: {exc}; "
             "re-read the draft task and retry with exact current text"
         ) from exc
     try:
-        _read_task_source(task_path, updated)
+        read_task_source(task_path, updated)
     except ValueError as exc:
         raise ValueError(
             f"draft edit rejected for {relative}: updated task would be invalid "
@@ -206,18 +212,18 @@ def run_edit_draft_task(payload: dict[str, Any]) -> str:
     result = {
         "path": relative,
         "replacements": replacements,
-        "diff": _diff_text(relative, source, updated),
+        "diff": diff_text(relative, source, updated),
     }
     return json.dumps(result, indent=2) + "\n"
 
 
-def run_read_tasks(payload: dict[str, Any]) -> str:
-    slugs = _assert_slug_list("slugs", payload.get("slugs"))
+def run_read_tasks(payload: dict[str, object]) -> str:
+    slugs = assert_slug_list("slugs", payload.get("slugs"))
     if not slugs:
         raise ValueError("`slugs` must be a non-empty list of task slugs")
 
-    service = _service(Path.cwd())
-    tasks_by_status = service.status()
+    jri_service = service(Path.cwd())
+    tasks_by_status = jri_service.status()
     tasks_by_slug = {
         task.slug: task for tasks in tasks_by_status.values() for task in tasks
     }
@@ -229,16 +235,21 @@ def run_read_tasks(payload: dict[str, Any]) -> str:
     return json.dumps(result, indent=2) + "\n"
 
 
-def run_list_tasks(payload: dict[str, Any]) -> str:
+def run_list_tasks(payload: dict[str, object]) -> str:
     status = payload.get("status")
-    service = _service(Path.cwd())
+    jri_service = service(Path.cwd())
     if status is None:
-        tasks = [task for tasks in service.status().values() for task in tasks]
+        tasks = [task for tasks in jri_service.status().values() for task in tasks]
     else:
-        if status not in {"draft", "todo", "doing", "done"}:
+        if not isinstance(status, str) or status not in {
+            "draft",
+            "todo",
+            "doing",
+            "done",
+        }:
             raise ValueError("`status` must be one of draft, todo, doing, done")
-        tasks_dir = service.paths.tasks_dir / status
-        tasks = list_tasks(tasks_dir, git_repo=service.git)
+        tasks_dir = jri_service.paths.tasks_dir / status
+        tasks = list_tasks(tasks_dir, git_repo=jri_service.git)
     return json.dumps([_task_to_payload(task) for task in tasks], indent=2) + "\n"
 
 

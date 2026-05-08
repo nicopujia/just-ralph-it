@@ -1,8 +1,7 @@
 import sys
 from collections.abc import Callable
-from typing import Any
 
-from ._validation import _load_payload, _print_result
+from ._validation import load_payload, print_result
 from .colors import run_contrast_check
 from .promotion import run_approve_draft_promotion, run_promote_tasks
 from .ralph_result import run_ralph_result
@@ -16,7 +15,7 @@ from .tasks import (
     run_upsert_task,
 )
 
-_HANDLERS: dict[str, Callable[[dict[str, Any]], str]] = {
+_HANDLERS: dict[str, Callable[[dict[str, object]], str]] = {
     "check-contrast": run_contrast_check,
     "edit-draft-task": run_edit_draft_task,
     "edit-readme": run_edit_readme,
@@ -40,8 +39,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     try:
-        payload = _load_payload()
-        _print_result(_HANDLERS[argv[0]](payload))
+        payload = load_payload()
+        print_result(_HANDLERS[argv[0]](payload))
         return 0
     except Exception as exc:
         print(str(exc), file=sys.stderr)

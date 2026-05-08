@@ -2,6 +2,7 @@ import json
 import os
 from dataclasses import replace
 from pathlib import Path
+from typing import cast
 
 from .errors import JriError
 from .models import AttemptState, ProcessState, PromotionRecord, State
@@ -112,16 +113,17 @@ class StateStore:
 
     def _state_from_text(self, text: str, *, file_label: str) -> State:
         try:
-            payload = json.loads(text)
+            payload: object = json.loads(text)
         except json.JSONDecodeError as exc:
             raise JriError(f"{file_label} is corrupted: {exc}") from exc
         if not isinstance(payload, dict):
             raise JriError(f"{file_label} must contain an object")
         try:
-            validate_state_payload(payload)
+            state_payload = cast(dict[str, object], payload)
+            validate_state_payload(state_payload)
         except ValueError as exc:
             raise JriError(f"{file_label} has invalid content: {exc}") from exc
-        return State.from_payload(payload)
+        return State.from_payload(state_payload)
 
     def _load_backup(self, *, primary_error: JriError) -> State:
         if not self.backup_path.exists():

@@ -1,8 +1,10 @@
 import argparse
 import json
 import sys
+from collections.abc import Mapping
 from importlib.resources import files
 from pathlib import Path
+from typing import cast
 
 from jsonschema import Draft202012Validator, SchemaError
 
@@ -25,12 +27,12 @@ def validate_packaged_schemas() -> None:
         if not schema_path.name.endswith(".json"):
             continue
         try:
-            payload = json.loads(schema_path.read_text(encoding="utf-8"))
+            payload: object = json.loads(schema_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as exc:
             errors.append(f"schema `{schema_path.name}` is not valid JSON: {exc}")
             continue
         try:
-            Draft202012Validator.check_schema(payload)
+            Draft202012Validator.check_schema(cast(Mapping[str, object], payload))
         except SchemaError as exc:
             errors.append(
                 f"schema `{schema_path.name}` is not a valid JSON Schema: {exc}"
@@ -59,13 +61,13 @@ def validate_state_file(root: Path) -> None:
         return
 
     try:
-        payload = json.loads(state_path.read_text(encoding="utf-8"))
+        payload: object = json.loads(state_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"state.json is corrupted: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("state.json must contain an object")
     try:
-        validate_state_payload(payload)
+        validate_state_payload(cast(dict[str, object], payload))
     except ValueError as exc:
         raise ValueError(f"state.json has invalid content: {exc}") from exc
 

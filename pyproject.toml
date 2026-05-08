@@ -18,11 +18,11 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
+    "basedpyright>=1.39.3",
     "coverage>=7.13.5",
     "pre-commit>=4.5.1",
     "pytest>=8.4.2",
     "ruff>=0.15.8",
-    "ty>=0.0.27",
 ]
 
 [tool.pytest.ini_options]
@@ -62,3 +62,10 @@ packages = ["src/jri"]
 
 [tool.ruff.lint]
 select = ["E", "F", "B", "I", "UP"]
+
+[tool.basedpyright]
+typeCheckingMode = "strict"
+executionEnvironments = [
+    { root = "tests", extraPaths = ["src", "."], reportPrivateUsage = false },
+    { root = "src" },
+]

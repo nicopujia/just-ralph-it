@@ -9,14 +9,14 @@ import sys
 import termios
 import time
 import tty
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
 from types import FrameType
-from typing import Any
+from typing import Any, cast
 
 from .agents import (
     AgentRuntime,
@@ -234,7 +234,7 @@ class JriService:
                     raise JriError("initialization aborted by user")
 
         created_files = self._create_scaffold()
-        commit_paths = list(_INIT_COMMIT_PATHS)
+        commit_paths: list[str] = list(_INIT_COMMIT_PATHS)
         commit_paths.extend(str(path.relative_to(self.root)) for path in created_files)
         commit_paths = self._commit_paths(commit_paths)
         # Stage all paths first
@@ -792,7 +792,7 @@ class JriService:
         """
         self.ensure_initialized()
         state = self.state_store.load()
-        target_tag = self._resolve_reset_target_tag(target_task)
+        target_tag = self.resolve_reset_target_tag(target_task)
         target_ref = self._resolve_reset_target_ref(target_tag)
 
         self._cleanup_tracked_processes(required=False)
@@ -852,7 +852,7 @@ class JriService:
                 return candidate
         return None
 
-    def _resolve_reset_target_tag(self, target_task: str | None = None) -> str:
+    def resolve_reset_target_tag(self, target_task: str | None = None) -> str:
         if target_task:
             target_tag = self._find_reset_tag_for_task(target_task)
             if target_tag is None:
@@ -873,7 +873,7 @@ class JriService:
             return self.git.rev_parse(f"{target_tag}^")
         return self.git.rev_parse(target_tag)
 
-    def _describe_reset_target(self, target_tag: str) -> str:
+    def describe_reset_target(self, target_tag: str) -> str:
         parsed = parse_tag_name(target_tag)
         if parsed is None:
             return target_tag
@@ -881,6 +881,9 @@ class JriService:
         if stage == "begin":
             return f"just before {target_tag}"
         return target_tag
+
+    def _describe_reset_target(self, target_tag: str) -> str:
+        return self.describe_reset_target(target_tag)
 
     def ensure_initialized(self) -> None:
         self.git.ensure_repo()
@@ -1302,7 +1305,7 @@ class JriService:
     @contextmanager
     def _running_pi_runtime(
         self, *, overrides: dict[str, str | None]
-    ) -> Iterator[None]:
+    ) -> Generator[None]:
         runtime = self._start_pi_runtime(overrides=overrides)
         try:
             yield
@@ -1552,10 +1555,10 @@ class JriService:
         )
         if previous_attempts:
             prompt_text = f"{prompt_text}\n\n{previous_attempts}"
-        on_start_cb = lambda child_pid: self._save_runtime_process(  # noqa: E731
-            child_pid=child_pid,
-            task_log_path=log_path,
-        )
+
+        def on_start_cb(child_pid: int) -> None:
+            self._save_runtime_process(child_pid=child_pid, task_log_path=log_path)
+
         result_path = self.paths.jri_dir / "signals" / "result"
         result_path.parent.mkdir(parents=True, exist_ok=True)
         try:
@@ -2476,10 +2479,18 @@ class JriService:
         history_path = self.paths.attempt_history_path(attempt.task_slug)
         history_path.parent.mkdir(parents=True, exist_ok=True)
         if history_path.exists():
-            payload = json.loads(history_path.read_text(encoding="utf-8"))
-            attempts = payload.get("attempts") if isinstance(payload, dict) else None
-            history = (
-                [item for item in attempts if isinstance(item, dict)]
+            payload: object = json.loads(history_path.read_text(encoding="utf-8"))
+            attempts = (
+                cast(dict[str, object], payload).get("attempts")
+                if isinstance(payload, dict)
+                else None
+            )
+            history: list[dict[str, object]] = (
+                [
+                    cast(dict[str, object], item)
+                    for item in cast(list[object], attempts)
+                    if isinstance(item, dict)
+                ]
                 if isinstance(attempts, list)
                 else []
             )
@@ -2707,13 +2718,17 @@ class JriService:
         history_path = self.paths.attempt_history_path(slug)
         if not history_path.exists():
             return []
-        payload = json.loads(history_path.read_text(encoding="utf-8"))
-        attempts = payload.get("attempts") if isinstance(payload, dict) else None
+        payload: object = json.loads(history_path.read_text(encoding="utf-8"))
+        attempts = (
+            cast(dict[str, object], payload).get("attempts")
+            if isinstance(payload, dict)
+            else None
+        )
         if not isinstance(attempts, list):
             return []
         return [
-            AttemptState.from_payload(item)
-            for item in attempts
+            AttemptState.from_payload(cast(dict[str, object], item))
+            for item in cast(list[object], attempts)
             if isinstance(item, dict)
         ]
 
@@ -2876,7 +2891,7 @@ class JriService:
                     time.sleep(0.1)
 
     @contextmanager
-    def _follow_control_monitor(self, *, enabled: bool) -> Iterator[_FollowControls]:
+    def _follow_control_monitor(self, *, enabled: bool) -> Generator[_FollowControls]:
         controls = _FollowControls(enabled=False)
         if not enabled:
             yield controls

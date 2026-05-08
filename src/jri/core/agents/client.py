@@ -12,7 +12,7 @@ from typing import IO, Protocol, cast
 
 from ..errors import JriError
 from ..models import AgentRunResult, RalphResult, RalphResultPayload, Result
-from ..ui import DIM, _s, trim_tool_output
+from ..ui import DIM, style_text, trim_tool_output
 from .resources import resource_relative_path
 
 
@@ -104,7 +104,7 @@ def render_saved_event(
         label = f"⚙ {tool_name}"
         if detail:
             label = f"{label} {detail}"
-        return _s(label, DIM) + "\n", True
+        return style_text(label, DIM) + "\n", True
     if etype == "message_update":
         delta = event.get("delta") or event.get("text")
         return (delta, False) if isinstance(delta, str) else ("", False)
@@ -124,7 +124,7 @@ def render_saved_event(
     label = f"⚙ {tool_name}"
     if detail:
         label = f"{label} {detail}"
-    return _s(label, DIM) + "\n", True
+    return style_text(label, DIM) + "\n", True
 
 
 class SavedLogRenderer:
@@ -165,14 +165,15 @@ class SavedLogRenderer:
     def _append_line(self, rendered: list[str], raw_line: str) -> None:
         line = raw_line.rstrip("\n")
         try:
-            event = json.loads(line)
+            raw_event: object = json.loads(line)
         except json.JSONDecodeError:
             rendered.append(raw_line)
             if raw_line:
                 self._last_terminal_char = raw_line[-1]
             return
-        if not isinstance(event, dict):
+        if not isinstance(raw_event, dict):
             return
+        event = cast(dict[str, object], raw_event)
         text_to_print, newline_before = self.render_event(event)
         if not text_to_print:
             return
@@ -220,13 +221,14 @@ def render_saved_log(text: str, *, cwd_hint: str = "") -> str:
     return SavedLogRenderer(cwd_hint=cwd_hint).render_chunk(text, final=True)
 
 
-def _parse_event_line(line: str) -> tuple[dict[str, object] | None, str | None, bool]:
+def parse_event_line(line: str) -> tuple[dict[str, object] | None, str | None, bool]:
     try:
-        payload = json.loads(line)
+        raw_payload: object = json.loads(line)
     except json.JSONDecodeError:
         return None, line, False
-    if not isinstance(payload, dict):
+    if not isinstance(raw_payload, dict):
         return None, None, False
+    payload = cast(dict[str, object], raw_payload)
     event_type = payload.get("type")
     if event_type == "message_update":
         text = payload.get("delta") or payload.get("text")
@@ -239,6 +241,9 @@ def _parse_event_line(line: str) -> tuple[dict[str, object] | None, str | None, 
     return payload, None, False
 
 
+_parse_event_line = parse_event_line
+
+
 def _normalize_result(raw: str) -> RalphResult | None:
     if raw == "completed":
         return "completed"
@@ -249,23 +254,24 @@ def _normalize_result(raw: str) -> RalphResult | None:
     return None
 
 
-def _missing_result_payload(*, context: str) -> tuple[Result, list[str]]:
+def missing_result_payload(*, context: str) -> tuple[Result, list[str]]:
     warning = f"missing result payload for {context}; treating run as failed"
     print(warning, file=sys.stderr)
     return "failed", [warning]
 
 
-def _parse_result_payload(text: str) -> tuple[RalphResultPayload | None, list[str]]:
+def parse_result_payload(text: str) -> tuple[RalphResultPayload | None, list[str]]:
     try:
-        payload = json.loads(text)
+        payload_raw: object = json.loads(text)
     except json.JSONDecodeError as exc:
         warning = f"invalid result payload; treating run as failed: {exc}"
         print(warning, file=sys.stderr)
         return None, [warning]
-    if not isinstance(payload, dict):
+    if not isinstance(payload_raw, dict):
         warning = "invalid result payload; treating run as failed: expected object"
         print(warning, file=sys.stderr)
         return None, [warning]
+    payload = cast(dict[str, object], payload_raw)
     result = payload.get("result")
     normalized = _normalize_result(result) if isinstance(result, str) else None
     if normalized is None:
@@ -275,7 +281,7 @@ def _parse_result_payload(text: str) -> tuple[RalphResultPayload | None, list[st
         )
         print(warning, file=sys.stderr)
         return None, [warning]
-    parsed = RalphResultPayload.from_payload(cast(dict[str, object], payload))
+    parsed = RalphResultPayload.from_payload(payload)
     if parsed.result == "incompleted" and not parsed.learnings:
         warning = (
             "invalid result payload; treating run as failed: "
@@ -321,7 +327,8 @@ def _validate_human_task_payload(payload: dict[str, object]) -> str | None:
     acceptance = human_task.get("acceptance_criteria")
     if not isinstance(acceptance, list) or not acceptance:
         return "`human_task.acceptance_criteria` must be a non-empty string list"
-    if not all(isinstance(item, str) and item.strip() for item in acceptance):
+    acceptance_items = cast(list[object], acceptance)
+    if not all(isinstance(item, str) and item.strip() for item in acceptance_items):
         return "`human_task.acceptance_criteria` must be a non-empty string list"
 
     priority = human_task.get("priority")
@@ -333,6 +340,10 @@ def _validate_human_task_payload(payload: dict[str, object]) -> str | None:
         return "`human_task.priority` must be an integer between 0 and 4"
 
     return None
+
+
+_missing_result_payload = missing_result_payload
+_parse_result_payload = parse_result_payload
 
 
 class AgentRuntime(Protocol):
@@ -508,11 +519,12 @@ def _list_pi_session_files(root: Path, *, limit: int) -> list[dict[str, object]]
 def _read_pi_session_header(session_file: Path) -> dict[str, object] | None:
     try:
         first_line = session_file.read_text(encoding="utf-8").splitlines()[0]
-        payload = json.loads(first_line)
+        raw_payload: object = json.loads(first_line)
     except (OSError, IndexError, json.JSONDecodeError):
         return None
-    if not isinstance(payload, dict):
+    if not isinstance(raw_payload, dict):
         return None
+    payload = cast(dict[str, object], raw_payload)
     session_id = payload.get("id")
     directory = payload.get("cwd")
     if not isinstance(session_id, str) or not isinstance(directory, str):
@@ -781,12 +793,12 @@ class PiRuntime:
             warnings.append(msg)
             self.stop()
         elif result_path.exists():
-            payload, warnings = _parse_result_payload(
+            payload, warnings = parse_result_payload(
                 result_path.read_text(encoding="utf-8")
             )
             result = payload.result if payload is not None else "failed"
         else:
-            result, warnings = _missing_result_payload(context="Ralph run")
+            result, warnings = missing_result_payload(context="Ralph run")
 
         return AgentRunResult(
             returncode=0 if not timed_out else -1,
@@ -829,10 +841,10 @@ class PiRuntime:
                 raise JriError("pi rpc process exited unexpectedly")
             return None
         try:
-            payload = json.loads(line)
+            payload: object = json.loads(line)
         except json.JSONDecodeError:
             return {"type": "raw", "text": line.rstrip("\n")}
-        return payload if isinstance(payload, dict) else None
+        return cast(dict[str, object], payload) if isinstance(payload, dict) else None
 
 
 def _readline_with_timeout(stream: IO[str], *, timeout: float) -> str | None:

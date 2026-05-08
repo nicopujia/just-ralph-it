@@ -3,7 +3,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import NoReturn
+from typing import NoReturn, cast
 
 from ..core.agents.presets import preset_choices, resolve_preset_models
 from ..core.errors import JriError, RestartRequested
@@ -219,12 +219,12 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 return 0
             case "reset":
                 if not args.force:
-                    target_tag = service._resolve_reset_target_tag(args.task)
+                    target_tag = service.resolve_reset_target_tag(args.task)
 
                     has_uncommitted = bool(service.git.status_short())
                     has_ralph = service.has_managed_ralph_branch()
 
-                    reset_target = service._describe_reset_target(target_tag)
+                    reset_target = service.describe_reset_target(target_tag)
                     parts = [f"This will reset to {reset_target}."]
                     if has_uncommitted:
                         parts.append("Uncommitted changes will be discarded.")
@@ -253,7 +253,11 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
         _print_command_error(args.command, str(error))
         return 1
     except subprocess.CalledProcessError as error:
-        cmd = " ".join(error.cmd) if isinstance(error.cmd, list) else error.cmd
+        cmd_value: object = error.cmd
+        if isinstance(cmd_value, list):
+            cmd = " ".join(str(part) for part in cast(list[object], cmd_value))
+        else:
+            cmd = str(cmd_value)
         detail = (error.stderr or "").strip()
         message = f"git command failed: {cmd}"
         if detail:

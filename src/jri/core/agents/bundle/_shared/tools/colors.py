@@ -1,9 +1,8 @@
 import json
 import re
-from typing import Any
 
 
-def run_contrast_check(payload: dict[str, Any]) -> str:
+def run_contrast_check(payload: dict[str, object]) -> str:
     foreground = _normalize_hex_color(
         "foreground", payload.get("foreground"), allow_alpha=True
     )
@@ -35,7 +34,7 @@ def run_contrast_check(payload: dict[str, Any]) -> str:
     return json.dumps(result, indent=2) + "\n"
 
 
-def _normalize_hex_color(name: str, value: Any, *, allow_alpha: bool) -> str:
+def _normalize_hex_color(name: str, value: object, *, allow_alpha: bool) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"`{name}` must be a non-empty hex color string")
     normalized = value.strip().removeprefix("#")
@@ -53,7 +52,7 @@ def _normalize_hex_color(name: str, value: Any, *, allow_alpha: bool) -> str:
     return normalized.upper()
 
 
-def _assert_contrast_standard(value: Any) -> tuple[str, float]:
+def _assert_contrast_standard(value: object) -> tuple[str, float]:
     thresholds = {
         "AA": 4.5,
         "AALarge": 3.0,

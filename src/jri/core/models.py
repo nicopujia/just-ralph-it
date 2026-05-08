@@ -147,7 +147,7 @@ class HumanTaskPayload:
             title=_str_or_none(payload.get("title")) or "",
             body=_str_or_none(payload.get("body")) or "",
             acceptance_criteria=(
-                [item for item in criteria if isinstance(item, str)]
+                [item for item in cast(list[object], criteria) if isinstance(item, str)]
                 if isinstance(criteria, list)
                 else []
             ),
@@ -183,7 +183,11 @@ class RalphResultPayload:
             result=cast(RalphResult, payload.get("result")),
             summary=_str_or_none(payload.get("summary")),
             learnings=(
-                [item for item in learnings if isinstance(item, str)]
+                [
+                    item
+                    for item in cast(list[object], learnings)
+                    if isinstance(item, str)
+                ]
                 if isinstance(learnings, list)
                 else []
             ),
@@ -301,7 +305,11 @@ class PromotionRecord:
     def from_payload(cls, payload: dict[str, object]) -> Self:
         task_slugs_raw = payload.get("task_slugs")
         task_slugs = (
-            [item for item in task_slugs_raw if isinstance(item, str)]
+            [
+                item
+                for item in cast(list[object], task_slugs_raw)
+                if isinstance(item, str)
+            ]
             if isinstance(task_slugs_raw, list)
             else []
         )
@@ -403,7 +411,7 @@ class State:
         if isinstance(attempts_raw, list):
             attempts = [
                 AttemptState.from_payload(cast(dict[str, object], item))
-                for item in attempts_raw
+                for item in cast(list[object], attempts_raw)
                 if isinstance(item, dict)
             ]
 

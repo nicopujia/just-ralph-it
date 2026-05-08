@@ -118,10 +118,11 @@ def test_pi_runtime_stop_terminates_process_group(
         return 9876
 
     monkeypatch.setattr("jri.core.agents.client.os.getpgid", fake_getpgid)
-    monkeypatch.setattr(
-        "jri.core.agents.client.os.killpg",
-        lambda pgid, sig: signals.append((pgid, cast(signal.Signals, sig))),
-    )
+
+    def fake_killpg(pgid: int, sig: int | signal.Signals) -> None:
+        signals.append((pgid, cast(signal.Signals, sig)))
+
+    monkeypatch.setattr("jri.core.agents.client.os.killpg", fake_killpg)
 
     runtime.stop()
 

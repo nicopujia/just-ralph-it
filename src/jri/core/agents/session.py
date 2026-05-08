@@ -1,6 +1,6 @@
 import sys
 import tempfile
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -18,7 +18,7 @@ def runtime_env(
     overrides: dict[str, str | None],
     config_name: str = "package.json",
     included_agents: set[str] | None = None,
-) -> Iterator[dict[str, str]]:
+) -> Generator[dict[str, str]]:
     del config_name, included_agents
     with tempfile.TemporaryDirectory(prefix="jri-pi-") as tmp_dir:
         bundle_root = Path(tmp_dir)

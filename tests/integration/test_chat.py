@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import cast
+from typing import NoReturn, cast
 
 import pytest
 
@@ -19,7 +19,10 @@ class FakeAgentRuntimeForChat:
         del root, limit
         return list(self._sessions)
 
-    def run_ralph_task(self, **kwargs):  # pragma: no cover - not used here
+    def run_ralph_task(
+        self,
+        **kwargs: object,
+    ) -> NoReturn:  # pragma: no cover - not used here
         del kwargs
         raise AssertionError("run_ralph_task should not be called in chat tests")
 

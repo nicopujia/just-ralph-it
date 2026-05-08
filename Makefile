@@ -15,7 +15,7 @@ format:
 	uv run ruff check --select I --fix .
 
 typecheck:
-	RAYON_NUM_THREADS=1 uv run ty check
+	uv run basedpyright
 
 schema-check:
 	uv run python -m jri.checks.schema

@@ -5,11 +5,11 @@ import shutil
 import signal
 import subprocess
 import sys
-from collections.abc import Iterator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from importlib import import_module
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, Never, cast
 
 import pytest
 
@@ -1883,8 +1883,13 @@ def test_ctl_start_reports_when_no_todo_tasks(
         return 0
 
     monkeypatch.setattr(service, "start_attached", fake_start_attached)
+
+    def fake_service_factory(cwd: Path) -> JriService:
+        assert cwd == git_repo
+        return service
+
     monkeypatch.setattr(
-        import_module("jri.cli.main"), "JriService", lambda cwd: service
+        import_module("jri.cli.main"), "JriService", fake_service_factory
     )
 
     assert run_cli(["start"], cwd=git_repo) == 0
@@ -2055,21 +2060,29 @@ def test_follow_log_stop_control_writes_stop_signal(
             return next(self._actions, None)
 
     @contextmanager
-    def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
+    def fake_monitor(*, enabled: bool) -> Generator[FakeControls]:
         assert enabled is True
         yield FakeControls()
 
     monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
     monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
     pid_states = iter([True, False])
-    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: next(pid_states))
-    monkeypatch.setattr(
-        "jri.core.service.follow_status_bar",
-        lambda *args, **kwargs: (
-            footer_frames.append(bool(kwargs["stop_requested"])) or "footer"
-        ),
-    )
-    monkeypatch.setattr("jri.core.service.time.sleep", lambda _: None)
+
+    def fake_is_pid_alive(pid: int) -> bool:
+        del pid
+        return next(pid_states)
+
+    def fake_follow_status_bar(*args: object, **kwargs: object) -> str:
+        del args
+        footer_frames.append(bool(kwargs["stop_requested"]))
+        return "footer"
+
+    def fake_sleep(seconds: float) -> None:
+        del seconds
+
+    monkeypatch.setattr(service, "_is_pid_alive", fake_is_pid_alive)
+    monkeypatch.setattr("jri.core.service.follow_status_bar", fake_follow_status_bar)
+    monkeypatch.setattr("jri.core.service.time.sleep", fake_sleep)
 
     assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
     assert service.paths.stop_signal_path.exists()
@@ -2094,7 +2107,7 @@ def test_follow_log_detach_notice_is_cyan_when_color_is_enabled(
             return next(self._actions, None)
 
     @contextmanager
-    def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
+    def fake_monitor(*, enabled: bool) -> Generator[FakeControls]:
         assert enabled is True
         yield FakeControls()
 
@@ -2128,21 +2141,29 @@ def test_follow_log_shows_saved_stop_request_after_attach(
             return None
 
     @contextmanager
-    def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
+    def fake_monitor(*, enabled: bool) -> Generator[FakeControls]:
         assert enabled is True
         yield FakeControls()
 
     monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
     monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
     pid_states = iter([True, False])
-    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: next(pid_states))
-    monkeypatch.setattr(
-        "jri.core.service.follow_status_bar",
-        lambda *args, **kwargs: (
-            footer_frames.append(bool(kwargs["stop_requested"])) or "footer"
-        ),
-    )
-    monkeypatch.setattr("jri.core.service.time.sleep", lambda _: None)
+
+    def fake_is_pid_alive(pid: int) -> bool:
+        del pid
+        return next(pid_states)
+
+    def fake_follow_status_bar(*args: object, **kwargs: object) -> str:
+        del args
+        footer_frames.append(bool(kwargs["stop_requested"]))
+        return "footer"
+
+    def fake_sleep(seconds: float) -> None:
+        del seconds
+
+    monkeypatch.setattr(service, "_is_pid_alive", fake_is_pid_alive)
+    monkeypatch.setattr("jri.core.service.follow_status_bar", fake_follow_status_bar)
+    monkeypatch.setattr("jri.core.service.time.sleep", fake_sleep)
 
     assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
     assert footer_frames == [True]
@@ -2167,7 +2188,7 @@ def test_follow_log_halt_control_invokes_halt(
             return next(self._actions, None)
 
     @contextmanager
-    def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
+    def fake_monitor(*, enabled: bool) -> Generator[FakeControls]:
         assert enabled is True
         yield FakeControls()
 
@@ -2177,6 +2198,24 @@ def test_follow_log_halt_control_invokes_halt(
 
     assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
     assert halt_calls == ["halt"]
+
+
+def _follow_status_bar_spy(
+    footer_calls: list[tuple[str | None, str | None]],
+) -> Callable[..., str]:
+    def spy(*args: object, **kwargs: object) -> str:
+        del args
+        activity = kwargs.get("activity")
+        spinner_frame = kwargs.get("spinner_frame")
+        footer_calls.append(
+            (
+                activity if isinstance(activity, str) else None,
+                spinner_frame if isinstance(spinner_frame, str) else None,
+            )
+        )
+        return "footer"
+
+    return spy
 
 
 def test_follow_log_shows_spinner_for_running_subagent(
@@ -2226,27 +2265,27 @@ def test_follow_log_shows_spinner_for_running_subagent(
             return None
 
     @contextmanager
-    def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
+    def fake_monitor(*, enabled: bool) -> Generator[FakeControls]:
         assert enabled is True
         yield FakeControls()
 
     monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
     monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
     pid_states = iter([True, False])
-    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: next(pid_states))
+
+    def fake_is_pid_alive(pid: int) -> bool:
+        del pid
+        return next(pid_states)
+
+    def fake_sleep(seconds: float) -> None:
+        del seconds
+
+    monkeypatch.setattr(service, "_is_pid_alive", fake_is_pid_alive)
     monkeypatch.setattr(
         "jri.core.service.follow_status_bar",
-        lambda *args, **kwargs: (
-            footer_calls.append(
-                cast(
-                    tuple[str | None, str | None],
-                    (kwargs.get("activity"), kwargs.get("spinner_frame")),
-                )
-            )
-            or "footer"
-        ),
+        _follow_status_bar_spy(footer_calls),
     )
-    monkeypatch.setattr("jri.core.service.time.sleep", lambda _: None)
+    monkeypatch.setattr("jri.core.service.time.sleep", fake_sleep)
 
     assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
     assert len(footer_calls) == 1
@@ -2273,7 +2312,7 @@ def test_follow_log_redraws_footer_across_repeated_resizes(
             return None
 
     @contextmanager
-    def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
+    def fake_monitor(*, enabled: bool) -> Generator[FakeControls]:
         assert enabled is True
         yield FakeControls()
 
@@ -2290,13 +2329,27 @@ def test_follow_log_redraws_footer_across_repeated_resizes(
 
     monkeypatch.setattr("jri.core.service.supports_interactive_footer", lambda: True)
     monkeypatch.setattr(service, "_follow_control_monitor", fake_monitor)
-    monkeypatch.setattr(service, "_current_follow_task", lambda: "task-a")
-    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: next(pid_states))
+
+    def fake_current_follow_task() -> str:
+        return "task-a"
+
+    def fake_is_pid_alive(pid: int) -> bool:
+        del pid
+        return next(pid_states)
+
+    def fake_get_terminal_size(fallback: object) -> os.terminal_size:
+        del fallback
+        return next(terminal_sizes)
+
+    def fake_sleep(seconds: float) -> None:
+        del seconds
+
+    monkeypatch.setattr(service, "_current_follow_task", fake_current_follow_task)
+    monkeypatch.setattr(service, "_is_pid_alive", fake_is_pid_alive)
     monkeypatch.setattr(
-        "jri.core.service.shutil.get_terminal_size",
-        lambda _: next(terminal_sizes),
+        "jri.core.service.shutil.get_terminal_size", fake_get_terminal_size
     )
-    monkeypatch.setattr("jri.core.service.time.sleep", lambda _: None)
+    monkeypatch.setattr("jri.core.service.time.sleep", fake_sleep)
 
     assert service._follow_log(log_path, loop_pid=12345, allow_detach=True) is False
 
@@ -2317,7 +2370,11 @@ def test_follow_log_stops_when_spawned_process_has_exited(
         def poll(self) -> int:
             return 0
 
-    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: True)
+    def fake_is_pid_alive(pid: int) -> bool:
+        del pid
+        return True
+
+    monkeypatch.setattr(service, "_is_pid_alive", fake_is_pid_alive)
 
     detached = service._follow_log(
         log_path,
@@ -2780,18 +2837,24 @@ def test_halt_skips_current_process_and_terminates_tracked_child(
     kill_calls: list[int] = []
     killpg_calls: list[int] = []
 
-    monkeypatch.setattr("jri.core.service.os.getpgrp", lambda: 999)
-    monkeypatch.setattr(
-        "jri.core.service.os.getpgid",
-        lambda pid: 999 if pid == 424242 else 0,
-    )
-    monkeypatch.setattr(
-        "jri.core.service.os.kill",
-        lambda pid, sig: kill_calls.append(pid),
-    )
-    monkeypatch.setattr(
-        "jri.core.service.os.killpg", lambda pgid, sig: killpg_calls.append(pgid)
-    )
+    def fake_getpgrp() -> int:
+        return 999
+
+    def fake_getpgid(pid: int) -> int:
+        return 999 if pid == 424242 else 0
+
+    def fake_kill(pid: int, sig: int | signal.Signals) -> None:
+        del sig
+        kill_calls.append(pid)
+
+    def fake_killpg(pgid: int, sig: int | signal.Signals) -> None:
+        del sig
+        killpg_calls.append(pgid)
+
+    monkeypatch.setattr("jri.core.service.os.getpgrp", fake_getpgrp)
+    monkeypatch.setattr("jri.core.service.os.getpgid", fake_getpgid)
+    monkeypatch.setattr("jri.core.service.os.kill", fake_kill)
+    monkeypatch.setattr("jri.core.service.os.killpg", fake_killpg)
 
     service.halt()
 
@@ -3879,7 +3942,7 @@ def test_missing_make_binary_records_failure_and_recovers(
     def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
         if args and args[0] == ["make", "check"]:
             raise FileNotFoundError("make")
-        return real_run(*args, **kwargs)
+        return cast(subprocess.CompletedProcess[str], real_run(*args, **kwargs))
 
     monkeypatch.setattr(service_module.subprocess, "run", fake_run)
 
@@ -4051,13 +4114,11 @@ def test_failed_task_recovery_logs_failure(
     client = FailedFakeAgentRuntime()
     service = JriService(git_repo, agent_runtime=client)
 
-    monkeypatch.setattr(
-        JriService,
-        "_reset_runtime_state",
-        lambda self_: (_ for _ in ()).throw(
-            OSError("simulated reset failure during recovery")
-        ),
-    )
+    def fail_reset_runtime_state(self_: JriService) -> Never:
+        del self_
+        raise OSError("simulated reset failure during recovery")
+
+    monkeypatch.setattr(JriService, "_reset_runtime_state", fail_reset_runtime_state)
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -4093,13 +4154,11 @@ def test_needs_human_recovery_logs_failure(
     client = NeedsHumanFakeAgentRuntime()
     service = JriService(git_repo, agent_runtime=client)
 
-    monkeypatch.setattr(
-        JriService,
-        "_reset_runtime_state",
-        lambda self_: (_ for _ in ()).throw(
-            OSError("simulated reset failure during recovery")
-        ),
-    )
+    def fail_reset_runtime_state(self_: JriService) -> Never:
+        del self_
+        raise OSError("simulated reset failure during recovery")
+
+    monkeypatch.setattr(JriService, "_reset_runtime_state", fail_reset_runtime_state)
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -4135,11 +4194,11 @@ def test_stale_task_recovery_logs_failure_and_propagates_error(
 
     import jri.core.service as service_module
 
-    monkeypatch.setattr(
-        service_module,
-        "move_task",
-        lambda *a, **kw: (_ for _ in ()).throw(OSError("simulated move failure")),
-    )
+    def fail_move_task(*args: object, **kwargs: object) -> Never:
+        del args, kwargs
+        raise OSError("simulated move failure")
+
+    monkeypatch.setattr(service_module, "move_task", fail_move_task)
 
     with pytest.raises(OSError, match="simulated move failure"):
         service.start(max_tasks=1, force=True)
@@ -4172,13 +4231,11 @@ def test_state_is_understandable_after_partial_recovery_failure(
     client = FailedFakeAgentRuntime()
     service = JriService(git_repo, agent_runtime=client)
 
-    monkeypatch.setattr(
-        JriService,
-        "_reset_runtime_state",
-        lambda self_: (_ for _ in ()).throw(
-            OSError("simulated reset failure during recovery")
-        ),
-    )
+    def fail_reset_runtime_state(self_: JriService) -> Never:
+        del self_
+        raise OSError("simulated reset failure during recovery")
+
+    monkeypatch.setattr(JriService, "_reset_runtime_state", fail_reset_runtime_state)
 
     completed = service.start(max_tasks=1, force=True)
 
@@ -5580,11 +5637,17 @@ def test_follow_controls_poll_action_reads_ready_stdin(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     controls = _FollowControls(enabled=True, fd=9)
-    monkeypatch.setattr(
-        "jri.core.service.select.select",
-        lambda *args: ([sys.stdin], [], []),
-    )
-    monkeypatch.setattr("jri.core.service.os.read", lambda fd, size: b"D")
+
+    def ready_select(*args: object) -> tuple[list[object], list[object], list[object]]:
+        del args
+        return [sys.stdin], [], []
+
+    def read_detach_key(fd: int, size: int) -> bytes:
+        del fd, size
+        return b"D"
+
+    monkeypatch.setattr("jri.core.service.select.select", ready_select)
+    monkeypatch.setattr("jri.core.service.os.read", read_detach_key)
 
     assert controls.poll_action() == "detach"
 
@@ -5595,21 +5658,31 @@ def test_follow_controls_poll_action_ignores_unavailable_input(
     assert _FollowControls(enabled=False).poll_action() is None
     assert _FollowControls(enabled=True, fd=None).poll_action() is None
     controls = _FollowControls(enabled=True, fd=9)
-    monkeypatch.setattr(
-        "jri.core.service.select.select",
-        lambda *args: (_ for _ in ()).throw(OSError("bad fd")),
-    )
+
+    def fail_select(*args: object) -> Never:
+        del args
+        raise OSError("bad fd")
+
+    monkeypatch.setattr("jri.core.service.select.select", fail_select)
     assert controls.poll_action() is None
-    monkeypatch.setattr("jri.core.service.select.select", lambda *args: ([], [], []))
+
+    def empty_select(*args: object) -> tuple[list[object], list[object], list[object]]:
+        del args
+        return [], [], []
+
+    monkeypatch.setattr("jri.core.service.select.select", empty_select)
     assert controls.poll_action() is None
-    monkeypatch.setattr(
-        "jri.core.service.select.select",
-        lambda *args: ([sys.stdin], [], []),
-    )
-    monkeypatch.setattr(
-        "jri.core.service.os.read",
-        lambda fd, size: (_ for _ in ()).throw(OSError("read failed")),
-    )
+
+    def ready_select(*args: object) -> tuple[list[object], list[object], list[object]]:
+        del args
+        return [sys.stdin], [], []
+
+    def fail_read(fd: int, size: int) -> Never:
+        del fd, size
+        raise OSError("read failed")
+
+    monkeypatch.setattr("jri.core.service.select.select", ready_select)
+    monkeypatch.setattr("jri.core.service.os.read", fail_read)
     assert controls.poll_action() is None
 
 
@@ -5646,10 +5719,11 @@ def test_init_prompt_eof_aborts_existing_jri(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
-    monkeypatch.setattr(
-        "builtins.input",
-        lambda: (_ for _ in ()).throw(EOFError),
-    )
+
+    def raise_eof() -> Never:
+        raise EOFError
+
+    monkeypatch.setattr("builtins.input", raise_eof)
 
     with pytest.raises(JriError, match="initialization aborted"):
         JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime()).init(
@@ -5665,7 +5739,12 @@ def test_chat_returns_nonzero_without_saving_new_session(
     assert run_cli(["init"], cwd=git_repo) == 0
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save_session("existing-session")
-    monkeypatch.setattr("jri.core.service.launch_chat", lambda **kwargs: 17)
+
+    def fake_launch_chat(**kwargs: object) -> int:
+        del kwargs
+        return 17
+
+    monkeypatch.setattr("jri.core.service.launch_chat", fake_launch_chat)
 
     assert service.chat([], fresh=False) == 17
     assert service.state_store.load().session == "existing-session"
@@ -5796,7 +5875,12 @@ def test_ralph_status_summary_reports_current_task_and_stop_signal(
     service.state_store.mark_task_started(task_slug="current", started_at=1)
     service.paths.stop_signal_path.parent.mkdir(parents=True, exist_ok=True)
     service.paths.stop_signal_path.write_text("stop\n", encoding="utf-8")
-    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: True)
+
+    def fake_is_pid_alive(pid: int) -> bool:
+        del pid
+        return True
+
+    monkeypatch.setattr(service, "_is_pid_alive", fake_is_pid_alive)
 
     assert service.ralph_status_summary() == (
         "Ralph: running (attached) on current, stop requested"
@@ -5902,11 +5986,17 @@ def test_start_followable_returns_failure_when_child_exits_nonzero(
             return 2
 
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-    monkeypatch.setattr(
-        "jri.core.service.subprocess.Popen",
-        lambda *args, **kwargs: FailingDetachedProcess(222),
-    )
-    monkeypatch.setattr(service, "_follow_log", lambda *args, **kwargs: False)
+
+    def fake_popen(*args: object, **kwargs: object) -> FailingDetachedProcess:
+        del args, kwargs
+        return FailingDetachedProcess(222)
+
+    def fake_follow_log(*args: object, **kwargs: object) -> bool:
+        del args, kwargs
+        return False
+
+    monkeypatch.setattr("jri.core.service.subprocess.Popen", fake_popen)
+    monkeypatch.setattr(service, "_follow_log", fake_follow_log)
 
     assert (
         service._start_followable(
@@ -5931,12 +6021,18 @@ def test_start_followable_builds_all_optional_child_args(
     commands: list[list[str]] = []
 
     def fake_popen(*args: object, **kwargs: object) -> FakeDetachedProcess:
+        del kwargs
         commands.append(cast(list[str], args[0]))
         return FakeDetachedProcess(333)
 
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     monkeypatch.setattr("jri.core.service.subprocess.Popen", fake_popen)
-    monkeypatch.setattr(service, "_follow_log", lambda *args, **kwargs: True)
+
+    def fake_follow_log(*args: object, **kwargs: object) -> bool:
+        del args, kwargs
+        return True
+
+    monkeypatch.setattr(service, "_follow_log", fake_follow_log)
     monkeypatch.setattr("jri.core.service.supports_color", lambda: True)
 
     assert (
@@ -6070,16 +6166,26 @@ def test_cleanup_tracked_processes_kills_foreign_process_group(
     )
     killpg_calls: list[int] = []
     kill_calls: list[int] = []
-    monkeypatch.setattr("jri.core.service.os.getpgrp", lambda: 1)
-    monkeypatch.setattr("jri.core.service.os.getpgid", lambda pid: 99)
-    monkeypatch.setattr(
-        "jri.core.service.os.killpg",
-        lambda pgid, sig: killpg_calls.append(pgid),
-    )
-    monkeypatch.setattr(
-        "jri.core.service.os.kill",
-        lambda pid, sig: kill_calls.append(pid),
-    )
+
+    def fake_getpgrp() -> int:
+        return 1
+
+    def fake_getpgid(pid: int) -> int:
+        del pid
+        return 99
+
+    def fake_killpg(pgid: int, sig: int | signal.Signals) -> None:
+        del sig
+        killpg_calls.append(pgid)
+
+    def fake_kill(pid: int, sig: int | signal.Signals) -> None:
+        del sig
+        kill_calls.append(pid)
+
+    monkeypatch.setattr("jri.core.service.os.getpgrp", fake_getpgrp)
+    monkeypatch.setattr("jri.core.service.os.getpgid", fake_getpgid)
+    monkeypatch.setattr("jri.core.service.os.killpg", fake_killpg)
+    monkeypatch.setattr("jri.core.service.os.kill", fake_kill)
 
     assert service._cleanup_tracked_processes(required=True) is True
     assert killpg_calls == [99]
@@ -6099,14 +6205,17 @@ def test_cleanup_tracked_processes_falls_back_when_group_lookup_fails(
         detached=True,
     )
     kill_calls: list[int] = []
-    monkeypatch.setattr(
-        "jri.core.service.os.getpgid",
-        lambda pid: (_ for _ in ()).throw(PermissionError),
-    )
-    monkeypatch.setattr(
-        "jri.core.service.os.kill",
-        lambda pid, sig: kill_calls.append(pid),
-    )
+
+    def fail_getpgid(pid: int) -> Never:
+        del pid
+        raise PermissionError
+
+    def fake_kill(pid: int, sig: int | signal.Signals) -> None:
+        del sig
+        kill_calls.append(pid)
+
+    monkeypatch.setattr("jri.core.service.os.getpgid", fail_getpgid)
+    monkeypatch.setattr("jri.core.service.os.kill", fake_kill)
 
     assert service._cleanup_tracked_processes(required=True) is True
     assert kill_calls == [5151]
@@ -6119,12 +6228,17 @@ def test_dirty_workdir_prompt_allows_stash_discard_and_abort(
     assert run_cli(["init"], cwd=git_repo) == 0
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     commands: list[tuple[str, ...]] = []
-    monkeypatch.setattr(service.git, "status_short", lambda *args: " M README.md")
-    monkeypatch.setattr(
-        service.git,
-        "run",
-        lambda *args, **kwargs: commands.append(args),
-    )
+
+    def fake_status_short(*args: str) -> str:
+        del args
+        return " M README.md"
+
+    def fake_git_run(*args: str, **kwargs: object) -> None:
+        del kwargs
+        commands.append(args)
+
+    monkeypatch.setattr(service.git, "status_short", fake_status_short)
+    monkeypatch.setattr(service.git, "run", fake_git_run)
     monkeypatch.setattr("builtins.input", lambda: "s")
     service._handle_dirty_workdir(force=False)
     assert commands[-1] == ("stash",)
@@ -6143,13 +6257,21 @@ def test_wrong_branch_prompt_allows_checkout_or_abort(
     assert run_cli(["init"], cwd=git_repo) == 0
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     commands: list[tuple[str, ...]] = []
-    monkeypatch.setattr(service.git, "default_branch", lambda hint=None: "main")
-    monkeypatch.setattr(service.git, "current_branch", lambda: "feature")
-    monkeypatch.setattr(
-        service.git,
-        "run",
-        lambda *args, **kwargs: commands.append(args),
-    )
+
+    def fake_default_branch(hint: str | None = None) -> str:
+        del hint
+        return "main"
+
+    def fake_current_branch() -> str:
+        return "feature"
+
+    def fake_git_run(*args: str, **kwargs: object) -> None:
+        del kwargs
+        commands.append(args)
+
+    monkeypatch.setattr(service.git, "default_branch", fake_default_branch)
+    monkeypatch.setattr(service.git, "current_branch", fake_current_branch)
+    monkeypatch.setattr(service.git, "run", fake_git_run)
     monkeypatch.setattr("builtins.input", lambda: "")
     service._handle_wrong_branch(force=False)
     assert commands == [("checkout", "main")]
@@ -6239,10 +6361,12 @@ def test_recover_unverified_completed_attempt_logs_failure(
     git(git_repo, "add", ".jri/tasks/done/done-task.md")
     git(git_repo, "commit", "-m", "seed done task")
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-    monkeypatch.setattr(
-        "jri.core.service.move_task",
-        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("move failed")),
-    )
+
+    def fail_move_task(*args: object, **kwargs: object) -> Never:
+        del args, kwargs
+        raise OSError("move failed")
+
+    monkeypatch.setattr("jri.core.service.move_task", fail_move_task)
 
     with pytest.raises(OSError, match="move failed"):
         service._recover_unverified_completed_attempt(
@@ -6374,10 +6498,12 @@ def test_follow_control_monitor_handles_missing_terminal(
     import termios
 
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-    monkeypatch.setattr(
-        "jri.core.service.termios.tcgetattr",
-        lambda fd: (_ for _ in ()).throw(termios.error("not tty")),
-    )
+
+    def fail_tcgetattr(fd: int) -> Never:
+        del fd
+        raise termios.error("not tty")
+
+    monkeypatch.setattr("jri.core.service.termios.tcgetattr", fail_tcgetattr)
 
     with service._follow_control_monitor(enabled=True) as controls:
         assert controls.enabled is False
@@ -6558,18 +6684,22 @@ def test_recover_stale_start_state_resumes_doing_task_with_evidence(
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save(State(active_attempt=attempt, attempts=[attempt]))
     completed: list[tuple[AttemptState, Task | None]] = []
+
+    def fake_attempt_completion_evidence(
+        active_attempt: AttemptState,
+    ) -> dict[str, str]:
+        del active_attempt
+        return {"end_tag": "jri/end/task-a"}
+
+    def fake_complete_attempt(
+        active_attempt: AttemptState, *, doing_task: Task | None
+    ) -> None:
+        completed.append((active_attempt, doing_task))
+
     monkeypatch.setattr(
-        service,
-        "_attempt_completion_evidence",
-        lambda active_attempt: {"end_tag": "jri/end/task-a"},
+        service, "_attempt_completion_evidence", fake_attempt_completion_evidence
     )
-    monkeypatch.setattr(
-        service,
-        "_complete_attempt",
-        lambda active_attempt, *, doing_task: completed.append(
-            (active_attempt, doing_task)
-        ),
-    )
+    monkeypatch.setattr(service, "_complete_attempt", fake_complete_attempt)
 
     service._recover_stale_start_state(mode="foreground", force=True)
 
@@ -6655,16 +6785,23 @@ def test_recover_stale_start_state_handles_finished_active_attempt_without_task(
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.save(State(active_attempt=attempt, attempts=[attempt]))
     completed: list[Task | None] = []
+
+    def fake_attempt_completion_evidence(
+        active_attempt: AttemptState,
+    ) -> dict[str, str]:
+        del active_attempt
+        return {"end_tag": "jri/end/task-a"}
+
+    def fake_complete_attempt(
+        active_attempt: AttemptState, *, doing_task: Task | None
+    ) -> None:
+        del active_attempt
+        completed.append(doing_task)
+
     monkeypatch.setattr(
-        service,
-        "_attempt_completion_evidence",
-        lambda active_attempt: {"end_tag": "jri/end/task-a"},
+        service, "_attempt_completion_evidence", fake_attempt_completion_evidence
     )
-    monkeypatch.setattr(
-        service,
-        "_complete_attempt",
-        lambda active_attempt, *, doing_task: completed.append(doing_task),
-    )
+    monkeypatch.setattr(service, "_complete_attempt", fake_complete_attempt)
 
     service._recover_stale_start_state(mode="foreground", force=True)
 
@@ -6742,7 +6879,12 @@ def test_recover_stale_task_rejects_dirty_default_branch(
         )
     )
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-    monkeypatch.setattr(service.git, "status_short", lambda *args: " M README.md")
+
+    def fake_status_short(*args: str) -> str:
+        del args
+        return " M README.md"
+
+    monkeypatch.setattr(service.git, "status_short", fake_status_short)
 
     with pytest.raises(JriError, match="working tree must be clean"):
         service._recover_stale_task(
@@ -6775,22 +6917,23 @@ def test_recover_stale_task_commits_partial_from_managed_branch(
     )
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     calls: list[tuple[str, str | None]] = []
-    monkeypatch.setattr(service.git, "current_branch", lambda: "ralph/main")
-    monkeypatch.setattr(
-        service.git,
-        "commit_all_if_needed",
-        lambda message: calls.append(("commit", message)),
-    )
-    monkeypatch.setattr(
-        service.git,
-        "checkout",
-        lambda branch: calls.append(("checkout", branch)),
-    )
-    monkeypatch.setattr(
-        service,
-        "_reset_runtime_state",
-        lambda: calls.append(("reset", None)),
-    )
+
+    def fake_current_branch() -> str:
+        return "ralph/main"
+
+    def fake_commit_all_if_needed(message: str) -> None:
+        calls.append(("commit", message))
+
+    def fake_checkout(branch: str) -> None:
+        calls.append(("checkout", branch))
+
+    def fake_reset_runtime_state() -> None:
+        calls.append(("reset", None))
+
+    monkeypatch.setattr(service.git, "current_branch", fake_current_branch)
+    monkeypatch.setattr(service.git, "commit_all_if_needed", fake_commit_all_if_needed)
+    monkeypatch.setattr(service.git, "checkout", fake_checkout)
+    monkeypatch.setattr(service, "_reset_runtime_state", fake_reset_runtime_state)
 
     service._recover_stale_task(
         task,
@@ -6869,7 +7012,7 @@ def test_follow_log_cancels_stop_and_detaches_after_log_exists(
             return next(self._actions, None)
 
     @contextmanager
-    def fake_monitor(*, enabled: bool) -> Iterator[FakeControls]:
+    def fake_monitor(*, enabled: bool) -> Generator[FakeControls]:
         assert enabled is True
         yield FakeControls()
 
@@ -6928,16 +7071,17 @@ def test_reset_tag_helpers_cover_unmatched_and_unparsed_tags(
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-    monkeypatch.setattr(
-        service.git,
-        "run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(
+
+    def fake_git_run(*args: str, **kwargs: object) -> subprocess.CompletedProcess[str]:
+        del kwargs
+        return subprocess.CompletedProcess(
             args,
             0,
             stdout="not-a-jri-tag\n",
             stderr="",
-        ),
-    )
+        )
+
+    monkeypatch.setattr(service.git, "run", fake_git_run)
     assert service._find_latest_tag("end") is None
 
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
@@ -6980,6 +7124,7 @@ def test_start_detached_builds_optional_timeout_args(
     commands: list[list[str]] = []
 
     def fake_popen(*args: object, **kwargs: object) -> FakeDetachedProcess:
+        del kwargs
         commands.append(cast(list[str], args[0]))
         return FakeDetachedProcess(9090)
 
@@ -7035,7 +7180,12 @@ def test_run_loop_summary_records_timeout_result_without_running_agent(
         body="Timeout.",
     )
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-    monkeypatch.setattr(service, "_run_task", lambda task, task_timeout=None: "timeout")
+
+    def fake_run_task(task: Task, task_timeout: int | None = None) -> str:
+        del task, task_timeout
+        return "timeout"
+
+    monkeypatch.setattr(service, "_run_task", fake_run_task)
 
     summary = service._run_loop_summary(max_tasks=1, task_timeout=5, force=True)
 
@@ -7053,12 +7203,20 @@ def test_follow_control_monitor_enables_and_restores_terminal(
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     restored: list[tuple[int, int, list[str]]] = []
     monkeypatch.setattr("sys.stdin.fileno", lambda: 42)
-    monkeypatch.setattr("jri.core.service.termios.tcgetattr", lambda fd: ["old"])
-    monkeypatch.setattr("jri.core.service.tty.setcbreak", lambda fd: None)
-    monkeypatch.setattr(
-        "jri.core.service.termios.tcsetattr",
-        lambda fd, when, previous: restored.append((fd, when, previous)),
-    )
+
+    def fake_tcgetattr(fd: int) -> list[str]:
+        del fd
+        return ["old"]
+
+    def fake_setcbreak(fd: int) -> None:
+        del fd
+
+    def fake_tcsetattr(fd: int, when: int, previous: list[str]) -> None:
+        restored.append((fd, when, previous))
+
+    monkeypatch.setattr("jri.core.service.termios.tcgetattr", fake_tcgetattr)
+    monkeypatch.setattr("jri.core.service.tty.setcbreak", fake_setcbreak)
+    monkeypatch.setattr("jri.core.service.termios.tcsetattr", fake_tcsetattr)
 
     with service._follow_control_monitor(enabled=True) as controls:
         assert controls.enabled is True
@@ -7074,11 +7232,11 @@ def test_run_loop_summary_wraps_initial_task_list_errors(
     assert run_cli(["init"], cwd=git_repo) == 0
     import jri.core.service as service_module
 
-    monkeypatch.setattr(
-        service_module,
-        "list_tasks",
-        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("bad tasks")),
-    )
+    def fail_list_tasks(*args: object, **kwargs: object) -> Never:
+        del args, kwargs
+        raise ValueError("bad tasks")
+
+    monkeypatch.setattr(service_module, "list_tasks", fail_list_tasks)
 
     with pytest.raises(JriError, match="bad tasks"):
         JriService(
@@ -7102,13 +7260,20 @@ def test_run_loop_summary_raises_restart_after_completed_iteration(
         body="Triggers restart.",
     )
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-    monkeypatch.setattr(
-        service, "_run_task", lambda task, task_timeout=None: "completed"
-    )
+
+    def fake_run_task(task: Task, task_timeout: int | None = None) -> str:
+        del task, task_timeout
+        return "completed"
+
+    def fake_should_restart_process_after_iteration(**kwargs: object) -> bool:
+        del kwargs
+        return True
+
+    monkeypatch.setattr(service, "_run_task", fake_run_task)
     monkeypatch.setattr(
         service,
         "_should_restart_process_after_iteration",
-        lambda **kwargs: True,
+        fake_should_restart_process_after_iteration,
     )
 
     with pytest.raises(RestartRequested) as exc_info:
@@ -7123,7 +7288,12 @@ def test_follow_log_returns_when_log_never_appears_and_process_is_dead(
 ) -> None:
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     log_path = git_repo / ".jri" / "logs" / "ralph" / "missing.log"
-    monkeypatch.setattr(service, "_is_pid_alive", lambda pid: False)
+
+    def fake_is_pid_alive(pid: int) -> bool:
+        del pid
+        return False
+
+    monkeypatch.setattr(service, "_is_pid_alive", fake_is_pid_alive)
 
     assert service._follow_log(log_path, loop_pid=12345, allow_detach=False) is False
 
@@ -7154,10 +7324,12 @@ def test_is_pid_alive_handles_invalid_and_permission_denied(
 ) -> None:
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert service._is_pid_alive(0) is False
-    monkeypatch.setattr(
-        "jri.core.service.os.kill",
-        lambda pid, sig: (_ for _ in ()).throw(PermissionError),
-    )
+
+    def fake_kill(pid: int, sig: int | signal.Signals) -> Never:
+        del pid, sig
+        raise PermissionError
+
+    monkeypatch.setattr("jri.core.service.os.kill", fake_kill)
     assert service._is_pid_alive(12345) is True
 
 
@@ -7168,12 +7340,23 @@ def test_recover_unverified_completed_attempt_handles_managed_branch(
     assert run_cli(["init"], cwd=git_repo) == 0
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     calls: list[str] = []
-    monkeypatch.setattr(service.git, "current_branch", lambda: "ralph/main")
-    monkeypatch.setattr(
-        service.git, "commit_all_if_needed", lambda message: calls.append(message)
-    )
-    monkeypatch.setattr(service.git, "checkout", lambda branch: calls.append(branch))
-    monkeypatch.setattr(service, "_reset_runtime_state", lambda: calls.append("reset"))
+
+    def fake_current_branch() -> str:
+        return "ralph/main"
+
+    def fake_commit_all_if_needed(message: str) -> None:
+        calls.append(message)
+
+    def fake_checkout(branch: str) -> None:
+        calls.append(branch)
+
+    def fake_reset_runtime_state() -> None:
+        calls.append("reset")
+
+    monkeypatch.setattr(service.git, "current_branch", fake_current_branch)
+    monkeypatch.setattr(service.git, "commit_all_if_needed", fake_commit_all_if_needed)
+    monkeypatch.setattr(service.git, "checkout", fake_checkout)
+    monkeypatch.setattr(service, "_reset_runtime_state", fake_reset_runtime_state)
 
     service._recover_unverified_completed_attempt(
         AttemptState(number=1, task_slug="task-a", branch="ralph/main", started_at=1),

@@ -66,10 +66,14 @@ def follow_status_bar(
     return f"\0337\033[{height};1H\033[2K{styled}\0338"
 
 
-def _s(text: str, *codes: str) -> str:
+def style_text(text: str, *codes: str) -> str:
     if not supports_color():
         return text
     return "".join(codes) + text + RESET
+
+
+def _s(text: str, *codes: str) -> str:
+    return style_text(text, *codes)
 
 
 def cyan(text: str) -> str:

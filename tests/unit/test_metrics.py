@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 from jri.core.metrics import MetricEntry, MetricsStore
 
@@ -155,7 +156,7 @@ def test_metrics_store_file_is_valid_json_array(tmp_path: Path) -> None:
     path = tmp_path / "metrics.json"
     store = MetricsStore(path)
     store.record(MetricEntry(task="a", ts="2026-04-05T14:30:00Z", result="pass"))
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = cast(list[dict[str, object]], json.loads(path.read_text(encoding="utf-8")))
     assert isinstance(data, list)
     assert len(data) == 1
     assert data[0]["task"] == "a"

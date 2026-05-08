@@ -1,6 +1,8 @@
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from jri.core.models import AttemptState
 from jri.core.service import JriService
 from tests.conftest import run_cli
@@ -11,7 +13,9 @@ def _init(repo: Path) -> None:
     run_cli(["init"], cwd=repo)
 
 
-def test_status_shows_counts_and_human_tasks(git_repo: Path, capsys) -> None:
+def test_status_shows_counts_and_human_tasks(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     _init(git_repo)
     write_task(
         git_repo,
@@ -65,7 +69,9 @@ def test_status_shows_counts_and_human_tasks(git_repo: Path, capsys) -> None:
     assert "ralph-task" not in out.split("Tasks assigned to Human")[1]
 
 
-def test_status_explains_actionable_human_blocker(git_repo: Path, capsys) -> None:
+def test_status_explains_actionable_human_blocker(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     _init(git_repo)
     write_task(
         git_repo,
@@ -98,7 +104,7 @@ def test_status_explains_actionable_human_blocker(git_repo: Path, capsys) -> Non
 
 
 def test_status_explains_completed_human_blocker_leaves_ralph_retry(
-    git_repo: Path, capsys
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _init(git_repo)
     write_task(
@@ -129,7 +135,9 @@ def test_status_explains_completed_human_blocker_leaves_ralph_retry(
     assert "Action needed: run `jri start` to retry needs-human-task." in out
 
 
-def test_status_no_human_tasks(git_repo: Path, capsys) -> None:
+def test_status_no_human_tasks(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     _init(git_repo)
     write_task(
         git_repo,
@@ -147,7 +155,9 @@ def test_status_no_human_tasks(git_repo: Path, capsys) -> None:
     assert "No tasks assigned to Human." in out
 
 
-def test_status_empty_project(git_repo: Path, capsys) -> None:
+def test_status_empty_project(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     _init(git_repo)
 
     rc = run_cli(["status"], cwd=git_repo)
@@ -162,7 +172,9 @@ def test_status_empty_project(git_repo: Path, capsys) -> None:
     assert "No tasks assigned to Human." in out
 
 
-def test_status_shows_ralph_running_state(git_repo: Path, capsys) -> None:
+def test_status_shows_ralph_running_state(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     _init(git_repo)
     sleeper = subprocess.Popen(["sleep", "30"])
     service = JriService(git_repo)
@@ -189,7 +201,9 @@ def test_status_shows_ralph_running_state(git_repo: Path, capsys) -> None:
     assert "Ralph: running (detached) on ralph-task, stop requested" in out
 
 
-def test_status_shows_stale_tracked_ralph_process(git_repo: Path, capsys) -> None:
+def test_status_shows_stale_tracked_ralph_process(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     _init(git_repo)
     process = subprocess.Popen(["sleep", "0"])
     process.wait(timeout=5)
@@ -213,7 +227,7 @@ def test_status_shows_stale_tracked_ralph_process(git_repo: Path, capsys) -> Non
 
 
 def test_status_shows_stale_doing_without_tracked_process(
-    git_repo: Path, capsys
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _init(git_repo)
     write_task(
@@ -237,7 +251,9 @@ def test_status_shows_stale_doing_without_tracked_process(
     )
 
 
-def test_status_shows_human_tasks_across_all_states(git_repo: Path, capsys) -> None:
+def test_status_shows_human_tasks_across_all_states(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Human tasks in any state (draft, todo, doing, done) are shown."""
     _init(git_repo)
     write_task(
@@ -290,7 +306,7 @@ def test_status_shows_human_tasks_across_all_states(git_repo: Path, capsys) -> N
 
 
 def test_status_rejects_in_place_mutation_of_promoted_task(
-    git_repo: Path, capsys
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _init(git_repo)
     task_path = write_task(
@@ -315,7 +331,9 @@ def test_status_rejects_in_place_mutation_of_promoted_task(
     assert "modified in place" in capsys.readouterr().err
 
 
-def test_status_shows_metrics_summary(git_repo: Path, capsys) -> None:
+def test_status_shows_metrics_summary(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """Metrics summary is displayed when metrics exist."""
     import json
 
@@ -340,7 +358,9 @@ def test_status_shows_metrics_summary(git_repo: Path, capsys) -> None:
     assert "metrics: 3 runs, 2 pass, 1 fail (67% pass rate)" in out
 
 
-def test_status_hides_metrics_when_none(git_repo: Path, capsys) -> None:
+def test_status_hides_metrics_when_none(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """No metrics line is shown when metrics.json does not exist."""
     _init(git_repo)
 

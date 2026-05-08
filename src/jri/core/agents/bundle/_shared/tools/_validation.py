@@ -3,30 +3,38 @@ import re
 import sys
 from difflib import unified_diff
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, TypedDict, cast
 
 import yaml
 
 from .....tasks import validate_task_metadata
 
+if TYPE_CHECKING:
+    from .....service import JriService
+
 SLUG_RE = re.compile(r"^[a-zA-Z0-9][-a-zA-Z0-9_.]*$")
 
 
-def _load_payload() -> dict[str, Any]:
+class ExactEdit(TypedDict):
+    oldText: str
+    newText: str
+
+
+def load_payload() -> dict[str, object]:
     try:
-        payload = json.load(sys.stdin)
+        payload: object = json.load(sys.stdin)
     except json.JSONDecodeError as exc:
         raise ValueError(f"invalid JSON payload: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError("tool payload must be a JSON object")
-    return payload
+    return cast(dict[str, object], payload)
 
 
-def _print_result(message: str) -> None:
+def print_result(message: str) -> None:
     sys.stdout.write(message)
 
 
-def _assert_slug(name: str, value: Any) -> str:
+def assert_slug(name: str, value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"`{name}` must be a non-empty string")
     slug = value.strip()
@@ -38,26 +46,28 @@ def _assert_slug(name: str, value: Any) -> str:
     return slug
 
 
-def _assert_string_list(name: str, value: Any) -> list[str] | None:
+def assert_string_list(name: str, value: object) -> list[str] | None:
     if value is None:
         return None
-    if not isinstance(value, list) or any(
-        not isinstance(item, str) or not item.strip() for item in value
-    ):
+    if not isinstance(value, list):
         raise ValueError(f"`{name}` must be a list of non-empty strings")
-    if len(set(value)) != len(value):
+    items = cast(list[object], value)
+    if any(not isinstance(item, str) or not item.strip() for item in items):
+        raise ValueError(f"`{name}` must be a list of non-empty strings")
+    strings = cast(list[str], items)
+    if len(set(strings)) != len(strings):
         raise ValueError(f"`{name}` must not contain duplicates")
-    return value
+    return strings
 
 
-def _assert_slug_list(name: str, value: Any) -> list[str] | None:
-    items = _assert_string_list(name, value)
+def assert_slug_list(name: str, value: object) -> list[str] | None:
+    items = assert_string_list(name, value)
     if items is None:
         return None
-    return [_assert_slug(name, item) for item in items]
+    return [assert_slug(name, item) for item in items]
 
 
-def _ensure_expected_real_path(parent_dir: Path, child_name: str) -> Path:
+def ensure_expected_real_path(parent_dir: Path, child_name: str) -> Path:
     child_path = parent_dir / child_name
     child_path.mkdir(parents=True, exist_ok=True)
     real_child_path = child_path.resolve()
@@ -66,7 +76,7 @@ def _ensure_expected_real_path(parent_dir: Path, child_name: str) -> Path:
     return child_path
 
 
-def _ensure_task_path_within(directory: Path, slug: str) -> Path:
+def ensure_task_path_within(directory: Path, slug: str) -> Path:
     task_path = (directory / f"{slug}.md").resolve()
     try:
         task_path.relative_to(directory)
@@ -75,12 +85,12 @@ def _ensure_task_path_within(directory: Path, slug: str) -> Path:
     return task_path
 
 
-def _read_task(task_path: Path) -> tuple[dict[str, Any], str]:
+def read_task(task_path: Path) -> tuple[dict[str, object], str]:
     source = task_path.read_text(encoding="utf-8")
-    return _read_task_source(task_path, source)
+    return read_task_source(task_path, source)
 
 
-def _read_task_source(task_path: Path, source: str) -> tuple[dict[str, Any], str]:
+def read_task_source(task_path: Path, source: str) -> tuple[dict[str, object], str]:
     if not source.startswith("---\n"):
         raise ValueError(f"invalid task format: {task_path}")
     boundary = source.find("\n---\n", 4)
@@ -91,35 +101,36 @@ def _read_task_source(task_path: Path, source: str) -> tuple[dict[str, Any], str
     if body.startswith("\n"):
         body = body[1:]
     try:
-        metadata = yaml.safe_load(metadata_text)
+        metadata: object = yaml.safe_load(metadata_text)
     except yaml.YAMLError as exc:
         raise ValueError(f"invalid task metadata YAML: {task_path}") from exc
     if not isinstance(metadata, dict):
         raise ValueError(f"invalid task metadata object: {task_path}")
-    validate_task_metadata(metadata)
-    depends_on = metadata.get("depends_on")
+    metadata_payload = cast(dict[str, object], metadata)
+    validate_task_metadata(metadata_payload)
+    depends_on = metadata_payload.get("depends_on")
     if depends_on is not None:
-        _assert_string_list("depends_on", depends_on)
-    acceptance_criteria = metadata.get("acceptance_criteria")
+        assert_string_list("depends_on", depends_on)
+    acceptance_criteria = metadata_payload.get("acceptance_criteria")
     if acceptance_criteria is not None:
-        _assert_string_list("acceptance_criteria", acceptance_criteria)
-    return metadata, body
+        assert_string_list("acceptance_criteria", acceptance_criteria)
+    return metadata_payload, body
 
 
-def _serialize_task(metadata: dict[str, Any], body: str) -> str:
+def serialize_task(metadata: dict[str, object], body: str) -> str:
     frontmatter = yaml.safe_dump(metadata, sort_keys=False, allow_unicode=False).strip()
     return f"---\n{frontmatter}\n---\n\n{body}"
 
 
-def _assert_exact_edits(payload: dict[str, Any]) -> list[dict[str, str]]:
+def assert_exact_edits(payload: dict[str, object]) -> list[ExactEdit]:
     edits = payload.get("edits")
     if not isinstance(edits, list) or not edits:
         raise ValueError("`edits` must be a non-empty list")
-    normalized: list[dict[str, str]] = []
-    for index, edit in enumerate(edits, start=1):
+    normalized: list[ExactEdit] = []
+    for index, edit in enumerate(cast(list[object], edits), start=1):
         if not isinstance(edit, dict):
             raise ValueError(f"`edits[{index}]` must be an object")
-        edit_payload = cast(dict[str, Any], edit)
+        edit_payload = cast(dict[str, object], edit)
         old_text = edit_payload.get("oldText")
         new_text = edit_payload.get("newText")
         if not isinstance(old_text, str) or not old_text:
@@ -130,7 +141,7 @@ def _assert_exact_edits(payload: dict[str, Any]) -> list[dict[str, str]]:
     return normalized
 
 
-def _apply_exact_edits(source: str, edits: list[dict[str, str]]) -> tuple[str, int]:
+def apply_exact_edits(source: str, edits: list[ExactEdit]) -> tuple[str, int]:
     updated = source
     replacements = 0
     for index, edit in enumerate(edits, start=1):
@@ -147,7 +158,7 @@ def _apply_exact_edits(source: str, edits: list[dict[str, str]]) -> tuple[str, i
     return updated, replacements
 
 
-def _diff_text(path_label: str, before: str, after: str) -> str:
+def diff_text(path_label: str, before: str, after: str) -> str:
     return "".join(
         unified_diff(
             before.splitlines(keepends=True),
@@ -158,12 +169,12 @@ def _diff_text(path_label: str, before: str, after: str) -> str:
     )
 
 
-def _repo_root() -> Path:
+def repo_root() -> Path:
     return Path.cwd().resolve()
 
 
-def _repo_root_child(name: str) -> Path:
-    root = _repo_root()
+def repo_root_child(name: str) -> Path:
+    root = repo_root()
     path = root / name
     try:
         path.resolve().relative_to(root)
@@ -172,18 +183,18 @@ def _repo_root_child(name: str) -> Path:
     return path
 
 
-def _draft_task_dirs(root: Path) -> tuple[Path, Path, Path, Path]:
-    repo_root = root.resolve()
-    jri_dir = _ensure_expected_real_path(repo_root, ".jri")
-    tasks_dir = _ensure_expected_real_path(jri_dir, "tasks")
-    draft_dir = _ensure_expected_real_path(tasks_dir, "draft")
-    todo_dir = _ensure_expected_real_path(tasks_dir, "todo")
-    doing_dir = _ensure_expected_real_path(tasks_dir, "doing")
-    done_dir = _ensure_expected_real_path(tasks_dir, "done")
+def draft_task_dirs(root: Path) -> tuple[Path, Path, Path, Path]:
+    repo_root_path = root.resolve()
+    jri_dir = ensure_expected_real_path(repo_root_path, ".jri")
+    tasks_dir = ensure_expected_real_path(jri_dir, "tasks")
+    draft_dir = ensure_expected_real_path(tasks_dir, "draft")
+    todo_dir = ensure_expected_real_path(tasks_dir, "todo")
+    doing_dir = ensure_expected_real_path(tasks_dir, "doing")
+    done_dir = ensure_expected_real_path(tasks_dir, "done")
     return draft_dir, todo_dir, doing_dir, done_dir
 
 
-def _slugify(title: str) -> str:
+def slugify(title: str) -> str:
     slug = title.strip().lower()
     slug = re.sub(r"[^a-z0-9._-]+", "-", slug)
     slug = re.sub(r"-+", "-", slug)
@@ -193,9 +204,11 @@ def _slugify(title: str) -> str:
     return slug
 
 
-def _service(root: Path):
+def service(root: Path) -> "JriService":
     package = sys.modules.get("jri.core.agents.bundle._shared.tools")
     service_type = getattr(package, "JriService", None) if package is not None else None
     if service_type is None:
-        from .....service import JriService as service_type
-    return service_type(root)
+        from .....service import JriService
+
+        service_type = JriService
+    return cast("type[JriService]", service_type)(root)

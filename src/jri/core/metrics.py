@@ -3,7 +3,7 @@ import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 MetricResult = Literal["pass", "fail"]
 
@@ -50,26 +50,24 @@ class MetricsStore:
         if not self.path.exists():
             return []
         try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
+            payload: object = json.loads(self.path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             return []
         if not isinstance(payload, list):
             return []
         entries: list[MetricEntry] = []
-        for item in payload:
-            if (
-                isinstance(item, dict)
-                and isinstance(item.get("task"), str)
-                and isinstance(item.get("ts"), str)
-                and item.get("result") in ("pass", "fail")
+        for item in cast(list[object], payload):
+            if not isinstance(item, dict):
+                continue
+            entry = cast(dict[str, object], item)
+            task = entry.get("task")
+            ts = entry.get("ts")
+            result = _metric_result_or_none(entry.get("result"))
+            if not (
+                isinstance(task, str) and isinstance(ts, str) and result is not None
             ):
-                entries.append(
-                    MetricEntry(
-                        task=item["task"],
-                        ts=item["ts"],
-                        result=item["result"],
-                    )
-                )
+                continue
+            entries.append(MetricEntry(task=task, ts=ts, result=result))
         return entries
 
     def summary(self) -> str | None:
@@ -88,3 +86,11 @@ class MetricsStore:
     @staticmethod
     def now_iso() -> str:
         return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _metric_result_or_none(value: object) -> MetricResult | None:
+    if value == "pass":
+        return "pass"
+    if value == "fail":
+        return "fail"
+    return None

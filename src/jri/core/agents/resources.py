@@ -3,6 +3,7 @@ from functools import cache
 from importlib.resources import files
 from importlib.resources.abc import Traversable
 from pathlib import PurePosixPath, PureWindowsPath
+from typing import cast
 
 _PACKAGE = "jri.core.agents.bundle"
 _MANIFEST_NAME = "manifest.json"
@@ -11,12 +12,12 @@ _MANIFEST_NAME = "manifest.json"
 @cache
 def resource_manifest() -> dict[str, str]:
     payload = files(_PACKAGE).joinpath(_MANIFEST_NAME).read_text(encoding="utf-8")
-    manifest = json.loads(payload)
+    manifest: object = json.loads(payload)
     if not isinstance(manifest, dict):
         raise ValueError("agent resource manifest must be an object")
 
     resources: dict[str, str] = {}
-    for resource_id, resource_path in manifest.items():
+    for resource_id, resource_path in cast(dict[object, object], manifest).items():
         if not isinstance(resource_id, str) or not resource_id:
             raise ValueError("agent resource manifest IDs must be non-empty strings")
         if not isinstance(resource_path, str):

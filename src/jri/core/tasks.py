@@ -1,5 +1,6 @@
 import json
 import re
+from collections.abc import Callable, Iterable
 from functools import cache
 from importlib.resources import files
 from pathlib import Path
@@ -274,10 +275,13 @@ def _split_frontmatter(text: str) -> tuple[dict[str, object], str]:
 
 def _find_frontmatter_boundary(text: str) -> int | None:
     try:
-        events = yaml.parse(text)
-        for event in events:
+        parse_yaml = cast(Callable[[str], Iterable[object]], yaml.parse)
+        for event in parse_yaml(text):
             if isinstance(event, DocumentEndEvent):
-                boundary = event.start_mark.index
+                mark = event.start_mark
+                if mark is None:
+                    return None
+                boundary = mark.index
                 if text.startswith("---\n", boundary):
                     return boundary
                 return None

@@ -91,10 +91,14 @@ def test_live_pytest_config_disables_capture_for_live_runs(
     capturemanager = _FakeCaptureManager()
     pluginmanager = _FakePluginManager(capturemanager)
     cleanups: list[object] = []
+
+    def getoption(name: str) -> bool:
+        return name == "run_live_agent"
+
     config = SimpleNamespace(
         option=SimpleNamespace(capture="fd"),
         pluginmanager=pluginmanager,
-        getoption=lambda name: name == "run_live_agent",
+        getoption=getoption,
         add_cleanup=cleanups.append,
     )
 
@@ -120,11 +124,19 @@ def test_live_pytest_config_disables_capture_for_live_runs(
 def test_live_pytest_config_leaves_non_live_capture_unchanged() -> None:
     capturemanager = _FakeCaptureManager()
     pluginmanager = _FakePluginManager(capturemanager)
+
+    def getoption(name: str) -> bool:
+        del name
+        return False
+
+    def add_cleanup(cleanup: object) -> None:
+        del cleanup
+
     config = SimpleNamespace(
         option=SimpleNamespace(capture="fd"),
         pluginmanager=pluginmanager,
-        getoption=lambda name: False,
-        add_cleanup=lambda cleanup: None,
+        getoption=getoption,
+        add_cleanup=add_cleanup,
     )
 
     _disable_pytest_capture_for_live_runs(cast(Any, config))

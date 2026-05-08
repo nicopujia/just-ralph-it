@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import TypedDict, cast
+from typing import TypedDict
 
 import pytest
 from _pytest.capture import CaptureManager
@@ -24,6 +24,8 @@ def _disable_pytest_capture_for_live_runs(config: pytest.Config) -> None:
     pluginmanager = config.pluginmanager
     capturemanager = pluginmanager.getplugin("capturemanager")
     if capturemanager is None:
+        return
+    if not isinstance(capturemanager, CaptureManager):
         return
 
     pluginmanager.unregister(capturemanager)
@@ -130,16 +132,19 @@ def live_start_models(
     general_model: str | None,
     explore_model: str | None,
 ) -> LiveStartModels:
-    return cast(
-        LiveStartModels,
-        resolve_start_models(
-            preset=preset,
-            model=model,
-            validator_model=validator_model,
-            general_model=general_model,
-            explore_model=explore_model,
-        ),
+    resolved = resolve_start_models(
+        preset=preset,
+        model=model,
+        validator_model=validator_model,
+        general_model=general_model,
+        explore_model=explore_model,
     )
+    return {
+        "model": resolved["model"],
+        "validator_model": resolved["validator_model"],
+        "general_model": resolved["general_model"],
+        "explore_model": resolved["explore_model"],
+    }
 
 
 @pytest.fixture
