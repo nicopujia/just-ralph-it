@@ -1,9 +1,202 @@
+import os
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import cast
 
 import yaml
 
 from .models import GRAPH_NODE_STATES, GraphNode, GraphNodeMetadata, GraphNodeState
+
+
+@dataclass(frozen=True)
+class GraphChildSummary:
+    semantic_path: str
+    title: str
+    state: GraphNodeState
+
+
+@dataclass(frozen=True)
+class GraphNodeRead:
+    path: Path
+    semantic_path: str
+    metadata: GraphNodeMetadata
+    body: str
+    children: tuple[GraphChildSummary, ...]
+
+
+class GraphStore:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def create_node(self, path: str, title: str, body: str) -> GraphNode:
+        canonical_path = validate_graph_path(path)
+        metadata = validate_node_metadata({"title": title, "state": "active"})
+        node_path = graph_node_path(self.root, canonical_path)
+        if node_path.exists():
+            raise ValueError(f"graph node `{canonical_path}` already exists")
+
+        self._create_missing_parent_nodes(canonical_path)
+        node_path.parent.mkdir(parents=True, exist_ok=True)
+        node = GraphNode(
+            path=node_path,
+            semantic_path=canonical_path,
+            metadata=metadata,
+            body=body,
+        )
+        self._write_node(node)
+        return node
+
+    def read_node(self, path: str, depth: int = 1) -> GraphNodeRead:
+        if depth < 0:
+            raise ValueError("read depth must be non-negative")
+        node = self._read_existing_node(path)
+        children = tuple(self._child_summaries(node.semantic_path, depth))
+        return GraphNodeRead(
+            path=node.path,
+            semantic_path=node.semantic_path,
+            metadata=node.metadata,
+            body=node.body,
+            children=children,
+        )
+
+    def update_node_metadata(
+        self,
+        path: str,
+        *,
+        title: str | None = None,
+        state: GraphNodeState | None = None,
+        archive_reason: str | None = None,
+    ) -> GraphNode:
+        node = self._read_existing_node(path)
+        next_state = state if state is not None else node.metadata.state
+        payload: dict[str, object] = {
+            "title": title if title is not None else node.metadata.title,
+            "state": next_state,
+        }
+        if archive_reason is not None:
+            payload["archive_reason"] = archive_reason
+        elif next_state == "archived" and node.metadata.archive_reason is not None:
+            payload["archive_reason"] = node.metadata.archive_reason
+
+        metadata = validate_node_metadata(payload)
+        updated = GraphNode(
+            path=node.path,
+            semantic_path=node.semantic_path,
+            metadata=metadata,
+            body=node.body,
+        )
+        self._write_node(updated)
+        return updated
+
+    def move_node(self, source: str, destination: str) -> GraphNode:
+        if not isinstance(source, str) or not source.strip():
+            raise ValueError("cannot move graph root")
+        source_path = validate_graph_path(source)
+        destination_path = validate_graph_path(destination)
+        source_node_path = graph_node_path(self.root, source_path)
+        destination_node_path = graph_node_path(self.root, destination_path)
+        source_dir = source_node_path.parent
+        destination_dir = destination_node_path.parent
+
+        if not source_node_path.exists():
+            raise FileNotFoundError(f"graph node `{source_path}` not found")
+        subtree_prefix = f"{source_path}/"
+        if destination_path != source_path and destination_path.startswith(
+            subtree_prefix
+        ):
+            raise ValueError("cannot move graph node into its own subtree")
+        if destination_node_path.exists() or destination_dir.exists():
+            raise ValueError(f"graph node `{destination_path}` already exists")
+
+        self._create_missing_parent_nodes(destination_path)
+        destination_dir.parent.mkdir(parents=True, exist_ok=True)
+        source_dir.replace(destination_dir)
+        return self._read_existing_node(destination_path)
+
+    def _read_existing_node(self, path: str) -> GraphNode:
+        canonical_path = validate_graph_path(path)
+        node_path = graph_node_path(self.root, canonical_path)
+        if not node_path.exists():
+            raise FileNotFoundError(f"graph node `{canonical_path}` not found")
+        return parse_graph_node_file(self.root, canonical_path)
+
+    def _create_missing_parent_nodes(self, semantic_path: str) -> None:
+        parts = validate_graph_path(semantic_path).split("/")[:-1]
+        for index in range(1, len(parts) + 1):
+            parent_path = "/".join(parts[:index])
+            node_path = graph_node_path(self.root, parent_path)
+            if node_path.exists():
+                continue
+            node_path.parent.mkdir(parents=True, exist_ok=True)
+            node = GraphNode(
+                path=node_path,
+                semantic_path=parent_path,
+                metadata=GraphNodeMetadata(
+                    title=_title_from_segment(parts[index - 1]), state="active"
+                ),
+                body="",
+            )
+            self._write_node(node)
+
+    def _child_summaries(self, parent_path: str, depth: int) -> list[GraphChildSummary]:
+        if depth == 0:
+            return []
+        parent_node_path = graph_node_path(self.root, parent_path)
+        parent_dir = parent_node_path.parent
+        if not parent_dir.exists():
+            return []
+
+        summaries: list[GraphChildSummary] = []
+        for child_dir in sorted(
+            (item for item in parent_dir.iterdir() if item.is_dir()),
+            key=lambda item: item.name,
+        ):
+            child_semantic_path = f"{parent_path}/{child_dir.name}"
+            child_node_path = graph_node_path(self.root, child_semantic_path)
+            if not child_node_path.exists():
+                continue
+            child = parse_graph_node_file(self.root, child_semantic_path)
+            summaries.append(
+                GraphChildSummary(
+                    semantic_path=child.semantic_path,
+                    title=child.metadata.title,
+                    state=child.metadata.state,
+                )
+            )
+            if child.metadata.state == "active":
+                summaries.extend(self._child_summaries(child.semantic_path, depth - 1))
+        return summaries
+
+    def _write_node(self, node: GraphNode) -> None:
+        node.path.parent.mkdir(parents=True, exist_ok=True)
+        text = dump_graph_node(node)
+        temp_path = node.path.with_name(f".{node.path.name}.tmp")
+        with temp_path.open("w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_path, node.path)
+        _fsync_directory(node.path.parent)
+
+
+def dump_graph_node(node: GraphNode) -> str:
+    payload = {"title": node.metadata.title, "state": node.metadata.state}
+    if node.metadata.archive_reason is not None:
+        payload["archive_reason"] = node.metadata.archive_reason
+    frontmatter = yaml.safe_dump(payload, sort_keys=False, allow_unicode=False).strip()
+    return "---\n" + frontmatter + "\n---\n\n" + node.body
+
+
+def _title_from_segment(segment: str) -> str:
+    return segment.replace("-", " ").replace("_", " ").title()
+
+
+def _fsync_directory(directory: Path) -> None:
+    descriptor = os.open(directory, os.O_RDONLY)
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 def validate_graph_path(raw_path: str) -> str:
