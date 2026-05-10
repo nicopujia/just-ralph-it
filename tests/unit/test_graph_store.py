@@ -82,6 +82,58 @@ def test_read_node_archived_children(
     ] == [("product/old", "Old", "archived")]
 
 
+def test_list_nodes_returns_top_level_nodes_sorted(tmp_path: Path) -> None:
+    store = GraphStore(tmp_path)
+    store.create_node("product/checkout", "Checkout", "Checkout body\n")
+    store.create_node("decisions/pricing", "Pricing", "Pricing body\n")
+    store.update_node_metadata(
+        "product", state="archived", archive_reason="Replaced by decisions"
+    )
+
+    assert [
+        (node.semantic_path, node.title, node.state) for node in store.list_nodes()
+    ] == [
+        ("decisions", "Decisions", "active"),
+        ("product", "Product", "archived"),
+    ]
+
+
+def test_list_nodes_allows_missing_graph(tmp_path: Path) -> None:
+    assert GraphStore(tmp_path).list_nodes() == ()
+
+
+def test_search_nodes_scores_and_filters_plain_files(tmp_path: Path) -> None:
+    store = GraphStore(tmp_path)
+    store.create_node(
+        "product/checkout",
+        "Checkout",
+        "Send a confirmation email after payment succeeds.\n",
+    )
+    store.create_node("product/search", "Product Search", "Find catalog products.\n")
+    store.create_node("decisions/email", "Email Decisions", "Use transactional mail.\n")
+    store.update_node_metadata(
+        "decisions/email", state="archived", archive_reason="Covered elsewhere"
+    )
+
+    matches = store.search_nodes("confirmation email")
+
+    assert [(match.semantic_path, match.title) for match in matches] == [
+        ("product/checkout", "Checkout")
+    ]
+    assert matches[0].score > 0
+    assert "confirmation email" in matches[0].snippet
+    assert store.search_nodes("email", limit=1)[0].semantic_path == "product/checkout"
+    assert any(
+        match.semantic_path == "decisions/email"
+        for match in store.search_nodes("email", include_archived=True)
+    )
+
+
+def test_search_nodes_rejects_empty_query(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="non-empty"):
+        GraphStore(tmp_path).search_nodes("   ")
+
+
 def test_update_node_metadata_preserves_body(tmp_path: Path) -> None:
     store = GraphStore(tmp_path)
     store.create_node("product/checkout", "Checkout", "Body\n")

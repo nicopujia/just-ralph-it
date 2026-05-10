@@ -112,6 +112,16 @@ def test_check_graph_tree_reports_missing_node_file_for_graph_directory(
     assert result.errors == ("product: missing NODE.md",)
 
 
+def test_check_graph_tree_reports_symlinked_jri_escape(tmp_path: Path) -> None:
+    outside = tmp_path / "outside"
+    (outside / "graph").mkdir(parents=True)
+    (tmp_path / ".jri").symlink_to(outside, target_is_directory=True)
+
+    result = check_graph_tree(tmp_path)
+
+    assert result.errors == (".jri/graph: symlink escapes .jri/graph",)
+
+
 def test_check_graph_tree_reports_symlink_escape(tmp_path: Path) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()

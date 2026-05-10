@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import tempfile
 from dataclasses import dataclass
@@ -24,6 +25,22 @@ class GraphNodeRead:
     metadata: GraphNodeMetadata
     body: str
     children: tuple[GraphChildSummary, ...]
+
+
+@dataclass(frozen=True)
+class GraphNodeSummary:
+    semantic_path: str
+    title: str
+    state: GraphNodeState
+
+
+@dataclass(frozen=True)
+class GraphNodeSearchResult:
+    semantic_path: str
+    title: str
+    state: GraphNodeState
+    score: int
+    snippet: str
 
 
 @dataclass(frozen=True)
@@ -98,6 +115,65 @@ class GraphStore:
             children=children,
         )
 
+    def list_nodes(self) -> tuple[GraphNodeSummary, ...]:
+        validate_graph_tree(self.root)
+        graph_dir = self.root.resolve(strict=False) / ".jri" / "graph"
+        if not graph_dir.exists():
+            return ()
+
+        summaries: list[GraphNodeSummary] = []
+        for child_dir in sorted(
+            (item for item in graph_dir.iterdir() if item.is_dir()),
+            key=lambda item: item.name,
+        ):
+            semantic_path = child_dir.name
+            node_path = graph_node_path(self.root, semantic_path)
+            if not node_path.exists():
+                continue
+            node = parse_graph_node_file(self.root, semantic_path)
+            summaries.append(
+                GraphNodeSummary(
+                    semantic_path=node.semantic_path,
+                    title=node.metadata.title,
+                    state=node.metadata.state,
+                )
+            )
+        return tuple(summaries)
+
+    def search_nodes(
+        self, query: str, *, limit: int = 10, include_archived: bool = False
+    ) -> tuple[GraphNodeSearchResult, ...]:
+        if not query.strip():
+            raise ValueError("search query must be a non-empty string")
+        if limit < 0:
+            raise ValueError("search limit must be non-negative")
+        validate_graph_tree(self.root)
+
+        query_text = query.casefold().strip()
+        query_tokens = tuple(dict.fromkeys(_search_tokens(query_text)))
+        if not query_tokens:
+            raise ValueError("search query must contain searchable text")
+
+        results: list[GraphNodeSearchResult] = []
+        for node in self._all_nodes():
+            if node.metadata.state == "archived" and not include_archived:
+                continue
+            score = _score_graph_node(node, query_text, query_tokens)
+            if score <= 0:
+                continue
+            results.append(
+                GraphNodeSearchResult(
+                    semantic_path=node.semantic_path,
+                    title=node.metadata.title,
+                    state=node.metadata.state,
+                    score=score,
+                    snippet=_search_snippet(node.body, query_tokens),
+                )
+            )
+
+        results.sort(key=lambda result: (-result.score, result.semantic_path))
+        return tuple(results[:limit])
+
     def update_node_metadata(
         self,
         path: str,
@@ -162,6 +238,19 @@ class GraphStore:
         if not node_path.exists():
             raise FileNotFoundError(f"graph node `{canonical_path}` not found")
         return parse_graph_node_file(self.root, canonical_path)
+
+    def _all_nodes(self) -> tuple[GraphNode, ...]:
+        graph_dir = self.root.resolve(strict=False) / ".jri" / "graph"
+        if not graph_dir.exists():
+            return ()
+
+        nodes: list[GraphNode] = []
+        for node_path in sorted(graph_dir.rglob("NODE.md")):
+            relative = node_path.relative_to(graph_dir)
+            semantic_path = relative.parent.as_posix()
+            if semantic_path and semantic_path != ".":
+                nodes.append(parse_graph_node_file(self.root, semantic_path))
+        return tuple(nodes)
 
     def _create_missing_parent_nodes(self, semantic_path: str) -> tuple[str, ...]:
         parts = validate_graph_path(semantic_path).split("/")[:-1]
@@ -241,6 +330,57 @@ class GraphStore:
             temp_path.unlink(missing_ok=True)
             raise
         _fsync_directory(node.path.parent)
+
+
+def _search_tokens(text: str) -> list[str]:
+    return re.findall(r"[\w]+", text.casefold())
+
+
+def _score_graph_node(
+    node: GraphNode, query_text: str, query_tokens: tuple[str, ...]
+) -> int:
+    title = node.metadata.title.casefold()
+    path = node.semantic_path.casefold()
+    body = node.body.casefold()
+
+    score = 0
+    if query_text in title:
+        score += 100
+    if query_text in path:
+        score += 75
+    if query_text in body:
+        score += 25
+
+    title_tokens = set(_search_tokens(title))
+    path_tokens = set(_search_tokens(path.replace("/", " ")))
+    body_tokens = set(_search_tokens(body))
+    for token in query_tokens:
+        if token in title_tokens:
+            score += 10
+        if token in path_tokens:
+            score += 7
+        if token in body_tokens:
+            score += 3
+    return score
+
+
+def _search_snippet(body: str, query_tokens: tuple[str, ...]) -> str:
+    if not body:
+        return ""
+    lowered = body.casefold()
+    positions = [
+        lowered.find(token) for token in query_tokens if lowered.find(token) >= 0
+    ]
+    if not positions:
+        return body.strip()[:120]
+    start = max(0, min(positions) - 40)
+    end = min(len(body), min(positions) + 80)
+    snippet = body[start:end].strip()
+    if start > 0:
+        snippet = "..." + snippet
+    if end < len(body):
+        snippet += "..."
+    return snippet
 
 
 def apply_graph_patch(store: GraphStore, patch_text: str) -> GraphPatchSummary:
@@ -566,6 +706,12 @@ def _split_node_frontmatter(text: str) -> tuple[dict[str, object], str]:
 
 def check_graph_tree(root: Path) -> GraphCheckResult:
     graph_dir = root.resolve(strict=False) / ".jri" / "graph"
+    if graph_dir.resolve(strict=False) != graph_dir:
+        return GraphCheckResult(
+            active_count=0,
+            archived_count=0,
+            errors=(".jri/graph: symlink escapes .jri/graph",),
+        )
     if not graph_dir.exists():
         return GraphCheckResult(active_count=0, archived_count=0, errors=())
     if graph_dir.is_symlink():
