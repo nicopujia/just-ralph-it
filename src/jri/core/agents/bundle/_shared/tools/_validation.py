@@ -183,15 +183,14 @@ def repo_root_child(name: str) -> Path:
     return path
 
 
-def draft_task_dirs(root: Path) -> tuple[Path, Path, Path, Path]:
+def task_dirs(root: Path) -> tuple[Path, Path, Path]:
     repo_root_path = root.resolve()
     jri_dir = ensure_expected_real_path(repo_root_path, ".jri")
     tasks_dir = ensure_expected_real_path(jri_dir, "tasks")
-    draft_dir = ensure_expected_real_path(tasks_dir, "draft")
     todo_dir = ensure_expected_real_path(tasks_dir, "todo")
     doing_dir = ensure_expected_real_path(tasks_dir, "doing")
     done_dir = ensure_expected_real_path(tasks_dir, "done")
-    return draft_dir, todo_dir, doing_dir, done_dir
+    return todo_dir, doing_dir, done_dir
 
 
 def slugify(title: str) -> str:

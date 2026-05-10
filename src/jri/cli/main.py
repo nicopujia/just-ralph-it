@@ -68,7 +68,6 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     mode="chat",
                     overrides={
                         "model": args.model,
-                        "validator_model": args.validator_model,
                         "explore_model": args.explore_model,
                     },
                 )
@@ -78,7 +77,6 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                         unknown,
                         fresh=args.fresh,
                         model=chat_models["model"],
-                        validator_model=chat_models["validator_model"],
                         explore_model=chat_models["explore_model"],
                     ),
                 )
@@ -399,10 +397,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--model",
         help="Override the interrogator model for this chat run only.",
     )
-    chat_parser.add_argument(
-        "--validator-model",
-        help="Override the interrogator-validator model for this chat run only.",
-    )
+    chat_parser.add_argument("--validator-model", help=argparse.SUPPRESS)
     chat_parser.add_argument(
         "--explore-model",
         help="Override the explore subagent model for this chat run only.",

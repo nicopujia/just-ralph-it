@@ -40,14 +40,12 @@ def test_resolve_preset_models_uses_default_chat_bundle() -> None:
         mode="chat",
         overrides={
             "model": None,
-            "validator_model": None,
             "explore_model": None,
         },
     )
 
     assert resolved == {
         "model": DEFAULT_CHAT_MODEL,
-        "validator_model": DEFAULT_VALIDATOR_MODEL,
         "explore_model": DEFAULT_EXPLORE_MODEL,
     }
 
@@ -78,14 +76,12 @@ def test_resolve_preset_models_uses_openai_chat_bundle() -> None:
         mode="chat",
         overrides={
             "model": None,
-            "validator_model": None,
             "explore_model": None,
         },
     )
 
     assert resolved == {
         "model": "openai-codex/gpt-5.4",
-        "validator_model": "openai-codex/gpt-5.4",
         "explore_model": "openai-codex/gpt-5.4-mini",
     }
 

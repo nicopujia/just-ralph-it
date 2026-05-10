@@ -1,13 +1,9 @@
-import json
 import re
 from collections.abc import Callable, Iterable
-from functools import cache
-from importlib.resources import files
 from pathlib import Path
 from typing import Any, cast
 
 import yaml
-from jsonschema import Draft202012Validator
 from yaml.events import DocumentEndEvent
 
 from .git import GitRepo
@@ -16,26 +12,10 @@ from .models import Task, TaskMetadata
 _PROMOTED_TASK_STATUSES = frozenset({"todo", "doing", "done"})
 
 
-@cache
-def _load_schema(name: str) -> dict[str, object]:
-    schema_path = files("jri.core.schemas").joinpath(name)
-    payload = json.loads(schema_path.read_text(encoding="utf-8"))
-    return cast(dict[str, object], payload)
-
-
-@cache
-def _validator(name: str) -> Any:
-    return Draft202012Validator(_load_schema(name))
-
-
 def validate_task_metadata(payload: dict[str, object]) -> TaskMetadata:
-    errors = sorted(
-        _validator("task-metadata.json").iter_errors(payload),
-        key=lambda error: error.path,
-    )
+    errors = _validate_task_metadata_payload(payload)
     if errors:
-        joined = ", ".join(_format_error(error.path, error.message) for error in errors)
-        raise ValueError(joined)
+        raise ValueError(", ".join(errors))
 
     depends_on = payload.get("depends_on")
     acceptance_criteria = payload.get("acceptance_criteria")
@@ -57,13 +37,235 @@ def validate_task_metadata(payload: dict[str, object]) -> TaskMetadata:
 
 
 def validate_state_payload(payload: dict[str, object]) -> None:
-    errors = sorted(
-        _validator("state.json").iter_errors(payload),
-        key=lambda error: error.path,
-    )
+    errors = _validate_state_payload(payload)
     if errors:
-        joined = ", ".join(_format_error(error.path, error.message) for error in errors)
-        raise ValueError(joined)
+        raise ValueError(", ".join(errors))
+
+
+def _validate_task_metadata_payload(payload: dict[str, object]) -> list[str]:
+    errors: list[str] = []
+    required = {"title", "priority", "assignee"}
+    if "status" in payload:
+        errors.append("unexpected key `status`: task status is determined by directory")
+    for key in sorted(required - set(payload)):
+        errors.append(f"`{key}` is required")
+    title = payload.get("title")
+    if "title" in payload and not isinstance(title, str):
+        errors.append("`title` must be a string")
+    elif isinstance(title, str) and len(title) > 75:
+        errors.append("`title` must be 75 characters or fewer")
+    priority = payload.get("priority")
+    if "priority" in payload and (
+        not isinstance(priority, int) or isinstance(priority, bool)
+    ):
+        errors.append("`priority` must be an integer")
+    elif (
+        isinstance(priority, int)
+        and not isinstance(priority, bool)
+        and not 0 <= priority <= 4
+    ):
+        errors.append("`priority` must be between 0 and 4")
+    assignee = payload.get("assignee")
+    if "assignee" in payload and assignee not in {"Ralph", "Human"}:
+        errors.append("`assignee` must be one of Ralph, Human")
+    _validate_string_list_field(payload, "depends_on", errors, unique=True)
+    _validate_string_list_field(payload, "acceptance_criteria", errors, unique=False)
+    return errors
+
+
+def _validate_string_list_field(
+    payload: dict[str, object], field_name: str, errors: list[str], *, unique: bool
+) -> None:
+    if field_name not in payload:
+        return
+    value = payload[field_name]
+    if not isinstance(value, list):
+        errors.append(f"`{field_name}` must be an array")
+        return
+    for index, item in enumerate(value):
+        if not isinstance(item, str):
+            errors.append(f"`{field_name}[{index}]` must be a string")
+    if unique and len(value) != len(set(value)):
+        errors.append(f"`{field_name}` must contain unique items")
+
+
+def _validate_state_payload(payload: dict[str, object]) -> list[str]:
+    errors: list[str] = []
+    allowed = {
+        "started_at",
+        "finished_at",
+        "session",
+        "branch",
+        "current_task",
+        "process",
+        "active_attempt",
+        "attempts",
+    }
+    for key in sorted(set(payload) - allowed):
+        errors.append(f"unexpected key `{key}`")
+    for key in ("started_at", "finished_at"):
+        _validate_optional_int(payload, key, errors)
+    for key in ("session", "branch", "current_task"):
+        _validate_optional_str(payload, key, errors)
+    _validate_process_payload(payload.get("process"), errors)
+    _validate_attempt_field(payload, "active_attempt", errors)
+    attempts = payload.get("attempts")
+    if "attempts" in payload:
+        if not isinstance(attempts, list):
+            errors.append("`attempts` must be an array")
+        else:
+            for index, attempt in enumerate(attempts):
+                _validate_attempt_payload(attempt, f"attempts[{index}]", errors)
+    return errors
+
+
+def _validate_optional_int(
+    payload: dict[str, object], field_name: str, errors: list[str]
+) -> None:
+    value = payload.get(field_name)
+    if field_name in payload and (
+        not isinstance(value, int) or isinstance(value, bool)
+    ):
+        errors.append(f"`{field_name}` must be an integer")
+
+
+def _validate_optional_str(
+    payload: dict[str, object], field_name: str, errors: list[str]
+) -> None:
+    value = payload.get(field_name)
+    if field_name in payload and not isinstance(value, str):
+        errors.append(f"`{field_name}` must be a string")
+
+
+def _validate_process_payload(value: object, errors: list[str]) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        errors.append("`process` must be an object")
+        return
+    process = cast(dict[str, object], value)
+    allowed = {"loop_pid", "child_pid", "log_path", "detached"}
+    for key in sorted(set(process) - allowed):
+        errors.append(f"unexpected key `process.{key}`")
+    for key in ("loop_pid", "child_pid"):
+        field_value = process.get(key)
+        if (
+            key in process
+            and field_value is not None
+            and (not isinstance(field_value, int) or isinstance(field_value, bool))
+        ):
+            errors.append(f"`process.{key}` must be an integer or null")
+    log_path = process.get("log_path")
+    if "log_path" in process and log_path is not None and not isinstance(log_path, str):
+        errors.append("`process.log_path` must be a string or null")
+    detached = process.get("detached")
+    if "detached" in process and not isinstance(detached, bool):
+        errors.append("`process.detached` must be a boolean")
+
+
+def _validate_attempt_field(
+    payload: dict[str, object], field_name: str, errors: list[str]
+) -> None:
+    if field_name in payload:
+        _validate_attempt_payload(payload[field_name], field_name, errors)
+
+
+def _validate_attempt_payload(value: object, label: str, errors: list[str]) -> None:
+    if not isinstance(value, dict):
+        errors.append(f"`{label}` must be an object")
+        return
+    attempt = cast(dict[str, object], value)
+    allowed = {
+        "number",
+        "task_slug",
+        "branch",
+        "started_at",
+        "finished_at",
+        "log_path",
+        "session_id",
+        "result",
+        "result_payload",
+    }
+    required = {"number", "task_slug", "branch", "started_at"}
+    for key in sorted(set(attempt) - allowed):
+        errors.append(f"unexpected key `{label}.{key}`")
+    for key in sorted(required - set(attempt)):
+        errors.append(f"`{label}.{key}` is required")
+    for key in ("number", "started_at", "finished_at"):
+        field_value = attempt.get(key)
+        if key in attempt and (
+            not isinstance(field_value, int) or isinstance(field_value, bool)
+        ):
+            errors.append(f"`{label}.{key}` must be an integer")
+    for key in ("task_slug", "branch", "log_path", "session_id"):
+        field_value = attempt.get(key)
+        if key in attempt and not isinstance(field_value, str):
+            errors.append(f"`{label}.{key}` must be a string")
+    result = attempt.get("result")
+    if "result" in attempt and result not in {
+        "completed",
+        "incompleted",
+        "incomplete",
+        "needs_human",
+        "failed",
+        "interrupted",
+        "timeout",
+    }:
+        errors.append(f"`{label}.result` must be a known attempt result")
+    if "result_payload" in attempt:
+        _validate_result_payload(
+            attempt["result_payload"], f"{label}.result_payload", errors
+        )
+
+
+def _validate_result_payload(value: object, label: str, errors: list[str]) -> None:
+    if not isinstance(value, dict):
+        errors.append(f"`{label}` must be an object")
+        return
+    payload = cast(dict[str, object], value)
+    allowed = {"result", "summary", "learnings", "blocker", "human_task"}
+    for key in sorted(set(payload) - allowed):
+        errors.append(f"unexpected key `{label}.{key}`")
+    if payload.get("result") not in {"completed", "incompleted", "needs_human"}:
+        errors.append(
+            f"`{label}.result` must be one of completed, incompleted, needs_human"
+        )
+    for key in ("summary", "blocker"):
+        field_value = payload.get(key)
+        if key in payload and not isinstance(field_value, str):
+            errors.append(f"`{label}.{key}` must be a string")
+    learnings = payload.get("learnings")
+    if "learnings" in payload:
+        if not isinstance(learnings, list):
+            errors.append(f"`{label}.learnings` must be an array")
+        else:
+            for index, item in enumerate(learnings):
+                if not isinstance(item, str):
+                    errors.append(f"`{label}.learnings[{index}]` must be a string")
+    if "human_task" in payload:
+        _validate_human_task_payload(
+            payload["human_task"], f"{label}.human_task", errors
+        )
+
+
+def _validate_human_task_payload(value: object, label: str, errors: list[str]) -> None:
+    if not isinstance(value, dict):
+        errors.append(f"`{label}` must be an object")
+        return
+    payload = cast(dict[str, object], value)
+    allowed = {"title", "body", "acceptance_criteria", "priority"}
+    for key in sorted(set(payload) - allowed):
+        errors.append(f"unexpected key `{label}.{key}`")
+    for key in ("title", "body"):
+        field_value = payload.get(key)
+        if key in payload and not isinstance(field_value, str):
+            errors.append(f"`{label}.{key}` must be a string")
+    _validate_string_list_field(payload, "acceptance_criteria", errors, unique=False)
+    priority = payload.get("priority")
+    if "priority" in payload and (
+        not isinstance(priority, int) or isinstance(priority, bool)
+    ):
+        errors.append(f"`{label}.priority` must be an integer")
 
 
 _VALID_SLUG = re.compile(r"^[a-zA-Z0-9][-a-zA-Z0-9_.]*$")
@@ -116,7 +318,7 @@ def _ensure_append_only_promoted_task(path: Path, git_repo: GitRepo) -> None:
     relative_path = git_repo.relative_path(path)
     raise ValueError(
         f"promoted task file `{relative_path}` was modified in place; "
-        "create a follow-up draft task instead"
+        "create a follow-up todo task instead"
     )
 
 
@@ -145,101 +347,6 @@ def move_task(task: Task, destination_dir: Path) -> Task:
     return Task(
         path=destination, slug=task.slug, metadata=task.metadata, body=task.body
     )
-
-
-def validate_draft_promotion(
-    tasks: list[Task],
-    *,
-    all_draft_slugs: set[str],
-    promoted_slugs: set[str],
-    promoted_deps: dict[str, list[str]] | None = None,
-) -> None:
-    if not tasks:
-        raise ValueError("no draft tasks selected for promotion")
-
-    selected_slugs = {task.slug for task in tasks}
-    missing_criteria = sorted(
-        task.slug for task in tasks if not task.metadata.acceptance_criteria
-    )
-    if missing_criteria:
-        joined = ", ".join(missing_criteria)
-        raise ValueError(
-            "draft tasks must include non-empty acceptance_criteria before "
-            f"promotion: {joined}"
-        )
-
-    collisions = sorted(selected_slugs & promoted_slugs)
-    if collisions:
-        joined = ", ".join(collisions)
-        raise ValueError(f"draft tasks already exist in promoted states: {joined}")
-
-    blocked_dependencies: list[str] = []
-    unknown_dependencies: list[str] = []
-    for task in tasks:
-        for dependency in task.metadata.depends_on:
-            if dependency in selected_slugs or dependency in promoted_slugs:
-                continue
-            if dependency in all_draft_slugs:
-                blocked_dependencies.append(f"{task.slug} -> {dependency}")
-                continue
-            unknown_dependencies.append(f"{task.slug} -> {dependency}")
-    if blocked_dependencies:
-        joined = ", ".join(sorted(blocked_dependencies))
-        raise ValueError(
-            "draft promotion depends on draft tasks outside the promotion "
-            f"batch: {joined}"
-        )
-    if unknown_dependencies:
-        joined = ", ".join(sorted(unknown_dependencies))
-        raise ValueError(f"draft promotion has unknown dependency references: {joined}")
-
-    cycle = _detect_cycle(tasks, promoted_slugs, promoted_deps or {})
-    if cycle:
-        joined = " -> ".join(cycle)
-        raise ValueError(f"draft promotion introduces a cyclic dependency: {joined}")
-
-
-def _detect_cycle(
-    tasks: list[Task],
-    promoted_slugs: set[str],
-    promoted_deps: dict[str, list[str]],
-) -> list[str] | None:
-    """Return a cycle as a list of slugs, or None if the graph is acyclic."""
-    graph: dict[str, list[str]] = {}
-    for task in tasks:
-        graph[task.slug] = list(task.metadata.depends_on)
-    for slug in promoted_slugs:
-        if slug not in graph:
-            graph[slug] = promoted_deps.get(slug, [])
-
-    visited: set[str] = set()
-    in_stack: set[str] = set()
-    path: list[str] = []
-
-    def dfs(node: str) -> list[str] | None:
-        visited.add(node)
-        in_stack.add(node)
-        path.append(node)
-        for neighbor in graph.get(node, []):
-            if neighbor not in graph:
-                continue
-            if neighbor in in_stack:
-                cycle_start = path.index(neighbor)
-                return path[cycle_start:] + [neighbor]
-            if neighbor not in visited:
-                result = dfs(neighbor)
-                if result is not None:
-                    return result
-        path.pop()
-        in_stack.discard(node)
-        return None
-
-    for node in graph:
-        if node not in visited:
-            result = dfs(node)
-            if result is not None:
-                return result
-    return None
 
 
 def dump_task(task: Task) -> str:
@@ -413,10 +520,3 @@ def _line_ending(line: str) -> str:
     if line.endswith("\n"):
         return "\n"
     return ""
-
-
-def _format_error(path: Any, message: str) -> str:
-    parts = [str(part) for part in path]
-    if parts:
-        return f"{'.'.join(parts)}: {message}"
-    return message

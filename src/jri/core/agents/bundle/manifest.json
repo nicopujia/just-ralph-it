@@ -1,10 +1,8 @@
 {
   "extensions.default": "extension.ts",
-  "extensions.validator": "interrogator/validator/extension.ts",
   "prompts.ralph": "ralph/prompt.md",
   "prompts.interrogator": "interrogator/prompt.md",
   "prompts.ralphValidator": "ralph/validator/prompt.md",
-  "prompts.interrogatorValidator": "interrogator/validator/prompt.md",
   "prompts.explorer": "explorer/prompt.md",
   "tools.pythonRunner": "_shared/tools/runner.ts",
   "themes.modernYellow": "theme.json"

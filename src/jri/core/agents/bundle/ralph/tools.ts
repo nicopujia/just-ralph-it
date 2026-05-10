@@ -20,7 +20,6 @@ export function registerRalphTools(pi: ExtensionAPI) {
     "List tasks, optionally filtered by status, and return structured task summaries.",
     Type.Object({
       status: Type.Optional(Type.Union([
-        Type.Literal("draft"),
         Type.Literal("todo"),
         Type.Literal("doing"),
         Type.Literal("done"),
@@ -32,19 +31,6 @@ export function registerRalphTools(pi: ExtensionAPI) {
     "read-tasks",
     "Read one or more tasks by slug and return their structured contents.",
     Type.Object({ slugs: Type.Array(Type.String()) }),
-  );
-  registerPythonTool(
-    pi,
-    "upsert-task",
-    "Create or update one draft task.",
-    Type.Object({
-      title: Type.String(),
-      body: Type.String(),
-      assignee: Type.Union([Type.Literal("Ralph"), Type.Literal("Human")]),
-      priority: Type.Number(),
-      depends_on: Type.Optional(Type.Array(Type.String())),
-      acceptance_criteria: Type.Array(Type.String()),
-    }),
   );
   registerPythonTool(
     pi,

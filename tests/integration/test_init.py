@@ -18,7 +18,7 @@ def test_init_creates_scaffold_and_commit(
     assert "init: initialization complete." in capsys.readouterr().out
     assert (git_repo / "README.md").read_text(encoding="utf-8") == "# temp repo\n"
     assert (git_repo / ".jri" / "learnings.md").read_text(encoding="utf-8") == ""
-    assert (git_repo / ".jri" / "tasks" / "draft" / ".gitkeep").exists()
+    assert not (git_repo / ".jri" / "tasks" / "draft").exists()
     assert (git_repo / ".jri" / "tasks" / "todo" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "tasks" / "doing" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "tasks" / "done" / ".gitkeep").exists()

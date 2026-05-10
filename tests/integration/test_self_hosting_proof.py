@@ -161,27 +161,11 @@ _TASK_SPECS: list[tuple[str, str, int, list[str], str, list[str]]] = [
 
 
 def _create_and_promote_tasks(repo: Path) -> None:
-    """Simulate the idea-to-task lifecycle: create drafts then promote."""
-    # Idea phase: draft tasks (no acceptance_criteria for drafts)
-    for slug, title, priority, depends_on, body, _criteria in _TASK_SPECS:
-        write_task(
-            repo,
-            status="draft",
-            slug=slug,
-            title=title,
-            priority=priority,
-            assignee="Ralph",
-            body=body,
-            depends_on=depends_on,
-        )
-    git(repo, "add", ".jri/tasks/draft/")
-    git(repo, "commit", "-m", "add draft tasks (idea phase)")
-
-    # Clarification: fill in the acceptance criteria while tasks are still drafts.
+    """Simulate the idea-to-task lifecycle: create executable todo tasks."""
     for slug, title, priority, depends_on, body, criteria in _TASK_SPECS:
         write_task(
             repo,
-            status="draft",
+            status="todo",
             slug=slug,
             title=title,
             priority=priority,
@@ -190,14 +174,8 @@ def _create_and_promote_tasks(repo: Path) -> None:
             depends_on=depends_on,
             acceptance_criteria=criteria,
         )
-    git(repo, "add", ".jri/tasks/draft/")
-    git(repo, "commit", "-m", "refine draft tasks for promotion")
-
-    # Promotion is an internal interrogator workflow, not a public CLI command.
-    service = JriService(repo)
-    promotion_slugs = ["implement-greet", "add-greet-tests", "update-changelog"]
-    service.approve_draft_promotion(slugs=promotion_slugs)
-    service.promote_drafts(slugs=promotion_slugs)
+    git(repo, "add", ".jri/tasks/todo/")
+    git(repo, "commit", "-m", "add todo tasks")
 
 
 def _assert_convergence(repo: Path, completed: int) -> None:

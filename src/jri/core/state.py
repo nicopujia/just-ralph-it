@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import cast
 
 from .errors import JriError
-from .models import AttemptState, ProcessState, PromotionRecord, State
+from .models import AttemptState, ProcessState, State
 from .tasks import validate_state_payload
 
 
@@ -59,14 +59,6 @@ class StateStore:
     def save_session(self, session_id: str | None) -> None:
         state = self.load()
         self.save(replace(state, session=session_id))
-
-    def save_promotion(self, promotion: PromotionRecord) -> None:
-        state = self.load()
-        self.save(replace(state, promotion=promotion))
-
-    def clear_promotion(self) -> None:
-        state = self.load()
-        self.save(replace(state, promotion=None))
 
     def start_attempt(self, attempt: AttemptState) -> None:
         state = self.load()

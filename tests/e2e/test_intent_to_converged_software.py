@@ -8,7 +8,6 @@ from typing import Any, cast
 
 import pytest
 
-from jri.core.service import JriService
 from jri.core.tasks import list_tasks
 from tests.helpers import git
 
@@ -49,26 +48,14 @@ def test_e2e_intent_to_converged_software(
         timeout=_CHAT_TIMEOUT_SECONDS,
     )
 
-    draft_tasks = list_tasks(git_repo / ".jri" / "tasks" / "draft")
-    assert len(draft_tasks) == 2, f"expected 2 draft tasks after {chat.args}"
-    for task in draft_tasks:
+    todo_tasks = list_tasks(git_repo / ".jri" / "tasks" / "todo")
+    assert len(todo_tasks) == 2, f"expected 2 todo tasks after {chat.args}"
+    for task in todo_tasks:
         assert task.metadata.assignee == "Ralph"
         assert task.metadata.acceptance_criteria
         for criterion in task.metadata.acceptance_criteria:
             assert _is_concrete_acceptance_criterion(criterion), criterion
-
-    service = JriService(git_repo)
-    slugs = [task.slug for task in draft_tasks]
-    with pytest.raises(Exception, match="approved by the validator"):
-        service.promote_drafts(slugs=slugs)
-
-    service.approve_draft_promotion(slugs=[slugs[0]])
-    with pytest.raises(Exception, match="match the latest validator-approved"):
-        service.promote_drafts(slugs=slugs)
-
-    service.approve_draft_promotion(slugs=slugs)
-    promoted = service.promote_drafts(slugs=slugs)
-    assert [task.slug for task in promoted] == sorted(slugs)
+    slugs = sorted(task.slug for task in todo_tasks)
 
     _run_with_heartbeat(
         [
@@ -76,7 +63,7 @@ def test_e2e_intent_to_converged_software(
             "start",
             *_preset_args(preset),
             "--tasks",
-            str(len(promoted)),
+            str(len(todo_tasks)),
             "--task-timeout",
             str(_START_TASK_TIMEOUT_SECONDS),
             "--force",
@@ -89,7 +76,7 @@ def test_e2e_intent_to_converged_software(
 
     _assert_markit_behavior(git_repo, env=env)
     _run(["make", "check"], cwd=git_repo, env=env)
-    _assert_jri_run_artifacts(git_repo, slugs=sorted(slugs), env=env)
+    _assert_jri_run_artifacts(git_repo, slugs=slugs, env=env)
     assert git(git_repo, "status", "--short", "--untracked-files=all") == ""
 
 
@@ -211,13 +198,13 @@ Use this scripted answer sheet instead of asking follow-up questions:
 - `make check` must pass and exercise the markit CLI behavior.
 - Do not create docs or prompt tests.
 
-Create exactly two draft tasks assigned to Ralph:
+Create exactly two todo tasks assigned to Ralph:
 1. Implement add/list persistence and the quality entrypoint.
 2. Implement search/archive/list --all, depending on the first task.
 
-Each draft task must include concrete, observable acceptance criteria with exact
+Each todo task must include concrete, observable acceptance criteria with exact
 command names, files, output strings, and pass/fail conditions. Stop after the
-draft tasks exist. Do not validate, approve, promote, or run the implementation.
+todo tasks exist. Do not run the implementation.
 """.strip()
 
 

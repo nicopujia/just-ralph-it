@@ -204,7 +204,7 @@ def test_runtime_env_copies_complete_agent_bundle() -> None:
 
         assert (package_root / "__init__.py").is_file()
         assert (package_root / "manifest.json").is_file()
-        assert (package_root / "interrogator" / "validator" / "extension.ts").is_file()
+        assert not (package_root / "interrogator" / "validator").exists()
         project_setup_skill = (
             package_root / "ralph" / "skills" / "project-setup" / "SKILL.md"
         )
@@ -421,11 +421,7 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
             "--append-system-prompt",
             str(package_root / "interrogator" / "prompt.md"),
             "--tools",
-            (
-                "list-tasks,read-tasks,read-readme,edit-readme,upsert-task,"
-                "edit-draft-task,rename-task,delete-task,promote-tasks,"
-                "check-draft-promotion,explore,interrogator-validator"
-            ),
+            ("list-tasks,read-tasks,read-readme,edit-readme,upsert-task,explore"),
         ]
     ]
     assert (

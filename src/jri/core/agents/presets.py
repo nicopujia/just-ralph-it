@@ -4,7 +4,7 @@ from ..errors import JriError
 
 PresetMode = Literal["chat", "start"]
 
-_CHAT_FIELDS = ("model", "validator_model", "explore_model")
+_CHAT_FIELDS = ("model", "explore_model")
 _START_FIELDS = ("model", "validator_model", "general_model", "explore_model")
 
 _PRESET_CHOICES = ("default", "openai")
@@ -17,7 +17,6 @@ _PRESET_CONFIG: dict[str, object] = {
     "default": {
         "chat": {
             "model": _DEFAULT_CHAT_MODEL,
-            "validator_model": _DEFAULT_VALIDATOR_MODEL,
             "explore_model": _DEFAULT_EXPLORE_MODEL,
         },
         "start": {
@@ -30,7 +29,6 @@ _PRESET_CONFIG: dict[str, object] = {
     "openai": {
         "chat": {
             "model": "openai-codex/gpt-5.4",
-            "validator_model": "openai-codex/gpt-5.4",
             "explore_model": "openai-codex/gpt-5.4-mini",
         },
         "start": {

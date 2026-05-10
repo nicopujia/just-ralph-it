@@ -1,4 +1,3 @@
-import hashlib
 import json
 import os
 import select
@@ -33,10 +32,8 @@ from .agents.session import (
 )
 from .errors import HaltRequested, JriError, RestartRequested
 from .git import (
-    MSG_CHECK_PROMOTE,
     MSG_COMPLETE_HUMAN,
     MSG_ESCALATE_HUMAN,
-    MSG_PROMOTE,
     MSG_RALPH_FINALIZE,
     MSG_RALPH_INTEGRATE,
     MSG_RALPH_PARTIAL,
@@ -58,7 +55,6 @@ from .models import (
     AttemptState,
     HumanTaskPayload,
     ProcessState,
-    PromotionRecord,
     RalphResultPayload,
     Result,
     RunOutcome,
@@ -75,7 +71,6 @@ from .tasks import (
     move_task,
     parse_task_file,
     select_next_task,
-    validate_draft_promotion,
 )
 from .timeline import TimelineEvent, TimelineStore
 from .ui import (
@@ -92,7 +87,6 @@ _INIT_COMMIT_PATHS = (
     ".jri",
     "Makefile",
     ".jri/learnings.md",
-    ".jri/tasks/draft/.gitkeep",
     ".jri/tasks/todo/.gitkeep",
     ".jri/tasks/doing/.gitkeep",
     ".jri/tasks/done/.gitkeep",
@@ -100,7 +94,6 @@ _INIT_COMMIT_PATHS = (
 )
 _SCAFFOLD_TEMPLATE_PATHS = (
     ".jri/learnings.md",
-    ".jri/tasks/draft/.gitkeep",
     ".jri/tasks/todo/.gitkeep",
     ".jri/tasks/doing/.gitkeep",
     ".jri/tasks/done/.gitkeep",
@@ -109,7 +102,6 @@ _SCAFFOLD_TEMPLATE_PATHS = (
 _ROOT_SCAFFOLD_PATHS = ("Makefile",)
 _TRACKED_TASK_DIRS = TASK_STATUSES
 _MAX_TASK_TITLE_LENGTH = 50
-_DRAFT_TASK_PREFIX = ".jri/tasks/draft/"
 _DETACH_NOTICE = "Detached. Use `jri attach` to follow the run again."
 _DEFAULT_MAKEFILE = """.PHONY: check
 
@@ -250,7 +242,6 @@ class JriService:
         *,
         fresh: bool = False,
         model: str | None = None,
-        validator_model: str | None = None,
         explore_model: str | None = None,
     ) -> int:
         self.ensure_initialized()
@@ -276,10 +267,9 @@ class JriService:
         with runtime_env(
             overrides={
                 "interrogator": model,
-                "interrogator-validator": validator_model,
                 "explore": explore_model,
             },
-            included_agents={"interrogator", "interrogator-validator", "explorer"},
+            included_agents={"interrogator", "explorer"},
         ) as env:
             returncode = launch_chat(
                 root=self.root,
@@ -528,7 +518,7 @@ class JriService:
         done_slugs = {task.slug for task in done_tasks}
         actionable_human_slugs = {
             task.slug
-            for status in ("draft", "todo", "doing")
+            for status in ("todo", "doing")
             for task in tasks_by_status.get(status, [])
             if task.metadata.assignee == "Human"
         }
@@ -690,96 +680,6 @@ class JriService:
         """Return a human-readable metrics summary, or None if no metrics."""
         return self.metrics.summary()
 
-    def promote_drafts(self, *, slugs: list[str]) -> list[Task]:
-        self.ensure_initialized()
-
-        draft_tasks = self._list_tasks("draft")
-        selected = self._select_draft_tasks(draft_tasks, slugs)
-        self._validate_selected_drafts_for_promotion(selected, draft_tasks=draft_tasks)
-        self._validate_promotion_approval(selected)
-
-        promoted_tasks: list[Task] = []
-        for task in selected:
-            promoted_task = move_task(task, self.paths.task_dir("todo"))
-            promoted_tasks.append(promoted_task)
-
-        self.state_store.clear_promotion()
-        self.git.commit_paths_if_needed(
-            MSG_PROMOTE,
-            [
-                self.git.relative_path(self.paths.task_dir("draft")),
-                self.git.relative_path(self.paths.task_dir("todo")),
-            ],
-        )
-        return promoted_tasks
-
-    def approve_draft_promotion(self, *, slugs: list[str]) -> list[Task]:
-        self.ensure_initialized()
-
-        draft_tasks = self._list_tasks("draft")
-        selected = self._select_draft_tasks(draft_tasks, slugs)
-        self._validate_selected_drafts_for_promotion(selected, draft_tasks=draft_tasks)
-        self.state_store.save_promotion(
-            PromotionRecord(
-                confirmed_at=int(time.time()),
-                task_slugs=[task.slug for task in selected],
-                content_digests=self._draft_content_digests(selected),
-            )
-        )
-        self.git.commit_paths_if_needed(
-            MSG_CHECK_PROMOTE,
-            [self.git.relative_path(self.paths.state_path)],
-        )
-        return selected
-
-    def check_draft_promotion(self, *, slugs: list[str]) -> list[Task]:
-        self.ensure_initialized()
-
-        draft_tasks = self._list_tasks("draft")
-        selected = self._select_draft_tasks(draft_tasks, slugs)
-        self._validate_selected_drafts_for_promotion(selected, draft_tasks=draft_tasks)
-        self.git.commit_paths_if_needed(
-            MSG_CHECK_PROMOTE,
-            [self.git.relative_path(self.paths.task_dir("draft"))],
-        )
-        return selected
-
-    def _validate_selected_drafts_for_promotion(
-        self, selected: list[Task], *, draft_tasks: list[Task]
-    ) -> None:
-        try:
-            validate_draft_promotion(
-                selected,
-                all_draft_slugs={task.slug for task in draft_tasks},
-                promoted_slugs=self._promoted_task_slugs(),
-                promoted_deps=self._promoted_task_deps(),
-            )
-        except ValueError as exc:
-            raise JriError(str(exc)) from exc
-
-    def _draft_content_digests(self, tasks: list[Task]) -> dict[str, str]:
-        return {
-            task.slug: hashlib.sha256(task.path.read_bytes()).hexdigest()
-            for task in tasks
-        }
-
-    def _validate_promotion_approval(self, selected: list[Task]) -> None:
-        state = self.state_store.load()
-        approval = state.promotion
-        if approval is None:
-            raise JriError("draft promotion must be approved by the validator first")
-
-        selected_slugs = [task.slug for task in selected]
-        if approval.task_slugs != selected_slugs:
-            raise JriError(
-                "draft promotion must match the latest validator-approved draft set"
-            )
-
-        current_digests = self._draft_content_digests(selected)
-        if approval.content_digests != current_digests:
-            self.state_store.clear_promotion()
-            raise JriError("draft promotion approval changed since approval")
-
     def reset(self, target_task: str | None = None) -> None:
         """Reset the repository to the appropriate task tag boundary.
 
@@ -813,7 +713,6 @@ class JriService:
                 session=state.session,
                 branch=state.branch,
                 attempts=state.attempts,
-                promotion=state.promotion,
             )
         )
 
@@ -917,25 +816,6 @@ class JriService:
                 if task.slug == slug:
                     return status, task
         return None
-
-    def _select_draft_tasks(
-        self, draft_tasks: list[Task], slugs: list[str]
-    ) -> list[Task]:
-        by_slug = {task.slug: task for task in draft_tasks}
-        if not slugs:
-            if not draft_tasks:
-                raise JriError("no draft tasks selected for promotion")
-            return draft_tasks
-
-        requested_slugs = list(dict.fromkeys(slugs))
-        missing = [slug for slug in requested_slugs if slug not in by_slug]
-        if missing:
-            joined = ", ".join(missing)
-            raise JriError(f"draft task not found: {joined}")
-        return sorted(
-            (by_slug[slug] for slug in requested_slugs),
-            key=lambda task: task.slug,
-        )
 
     def _promoted_task_slugs(self) -> set[str]:
         slugs: set[str] = set()
@@ -1924,8 +1804,6 @@ class JriService:
         status = self.git.status_short()
         if not status:
             return
-        if self._dirty_paths_are_draft_only(status):
-            return
         if force:
             self.git.run("stash")
             return
@@ -1946,12 +1824,6 @@ class JriService:
             self.git.run("clean", "-fd")
         else:
             raise JriError("aborted by user")
-
-    def _dirty_paths_are_draft_only(self, status: str) -> bool:
-        paths = [path for path in self._status_paths(status) if path]
-        return bool(paths) and all(
-            path.startswith(_DRAFT_TASK_PREFIX) for path in paths
-        )
 
     def _status_paths(self, status: str) -> list[str]:
         paths: list[str] = []
@@ -2978,7 +2850,7 @@ class JriService:
         relative_path = self.git.relative_path(task.path)
         raise JriError(
             f"promoted task file `{relative_path}` was modified in place; "
-            "create a follow-up draft task instead"
+            "create a follow-up todo task instead"
         )
 
     def _block_task_on_dependency(self, task: Task, dependency_slug: str) -> Task:

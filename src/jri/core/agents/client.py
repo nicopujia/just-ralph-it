@@ -406,13 +406,7 @@ def launch_chat(
                         "read-readme",
                         "edit-readme",
                         "upsert-task",
-                        "edit-draft-task",
-                        "rename-task",
-                        "delete-task",
-                        "promote-tasks",
-                        "check-draft-promotion",
                         "explore",
-                        "interrogator-validator",
                     ]
                 ),
             ]

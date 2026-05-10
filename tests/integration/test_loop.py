@@ -22,7 +22,6 @@ from jri.core.models import (
     AttemptState,
     HumanTaskPayload,
     ProcessState,
-    PromotionRecord,
     RalphResultPayload,
     RunSummary,
     State,
@@ -289,7 +288,7 @@ class CommittedMutatingDoingTaskAgentRuntime(SuccessfulFakeAgentRuntime):
         )
 
 
-class FollowUpDraftAgentRuntime(SuccessfulFakeAgentRuntime):
+class FollowUpTodoAgentRuntime(SuccessfulFakeAgentRuntime):
     def run_ralph_task(
         self,
         *,
@@ -302,7 +301,7 @@ class FollowUpDraftAgentRuntime(SuccessfulFakeAgentRuntime):
     ) -> AgentRunResult:
         write_task(
             root,
-            status="draft",
+            status="todo",
             slug="follow-up-fix",
             title="Follow up fix",
             priority=1,
@@ -1182,7 +1181,7 @@ def test_start_restores_committed_in_place_mutation_of_doing_task(
     assert "Create implemented.txt" in done_path.read_text(encoding="utf-8")
 
 
-def test_start_allows_additive_follow_up_draft_tasks(git_repo: Path) -> None:
+def test_start_allows_additive_follow_up_todo_tasks(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -1197,14 +1196,14 @@ def test_start_allows_additive_follow_up_draft_tasks(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
 
-    service = JriService(git_repo, agent_runtime=FollowUpDraftAgentRuntime())
+    service = JriService(git_repo, agent_runtime=FollowUpTodoAgentRuntime())
 
     completed = service.start(max_tasks=1, force=True)
 
     assert completed == 1
     assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
     follow_up = parse_task_file(
-        git_repo / ".jri" / "tasks" / "draft" / "follow-up-fix.md"
+        git_repo / ".jri" / "tasks" / "todo" / "follow-up-fix.md"
     )
     assert follow_up.metadata.title == "Follow up fix"
     assert "additive follow-up" in follow_up.body
@@ -5513,7 +5512,9 @@ def test_start_stashes_dirty_workdir_with_force(git_repo: Path) -> None:
     assert "stash@{0}" in stash_list
 
 
-def test_start_allows_dirty_draft_tasks_without_force(git_repo: Path) -> None:
+def test_start_aborts_on_dirty_todo_tasks_without_force(
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -5527,25 +5528,22 @@ def test_start_allows_dirty_draft_tasks_without_force(git_repo: Path) -> None:
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
 
-    write_task(
-        git_repo,
-        status="draft",
-        slug="clarify-scope",
-        title="Clarify scope",
-        priority=1,
-        assignee="Human",
-        body="Capture open questions.",
+    task_path = git_repo / ".jri" / "tasks" / "todo" / "implement-file.md"
+    task_path.write_text(
+        task_path.read_text(encoding="utf-8") + "\nDirty edit.\n",
+        encoding="utf-8",
     )
 
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-    completed = service.start(max_tasks=1)
+    monkeypatch.setattr("builtins.input", lambda: "a")
 
-    assert completed == 1
+    with pytest.raises(JriError, match="aborted by user"):
+        service.start(max_tasks=1)
     assert git(git_repo, "stash", "list") == ""
-    assert (git_repo / ".jri" / "tasks" / "draft" / "clarify-scope.md").exists()
+    assert task_path.exists()
 
 
-def test_start_force_stashes_when_dirty_paths_are_not_draft_only(
+def test_start_force_stashes_when_dirty_paths_include_task_and_unrelated_files(
     git_repo: Path,
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
@@ -5561,14 +5559,10 @@ def test_start_force_stashes_when_dirty_paths_are_not_draft_only(
     git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
     git(git_repo, "commit", "-m", "add task")
 
-    write_task(
-        git_repo,
-        status="draft",
-        slug="clarify-scope",
-        title="Clarify scope",
-        priority=1,
-        assignee="Human",
-        body="Capture open questions.",
+    task_path = git_repo / ".jri" / "tasks" / "todo" / "implement-file.md"
+    task_path.write_text(
+        task_path.read_text(encoding="utf-8") + "\nDirty edit.\n",
+        encoding="utf-8",
     )
     (git_repo / "dirty.txt").write_text("dirty\n", encoding="utf-8")
     git(git_repo, "add", "dirty.txt")
@@ -5890,37 +5884,10 @@ def test_ralph_status_summary_reports_current_task_and_stop_signal(
 def test_private_task_selection_and_path_helpers(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-    task_path = write_task(
-        git_repo,
-        status="draft",
-        slug="draft-a",
-        title="Draft A",
-        priority=0,
-        assignee="Ralph",
-        body="Draft body.",
-    )
-    task = parse_task_file(task_path)
-
     assert service._status_paths("R  old.md -> new.md\n?? short") == [
         "new.md",
         "short",
     ]
-    assert service._commit_paths(["missing", ".jri/tasks/draft/draft-a.md"]) == [
-        ".jri/tasks/draft/draft-a.md"
-    ]
-    assert service._select_draft_tasks([task], []) == [task]
-    with pytest.raises(JriError, match="draft task not found: missing"):
-        service._select_draft_tasks([task], ["missing"])
-
-
-def test_private_promotion_helpers_report_expected_errors(git_repo: Path) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
-    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-
-    with pytest.raises(JriError, match="no draft tasks selected"):
-        service._select_draft_tasks([], [])
-    with pytest.raises(JriError, match="draft promotion must be approved"):
-        service._validate_promotion_approval([])
 
 
 def test_status_helpers_cover_promoted_dependencies(git_repo: Path) -> None:
@@ -7026,45 +6993,6 @@ def test_follow_log_cancels_stop_and_detaches_after_log_exists(
     )
 
 
-def test_validate_promotion_approval_rejects_mismatched_and_changed_drafts(
-    git_repo: Path,
-) -> None:
-    assert run_cli(["init"], cwd=git_repo) == 0
-    path = write_task(
-        git_repo,
-        status="draft",
-        slug="draft-a",
-        title="Draft A",
-        priority=0,
-        assignee="Ralph",
-        body="Draft body.",
-    )
-    task = parse_task_file(path)
-    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-    digest = service._draft_content_digests([task])["draft-a"]
-    service.state_store.save_promotion(
-        PromotionRecord(
-            confirmed_at=1,
-            task_slugs=["other-draft"],
-            content_digests={"draft-a": digest},
-        )
-    )
-
-    with pytest.raises(JriError, match="must match"):
-        service._validate_promotion_approval([task])
-
-    service.state_store.save_promotion(
-        PromotionRecord(
-            confirmed_at=1,
-            task_slugs=["draft-a"],
-            content_digests={"draft-a": "0" * 64},
-        )
-    )
-    with pytest.raises(JriError, match="changed since approval"):
-        service._validate_promotion_approval([task])
-    assert service.state_store.load().promotion is None
-
-
 def test_reset_tag_helpers_cover_unmatched_and_unparsed_tags(
     git_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -7107,12 +7035,12 @@ def test_ensure_initialized_rejects_uninitialized_repo(git_repo: Path) -> None:
 
 def test_list_tasks_wraps_malformed_task_errors(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
-    bad_task = git_repo / ".jri" / "tasks" / "draft" / "bad.md"
+    bad_task = git_repo / ".jri" / "tasks" / "todo" / "bad.md"
     bad_task.write_text("bad\n", encoding="utf-8")
 
     with pytest.raises(JriError, match="malformed task file"):
         JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())._list_tasks(
-            "draft"
+            "todo"
         )
 
 

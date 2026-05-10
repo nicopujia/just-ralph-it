@@ -170,7 +170,7 @@ def test_lifecycle_invariant_vocabulary_covers_state_surfaces() -> None:
         invariant.surface: invariant for invariant in JRI_LIFECYCLE_INVARIANTS
     }
 
-    assert tuple(TASK_STATUSES) == ("draft", "todo", "doing", "done")
+    assert tuple(TASK_STATUSES) == ("todo", "doing", "done")
     assert invariants["task_files"].vocabulary == TASK_STATUSES
     assert invariants["persisted_attempts"].vocabulary == ATTEMPT_RESULT_VALUES
     assert invariants["result_payload"].vocabulary == (

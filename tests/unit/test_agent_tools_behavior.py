@@ -21,17 +21,12 @@ def invoke_tool(
 
 def test_tools_package_exports_only_public_handlers() -> None:
     assert tools.__all__ == [
-        "run_approve_draft_promotion",
         "run_contrast_check",
-        "run_delete_task",
-        "run_edit_draft_task",
         "run_edit_readme",
         "run_list_tasks",
-        "run_promote_tasks",
         "run_ralph_result",
         "run_read_readme",
         "run_read_tasks",
-        "run_rename_task",
         "run_upsert_task",
     ]
 
@@ -53,30 +48,7 @@ def task_payload(
     return payload
 
 
-def write_draft_task(
-    repo: Path,
-    slug: str,
-    *,
-    body: str = "Original body.",
-    depends_on: list[str] | None = None,
-) -> Path:
-    task_path = repo / ".jri" / "tasks" / "draft" / f"{slug}.md"
-    task_path.parent.mkdir(parents=True, exist_ok=True)
-    metadata = {
-        "title": slug.replace("-", " ").title(),
-        "priority": 1,
-        "assignee": "Ralph",
-        "depends_on": depends_on or [],
-        "acceptance_criteria": ["done is observable"],
-    }
-    task_path.write_text(
-        "---\n" + json.dumps(metadata, indent=2) + "\n---\n\n" + body,
-        encoding="utf-8",
-    )
-    return task_path
-
-
-def make_task(slug: str, status: str = "draft") -> Task:
+def make_task(slug: str, status: str = "todo") -> Task:
     return Task(
         path=Path(".jri") / "tasks" / status / f"{slug}.md",
         slug=slug,
@@ -137,7 +109,7 @@ def test_dispatcher_rejects_non_object_payload(
     assert "tool payload must be a JSON object" in capsys.readouterr().err
 
 
-def test_upsert_task_creates_and_updates_draft_task(
+def test_upsert_task_creates_todo_task_and_refuses_overwrite(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -145,9 +117,9 @@ def test_upsert_task_creates_and_updates_draft_task(
     monkeypatch.chdir(tmp_path)
 
     assert invoke_tool(monkeypatch, "upsert-task", task_payload(slug="safe-tool")) == 0
-    task_path = tmp_path / ".jri" / "tasks" / "draft" / "safe-tool.md"
+    task_path = tmp_path / ".jri" / "tasks" / "todo" / "safe-tool.md"
     assert task_path.exists()
-    assert "created draft task" in capsys.readouterr().out
+    assert "created todo task" in capsys.readouterr().out
 
     assert (
         invoke_tool(
@@ -155,10 +127,10 @@ def test_upsert_task_creates_and_updates_draft_task(
             "upsert-task",
             task_payload(slug="safe-tool", body="Updated behavior lock."),
         )
-        == 0
+        == 1
     )
-    assert "Updated behavior lock." in task_path.read_text(encoding="utf-8")
-    assert "updated draft task" in capsys.readouterr().out
+    assert "refusing to overwrite existing todo task" in capsys.readouterr().err
+    assert "Updated behavior lock." not in task_path.read_text(encoding="utf-8")
 
 
 def test_upsert_task_validates_slug_and_acceptance_criteria(
@@ -182,136 +154,16 @@ def test_upsert_task_validates_slug_and_acceptance_criteria(
     assert "acceptance_criteria" in capsys.readouterr().err
 
 
-def test_task_crud_renames_dependencies_and_deletes_unblocked_draft(
+def test_removed_task_crud_tools_are_not_registered(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    source = write_draft_task(tmp_path, "source")
-    dependent = write_draft_task(tmp_path, "dependent", depends_on=["source"])
 
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "rename-task",
-            {"from_slug": "source", "to_slug": "renamed"},
-        )
-        == 0
-    )
-    rename_output = capsys.readouterr().out
-    assert "renamed draft task" in rename_output
-    assert "updated depends_on" in rename_output
-    assert not source.exists()
-    assert (tmp_path / ".jri" / "tasks" / "draft" / "renamed.md").exists()
-    assert "- renamed" in dependent.read_text(encoding="utf-8")
-
-    assert invoke_tool(monkeypatch, "delete-task", {"slug": "dependent"}) == 0
-    assert "deleted draft task" in capsys.readouterr().out
-    assert not dependent.exists()
-
-
-def test_delete_task_rejects_promoted_task(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    promoted_path = tmp_path / ".jri" / "tasks" / "todo" / "already-promoted.md"
-    promoted_path.parent.mkdir(parents=True, exist_ok=True)
-    promoted_path.write_text("promoted", encoding="utf-8")
-
-    assert invoke_tool(monkeypatch, "delete-task", {"slug": "already-promoted"}) == 1
-
-    assert "refusing to delete promoted task" in capsys.readouterr().err
-    assert promoted_path.exists()
-
-
-def test_delete_task_rejects_draft_with_dependents(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    write_draft_task(tmp_path, "base")
-    write_draft_task(tmp_path, "blocked", depends_on=["base"])
-
-    assert invoke_tool(monkeypatch, "delete-task", {"slug": "base"}) == 1
-
-    assert "refusing to delete draft task with dependents" in capsys.readouterr().err
-
-
-def test_edit_draft_task_applies_unique_exact_edit(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    task_path = write_draft_task(tmp_path, "edit-me", body="Alpha block.\n")
-
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "edit-draft-task",
-            {
-                "slug": "edit-me",
-                "edits": [{"oldText": "Alpha block.", "newText": "Beta block."}],
-            },
-        )
-        == 0
-    )
-
-    result = json.loads(capsys.readouterr().out)
-    assert result["path"] == ".jri/tasks/draft/edit-me.md"
-    assert result["replacements"] == 1
-    assert "Beta block." in task_path.read_text(encoding="utf-8")
-
-
-def test_edit_draft_task_rejects_duplicate_old_text(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    task_path = write_draft_task(tmp_path, "duplicates", body="repeat\nrepeat\n")
-    original = task_path.read_text(encoding="utf-8")
-
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "edit-draft-task",
-            {
-                "slug": "duplicates",
-                "edits": [{"oldText": "repeat", "newText": "once"}],
-            },
-        )
-        == 1
-    )
-
-    err = capsys.readouterr().err
-    assert "draft edit conflict" in err
-    assert "matched 2 blocks" in err
-    assert task_path.read_text(encoding="utf-8") == original
-
-
-def test_edit_draft_task_validates_edit_payload(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    monkeypatch.chdir(tmp_path)
-    write_draft_task(tmp_path, "invalid-edit")
-
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "edit-draft-task",
-            {"slug": "invalid-edit", "edits": [{"oldText": "Original body."}]},
-        )
-        == 1
-    )
-
-    assert "newText" in capsys.readouterr().err
+    for tool_name in ("rename-task", "delete-task", "edit-draft-task"):
+        assert invoke_tool(monkeypatch, tool_name, {"slug": "safe-tool"}) == 2
+        assert "expected one tool name" in capsys.readouterr().err
 
 
 def test_task_operations_reject_symlinked_jri_directory(
@@ -387,76 +239,16 @@ def test_readme_operations_reject_symlink(
     assert target.read_text(encoding="utf-8") == "outside"
 
 
-def test_promote_tasks_maps_check_and_apply_results(
+def test_promote_tasks_tool_is_not_registered(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    calls: list[tuple[str, list[str]]] = []
-
-    class FakeService:
-        def __init__(self, root: Path) -> None:
-            assert root == tmp_path
-
-        def check_draft_promotion(self, *, slugs: list[str]) -> list[Task]:
-            calls.append(("check", slugs))
-            return [make_task("alpha"), make_task("beta")]
-
-        def promote_drafts(self, *, slugs: list[str]) -> list[Task]:
-            calls.append(("promote", slugs))
-            return [make_task("alpha")]
-
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(tools, "JriService", FakeService)
 
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "promote-tasks",
-            {"slugs": ["alpha", "beta"], "check_only": True},
-        )
-        == 0
-    )
-    assert "Promotion check passed for 2 draft task(s)." in capsys.readouterr().out
-
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "promote-tasks",
-            {"slugs": ["alpha"], "check_only": False},
-        )
-        == 0
-    )
-    assert "Promoted 1 draft task(s) to todo." in capsys.readouterr().out
-    assert calls == [("check", ["alpha", "beta"]), ("promote", ["alpha"])]
-
-
-def test_approve_draft_promotion_maps_service_results(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    class FakeService:
-        def __init__(self, root: Path) -> None:
-            assert root == tmp_path
-
-        def approve_draft_promotion(self, *, slugs: list[str]) -> list[Task]:
-            assert slugs == ["alpha"]
-            return [make_task("alpha")]
-
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(tools, "JriService", FakeService)
-
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "approve-draft-promotion",
-            {"slugs": ["alpha"]},
-        )
-        == 0
-    )
-
-    assert "Approved promotion for 1 draft task(s)." in capsys.readouterr().out
+    for tool_name in ("promote" + "-tasks", "approve" + "-draft" + "-promotion"):
+        assert invoke_tool(monkeypatch, tool_name, {"slugs": ["alpha"]}) == 2
+        assert "expected one tool name" in capsys.readouterr().err
 
 
 def test_list_and_read_tasks_use_service_payload_mapping(
@@ -473,7 +265,7 @@ def test_list_and_read_tasks_use_service_payload_mapping(
             self.git = None
 
         def status(self) -> dict[str, list[Task]]:
-            return {"draft": [], "todo": [alpha], "doing": [], "done": [beta]}
+            return {"todo": [alpha], "doing": [], "done": [beta]}
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(tools, "JriService", FakeService)

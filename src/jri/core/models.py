@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Literal, Self, cast
 
 Assignee = Literal["Ralph", "Human"]
-TaskStatus = Literal["draft", "todo", "doing", "done"]
+TaskStatus = Literal["todo", "doing", "done"]
 RalphResult = Literal["completed", "incompleted", "needs_human"]
 Result = Literal["completed", "incompleted", "needs_human", "failed", "timeout"]
 AttemptResult = Literal[
@@ -20,7 +20,7 @@ PayloadLifecycleState = Literal["present", "missing", "invalid"]
 LogLifecycleState = Literal["present", "missing", "recovered"]
 GraphNodeState = Literal["active", "archived"]
 
-TASK_STATUSES: tuple[TaskStatus, ...] = ("draft", "todo", "doing", "done")
+TASK_STATUSES: tuple[TaskStatus, ...] = ("todo", "doing", "done")
 PROMOTED_TASK_STATUSES: tuple[TaskStatus, ...] = ("todo", "doing", "done")
 RALPH_RESULT_VALUES: tuple[RalphResult, ...] = (
     "completed",
@@ -76,8 +76,8 @@ JRI_LIFECYCLE_INVARIANTS: tuple[LifecycleInvariant, ...] = (
         surface="task_files",
         vocabulary=TASK_STATUSES,
         invariant=(
-            "draft promotes to todo; Ralph owns one doing task; "
-            "acceptance moves doing to done"
+            "Ralph selects todo tasks, owns one doing task, and acceptance moves "
+            "doing to done"
         ),
     ),
     LifecycleInvariant(
@@ -303,51 +303,6 @@ class AttemptState:
         )
 
 
-@dataclass(frozen=True)
-class PromotionRecord:
-    confirmed_at: int
-    task_slugs: list[str]
-    content_digests: dict[str, str] = field(default_factory=dict)
-    target_status: Literal["todo"] = "todo"
-
-    def to_payload(self) -> dict[str, object]:
-        return {
-            "confirmed_at": self.confirmed_at,
-            "task_slugs": self.task_slugs,
-            "content_digests": self.content_digests,
-            "target_status": self.target_status,
-        }
-
-    @classmethod
-    def from_payload(cls, payload: dict[str, object]) -> Self:
-        task_slugs_raw = payload.get("task_slugs")
-        task_slugs = (
-            [
-                item
-                for item in cast(list[object], task_slugs_raw)
-                if isinstance(item, str)
-            ]
-            if isinstance(task_slugs_raw, list)
-            else []
-        )
-        return cls(
-            confirmed_at=_int_or_default(payload.get("confirmed_at"), default=0),
-            task_slugs=task_slugs,
-            content_digests=(
-                {
-                    str(key): value
-                    for key, value in cast(
-                        dict[str, object], payload.get("content_digests")
-                    ).items()
-                    if isinstance(value, str)
-                }
-                if isinstance(payload.get("content_digests"), dict)
-                else {}
-            ),
-            target_status="todo",
-        )
-
-
 RunOutcome = Literal[
     "completed",
     "no_work",
@@ -373,7 +328,6 @@ class State:
     branch: str | None = None
     active_attempt: AttemptState | None = None
     attempts: list[AttemptState] = field(default_factory=list)
-    promotion: PromotionRecord | None = None
     current_task: str | None = None
 
     def to_payload(self) -> dict[str, object]:
@@ -397,8 +351,6 @@ class State:
             payload["active_attempt"] = self.active_attempt.to_payload()
         if self.attempts:
             payload["attempts"] = [attempt.to_payload() for attempt in self.attempts]
-        if self.promotion is not None:
-            payload["promotion"] = self.promotion.to_payload()
         if self.current_task is not None:
             payload["current_task"] = self.current_task
         return payload
@@ -432,13 +384,6 @@ class State:
                 if isinstance(item, dict)
             ]
 
-        promotion_raw = payload.get("promotion")
-        promotion = None
-        if isinstance(promotion_raw, dict):
-            promotion = PromotionRecord.from_payload(
-                cast(dict[str, object], promotion_raw)
-            )
-
         return cls(
             started_at=_int_or_none(payload.get("started_at")),
             finished_at=_int_or_none(payload.get("finished_at")),
@@ -447,7 +392,6 @@ class State:
             branch=_str_or_none(payload.get("branch")),
             active_attempt=active_attempt,
             attempts=attempts,
-            promotion=promotion,
             current_task=_str_or_none(payload.get("current_task")),
         )
 

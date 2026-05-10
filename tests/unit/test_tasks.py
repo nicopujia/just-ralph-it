@@ -22,7 +22,6 @@ from jri.core.tasks import (
     list_tasks,
     parse_task_file,
     select_next_task,
-    validate_draft_promotion,
     validate_state_payload,
     validate_task_metadata,
 )
@@ -122,19 +121,20 @@ def test_pi_extension_does_not_register_validator_approval_tool() -> None:
         "extension.ts", "interrogator/tools.ts", "ralph/tools.ts"
     )
 
-    assert 'registerPythonTool(\n    pi,\n    "approve-draft-promotion"' not in source
+    removed_tool = "approve" + "-draft" + "-promotion"
+    assert f'registerPythonTool(\n    pi,\n    "{removed_tool}"' not in source
 
 
-def test_pi_extension_launches_validator_runtime_with_approval_extension() -> None:
+def test_pi_extension_does_not_launch_interrogator_validator_runtime() -> None:
     source = read_agent_sources("extension.ts", "interrogator/tools.ts")
 
-    assert 'name: "interrogator-validator"' in source
-    assert 'resourcePath("extensions.validator", packageRoot)' in source
-    assert "approve-draft-promotion" in source
+    removed_agent = "interrogator" + "-validator"
+    removed_tool = "approve" + "-draft" + "-promotion"
+    assert f'name: "{removed_agent}"' not in source
+    assert 'resourcePath("extensions.validator", packageRoot)' not in source
+    assert removed_tool not in source
     assert 'process.env.JRI_CHAT_RUNTIME === "1"' in source
-    assert "SLUG_RE.test(slug)" in source
-    assert "delete childEnv.JRI_CHAT_RUNTIME" in source
-    assert "env: childEnv" in source
+    assert "JRI_INTERROGATOR_VALIDATOR_RUNTIME" not in source
 
 
 def test_pi_extension_launches_ralph_validator_runtime() -> None:
@@ -163,7 +163,8 @@ def test_pi_extension_splits_chat_and_ralph_tool_registration() -> None:
     assert 'process.env.JRI_CHAT_RUNTIME === "1"' in source
     assert 'registerPythonTool(\n    pi,\n    "read-readme"' in source
     assert 'registerPythonTool(\n    pi,\n    "edit-readme"' in source
-    assert 'registerPythonTool(\n    pi,\n    "edit-draft-task"' in source
+    assert 'registerPythonTool(\n    pi,\n    "edit-draft-task"' not in source
+    assert 'registerPythonTool(\n    pi,\n    "upsert-task"' in source
     assert "registerExplorer(pi)" in source
 
 
@@ -194,65 +195,11 @@ def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
     assert "process.kill(-child.pid" in source
 
 
-def test_validator_extension_registers_approval_tool_only() -> None:
-    source = (
-        files("jri.core.agents.bundle")
-        .joinpath("interrogator", "validator", "extension.ts")
-        .read_text("utf-8")
-    )
+def test_interrogator_validator_resources_are_not_in_manifest() -> None:
+    manifest = resource_manifest()
 
-    assert 'registerPythonTool(\n    pi,\n    "approve-draft-promotion"' in source
-    assert (
-        'runPythonTool("approve-draft-promotion", { slugs: requestedSlugs })' in source
-    )
-    assert "normalizedFinalAssistantText(event.messages)" in source
-    assert "text.match" in source
-    parent_source = (
-        files("jri.core.agents.bundle")
-        .joinpath("interrogator", "tools.ts")
-        .read_text("utf-8")
-    )
-    assert "INTERROGATOR_VALIDATOR_VISIBLE_OUTPUT_LIMIT = 12 * 1024" in parent_source
-    assert (
-        "INTERROGATOR_VALIDATOR_TRUNCATION_MARKER =\n"
-        "  `[interrogator-validator output truncated to "
-        "${INTERROGATOR_VALIDATOR_VISIBLE_OUTPUT_LIMIT} characters]`;" in parent_source
-    )
-    assert (
-        "function boundedInterrogatorValidatorOutput(output: string): string"
-        in parent_source
-    )
-    assert (
-        "if (output.length <= INTERROGATOR_VALIDATOR_VISIBLE_OUTPUT_LIMIT) {"
-        in parent_source
-    )
-    assert (
-        "const visibleOutputLimit =\n"
-        "    INTERROGATOR_VALIDATOR_VISIBLE_OUTPUT_LIMIT - "
-        "INTERROGATOR_VALIDATOR_TRUNCATION_MARKER.length;" in parent_source
-    )
-    assert (
-        "return `${output.slice(0, visibleOutputLimit)}"
-        "${INTERROGATOR_VALIDATOR_TRUNCATION_MARKER}`;" in parent_source
-    )
-    assert (
-        "return text(boundedInterrogatorValidatorOutput(`${output}\\n"
-        "${result.error}`.trim()));" in parent_source
-    )
-    assert (
-        "return text(\n          boundedInterrogatorValidatorOutput(stderr ? "
-        "`${output}\\n${stderr}`.trim() : output),\n        );" in parent_source
-    )
-    assert "return text(boundedInterrogatorValidatorOutput(output));" in parent_source
-    assert 'runPythonTool("approve-draft-promotion", { slugs })' in parent_source
-    assert "requireAgentEnd: true" not in parent_source
-    assert "validator approval is recorded automatically after APPROVED" in source
-    assert 'normalizedFinalAssistantText(output) === "APPROVED"' in parent_source
-    assert (
-        'event.toolName === "approve-draft-promotion" && !event.isError' not in source
-    )
-    assert "promote-tasks" not in source
-    assert "upsert-task" not in source
+    assert "extensions.validator" not in manifest
+    assert "prompts.interrogatorValidator" not in manifest
 
 
 def inspect_python_tool_spawn_env(
@@ -416,6 +363,18 @@ def test_validate_task_metadata_rejects_invalid_values() -> None:
             }
         )
 
+    with pytest.raises(ValueError, match="unexpected key"):
+        validate_task_metadata(
+            {
+                "title": "Bad task",
+                "priority": 1,
+                "assignee": "Ralph",
+                "depends_on": [],
+                "acceptance_criteria": [],
+                "status": "draft",
+            }
+        )
+
 
 def test_validate_state_payload_accepts_empty() -> None:
     validate_state_payload({})
@@ -435,20 +394,21 @@ def test_validate_state_payload_allows_runtime_process_metadata() -> None:
     )
 
 
-def test_validate_state_payload_allows_promotion_record() -> None:
-    validate_state_payload(
-        {
-            "started_at": 1234567890,
-            "promotion": {
-                "confirmed_at": 1,
-                "task_slugs": ["clarify-scope"],
-                "content_digests": {
-                    "clarify-scope": "a" * 64,
+def test_validate_state_payload_rejects_promotion_record() -> None:
+    with pytest.raises(ValueError, match="promotion"):
+        validate_state_payload(
+            {
+                "started_at": 1234567890,
+                "promotion": {
+                    "confirmed_at": 1,
+                    "task_slugs": ["clarify-scope"],
+                    "content_digests": {
+                        "clarify-scope": "a" * 64,
+                    },
+                    "target_status": "todo",
                 },
-                "target_status": "todo",
-            },
-        }
-    )
+            }
+        )
 
 
 def test_validate_state_payload_allows_attempt_result_payload() -> None:
@@ -472,14 +432,11 @@ def test_validate_state_payload_allows_attempt_result_payload() -> None:
     )
 
 
-def test_packaged_schemas_are_available() -> None:
-    assert files("jri.core.schemas").joinpath("task-metadata.json").is_file()
-    assert files("jri.core.schemas").joinpath("state.json").is_file()
+def test_non_schema_package_resources_are_available() -> None:
     scaffold = files("jri.core.template")
     assert scaffold.joinpath("learnings.md").is_file()
     builtins = files("jri.core.agents.bundle")
     assert builtins.joinpath("interrogator", "prompt.md").is_file()
-    assert builtins.joinpath("interrogator", "validator", "prompt.md").is_file()
     assert builtins.joinpath("explorer", "prompt.md").is_file()
     assert builtins.joinpath("ralph", "prompt.md").is_file()
     assert builtins.joinpath("ralph", "validator", "prompt.md").is_file()
@@ -492,7 +449,6 @@ def test_packaged_schemas_are_available() -> None:
     assert builtins.joinpath("manifest.json").is_file()
     assert builtins.joinpath("theme.json").is_file()
     assert builtins.joinpath("explorer", "tools.ts").is_file()
-    assert builtins.joinpath("interrogator", "validator", "extension.ts").is_file()
     assert builtins.joinpath("_shared", "subagents.ts").is_file()
     assert builtins.joinpath("ralph", "tools.ts").is_file()
     assert builtins.joinpath("ralph", "validator", "tools.ts").is_file()
@@ -504,11 +460,9 @@ def test_packaged_schemas_are_available() -> None:
 def test_agent_resource_manifest_resolves_current_package_resources() -> None:
     expected = {
         "extensions.default": "extension.ts",
-        "extensions.validator": "interrogator/validator/extension.ts",
         "prompts.ralph": "ralph/prompt.md",
         "prompts.interrogator": "interrogator/prompt.md",
         "prompts.ralphValidator": "ralph/validator/prompt.md",
-        "prompts.interrogatorValidator": "interrogator/validator/prompt.md",
         "prompts.explorer": "explorer/prompt.md",
         "tools.pythonRunner": "_shared/tools/runner.ts",
         "themes.modernYellow": "theme.json",
@@ -669,7 +623,7 @@ def test_run_python_tool_uses_forwarded_pythonpath(tmp_path: Path) -> None:
     )
 
 
-def test_upsert_task_tool_writes_parseable_draft_and_overwrites(
+def test_upsert_task_tool_writes_parseable_todo_and_refuses_overwrite(
     tmp_path: Path,
 ) -> None:
     repo = tmp_path / "repo"
@@ -679,7 +633,7 @@ def test_upsert_task_tool_writes_parseable_draft_and_overwrites(
         repo,
         {
             "title": "Clarify scope",
-            "body": "Draft the scope.\n",
+            "body": "Write the scope.\n",
             "assignee": "Ralph",
             "priority": 1,
             "depends_on": ["setup"],
@@ -688,8 +642,8 @@ def test_upsert_task_tool_writes_parseable_draft_and_overwrites(
         "upsert-task",
     )
 
-    assert created == "created draft task: .jri/tasks/draft/clarify-scope.md"
-    task_path = repo / ".jri" / "tasks" / "draft" / "clarify-scope.md"
+    assert created == "created todo task: .jri/tasks/todo/clarify-scope.md"
+    task_path = repo / ".jri" / "tasks" / "todo" / "clarify-scope.md"
     written = task_path.read_text(encoding="utf-8")
     assert written.startswith("---\ntitle: Clarify scope\n")
     assert "{\n" not in written
@@ -699,160 +653,23 @@ def test_upsert_task_tool_writes_parseable_draft_and_overwrites(
     assert created_task.metadata.title == "Clarify scope"
     assert created_task.metadata.depends_on == ["setup"]
     assert created_task.metadata.acceptance_criteria == ["Scope is approved"]
-    assert created_task.body == "Draft the scope.\n"
-
-    updated = run_agent_tool(
-        repo,
-        {
-            "title": "Clarify scope",
-            "slug": "clarify-scope",
-            "body": "Refined draft.\n",
-            "assignee": "Human",
-            "priority": 0,
-            "depends_on": [],
-            "acceptance_criteria": ["Scope is approved"],
-        },
-        "upsert-task",
-    )
-
-    assert updated == "updated draft task: .jri/tasks/draft/clarify-scope.md"
-    updated_task = parse_task_file(task_path)
-    assert updated_task.metadata.assignee == "Human"
-    assert updated_task.metadata.priority == 0
-    assert updated_task.metadata.acceptance_criteria == ["Scope is approved"]
-    assert updated_task.body == "Refined draft.\n"
-
-
-def test_edit_draft_task_tool_applies_exact_replacement(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / ".jri" / "tasks").mkdir(parents=True)
-    run_agent_tool(
-        repo,
-        {
-            "title": "Clarify scope",
-            "body": "Draft the scope.\n",
-            "assignee": "Ralph",
-            "priority": 1,
-            "acceptance_criteria": ["Scope is approved"],
-        },
-        "upsert-task",
-    )
-
-    output = run_agent_tool(
-        repo,
-        {
-            "slug": "clarify-scope",
-            "edits": [{"oldText": "Draft the scope.", "newText": "Refine the scope."}],
-        },
-        "edit-draft-task",
-    )
-
-    result = json.loads(output)
-    assert result["path"] == ".jri/tasks/draft/clarify-scope.md"
-    assert result["replacements"] == 1
-    assert "-Draft the scope." in result["diff"]
-    task = parse_task_file(repo / ".jri" / "tasks" / "draft" / "clarify-scope.md")
-    assert task.body == "Refine the scope.\n"
-
-
-def test_edit_draft_task_tool_reports_stale_conflict_without_changing_draft(
-    tmp_path: Path,
-) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / ".jri" / "tasks").mkdir(parents=True)
-    run_agent_tool(
-        repo,
-        {
-            "title": "Clarify scope",
-            "body": "Current draft scope.\n",
-            "assignee": "Ralph",
-            "priority": 1,
-            "acceptance_criteria": ["Scope is approved"],
-        },
-        "upsert-task",
-    )
-    task_path = repo / ".jri" / "tasks" / "draft" / "clarify-scope.md"
-    original = task_path.read_text(encoding="utf-8")
+    assert created_task.body == "Write the scope.\n"
 
     with pytest.raises(subprocess.CalledProcessError) as exc_info:
         run_agent_tool(
             repo,
             {
+                "title": "Clarify scope",
                 "slug": "clarify-scope",
-                "edits": [
-                    {"oldText": "Outdated draft scope.", "newText": "Refined scope."}
-                ],
+                "body": "Refined scope.\n",
+                "assignee": "Human",
+                "priority": 0,
+                "acceptance_criteria": ["Scope is approved"],
             },
-            "edit-draft-task",
+            "upsert-task",
         )
-
-    assert "draft edit conflict" in exc_info.value.stderr
-    assert "re-read the draft task" in exc_info.value.stderr
-    assert task_path.read_text(encoding="utf-8") == original
-    assert parse_task_file(task_path).body == "Current draft scope.\n"
-
-
-def test_edit_draft_task_tool_rejects_invalid_frontmatter_without_changing_draft(
-    tmp_path: Path,
-) -> None:
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    (repo / ".jri" / "tasks").mkdir(parents=True)
-    run_agent_tool(
-        repo,
-        {
-            "title": "Clarify scope",
-            "body": "Draft the scope.\n",
-            "assignee": "Ralph",
-            "priority": 1,
-            "acceptance_criteria": ["Scope is approved"],
-        },
-        "upsert-task",
-    )
-    task_path = repo / ".jri" / "tasks" / "draft" / "clarify-scope.md"
-    original = task_path.read_text(encoding="utf-8")
-
-    with pytest.raises(subprocess.CalledProcessError) as exc_info:
-        run_agent_tool(
-            repo,
-            {
-                "slug": "clarify-scope",
-                "edits": [{"oldText": "assignee: Ralph", "newText": "assignee: ["}],
-            },
-            "edit-draft-task",
-        )
-
-    assert "draft edit rejected" in exc_info.value.stderr
-    assert "updated task would be invalid" in exc_info.value.stderr
-    assert "draft unchanged" in exc_info.value.stderr
-    assert task_path.read_text(encoding="utf-8") == original
-    assert parse_task_file(task_path).metadata.assignee == "Ralph"
-
-
-def test_edit_draft_task_tool_rejects_promoted_task(tmp_path: Path) -> None:
-    repo = tmp_path / "repo"
-    (repo / ".jri" / "tasks" / "todo").mkdir(parents=True)
-    write_task(
-        repo,
-        status="todo",
-        slug="clarify-scope",
-        title="Clarify scope",
-        priority=1,
-        assignee="Ralph",
-        body="body",
-    )
-
-    with pytest.raises(subprocess.CalledProcessError):
-        run_agent_tool(
-            repo,
-            {
-                "slug": "clarify-scope",
-                "edits": [{"oldText": "body", "newText": "updated"}],
-            },
-            "edit-draft-task",
-        )
+    assert "refusing to overwrite symlinked todo task" not in exc_info.value.stderr
+    assert "refusing to overwrite existing todo task" in exc_info.value.stderr
 
 
 def test_readme_tools_read_and_apply_exact_replacement(tmp_path: Path) -> None:
@@ -946,8 +763,8 @@ def test_run_upsert_task_accepts_75_char_titles(
         }
     )
 
-    assert result == f"created draft task: .jri/tasks/draft/{title}.md"
-    task = parse_task_file(repo / ".jri" / "tasks" / "draft" / f"{title}.md")
+    assert result == f"created todo task: .jri/tasks/todo/{title}.md"
+    task = parse_task_file(repo / ".jri" / "tasks" / "todo" / f"{title}.md")
     assert task.metadata.title == title
 
 
@@ -979,27 +796,31 @@ def test_promote_task_tool_rejects_non_slug_entries(tmp_path: Path) -> None:
         )
 
 
-def test_approve_draft_promotion_tool_records_approval(tmp_path: Path) -> None:
+def test_removed_draft_task_tools_are_not_registered(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+
+    for tool_name in ("edit-draft-task", "rename-task", "delete-task"):
+        with pytest.raises(
+            subprocess.CalledProcessError,
+            match="returned non-zero exit status",
+        ):
+            run_agent_tool(repo, {"slug": "clarify-scope"}, tool_name)
+
+
+def test_removed_validator_approval_tool_is_not_available(tmp_path: Path) -> None:
     repo = make_git_repo(tmp_path)
     assert run_cli(["init"], cwd=repo) == 0
-    write_task(
-        repo,
-        status="draft",
-        slug="clarify-scope",
-        title="Clarify scope",
-        priority=1,
-        assignee="Ralph",
-        body="Clarify the scope.\n",
-        acceptance_criteria=["Scope is approved"],
-    )
 
-    output = run_agent_tool(
-        repo,
-        {"slugs": ["clarify-scope"]},
-        "approve-draft-promotion",
-    )
-
-    assert output == "Approved promotion for 1 draft task(s).\n  - clarify-scope"
+    with pytest.raises(
+        subprocess.CalledProcessError,
+        match="returned non-zero exit status",
+    ):
+        run_agent_tool(
+            repo,
+            {"slugs": ["clarify-scope"]},
+            "approve" + "-draft" + "-promotion",
+        )
 
 
 def test_contrast_check_matches_webaim_thresholds() -> None:
@@ -1075,7 +896,7 @@ def test_read_tasks_tool_reads_requested_slugs(tmp_path: Path) -> None:
     assert run_cli(["init"], cwd=repo) == 0
     write_task(
         repo,
-        status="draft",
+        status="todo",
         slug="clarify-scope",
         title="Clarify scope",
         priority=1,
@@ -1110,10 +931,10 @@ def test_read_tasks_tool_reads_requested_slugs(tmp_path: Path) -> None:
     )
 
     assert [task["slug"] for task in single] == ["clarify-scope"]
-    assert single[0]["status"] == "draft"
+    assert single[0]["status"] == "todo"
     assert single[0]["acceptance_criteria"] == ["Scope is approved"]
     assert [task["slug"] for task in multiple] == ["ship-ui", "clarify-scope"]
-    assert [task["status"] for task in multiple] == ["todo", "draft"]
+    assert [task["status"] for task in multiple] == ["todo", "todo"]
 
 
 def test_read_tasks_tool_rejects_missing_or_invalid_inputs(tmp_path: Path) -> None:
@@ -1142,7 +963,7 @@ def test_list_tasks_tool_lists_and_filters_by_status(tmp_path: Path) -> None:
     assert run_cli(["init"], cwd=repo) == 0
     write_task(
         repo,
-        status="draft",
+        status="todo",
         slug="clarify-scope",
         title="Clarify scope",
         priority=1,
@@ -1171,7 +992,7 @@ def test_list_tasks_tool_lists_and_filters_by_status(tmp_path: Path) -> None:
     )
 
     assert [task["slug"] for task in all_tasks] == ["clarify-scope", "setup"]
-    assert [task["status"] for task in all_tasks] == ["draft", "done"]
+    assert [task["status"] for task in all_tasks] == ["todo", "done"]
     assert done_tasks == [
         {
             "status": "done",
@@ -1202,12 +1023,12 @@ def test_list_tasks_tool_rejects_invalid_status(tmp_path: Path) -> None:
         )
 
 
-def test_upsert_task_tool_rejects_symlinked_draft_dir(tmp_path: Path) -> None:
+def test_upsert_task_tool_rejects_symlinked_todo_dir(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     outside = tmp_path / "outside"
     outside.mkdir()
     (repo / ".jri" / "tasks").mkdir(parents=True)
-    (repo / ".jri" / "tasks" / "draft").symlink_to(outside, target_is_directory=True)
+    (repo / ".jri" / "tasks" / "todo").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(
         subprocess.CalledProcessError,
@@ -1259,13 +1080,13 @@ def test_upsert_task_tool_rejects_symlinked_parent_dir(
     assert list(outside.iterdir()) == []
 
 
-def test_upsert_task_tool_rejects_symlinked_draft_file(tmp_path: Path) -> None:
+def test_upsert_task_tool_rejects_symlinked_todo_file(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     outside = tmp_path / "outside.md"
     outside.write_text("outside\n", encoding="utf-8")
-    draft_dir = repo / ".jri" / "tasks" / "draft"
-    draft_dir.mkdir(parents=True)
-    (draft_dir / "clarify-scope.md").symlink_to(outside)
+    todo_dir = repo / ".jri" / "tasks" / "todo"
+    todo_dir.mkdir(parents=True)
+    (todo_dir / "clarify-scope.md").symlink_to(outside)
 
     with pytest.raises(
         subprocess.CalledProcessError,
@@ -1424,197 +1245,45 @@ def test_parse_task_file_round_trips_dump_task_output(tmp_path: Path) -> None:
     assert parsed == task
 
 
-def test_list_tasks_allows_in_place_edits_for_draft_tasks(git_repo: Path) -> None:
+def test_list_tasks_rejects_in_place_edits_for_todo_tasks(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
-        status="draft",
+        status="todo",
         slug="clarify-scope",
         title="Clarify scope",
         priority=1,
         assignee="Ralph",
         body="Initial draft body.\n",
+        acceptance_criteria=["Scope is clear"],
     )
-    git(git_repo, "add", ".jri/tasks/draft/clarify-scope.md")
-    git(git_repo, "commit", "-m", "add draft task")
+    git(git_repo, "add", ".jri/tasks/todo/clarify-scope.md")
+    git(git_repo, "commit", "-m", "add todo task")
 
-    draft_path = git_repo / ".jri" / "tasks" / "draft" / "clarify-scope.md"
-    draft_path.write_text(
-        draft_path.read_text(encoding="utf-8") + "\nStill being clarified.\n",
+    todo_path = git_repo / ".jri" / "tasks" / "todo" / "clarify-scope.md"
+    todo_path.write_text(
+        todo_path.read_text(encoding="utf-8") + "\nMutated in place.\n",
         encoding="utf-8",
     )
 
-    tasks = list_tasks(draft_path.parent, git_repo=GitRepo(git_repo))
-
-    assert [task.slug for task in tasks] == ["clarify-scope"]
-    assert tasks[0].body.endswith("Still being clarified.\n")
+    with pytest.raises(ValueError, match="modified in place"):
+        list_tasks(todo_path.parent, git_repo=GitRepo(git_repo))
 
 
-def test_validate_draft_promotion_rejects_missing_acceptance_criteria() -> None:
-    with pytest.raises(ValueError, match="acceptance_criteria"):
-        validate_draft_promotion(
-            [make_task("clarify-scope")],
-            all_draft_slugs={"clarify-scope"},
-            promoted_slugs=set(),
-        )
-
-
-def test_validate_draft_promotion_rejects_dependency_on_unpromoted_draft() -> None:
-    with pytest.raises(ValueError, match="outside the promotion batch"):
-        validate_draft_promotion(
-            [
-                make_task(
-                    "build-ui",
-                    depends_on=["clarify-scope"],
-                    acceptance_criteria=["UI exists"],
-                )
-            ],
-            all_draft_slugs={"clarify-scope", "build-ui"},
-            promoted_slugs=set(),
-        )
-
-
-def test_validate_draft_promotion_allows_batch_internal_dependencies() -> None:
-    validate_draft_promotion(
-        [
-            make_task("clarify-scope", acceptance_criteria=["scope is clear"]),
-            make_task(
-                "build-ui",
-                depends_on=["clarify-scope"],
-                acceptance_criteria=["UI exists"],
-            ),
-        ],
-        all_draft_slugs={"clarify-scope", "build-ui"},
-        promoted_slugs=set(),
+def test_parse_task_file_rejects_draft_status_frontmatter(tmp_path: Path) -> None:
+    task_path = tmp_path / "draft-task.md"
+    task_path.write_text(
+        "---\n"
+        "title: Clarify scope\n"
+        "priority: 1\n"
+        "assignee: Ralph\n"
+        "status: draft\n"
+        "acceptance_criteria:\n"
+        "  - Scope is clear\n"
+        "---\n\n"
+        "Clarify the scope.\n",
+        encoding="utf-8",
     )
 
-
-def test_validate_draft_promotion_rejects_unknown_dependencies() -> None:
-    with pytest.raises(ValueError, match="unknown dependency"):
-        validate_draft_promotion(
-            [
-                make_task(
-                    "build-ui",
-                    depends_on=["missing-task"],
-                    acceptance_criteria=["UI exists"],
-                )
-            ],
-            all_draft_slugs={"build-ui"},
-            promoted_slugs=set(),
-        )
-
-
-def test_validate_draft_promotion_allows_acyclic_graph() -> None:
-    validate_draft_promotion(
-        [
-            make_task("setup", acceptance_criteria=["setup done"]),
-            make_task(
-                "build-ui",
-                depends_on=["setup"],
-                acceptance_criteria=["UI exists"],
-            ),
-            make_task(
-                "build-api",
-                depends_on=["setup"],
-                acceptance_criteria=["API exists"],
-            ),
-            make_task(
-                "integrate",
-                depends_on=["build-ui", "build-api"],
-                acceptance_criteria=["integrated"],
-            ),
-        ],
-        all_draft_slugs={"setup", "build-ui", "build-api", "integrate"},
-        promoted_slugs=set(),
-    )
-
-
-def test_validate_draft_promotion_rejects_direct_cycle() -> None:
-    with pytest.raises(ValueError, match="cyclic dependency"):
-        validate_draft_promotion(
-            [
-                make_task(
-                    "alpha",
-                    depends_on=["beta"],
-                    acceptance_criteria=["alpha done"],
-                ),
-                make_task(
-                    "beta",
-                    depends_on=["alpha"],
-                    acceptance_criteria=["beta done"],
-                ),
-            ],
-            all_draft_slugs={"alpha", "beta"},
-            promoted_slugs=set(),
-        )
-
-
-def test_validate_draft_promotion_rejects_transitive_cycle() -> None:
-    with pytest.raises(ValueError, match="cyclic dependency"):
-        validate_draft_promotion(
-            [
-                make_task(
-                    "alpha",
-                    depends_on=["gamma"],
-                    acceptance_criteria=["alpha done"],
-                ),
-                make_task(
-                    "beta",
-                    depends_on=["alpha"],
-                    acceptance_criteria=["beta done"],
-                ),
-                make_task(
-                    "gamma",
-                    depends_on=["beta"],
-                    acceptance_criteria=["gamma done"],
-                ),
-            ],
-            all_draft_slugs={"alpha", "beta", "gamma"},
-            promoted_slugs=set(),
-        )
-
-
-def test_validate_draft_promotion_rejects_cycle_spanning_promoted_tasks() -> None:
-    with pytest.raises(ValueError, match="cyclic dependency"):
-        validate_draft_promotion(
-            [
-                make_task(
-                    "new-task",
-                    depends_on=["existing-a"],
-                    acceptance_criteria=["new done"],
-                ),
-            ],
-            all_draft_slugs={"new-task"},
-            promoted_slugs={"existing-a"},
-            promoted_deps={"existing-a": ["new-task"]},
-        )
-
-
-def test_validate_draft_promotion_allows_new_task_depending_on_promoted() -> None:
-    validate_draft_promotion(
-        [
-            make_task(
-                "new-task",
-                depends_on=["existing-a"],
-                acceptance_criteria=["new done"],
-            ),
-        ],
-        all_draft_slugs={"new-task"},
-        promoted_slugs={"existing-a"},
-        promoted_deps={"existing-a": []},
-    )
-
-
-def test_validate_draft_promotion_rejects_self_dependency() -> None:
-    with pytest.raises(ValueError, match="cyclic dependency"):
-        validate_draft_promotion(
-            [
-                make_task(
-                    "recursive",
-                    depends_on=["recursive"],
-                    acceptance_criteria=["done"],
-                ),
-            ],
-            all_draft_slugs={"recursive"},
-            promoted_slugs=set(),
-        )
+    with pytest.raises(ValueError, match="unexpected key.*status"):
+        parse_task_file(task_path)
