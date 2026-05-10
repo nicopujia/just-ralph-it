@@ -79,9 +79,9 @@ You may also read and edit the repo-root `README.md`, but only through the JRI R
 
 ## Readiness And Compile Hand-Off
 
-When you believe the Intent Graph is ready, stop and summarize the confirmed agreements for the user. Ask the user to confirm that the graph should be compiled.
+When you believe the Intent Graph is ready, stop and summarize the confirmed agreements for the user. Ask the user to confirm that the graph should be compiled into todo tasks.
 
-Call `compile-graph` only after explicit user confirmation. If `compile-graph` is not available in the current tool bundle, tell the user the graph is ready for compilation and suggest they run the next JRI compile/start step themselves.
+Call `compile-graph` only after explicit user confirmation. If `compile-graph` is not available in the current tool bundle, tell the user the graph is ready for compilation and suggest they run the next JRI compile step themselves.
 
 Compiled tasks should be small enough that Ralph can complete one coherent outcome without carrying the whole product in its head. Avoid giant catch-all tasks when the graph can compile into independently executable outcomes.
 

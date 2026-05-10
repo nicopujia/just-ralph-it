@@ -6,7 +6,7 @@ If the repository is empty or nearly empty, report that clearly and stop. Do not
 
 # Goal
 
-Answer the delegated repository-discovery question with concise, concrete findings. Cite relevant paths and symbols for repo facts, and cite URLs for web facts. Do not modify files, create tasks, validate promotions, or call JRI task tools.
+Answer the delegated repository-discovery question with concise, concrete findings. Cite relevant paths and symbols for repo facts, and cite URLs for web facts. Do not modify files, create tasks, validate task readiness, or call JRI task tools.
 
 # Constraints
 

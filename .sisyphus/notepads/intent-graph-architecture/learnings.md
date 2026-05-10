@@ -75,3 +75,7 @@
 - `jri init` creates `.jri/graph/` as an empty runtime directory without a root `NODE.md`; Git will not preserve that empty directory in commits, so scaffold must create it locally.
 - Keep `.jri/graph/` root empty on init because the graph checker only tolerates root node directories and `MANIFEST.json`.
 - `jri status` can rely on `check_graph_tree` for empty or missing graph roots; it reports `Graph: 0 active, 0 archived` without extra compatibility logic.
+
+## 2026-05-10 Task: update-docs-prompts-agent-architecture-text
+- Public architecture docs should describe the current flow as `User <-> Interrogator <-> Intent Graph --compile_graph--> Tasks -> Ralph`, with `compile-graph` as the Interrogator tool name.
+- Compile success commits graph changes and emitted todo tasks together without starting Ralph or creating a tag; compile failure leaves no commit and no emitted tasks.

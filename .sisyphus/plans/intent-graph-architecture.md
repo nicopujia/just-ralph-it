@@ -480,7 +480,7 @@ Wave 4: Final verification wave F1-F4.
 
   **Commit**: YES | Message: `feat(init): scaffold intent graph` | Files: [`src/jri/core/service.py`, `src/jri/cli/main.py`, `tests/integration/test_init.py`, `tests/integration/test_status.py`]
 
-- [ ] 10. Update docs, prompts, and agent architecture text
+- [x] 10. Update docs, prompts, and agent architecture text
 
   **What to do**: Update concise docs and prompt/tool descriptions to the new architecture. `docs/arch.md` should describe `User <-> Interrogator <-> Intent Graph --compile_graph--> Tasks -> Ralph`, topic-tree graph, Graph Checker, Intent Compiler, no drafts, `todo -> doing -> done`, compile success/failure commit behavior, and Ralph separate execution. Fix stale prompt links to current bundle paths. Update Interrogator prompt to use graph tools and to confirm with user before `compile_graph`. Update Ralph prompt only if it references drafts/promotion. Do not write tests for docs/prompts.
   **Must NOT do**: Do not over-document CLI help in Markdown if `docs/contrib.md` says CLI docs belong in help text. Do not add tests for docs/prompts.
