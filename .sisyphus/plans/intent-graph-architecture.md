@@ -401,7 +401,7 @@ Wave 4: Final verification wave F1-F4.
 
   **Commit**: YES | Message: `feat(tasks): add transactional task writer` | Files: [`src/jri/core/tasks.py`, `src/jri/core/models.py`, `tests/unit/test_task_batch_writer.py`]
 
-- [ ] 8. Implement compile_graph orchestration and LLM compiler guardrails
+- [x] 8. Implement compile_graph orchestration and LLM compiler guardrails
 
   **What to do**: TDD `compile_graph` tool/service. It runs Graph Checker, builds graph diff/context bundle from uncommitted graph changes, invokes LLM Intent Compiler, lets compiler read graph/tasks and code on demand through read-only tools, validates returned task batch, writes tasks transactionally, then commits graph changes and tasks together. On compiler ambiguity or validation failure, return `{exit_code: "fail", errors:[...]}` and leave graph edits uncommitted with no task writes. On commit failure, rollback emitted tasks and return failure. Return success shape with task slugs and commit hash. Do not tag. Do not start Ralph.
   **Must NOT do**: Do not let compiler edit graph/code. Do not persist compile failure reports. Do not create partial tasks. Do not ask user directly.
