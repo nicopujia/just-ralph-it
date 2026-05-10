@@ -88,18 +88,5 @@ export function registerChatTools(pi: ExtensionAPI) {
     "Edit only the repo-root README.md using exact oldText/newText replacements.",
     Type.Object({ edits: Type.Array(ExactEdit) }),
   );
-  registerPythonTool(
-    pi,
-    "upsert-task",
-    "Create or update one todo task.",
-    Type.Object({
-      title: Type.String(),
-      body: Type.String(),
-      assignee: Type.Union([Type.Literal("Ralph"), Type.Literal("Human")]),
-      priority: Type.Number(),
-      depends_on: Type.Optional(Type.Array(Type.String())),
-      acceptance_criteria: Type.Array(Type.String()),
-    }),
-  );
   registerExplorer(pi);
 }

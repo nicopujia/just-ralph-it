@@ -425,7 +425,7 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
                 "create-node,read-node,apply-graph-patch,"
                 "update-node-metadata,move-node,compile-graph,"
                 "list-tasks,read-tasks,read-readme,edit-readme,"
-                "upsert-task,explore"
+                "explore"
             ),
         ]
     ]

@@ -104,7 +104,6 @@ def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
     source = read_agent_sources(
         "extension.ts",
         "_shared/commits.ts",
-        "interrogator/tools.ts",
         "ralph/tools.ts",
     )
 
@@ -112,7 +111,6 @@ def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
     assert 'event.toolName !== "bash"' in source
     assert 'RESERVED_PREFIX = "jri:"' in source
     assert "block: true" in source
-    assert 'registerPythonTool(\n    pi,\n    "upsert-task"' in source
     assert 'registerPythonTool(\n    pi,\n    "ralph-result"' in source
 
 
@@ -164,7 +162,9 @@ def test_pi_extension_splits_chat_and_ralph_tool_registration() -> None:
     assert 'registerPythonTool(\n    pi,\n    "read-readme"' in source
     assert 'registerPythonTool(\n    pi,\n    "edit-readme"' in source
     assert 'registerPythonTool(\n    pi,\n    "edit-draft-task"' not in source
-    assert 'registerPythonTool(\n    pi,\n    "upsert-task"' in source
+    assert 'registerPythonTool(\n    pi,\n    "upsert-task"' not in read_agent_sources(
+        "interrogator/tools.ts"
+    )
     assert "registerExplorer(pi)" in source
 
 

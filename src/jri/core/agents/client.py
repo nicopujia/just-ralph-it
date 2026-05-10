@@ -415,7 +415,6 @@ def launch_chat(
                         "read-tasks",
                         "read-readme",
                         "edit-readme",
-                        "upsert-task",
                         "explore",
                     ]
                 ),

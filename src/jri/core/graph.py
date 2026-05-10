@@ -1,4 +1,6 @@
 import os
+import shutil
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import cast
@@ -145,9 +147,13 @@ class GraphStore:
         if destination_node_path.exists() or destination_dir.exists():
             raise ValueError(f"graph node `{destination_path}` already exists")
 
-        self._create_missing_parent_nodes(destination_path)
-        destination_dir.parent.mkdir(parents=True, exist_ok=True)
-        source_dir.replace(destination_dir)
+        created_parent_paths = self._create_missing_parent_nodes(destination_path)
+        try:
+            destination_dir.parent.mkdir(parents=True, exist_ok=True)
+            source_dir.replace(destination_dir)
+        except Exception:
+            self._remove_created_parent_nodes(created_parent_paths)
+            raise
         return self.read_existing_node(destination_path)
 
     def read_existing_node(self, path: str) -> GraphNode:
@@ -157,8 +163,9 @@ class GraphStore:
             raise FileNotFoundError(f"graph node `{canonical_path}` not found")
         return parse_graph_node_file(self.root, canonical_path)
 
-    def _create_missing_parent_nodes(self, semantic_path: str) -> None:
+    def _create_missing_parent_nodes(self, semantic_path: str) -> tuple[str, ...]:
         parts = validate_graph_path(semantic_path).split("/")[:-1]
+        created: list[str] = []
         for index in range(1, len(parts) + 1):
             parent_path = "/".join(parts[:index])
             node_path = graph_node_path(self.root, parent_path)
@@ -174,6 +181,15 @@ class GraphStore:
                 body="",
             )
             self.write_node(node)
+            created.append(parent_path)
+        return tuple(created)
+
+    def _remove_created_parent_nodes(self, semantic_paths: tuple[str, ...]) -> None:
+        for semantic_path in reversed(semantic_paths):
+            node_path = graph_node_path(self.root, semantic_path)
+            parent_dir = node_path.parent
+            if parent_dir.exists():
+                shutil.rmtree(parent_dir)
 
     def _child_summaries(self, parent_path: str, depth: int) -> list[GraphChildSummary]:
         if depth == 0:
@@ -207,12 +223,19 @@ class GraphStore:
     def write_node(self, node: GraphNode) -> None:
         node.path.parent.mkdir(parents=True, exist_ok=True)
         text = dump_graph_node(node)
-        temp_path = node.path.with_name(f".{node.path.name}.tmp")
-        with temp_path.open("w", encoding="utf-8") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_path, node.path)
+        descriptor, temp_name = tempfile.mkstemp(
+            prefix=f".{node.path.name}.", suffix=".tmp", dir=node.path.parent
+        )
+        temp_path = Path(temp_name)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                handle.write(text)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temp_path, node.path)
+        except Exception:
+            temp_path.unlink(missing_ok=True)
+            raise
         _fsync_directory(node.path.parent)
 
 
@@ -231,19 +254,26 @@ def apply_graph_patch(store: GraphStore, patch_text: str) -> GraphPatchSummary:
         raise ValueError("graph patch is a no-op")
 
     summaries: list[GraphPatchNodeSummary] = []
-    for node, next_body, additions, deletions in planned:
-        updated = GraphNode(
-            path=node.path,
-            semantic_path=node.semantic_path,
-            metadata=node.metadata,
-            body=next_body,
-        )
-        store.write_node(updated)
-        summaries.append(
-            GraphPatchNodeSummary(
-                path=node.semantic_path, additions=additions, deletions=deletions
+    written_originals: list[GraphNode] = []
+    try:
+        for node, next_body, additions, deletions in planned:
+            updated = GraphNode(
+                path=node.path,
+                semantic_path=node.semantic_path,
+                metadata=node.metadata,
+                body=next_body,
             )
-        )
+            store.write_node(updated)
+            written_originals.append(node)
+            summaries.append(
+                GraphPatchNodeSummary(
+                    path=node.semantic_path, additions=additions, deletions=deletions
+                )
+            )
+    except Exception:
+        for original in reversed(written_originals):
+            store.write_node(original)
+        raise
 
     return GraphPatchSummary(nodes=tuple(summaries))
 

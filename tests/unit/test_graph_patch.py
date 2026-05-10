@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from jri.core.graph import GraphStore, apply_graph_patch
+from jri.core.models import GraphNode
 
 
 def test_apply_graph_patch_updates_single_node_body(tmp_path: Path) -> None:
@@ -225,6 +226,40 @@ def test_apply_graph_patch_failure_leaves_all_nodes_unchanged(tmp_path: Path) ->
 *** Update Node: auth/session
 @@
 -Missing session
++New session
+*** End Graph Patch""",
+        )
+
+    assert store.read_node("auth/oauth").body == "Old OAuth\n"
+    assert store.read_node("auth/session").body == "Old session\n"
+
+
+def test_apply_graph_patch_write_failure_restores_earlier_nodes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = GraphStore(tmp_path)
+    store.create_node("auth/oauth", "OAuth", "Old OAuth\n")
+    store.create_node("auth/session", "Session", "Old session\n")
+    original_write_node = store.write_node
+
+    def fail_on_session_write(node: GraphNode) -> None:
+        if node.semantic_path == "auth/session" and node.body == "New session\n":
+            raise OSError("forced later write failure")
+        original_write_node(node)
+
+    monkeypatch.setattr(store, "write_node", fail_on_session_write)
+
+    with pytest.raises(OSError, match="forced later write failure"):
+        apply_graph_patch(
+            store,
+            """*** Begin Graph Patch
+*** Update Node: auth/oauth
+@@
+-Old OAuth
++New OAuth
+*** Update Node: auth/session
+@@
+-Old session
 +New session
 *** End Graph Patch""",
         )

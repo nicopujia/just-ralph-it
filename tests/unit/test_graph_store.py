@@ -126,6 +126,21 @@ def test_update_node_metadata_rejects_invalid(
     )
 
 
+def test_write_node_ignores_preexisting_temp_symlink(tmp_path: Path) -> None:
+    store = GraphStore(tmp_path)
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside\n", encoding="utf-8")
+    node_dir = tmp_path / ".jri" / "graph" / "product"
+    node_dir.mkdir(parents=True)
+    (node_dir / ".NODE.md.tmp").symlink_to(outside)
+
+    store.create_node("product", "Product", "Body\n")
+
+    assert outside.read_text(encoding="utf-8") == "outside\n"
+    assert store.read_node("product").body == "Body\n"
+    assert (node_dir / ".NODE.md.tmp").is_symlink()
+
+
 def test_move_node_moves_subtree(
     tmp_path: Path,
 ) -> None:
@@ -142,6 +157,29 @@ def test_move_node_moves_subtree(
     assert store.read_node("platform/shop/checkout/payment").body == "Payment body\n"
     with pytest.raises(FileNotFoundError, match="not found"):
         store.read_node("product/checkout")
+
+
+def test_move_node_failure_removes_auto_created_destination_parents(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = GraphStore(tmp_path)
+    store.create_node("product/checkout", "Checkout", "Checkout body\n")
+    original_replace = Path.replace
+
+    def fail_move(path: Path, target: Path) -> Path:
+        if path == tmp_path / ".jri" / "graph" / "product" / "checkout":
+            raise OSError("forced move failure")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", fail_move)
+
+    with pytest.raises(OSError, match="forced move failure"):
+        store.move_node("product/checkout", "platform/shop/checkout")
+
+    assert store.read_node("product/checkout").body == "Checkout body\n"
+    with pytest.raises(FileNotFoundError, match="not found"):
+        store.read_node("platform")
+    assert not (tmp_path / ".jri" / "graph" / "platform").exists()
 
 
 @pytest.mark.parametrize(

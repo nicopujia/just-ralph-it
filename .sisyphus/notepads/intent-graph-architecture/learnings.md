@@ -89,3 +89,8 @@
 - Schema validation coverage now exercises valid `todo`, `doing`, and `done` task directories instead of accepting `.jri/tasks/draft` compatibility.
 - Self-hosting proof terminology now describes compiling intent into executable todo tasks, not draft-to-todo promotion.
 - Private append-only task terminology was renamed from promoted-task wording to lifecycle/tracked wording; remaining stale-search hits are intentional removal tests, invalid draft-state rejection tests, init no-draft scaffolding coverage, or the compiler `draft_question` field.
+
+## 2026-05-09 Task: final-verification-reject-fixes
+- Interrogator direct todo creation exposure is removed from both the TypeScript chat tool registration and the managed `jri chat` Pi tool allowlist; task-writing handlers remain only on the shared dispatch surface for non-Interrogator coverage.
+- Graph node persistence now uses exclusive per-write temp files in the target node directory, so a pre-existing `.NODE.md.tmp` symlink is not followed or overwritten.
+- Multi-node graph patches roll back previously written nodes if a later write fails, and move failures clean up newly auto-created destination parent nodes while preserving the source subtree.
