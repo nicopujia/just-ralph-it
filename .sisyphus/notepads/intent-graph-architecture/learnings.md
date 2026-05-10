@@ -55,3 +55,8 @@
 - Graph structural checks live in `src/jri/core/graph.py` as `check_graph_tree`/`validate_graph_tree`, returning deterministic sorted errors plus active/archived counts.
 - `jri status` reports graph counts without failing the command, while repository schema validation treats graph checker errors as validation failures.
 - Root `.jri/graph/` may be missing or empty; `MANIFEST.json` is the only tolerated root file besides node directories.
+
+## 2026-05-10 Task: expose-graph-tools-to-interrogator
+- Interrogator graph tools are shared Python handlers under `src/jri/core/agents/bundle/_shared/tools/graph.py`, registered with hyphenated Pi tool names that match existing bundle conventions.
+- Agent graph tool outputs intentionally expose only semantic paths and lean JSON summaries: create parents, read metadata/body/children, patch changed nodes, metadata update payload, and move subtree count.
+- The Interrogator prompt now treats the Intent Graph as whiteboard memory and requires explicit user confirmation before `compile_graph`.

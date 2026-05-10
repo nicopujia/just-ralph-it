@@ -168,6 +168,22 @@ def test_pi_extension_splits_chat_and_ralph_tool_registration() -> None:
     assert "registerExplorer(pi)" in source
 
 
+def test_interrogator_registers_intent_graph_tools() -> None:
+    source = read_agent_sources("interrogator/tools.ts")
+
+    for tool_name in (
+        "create-node",
+        "read-node",
+        "apply-graph-patch",
+        "update-node-metadata",
+        "move-node",
+    ):
+        assert f'registerPythonTool(\n    pi,\n    "{tool_name}"' in source
+
+    assert "semantic Intent Graph path" in source
+    assert "NODE.md" not in source
+
+
 def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
     source = read_agent_sources("extension.ts", "explorer/tools.ts")
 

@@ -324,7 +324,7 @@ Wave 4: Final verification wave F1-F4.
 
   **Commit**: YES | Message: `feat(graph): add graph checker` | Files: [`src/jri/core/graph.py`, `src/jri/checks/schema.py`, `src/jri/cli/main.py`, `tests/unit/test_graph_checker.py`, `tests/integration/test_status.py`]
 
-- [ ] 6. Expose graph tools to Interrogator agent bundle
+- [x] 6. Expose graph tools to Interrogator agent bundle
 
   **What to do**: TDD and implement Interrogator tools for `create_node`, `read_node`, `apply_graph_patch`, `update_node_metadata`, and `move_node` in the existing agent bundle/tool registration system. Tool inputs use semantic paths. Tool outputs are lean: create returns path and auto-created parent paths; read returns metadata/body/child summaries; patch returns changed nodes; metadata returns updated metadata; move returns old/new path and moved subtree count. Update Interrogator prompt to use graph notes as whiteboard memory and to call `compile_graph` only after user confirmation.
   **Must NOT do**: Do not expose raw filesystem paths. Do not let tools edit code/tasks directly. Do not write tests for prompts.

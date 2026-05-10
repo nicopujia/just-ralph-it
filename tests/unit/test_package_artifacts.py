@@ -23,6 +23,7 @@ REQUIRED_AGENT_RESOURCES = {
     "src/jri/core/agents/bundle/_shared/tools/__init__.py",
     "src/jri/core/agents/bundle/_shared/tools/__main__.py",
     "src/jri/core/agents/bundle/_shared/tools/colors.py",
+    "src/jri/core/agents/bundle/_shared/tools/graph.py",
     "src/jri/core/agents/bundle/_shared/tools/readme.py",
     "src/jri/core/agents/bundle/_shared/tools/_registry.py",
     "src/jri/core/agents/bundle/_shared/tools/tasks.py",

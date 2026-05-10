@@ -21,12 +21,17 @@ def invoke_tool(
 
 def test_tools_package_exports_only_public_handlers() -> None:
     assert tools.__all__ == [
+        "run_apply_graph_patch",
         "run_contrast_check",
+        "run_create_node",
         "run_edit_readme",
         "run_list_tasks",
+        "run_move_node",
         "run_ralph_result",
+        "run_read_node",
         "run_read_readme",
         "run_read_tasks",
+        "run_update_node_metadata",
         "run_upsert_task",
     ]
 
@@ -179,6 +184,142 @@ def test_task_operations_reject_symlinked_jri_directory(
     assert invoke_tool(monkeypatch, "upsert-task", task_payload(slug="blocked")) == 1
 
     assert "refusing to write outside `.jri/tasks/`" in capsys.readouterr().err
+
+
+def test_graph_tools_create_read_patch_metadata_and_move(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert (
+        invoke_tool(
+            monkeypatch,
+            "create-node",
+            {
+                "path": "product/auth/login",
+                "title": "Login Flow",
+                "body": "Initial behavior.\n",
+            },
+        )
+        == 0
+    )
+    created = json.loads(capsys.readouterr().out)
+    assert created == {
+        "path": "product/auth/login",
+        "auto_created_parents": ["product", "product/auth"],
+    }
+
+    assert invoke_tool(monkeypatch, "read-node", {"path": "product", "depth": 2}) == 0
+    read = json.loads(capsys.readouterr().out)
+    assert read == {
+        "path": "product",
+        "metadata": {"title": "Product", "state": "active"},
+        "body": "",
+        "children": [
+            {"path": "product/auth", "title": "Auth", "state": "active"},
+            {
+                "path": "product/auth/login",
+                "title": "Login Flow",
+                "state": "active",
+            },
+        ],
+    }
+    assert "NODE.md" not in json.dumps(read)
+
+    patch = """*** Begin Graph Patch
+*** Update Node: product/auth/login
+@@
+-Initial behavior.
++Initial behavior.
++Second behavior.
+*** End Graph Patch
+"""
+    assert invoke_tool(monkeypatch, "apply-graph-patch", {"patch": patch}) == 0
+    patched = json.loads(capsys.readouterr().out)
+    assert patched == {
+        "changed_nodes": [
+            {"path": "product/auth/login", "additions": 2, "deletions": 1}
+        ]
+    }
+
+    assert (
+        invoke_tool(
+            monkeypatch,
+            "update-node-metadata",
+            {
+                "path": "product/auth/login",
+                "title": "Password Login",
+                "state": "archived",
+                "archive_reason": "Replaced by passkeys.",
+            },
+        )
+        == 0
+    )
+    metadata = json.loads(capsys.readouterr().out)
+    assert metadata == {
+        "path": "product/auth/login",
+        "metadata": {
+            "title": "Password Login",
+            "state": "archived",
+            "archive_reason": "Replaced by passkeys.",
+        },
+    }
+
+    assert (
+        invoke_tool(
+            monkeypatch,
+            "move-node",
+            {"source_path": "product/auth", "destination_path": "product/sign-in"},
+        )
+        == 0
+    )
+    moved = json.loads(capsys.readouterr().out)
+    assert moved == {
+        "old_path": "product/auth",
+        "new_path": "product/sign-in",
+        "moved_subtree_count": 2,
+    }
+
+
+@pytest.mark.parametrize(
+    "tool_name,payload",
+    [
+        ("create-node", {"path": ".jri/graph/auth/NODE.md", "title": "x", "body": ""}),
+        ("read-node", {"path": "/absolute"}),
+        ("update-node-metadata", {"path": "../escape", "title": "x"}),
+        (
+            "move-node",
+            {"source_path": "product/auth", "destination_path": "product//auth"},
+        ),
+        (
+            "apply-graph-patch",
+            {
+                "patch": (
+                    "*** Begin Graph Patch\n"
+                    "*** Update Node: .jri/graph/auth/NODE.md\n"
+                    "@@\n"
+                    "+new\n"
+                    "*** End Graph Patch\n"
+                )
+            },
+        ),
+    ],
+)
+def test_graph_tools_reject_raw_or_malformed_paths(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tool_name: str,
+    payload: dict[str, object],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert invoke_tool(monkeypatch, tool_name, payload) == 1
+
+    error = capsys.readouterr().err
+    assert "graph path" in error or "NODE.md" in error
 
 
 def test_readme_exact_edit_happy_path_and_missing_text_failure(
