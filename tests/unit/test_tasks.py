@@ -173,7 +173,9 @@ def test_interrogator_registers_intent_graph_tools() -> None:
 
     for tool_name in (
         "create-node",
+        "list-nodes",
         "read-node",
+        "search-nodes",
         "apply-graph-patch",
         "update-node-metadata",
         "move-node",

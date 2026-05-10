@@ -16,11 +16,27 @@ export function registerChatTools(pi: ExtensionAPI) {
   );
   registerPythonTool(
     pi,
+    "list-nodes",
+    "List top-level Intent Graph nodes from the graph root.",
+    Type.Object({}),
+  );
+  registerPythonTool(
+    pi,
     "read-node",
     "Read one Intent Graph node by semantic Intent Graph path, including metadata, body, and child summaries.",
     Type.Object({
       path: Type.String(),
       depth: Type.Optional(Type.Number()),
+    }),
+  );
+  registerPythonTool(
+    pi,
+    "search-nodes",
+    "Search Intent Graph nodes using plain in-memory text matching over semantic paths, titles, and bodies.",
+    Type.Object({
+      query: Type.String(),
+      limit: Type.Optional(Type.Number()),
+      include_archived: Type.Optional(Type.Boolean()),
     }),
   );
   registerPythonTool(

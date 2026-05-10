@@ -407,7 +407,9 @@ def launch_chat(
                 ",".join(
                     [
                         "create-node",
+                        "list-nodes",
                         "read-node",
+                        "search-nodes",
                         "apply-graph-patch",
                         "update-node-metadata",
                         "move-node",
