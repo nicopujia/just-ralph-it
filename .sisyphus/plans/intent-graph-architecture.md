@@ -565,13 +565,13 @@ Wave 4: Final verification wave F1-F4.
 > 4 review agents run in PARALLEL. ALL must APPROVE. Present consolidated results to user and get explicit "okay" before completing.
 > **Do NOT auto-proceed after verification. Wait for user's explicit approval before marking work complete.**
 > **Never mark F1-F4 as checked before getting user's okay.** Rejection or user feedback -> fix -> re-run -> present again -> wait for okay.
-- [ ] F1. Plan Compliance Audit — oracle
+- [x] F1. Plan Compliance Audit — oracle
   - Verify no draft-era compatibility remains, all required graph/compiler deliverables exist, and compile semantics match this plan.
-- [ ] F2. Code Quality Review — unspecified-high
+- [x] F2. Code Quality Review — unspecified-high
   - Inspect graph tools, checker, compiler transaction boundaries, tests, and docs for maintainability and duplication.
-- [ ] F3. Real Manual QA — unspecified-high
+- [x] F3. Real Manual QA — unspecified-high
   - Execute `jri init`, graph tool operations, `compile_graph` success/failure fixtures, `jri status`, and `make check`; collect evidence.
-- [ ] F4. Scope Fidelity Check — deep
+- [x] F4. Scope Fidelity Check — deep
   - Verify no out-of-scope features were added: typed relationships, migration, Mermaid, public graph CRUD CLI, tags, Ralph auto-start, Pydantic, JSON Schema.
 
 ## Commit Strategy
