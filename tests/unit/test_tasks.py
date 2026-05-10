@@ -453,6 +453,7 @@ def test_validate_state_payload_allows_attempt_result_payload() -> None:
 def test_non_schema_package_resources_are_available() -> None:
     scaffold = files("jri.core.template")
     assert scaffold.joinpath("learnings.md").is_file()
+    assert scaffold.joinpath("graph", ".gitkeep").is_file()
     builtins = files("jri.core.agents.bundle")
     assert builtins.joinpath("interrogator", "prompt.md").is_file()
     assert builtins.joinpath("compiler", "prompt.md").is_file()

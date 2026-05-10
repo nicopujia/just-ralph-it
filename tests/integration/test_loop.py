@@ -6575,6 +6575,10 @@ def test_template_resource_parts_strip_managed_root() -> None:
         "todo",
         ".gitkeep",
     )
+    assert service_module._template_resource_parts(".jri/graph/.gitkeep") == (
+        "graph",
+        ".gitkeep",
+    )
     assert service_module._single_line("a  b\n c", limit=20) == "a b c"
     assert service_module._single_line("abcdef", limit=5) == "ab..."
 

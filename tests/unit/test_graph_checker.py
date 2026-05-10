@@ -37,6 +37,12 @@ def test_check_graph_tree_allows_missing_or_empty_root(tmp_path: Path) -> None:
     assert empty.archived_count == 0
     assert empty.errors == ()
 
+    (tmp_path / ".jri" / "graph" / ".gitkeep").write_text("", encoding="utf-8")
+    placeholder = check_graph_tree(tmp_path)
+    assert placeholder.active_count == 0
+    assert placeholder.archived_count == 0
+    assert placeholder.errors == ()
+
 
 def test_check_graph_tree_counts_valid_active_and_archived_nodes(
     tmp_path: Path,

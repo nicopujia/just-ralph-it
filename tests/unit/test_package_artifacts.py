@@ -32,6 +32,15 @@ REQUIRED_AGENT_RESOURCES = {
     "src/jri/core/agents/bundle/_shared/tools/ralph_result.py",
 }
 
+REQUIRED_TEMPLATE_RESOURCES = {
+    "src/jri/core/template/graph/.gitkeep",
+    "src/jri/core/template/tasks/todo/.gitkeep",
+    "src/jri/core/template/tasks/doing/.gitkeep",
+    "src/jri/core/template/tasks/done/.gitkeep",
+    "src/jri/core/template/attempts/.gitkeep",
+    "src/jri/core/template/learnings.md",
+}
+
 FORBIDDEN_ARTIFACT_PARTS = {
     "__pycache__",
     ".sisyphus",
@@ -72,12 +81,16 @@ def test_built_wheel_and_sdist_include_agent_runtime_resources(
     assert len(sdist_paths) == 1
     _assert_required_resources(
         _wheel_names(wheel_paths[0]),
-        required_paths={name.removeprefix("src/") for name in REQUIRED_AGENT_RESOURCES},
+        required_paths={
+            name.removeprefix("src/")
+            for name in REQUIRED_AGENT_RESOURCES | REQUIRED_TEMPLATE_RESOURCES
+        },
     )
     _assert_required_resources(
         sdist_names := _sdist_names(sdist_paths[0]),
         required_paths={
-            f"{_sdist_root(sdist_names)}/{name}" for name in REQUIRED_AGENT_RESOURCES
+            f"{_sdist_root(sdist_names)}/{name}"
+            for name in REQUIRED_AGENT_RESOURCES | REQUIRED_TEMPLATE_RESOURCES
         },
     )
 

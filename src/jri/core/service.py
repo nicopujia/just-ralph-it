@@ -93,6 +93,7 @@ _INIT_COMMIT_PATHS = (
     ".jri/tasks/todo/.gitkeep",
     ".jri/tasks/doing/.gitkeep",
     ".jri/tasks/done/.gitkeep",
+    ".jri/graph/.gitkeep",
     ".jri/attempts/.gitkeep",
 )
 _SCAFFOLD_TEMPLATE_PATHS = (
@@ -100,6 +101,7 @@ _SCAFFOLD_TEMPLATE_PATHS = (
     ".jri/tasks/todo/.gitkeep",
     ".jri/tasks/doing/.gitkeep",
     ".jri/tasks/done/.gitkeep",
+    ".jri/graph/.gitkeep",
     ".jri/attempts/.gitkeep",
 )
 _ROOT_SCAFFOLD_PATHS = ("Makefile",)

@@ -190,7 +190,7 @@ def test_compile_graph_ambiguity_failure_writes_no_tasks_or_commit(
     }
     assert _head(git_repo) == before
     assert _task_paths(git_repo) == []
-    assert git(git_repo, "status", "--short") == "?? .jri/graph/"
+    assert git(git_repo, "status", "--short") == "?? .jri/graph/product/"
 
 
 def test_compile_graph_invalid_compiler_output_rolls_back_tasks(git_repo: Path) -> None:
@@ -226,7 +226,7 @@ def test_compile_graph_invalid_compiler_output_rolls_back_tasks(git_repo: Path) 
     assert "unknown dependency `missing-task`" in str(result["errors"])
     assert _head(git_repo) == before
     assert _task_paths(git_repo) == []
-    assert git(git_repo, "status", "--short") == "?? .jri/graph/"
+    assert git(git_repo, "status", "--short") == "?? .jri/graph/product/"
 
 
 def test_compile_graph_commit_failure_rolls_back_emitted_tasks(git_repo: Path) -> None:

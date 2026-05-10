@@ -644,7 +644,7 @@ def check_graph_tree(root: Path) -> GraphCheckResult:
                     errors.append(
                         f"{entry_relative}: unexpected file in graph node directory"
                     )
-            elif entry.name != "MANIFEST.json":
+            elif entry.name not in {".gitkeep", "MANIFEST.json"}:
                 errors.append(f"{entry_relative}: unexpected file in graph root")
 
     return GraphCheckResult(
