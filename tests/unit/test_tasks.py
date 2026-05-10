@@ -177,9 +177,11 @@ def test_interrogator_registers_intent_graph_tools() -> None:
         "apply-graph-patch",
         "update-node-metadata",
         "move-node",
+        "compile-graph",
     ):
         assert f'registerPythonTool(\n    pi,\n    "{tool_name}"' in source
 
+    assert "Compile the Intent Graph into validated todo tasks" in source
     assert "semantic Intent Graph path" in source
     assert "NODE.md" not in source
 

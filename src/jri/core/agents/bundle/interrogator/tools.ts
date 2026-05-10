@@ -54,6 +54,12 @@ export function registerChatTools(pi: ExtensionAPI) {
   );
   registerPythonTool(
     pi,
+    "compile-graph",
+    "Compile the Intent Graph into validated todo tasks after explicit user confirmation.",
+    Type.Object({}),
+  );
+  registerPythonTool(
+    pi,
     "list-tasks",
     "List tasks, optionally filtered by status, and return structured task summaries.",
     Type.Object({

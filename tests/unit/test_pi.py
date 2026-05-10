@@ -421,7 +421,12 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
             "--append-system-prompt",
             str(package_root / "interrogator" / "prompt.md"),
             "--tools",
-            ("list-tasks,read-tasks,read-readme,edit-readme,upsert-task,explore"),
+            (
+                "create-node,read-node,apply-graph-patch,"
+                "update-node-metadata,move-node,compile-graph,"
+                "list-tasks,read-tasks,read-readme,edit-readme,"
+                "upsert-task,explore"
+            ),
         ]
     ]
     assert (

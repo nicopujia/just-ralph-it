@@ -366,6 +366,10 @@ class AgentRuntime(Protocol):
 
     def export_session(self, session_id: str, destination: Path) -> None: ...
 
+    def compile_intent_graph(
+        self, *, root: Path, context: dict[str, object]
+    ) -> dict[str, object]: ...
+
 
 def launch_chat(
     *,
@@ -401,6 +405,12 @@ def launch_chat(
                 "--tools",
                 ",".join(
                     [
+                        "create-node",
+                        "read-node",
+                        "apply-graph-patch",
+                        "update-node-metadata",
+                        "move-node",
+                        "compile-graph",
                         "list-tasks",
                         "read-tasks",
                         "read-readme",
@@ -473,6 +483,15 @@ _MISSING_RESULT_FOLLOW_UP_PROMPT = (
     "Final action only: call `ralph-result` exactly once with the correct payload, "
     "then stop."
 )
+_COMPILER_STALL_TIMEOUT = 300.0
+_INTENT_COMPILER_ARGS = [
+    "--no-extensions",
+    "--no-skills",
+    "--no-prompt-templates",
+    "--no-context-files",
+    "--tools",
+    "read,grep,find,ls",
+]
 
 
 def _repo_pi_chat_session_dir(root: Path) -> Path:
@@ -556,6 +575,7 @@ class PiRuntime:
         *,
         env: dict[str, str] | None = None,
         cwd: Path | None = None,
+        extra_args: list[str] | None = None,
     ) -> None:
         if self._process is not None and self._process.poll() is None:
             return
@@ -582,6 +602,8 @@ class PiRuntime:
             command.extend(["--append-system-prompt", str(prompt_path)])
             for skill_path in _package_agent_skill_paths(package_root, "ralph"):
                 command.extend(["--skill", str(skill_path)])
+        if extra_args:
+            command.extend(extra_args)
         try:
             self._process = subprocess.Popen(
                 command,
@@ -684,6 +706,46 @@ class PiRuntime:
         if not session_file.exists():
             raise JriError(f"pi session file is unavailable for '{session_id}'")
         shutil.copyfile(session_file, destination)
+
+    def compile_intent_graph(
+        self, *, root: Path, context: dict[str, object]
+    ) -> dict[str, object]:
+        if self.is_healthy():
+            self.stop()
+        self.start(cwd=root, extra_args=_INTENT_COMPILER_ARGS)
+        if self._process is None or self._process.stdout is None:
+            raise JriError("pi rpc process is not running")
+        response = self._rpc_request(
+            "prompt",
+            {"message": _intent_compiler_prompt(context)},
+        )
+        if response.get("success") is not True:
+            raise JriError(f"failed to start intent compiler prompt: {response}")
+
+        chunks: list[str] = []
+        deadline = time.monotonic() + _COMPILER_STALL_TIMEOUT
+        while True:
+            if time.monotonic() > deadline:
+                self.stop()
+                raise JriError("intent compiler timed out")
+            event = self._read_rpc_line(timeout=0.5)
+            if event is None:
+                continue
+            text = _compiler_event_text(event)
+            if text:
+                chunks.append(text)
+                deadline = time.monotonic() + _COMPILER_STALL_TIMEOUT
+            if event.get("type") == "agent_end":
+                break
+
+        raw_output = "".join(chunks).strip()
+        try:
+            payload: object = json.loads(raw_output)
+        except json.JSONDecodeError as exc:
+            raise JriError("compiler did not return valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise JriError("compiler JSON output must be an object")
+        return cast(dict[str, object], payload)
 
     def run_ralph_task(
         self,
@@ -857,3 +919,56 @@ def _readline_with_timeout(stream: IO[str], *, timeout: float) -> str | None:
 
 def _ralph_prompt(prompt: str) -> str:
     return "/ralph " + prompt
+
+
+def _intent_compiler_prompt(context: dict[str, object]) -> str:
+    context_json = json.dumps(context, indent=2, sort_keys=True)
+    return (
+        "You are the JRI Intent Compiler. Compile the supplied Intent Graph "
+        "context into executable todo task specs. You may inspect the repository "
+        "with only the provided read, grep, find, and ls tools when the JSON "
+        "context is insufficient. Do not edit files, write files, mutate the "
+        "Intent Graph, create tasks directly, start Ralph, create tags, or "
+        'commit changes. Return only JSON: either {"tasks":[...]} or '
+        '{"exit_code":"fail","errors":[...]} with each error containing '
+        "location, ambiguous_area, plausible_interpretations, and "
+        "draft_question.\n\n"
+        f"Context:\n{context_json}"
+    )
+
+
+def _compiler_event_text(event: dict[str, object]) -> str:
+    payload = _unwrap_event(event)
+    text = payload.get("text") or payload.get("delta")
+    if isinstance(text, str):
+        return text
+    properties = payload.get("properties")
+    if isinstance(properties, dict):
+        properties = cast(dict[str, object], properties)
+        if properties.get("field") == "text":
+            delta = properties.get("delta")
+            return delta if isinstance(delta, str) else ""
+    message = payload.get("message")
+    if isinstance(message, dict):
+        message = cast(dict[str, object], message)
+        if message.get("role") == "assistant":
+            return _message_content_text(message.get("content"))
+    assistant_event = payload.get("assistantMessageEvent")
+    if isinstance(assistant_event, dict):
+        assistant_event = cast(dict[str, object], assistant_event)
+        content = assistant_event.get("content")
+        return content if isinstance(content, str) else ""
+    return ""
+
+
+def _message_content_text(content: object) -> str:
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        item = cast(dict[str, object], item)
+        if item.get("type") == "text" and isinstance(item.get("text"), str):
+            parts.append(cast(str, item["text"]))
+    return "".join(parts)

@@ -9,6 +9,13 @@ from .....graph import (
     validate_graph_path,
 )
 from .....models import GraphNodeMetadata, GraphNodeState
+from ._validation import service
+
+
+def run_compile_graph(payload: dict[str, object]) -> str:
+    if payload:
+        raise ValueError("compile-graph does not accept arguments")
+    return _json(service(Path.cwd()).compile_graph())
 
 
 def run_create_node(payload: dict[str, object]) -> str:

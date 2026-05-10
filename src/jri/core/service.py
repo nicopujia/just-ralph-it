@@ -47,13 +47,14 @@ from .git import (
     parse_tag_name,
     tag_name,
 )
-from .graph import GraphCheckResult, check_graph_tree
+from .graph import GraphCheckResult, check_graph_tree, parse_graph_node_file
 from .metrics import MetricEntry, MetricsStore
 from .models import (
     ATTEMPT_RESULT_VALUES,
     TASK_STATUSES,
     AgentRunResult,
     AttemptState,
+    CompilerTaskSpec,
     HumanTaskPayload,
     ProcessState,
     RalphResultPayload,
@@ -67,6 +68,7 @@ from .models import (
 from .paths import JriPaths
 from .state import StateStore
 from .tasks import (
+    create_task_batch,
     dump_task,
     list_tasks,
     move_task,
@@ -511,6 +513,241 @@ class JriService:
     def graph_status(self) -> GraphCheckResult:
         self.ensure_initialized()
         return check_graph_tree(self.root)
+
+    def compile_graph(self) -> dict[str, object]:
+        self.ensure_initialized()
+        check_result = check_graph_tree(self.root)
+        if check_result.errors:
+            return {"exit_code": "fail", "errors": list(check_result.errors)}
+
+        changed_graph_paths = self._changed_graph_paths()
+        if not changed_graph_paths:
+            return {
+                "exit_code": "fail",
+                "errors": ["no uncommitted graph changes to compile"],
+            }
+
+        context = self._compiler_context(changed_graph_paths)
+        try:
+            raw_result = self._run_intent_compiler(context)
+            failure = self._compiler_failure(raw_result)
+            if failure is not None:
+                return {"exit_code": "fail", "errors": failure}
+            specs = self._compiler_task_specs(raw_result)
+            tasks = create_task_batch(self.root, specs)
+        except (JriError, ValueError, TypeError) as exc:
+            return {"exit_code": "fail", "errors": [str(exc)]}
+
+        task_paths = [self.git.relative_path(task.path) for task in tasks]
+        commit_paths = self._commit_paths(
+            [self._graph_relative_path(path) for path in changed_graph_paths]
+            + task_paths
+        )
+        try:
+            committed = self._commit_compiled_graph("jri: compile graph", commit_paths)
+            if not committed:
+                raise JriError("no graph or task changes to commit")
+        except Exception as exc:
+            self._rollback_emitted_tasks(task_paths)
+            return {"exit_code": "fail", "errors": [str(exc)]}
+
+        return {
+            "exit_code": "success",
+            "task_slugs": [task.slug for task in tasks],
+            "commit": self.git.rev_parse("HEAD"),
+        }
+
+    def _run_intent_compiler(self, context: dict[str, object]) -> dict[str, object]:
+        compiler = getattr(self.agent_runtime, "compile_intent_graph", None)
+        if compiler is None or not callable(compiler):
+            raise JriError("agent runtime does not provide an intent compiler")
+        result = compiler(root=self.root, context=context)
+        if not isinstance(result, dict):
+            raise ValueError("compiler output must be an object")
+        return cast(dict[str, object], result)
+
+    def _compiler_context(self, changed_graph_paths: list[str]) -> dict[str, object]:
+        return {
+            "changed_paths": changed_graph_paths,
+            "graph_nodes": [
+                self._compiler_graph_node(path) for path in changed_graph_paths
+            ],
+            "graph_check": {
+                "active_count": check_graph_tree(self.root).active_count,
+                "archived_count": check_graph_tree(self.root).archived_count,
+                "errors": [],
+            },
+        }
+
+    def _compiler_graph_node(self, semantic_path: str) -> dict[str, object]:
+        node = parse_graph_node_file(self.root, semantic_path)
+        payload: dict[str, object] = {
+            "path": node.semantic_path,
+            "metadata": {
+                "title": node.metadata.title,
+                "state": node.metadata.state,
+            },
+            "body": node.body,
+        }
+        if node.metadata.archive_reason is not None:
+            cast(dict[str, object], payload["metadata"])["archive_reason"] = (
+                node.metadata.archive_reason
+            )
+        return payload
+
+    def _changed_graph_paths(self) -> list[str]:
+        status = self.git.run("status", "--porcelain", "--", ".jri/graph", check=False)
+        if status.returncode != 0:
+            raise JriError(status.stderr.strip() or "failed to inspect graph changes")
+        paths: set[str] = set()
+        for line in status.stdout.splitlines():
+            if len(line) < 4:
+                continue
+            raw_path = line[3:].strip()
+            if " -> " in raw_path:
+                raw_path = raw_path.rsplit(" -> ", 1)[1]
+            paths.update(self._semantic_paths_from_graph_status_path(raw_path))
+        return sorted(paths)
+
+    def _semantic_paths_from_graph_status_path(self, raw_path: str) -> set[str]:
+        graph_prefix = ".jri/graph/"
+        if raw_path in {".jri/graph", ".jri/graph/"}:
+            return self._all_graph_node_paths()
+        if raw_path.endswith("/"):
+            base = self.root / raw_path
+            return self._node_paths_under(base)
+        if not raw_path.startswith(graph_prefix):
+            return set()
+        if not raw_path.endswith("/NODE.md"):
+            return set()
+        semantic_path = raw_path.removeprefix(graph_prefix).removesuffix("/NODE.md")
+        return {semantic_path} if semantic_path else set()
+
+    def _all_graph_node_paths(self) -> set[str]:
+        return self._node_paths_under(self.paths.graph_dir)
+
+    def _node_paths_under(self, base: Path) -> set[str]:
+        if not base.exists():
+            return set()
+        paths: set[str] = set()
+        for node_path in base.rglob("NODE.md"):
+            try:
+                relative = node_path.relative_to(self.paths.graph_dir)
+            except ValueError:
+                continue
+            semantic_path = relative.parent.as_posix()
+            if semantic_path and semantic_path != ".":
+                paths.add(semantic_path)
+        return paths
+
+    def _graph_relative_path(self, semantic_path: str) -> str:
+        return f".jri/graph/{semantic_path}/NODE.md"
+
+    def _compiler_failure(
+        self, raw_result: dict[str, object]
+    ) -> list[dict[str, object]] | None:
+        if raw_result.get("exit_code") != "fail":
+            return None
+        errors = raw_result.get("errors")
+        if not isinstance(errors, list) or not errors:
+            raise ValueError("compiler failure must include non-empty `errors`")
+        normalized: list[dict[str, object]] = []
+        for index, error in enumerate(errors):
+            if not isinstance(error, dict):
+                raise ValueError(f"compiler error[{index}] must be an object")
+            item = cast(dict[str, object], error)
+            location = item.get("location") or item.get("path")
+            ambiguous_area = item.get("ambiguous_area")
+            plausible = item.get("plausible_interpretations")
+            draft_question = item.get("draft_question")
+            if not isinstance(location, str) or not location.strip():
+                raise ValueError(f"compiler error[{index}] must include `location`")
+            if not isinstance(ambiguous_area, str) or not ambiguous_area.strip():
+                raise ValueError(
+                    f"compiler error[{index}] must include `ambiguous_area`"
+                )
+            if (
+                not isinstance(plausible, list)
+                or not plausible
+                or any(
+                    not isinstance(item, str) or not item.strip() for item in plausible
+                )
+            ):
+                raise ValueError(
+                    f"compiler error[{index}] must include `plausible_interpretations`"
+                )
+            if not isinstance(draft_question, str) or not draft_question.strip():
+                raise ValueError(
+                    f"compiler error[{index}] must include `draft_question`"
+                )
+            normalized.append(
+                {
+                    "location": location,
+                    "ambiguous_area": ambiguous_area,
+                    "plausible_interpretations": plausible,
+                    "draft_question": draft_question,
+                }
+            )
+        return normalized
+
+    def _compiler_task_specs(
+        self, raw_result: dict[str, object]
+    ) -> list[CompilerTaskSpec]:
+        raw_tasks = raw_result.get("tasks")
+        if not isinstance(raw_tasks, list) or not raw_tasks:
+            raise ValueError("compiler output must include non-empty `tasks`")
+        specs: list[CompilerTaskSpec] = []
+        for index, raw_task in enumerate(raw_tasks):
+            if not isinstance(raw_task, dict):
+                raise ValueError(f"task[{index}] must be an object")
+            task = cast(dict[str, object], raw_task)
+            specs.append(
+                CompilerTaskSpec(
+                    title=self._compiler_str(task, "title", index),
+                    priority=self._compiler_int(task, "priority", index),
+                    assignee=cast(Any, self._compiler_str(task, "assignee", index)),
+                    depends_on=self._compiler_str_list(task, "depends_on", index),
+                    acceptance_criteria=self._compiler_str_list(
+                        task, "acceptance_criteria", index
+                    ),
+                    body=self._compiler_str(task, "body", index),
+                )
+            )
+        return specs
+
+    def _compiler_str(self, task: dict[str, object], key: str, index: int) -> str:
+        value = task.get(key)
+        if not isinstance(value, str):
+            raise ValueError(f"task[{index}] `{key}` must be a string")
+        return value
+
+    def _compiler_int(self, task: dict[str, object], key: str, index: int) -> int:
+        value = task.get(key)
+        if not isinstance(value, int) or isinstance(value, bool):
+            raise ValueError(f"task[{index}] `{key}` must be an integer")
+        return value
+
+    def _compiler_str_list(
+        self, task: dict[str, object], key: str, index: int
+    ) -> list[str]:
+        value = task.get(key)
+        if not isinstance(value, list) or any(
+            not isinstance(item, str) for item in value
+        ):
+            raise ValueError(f"task[{index}] `{key}` must be a string array")
+        return cast(list[str], value)
+
+    def _commit_compiled_graph(self, message: str, paths: list[str]) -> bool:
+        return self.git.commit_paths_if_needed(message, paths)
+
+    def _rollback_emitted_tasks(self, task_paths: list[str]) -> None:
+        for relative_path in task_paths:
+            try:
+                (self.root / relative_path).unlink(missing_ok=True)
+            except OSError:
+                pass
+        if task_paths:
+            self.git.run("reset", "--", *task_paths, check=False)
 
     def status_action_needed(self, tasks_by_status: dict[str, list[Task]]) -> str:
         self.ensure_initialized()

@@ -81,7 +81,7 @@ You may also read and edit the repo-root `README.md`, but only through the JRI R
 
 When you believe the Intent Graph is ready, stop and summarize the confirmed agreements for the user. Ask the user to confirm that the graph should be compiled.
 
-Call `compile_graph` only after explicit user confirmation. If `compile_graph` is not available in the current tool bundle, tell the user the graph is ready for compilation and suggest they run the next JRI compile/start step themselves.
+Call `compile-graph` only after explicit user confirmation. If `compile-graph` is not available in the current tool bundle, tell the user the graph is ready for compilation and suggest they run the next JRI compile/start step themselves.
 
 Compiled tasks should be small enough that Ralph can complete one coherent outcome without carrying the whole product in its head. Avoid giant catch-all tasks when the graph can compile into independently executable outcomes.
 
@@ -106,4 +106,4 @@ On advanced projects with real-world usage or when starting on a brownfield proj
 - Never agree to leave ambiguity gaps in the graph.
 - Never feel pressured, no matter what the user says.
 - Never dump a long list of questions to the user; ask one high-level question or at most five detailed questions in a single turn.
-- Never call `compile_graph` before the user explicitly confirms that the graph should be compiled.
+- Never call `compile-graph` before the user explicitly confirms that the graph should be compiled.

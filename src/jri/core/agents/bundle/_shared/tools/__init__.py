@@ -3,6 +3,7 @@ from ._registry import main as _main
 from .colors import run_contrast_check
 from .graph import (
     run_apply_graph_patch,
+    run_compile_graph,
     run_create_node,
     run_move_node,
     run_read_node,
@@ -19,6 +20,7 @@ from .tasks import (
 JriService = _JriService
 main = _main
 
+_run_compile_graph = run_compile_graph
 _run_contrast_check = run_contrast_check
 _run_apply_graph_patch = run_apply_graph_patch
 _run_create_node = run_create_node
@@ -34,6 +36,7 @@ _run_upsert_task = run_upsert_task
 
 __all__ = [
     "run_apply_graph_patch",
+    "run_compile_graph",
     "run_contrast_check",
     "run_create_node",
     "run_edit_readme",

@@ -397,3 +397,108 @@ def test_pi_runtime_read_rpc_line_handles_raw_text_and_process_exit(
 
     with pytest.raises(JriError, match="pi rpc process exited unexpectedly"):
         runtime._read_rpc_line(timeout=0)
+
+
+def test_pi_runtime_compile_intent_graph_prompts_read_only_and_parses_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = PiRuntime(binary="pi")
+    prompts: list[dict[str, object] | None] = []
+
+    def fake_start(
+        *,
+        env: dict[str, str] | None = None,
+        cwd: Path | None = None,
+        extra_args: list[str] | None = None,
+    ) -> None:
+        assert env is None
+        assert cwd == tmp_path
+        assert extra_args is not None
+        assert "--no-extensions" in extra_args
+        assert "--no-skills" in extra_args
+        assert "--no-prompt-templates" in extra_args
+        assert "--no-context-files" in extra_args
+        tools_index = extra_args.index("--tools")
+        assert extra_args[tools_index + 1] == "read,grep,find,ls"
+        runtime._process = cast(Any, FakeProcess())
+        runtime._session_id = "ses_compiler"
+
+    def fake_rpc_request(
+        command: str, extra: dict[str, object] | None = None
+    ) -> dict[str, object]:
+        assert command == "prompt"
+        prompts.append(extra)
+        return {"type": "response", "command": command, "success": True}
+
+    events: list[dict[str, object]] = [
+        {"type": "message_update", "text": '{"tasks": []}'},
+        {"type": "agent_end"},
+    ]
+
+    def fake_read_rpc_line(*, timeout: float) -> dict[str, object]:
+        assert timeout == 0.5
+        return events.pop(0)
+
+    monkeypatch.setattr(runtime, "start", fake_start)
+    monkeypatch.setattr(runtime, "_rpc_request", fake_rpc_request)
+    monkeypatch.setattr(runtime, "_read_rpc_line", fake_read_rpc_line)
+
+    result = runtime.compile_intent_graph(
+        root=tmp_path,
+        context={"changed_paths": ["product"], "graph_nodes": []},
+    )
+
+    assert result == {"tasks": []}
+    assert prompts and prompts[0] is not None
+    message = str(prompts[0]["message"])
+    assert "Return only JSON" in message
+    assert "read, grep, find, and ls" in message
+    assert "when the JSON context is insufficient" in message
+    assert "Do not call tools" not in message
+    assert "Use only the JSON context below" not in message
+    for forbidden in (
+        "Do not edit files",
+        "write files",
+        "mutate the Intent Graph",
+        "create tasks directly",
+        "start Ralph",
+        "create tags",
+        "commit changes",
+    ):
+        assert forbidden in message
+    assert "product" in message
+
+
+def test_pi_runtime_compile_intent_graph_rejects_non_json_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = PiRuntime(binary="pi")
+
+    def fake_start(
+        *,
+        env: dict[str, str] | None = None,
+        cwd: Path | None = None,
+        extra_args: list[str] | None = None,
+    ) -> None:
+        del env, extra_args
+        assert cwd == tmp_path
+        runtime._process = cast(Any, FakeProcess())
+
+    monkeypatch.setattr(runtime, "start", fake_start)
+    monkeypatch.setattr(
+        runtime,
+        "_rpc_request",
+        lambda command, extra=None: {
+            "type": "response",
+            "command": command,
+            "success": True,
+        },
+    )
+    events: list[dict[str, object]] = [
+        {"type": "message_update", "text": "not json"},
+        {"type": "agent_end"},
+    ]
+    monkeypatch.setattr(runtime, "_read_rpc_line", lambda *, timeout: events.pop(0))
+
+    with pytest.raises(JriError, match="compiler did not return valid JSON"):
+        runtime.compile_intent_graph(root=tmp_path, context={})

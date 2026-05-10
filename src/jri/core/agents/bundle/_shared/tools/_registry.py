@@ -5,6 +5,7 @@ from ._validation import load_payload, print_result
 from .colors import run_contrast_check
 from .graph import (
     run_apply_graph_patch,
+    run_compile_graph,
     run_create_node,
     run_move_node,
     run_read_node,
@@ -21,6 +22,7 @@ from .tasks import (
 _HANDLERS: dict[str, Callable[[dict[str, object]], str]] = {
     "apply-graph-patch": run_apply_graph_patch,
     "check-contrast": run_contrast_check,
+    "compile-graph": run_compile_graph,
     "create-node": run_create_node,
     "edit-readme": run_edit_readme,
     "list-tasks": run_list_tasks,

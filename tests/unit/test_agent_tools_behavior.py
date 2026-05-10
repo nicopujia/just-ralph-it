@@ -22,6 +22,7 @@ def invoke_tool(
 def test_tools_package_exports_only_public_handlers() -> None:
     assert tools.__all__ == [
         "run_apply_graph_patch",
+        "run_compile_graph",
         "run_contrast_check",
         "run_create_node",
         "run_edit_readme",
@@ -184,6 +185,40 @@ def test_task_operations_reject_symlinked_jri_directory(
     assert invoke_tool(monkeypatch, "upsert-task", task_payload(slug="blocked")) == 1
 
     assert "refusing to write outside `.jri/tasks/`" in capsys.readouterr().err
+
+
+def test_compile_graph_tool_invokes_service_and_returns_json(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    calls: list[Path] = []
+
+    class FakeService:
+        def __init__(self, root: Path) -> None:
+            calls.append(root)
+
+        def compile_graph(self) -> dict[str, object]:
+            return {
+                "exit_code": "success",
+                "task_slugs": ["build-checkout"],
+                "commit": "abc123",
+            }
+
+    monkeypatch.setattr(tools, "JriService", FakeService)
+
+    assert invoke_tool(monkeypatch, "compile-graph", {}) == 0
+
+    assert calls == [tmp_path]
+    payload = json.loads(capsys.readouterr().out)
+    assert payload == {
+        "exit_code": "success",
+        "task_slugs": ["build-checkout"],
+        "commit": "abc123",
+    }
+    assert ".jri/graph" not in json.dumps(payload)
+    assert "NODE.md" not in json.dumps(payload)
 
 
 def test_graph_tools_create_read_patch_metadata_and_move(

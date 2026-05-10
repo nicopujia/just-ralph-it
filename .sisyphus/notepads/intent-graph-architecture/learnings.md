@@ -60,3 +60,13 @@
 - Interrogator graph tools are shared Python handlers under `src/jri/core/agents/bundle/_shared/tools/graph.py`, registered with hyphenated Pi tool names that match existing bundle conventions.
 - Agent graph tool outputs intentionally expose only semantic paths and lean JSON summaries: create parents, read metadata/body/children, patch changed nodes, metadata update payload, and move subtree count.
 - The Interrogator prompt now treats the Intent Graph as whiteboard memory and requires explicit user confirmation before `compile_graph`.
+
+## 2026-05-10 Task: compile-graph-orchestration
+- `JriService.compile_graph` uses a runtime seam named `compile_intent_graph(root=..., context=...)`; tests can fake this seam without invoking Pi or Ralph.
+- Compiler context should expose semantic graph paths plus parsed node metadata/body, not raw `.jri/graph/**/NODE.md` filesystem paths.
+- Compile commits should be scoped to changed graph node files plus emitted todo task files; commit failures must unlink emitted tasks and unstage those paths while leaving graph edits uncommitted.
+
+## 2026-05-10 Task: compile-graph-production-surfaces
+- Interrogator tools expose Python handlers through both `_shared/tools/_registry.py` and `interrogator/tools.ts`; new tools also need `__init__.__all__` coverage because tests assert the public handler surface.
+- `PiRuntime.compile_intent_graph` uses the existing RPC prompt stream but starts Pi with `--no-extensions --no-skills --no-prompt-templates --no-context-files --tools read,grep,find,ls` so the compiler has read-only access.
+- `launch_chat` maintains a managed `--tools` allowlist; adding an Interrogator tool requires updating the launch command expectation in `tests/unit/test_pi.py`.
