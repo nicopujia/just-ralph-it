@@ -18,6 +18,7 @@ RuntimeProcessState = Literal["running", "not_running", "stale"]
 AttemptLifecycleState = Literal["active", "persisted"]
 PayloadLifecycleState = Literal["present", "missing", "invalid"]
 LogLifecycleState = Literal["present", "missing", "recovered"]
+GraphNodeState = Literal["active", "archived"]
 
 TASK_STATUSES: tuple[TaskStatus, ...] = ("draft", "todo", "doing", "done")
 PROMOTED_TASK_STATUSES: tuple[TaskStatus, ...] = ("todo", "doing", "done")
@@ -60,6 +61,7 @@ LOG_LIFECYCLE_STATES: tuple[LogLifecycleState, ...] = (
     "missing",
     "recovered",
 )
+GRAPH_NODE_STATES: tuple[GraphNodeState, ...] = ("active", "archived")
 
 
 @dataclass(frozen=True)
@@ -214,6 +216,21 @@ class Task:
     path: Path
     slug: str
     metadata: TaskMetadata
+    body: str
+
+
+@dataclass(frozen=True)
+class GraphNodeMetadata:
+    title: str
+    state: GraphNodeState
+    archive_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class GraphNode:
+    path: Path
+    semantic_path: str
+    metadata: GraphNodeMetadata
     body: str
 
 
