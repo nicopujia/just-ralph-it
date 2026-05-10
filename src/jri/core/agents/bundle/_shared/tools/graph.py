@@ -34,6 +34,24 @@ def run_create_node(payload: dict[str, object]) -> str:
     )
 
 
+def run_list_nodes(payload: dict[str, object]) -> str:
+    if payload:
+        raise ValueError("list-nodes does not accept arguments")
+    nodes = GraphStore(Path.cwd()).list_nodes()
+    return _json(
+        {
+            "nodes": [
+                {
+                    "path": node.semantic_path,
+                    "title": node.title,
+                    "state": node.state,
+                }
+                for node in nodes
+            ]
+        }
+    )
+
+
 def run_read_node(payload: dict[str, object]) -> str:
     path = _required_graph_path(payload, "path")
     depth = _optional_non_negative_int(payload, "depth", default=1)
@@ -51,6 +69,31 @@ def run_read_node(payload: dict[str, object]) -> str:
                     "state": child.state,
                 }
                 for child in node.children
+            ],
+        }
+    )
+
+
+def run_search_nodes(payload: dict[str, object]) -> str:
+    query = _required_string(payload, "query")
+    limit = min(_optional_non_negative_int(payload, "limit", default=10), 50)
+    include_archived = _optional_bool(payload, "include_archived", default=False)
+
+    matches = GraphStore(Path.cwd()).search_nodes(
+        query, limit=limit, include_archived=include_archived
+    )
+    return _json(
+        {
+            "query": query,
+            "matches": [
+                {
+                    "path": match.semantic_path,
+                    "title": match.title,
+                    "state": match.state,
+                    "score": match.score,
+                    "snippet": match.snippet,
+                }
+                for match in matches
             ],
         }
     )
@@ -128,6 +171,13 @@ def _optional_string(
         return None
     if not isinstance(value, str):
         raise ValueError(f"`{name}` must be a string")
+    return value
+
+
+def _optional_bool(payload: dict[str, object], name: str, *, default: bool) -> bool:
+    value = payload.get(name, default)
+    if not isinstance(value, bool):
+        raise ValueError(f"`{name}` must be a boolean")
     return value
 
 

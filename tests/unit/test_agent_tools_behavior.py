@@ -26,12 +26,14 @@ def test_tools_package_exports_only_public_handlers() -> None:
         "run_contrast_check",
         "run_create_node",
         "run_edit_readme",
+        "run_list_nodes",
         "run_list_tasks",
         "run_move_node",
         "run_ralph_result",
         "run_read_node",
         "run_read_readme",
         "run_read_tasks",
+        "run_search_nodes",
         "run_update_node_metadata",
         "run_upsert_task",
     ]
@@ -263,6 +265,21 @@ def test_graph_tools_create_read_patch_metadata_and_move(
     }
     assert "NODE.md" not in json.dumps(read)
 
+    assert invoke_tool(monkeypatch, "list-nodes", {}) == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert listed == {
+        "nodes": [{"path": "product", "title": "Product", "state": "active"}]
+    }
+
+    assert invoke_tool(monkeypatch, "search-nodes", {"query": "login behavior"}) == 0
+    searched = json.loads(capsys.readouterr().out)
+    assert searched["query"] == "login behavior"
+    assert searched["matches"][0]["path"] == "product/auth/login"
+    assert searched["matches"][0]["title"] == "Login Flow"
+    assert searched["matches"][0]["score"] > 0
+    assert "Initial behavior" in searched["matches"][0]["snippet"]
+    assert "NODE.md" not in json.dumps(searched)
+
     patch = """*** Begin Graph Patch
 *** Update Node: product/auth/login
 @@
@@ -316,6 +333,30 @@ def test_graph_tools_create_read_patch_metadata_and_move(
         "new_path": "product/sign-in",
         "moved_subtree_count": 2,
     }
+
+
+def test_graph_tools_reject_invalid_discovery_payloads(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert invoke_tool(monkeypatch, "list-nodes", {"path": "product"}) == 1
+    assert "does not accept arguments" in capsys.readouterr().err
+
+    assert invoke_tool(monkeypatch, "search-nodes", {"query": ""}) == 1
+    assert "non-empty string" in capsys.readouterr().err
+
+    assert (
+        invoke_tool(
+            monkeypatch,
+            "search-nodes",
+            {"query": "checkout", "include_archived": "yes"},
+        )
+        == 1
+    )
+    assert "boolean" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
