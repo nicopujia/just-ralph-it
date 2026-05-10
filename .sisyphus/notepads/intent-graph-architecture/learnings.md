@@ -79,3 +79,13 @@
 ## 2026-05-10 Task: update-docs-prompts-agent-architecture-text
 - Public architecture docs should describe the current flow as `User <-> Interrogator <-> Intent Graph --compile_graph--> Tasks -> Ralph`, with `compile-graph` as the Interrogator tool name.
 - Compile success commits graph changes and emitted todo tasks together without starting Ralph or creating a tag; compile failure leaves no commit and no emitted tasks.
+
+## 2026-05-10 Task: end-to-end-cleanup-regression
+- Final cleanup kept `pyyaml` as the only runtime dependency in `pyproject.toml`/`uv.lock`; `jsonschema` is absent from project and lock files.
+- Strict typecheck after compile-graph required explicit casts for list payload validation and protocol-compatible fake runtimes; `JriService` accepts injected runtimes as external test doubles while storing them as `AgentRuntime`.
+- Obsolete draft-era coverage-gate assertions should target current todo task writes, removed tool registry errors, and the three-state `todo`, `doing`, `done` status vocabulary.
+
+## 2026-05-10 Task: task-11-review-stale-reference-fix
+- Schema validation coverage now exercises valid `todo`, `doing`, and `done` task directories instead of accepting `.jri/tasks/draft` compatibility.
+- Self-hosting proof terminology now describes compiling intent into executable todo tasks, not draft-to-todo promotion.
+- Private append-only task terminology was renamed from promoted-task wording to lifecycle/tracked wording; remaining stale-search hits are intentional removal tests, invalid draft-state rejection tests, init no-draft scaffolding coverage, or the compiler `draft_question` field.

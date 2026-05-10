@@ -41,8 +41,8 @@ def valid_task_payload(**overrides: object) -> dict[str, object]:
     return payload
 
 
-def write_draft_task(repo: Path, slug: str, body: str = "Original body.\n") -> Path:
-    task_path = repo / ".jri" / "tasks" / "draft" / f"{slug}.md"
+def write_todo_task(repo: Path, slug: str, body: str = "Original body.\n") -> Path:
+    task_path = repo / ".jri" / "tasks" / "todo" / f"{slug}.md"
     task_path.parent.mkdir(parents=True, exist_ok=True)
     task_path.write_text(
         "---\n"
@@ -285,76 +285,31 @@ def test_tool_upsert_task_rejects_invalid_metadata_and_symlinked_task(
 
     outside = tmp_path / "outside.md"
     outside.write_text("outside", encoding="utf-8")
-    draft_dir = tmp_path / ".jri" / "tasks" / "draft"
-    draft_dir.mkdir(parents=True, exist_ok=True)
-    (draft_dir / "linked.md").symlink_to(outside)
+    todo_dir = tmp_path / ".jri" / "tasks" / "todo"
+    todo_dir.mkdir(parents=True, exist_ok=True)
+    (todo_dir / "linked.md").symlink_to(outside)
     assert (
         invoke_tool(monkeypatch, "upsert-task", valid_task_payload(slug="linked")) == 1
     )
     assert "refusing to write outside `.jri/tasks/`" in capsys.readouterr().err
 
 
-def test_tool_task_mutations_reject_unsafe_or_conflicting_draft_state(
+def test_tool_task_writes_reject_existing_todo_conflicts_and_removed_tools(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    source = write_draft_task(tmp_path, "source")
-    write_draft_task(tmp_path, "target")
+    write_todo_task(tmp_path, "source")
 
     assert (
-        invoke_tool(
-            monkeypatch, "rename-task", {"from_slug": "source", "to_slug": "source"}
-        )
-        == 0
+        invoke_tool(monkeypatch, "upsert-task", valid_task_payload(slug="source")) == 1
     )
-    assert "already uses slug" in capsys.readouterr().out
-    assert (
-        invoke_tool(
-            monkeypatch, "rename-task", {"from_slug": "missing", "to_slug": "new"}
-        )
-        == 1
-    )
-    assert "does not exist" in capsys.readouterr().err
-    assert (
-        invoke_tool(
-            monkeypatch, "rename-task", {"from_slug": "source", "to_slug": "target"}
-        )
-        == 1
-    )
-    assert "target slug already exists" in capsys.readouterr().err
+    assert "refusing to overwrite existing todo task" in capsys.readouterr().err
 
-    source.unlink()
-    outside = tmp_path / "outside-source.md"
-    outside.write_text("outside", encoding="utf-8")
-    source.symlink_to(outside)
-    assert (
-        invoke_tool(
-            monkeypatch, "rename-task", {"from_slug": "source", "to_slug": "renamed"}
-        )
-        == 1
-    )
-    assert "refusing to write outside `.jri/tasks/`" in capsys.readouterr().err
-
-    assert invoke_tool(monkeypatch, "delete-task", {"slug": "absent"}) == 1
-    assert "does not exist" in capsys.readouterr().err
-    assert invoke_tool(monkeypatch, "delete-task", {"slug": "source"}) == 1
-    assert "refusing to write outside `.jri/tasks/`" in capsys.readouterr().err
-
-    (tmp_path / ".jri" / "tasks" / "todo").mkdir(parents=True, exist_ok=True)
-    (tmp_path / ".jri" / "tasks" / "todo" / "promoted.md").write_text(
-        "todo", encoding="utf-8"
-    )
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "edit-draft-task",
-            {"slug": "promoted", "edits": [{"oldText": "x", "newText": "y"}]},
-        )
-        == 1
-    )
-    assert "refusing to edit promoted task" in capsys.readouterr().err
+    for removed_tool in ("rename-task", "delete-task", "edit-draft-task"):
+        assert invoke_tool(monkeypatch, removed_tool, {"slug": "source"}) == 2
+        assert "expected one tool name" in capsys.readouterr().err
 
 
 def test_tool_list_and_read_tasks_validate_empty_and_filtered_requests(
@@ -368,7 +323,7 @@ def test_tool_list_and_read_tasks_validate_empty_and_filtered_requests(
             self.git = None
 
         def status(self) -> dict[str, list[object]]:
-            return {"draft": [], "todo": [], "doing": [], "done": []}
+            return {"todo": [], "doing": [], "done": []}
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(tools, "JriService", FakeService)
@@ -376,4 +331,4 @@ def test_tool_list_and_read_tasks_validate_empty_and_filtered_requests(
     assert invoke_tool(monkeypatch, "read-tasks", {"slugs": []}) == 1
     assert "non-empty list" in capsys.readouterr().err
     assert invoke_tool(monkeypatch, "list-tasks", {"status": "blocked"}) == 1
-    assert "draft, todo, doing, done" in capsys.readouterr().err
+    assert "todo, doing, done" in capsys.readouterr().err

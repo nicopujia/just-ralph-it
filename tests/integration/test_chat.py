@@ -30,6 +30,12 @@ class FakeAgentRuntimeForChat:
         self.export_calls.append((session_id, destination))
         destination.write_text("{}\n", encoding="utf-8")
 
+    def compile_intent_graph(
+        self, *, root: Path, context: dict[str, object]
+    ) -> dict[str, object]:
+        del root, context
+        raise AssertionError("compile_intent_graph should not be called in chat tests")
+
     def add_session(self, session_id: str, *, root: Path | None = None) -> None:
         session: dict[str, object] = {"id": session_id}
         if root is not None:
@@ -165,7 +171,7 @@ def test_chat_reuses_existing_session_and_exports_it(initialized_repo: Path) -> 
     assert package_root.name != ".pi"
     assert call["package_exists"] is True
     assert call["interrogator_exists"] is True
-    assert call["validator_exists"] is True
+    assert call["validator_exists"] is False
     assert call["explorer_exists"] is True
     assert call["ralph_exists"] is True
     assert call["skill_exists"] is True

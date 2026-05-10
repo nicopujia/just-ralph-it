@@ -65,6 +65,12 @@ class FakeAgentRuntime:
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text("{}\n", encoding="utf-8")
 
+    def compile_intent_graph(
+        self, *, root: Path, context: dict[str, object]
+    ) -> dict[str, object]:
+        del root, context
+        raise AssertionError("compile_intent_graph should not be called in loop tests")
+
 
 class SuccessfulFakeAgentRuntime(FakeAgentRuntime):
     def __init__(self) -> None:
@@ -329,7 +335,9 @@ class InterruptedStartupPiRuntime(PiRuntime):
         *,
         env: dict[str, str] | None = None,
         cwd: Path | None = None,
+        extra_args: list[str] | None = None,
     ) -> None:
+        del extra_args
         self._process = cast(Any, FakeDetachedProcess(989898))
         raise HaltRequested("Ralph halt requested")
 
@@ -350,6 +358,7 @@ class CapturingStartupPiRuntime(InterruptedStartupPiRuntime):
         *,
         env: dict[str, str] | None = None,
         cwd: Path | None = None,
+        extra_args: list[str] | None = None,
     ) -> None:
         assert env is not None
         self.started_env = env
@@ -357,7 +366,7 @@ class CapturingStartupPiRuntime(InterruptedStartupPiRuntime):
         self.manifest_text = (self.package_root / "package.json").read_text(
             encoding="utf-8"
         )
-        super().start(env=env, cwd=cwd)
+        super().start(env=env, cwd=cwd, extra_args=extra_args)
 
 
 class RefreshCapturingPiRuntime(PiRuntime):
@@ -377,7 +386,9 @@ class RefreshCapturingPiRuntime(PiRuntime):
         *,
         env: dict[str, str] | None = None,
         cwd: Path | None = None,
+        extra_args: list[str] | None = None,
     ) -> None:
+        del cwd, extra_args
         assert env is not None
         self.start_package_roots.append(Path(env["JRI_PI_PACKAGE"]))
         self._process = cast(
@@ -1424,7 +1435,7 @@ def test_start_reruns_unverified_completed_attempt(git_repo: Path) -> None:
         title="Recover me",
         priority=0,
         assignee="Ralph",
-        body="This task was incorrectly promoted without durable evidence.",
+        body="This task was incorrectly marked done without durable evidence.",
         acceptance_criteria=["implemented.txt exists"],
     )
     write_task(
@@ -5890,7 +5901,7 @@ def test_private_task_selection_and_path_helpers(git_repo: Path) -> None:
     ]
 
 
-def test_status_helpers_cover_promoted_dependencies(git_repo: Path) -> None:
+def test_status_helpers_cover_lifecycle_dependencies(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -5913,8 +5924,8 @@ def test_status_helpers_cover_promoted_dependencies(git_repo: Path) -> None:
     )
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
-    assert service._promoted_task_slugs() == {"todo-a", "done-a"}
-    assert service._promoted_task_deps()["todo-a"] == ["done-a"]
+    assert service._lifecycle_task_slugs() == {"todo-a", "done-a"}
+    assert service._lifecycle_task_deps()["todo-a"] == ["done-a"]
 
 
 def test_write_template_skips_existing_files(git_repo: Path) -> None:
@@ -6534,7 +6545,7 @@ def test_block_task_on_dependency_does_not_duplicate_existing_dependency(
     assert blocked.metadata.depends_on == ["human-task"]
 
 
-def test_ensure_promoted_task_pristine_reports_mutation(git_repo: Path) -> None:
+def test_ensure_lifecycle_task_pristine_reports_mutation(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     path = write_task(
         git_repo,
@@ -6553,7 +6564,7 @@ def test_ensure_promoted_task_pristine_reports_mutation(git_repo: Path) -> None:
         JriService(
             git_repo,
             agent_runtime=SuccessfulFakeAgentRuntime(),
-        )._ensure_promoted_task_pristine(task, baseline=baseline)
+        )._ensure_lifecycle_task_pristine(task, baseline=baseline)
 
 
 def test_template_resource_parts_strip_managed_root() -> None:

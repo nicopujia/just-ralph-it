@@ -21,7 +21,7 @@ LogLifecycleState = Literal["present", "missing", "recovered"]
 GraphNodeState = Literal["active", "archived"]
 
 TASK_STATUSES: tuple[TaskStatus, ...] = ("todo", "doing", "done")
-PROMOTED_TASK_STATUSES: tuple[TaskStatus, ...] = ("todo", "doing", "done")
+LIFECYCLE_TASK_STATUSES: tuple[TaskStatus, ...] = ("todo", "doing", "done")
 RALPH_RESULT_VALUES: tuple[RalphResult, ...] = (
     "completed",
     "incompleted",

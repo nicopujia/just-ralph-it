@@ -103,6 +103,14 @@ class LifecycleReconciliationFakeAgentRuntime:
             encoding="utf-8",
         )
 
+    def compile_intent_graph(
+        self, *, root: Path, context: dict[str, object]
+    ) -> dict[str, object]:
+        del root, context
+        raise AssertionError(
+            "compile_intent_graph should not be called in lifecycle tests"
+        )
+
 
 def test_lifecycle_reconciliation_regression(
     git_repo: Path,

@@ -10,27 +10,38 @@ from tests.helpers import git
 
 class FakeCompilerRuntime:
     def __init__(self, result: dict[str, object] | None = None) -> None:
-        self.model = None
-        self.result = result or {
-            "tasks": [
+        self.model: str | None = None
+        self.result: dict[str, object] = (
+            result
+            if result is not None
+            else cast(
+                dict[str, object],
                 {
-                    "title": "Build checkout flow",
-                    "priority": 1,
-                    "assignee": "Ralph",
-                    "depends_on": [],
-                    "acceptance_criteria": ["Checkout can be completed"],
-                    "body": "Implement the checkout flow from the graph intent.\n",
+                    "tasks": [
+                        {
+                            "title": "Build checkout flow",
+                            "priority": 1,
+                            "assignee": "Ralph",
+                            "depends_on": [],
+                            "acceptance_criteria": ["Checkout can be completed"],
+                            "body": (
+                                "Implement the checkout flow from the graph intent.\n"
+                            ),
+                        },
+                        {
+                            "title": "Verify checkout flow",
+                            "priority": 2,
+                            "assignee": "Ralph",
+                            "depends_on": ["build-checkout-flow"],
+                            "acceptance_criteria": [
+                                "Checkout verification is documented"
+                            ],
+                            "body": "Verify the checkout flow end to end.\n",
+                        },
+                    ]
                 },
-                {
-                    "title": "Verify checkout flow",
-                    "priority": 2,
-                    "assignee": "Ralph",
-                    "depends_on": ["build-checkout-flow"],
-                    "acceptance_criteria": ["Checkout verification is documented"],
-                    "body": "Verify the checkout flow end to end.\n",
-                },
-            ]
-        }
+            )
+        )
         self.compile_calls: list[dict[str, object]] = []
         self.ralph_calls = 0
 
@@ -58,7 +69,7 @@ class FakeCompilerRuntime:
         self, *, root: Path, context: dict[str, object]
     ) -> dict[str, object]:
         self.compile_calls.append(context)
-        return cast(dict[str, object], self.result)
+        return self.result
 
 
 class FailingCommitService(JriService):

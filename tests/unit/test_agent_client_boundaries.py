@@ -485,20 +485,28 @@ def test_pi_runtime_compile_intent_graph_rejects_non_json_output(
         runtime._process = cast(Any, FakeProcess())
 
     monkeypatch.setattr(runtime, "start", fake_start)
-    monkeypatch.setattr(
-        runtime,
-        "_rpc_request",
-        lambda command, extra=None: {
+
+    def fake_rpc_request(
+        command: str, extra: dict[str, object] | None = None
+    ) -> dict[str, object]:
+        del extra
+        return {
             "type": "response",
             "command": command,
             "success": True,
-        },
-    )
+        }
+
     events: list[dict[str, object]] = [
         {"type": "message_update", "text": "not json"},
         {"type": "agent_end"},
     ]
-    monkeypatch.setattr(runtime, "_read_rpc_line", lambda *, timeout: events.pop(0))
+
+    def fake_read_rpc_line(*, timeout: float) -> dict[str, object]:
+        del timeout
+        return events.pop(0)
+
+    monkeypatch.setattr(runtime, "_rpc_request", fake_rpc_request)
+    monkeypatch.setattr(runtime, "_read_rpc_line", fake_read_rpc_line)
 
     with pytest.raises(JriError, match="compiler did not return valid JSON"):
         runtime.compile_intent_graph(root=tmp_path, context={})

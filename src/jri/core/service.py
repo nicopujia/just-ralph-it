@@ -173,7 +173,7 @@ class JriService:
         self,
         root: Path,
         *,
-        agent_runtime: AgentRuntime | None = None,
+        agent_runtime: Any | None = None,
     ) -> None:
         self.root = root.resolve()
         self.paths = JriPaths(self.root)
@@ -181,7 +181,9 @@ class JriService:
         self.state_store = StateStore(self.paths.state_path)
         self.timeline = TimelineStore(self.paths.timeline_path)
         self.metrics = MetricsStore(self.paths.metrics_path)
-        self.agent_runtime = agent_runtime or PiRuntime()
+        self.agent_runtime: AgentRuntime = cast(
+            AgentRuntime, agent_runtime or PiRuntime()
+        )
         self._halt_requested = False
         self._previous_agent_model: str | None = None
 
@@ -652,7 +654,7 @@ class JriService:
         if not isinstance(errors, list) or not errors:
             raise ValueError("compiler failure must include non-empty `errors`")
         normalized: list[dict[str, object]] = []
-        for index, error in enumerate(errors):
+        for index, error in enumerate(cast(list[object], errors)):
             if not isinstance(error, dict):
                 raise ValueError(f"compiler error[{index}] must be an object")
             item = cast(dict[str, object], error)
@@ -670,7 +672,8 @@ class JriService:
                 not isinstance(plausible, list)
                 or not plausible
                 or any(
-                    not isinstance(item, str) or not item.strip() for item in plausible
+                    not isinstance(candidate, str) or not candidate.strip()
+                    for candidate in cast(list[object], plausible)
                 )
             ):
                 raise ValueError(
@@ -697,7 +700,7 @@ class JriService:
         if not isinstance(raw_tasks, list) or not raw_tasks:
             raise ValueError("compiler output must include non-empty `tasks`")
         specs: list[CompilerTaskSpec] = []
-        for index, raw_task in enumerate(raw_tasks):
+        for index, raw_task in enumerate(cast(list[object], raw_tasks)):
             if not isinstance(raw_task, dict):
                 raise ValueError(f"task[{index}] must be an object")
             task = cast(dict[str, object], raw_task)
@@ -732,7 +735,7 @@ class JriService:
     ) -> list[str]:
         value = task.get(key)
         if not isinstance(value, list) or any(
-            not isinstance(item, str) for item in value
+            not isinstance(item, str) for item in cast(list[object], value)
         ):
             raise ValueError(f"task[{index}] `{key}` must be a string array")
         return cast(list[str], value)
@@ -1059,13 +1062,13 @@ class JriService:
                     return status, task
         return None
 
-    def _promoted_task_slugs(self) -> set[str]:
+    def _lifecycle_task_slugs(self) -> set[str]:
         slugs: set[str] = set()
         for status in ("todo", "doing", "done"):
             slugs.update(task.slug for task in self._list_tasks(status))
         return slugs
 
-    def _promoted_task_deps(self) -> dict[str, list[str]]:
+    def _lifecycle_task_deps(self) -> dict[str, list[str]]:
         deps: dict[str, list[str]] = {}
         for status in ("todo", "doing", "done"):
             for task in self._list_tasks(status):
@@ -3087,12 +3090,12 @@ class JriService:
         diff_path.parent.mkdir(parents=True, exist_ok=True)
         diff_path.write_text(diff_text, encoding="utf-8")
 
-    def _ensure_promoted_task_pristine(self, task: Task, *, baseline: str) -> None:
+    def _ensure_lifecycle_task_pristine(self, task: Task, *, baseline: str) -> None:
         if task.path.read_text(encoding="utf-8") == baseline:
             return
         relative_path = self.git.relative_path(task.path)
         raise JriError(
-            f"promoted task file `{relative_path}` was modified in place; "
+            f"lifecycle task file `{relative_path}` was modified in place; "
             "create a follow-up todo task instead"
         )
 

@@ -521,7 +521,7 @@ Wave 4: Final verification wave F1-F4.
 
   **Commit**: YES | Message: `docs: describe intent graph architecture` | Files: [`docs/arch.md`, `src/jri/core/agents/bundle/*/prompt.md`, `src/jri/core/agents/bundle/*/tools.ts`]
 
-- [ ] 11. End-to-end cleanup, dependency lock, and full regression
+- [x] 11. End-to-end cleanup, dependency lock, and full regression
 
   **What to do**: Finish integration cleanup after all architectural changes. Remove obsolete tests/fixtures tied to draft tasks or rewrite them to graph/compiler behavior. Ensure `uv.lock` reflects removed `jsonschema`. Run targeted suites, then `make check`. Fix any regressions. Ensure no generated artifacts are accidentally committed except intended source/test/docs changes.
   **Must NOT do**: Do not skip failing legacy tests by deleting meaningful coverage; replace draft coverage with graph/compiler coverage.

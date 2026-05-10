@@ -10,7 +10,7 @@ from yaml.events import DocumentEndEvent
 from .git import GitRepo
 from .models import CompilerTaskSpec, Task, TaskMetadata
 
-_PROMOTED_TASK_STATUSES = frozenset({"todo", "doing", "done"})
+_LIFECYCLE_TASK_STATUSES = frozenset({"todo", "doing", "done"})
 
 
 def validate_task_metadata(payload: dict[str, object]) -> TaskMetadata:
@@ -83,10 +83,11 @@ def _validate_string_list_field(
     if not isinstance(value, list):
         errors.append(f"`{field_name}` must be an array")
         return
-    for index, item in enumerate(value):
+    items = cast(list[object], value)
+    for index, item in enumerate(items):
         if not isinstance(item, str):
             errors.append(f"`{field_name}[{index}]` must be a string")
-    if unique and len(value) != len(set(value)):
+    if unique and len(items) != len(set(items)):
         errors.append(f"`{field_name}` must contain unique items")
 
 
@@ -115,7 +116,7 @@ def _validate_state_payload(payload: dict[str, object]) -> list[str]:
         if not isinstance(attempts, list):
             errors.append("`attempts` must be an array")
         else:
-            for index, attempt in enumerate(attempts):
+            for index, attempt in enumerate(cast(list[object], attempts)):
                 _validate_attempt_payload(attempt, f"attempts[{index}]", errors)
     return errors
 
@@ -240,7 +241,7 @@ def _validate_result_payload(value: object, label: str, errors: list[str]) -> No
         if not isinstance(learnings, list):
             errors.append(f"`{label}.learnings` must be an array")
         else:
-            for index, item in enumerate(learnings):
+            for index, item in enumerate(cast(list[object], learnings)):
                 if not isinstance(item, str):
                     errors.append(f"`{label}.learnings[{index}]` must be a string")
     if "human_task" in payload:
@@ -320,7 +321,7 @@ def _validate_task_batch(root: Path, specs: list[CompilerTaskSpec]) -> list[Task
             )
         )
 
-    existing_slugs = _existing_promoted_task_slugs(repo_root)
+    existing_slugs = _existing_lifecycle_task_slugs(repo_root)
     for task in tasks:
         if task.slug in existing_slugs:
             raise ValueError(
@@ -340,7 +341,7 @@ def _validate_task_batch(root: Path, specs: list[CompilerTaskSpec]) -> list[Task
 
 
 def _validate_compiler_task_spec(index: int, spec: CompilerTaskSpec) -> TaskMetadata:
-    if not isinstance(spec.body, str) or not spec.body.strip():
+    if not spec.body.strip():
         raise ValueError(f"task[{index}] `body` must be a non-empty string")
     payload: dict[str, object] = {
         "title": spec.title,
@@ -355,9 +356,9 @@ def _validate_compiler_task_spec(index: int, spec: CompilerTaskSpec) -> TaskMeta
         raise ValueError(f"task[{index}] {exc}") from exc
 
 
-def _existing_promoted_task_slugs(root: Path) -> set[str]:
+def _existing_lifecycle_task_slugs(root: Path) -> set[str]:
     slugs: set[str] = set()
-    for status in sorted(_PROMOTED_TASK_STATUSES):
+    for status in sorted(_LIFECYCLE_TASK_STATUSES):
         task_dir = root / ".jri" / "tasks" / status
         if not task_dir.exists():
             continue
@@ -367,7 +368,7 @@ def _existing_promoted_task_slugs(root: Path) -> set[str]:
 
 
 def _slugify_task_title(title: str) -> str:
-    if not isinstance(title, str) or not title.strip():
+    if not title.strip():
         raise ValueError("`title` must be a non-empty string")
     slug = title.strip().lower()
     slug = re.sub(r"[^a-z0-9._-]+", "-", slug)
@@ -379,7 +380,7 @@ def _slugify_task_title(title: str) -> str:
 
 
 def _validate_task_slug(label: str, slug: str) -> str:
-    if not isinstance(slug, str) or not slug.strip():
+    if not slug.strip():
         raise ValueError(f"`{label}` must be a non-empty string")
     normalized = slug.strip()
     if not _VALID_SLUG.match(normalized):
@@ -430,11 +431,11 @@ def list_tasks(directory: Path, *, git_repo: GitRepo | None = None) -> list[Task
     if not directory.exists():
         return []
     tasks: list[Task] = []
-    enforce_append_only = directory.name in _PROMOTED_TASK_STATUSES
+    enforce_append_only = directory.name in _LIFECYCLE_TASK_STATUSES
     for path in directory.glob("*.md"):
         try:
             if git_repo is not None and enforce_append_only:
-                _ensure_append_only_promoted_task(path, git_repo)
+                _ensure_append_only_lifecycle_task(path, git_repo)
             tasks.append(parse_task_file(path))
         except ValueError as exc:
             raise ValueError(f"malformed task file `{path.name}`: {exc}") from exc
@@ -445,19 +446,19 @@ def list_tasks(directory: Path, *, git_repo: GitRepo | None = None) -> list[Task
 def _validate_acceptance_criteria_for_status(
     path: Path, metadata: TaskMetadata
 ) -> None:
-    if path.parent.name not in _PROMOTED_TASK_STATUSES:
+    if path.parent.name not in _LIFECYCLE_TASK_STATUSES:
         return
     if metadata.acceptance_criteria:
         return
-    raise ValueError("promoted tasks must include non-empty acceptance_criteria")
+    raise ValueError("lifecycle tasks must include non-empty acceptance_criteria")
 
 
-def _ensure_append_only_promoted_task(path: Path, git_repo: GitRepo) -> None:
+def _ensure_append_only_lifecycle_task(path: Path, git_repo: GitRepo) -> None:
     if git_repo.path_matches_head(path):
         return
     relative_path = git_repo.relative_path(path)
     raise ValueError(
-        f"promoted task file `{relative_path}` was modified in place; "
+        f"lifecycle task file `{relative_path}` was modified in place; "
         "create a follow-up todo task instead"
     )
 

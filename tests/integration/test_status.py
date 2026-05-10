@@ -312,7 +312,7 @@ def test_status_shows_human_tasks_across_tracked_states(
     assert "[done  ] [P3] human-done" in out
 
 
-def test_status_rejects_in_place_mutation_of_promoted_task(
+def test_status_rejects_in_place_mutation_of_lifecycle_task(
     git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _init(git_repo)

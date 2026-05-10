@@ -1,9 +1,9 @@
 """Integration self-hosting proof for a JRI-shaped repository.
 
-Demonstrates the full JRI lifecycle - idea to task to loop - against a
-repository that mirrors this project's own structure. Three tasks with a
-dependency chain are promoted from draft to todo, then the Ralph loop
-executes them all without manual intervention.
+Demonstrates the full JRI lifecycle - idea to executable todo tasks to
+loop - against a repository that mirrors this project's own structure. Three
+todo tasks with a dependency chain are committed, then the Ralph loop executes
+them all without manual intervention.
 
 Run with:
 
@@ -94,8 +94,8 @@ def test_self_hosting_proof_idea_to_convergence(git_repo: Path) -> None:
     # Phase 1: scaffold a repo that mirrors this project's shape
     _setup_project_structure(git_repo)
 
-    # Phase 2: idea -> task (create drafts, then promote to todo)
-    _create_and_promote_tasks(git_repo)
+    # Phase 2: idea -> executable todo task chain
+    _create_executable_todo_tasks(git_repo)
 
     # Phase 3: loop (the runtime executes the full task pipeline)
     client = _SelfHostingFakeClient()
@@ -160,8 +160,8 @@ _TASK_SPECS: list[tuple[str, str, int, list[str], str, list[str]]] = [
 ]
 
 
-def _create_and_promote_tasks(repo: Path) -> None:
-    """Simulate the idea-to-task lifecycle: create executable todo tasks."""
+def _create_executable_todo_tasks(repo: Path) -> None:
+    """Simulate compilation into executable todo tasks."""
     for slug, title, priority, depends_on, body, criteria in _TASK_SPECS:
         write_task(
             repo,

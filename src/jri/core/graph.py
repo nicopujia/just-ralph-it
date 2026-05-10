@@ -80,13 +80,13 @@ class GraphStore:
             metadata=metadata,
             body=body,
         )
-        self._write_node(node)
+        self.write_node(node)
         return node
 
     def read_node(self, path: str, depth: int = 1) -> GraphNodeRead:
         if depth < 0:
             raise ValueError("read depth must be non-negative")
-        node = self._read_existing_node(path)
+        node = self.read_existing_node(path)
         children = tuple(self._child_summaries(node.semantic_path, depth))
         return GraphNodeRead(
             path=node.path,
@@ -104,7 +104,7 @@ class GraphStore:
         state: GraphNodeState | None = None,
         archive_reason: str | None = None,
     ) -> GraphNode:
-        node = self._read_existing_node(path)
+        node = self.read_existing_node(path)
         next_state = state if state is not None else node.metadata.state
         payload: dict[str, object] = {
             "title": title if title is not None else node.metadata.title,
@@ -122,11 +122,11 @@ class GraphStore:
             metadata=metadata,
             body=node.body,
         )
-        self._write_node(updated)
+        self.write_node(updated)
         return updated
 
     def move_node(self, source: str, destination: str) -> GraphNode:
-        if not isinstance(source, str) or not source.strip():
+        if not source.strip():
             raise ValueError("cannot move graph root")
         source_path = validate_graph_path(source)
         destination_path = validate_graph_path(destination)
@@ -148,9 +148,9 @@ class GraphStore:
         self._create_missing_parent_nodes(destination_path)
         destination_dir.parent.mkdir(parents=True, exist_ok=True)
         source_dir.replace(destination_dir)
-        return self._read_existing_node(destination_path)
+        return self.read_existing_node(destination_path)
 
-    def _read_existing_node(self, path: str) -> GraphNode:
+    def read_existing_node(self, path: str) -> GraphNode:
         canonical_path = validate_graph_path(path)
         node_path = graph_node_path(self.root, canonical_path)
         if not node_path.exists():
@@ -173,7 +173,7 @@ class GraphStore:
                 ),
                 body="",
             )
-            self._write_node(node)
+            self.write_node(node)
 
     def _child_summaries(self, parent_path: str, depth: int) -> list[GraphChildSummary]:
         if depth == 0:
@@ -204,7 +204,7 @@ class GraphStore:
                 summaries.extend(self._child_summaries(child.semantic_path, depth - 1))
         return summaries
 
-    def _write_node(self, node: GraphNode) -> None:
+    def write_node(self, node: GraphNode) -> None:
         node.path.parent.mkdir(parents=True, exist_ok=True)
         text = dump_graph_node(node)
         temp_path = node.path.with_name(f".{node.path.name}.tmp")
@@ -221,7 +221,7 @@ def apply_graph_patch(store: GraphStore, patch_text: str) -> GraphPatchSummary:
     planned: list[tuple[GraphNode, str, int, int]] = []
 
     for operation in operations:
-        node = store._read_existing_node(operation.path)
+        node = store.read_existing_node(operation.path)
         next_body, additions, deletions = _apply_graph_patch_hunks(
             node.body, node.semantic_path, operation.hunks
         )
@@ -238,7 +238,7 @@ def apply_graph_patch(store: GraphStore, patch_text: str) -> GraphPatchSummary:
             metadata=node.metadata,
             body=next_body,
         )
-        store._write_node(updated)
+        store.write_node(updated)
         summaries.append(
             GraphPatchNodeSummary(
                 path=node.semantic_path, additions=additions, deletions=deletions
@@ -249,7 +249,7 @@ def apply_graph_patch(store: GraphStore, patch_text: str) -> GraphPatchSummary:
 
 
 def _parse_graph_patch(patch_text: str) -> tuple[_GraphPatchOperation, ...]:
-    if not isinstance(patch_text, str) or not patch_text.strip():
+    if not patch_text.strip():
         raise ValueError("empty patch")
 
     normalized = patch_text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
@@ -422,7 +422,7 @@ def _fsync_directory(directory: Path) -> None:
 
 
 def validate_graph_path(raw_path: str) -> str:
-    if not isinstance(raw_path, str) or not raw_path.strip():
+    if not raw_path.strip():
         raise ValueError("graph path must be a non-empty string")
     if raw_path != raw_path.strip():
         raise ValueError("graph path must not contain leading or trailing whitespace")

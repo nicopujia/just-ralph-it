@@ -965,7 +965,7 @@ def _message_content_text(content: object) -> str:
     if not isinstance(content, list):
         return ""
     parts: list[str] = []
-    for item in content:
+    for item in cast(list[object], content):
         if not isinstance(item, dict):
             continue
         item = cast(dict[str, object], item)

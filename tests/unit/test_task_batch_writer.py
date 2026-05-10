@@ -110,7 +110,7 @@ def test_create_task_batch_rejects_missing_acceptance_criteria(tmp_path: Path) -
     assert not task_path(repo, "build-api").exists()
 
 
-def test_create_task_batch_rejects_existing_promoted_task(tmp_path: Path) -> None:
+def test_create_task_batch_rejects_existing_lifecycle_task(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     (repo / ".jri" / "tasks" / "doing").mkdir(parents=True)
     existing = write_task(
