@@ -89,6 +89,16 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 total = sum(len(t) for t in tasks_by_status.values())
                 print(f"Tasks: {total} total")
                 print(service.ralph_status_summary())
+                graph_status = service.graph_status()
+                graph_summary = (
+                    f"Graph: {graph_status.active_count} active, "
+                    f"{graph_status.archived_count} archived"
+                )
+                if graph_status.malformed_count:
+                    graph_summary += f", {graph_status.malformed_count} malformed"
+                print(graph_summary)
+                for error in graph_status.errors:
+                    print(f"  {error}")
                 print(f"Action needed: {service.status_action_needed(tasks_by_status)}")
                 print()
                 max_label = max(len(s) for s in tasks_by_status)

@@ -37,6 +37,17 @@ class GraphPatchSummary:
 
 
 @dataclass(frozen=True)
+class GraphCheckResult:
+    active_count: int
+    archived_count: int
+    errors: tuple[str, ...]
+
+    @property
+    def malformed_count(self) -> int:
+        return len(self.errors)
+
+
+@dataclass(frozen=True)
 class _GraphPatchHunk:
     old_lines: tuple[str, ...]
     new_lines: tuple[str, ...]
@@ -517,3 +528,113 @@ def _split_node_frontmatter(text: str) -> tuple[dict[str, object], str]:
     if not isinstance(loaded, dict):
         raise ValueError("node frontmatter must be an object")
     return cast(dict[str, object], loaded), body
+
+
+def check_graph_tree(root: Path) -> GraphCheckResult:
+    graph_dir = root.resolve(strict=False) / ".jri" / "graph"
+    if not graph_dir.exists():
+        return GraphCheckResult(active_count=0, archived_count=0, errors=())
+    if graph_dir.is_symlink():
+        return GraphCheckResult(
+            active_count=0,
+            archived_count=0,
+            errors=(".jri/graph: symlink escapes .jri/graph",),
+        )
+    if not graph_dir.is_dir():
+        return GraphCheckResult(
+            active_count=0,
+            archived_count=0,
+            errors=(".jri/graph: expected directory",),
+        )
+
+    active_count = 0
+    archived_count = 0
+    errors: list[str] = []
+    pending = [graph_dir]
+
+    while pending:
+        directory = pending.pop()
+        relative_directory = directory.relative_to(graph_dir)
+        semantic_path = _graph_relative_path(relative_directory)
+        path_is_valid = True
+        if semantic_path:
+            try:
+                validate_graph_path(semantic_path)
+            except ValueError as exc:
+                path_is_valid = False
+                errors.append(f"{semantic_path}: {exc}")
+
+        entries = sorted(directory.iterdir(), key=lambda item: item.name)
+        if semantic_path and path_is_valid:
+            node_path = directory / "NODE.md"
+            if not node_path.exists():
+                errors.append(f"{semantic_path}: missing NODE.md")
+            elif node_path.is_symlink():
+                if _path_escapes(node_path, graph_dir):
+                    errors.append(
+                        f"{semantic_path}/NODE.md: symlink escapes .jri/graph"
+                    )
+                else:
+                    errors.append(
+                        f"{semantic_path}/NODE.md: "
+                        "symlinked graph entries are unsupported"
+                    )
+            elif node_path.is_file():
+                try:
+                    node = parse_graph_node_file(root, semantic_path)
+                except ValueError as exc:
+                    errors.append(f"{semantic_path}/NODE.md: {exc}")
+                else:
+                    if node.metadata.state == "active":
+                        active_count += 1
+                    else:
+                        archived_count += 1
+
+        for entry in entries:
+            entry_relative = _graph_relative_path(entry.relative_to(graph_dir))
+            if entry.is_symlink():
+                if semantic_path and entry.name == "NODE.md":
+                    continue
+                if _path_escapes(entry, graph_dir):
+                    errors.append(f"{entry_relative}: symlink escapes .jri/graph")
+                else:
+                    errors.append(
+                        f"{entry_relative}: symlinked graph entries are unsupported"
+                    )
+                continue
+            if entry.is_dir():
+                pending.append(entry)
+                continue
+            if semantic_path:
+                if entry.name != "NODE.md":
+                    errors.append(
+                        f"{entry_relative}: unexpected file in graph node directory"
+                    )
+            elif entry.name != "MANIFEST.json":
+                errors.append(f"{entry_relative}: unexpected file in graph root")
+
+    return GraphCheckResult(
+        active_count=active_count,
+        archived_count=archived_count,
+        errors=tuple(sorted(errors)),
+    )
+
+
+def validate_graph_tree(root: Path) -> None:
+    result = check_graph_tree(root)
+    if result.errors:
+        raise ValueError("; ".join(result.errors))
+
+
+def _graph_relative_path(path: Path) -> str:
+    if str(path) == ".":
+        return ""
+    return path.as_posix()
+
+
+def _path_escapes(path: Path, graph_dir: Path) -> bool:
+    try:
+        path.resolve(strict=False).relative_to(graph_dir)
+    except ValueError:
+        return True
+    return False

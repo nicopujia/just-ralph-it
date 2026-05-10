@@ -47,6 +47,7 @@ from .git import (
     parse_tag_name,
     tag_name,
 )
+from .graph import GraphCheckResult, check_graph_tree
 from .metrics import MetricEntry, MetricsStore
 from .models import (
     ATTEMPT_RESULT_VALUES,
@@ -506,6 +507,10 @@ class JriService:
             }
         except ValueError as exc:
             raise JriError(str(exc)) from exc
+
+    def graph_status(self) -> GraphCheckResult:
+        self.ensure_initialized()
+        return check_graph_tree(self.root)
 
     def status_action_needed(self, tasks_by_status: dict[str, list[Task]]) -> str:
         self.ensure_initialized()

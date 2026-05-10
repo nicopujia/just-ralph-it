@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import cast
 
 from jri.core.git import GitRepo
+from jri.core.graph import validate_graph_tree
 from jri.core.tasks import list_tasks, validate_state_payload
 
 _TASK_STATUSES = ("todo", "doing", "done")
@@ -13,6 +14,7 @@ _TASK_STATUSES = ("todo", "doing", "done")
 def validate_repo(root: Path) -> None:
     validate_task_tree(root)
     validate_state_file(root)
+    validate_graph_tree(root)
 
 
 def validate_task_tree(root: Path) -> None:

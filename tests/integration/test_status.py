@@ -13,6 +13,24 @@ def _init(repo: Path) -> None:
     run_cli(["init"], cwd=repo)
 
 
+def _write_graph_node(
+    repo: Path,
+    semantic_path: str,
+    *,
+    title: str = "Node",
+    state: str = "active",
+    archive_reason: str | None = None,
+) -> Path:
+    node_path = repo / ".jri" / "graph" / semantic_path / "NODE.md"
+    node_path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["---", f"title: {title}", f"state: {state}"]
+    if archive_reason is not None:
+        lines.append(f"archive_reason: {archive_reason}")
+    lines.extend(["---", "", "Body\n"])
+    node_path.write_text("\n".join(lines), encoding="utf-8")
+    return node_path
+
+
 def test_status_shows_counts_and_human_tasks(
     git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -165,7 +183,6 @@ def test_status_empty_project(
     out = capsys.readouterr().out
     assert "Tasks: 0 total" in out
     assert "Ralph: not running" in out
-    assert "draft" in out
     assert "todo" in out
     assert "doing" in out
     assert "done" in out
@@ -251,20 +268,11 @@ def test_status_shows_stale_doing_without_tracked_process(
     )
 
 
-def test_status_shows_human_tasks_across_all_states(
+def test_status_shows_human_tasks_across_tracked_states(
     git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Human tasks in any state (draft, todo, doing, done) are shown."""
+    """Human tasks in tracked states (todo, doing, done) are shown."""
     _init(git_repo)
-    write_task(
-        git_repo,
-        status="draft",
-        slug="human-draft",
-        title="Human draft",
-        priority=0,
-        assignee="Human",
-        body="draft",
-    )
     write_task(
         git_repo,
         status="todo",
@@ -296,10 +304,8 @@ def test_status_shows_human_tasks_across_all_states(
     rc = run_cli(["status"], cwd=git_repo)
     assert rc == 0
     out = capsys.readouterr().out
-    # All Human tasks should appear with their status
     assert "Actionable Human tasks:" in out
     assert "Completed Human tasks:" in out
-    assert "[draft ] [P0] human-draft" in out
     assert "[todo  ] [P1] human-todo" in out
     assert "[doing ] [P2] human-doing" in out
     assert "[done  ] [P3] human-done" in out
@@ -368,3 +374,38 @@ def test_status_hides_metrics_when_none(
     assert rc == 0
     out = capsys.readouterr().out
     assert "metrics:" not in out
+
+
+def test_status_shows_graph_counts(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init(git_repo)
+    _write_graph_node(git_repo, "product", title="Product")
+    _write_graph_node(
+        git_repo,
+        "product/old",
+        title="Old",
+        state="archived",
+        archive_reason="Replaced",
+    )
+
+    rc = run_cli(["status"], cwd=git_repo)
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Graph: 1 active, 1 archived" in out
+    assert "malformed" not in out
+
+
+def test_status_reports_invalid_graph_errors(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init(git_repo)
+    (git_repo / ".jri" / "graph" / "product").mkdir(parents=True)
+
+    rc = run_cli(["status"], cwd=git_repo)
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "Graph: 0 active, 0 archived, 1 malformed" in out
+    assert "product: missing NODE.md" in out
