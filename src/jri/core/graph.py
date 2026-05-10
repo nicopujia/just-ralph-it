@@ -166,22 +166,26 @@ class GraphStore:
     def _create_missing_parent_nodes(self, semantic_path: str) -> tuple[str, ...]:
         parts = validate_graph_path(semantic_path).split("/")[:-1]
         created: list[str] = []
-        for index in range(1, len(parts) + 1):
-            parent_path = "/".join(parts[:index])
-            node_path = graph_node_path(self.root, parent_path)
-            if node_path.exists():
-                continue
-            node_path.parent.mkdir(parents=True, exist_ok=True)
-            node = GraphNode(
-                path=node_path,
-                semantic_path=parent_path,
-                metadata=GraphNodeMetadata(
-                    title=_title_from_segment(parts[index - 1]), state="active"
-                ),
-                body="",
-            )
-            self.write_node(node)
-            created.append(parent_path)
+        try:
+            for index in range(1, len(parts) + 1):
+                parent_path = "/".join(parts[:index])
+                node_path = graph_node_path(self.root, parent_path)
+                if node_path.exists():
+                    continue
+                created.append(parent_path)
+                node_path.parent.mkdir(parents=True, exist_ok=True)
+                node = GraphNode(
+                    path=node_path,
+                    semantic_path=parent_path,
+                    metadata=GraphNodeMetadata(
+                        title=_title_from_segment(parts[index - 1]), state="active"
+                    ),
+                    body="",
+                )
+                self.write_node(node)
+        except Exception:
+            self._remove_created_parent_nodes(tuple(created))
+            raise
         return tuple(created)
 
     def _remove_created_parent_nodes(self, semantic_paths: tuple[str, ...]) -> None:
@@ -263,8 +267,8 @@ def apply_graph_patch(store: GraphStore, patch_text: str) -> GraphPatchSummary:
                 metadata=node.metadata,
                 body=next_body,
             )
-            store.write_node(updated)
             written_originals.append(node)
+            store.write_node(updated)
             summaries.append(
                 GraphPatchNodeSummary(
                     path=node.semantic_path, additions=additions, deletions=deletions

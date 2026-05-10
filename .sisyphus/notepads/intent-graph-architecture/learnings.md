@@ -94,3 +94,8 @@
 - Interrogator direct todo creation exposure is removed from both the TypeScript chat tool registration and the managed `jri chat` Pi tool allowlist; task-writing handlers remain only on the shared dispatch surface for non-Interrogator coverage.
 - Graph node persistence now uses exclusive per-write temp files in the target node directory, so a pre-existing `.NODE.md.tmp` symlink is not followed or overwritten.
 - Multi-node graph patches roll back previously written nodes if a later write fails, and move failures clean up newly auto-created destination parent nodes while preserving the source subtree.
+
+## 2026-05-09 Task: final-rollback-gap-fixes
+- Graph patch rollback now records each original node before attempting its write, covering failures that occur after the current node replacement but before `write_node` returns.
+- Destination parent auto-creation now cleans up already-created parents if a later parent write fails before `move_node` reaches the subtree replace.
+- Regression coverage forces post-replacement graph patch failure and partway parent-creation failure, asserting original graph bodies and source subtrees are restored.

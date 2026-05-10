@@ -268,6 +268,40 @@ def test_apply_graph_patch_write_failure_restores_earlier_nodes(
     assert store.read_node("auth/session").body == "Old session\n"
 
 
+def test_apply_graph_patch_post_replace_failure_restores_current_node(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = GraphStore(tmp_path)
+    store.create_node("auth/oauth", "OAuth", "Old OAuth\n")
+    store.create_node("auth/session", "Session", "Old session\n")
+    original_write_node = store.write_node
+
+    def fail_after_session_replacement(node: GraphNode) -> None:
+        original_write_node(node)
+        if node.semantic_path == "auth/session" and node.body == "New session\n":
+            raise OSError("forced post-replace failure")
+
+    monkeypatch.setattr(store, "write_node", fail_after_session_replacement)
+
+    with pytest.raises(OSError, match="forced post-replace failure"):
+        apply_graph_patch(
+            store,
+            """*** Begin Graph Patch
+*** Update Node: auth/oauth
+@@
+-Old OAuth
++New OAuth
+*** Update Node: auth/session
+@@
+-Old session
++New session
+*** End Graph Patch""",
+        )
+
+    assert store.read_node("auth/oauth").body == "Old OAuth\n"
+    assert store.read_node("auth/session").body == "Old session\n"
+
+
 def test_apply_graph_patch_allows_empty_final_body(tmp_path: Path) -> None:
     store = GraphStore(tmp_path)
     store.create_node("auth/oauth", "OAuth", "Only line\n")

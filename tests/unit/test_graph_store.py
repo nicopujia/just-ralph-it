@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 
 from jri.core.graph import GraphStore, parse_graph_node_file
-from jri.core.models import GraphNodeMetadata
+from jri.core.models import GraphNode, GraphNodeMetadata
 
 
 def test_create_node_creates_parents(
@@ -174,6 +174,29 @@ def test_move_node_failure_removes_auto_created_destination_parents(
     monkeypatch.setattr(Path, "replace", fail_move)
 
     with pytest.raises(OSError, match="forced move failure"):
+        store.move_node("product/checkout", "platform/shop/checkout")
+
+    assert store.read_node("product/checkout").body == "Checkout body\n"
+    with pytest.raises(FileNotFoundError, match="not found"):
+        store.read_node("platform")
+    assert not (tmp_path / ".jri" / "graph" / "platform").exists()
+
+
+def test_move_node_parent_creation_failure_removes_partial_destination_parents(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = GraphStore(tmp_path)
+    store.create_node("product/checkout", "Checkout", "Checkout body\n")
+    original_write_node = store.write_node
+
+    def fail_on_second_parent(node: GraphNode) -> None:
+        if node.semantic_path == "platform/shop":
+            raise OSError("forced parent creation failure")
+        original_write_node(node)
+
+    monkeypatch.setattr(store, "write_node", fail_on_second_parent)
+
+    with pytest.raises(OSError, match="forced parent creation failure"):
         store.move_node("product/checkout", "platform/shop/checkout")
 
     assert store.read_node("product/checkout").body == "Checkout body\n"
