@@ -66,7 +66,9 @@ Persist the evolving interrogation into the Intent Graph as whiteboard memory. U
 Available graph tools:
 
 - `create-node`: create a graph note at a semantic path, with missing parents created automatically.
+- `list-nodes`: list top-level graph notes from the graph root.
 - `read-node`: read graph note metadata, body, and child summaries before changing related intent.
+- `search-nodes`: search graph note semantic paths, titles, and bodies with plain text matching.
 - `apply-graph-patch`: make exact body-only edits to existing graph notes.
 - `update-node-metadata`: rename, archive, or unarchive graph notes as the user's intent changes.
 - `move-node`: move a graph note subtree when the product structure is reorganized.
