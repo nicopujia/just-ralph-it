@@ -1,3 +1,4 @@
+import os
 import re
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -7,7 +8,7 @@ import yaml
 from yaml.events import DocumentEndEvent
 
 from .git import GitRepo
-from .models import Task, TaskMetadata
+from .models import CompilerTaskSpec, Task, TaskMetadata
 
 _PROMOTED_TASK_STATUSES = frozenset({"todo", "doing", "done"})
 
@@ -269,6 +270,145 @@ def _validate_human_task_payload(value: object, label: str, errors: list[str]) -
 
 
 _VALID_SLUG = re.compile(r"^[a-zA-Z0-9][-a-zA-Z0-9_.]*$")
+
+
+def create_task_batch(root: Path, specs: list[CompilerTaskSpec]) -> list[Task]:
+    tasks = _validate_task_batch(root, specs)
+    todo_dir = _ensure_real_directory(root.resolve() / ".jri" / "tasks" / "todo")
+    written_paths: list[Path] = []
+    try:
+        for task in tasks:
+            task_path = _task_path_within(todo_dir, task.slug)
+            task_to_write = Task(
+                path=task_path,
+                slug=task.slug,
+                metadata=task.metadata,
+                body=task.body,
+            )
+            written_paths.append(task_path)
+            task_path.write_text(dump_task(task_to_write), encoding="utf-8")
+    except Exception:
+        for path in reversed(written_paths):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        raise
+    return [parse_task_file(task.path) for task in tasks]
+
+
+def _validate_task_batch(root: Path, specs: list[CompilerTaskSpec]) -> list[Task]:
+    repo_root = root.resolve()
+    tasks: list[Task] = []
+    batch_slugs: set[str] = set()
+    for index, spec in enumerate(specs):
+        slug = _slugify_task_title(spec.title)
+        if slug in batch_slugs:
+            raise ValueError(f"duplicate task slug `{slug}` in compiler batch")
+        batch_slugs.add(slug)
+        metadata = _validate_compiler_task_spec(index, spec)
+        if not metadata.acceptance_criteria:
+            raise ValueError(
+                f"task `{slug}` acceptance_criteria must be a non-empty list"
+            )
+        tasks.append(
+            Task(
+                path=repo_root / ".jri" / "tasks" / "todo" / f"{slug}.md",
+                slug=slug,
+                metadata=metadata,
+                body=spec.body,
+            )
+        )
+
+    existing_slugs = _existing_promoted_task_slugs(repo_root)
+    for task in tasks:
+        if task.slug in existing_slugs:
+            raise ValueError(
+                f"refusing to overwrite existing task `{task.slug}`; "
+                "create a follow-up todo task instead"
+            )
+
+    allowed_dependencies = existing_slugs | batch_slugs
+    for task in tasks:
+        for dependency in task.metadata.depends_on:
+            _validate_task_slug("depends_on", dependency)
+            if dependency not in allowed_dependencies:
+                raise ValueError(
+                    f"task `{task.slug}` references unknown dependency `{dependency}`"
+                )
+    return tasks
+
+
+def _validate_compiler_task_spec(index: int, spec: CompilerTaskSpec) -> TaskMetadata:
+    if not isinstance(spec.body, str) or not spec.body.strip():
+        raise ValueError(f"task[{index}] `body` must be a non-empty string")
+    payload: dict[str, object] = {
+        "title": spec.title,
+        "priority": spec.priority,
+        "assignee": spec.assignee,
+        "depends_on": spec.depends_on,
+        "acceptance_criteria": spec.acceptance_criteria,
+    }
+    try:
+        return validate_task_metadata(payload)
+    except ValueError as exc:
+        raise ValueError(f"task[{index}] {exc}") from exc
+
+
+def _existing_promoted_task_slugs(root: Path) -> set[str]:
+    slugs: set[str] = set()
+    for status in sorted(_PROMOTED_TASK_STATUSES):
+        task_dir = root / ".jri" / "tasks" / status
+        if not task_dir.exists():
+            continue
+        for path in task_dir.glob("*.md"):
+            slugs.add(path.stem)
+    return slugs
+
+
+def _slugify_task_title(title: str) -> str:
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError("`title` must be a non-empty string")
+    slug = title.strip().lower()
+    slug = re.sub(r"[^a-z0-9._-]+", "-", slug)
+    slug = re.sub(r"-+", "-", slug)
+    slug = re.sub(r"^[^a-z0-9]+|[^a-z0-9]+$", "", slug)
+    if not slug:
+        raise ValueError("could not derive a valid slug from title")
+    return _validate_task_slug("slug", slug)
+
+
+def _validate_task_slug(label: str, slug: str) -> str:
+    if not isinstance(slug, str) or not slug.strip():
+        raise ValueError(f"`{label}` must be a non-empty string")
+    normalized = slug.strip()
+    if not _VALID_SLUG.match(normalized):
+        raise ValueError(
+            f"`{label}` contains characters not allowed in task filenames; "
+            "use only letters, digits, hyphens, dots, and underscores"
+        )
+    return normalized
+
+
+def _ensure_real_directory(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    if path.resolve() != path:
+        raise ValueError("refusing to write outside `.jri/tasks/todo`")
+    return path
+
+
+def _task_path_within(todo_dir: Path, slug: str) -> Path:
+    task_path = (todo_dir / f"{slug}.md").resolve()
+    try:
+        task_path.relative_to(todo_dir)
+    except ValueError as exc:
+        raise ValueError("refusing to write outside `.jri/tasks/todo`") from exc
+    if os.path.lexists(task_path):
+        raise ValueError(
+            f"refusing to overwrite existing task `{slug}`; "
+            "create a follow-up todo task instead"
+        )
+    return task_path
 
 
 def parse_task_file(path: Path) -> Task:

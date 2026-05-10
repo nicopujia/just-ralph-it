@@ -285,7 +285,7 @@ Wave 4: Final verification wave F1-F4.
 
   **Commit**: YES | Message: `refactor(tasks): remove draft lifecycle` | Files: [`src/jri/core/models.py`, `src/jri/core/tasks.py`, `src/jri/checks/schema.py`, `src/jri/core/schemas/`, `pyproject.toml`, `uv.lock`, `tests/`]
 
-- [ ] 5. Add deterministic Graph Checker and status graph stats
+- [x] 5. Add deterministic Graph Checker and status graph stats
 
   **What to do**: TDD Graph Checker for structural/tool-conformance only. It validates `.jri/graph/` layout, `NODE.md` presence for each graph directory, valid YAML frontmatter, allowed keys only (`title`, `state`, `archive_reason`), state rules, no unexpected files except root `MANIFEST.json` if implemented, no symlink escapes, no malformed paths. Integrate checker into existing repo checks and `jri status` graph stats: active node count, archived node count, malformed graph error if invalid. Do not judge ambiguity or readiness.
   **Must NOT do**: Do not add semantic ambiguity checks, warnings, typed relationships, or compiler readiness into Graph Checker.
@@ -363,7 +363,7 @@ Wave 4: Final verification wave F1-F4.
 
   **Commit**: YES | Message: `feat(interrogator): add graph tools` | Files: [`src/jri/core/agents/bundle/interrogator/`, `src/jri/core/agents/bundle/_shared/tools/`, `tests/`]
 
-- [ ] 7. Add transactional task creation tools for compiler output
+- [x] 7. Add transactional task creation tools for compiler output
 
   **What to do**: TDD deterministic task batch creation API used by Intent Compiler. Input is a batch of task specs with existing task metadata plus body: `title`, `priority`, `assignee`, `depends_on`, `acceptance_criteria`, `body`. Validate entire batch before writing any `todo` file. Enforce slug uniqueness, valid dependency slugs, valid assignee, priority range, non-empty acceptance criteria, append-only promoted task rule, and no writes outside `.jri/tasks/todo`. Add rollback on write/validation failure.
   **Must NOT do**: Do not allow compiler to edit existing promoted tasks. Do not create drafts. Do not commit here; commit belongs to compile orchestration.

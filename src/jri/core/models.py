@@ -212,6 +212,16 @@ class TaskMetadata:
 
 
 @dataclass(frozen=True)
+class CompilerTaskSpec:
+    title: str
+    priority: int
+    assignee: Assignee
+    depends_on: list[str]
+    acceptance_criteria: list[str]
+    body: str
+
+
+@dataclass(frozen=True)
 class Task:
     path: Path
     slug: str

@@ -45,3 +45,13 @@
 - Legacy loop tests that used draft follow-ups now create additive todo follow-up tasks and assert the original task still completes.
 - Dirty-workdir loop coverage now uses current lifecycle task edits and unrelated files: non-force aborts on dirty todo changes, while force stashes mixed dirty work.
 - Malformed task wrapping should target a tracked lifecycle directory such as `todo`, not a removed draft path.
+
+## 2026-05-10 Task: transactional-task-batch-writer
+- Compiler task batches use `CompilerTaskSpec` in `src/jri/core/models.py` and derive deterministic slugs from titles using the same slug shape as the existing upsert task tool.
+- `create_task_batch` validates duplicate slugs, existing promoted task collisions, dependency closure, acceptance criteria, metadata, body, and literal `.jri/tasks/todo` paths before writing any task file.
+- Batch writes are rollback-protected by tracking candidate paths before each write, so write failures remove newly created files without touching pre-existing promoted tasks.
+
+## 2026-05-10 Task: deterministic-graph-checker-status
+- Graph structural checks live in `src/jri/core/graph.py` as `check_graph_tree`/`validate_graph_tree`, returning deterministic sorted errors plus active/archived counts.
+- `jri status` reports graph counts without failing the command, while repository schema validation treats graph checker errors as validation failures.
+- Root `.jri/graph/` may be missing or empty; `MANIFEST.json` is the only tolerated root file besides node directories.
