@@ -441,7 +441,7 @@ Wave 4: Final verification wave F1-F4.
 
   **Commit**: YES | Message: `feat(compiler): add compile graph flow` | Files: [`src/jri/core/service.py`, `src/jri/core/agents/`, `src/jri/core/tasks.py`, `tests/integration/test_compile_graph.py`]
 
-- [ ] 9. Update init/scaffold/status for Intent Graph
+- [x] 9. Update init/scaffold/status for Intent Graph
 
   **What to do**: TDD updates to `jri init`, generated `.jri` structure, `.jri/.gitignore`, and status. Init should create `.jri/graph/` root and no `.jri/tasks/draft`. Decide and implement root graph behavior: `.jri/graph/` may be empty initially; no root `NODE.md` required. Status shows graph counts and active task state. Ensure runtime-only `.jri` files remain gitignored as before.
   **Must NOT do**: Do not add public graph CRUD CLI beyond status. Do not add Mermaid/report commands.

@@ -183,6 +183,7 @@ def test_status_empty_project(
     out = capsys.readouterr().out
     assert "Tasks: 0 total" in out
     assert "Ralph: not running" in out
+    assert "Graph: 0 active, 0 archived" in out
     assert "todo" in out
     assert "doing" in out
     assert "done" in out

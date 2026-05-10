@@ -70,3 +70,8 @@
 - Interrogator tools expose Python handlers through both `_shared/tools/_registry.py` and `interrogator/tools.ts`; new tools also need `__init__.__all__` coverage because tests assert the public handler surface.
 - `PiRuntime.compile_intent_graph` uses the existing RPC prompt stream but starts Pi with `--no-extensions --no-skills --no-prompt-templates --no-context-files --tools read,grep,find,ls` so the compiler has read-only access.
 - `launch_chat` maintains a managed `--tools` allowlist; adding an Interrogator tool requires updating the launch command expectation in `tests/unit/test_pi.py`.
+
+## 2026-05-10 Task: update-init-scaffold-status-for-intent-graph
+- `jri init` creates `.jri/graph/` as an empty runtime directory without a root `NODE.md`; Git will not preserve that empty directory in commits, so scaffold must create it locally.
+- Keep `.jri/graph/` root empty on init because the graph checker only tolerates root node directories and `MANIFEST.json`.
+- `jri status` can rely on `check_graph_tree` for empty or missing graph roots; it reports `Graph: 0 active, 0 archived` without extra compatibility logic.

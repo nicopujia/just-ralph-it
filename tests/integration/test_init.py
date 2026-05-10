@@ -23,6 +23,9 @@ def test_init_creates_scaffold_and_commit(
     assert (git_repo / ".jri" / "tasks" / "doing" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "tasks" / "done" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "attempts" / ".gitkeep").exists()
+    assert (git_repo / ".jri" / "graph").is_dir()
+    assert list((git_repo / ".jri" / "graph").iterdir()) == []
+    assert not (git_repo / ".jri" / "graph" / "NODE.md").exists()
     assert (git_repo / "Makefile").read_text(encoding="utf-8") == (
         ".PHONY: check\n\n"
         "check:\n"

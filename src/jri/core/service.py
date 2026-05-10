@@ -1094,6 +1094,7 @@ class JriService:
     def _create_scaffold(self) -> list[Path]:
         created_files: list[Path] = []
         self.paths.jri_dir.mkdir(parents=True, exist_ok=True)
+        self.paths.graph_dir.mkdir(parents=True, exist_ok=True)
 
         self._write_template_files(_SCAFFOLD_TEMPLATE_PATHS)
         created_files.extend(self._write_root_scaffold_files())
