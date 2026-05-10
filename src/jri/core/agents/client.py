@@ -13,6 +13,7 @@ from typing import IO, Protocol, cast
 from ..errors import JriError
 from ..models import AgentRunResult, RalphResult, RalphResultPayload, Result
 from ..ui import DIM, style_text, trim_tool_output
+from .resources import resource_path as bundled_resource_path
 from .resources import resource_relative_path
 
 
@@ -493,6 +494,17 @@ _INTENT_COMPILER_ARGS = [
 ]
 
 
+def _intent_compiler_args(package_root: str | None) -> list[str]:
+    args = list(_INTENT_COMPILER_ARGS)
+    prompt_path = (
+        _package_resource_path(package_root, "prompts.compiler")
+        if package_root is not None
+        else Path(str(bundled_resource_path("prompts.compiler")))
+    )
+    args.extend(["--append-system-prompt", str(prompt_path)])
+    return args
+
+
 def _repo_pi_chat_session_dir(root: Path) -> Path:
     return root / ".jri" / "logs" / "chat"
 
@@ -711,7 +723,10 @@ class PiRuntime:
     ) -> dict[str, object]:
         if self.is_healthy():
             self.stop()
-        self.start(cwd=root, extra_args=_INTENT_COMPILER_ARGS)
+        package_root = self._env.get("JRI_PI_PACKAGE") or os.environ.get(
+            "JRI_PI_PACKAGE"
+        )
+        self.start(cwd=root, extra_args=_intent_compiler_args(package_root))
         if self._process is None or self._process.stdout is None:
             raise JriError("pi rpc process is not running")
         response = self._rpc_request(
@@ -922,18 +937,7 @@ def _ralph_prompt(prompt: str) -> str:
 
 def _intent_compiler_prompt(context: dict[str, object]) -> str:
     context_json = json.dumps(context, indent=2, sort_keys=True)
-    return (
-        "You are the JRI Intent Compiler. Compile the supplied Intent Graph "
-        "context into executable todo task specs. You may inspect the repository "
-        "with only the provided read, grep, find, and ls tools when the JSON "
-        "context is insufficient. Do not edit files, write files, mutate the "
-        "Intent Graph, create tasks directly, start Ralph, create tags, or "
-        'commit changes. Return only JSON: either {"tasks":[...]} or '
-        '{"exit_code":"fail","errors":[...]} with each error containing '
-        "location, ambiguous_area, plausible_interpretations, and "
-        "draft_question.\n\n"
-        f"Context:\n{context_json}"
-    )
+    return f"Context:\n{context_json}"
 
 
 def _compiler_event_text(event: dict[str, object]) -> str:

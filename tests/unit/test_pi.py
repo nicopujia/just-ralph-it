@@ -204,6 +204,7 @@ def test_runtime_env_copies_complete_agent_bundle() -> None:
 
         assert (package_root / "__init__.py").is_file()
         assert (package_root / "manifest.json").is_file()
+        assert (package_root / "compiler" / "prompt.md").is_file()
         assert not (package_root / "interrogator" / "validator").exists()
         project_setup_skill = (
             package_root / "ralph" / "skills" / "project-setup" / "SKILL.md"

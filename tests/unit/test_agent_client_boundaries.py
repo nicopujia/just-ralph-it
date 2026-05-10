@@ -420,6 +420,8 @@ def test_pi_runtime_compile_intent_graph_prompts_read_only_and_parses_json(
         assert "--no-context-files" in extra_args
         tools_index = extra_args.index("--tools")
         assert extra_args[tools_index + 1] == "read,grep,find,ls"
+        prompt_index = extra_args.index("--append-system-prompt")
+        assert extra_args[prompt_index + 1].endswith("compiler/prompt.md")
         runtime._process = cast(Any, FakeProcess())
         runtime._session_id = "ses_compiler"
 
@@ -451,22 +453,9 @@ def test_pi_runtime_compile_intent_graph_prompts_read_only_and_parses_json(
     assert result == {"tasks": []}
     assert prompts and prompts[0] is not None
     message = str(prompts[0]["message"])
-    assert "Return only JSON" in message
-    assert "read, grep, find, and ls" in message
-    assert "when the JSON context is insufficient" in message
-    assert "Do not call tools" not in message
-    assert "Use only the JSON context below" not in message
-    for forbidden in (
-        "Do not edit files",
-        "write files",
-        "mutate the Intent Graph",
-        "create tasks directly",
-        "start Ralph",
-        "create tags",
-        "commit changes",
-    ):
-        assert forbidden in message
+    assert message.startswith("Context:\n")
     assert "product" in message
+    assert "Return only JSON" not in message
 
 
 def test_pi_runtime_compile_intent_graph_rejects_non_json_output(
@@ -480,8 +469,11 @@ def test_pi_runtime_compile_intent_graph_rejects_non_json_output(
         cwd: Path | None = None,
         extra_args: list[str] | None = None,
     ) -> None:
-        del env, extra_args
+        del env
         assert cwd == tmp_path
+        assert extra_args is not None
+        assert extra_args[-2] == "--append-system-prompt"
+        assert extra_args[-1].endswith("compiler/prompt.md")
         runtime._process = cast(Any, FakeProcess())
 
     monkeypatch.setattr(runtime, "start", fake_start)

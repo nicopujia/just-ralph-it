@@ -14,6 +14,7 @@ REQUIRED_AGENT_RESOURCES = {
     "src/jri/core/agents/bundle/theme.json",
     "src/jri/core/agents/bundle/ralph/prompt.md",
     "src/jri/core/agents/bundle/interrogator/prompt.md",
+    "src/jri/core/agents/bundle/compiler/prompt.md",
     "src/jri/core/agents/bundle/explorer/prompt.md",
     "src/jri/core/agents/bundle/ralph/validator/prompt.md",
     "src/jri/core/agents/bundle/ralph/skills/project-setup/SKILL.md",

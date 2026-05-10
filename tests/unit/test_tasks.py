@@ -455,6 +455,7 @@ def test_non_schema_package_resources_are_available() -> None:
     assert scaffold.joinpath("learnings.md").is_file()
     builtins = files("jri.core.agents.bundle")
     assert builtins.joinpath("interrogator", "prompt.md").is_file()
+    assert builtins.joinpath("compiler", "prompt.md").is_file()
     assert builtins.joinpath("explorer", "prompt.md").is_file()
     assert builtins.joinpath("ralph", "prompt.md").is_file()
     assert builtins.joinpath("ralph", "validator", "prompt.md").is_file()
@@ -480,6 +481,7 @@ def test_agent_resource_manifest_resolves_current_package_resources() -> None:
         "extensions.default": "extension.ts",
         "prompts.ralph": "ralph/prompt.md",
         "prompts.interrogator": "interrogator/prompt.md",
+        "prompts.compiler": "compiler/prompt.md",
         "prompts.ralphValidator": "ralph/validator/prompt.md",
         "prompts.explorer": "explorer/prompt.md",
         "tools.pythonRunner": "_shared/tools/runner.ts",

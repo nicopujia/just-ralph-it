@@ -2,6 +2,7 @@
   "extensions.default": "extension.ts",
   "prompts.ralph": "ralph/prompt.md",
   "prompts.interrogator": "interrogator/prompt.md",
+  "prompts.compiler": "compiler/prompt.md",
   "prompts.ralphValidator": "ralph/validator/prompt.md",
   "prompts.explorer": "explorer/prompt.md",
   "tools.pythonRunner": "_shared/tools/runner.ts",
