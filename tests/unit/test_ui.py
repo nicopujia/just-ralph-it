@@ -3,6 +3,8 @@ from unittest.mock import patch
 import pytest
 
 from jri.core.ui import (
+    _truncate,
+    cyan,
     follow_status_bar,
     follow_status_bar_clear,
     supports_color,
@@ -21,6 +23,15 @@ def test_task_header_contains_slug() -> None:
 def test_task_header_has_box_drawing_chars() -> None:
     result = task_header("slug")
     assert "───" in result
+
+
+def test_task_header_uses_full_long_label_without_padding() -> None:
+    slug = "x" * 80
+
+    result = task_header(slug)
+
+    assert result == f" task: {slug} "
+    assert "─" not in result
 
 
 def test_task_footer_completed() -> None:
@@ -90,8 +101,34 @@ def test_follow_status_bar_shows_active_subagent_spinner() -> None:
     assert "/ research phase" in result
 
 
+def test_follow_status_bar_truncates_left_and_controls_to_width() -> None:
+    result = follow_status_bar(
+        "very-long-task-slug",
+        activity="reviewing a very long stream of subagent output",
+        confirming_halt=True,
+        width=20,
+        height=4,
+    )
+
+    assert result.startswith("\0337\033[4;1H\033[2K")
+    assert "..." in result
+    assert "\0338" in result
+
+
 def test_follow_status_bar_clear_targets_bottom_row() -> None:
     assert follow_status_bar_clear(height=20) == "\0337\033[20;1H\033[2K\0338"
+
+
+def test_follow_status_bar_clear_clamps_negative_height() -> None:
+    assert follow_status_bar_clear(height=-1) == "\0337\033[1;1H\033[2K\0338"
+
+
+def test_truncate_returns_empty_when_width_is_zero() -> None:
+    assert _truncate("abcdef", 0) == ""
+
+
+def test_truncate_returns_original_text_when_it_fits() -> None:
+    assert _truncate("abc", 3) == "abc"
 
 
 def test_trim_tool_output_returns_none_for_short_text() -> None:
@@ -120,6 +157,17 @@ def test_trim_tool_output_handles_custom_thresholds() -> None:
     assert trim_tool_output(text, max_lines=20, max_chars=100000) is None
 
 
+def test_trim_tool_output_keeps_file_list_header_only() -> None:
+    text = "src/jri/core/tasks.py\ntests/unit/test_tasks.py\nREADME.md"
+
+    result = trim_tool_output(text, max_lines=1, max_chars=100000)
+
+    assert result is not None
+    assert result.startswith("src/jri/core/tasks.py\n")
+    assert "tests/unit/test_tasks.py" not in result
+    assert "2 lines trimmed" in result
+
+
 def test_supports_color_with_no_color_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NO_COLOR", "1")
     with patch("sys.stdout.isatty", return_value=True):
@@ -138,6 +186,12 @@ def test_supports_color_with_clicolor_force_env(
     monkeypatch.setenv("CLICOLOR_FORCE", "1")
     with patch("sys.stdout.isatty", return_value=False):
         assert supports_color() is True
+
+
+def test_cyan_wraps_text_when_color_is_forced(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FORCE_COLOR", "1")
+
+    assert cyan("hello") == "\033[36mhello\033[0m"
 
 
 def test_supports_interactive_footer_requires_tty_stdio(

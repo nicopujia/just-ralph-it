@@ -1,10 +1,12 @@
 from pathlib import Path
 from typing import cast
 
+import pytest
+
 from jri.core.metrics import MetricEntry, MetricsStore
 
 
-def test_metric_entry_to_dict_contains_all_fields(tmp_path: Path) -> None:
+def test_metric_entry_to_dict_contains_all_fields() -> None:
     entry = MetricEntry(
         task="some-slug",
         ts="2026-04-05T14:30:00Z",
@@ -18,7 +20,7 @@ def test_metric_entry_to_dict_contains_all_fields(tmp_path: Path) -> None:
     }
 
 
-def test_metric_entry_result_can_be_pass_or_fail(tmp_path: Path) -> None:
+def test_metric_entry_result_can_be_pass_or_fail() -> None:
     entry_pass = MetricEntry(task="a", ts="t", result="pass")
     entry_fail = MetricEntry(task="b", ts="t", result="fail")
     assert entry_pass.result == "pass"
@@ -65,6 +67,13 @@ def test_metrics_store_read_skips_malformed(tmp_path: Path) -> None:
     assert store.read() == []
 
 
+def test_metrics_store_read_skips_non_list_payload(tmp_path: Path) -> None:
+    path = tmp_path / "metrics.json"
+    path.write_text("{}\n", encoding="utf-8")
+    store = MetricsStore(path)
+    assert store.read() == []
+
+
 def test_metrics_store_read_skips_entries_with_wrong_types(tmp_path: Path) -> None:
     import json
 
@@ -76,6 +85,39 @@ def test_metrics_store_read_skips_entries_with_wrong_types(tmp_path: Path) -> No
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
     store = MetricsStore(path)
     assert store.read() == []
+
+
+def test_metrics_store_read_skips_non_dict_entries(tmp_path: Path) -> None:
+    import json
+
+    path = tmp_path / "metrics.json"
+    path.write_text(
+        json.dumps([1, {"task": "a", "ts": "t", "result": "pass"}]), encoding="utf-8"
+    )
+    store = MetricsStore(path)
+
+    entries = store.read()
+
+    assert len(entries) == 1
+    assert entries[0].task == "a"
+
+
+def test_metrics_store_record_reports_write_failures(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "metrics.json"
+    store = MetricsStore(path)
+
+    def fail_read(_self: MetricsStore) -> list[MetricEntry]:
+        raise OSError("boom")
+
+    monkeypatch.setattr(MetricsStore, "read", fail_read)
+
+    store.record(MetricEntry(task="a", ts="t", result="pass"))
+
+    assert "metrics write failed: boom" in capsys.readouterr().err
 
 
 def test_metrics_store_creates_parent_dirs(tmp_path: Path) -> None:
@@ -144,7 +186,7 @@ def test_metrics_store_summary_mixed(tmp_path: Path) -> None:
     assert "67% pass rate" in s
 
 
-def test_metrics_store_now_iso_format(tmp_path: Path) -> None:
+def test_metrics_store_now_iso_format() -> None:
     ts = MetricsStore.now_iso()
     assert ts.endswith("Z")
     assert "T" in ts

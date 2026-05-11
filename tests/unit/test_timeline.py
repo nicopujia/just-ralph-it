@@ -1,11 +1,11 @@
 from pathlib import Path
 
+import pytest
+
 from jri.core.timeline import TimelineEvent, TimelineStore
 
 
-def test_timeline_event_to_jsonl_includes_required_fields(
-    tmp_path: Path,
-) -> None:
+def test_timeline_event_to_jsonl_includes_required_fields() -> None:
     event = TimelineEvent(ts="2025-01-01T00:00:00Z", event="attempt_started")
     line = event.to_jsonl()
     assert '"event"' in line
@@ -14,14 +14,14 @@ def test_timeline_event_to_jsonl_includes_required_fields(
     assert "2025-01-01T00:00:00Z" in line
 
 
-def test_timeline_event_to_jsonl_omits_none_fields(tmp_path: Path) -> None:
+def test_timeline_event_to_jsonl_omits_none_fields() -> None:
     event = TimelineEvent(ts="2025-01-01T00:00:00Z", event="attempt_started")
     line = event.to_jsonl()
     assert '"task"' not in line
     assert '"detail"' not in line
 
 
-def test_timeline_event_to_jsonl_includes_optional_fields(tmp_path: Path) -> None:
+def test_timeline_event_to_jsonl_includes_optional_fields() -> None:
     event = TimelineEvent(
         ts="2025-01-01T00:00:00Z",
         event="task_failed",
@@ -68,9 +68,27 @@ def test_timeline_store_read_empty(tmp_path: Path) -> None:
 
 def test_timeline_store_read_skips_malformed_lines(tmp_path: Path) -> None:
     path = tmp_path / "timeline.jsonl"
-    path.write_text("bad line\n{not json\n", encoding="utf-8")
+    path.write_text("bad line\n\n{not json\n", encoding="utf-8")
     store = TimelineStore(path)
     assert store.read() == []
+
+
+def test_timeline_store_record_reports_write_failures(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "timeline.jsonl"
+    store = TimelineStore(path)
+
+    def fail_open(*_args: object, **_kwargs: object) -> object:
+        raise OSError("boom")
+
+    monkeypatch.setattr(Path, "open", fail_open)
+
+    store.record(TimelineEvent(ts="2025-01-01T00:00:00Z", event="loop_stopped"))
+
+    assert "timeline write failed: boom" in capsys.readouterr().err
 
 
 def test_timeline_store_creates_parent_dirs(tmp_path: Path) -> None:
@@ -80,7 +98,7 @@ def test_timeline_store_creates_parent_dirs(tmp_path: Path) -> None:
     assert path.exists()
 
 
-def test_timeline_store_now_iso_format(tmp_path: Path) -> None:
+def test_timeline_store_now_iso_format() -> None:
     ts = TimelineStore.now_iso()
     assert ts.endswith("Z")
     assert "T" in ts
