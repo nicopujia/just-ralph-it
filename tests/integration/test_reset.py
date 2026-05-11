@@ -407,6 +407,14 @@ def test_reset_refuses_when_no_task_tag(
         service.reset()
 
 
+def test_reset_refuses_unknown_requested_task(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    service = _run_successful_task(git_repo)
+
+    with pytest.raises(JriError, match="no begin or end tag found for task 'missing'"):
+        service.reset(target_task="missing")
+
+
 def test_reset_falls_back_to_begin_tag_after_failed_run(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
 

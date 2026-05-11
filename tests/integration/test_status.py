@@ -153,6 +153,31 @@ def test_status_explains_completed_human_blocker_leaves_ralph_retry(
     assert "Action needed: run `jri start` to retry needs-human-task." in out
 
 
+def test_status_explains_missing_nonhuman_dependency(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init(git_repo)
+    write_task(
+        git_repo,
+        status="todo",
+        slug="blocked-ralph-task",
+        title="Blocked Ralph task",
+        priority=0,
+        assignee="Ralph",
+        body="Wait for a normal dependency.",
+        depends_on=["upstream-task"],
+    )
+
+    rc = run_cli(["status"], cwd=git_repo)
+
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert (
+        "Action needed: waiting for dependency upstream-task before "
+        "blocked-ralph-task can start." in out
+    )
+
+
 def test_status_no_human_tasks(
     git_repo: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -171,6 +196,28 @@ def test_status_no_human_tasks(
     assert rc == 0
     out = capsys.readouterr().out
     assert "No tasks assigned to Human." in out
+
+
+def test_status_explains_fresh_ralph_task_as_work_on(
+    git_repo: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _init(git_repo)
+    write_task(
+        git_repo,
+        status="todo",
+        slug="fresh-ralph-task",
+        title="Fresh Ralph task",
+        priority=0,
+        assignee="Ralph",
+        body="Ready to start.",
+    )
+
+    rc = run_cli(["status"], cwd=git_repo)
+
+    assert rc == 0
+    assert "Action needed: run `jri start` to work on fresh-ralph-task." in (
+        capsys.readouterr().out
+    )
 
 
 def test_status_empty_project(

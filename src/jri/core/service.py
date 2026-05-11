@@ -214,8 +214,7 @@ class JriService:
         if jri_exists:
             if delete:
                 # Delete mode: remove existing managed files without prompting
-                if jri_exists:
-                    shutil.rmtree(self.paths.jri_dir)
+                shutil.rmtree(self.paths.jri_dir)
             else:
                 print("Existing .jri/ directory found.")
                 print("  [d] Delete - remove existing and reinitialize")
@@ -816,10 +815,7 @@ class JriService:
                 key=lambda item: (item.metadata.priority, item.slug),
             )[0]
             missing = sorted(set(task.metadata.depends_on) - done_slugs)
-            if missing:
-                return (
-                    f"waiting for dependency {missing[0]} before {task.slug} can start."
-                )
+            return f"waiting for dependency {missing[0]} before {task.slug} can start."
 
         return "none."
 
@@ -1600,8 +1596,7 @@ class JriService:
         lines = ["Previous attempts:"]
         for attempt in attempts:
             lines.append(f"- Attempt {attempt.number}")
-            if attempt.result is not None:
-                lines.append(f"  Result: {attempt.result}")
+            lines.append(f"  Result: {attempt.result}")
             payload = attempt.result_payload
             if payload is None:
                 continue
