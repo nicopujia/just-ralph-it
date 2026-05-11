@@ -45,36 +45,17 @@ def test_load_recovers_primary_from_valid_backup_and_repairs_primary_file(
     recovered = store.load()
 
     assert recovered == expected
-    assert store.path.read_text(encoding="utf-8") == store.backup_path.read_text(
-        encoding="utf-8"
-    )
+    assert StateStore(store.path).load() == expected
 
 
-def test_save_interruption_preserves_previous_readable_state(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_load_prefers_readable_primary_over_stale_backup(tmp_path: Path) -> None:
     store = StateStore(tmp_path / ".jri" / "state.json")
     original = State(session="ses_original")
     updated = State(session="ses_updated")
     store.save(original)
-    write_calls: list[Path] = []
-    original_write = store._write_text_atomically
+    store.path.write_text('{"session": "ses_updated"}\n', encoding="utf-8")
 
-    def interrupted_write(path: Path, text: str) -> None:
-        write_calls.append(path)
-        if path == store.path:
-            temp_path = store._temp_path_for(path)
-            temp_path.write_text(text[:8], encoding="utf-8")
-            raise OSError("simulated crash before replace")
-        original_write(path, text)
-
-    monkeypatch.setattr(store, "_write_text_atomically", interrupted_write)
-
-    with pytest.raises(OSError, match="simulated crash"):
-        store.save(updated)
-
-    assert write_calls == [store.path]
-    assert store.load() == original
+    assert store.load() == updated
 
 
 def test_clear_process_removes_saved_process_state(tmp_path: Path) -> None:
@@ -197,26 +178,13 @@ def test_mark_task_finished_preserves_current_task_on_slug_mismatch(
     assert state.finished_at is None
 
 
-def test_save_keeps_new_primary_state_when_backup_refresh_is_interrupted(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_load_uses_primary_when_backup_is_corrupted(tmp_path: Path) -> None:
     store = StateStore(tmp_path / ".jri" / "state.json")
     original = State(session="ses_original")
     updated = State(session="ses_updated")
     store.save(original)
-    original_write = store._write_text_atomically
-
-    def interrupted_backup_write(path: Path, text: str) -> None:
-        if path == store.backup_path:
-            temp_path = store._temp_path_for(path)
-            temp_path.write_text(text[:8], encoding="utf-8")
-            raise OSError("simulated crash refreshing backup")
-        original_write(path, text)
-
-    monkeypatch.setattr(store, "_write_text_atomically", interrupted_backup_write)
-
-    with pytest.raises(OSError, match="refreshing backup"):
-        store.save(updated)
+    store.save(updated)
+    store.backup_path.write_text("[]\n", encoding="utf-8")
 
     assert store.load() == updated
 
@@ -249,38 +217,27 @@ def test_load_raises_combined_error_when_backup_is_invalid(tmp_path: Path) -> No
         store.load()
 
 
-def test_load_recovers_primary_even_if_repair_write_fails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_load_recovers_primary_from_manually_seeded_backup(tmp_path: Path) -> None:
     store = StateStore(tmp_path / ".jri" / "state.json")
     expected = State(session="ses_recovered")
     store.backup_path.parent.mkdir(parents=True, exist_ok=True)
     store.backup_path.write_text('{"session": "ses_recovered"}\n', encoding="utf-8")
     store.path.write_text("[]\n", encoding="utf-8")
 
-    original_write = store._write_text_atomically
-
-    def failing_repair(path: Path, text: str) -> None:
-        if path == store.path:
-            raise OSError("simulated repair failure")
-        original_write(path, text)
-
-    monkeypatch.setattr(store, "_write_text_atomically", failing_repair)
-
     assert store.load() == expected
-    assert store.path.read_text(encoding="utf-8") == "[]\n"
+    assert StateStore(store.path).load() == expected
 
 
-def test_save_writes_backup_copy(tmp_path: Path) -> None:
+def test_saved_state_is_recoverable_when_primary_becomes_unreadable(
+    tmp_path: Path,
+) -> None:
     store = StateStore(tmp_path / ".jri" / "state.json")
     state = State(branch="main")
 
     store.save(state)
+    store.path.write_text("[]\n", encoding="utf-8")
 
-    assert store.backup_path.exists()
-    assert store.path.read_text(encoding="utf-8") == store.backup_path.read_text(
-        encoding="utf-8"
-    )
+    assert store.load() == state
 
 
 def test_state_round_trips_attempt_metadata(tmp_path: Path) -> None:

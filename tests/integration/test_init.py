@@ -4,7 +4,6 @@ from pathlib import Path
 import pytest
 
 import jri.core.git as git_module
-from jri.cli.main import _build_parser
 from tests.conftest import run_cli
 from tests.helpers import git
 
@@ -163,12 +162,11 @@ def test_init_accepts_branch_short_flag(
 
 
 def test_init_help_includes_branch_flags(
+    git_repo: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    parser = _build_parser()
-
     with pytest.raises(SystemExit) as exc_info:
-        parser.parse_args(["init", "--help"])
+        run_cli(["init", "--help"], cwd=git_repo)
 
     assert exc_info.value.code == 0
     help_text = capsys.readouterr().out

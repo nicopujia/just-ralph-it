@@ -1,4 +1,5 @@
-import runpy
+import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -7,6 +8,20 @@ import pytest
 from jri.checks.schema import main, validate_repo
 from tests.conftest import run_cli
 from tests.helpers import git, write_task
+
+
+def _schema_env() -> dict[str, str]:
+    return os.environ | {"PYTHONPATH": str(Path(__file__).parents[2] / "src")}
+
+
+def _run_schema_module(root: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [sys.executable, "-m", "jri.checks.schema", str(root)],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=_schema_env(),
+    )
 
 
 def test_validate_repo_accepts_valid_jri_tree(tmp_path: Path) -> None:
@@ -53,9 +68,7 @@ def test_validate_repo_accepts_current_lifecycle_task_directories(
     validate_repo(tmp_path)
 
 
-def test_main_returns_nonzero_for_invalid_task_file(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_schema_command_returns_nonzero_for_invalid_task_file(tmp_path: Path) -> None:
     task_path = tmp_path / ".jri" / "tasks" / "todo" / "quality-gate.md"
     task_path.parent.mkdir(parents=True)
     task_path.write_text(
@@ -70,8 +83,12 @@ def test_main_returns_nonzero_for_invalid_task_file(
         encoding="utf-8",
     )
 
-    assert main([str(tmp_path)]) == 1
-    assert "schema check failed" in capsys.readouterr().err
+    result = _run_schema_module(tmp_path)
+
+    assert result.returncode == 1
+    assert "schema check failed" in result.stderr
+    assert "assignee" in result.stderr
+    assert result.stdout == ""
 
 
 def test_validate_repo_rejects_lifecycle_task_without_acceptance_criteria(
@@ -169,17 +186,13 @@ def test_validate_repo_rejects_invalid_state_content(tmp_path: Path) -> None:
         validate_repo(tmp_path)
 
 
-def test_module_entry_point_returns_zero_for_valid_repo(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_schema_module_entry_point_returns_zero_for_valid_repo(tmp_path: Path) -> None:
     state_path = tmp_path / ".jri" / "state.json"
     state_path.parent.mkdir(parents=True)
     state_path.write_text('{"attempts": []}\n', encoding="utf-8")
 
-    monkeypatch.delitem(sys.modules, "jri.checks.schema", raising=False)
-    monkeypatch.setattr(sys, "argv", ["jri.checks.schema", str(tmp_path)])
+    result = _run_schema_module(tmp_path)
 
-    with pytest.raises(SystemExit) as exc_info:
-        runpy.run_module("jri.checks.schema", run_name="__main__")
-
-    assert exc_info.value.code == 0
+    assert result.returncode == 0
+    assert result.stdout == ""
+    assert result.stderr == ""
