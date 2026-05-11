@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+from jri.core.errors import JriError
 from jri.core.models import (
     ATTEMPT_RESULT_VALUES,
     JRI_LIFECYCLE_INVARIANTS,
@@ -24,6 +25,12 @@ def test_load_restores_from_backup_when_primary_is_invalid(tmp_path: Path) -> No
 
     assert recovered == expected
     assert store.load() == expected
+
+
+def test_load_returns_default_state_when_state_file_is_missing(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+
+    assert store.load() == State()
 
 
 def test_load_recovers_primary_from_valid_backup_and_repairs_primary_file(
@@ -70,6 +77,126 @@ def test_save_interruption_preserves_previous_readable_state(
     assert store.load() == original
 
 
+def test_clear_process_removes_saved_process_state(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+
+    store.save_process(
+        loop_pid=7,
+        child_pid=8,
+        log_path=tmp_path / "logs" / "loop.log",
+        detached=True,
+    )
+    store.clear_process()
+
+    assert store.load().process is None
+
+
+def test_state_store_updates_process_session_and_attempt_fields(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    first_attempt = AttemptState(
+        number=1,
+        task_slug="task-a",
+        branch="ralph",
+        started_at=100,
+        log_path=".jri/logs/ralph/task-a-100.log",
+        session_id="ses_1",
+        result="timeout",
+    )
+    updated_attempt = AttemptState(
+        number=1,
+        task_slug="task-a",
+        branch="ralph",
+        started_at=101,
+        finished_at=111,
+        log_path=".jri/logs/ralph/task-a-101.log",
+        session_id="ses_2",
+        result="failed",
+    )
+    second_attempt = AttemptState(
+        number=2,
+        task_slug="task-b",
+        branch="ralph",
+        started_at=200,
+        log_path=".jri/logs/ralph/task-b-200.log",
+        session_id="ses_3",
+        result="timeout",
+    )
+
+    store.save_process(
+        loop_pid=7,
+        child_pid=8,
+        log_path=tmp_path / "logs" / "loop.log",
+        detached=True,
+    )
+    store.save_session("ses_state")
+    store.start_attempt(first_attempt)
+    store.save_active_attempt(updated_attempt)
+    store.save_active_attempt(second_attempt)
+    store.clear_active_attempt()
+    store.mark_task_started(task_slug="task-a", started_at=123)
+    store.mark_task_finished(task_slug="task-a", finished_at=456)
+
+    state = store.load()
+
+    assert state.process is not None
+    assert state.process.loop_pid == 7
+    assert state.process.child_pid == 8
+    assert state.process.log_path == str(tmp_path / "logs" / "loop.log")
+    assert state.process.detached is True
+    assert state.session == "ses_state"
+    assert state.active_attempt is None
+    assert state.current_task is None
+    assert state.started_at is None
+    assert state.finished_at == 456
+    assert [attempt.number for attempt in state.attempts] == [1, 2]
+    assert state.attempts[0].started_at == 101
+    assert state.attempts[0].finished_at == 111
+    assert state.attempts[1] == second_attempt
+
+
+def test_save_active_attempt_preserves_different_tasks_with_same_number(
+    tmp_path: Path,
+) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    task_a_attempt = AttemptState(
+        number=1,
+        task_slug="task-a",
+        branch="ralph/task-a",
+        started_at=100,
+        result="failed",
+    )
+    task_b_attempt = AttemptState(
+        number=1,
+        task_slug="task-b",
+        branch="ralph/task-b",
+        started_at=200,
+        result="completed",
+    )
+
+    store.save_active_attempt(task_a_attempt)
+    store.save_active_attempt(task_b_attempt)
+
+    state = store.load()
+
+    assert state.active_attempt == task_b_attempt
+    assert state.attempts == [task_a_attempt, task_b_attempt]
+
+
+def test_mark_task_finished_preserves_current_task_on_slug_mismatch(
+    tmp_path: Path,
+) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    store.mark_task_started(task_slug="task-a", started_at=100)
+
+    store.mark_task_finished(task_slug="task-b", finished_at=200)
+
+    state = store.load()
+
+    assert state.current_task == "task-a"
+    assert state.started_at == 100
+    assert state.finished_at is None
+
+
 def test_save_keeps_new_primary_state_when_backup_refresh_is_interrupted(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -92,6 +219,56 @@ def test_save_keeps_new_primary_state_when_backup_refresh_is_interrupted(
         store.save(updated)
 
     assert store.load() == updated
+
+
+def test_load_raises_primary_error_when_backup_is_missing(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    store.path.parent.mkdir(parents=True, exist_ok=True)
+    store.path.write_text("[]\n", encoding="utf-8")
+
+    with pytest.raises(JriError, match="must contain an object"):
+        store.load()
+
+
+def test_load_rejects_invalid_state_payload(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    store.path.parent.mkdir(parents=True, exist_ok=True)
+    store.path.write_text('{"started_at": "soon"}\n', encoding="utf-8")
+
+    with pytest.raises(JriError, match="invalid content"):
+        store.load()
+
+
+def test_load_raises_combined_error_when_backup_is_invalid(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    store.path.parent.mkdir(parents=True, exist_ok=True)
+    store.path.write_text("[]\n", encoding="utf-8")
+    store.backup_path.write_text("[]\n", encoding="utf-8")
+
+    with pytest.raises(JriError, match="Backup recovery from state.json.bak failed"):
+        store.load()
+
+
+def test_load_recovers_primary_even_if_repair_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    expected = State(session="ses_recovered")
+    store.backup_path.parent.mkdir(parents=True, exist_ok=True)
+    store.backup_path.write_text('{"session": "ses_recovered"}\n', encoding="utf-8")
+    store.path.write_text("[]\n", encoding="utf-8")
+
+    original_write = store._write_text_atomically
+
+    def failing_repair(path: Path, text: str) -> None:
+        if path == store.path:
+            raise OSError("simulated repair failure")
+        original_write(path, text)
+
+    monkeypatch.setattr(store, "_write_text_atomically", failing_repair)
+
+    assert store.load() == expected
+    assert store.path.read_text(encoding="utf-8") == "[]\n"
 
 
 def test_save_writes_backup_copy(tmp_path: Path) -> None:

@@ -72,11 +72,17 @@ class StateStore:
 
     def save_active_attempt(self, attempt: AttemptState) -> None:
         state = self.load()
+        attempt_key = (attempt.task_slug, attempt.number)
         attempts = [
-            attempt if existing.number == attempt.number else existing
+            attempt
+            if (existing.task_slug, existing.number) == attempt_key
+            else existing
             for existing in state.attempts
         ]
-        if not any(existing.number == attempt.number for existing in state.attempts):
+        if not any(
+            (existing.task_slug, existing.number) == attempt_key
+            for existing in state.attempts
+        ):
             attempts.append(attempt)
         self.save(replace(state, active_attempt=attempt, attempts=attempts))
 
@@ -90,6 +96,8 @@ class StateStore:
 
     def mark_task_finished(self, *, task_slug: str, finished_at: int) -> None:
         state = self.load()
+        if state.current_task != task_slug:
+            return
         self.save(
             replace(
                 state,
