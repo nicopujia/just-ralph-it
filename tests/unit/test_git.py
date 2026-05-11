@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from jri.core.errors import JriError
-from jri.core.git import GitRepo
+from jri.core.git import GitRepo, parse_tag_name, tag_name
 from jri.core.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git
@@ -122,6 +122,24 @@ def test_default_branch_falls_back_to_main_when_branch_cannot_be_inferred(
     assert repo.default_branch() == "main"
 
 
+def test_default_branch_ignores_empty_origin_head_before_fallback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fake_run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        _ = check
+        if args == ("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):
+            return completed(*args, stdout="origin/\n")
+        if args == ("rev-parse", "--verify", "--quiet", "refs/heads/main"):
+            return completed(*args, returncode=0)
+        raise AssertionError(args)
+
+    monkeypatch.setattr(repo, "run", fake_run)
+
+    assert repo.default_branch() == "main"
+
+
 @pytest.mark.parametrize(
     "branch",
     [
@@ -187,11 +205,43 @@ def test_ensure_default_branch_rejects_when_current_branch_differs(
         GitRepo(repo_path).ensure_default_branch(hint="main")
 
 
+def test_ensure_default_branch_allows_current_branch(tmp_path: Path) -> None:
+    repo_path = make_git_repo(tmp_path, branch="main")
+
+    GitRepo(repo_path).ensure_default_branch(hint="main")
+
+
 def test_ensure_local_branch_rejects_missing_branch(tmp_path: Path) -> None:
     repo_path = make_git_repo(tmp_path, branch="main")
 
     with pytest.raises(JriError, match="default branch 'trunk' does not exist"):
         GitRepo(repo_path).ensure_local_branch("trunk")
+
+
+def test_ensure_local_branch_accepts_existing_branch(tmp_path: Path) -> None:
+    repo_path = make_git_repo(tmp_path, branch="main")
+
+    GitRepo(repo_path).ensure_local_branch("main")
+
+
+def test_delete_branch_invokes_git_branch_delete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+    calls: list[tuple[str, ...]] = []
+
+    def fake_delete_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        calls.append(args)
+        return completed(*args)
+
+    monkeypatch.setattr(repo, "run", fake_delete_run)
+
+    repo.delete_branch("topic")
+
+    assert calls == [("branch", "-D", "topic")]
 
 
 def test_commit_failure_uses_git_stderr(
@@ -241,3 +291,773 @@ def test_commit_all_if_needed_commits_dirty_tree(tmp_path: Path) -> None:
     assert GitRepo(repo_path).commit_all_if_needed("save work") is True
     assert git(repo_path, "log", "-1", "--pretty=%s") == "save work"
     assert GitRepo(repo_path).status_short() == ""
+
+
+def test_tag_name_and_parse_tag_name_round_trip() -> None:
+    tag = "jri/begin/task-123"
+
+    assert tag_name("task-123", "begin") == tag
+    assert parse_tag_name(tag) == ("begin", "task-123")
+
+
+@pytest.mark.parametrize(
+    "tag",
+    ["jri/begin", "jri/begin/task-123/extra", "jri/review/task-123"],
+)
+def test_parse_tag_name_rejects_invalid_shapes(tag: str) -> None:
+    assert parse_tag_name(tag) is None
+
+
+def test_parse_tag_name_rejects_non_jri_prefix() -> None:
+    assert parse_tag_name("other/begin/task-123") is None
+
+
+def test_init_failure_uses_git_stderr_and_creates_root_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_path = tmp_path / "repo"
+    repo = GitRepo(repo_path)
+
+    def fail_init_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=1, stderr="bad init\n")
+
+    monkeypatch.setattr(repo, "run", fail_init_run)
+
+    with pytest.raises(JriError, match="bad init"):
+        repo.init()
+
+    assert repo_path.exists()
+
+
+def test_init_if_needed_skips_existing_repo(tmp_path: Path) -> None:
+    repo_path = make_git_repo(tmp_path, branch="main")
+
+    GitRepo(repo_path).init_if_needed()
+
+    assert git(repo_path, "branch", "--show-current") == "main"
+
+
+def test_init_if_needed_initializes_missing_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo_path = tmp_path / "repo"
+    repo = GitRepo(repo_path)
+
+    def fake_run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        _ = check
+        if args == ("rev-parse", "--is-inside-work-tree"):
+            return completed(*args, returncode=1)
+        if args == ("init", "-b", "main"):
+            return completed(*args)
+        raise AssertionError(args)
+
+    monkeypatch.setattr(repo, "run", fake_run)
+
+    repo.init_if_needed()
+
+    assert repo_path.exists()
+
+
+def test_relative_path_preserves_relative_input(tmp_path: Path) -> None:
+    repo = GitRepo(tmp_path / "repo")
+
+    assert repo.relative_path(Path("dir/file.txt")) == "dir/file.txt"
+
+
+def test_relative_path_handles_paths_inside_and_outside_root(tmp_path: Path) -> None:
+    repo = GitRepo(tmp_path / "repo")
+    inside = repo.root / "dir" / "file.txt"
+    outside = tmp_path / "outside.txt"
+
+    assert repo.relative_path(inside) == "dir/file.txt"
+    assert repo.relative_path(outside) == outside.as_posix()
+
+
+def test_ensure_repo_rejects_non_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fail_is_repo_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=1)
+
+    monkeypatch.setattr(repo, "run", fail_is_repo_run)
+
+    with pytest.raises(JriError, match="jri requires a git repository"):
+        repo.ensure_repo()
+
+
+def test_ensure_repo_accepts_repo(tmp_path: Path) -> None:
+    repo_path = make_git_repo(tmp_path, branch="main")
+
+    GitRepo(repo_path).ensure_repo()
+
+
+def test_ensure_clean_rejects_dirty_tree(tmp_path: Path) -> None:
+    repo_path = make_git_repo(tmp_path, branch="main")
+    (repo_path / "README.md").write_text("# changed\n", encoding="utf-8")
+
+    with pytest.raises(JriError, match="git working tree must be clean"):
+        GitRepo(repo_path).ensure_clean()
+
+
+def test_ensure_clean_accepts_clean_tree(tmp_path: Path) -> None:
+    repo_path = make_git_repo(tmp_path, branch="main")
+
+    GitRepo(repo_path).ensure_clean()
+
+
+def test_default_branch_falls_back_to_master_when_main_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fake_run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        _ = check
+        if args == ("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):
+            return completed(*args, returncode=1)
+        if args == ("rev-parse", "--verify", "--quiet", "refs/heads/main"):
+            return completed(*args, returncode=1)
+        if args == ("rev-parse", "--verify", "--quiet", "refs/heads/master"):
+            return completed(*args, returncode=0)
+        raise AssertionError(args)
+
+    monkeypatch.setattr(repo, "run", fake_run)
+
+    assert repo.default_branch() == "master"
+
+
+def test_default_branch_uses_single_local_branch_when_it_is_the_only_choice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fake_run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        _ = check
+        if args == ("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):
+            return completed(*args, returncode=1)
+        if args == ("rev-parse", "--verify", "--quiet", "refs/heads/main"):
+            return completed(*args, returncode=1)
+        if args == ("rev-parse", "--verify", "--quiet", "refs/heads/master"):
+            return completed(*args, returncode=1)
+        if args == ("branch", "--show-current"):
+            return completed(*args, stdout="\n")
+        if args == (
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "--points-at",
+            "HEAD",
+            "refs/heads",
+        ):
+            return completed(*args, returncode=0, stdout="\n")
+        if args == ("for-each-ref", "--format=%(refname:short)", "refs/heads"):
+            return completed(*args, returncode=0, stdout="topic\n")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(repo, "run", fake_run)
+
+    assert repo.default_branch() == "topic"
+
+
+def test_default_branch_ignores_ambiguous_local_branches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fake_run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        _ = check
+        if args == ("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):
+            return completed(*args, returncode=1)
+        if args == ("rev-parse", "--verify", "--quiet", "refs/heads/main"):
+            return completed(*args, returncode=1)
+        if args == ("rev-parse", "--verify", "--quiet", "refs/heads/master"):
+            return completed(*args, returncode=1)
+        if args == ("branch", "--show-current"):
+            return completed(*args, stdout="\n")
+        if args == (
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "--points-at",
+            "HEAD",
+            "refs/heads",
+        ):
+            return completed(*args, returncode=0, stdout="\n")
+        if args == ("for-each-ref", "--format=%(refname:short)", "refs/heads"):
+            return completed(*args, returncode=0, stdout="alpha\nbeta\n")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(repo, "run", fake_run)
+
+    assert repo.default_branch() == "main"
+
+
+def test_checkout_or_create_branch_is_noop_when_already_on_branch(
+    tmp_path: Path,
+) -> None:
+    repo_path = make_git_repo(tmp_path, branch="main")
+
+    GitRepo(repo_path).checkout_or_create_branch("main")
+
+    assert git(repo_path, "branch", "--show-current") == "main"
+
+
+def test_checkout_or_create_branch_checks_out_existing_branch(tmp_path: Path) -> None:
+    repo_path = make_git_repo(tmp_path, branch="main")
+    git(repo_path, "checkout", "-b", "feature")
+    git(repo_path, "checkout", "main")
+
+    GitRepo(repo_path).checkout_or_create_branch("feature")
+
+    assert git(repo_path, "branch", "--show-current") == "feature"
+
+
+def test_checkout_or_create_branch_creates_missing_branch(tmp_path: Path) -> None:
+    repo_path = make_git_repo(tmp_path, branch="main")
+
+    GitRepo(repo_path).checkout_or_create_branch("topic")
+
+    assert git(repo_path, "branch", "--show-current") == "topic"
+
+
+def test_commit_paths_if_needed_raises_on_commit_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fail_commit_paths_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        if args == ("status", "--short", "--", "README.md"):
+            return completed(*args, stdout=" M README.md\n")
+        if args == ("add", "-A", "--", "README.md"):
+            return completed(*args)
+        if args == ("commit", "-m", "save work", "--", "README.md"):
+            return completed(*args, returncode=1, stderr="no commit\n")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(repo, "run", fail_commit_paths_run)
+
+    with pytest.raises(JriError, match="no commit"):
+        repo.commit_paths_if_needed("save work", ["README.md", "README.md"])
+
+
+def test_commit_paths_if_needed_commits_scoped_paths(tmp_path: Path) -> None:
+    repo_path = make_git_repo(tmp_path, branch="main")
+    (repo_path / "README.md").write_text("# changed\n", encoding="utf-8")
+
+    assert GitRepo(repo_path).commit_paths_if_needed("save work", ["README.md"]) is True
+    assert git(repo_path, "log", "-1", "--pretty=%s") == "save work"
+
+
+def test_commit_paths_if_needed_skips_clean_scoped_paths(tmp_path: Path) -> None:
+    repo_path = make_git_repo(tmp_path, branch="main")
+
+    assert (
+        GitRepo(repo_path).commit_paths_if_needed("save work", ["README.md"]) is False
+    )
+
+
+def test_path_matches_head_raises_on_diff_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+    path = tmp_path / "tracked.txt"
+
+    def fail_diff_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        if args == ("ls-files", "--error-unmatch", "--", "tracked.txt"):
+            return completed(*args, returncode=0)
+        if args == ("diff", "--quiet", "HEAD", "--", "tracked.txt"):
+            return completed(*args, returncode=2, stderr="diff failed\n")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(repo, "run", fail_diff_run)
+
+    with pytest.raises(JriError, match="diff failed"):
+        repo.path_matches_head(path)
+
+
+def test_path_matches_head_returns_true_for_untracked_path(tmp_path: Path) -> None:
+    repo_path = make_git_repo(tmp_path, branch="main")
+    path = repo_path / "untracked.txt"
+    path.write_text("draft\n", encoding="utf-8")
+
+    assert GitRepo(repo_path).path_matches_head(path) is True
+
+
+def test_path_matches_head_returns_true_for_tracked_unchanged_path(
+    tmp_path: Path,
+) -> None:
+    repo_path = make_git_repo(tmp_path, branch="main")
+
+    assert GitRepo(repo_path).path_matches_head(repo_path / "README.md") is True
+
+
+def test_merge_ff_only_failure_uses_git_stderr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fail_merge_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=1, stderr="merge rejected\n")
+
+    monkeypatch.setattr(repo, "run", fail_merge_run)
+
+    with pytest.raises(JriError, match="merge rejected"):
+        repo.merge_ff_only("feature")
+
+
+def test_merge_ff_only_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def ok_merge_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args)
+
+    monkeypatch.setattr(repo, "run", ok_merge_run)
+
+    repo.merge_ff_only("feature")
+
+
+def test_merge_no_ff_failure_aborts_and_uses_fallback_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+    calls: list[tuple[str, ...]] = []
+
+    def fail_merge_no_ff_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        calls.append(args)
+        if args == ("merge", "--no-ff", "-m", "merge feature", "feature"):
+            return completed(*args, returncode=1)
+        if args == ("merge", "--abort"):
+            return completed(*args)
+        raise AssertionError(args)
+
+    monkeypatch.setattr(repo, "run", fail_merge_no_ff_run)
+
+    with pytest.raises(JriError, match="failed to merge feature"):
+        repo.merge_no_ff("feature", message="merge feature")
+
+    assert calls[-1] == ("merge", "--abort")
+
+
+def test_merge_no_ff_succeeds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = GitRepo(tmp_path)
+
+    def ok_merge_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args)
+
+    monkeypatch.setattr(repo, "run", ok_merge_run)
+
+    repo.merge_no_ff("feature", message="merge feature")
+
+
+def test_create_tag_failure_uses_git_stderr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fail_tag_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=1, stderr="tag failed\n")
+
+    monkeypatch.setattr(repo, "run", fail_tag_run)
+
+    with pytest.raises(JriError, match="tag failed"):
+        repo.create_tag("v1.0.0")
+
+
+def test_create_tag_succeeds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = GitRepo(tmp_path)
+
+    def ok_tag_run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args)
+
+    monkeypatch.setattr(repo, "run", ok_tag_run)
+
+    repo.create_tag("v1.0.0")
+
+
+@pytest.mark.parametrize("returncode, expected", [(0, True), (1, False)])
+def test_has_tag_returns_boolean(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    returncode: int,
+    expected: bool,
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fake_has_tag_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=returncode)
+
+    monkeypatch.setattr(repo, "run", fake_has_tag_run)
+
+    assert repo.has_tag("v1.0.0") is expected
+
+
+def test_has_remote_returns_false(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fake_has_remote_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args)
+
+    monkeypatch.setattr(repo, "run", fake_has_remote_run)
+
+    assert repo.has_remote() is False
+
+
+def test_is_ancestor_returns_false_and_raises_for_unexpected_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def false_then_error_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        if args == ("merge-base", "--is-ancestor", "a", "b"):
+            return completed(*args, returncode=1)
+        if args == ("merge-base", "--is-ancestor", "c", "d"):
+            return completed(*args, returncode=2, stderr="merge-base failed\n")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(repo, "run", false_then_error_run)
+
+    assert repo.is_ancestor("a", "b") is False
+
+    with pytest.raises(JriError, match="merge-base failed"):
+        repo.is_ancestor("c", "d")
+
+
+def test_is_ancestor_returns_true(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def true_ancestor_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=0)
+
+    monkeypatch.setattr(repo, "run", true_ancestor_run)
+
+    assert repo.is_ancestor("a", "b") is True
+
+
+def test_has_remote_returns_boolean(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fake_has_remote_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, stdout="origin\n")
+
+    monkeypatch.setattr(repo, "run", fake_has_remote_run)
+
+    assert repo.has_remote() is True
+
+
+def test_push_task_refs_raises_when_a_push_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fail_push_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        if args == ("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):
+            return completed(*args, returncode=1)
+        if args == ("rev-parse", "--verify", "--quiet", "refs/heads/main"):
+            return completed(*args, returncode=0)
+        if args == ("push", "origin", "main"):
+            return completed(*args)
+        if args == ("push", "origin", "feature"):
+            return completed(*args, returncode=1, stderr="push rejected\n")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(repo, "run", fail_push_run)
+
+    with pytest.raises(JriError, match="push rejected"):
+        repo.push_task_refs(branch="feature", tag="v1.0.0")
+
+
+def test_push_task_refs_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def ok_push_run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        _ = check
+        if args == ("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"):
+            return completed(*args, returncode=1)
+        if args == ("rev-parse", "--verify", "--quiet", "refs/heads/main"):
+            return completed(*args, returncode=0)
+        return completed(*args)
+
+    monkeypatch.setattr(repo, "run", ok_push_run)
+
+    repo.push_task_refs(branch="feature", tag="v1.0.0")
+
+
+def test_diff_returns_stdout_for_non_error_returncodes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fake_diff_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=1, stdout="diff output\n")
+
+    monkeypatch.setattr(repo, "run", fake_diff_run)
+
+    assert repo.diff("HEAD~1", "HEAD") == "diff output\n"
+
+
+def test_diff_raises_on_unexpected_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fail_diff_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=2, stderr="diff boom\n")
+
+    monkeypatch.setattr(repo, "run", fail_diff_run)
+
+    with pytest.raises(JriError, match="diff boom"):
+        repo.diff("HEAD~1", "HEAD")
+
+
+def test_reset_hard_failure_uses_git_stderr(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fail_reset_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=1, stderr="reset failed\n")
+
+    monkeypatch.setattr(repo, "run", fail_reset_run)
+
+    with pytest.raises(JriError, match="reset failed"):
+        repo.reset_hard("HEAD~1")
+
+
+def test_reset_hard_succeeds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = GitRepo(tmp_path)
+
+    def ok_reset_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args)
+
+    monkeypatch.setattr(repo, "run", ok_reset_run)
+
+    repo.reset_hard("HEAD~1")
+
+
+def test_reset_branch_failure_uses_fallback_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fail_reset_branch_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=1)
+
+    monkeypatch.setattr(repo, "run", fail_reset_branch_run)
+
+    with pytest.raises(JriError, match="failed to reset branch feature to HEAD"):
+        repo.reset_branch("feature", "HEAD")
+
+
+def test_reset_branch_succeeds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = GitRepo(tmp_path)
+
+    def ok_reset_branch_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args)
+
+    monkeypatch.setattr(repo, "run", ok_reset_branch_run)
+
+    repo.reset_branch("feature", "HEAD")
+
+
+def test_add_worktree_failure_uses_fallback_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fail_add_worktree_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=1)
+
+    monkeypatch.setattr(repo, "run", fail_add_worktree_run)
+
+    with pytest.raises(JriError, match="failed to create worktree"):
+        repo.add_worktree(tmp_path / "worktree", "feature")
+
+
+def test_add_worktree_succeeds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = GitRepo(tmp_path)
+
+    def ok_worktree_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args)
+
+    monkeypatch.setattr(repo, "run", ok_worktree_run)
+
+    repo.add_worktree(tmp_path / "worktree", "feature")
+
+
+def test_prune_worktrees_failure_uses_fallback_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fail_prune_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=1)
+
+    monkeypatch.setattr(repo, "run", fail_prune_run)
+
+    with pytest.raises(JriError, match="failed to prune worktrees"):
+        repo.prune_worktrees()
+
+
+def test_prune_worktrees_succeeds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def ok_prune_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args)
+
+    monkeypatch.setattr(repo, "run", ok_prune_run)
+
+    repo.prune_worktrees()
+
+
+def test_remove_worktree_failure_uses_fallback_message_when_path_exists(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+    worktree_path = tmp_path / "worktree"
+    worktree_path.mkdir()
+
+    def fail_remove_worktree_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=1)
+
+    monkeypatch.setattr(repo, "run", fail_remove_worktree_run)
+
+    with pytest.raises(JriError, match="failed to remove worktree"):
+        repo.remove_worktree(worktree_path)
+
+
+def test_remove_worktree_ignores_failure_when_path_is_gone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+    worktree_path = tmp_path / "worktree"
+
+    def fail_remove_worktree_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=1)
+
+    monkeypatch.setattr(repo, "run", fail_remove_worktree_run)
+
+    repo.remove_worktree(worktree_path)
+
+
+def test_rev_parse_failure_uses_fallback_message(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fail_rev_parse_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, returncode=1)
+
+    monkeypatch.setattr(repo, "run", fail_rev_parse_run)
+
+    with pytest.raises(JriError, match="failed to resolve HEAD"):
+        repo.rev_parse("HEAD")
+
+
+def test_rev_parse_succeeds(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    repo = GitRepo(tmp_path)
+
+    def ok_rev_parse_run(
+        *args: str, check: bool = True
+    ) -> subprocess.CompletedProcess[str]:
+        _ = check
+        return completed(*args, stdout="abc123\n")
+
+    monkeypatch.setattr(repo, "run", ok_rev_parse_run)
+
+    assert repo.rev_parse("HEAD") == "abc123"
