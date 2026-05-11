@@ -24,6 +24,7 @@ def test_graph_path_maps_to_node_file_under_graph_dir(tmp_path: Path) -> None:
     ("raw_path", "expected_message"),
     [
         ("", "non-empty"),
+        (" product", "leading or trailing whitespace"),
         ("/absolute", "relative"),
         ("C:/absolute", "relative"),
         (r"auth\oauth", "slash-separated"),
@@ -76,6 +77,13 @@ def test_node_metadata_accepts_active_and_archived_states() -> None:
     ) == GraphNodeMetadata(title="Checkout", state="active")
 
 
+def test_node_metadata_rejects_non_string_archive_reason_for_active_node() -> None:
+    with pytest.raises(ValueError, match="archive_reason"):
+        validate_node_metadata(
+            {"title": "Checkout", "state": "active", "archive_reason": 12}
+        )
+
+
 @pytest.mark.parametrize(
     ("payload", "expected_message"),
     [
@@ -124,6 +132,38 @@ def test_parse_graph_node_file_reads_frontmatter_and_body(tmp_path: Path) -> Non
 def test_parse_graph_node_file_rejects_raw_node_md_path(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="NODE.md"):
         parse_graph_node_file(tmp_path, "product/checkout/NODE.md")
+
+
+def test_parse_graph_node_file_rejects_missing_frontmatter(tmp_path: Path) -> None:
+    node_file = graph_node_path(tmp_path, "product/checkout")
+    node_file.parent.mkdir(parents=True)
+    node_file.write_text("Owns checkout intent.\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="start with YAML frontmatter"):
+        parse_graph_node_file(tmp_path, "product/checkout")
+
+
+def test_parse_graph_node_file_rejects_missing_frontmatter_boundary(
+    tmp_path: Path,
+) -> None:
+    node_file = graph_node_path(tmp_path, "product/checkout")
+    node_file.parent.mkdir(parents=True)
+    node_file.write_text(
+        "---\ntitle: Checkout\nstate: active\n\nOwns checkout.\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="end frontmatter"):
+        parse_graph_node_file(tmp_path, "product/checkout")
+
+
+def test_parse_graph_node_file_rejects_non_object_frontmatter(tmp_path: Path) -> None:
+    node_file = graph_node_path(tmp_path, "product/checkout")
+    node_file.parent.mkdir(parents=True)
+    node_file.write_text("---\n- checkout\n---\n\nOwns checkout.\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="frontmatter must be an object"):
+        parse_graph_node_file(tmp_path, "product/checkout")
 
 
 def test_parse_graph_node_file_wraps_invalid_yaml(tmp_path: Path) -> None:

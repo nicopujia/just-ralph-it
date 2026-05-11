@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 
+import jri.core.graph as graph_module
 from jri.core.graph import GraphStore, parse_graph_node_file
 from jri.core.models import GraphNode, GraphNodeMetadata
 
@@ -82,6 +83,32 @@ def test_read_node_archived_children(
     ] == [("product/old", "Old", "archived")]
 
 
+def test_read_node_skips_missing_child_node_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = GraphStore(tmp_path)
+    store.create_node("product", "Product", "Body\n")
+    product_dir = tmp_path / ".jri" / "graph" / "product"
+    (product_dir / "ghost").mkdir()
+
+    def fake_validate_graph_tree(root: Path) -> None:
+        del root
+
+    monkeypatch.setattr(graph_module, "validate_graph_tree", fake_validate_graph_tree)
+
+    node = store.read_node("product", depth=1)
+
+    assert node.children == ()
+
+
+def test_child_summaries_returns_empty_when_parent_directory_missing(
+    tmp_path: Path,
+) -> None:
+    store = GraphStore(tmp_path)
+
+    assert store._child_summaries("product", 1) == []
+
+
 def test_list_nodes_returns_top_level_nodes_sorted(tmp_path: Path) -> None:
     store = GraphStore(tmp_path)
     store.create_node("product/checkout", "Checkout", "Checkout body\n")
@@ -100,6 +127,41 @@ def test_list_nodes_returns_top_level_nodes_sorted(tmp_path: Path) -> None:
 
 def test_list_nodes_allows_missing_graph(tmp_path: Path) -> None:
     assert GraphStore(tmp_path).list_nodes() == ()
+
+
+def test_list_nodes_skips_missing_child_node_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = GraphStore(tmp_path)
+    graph_dir = tmp_path / ".jri" / "graph"
+    graph_dir.mkdir(parents=True)
+    (graph_dir / "ghost").mkdir()
+
+    def fake_validate_graph_tree(root: Path) -> None:
+        del root
+
+    monkeypatch.setattr(graph_module, "validate_graph_tree", fake_validate_graph_tree)
+
+    assert store.list_nodes() == ()
+
+
+def test_search_nodes_ignores_raw_root_node_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = GraphStore(tmp_path)
+    graph_dir = tmp_path / ".jri" / "graph"
+    graph_dir.mkdir(parents=True)
+    (graph_dir / "NODE.md").write_text(
+        "---\ntitle: Root\nstate: active\n---\n\nneedle\n",
+        encoding="utf-8",
+    )
+
+    def fake_validate_graph_tree(root: Path) -> None:
+        del root
+
+    monkeypatch.setattr(graph_module, "validate_graph_tree", fake_validate_graph_tree)
+
+    assert store.search_nodes("needle") == ()
 
 
 def test_search_nodes_scores_and_filters_plain_files(tmp_path: Path) -> None:
@@ -129,6 +191,36 @@ def test_search_nodes_scores_and_filters_plain_files(tmp_path: Path) -> None:
     )
 
 
+def test_search_nodes_handles_missing_graph_and_empty_query_tokens(
+    tmp_path: Path,
+) -> None:
+    store = GraphStore(tmp_path)
+
+    assert store.search_nodes("needle") == ()
+
+    with pytest.raises(ValueError, match="non-negative"):
+        store.search_nodes("needle", limit=-1)
+
+    with pytest.raises(ValueError, match="searchable text"):
+        store.search_nodes("!!!")
+
+
+def test_search_nodes_returns_empty_and_ellipsized_snippets(tmp_path: Path) -> None:
+    store = GraphStore(tmp_path)
+    store.create_node("product/empty", "Needle", "")
+    store.create_node(
+        "product/long",
+        "Long",
+        "prefix " + ("alpha " * 20) + "needle" + (" beta" * 20) + " suffix\n",
+    )
+
+    matches = store.search_nodes("needle")
+
+    assert matches[0].snippet == ""
+    assert matches[1].snippet.startswith("...")
+    assert matches[1].snippet.endswith("...")
+
+
 def test_search_nodes_rejects_empty_query(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="non-empty"):
         GraphStore(tmp_path).search_nodes("   ")
@@ -155,9 +247,24 @@ def test_update_node_metadata_preserves_body(tmp_path: Path) -> None:
     assert active.body == "Body\n"
 
 
+def test_update_node_metadata_preserves_existing_archive_reason(tmp_path: Path) -> None:
+    store = GraphStore(tmp_path)
+    store.create_node("product/checkout", "Checkout", "Body\n")
+    store.update_node_metadata(
+        "product/checkout", state="archived", archive_reason="Replaced"
+    )
+
+    updated = store.update_node_metadata("product/checkout", state="archived")
+
+    assert updated.metadata == GraphNodeMetadata(
+        title="Checkout", state="archived", archive_reason="Replaced"
+    )
+
+
 @pytest.mark.parametrize(
     ("kwargs", "expected_message"),
     [
+        ({"archive_reason": 12}, "archive_reason"),
         ({"state": "archived"}, "archive_reason"),
         ({"title": ""}, "title"),
         ({"state": "active", "archive_reason": "still archived"}, "active"),
@@ -176,6 +283,43 @@ def test_update_node_metadata_rejects_invalid(
     assert store.read_node("product/checkout").metadata == GraphNodeMetadata(
         title="Checkout", state="active"
     )
+
+
+def test_read_node_rejects_negative_depth(tmp_path: Path) -> None:
+    store = GraphStore(tmp_path)
+    store.create_node("product", "Product", "Body\n")
+
+    with pytest.raises(ValueError, match="non-negative"):
+        store.read_node("product", depth=-1)
+
+
+def test_write_node_cleans_up_temp_file_on_replace_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = GraphStore(tmp_path)
+    node_path = tmp_path / ".jri" / "graph" / "product" / "NODE.md"
+    node = GraphNode(
+        path=node_path,
+        semantic_path="product",
+        metadata=GraphNodeMetadata(title="Product", state="active"),
+        body="Body\n",
+    )
+
+    def fail_replace(_source: Path, _target: Path) -> Path:
+        raise OSError("forced replace failure")
+
+    monkeypatch.setattr(graph_module.os, "replace", fail_replace)
+
+    with pytest.raises(OSError, match="forced replace failure"):
+        store.write_node(node)
+
+    assert not node.path.exists()
+    temp_files = [
+        entry
+        for entry in node.path.parent.iterdir()
+        if entry.name.startswith(".NODE.md.")
+    ]
+    assert not temp_files
 
 
 def test_write_node_ignores_preexisting_temp_symlink(tmp_path: Path) -> None:
@@ -231,6 +375,28 @@ def test_move_node_failure_removes_auto_created_destination_parents(
     assert store.read_node("product/checkout").body == "Checkout body\n"
     with pytest.raises(FileNotFoundError, match="not found"):
         store.read_node("platform")
+    assert not (tmp_path / ".jri" / "graph" / "platform").exists()
+
+
+def test_move_node_failure_ignores_already_removed_auto_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = GraphStore(tmp_path)
+    store.create_node("product/checkout", "Checkout", "Checkout body\n")
+    original_replace = Path.replace
+
+    def remove_destination_parent_then_fail(path: Path, target: Path) -> Path:
+        if path == tmp_path / ".jri" / "graph" / "product" / "checkout":
+            graph_module.shutil.rmtree(tmp_path / ".jri" / "graph" / "platform")
+            raise OSError("forced move failure")
+        return original_replace(path, target)
+
+    monkeypatch.setattr(Path, "replace", remove_destination_parent_then_fail)
+
+    with pytest.raises(OSError, match="forced move failure"):
+        store.move_node("product/checkout", "platform/shop/checkout")
+
+    assert store.read_node("product/checkout").body == "Checkout body\n"
     assert not (tmp_path / ".jri" / "graph" / "platform").exists()
 
 

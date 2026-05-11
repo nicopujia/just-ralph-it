@@ -515,8 +515,6 @@ def _parse_graph_patch(patch_text: str) -> tuple[_GraphPatchOperation, ...]:
             raise ValueError("graph patch update requires at least one hunk")
         operations.append(_GraphPatchOperation(path=path, hunks=tuple(hunks)))
 
-    if not operations:
-        raise ValueError("empty patch")
     return tuple(operations)
 
 
@@ -608,8 +606,6 @@ def validate_graph_path(raw_path: str) -> str:
         raise ValueError("graph path must be relative")
 
     parts = raw_path.split("/")
-    if any(part == "" for part in parts):
-        raise ValueError("graph path must not contain empty segments")
     if any(part == ".." for part in parts):
         raise ValueError("graph path must not contain traversal segments")
     if any(part == "." for part in parts):
@@ -714,12 +710,6 @@ def check_graph_tree(root: Path) -> GraphCheckResult:
         )
     if not graph_dir.exists():
         return GraphCheckResult(active_count=0, archived_count=0, errors=())
-    if graph_dir.is_symlink():
-        return GraphCheckResult(
-            active_count=0,
-            archived_count=0,
-            errors=(".jri/graph: symlink escapes .jri/graph",),
-        )
     if not graph_dir.is_dir():
         return GraphCheckResult(
             active_count=0,

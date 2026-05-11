@@ -2,6 +2,7 @@ from pathlib import Path
 
 import pytest
 
+import jri.core.graph as graph_module
 from jri.core.graph import GraphStore, apply_graph_patch
 from jri.core.models import GraphNode
 
@@ -91,6 +92,7 @@ def test_apply_graph_patch_counts_duplicate_shared_lines(tmp_path: Path) -> None
     ("patch_text", "expected_message"),
     [
         ("", "empty patch"),
+        ("*** Begin Graph Patch\n*** End Graph Patch", "empty patch"),
         ("*** Begin Patch\n*** End Patch", "Begin Graph Patch"),
         (
             "*** Begin Graph Patch\n"
@@ -104,11 +106,65 @@ def test_apply_graph_patch_counts_duplicate_shared_lines(tmp_path: Path) -> None
             "unsupported graph patch operation",
         ),
         (
+            "*** Begin Graph Patch\n*** Move to: auth/openid\n*** End Graph Patch",
+            "move",
+        ),
+        (
             "*** Begin Graph Patch\n"
             "*** Update Node: auth/oauth\n"
             "*** Move to: auth/openid\n"
             "*** End Graph Patch",
             "move",
+        ),
+        (
+            "*** Begin Graph Patch\n"
+            "*** Update Node: auth/oauth\n"
+            "*** Delete Node: auth/openid\n"
+            "*** End Graph Patch",
+            "unsupported graph patch operation",
+        ),
+        (
+            "*** Begin Graph Patch\n@@\n*** End Graph Patch",
+            "graph patch operation must be",
+        ),
+        (
+            "*** Begin Graph Patch\n*** Update Node: auth/oauth \n*** End Graph Patch",
+            "malformed",
+        ),
+        (
+            "*** Begin Graph Patch\n"
+            "*** Update Node: auth/oauth\n"
+            "Body\n"
+            "*** End Graph Patch",
+            "hunks starting with `@@`",
+        ),
+        (
+            "*** Begin Graph Patch\n*** Update Node: auth/oauth\n*** End Graph Patch",
+            "at least one hunk",
+        ),
+        (
+            "*** Begin Graph Patch\n"
+            "*** Update Node: auth/oauth\n"
+            "@@\n"
+            "*** Move to: auth/openid\n"
+            "*** End Graph Patch",
+            "move",
+        ),
+        (
+            "*** Begin Graph Patch\n"
+            "*** Update Node: auth/oauth\n"
+            "@@\n"
+            "*** Delete Node: auth/openid\n"
+            "*** End Graph Patch",
+            "unsupported graph patch operation",
+        ),
+        (
+            "*** Begin Graph Patch\n"
+            "*** Update Node: auth/oauth\n"
+            "@@\n"
+            "?bad\n"
+            "*** End Graph Patch",
+            "graph patch hunk lines must start with space",
         ),
     ],
 )
@@ -122,6 +178,52 @@ def test_apply_graph_patch_rejects_invalid_envelope_or_operations(
         apply_graph_patch(store, patch_text)
 
     assert store.read_node("auth/oauth").body == "Body\n"
+
+
+def test_apply_graph_patch_inserts_into_empty_body(tmp_path: Path) -> None:
+    store = GraphStore(tmp_path)
+    store.create_node("auth/oauth", "OAuth", "")
+
+    summary = apply_graph_patch(
+        store,
+        """*** Begin Graph Patch
+*** Update Node: auth/oauth
+@@
++Created body
+*** End Graph Patch""",
+    )
+
+    assert store.read_node("auth/oauth").body == "Created body\n"
+    assert [(item.path, item.additions, item.deletions) for item in summary.nodes] == [
+        ("auth/oauth", 1, 0)
+    ]
+
+
+def test_apply_graph_patch_updates_body_without_trailing_newline(
+    tmp_path: Path,
+) -> None:
+    store = GraphStore(tmp_path)
+    store.create_node("auth/oauth", "OAuth", "First line\nOld line")
+
+    summary = apply_graph_patch(
+        store,
+        """*** Begin Graph Patch
+*** Update Node: auth/oauth
+@@
+ First line
+-Old line
++New line
+*** End Graph Patch""",
+    )
+
+    assert store.read_node("auth/oauth").body == "First line\nNew line\n"
+    assert [(item.path, item.additions, item.deletions) for item in summary.nodes] == [
+        ("auth/oauth", 1, 1)
+    ]
+
+
+def test_find_line_sequence_rejects_empty_sequence() -> None:
+    assert graph_module._find_line_sequence(["one"], (), 0) == -1
 
 
 def test_apply_graph_patch_rejects_missing_node(tmp_path: Path) -> None:
