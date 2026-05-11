@@ -8,7 +8,9 @@ from pathlib import Path
 from typing import Literal, cast
 
 import pytest
+import yaml
 
+import jri.core.tasks as tasks_module
 from jri.core.agents.bundle._shared.tools import run_contrast_check, run_upsert_task
 from jri.core.agents.resources import (
     resource_manifest,
@@ -16,8 +18,9 @@ from jri.core.agents.resources import (
     resource_relative_path,
 )
 from jri.core.git import GitRepo
-from jri.core.models import Task, TaskMetadata
+from jri.core.models import CompilerTaskSpec, Task, TaskMetadata
 from jri.core.tasks import (
+    create_task_batch,
     dump_task,
     list_tasks,
     parse_task_file,
@@ -313,6 +316,29 @@ def make_task(
     )
 
 
+def compiler_spec(
+    title: str,
+    *,
+    priority: int = 1,
+    assignee: Literal["Ralph", "Human"] = "Ralph",
+    depends_on: list[str] | None = None,
+    acceptance_criteria: list[str] | None = None,
+    body: str = "Complete the task.\n",
+) -> CompilerTaskSpec:
+    return CompilerTaskSpec(
+        title=title,
+        priority=priority,
+        assignee=assignee,
+        depends_on=depends_on or [],
+        acceptance_criteria=(
+            ["The task is complete"]
+            if acceptance_criteria is None
+            else acceptance_criteria
+        ),
+        body=body,
+    )
+
+
 def make_git_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -396,6 +422,66 @@ def test_validate_task_metadata_rejects_invalid_values() -> None:
         )
 
 
+def test_validate_task_metadata_defaults_optional_lists() -> None:
+    metadata = validate_task_metadata(
+        {"title": "Good task", "priority": 0, "assignee": "Human"}
+    )
+
+    assert metadata == TaskMetadata(
+        title="Good task",
+        priority=0,
+        assignee="Human",
+        depends_on=[],
+        acceptance_criteria=[],
+    )
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({"title": 12, "priority": 1, "assignee": "Ralph"}, "title"),
+        ({"title": "a" * 76, "priority": 1, "assignee": "Ralph"}, "75"),
+        ({"title": "Task", "priority": True, "assignee": "Ralph"}, "priority"),
+        (
+            {
+                "title": "Task",
+                "priority": 1,
+                "assignee": "Ralph",
+                "depends_on": "setup",
+            },
+            "depends_on",
+        ),
+        (
+            {"title": "Task", "priority": 1, "assignee": "Ralph", "depends_on": [1]},
+            r"depends_on\[0\]",
+        ),
+        (
+            {
+                "title": "Task",
+                "priority": 1,
+                "assignee": "Ralph",
+                "acceptance_criteria": "done",
+            },
+            "acceptance_criteria",
+        ),
+        (
+            {
+                "title": "Task",
+                "priority": 1,
+                "assignee": "Ralph",
+                "acceptance_criteria": [False],
+            },
+            r"acceptance_criteria\[0\]",
+        ),
+    ],
+)
+def test_validate_task_metadata_reports_field_contract_errors(
+    payload: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        validate_task_metadata(payload)
+
+
 def test_validate_state_payload_accepts_empty() -> None:
     validate_state_payload({})
 
@@ -450,6 +536,202 @@ def test_validate_state_payload_allows_attempt_result_payload() -> None:
             ]
         }
     )
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({"attempts": "one"}, "attempts"),
+        ({"started_at": True}, "started_at"),
+        ({"session": 1}, "session"),
+        ({"process": "running"}, "process"),
+        ({"process": {"pid": 1}}, "process.pid"),
+        ({"process": {"loop_pid": False}}, "process.loop_pid"),
+        ({"process": {"child_pid": "123"}}, "process.child_pid"),
+        ({"process": {"log_path": 3}}, "process.log_path"),
+        ({"process": {"detached": "yes"}}, "process.detached"),
+        ({"active_attempt": "task"}, "active_attempt"),
+        (
+            {"active_attempt": {"number": 1, "task_slug": "task", "branch": "main"}},
+            "active_attempt.started_at",
+        ),
+        (
+            {
+                "active_attempt": {
+                    "number": "1",
+                    "task_slug": "task",
+                    "branch": "main",
+                    "started_at": 1,
+                }
+            },
+            "active_attempt.number",
+        ),
+        (
+            {
+                "active_attempt": {
+                    "number": 1,
+                    "task_slug": 3,
+                    "branch": "main",
+                    "started_at": 1,
+                }
+            },
+            "active_attempt.task_slug",
+        ),
+        (
+            {
+                "active_attempt": {
+                    "number": 1,
+                    "task_slug": "task",
+                    "branch": "main",
+                    "started_at": 1,
+                    "result": "ok",
+                }
+            },
+            "known attempt result",
+        ),
+        (
+            {
+                "active_attempt": {
+                    "number": 1,
+                    "task_slug": "task",
+                    "branch": "main",
+                    "started_at": 1,
+                    "extra": True,
+                }
+            },
+            "active_attempt.extra",
+        ),
+        (
+            {
+                "active_attempt": {
+                    "number": 1,
+                    "task_slug": "task",
+                    "branch": "main",
+                    "started_at": 1,
+                    "result_payload": "done",
+                }
+            },
+            "result_payload",
+        ),
+        (
+            {
+                "active_attempt": {
+                    "number": 1,
+                    "task_slug": "task",
+                    "branch": "main",
+                    "started_at": 1,
+                    "result_payload": {"result": "failed"},
+                }
+            },
+            "completed, incompleted, needs_human",
+        ),
+        (
+            {
+                "active_attempt": {
+                    "number": 1,
+                    "task_slug": "task",
+                    "branch": "main",
+                    "started_at": 1,
+                    "result_payload": {"result": "completed", "summary": 1},
+                }
+            },
+            "summary",
+        ),
+        (
+            {
+                "active_attempt": {
+                    "number": 1,
+                    "task_slug": "task",
+                    "branch": "main",
+                    "started_at": 1,
+                    "result_payload": {"result": "completed", "learnings": "none"},
+                }
+            },
+            "learnings",
+        ),
+        (
+            {
+                "active_attempt": {
+                    "number": 1,
+                    "task_slug": "task",
+                    "branch": "main",
+                    "started_at": 1,
+                    "result_payload": {"result": "completed", "learnings": [2]},
+                }
+            },
+            r"learnings\[0\]",
+        ),
+        (
+            {
+                "active_attempt": {
+                    "number": 1,
+                    "task_slug": "task",
+                    "branch": "main",
+                    "started_at": 1,
+                    "result_payload": {"result": "completed", "human_task": "ask"},
+                }
+            },
+            "human_task",
+        ),
+        (
+            {
+                "active_attempt": {
+                    "number": 1,
+                    "task_slug": "task",
+                    "branch": "main",
+                    "started_at": 1,
+                    "result_payload": {
+                        "result": "completed",
+                        "human_task": {"title": 1, "body": "Ask", "extra": True},
+                    },
+                }
+            },
+            "human_task.extra",
+        ),
+    ],
+)
+def test_validate_state_payload_reports_nested_contract_errors(
+    payload: dict[str, object], message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        validate_state_payload(payload)
+
+
+def test_validate_state_payload_reports_extra_result_payload_and_human_priority() -> (
+    None
+):
+    with pytest.raises(ValueError, match="result_payload.extra"):
+        validate_state_payload(
+            {
+                "active_attempt": {
+                    "number": 1,
+                    "task_slug": "task",
+                    "branch": "main",
+                    "started_at": 1,
+                    "result_payload": {"result": "completed", "extra": True},
+                }
+            }
+        )
+
+    with pytest.raises(ValueError, match="human_task.priority"):
+        validate_state_payload(
+            {
+                "active_attempt": {
+                    "number": 1,
+                    "task_slug": "task",
+                    "branch": "main",
+                    "started_at": 1,
+                    "result_payload": {
+                        "result": "needs_human",
+                        "human_task": {
+                            "title": "Ask human",
+                            "body": "Please decide.",
+                            "priority": True,
+                        },
+                    },
+                }
+            }
+        )
 
 
 def test_non_schema_package_resources_are_available() -> None:
@@ -1173,11 +1455,49 @@ def test_parse_task_file_reads_frontmatter_and_body(tmp_path: Path) -> None:
     assert task.body == "Write the README body.\n"
 
 
+def test_parse_task_file_reads_body_without_blank_separator(tmp_path: Path) -> None:
+    task_path = tmp_path / "compact-task.md"
+    task_path.write_text(
+        "---\n"
+        "title: Compact task\n"
+        "priority: 1\n"
+        "assignee: Ralph\n"
+        "acceptance_criteria:\n"
+        "  - It parses\n"
+        "---\n"
+        "Body starts immediately.\n",
+        encoding="utf-8",
+    )
+
+    task = parse_task_file(task_path)
+
+    assert task.body == "Body starts immediately.\n"
+
+
+def test_parse_task_file_rejects_invalid_filename_slug(tmp_path: Path) -> None:
+    task_path = tmp_path / "bad slug.md"
+    task_path.write_text(
+        "---\ntitle: Bad slug\npriority: 1\nassignee: Ralph\n---\n\nBody\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="task filename `bad slug.md`"):
+        parse_task_file(task_path)
+
+
 def test_parse_task_file_rejects_missing_frontmatter_start(tmp_path: Path) -> None:
     task_path = tmp_path / "broken-task.md"
     task_path.write_text("title: Broken\n---\n\nBody\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="must start with YAML frontmatter"):
+        parse_task_file(task_path)
+
+
+def test_parse_task_file_rejects_missing_frontmatter_end(tmp_path: Path) -> None:
+    task_path = tmp_path / "broken-task.md"
+    task_path.write_text("---\ntitle: Broken\npriority: 1\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must end frontmatter"):
         parse_task_file(task_path)
 
 
@@ -1246,6 +1566,30 @@ def test_parse_task_file_allows_markdown_like_plain_scalars_in_frontmatter(
     ]
 
 
+def test_parse_task_file_preserves_block_scalar_boundaries(tmp_path: Path) -> None:
+    task_path = tmp_path / "block-scalar-task.md"
+    task_path.write_text(
+        "---\n"
+        "title: Block scalar task\n"
+        "priority: 1\n"
+        "assignee: Ralph\n"
+        "acceptance_criteria:\n"
+        "  - It parses\n"
+        "notes: >\n"
+        "  This line is inside the scalar.\n"
+        "\n"
+        "  So is this line.\n"
+        "---\n\n"
+        "Body after a folded scalar.\n",
+        encoding="utf-8",
+    )
+
+    task = parse_task_file(task_path)
+
+    assert task.slug == "block-scalar-task"
+    assert task.body == "Body after a folded scalar.\n"
+
+
 def test_parse_task_file_round_trips_dump_task_output(tmp_path: Path) -> None:
     task_path = tmp_path / "round-trip.md"
     task = Task(
@@ -1293,6 +1637,114 @@ def test_list_tasks_rejects_in_place_edits_for_todo_tasks(git_repo: Path) -> Non
         list_tasks(todo_path.parent, git_repo=GitRepo(git_repo))
 
 
+def test_list_tasks_returns_empty_for_missing_directory(tmp_path: Path) -> None:
+    assert list_tasks(tmp_path / "missing") == []
+
+
+def test_list_tasks_sorts_by_slug_and_wraps_malformed_files(tmp_path: Path) -> None:
+    tasks_dir = tmp_path / "tasks"
+    tasks_dir.mkdir()
+    (tasks_dir / "zeta.md").write_text(
+        dump_task(make_task("zeta", acceptance_criteria=["Zeta done"])),
+        encoding="utf-8",
+    )
+    (tasks_dir / "alpha.md").write_text(
+        dump_task(make_task("alpha", acceptance_criteria=["Alpha done"])),
+        encoding="utf-8",
+    )
+
+    assert [task.slug for task in list_tasks(tasks_dir)] == ["alpha", "zeta"]
+
+    (tasks_dir / "broken.md").write_text("not frontmatter\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="malformed task file `broken.md`"):
+        list_tasks(tasks_dir)
+
+
+def test_lifecycle_task_files_require_acceptance_criteria(tmp_path: Path) -> None:
+    todo_dir = tmp_path / ".jri" / "tasks" / "todo"
+    todo_dir.mkdir(parents=True)
+    task_path = todo_dir / "missing-criteria.md"
+    task_path.write_text(
+        "---\ntitle: Missing criteria\npriority: 1\nassignee: Ralph\n---\n\nBody\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="non-empty acceptance_criteria"):
+        parse_task_file(task_path)
+
+
+def test_create_task_batch_accepts_existing_done_dependency_and_normalizes_slug(
+    tmp_path: Path,
+) -> None:
+    repo = tmp_path / "repo"
+    (repo / ".jri" / "tasks" / "done").mkdir(parents=True)
+    write_task(
+        repo,
+        status="done",
+        slug="setup_done",
+        title="Setup done",
+        priority=1,
+        assignee="Ralph",
+        body="Existing setup.\n",
+        acceptance_criteria=["Setup exists"],
+    )
+
+    tasks = create_task_batch(
+        repo,
+        [
+            compiler_spec(
+                "  Ship API v2!!!  ",
+                depends_on=["setup_done"],
+                acceptance_criteria=["API task exists"],
+                body="Ship it.\n",
+            )
+        ],
+    )
+
+    assert [task.slug for task in tasks] == ["ship-api-v2"]
+    created = parse_task_file(repo / ".jri" / "tasks" / "todo" / "ship-api-v2.md")
+    assert created.metadata.depends_on == ["setup_done"]
+    assert created.body == "Ship it.\n"
+
+
+@pytest.mark.parametrize(
+    ("specs", "message"),
+    [
+        ([compiler_spec("Body", body="   ")], "body"),
+        ([compiler_spec("   ")], "title"),
+        ([compiler_spec("Unknown dep", depends_on=["missing"])], "unknown dependency"),
+        ([compiler_spec("Empty dep", depends_on=[" "])], "non-empty string"),
+        ([compiler_spec("Bad dep", depends_on=["../escape"])], "not allowed"),
+        ([compiler_spec("No criteria", acceptance_criteria=[])], "acceptance_criteria"),
+    ],
+)
+def test_create_task_batch_rejects_invalid_compiler_specs_without_writes(
+    tmp_path: Path, specs: list[CompilerTaskSpec], message: str
+) -> None:
+    repo = tmp_path / "repo"
+
+    with pytest.raises(ValueError, match=message):
+        create_task_batch(repo, specs)
+
+    assert not (repo / ".jri" / "tasks" / "todo").exists()
+
+
+def test_create_task_batch_rejects_symlinked_todo_directory(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (repo / ".jri" / "tasks").mkdir(parents=True)
+    (repo / ".jri" / "tasks" / "todo").symlink_to(
+        outside,
+        target_is_directory=True,
+    )
+
+    with pytest.raises(ValueError, match="outside `.jri/tasks/todo`"):
+        create_task_batch(repo, [compiler_spec("Safe write")])
+
+    assert list(outside.iterdir()) == []
+
+
 def test_parse_task_file_rejects_draft_status_frontmatter(tmp_path: Path) -> None:
     task_path = tmp_path / "draft-task.md"
     task_path.write_text(
@@ -1310,3 +1762,313 @@ def test_parse_task_file_rejects_draft_status_frontmatter(tmp_path: Path) -> Non
 
     with pytest.raises(ValueError, match="unexpected key.*status"):
         parse_task_file(task_path)
+
+
+def test_create_task_batch_ignores_cleanup_failure_after_write_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    original_write_text = Path.write_text
+    original_unlink = Path.unlink
+
+    def write_text_with_second_task_failure(
+        self: Path, data: str, encoding: str | None = None
+    ) -> int:
+        if self.name == "second-task.md":
+            raise OSError("disk full")
+        return original_write_text(self, data, encoding=encoding)
+
+    def unlink_with_cleanup_failure(self: Path, *, missing_ok: bool = False) -> None:
+        if self.name == "first-task.md":
+            raise OSError("cleanup failed")
+        original_unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "write_text", write_text_with_second_task_failure)
+    monkeypatch.setattr(Path, "unlink", unlink_with_cleanup_failure)
+
+    with pytest.raises(OSError, match="disk full"):
+        create_task_batch(
+            repo, [compiler_spec("First task"), compiler_spec("Second task")]
+        )
+
+    first_task = repo / ".jri" / "tasks" / "todo" / "first-task.md"
+    assert parse_task_file(first_task).slug == "first-task"
+
+
+def test_create_task_batch_rejects_racy_existing_todo_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    todo_dir = repo / ".jri" / "tasks" / "todo"
+    todo_dir.mkdir(parents=True)
+    (todo_dir / "safe-write.md").write_text("existing\n", encoding="utf-8")
+
+    def fake_existing_lifecycle_task_slugs(root: Path) -> set[str]:
+        del root
+        return set()
+
+    monkeypatch.setattr(
+        tasks_module,
+        "_existing_lifecycle_task_slugs",
+        fake_existing_lifecycle_task_slugs,
+    )
+
+    with pytest.raises(ValueError, match="refusing to overwrite existing task"):
+        create_task_batch(repo, [compiler_spec("Safe write")])
+
+
+def test_create_task_batch_rejects_racy_symlink_escape_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = tmp_path / "repo"
+    outside = tmp_path / "outside.md"
+    outside.write_text("outside\n", encoding="utf-8")
+    todo_dir = repo / ".jri" / "tasks" / "todo"
+    todo_dir.mkdir(parents=True)
+    (todo_dir / "safe-write.md").symlink_to(outside)
+
+    def fake_existing_lifecycle_task_slugs(root: Path) -> set[str]:
+        del root
+        return set()
+
+    monkeypatch.setattr(
+        tasks_module,
+        "_existing_lifecycle_task_slugs",
+        fake_existing_lifecycle_task_slugs,
+    )
+
+    with pytest.raises(ValueError, match="outside `.jri/tasks/todo`"):
+        create_task_batch(repo, [compiler_spec("Safe write")])
+
+    assert outside.read_text(encoding="utf-8") == "outside\n"
+
+
+def test_parse_task_file_uses_scanner_when_yaml_parser_finds_no_document_end(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task_path = tmp_path / "scanner-fallback.md"
+    task_path.write_text(
+        "---\n"
+        "title: Scanner fallback\n"
+        "priority: 1\n"
+        "assignee: Ralph\n"
+        "acceptance_criteria:\n"
+        "  - It parses\n"
+        "---\n\n"
+        "Body\n",
+        encoding="utf-8",
+    )
+
+    def fake_parse_empty(text: str) -> list[object]:
+        del text
+        return []
+
+    monkeypatch.setattr(tasks_module.yaml, "parse", fake_parse_empty)
+
+    task = parse_task_file(task_path)
+
+    assert task.metadata.title == "Scanner fallback"
+    assert task.body == "Body\n"
+
+
+def test_parse_task_file_rejects_frontmatter_when_yaml_mark_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task_path = tmp_path / "missing-mark.md"
+    task_path.write_text(
+        "---\n"
+        "title: Missing mark\n"
+        "priority: 1\n"
+        "assignee: Ralph\n"
+        "acceptance_criteria:\n"
+        "  - It parses\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+    def fake_parse_missing_mark(text: str) -> list[object]:
+        del text
+        return [tasks_module.DocumentEndEvent(None, None, explicit=False)]
+
+    monkeypatch.setattr(tasks_module.yaml, "parse", fake_parse_missing_mark)
+
+    with pytest.raises(ValueError, match="must end frontmatter"):
+        parse_task_file(task_path)
+
+
+def test_parse_task_file_retries_original_frontmatter_when_normalized_yaml_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task_path = tmp_path / "retry-normalized.md"
+    task_path.write_text(
+        "---\n"
+        "title: Retry normalized # parser\n"
+        "priority: 1\n"
+        "assignee: Ralph\n"
+        "acceptance_criteria:\n"
+        "  - It parses\n"
+        "---\n\n"
+        "Body\n",
+        encoding="utf-8",
+    )
+    real_safe_load = yaml.safe_load
+    calls = 0
+
+    def flaky_safe_load(value: str) -> object:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise yaml.YAMLError("normalized parse failed")
+        return real_safe_load(value)
+
+    monkeypatch.setattr(tasks_module.yaml, "safe_load", flaky_safe_load)
+
+    task = parse_task_file(task_path)
+
+    assert calls == 2
+    assert task.metadata.title == "Retry normalized"
+
+
+def test_parse_task_file_scanner_ignores_separators_inside_block_scalars(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task_path = tmp_path / "scanner-block-scalar.md"
+    task_path.write_text(
+        "---\n"
+        "title: Scanner block scalar\n"
+        "priority: 1\n"
+        "assignee: Ralph\n"
+        "acceptance_criteria:\n"
+        "  - It parses\n"
+        "notes: |\n"
+        "  ---\n"
+        "  still frontmatter content\n"
+        "---\n\n"
+        "Body after scalar\n",
+        encoding="utf-8",
+    )
+
+    def broken_parse(_text: str) -> object:
+        raise yaml.YAMLError("force scanner")
+
+    monkeypatch.setattr(tasks_module.yaml, "parse", broken_parse)
+
+    task = parse_task_file(task_path)
+
+    assert task.body == "Body after scalar\n"
+
+
+def test_parse_task_file_rejects_missing_scanned_boundary_without_trailing_newline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task_path = tmp_path / "unterminated-scanner.md"
+    task_path.write_text("---\ntitle: Unterminated", encoding="utf-8")
+
+    def broken_parse(_text: str) -> object:
+        raise yaml.YAMLError("force scanner")
+
+    monkeypatch.setattr(tasks_module.yaml, "parse", broken_parse)
+
+    with pytest.raises(ValueError, match="must end frontmatter"):
+        parse_task_file(task_path)
+
+
+def test_parse_task_file_normalizes_comments_block_dedents_and_crlf(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task_path = tmp_path / "normalize-comments.md"
+    text = (
+        "---\n"
+        "title: Commented title # ignored comment\r\n"
+        "priority: 1\r\n"
+        "assignee: Ralph\r\n"
+        "notes: |\r\n"
+        "  Keep this: value\r\n"
+        "acceptance_criteria:\r\n"
+        "  - It parses: with colon # ignored comment\r\n"
+        "---\n\n"
+        "Body\r\n"
+    )
+
+    def read_exact_text(
+        _self: Path, encoding: str | None = None, errors: str | None = None
+    ) -> str:
+        assert encoding == "utf-8"
+        assert errors is None
+        return text
+
+    monkeypatch.setattr(Path, "read_text", read_exact_text)
+
+    task = parse_task_file(task_path)
+
+    assert task.metadata.title == "Commented title"
+    assert task.metadata.acceptance_criteria == ["It parses: with colon"]
+
+
+def test_parse_task_file_rejects_unquoted_empty_and_boolean_plain_scalars(
+    tmp_path: Path,
+) -> None:
+    empty_item = tmp_path / "empty-item.md"
+    empty_item.write_text(
+        "---\n"
+        "title: Empty item\n"
+        "priority: 1\n"
+        "assignee: Ralph\n"
+        "acceptance_criteria:\n"
+        "  - \n"
+        "---\n",
+        encoding="utf-8",
+    )
+    boolean_title = tmp_path / "boolean-title.md"
+    boolean_title.write_text(
+        "---\n"
+        "title: true\n"
+        "priority: 1\n"
+        "assignee: Ralph\n"
+        "acceptance_criteria:\n"
+        "  - It parses\n"
+        "---\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match=r"acceptance_criteria\[0\]"):
+        parse_task_file(empty_item)
+    with pytest.raises(ValueError, match="title"):
+        parse_task_file(boolean_title)
+
+
+def test_parse_task_file_normalizes_plain_scalar_without_line_ending(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    task_path = tmp_path / "no-line-ending.md"
+    text = (
+        "---\n"
+        "title: No newline\n"
+        "priority: 1\n"
+        "assignee: Ralph\n"
+        "acceptance_criteria:\n"
+        "  - Needs: quote---\n"
+        "Body\n"
+    )
+    task_path.write_text(text, encoding="utf-8")
+
+    class Mark:
+        index = len(
+            "---\n"
+            "title: No newline\n"
+            "priority: 1\n"
+            "assignee: Ralph\n"
+            "acceptance_criteria:\n"
+            "  - Needs: quote"
+        )
+
+    def fake_parse_mark(text: str) -> list[object]:
+        del text
+        return [tasks_module.DocumentEndEvent(Mark(), Mark(), explicit=False)]
+
+    monkeypatch.setattr(tasks_module.yaml, "parse", fake_parse_mark)
+
+    task = parse_task_file(task_path)
+
+    assert task.metadata.acceptance_criteria == ["Needs: quote"]
+    assert task.body == "Body\n"
