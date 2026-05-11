@@ -243,7 +243,10 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     parts.append("Are you sure? [y/N]")
 
                     print(" ".join(parts))
-                    response = input().strip().lower()
+                    try:
+                        response = input().strip().lower()
+                    except EOFError:
+                        response = ""
                     if response != "y":
                         print("Reset aborted.", file=sys.stderr)
                         return 1
