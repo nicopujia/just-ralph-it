@@ -1,3 +1,5 @@
+import runpy
+import sys
 from pathlib import Path
 
 import pytest
@@ -26,6 +28,7 @@ def test_validate_repo_accepts_valid_jri_tree(tmp_path: Path) -> None:
     state_path.write_text('{"attempts": []}\n', encoding="utf-8")
 
     validate_repo(tmp_path)
+    assert main([str(tmp_path)]) == 0
 
 
 def test_validate_repo_accepts_current_lifecycle_task_directories(
@@ -137,3 +140,46 @@ def test_validate_repo_rejects_in_place_mutation_of_lifecycle_task(
 
     with pytest.raises(ValueError, match="modified in place"):
         validate_repo(git_repo)
+
+
+def test_validate_repo_rejects_corrupted_state_file(tmp_path: Path) -> None:
+    state_path = tmp_path / ".jri" / "state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text("not json", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="state.json is corrupted"):
+        validate_repo(tmp_path)
+
+
+def test_validate_repo_rejects_non_object_state_payload(tmp_path: Path) -> None:
+    state_path = tmp_path / ".jri" / "state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text("[]\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="must contain an object"):
+        validate_repo(tmp_path)
+
+
+def test_validate_repo_rejects_invalid_state_content(tmp_path: Path) -> None:
+    state_path = tmp_path / ".jri" / "state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text('{"started_at": "soon"}\n', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="state.json has invalid content"):
+        validate_repo(tmp_path)
+
+
+def test_module_entry_point_returns_zero_for_valid_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    state_path = tmp_path / ".jri" / "state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text('{"attempts": []}\n', encoding="utf-8")
+
+    monkeypatch.delitem(sys.modules, "jri.checks.schema", raising=False)
+    monkeypatch.setattr(sys, "argv", ["jri.checks.schema", str(tmp_path)])
+
+    with pytest.raises(SystemExit) as exc_info:
+        runpy.run_module("jri.checks.schema", run_name="__main__")
+
+    assert exc_info.value.code == 0
