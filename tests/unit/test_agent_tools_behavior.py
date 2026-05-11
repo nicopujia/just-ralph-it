@@ -117,6 +117,23 @@ def test_dispatcher_rejects_non_object_payload(
     assert "tool payload must be a JSON object" in capsys.readouterr().err
 
 
+def test_contrast_check_rejects_empty_foreground(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert (
+        invoke_tool(
+            monkeypatch,
+            "check-contrast",
+            {"foreground": None, "background": "ffffff", "standard": "AA"},
+        )
+        == 1
+    )
+
+    assert (
+        "`foreground` must be a non-empty hex color string" in capsys.readouterr().err
+    )
+
+
 def test_upsert_task_creates_todo_task_and_refuses_overwrite(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -160,6 +177,47 @@ def test_upsert_task_validates_slug_and_acceptance_criteria(
         == 1
     )
     assert "acceptance_criteria" in capsys.readouterr().err
+
+
+def test_upsert_task_rejects_empty_title_and_body(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert invoke_tool(monkeypatch, "upsert-task", task_payload(title="   ")) == 1
+    assert "`title` must be a non-empty string" in capsys.readouterr().err
+
+    assert invoke_tool(monkeypatch, "upsert-task", task_payload(body="\n")) == 1
+    assert "`body` must be a non-empty string" in capsys.readouterr().err
+
+
+def test_upsert_task_rejects_symlinked_task_path(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    todo_dir = tmp_path / ".jri" / "tasks" / "todo"
+    todo_dir.mkdir(parents=True)
+    outside = tmp_path / "outside-task.md"
+    outside.write_text("outside", encoding="utf-8")
+    task_path = todo_dir / "blocked.md"
+    task_path.symlink_to(outside)
+
+    def fake_ensure_task_path_within(directory: Path, slug: str) -> Path:
+        del directory, slug
+        return task_path
+
+    monkeypatch.setitem(
+        tools.run_upsert_task.__globals__,
+        "ensure_task_path_within",
+        fake_ensure_task_path_within,
+    )
+
+    assert invoke_tool(monkeypatch, "upsert-task", task_payload(slug="blocked")) == 1
+    assert "refusing to overwrite symlinked todo task" in capsys.readouterr().err
 
 
 def test_removed_task_crud_tools_are_not_registered(
@@ -407,6 +465,9 @@ def test_readme_exact_edit_happy_path_and_missing_text_failure(
     readme_path = tmp_path / "README.md"
     readme_path.write_text("# Project\n\nOld paragraph.\n", encoding="utf-8")
 
+    assert invoke_tool(monkeypatch, "read-readme", {}) == 0
+    assert capsys.readouterr().out == "# Project\n\nOld paragraph.\n"
+
     assert (
         invoke_tool(
             monkeypatch,
@@ -456,6 +517,40 @@ def test_readme_operations_reject_symlink(
     assert target.read_text(encoding="utf-8") == "outside"
 
 
+def test_readme_tool_rejects_missing_or_non_regular_readme(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert invoke_tool(monkeypatch, "read-readme", {}) == 1
+    assert "README.md does not exist" in capsys.readouterr().err
+
+    assert (
+        invoke_tool(
+            monkeypatch,
+            "edit-readme",
+            {"edits": [{"oldText": "old", "newText": "new"}]},
+        )
+        == 1
+    )
+    assert "README.md does not exist" in capsys.readouterr().err
+
+    readme_dir = tmp_path / "README.md"
+    readme_dir.mkdir()
+
+    assert (
+        invoke_tool(
+            monkeypatch,
+            "edit-readme",
+            {"edits": [{"oldText": "old", "newText": "new"}]},
+        )
+        == 1
+    )
+    assert "README.md is not a regular file" in capsys.readouterr().err
+
+
 def test_promote_tasks_tool_is_not_registered(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -500,6 +595,39 @@ def test_list_and_read_tasks_use_service_payload_mapping(
     assert "task not found: missing" in capsys.readouterr().err
 
 
+def test_list_tasks_filters_by_status_via_service_and_helper(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    selected_task = make_task("beta", "doing")
+    git_repo = object()
+    calls: dict[str, object] = {}
+
+    class FakeService:
+        def __init__(self, root: Path) -> None:
+            self.paths = SimpleNamespace(tasks_dir=root / ".jri" / "tasks")
+            self.git = git_repo
+
+        def status(self) -> dict[str, list[Task]]:
+            raise AssertionError("status() should not be used when filtering")
+
+    def fake_list_tasks(tasks_dir: Path, *, git_repo: object) -> list[Task]:
+        calls["tasks_dir"] = tasks_dir
+        calls["git_repo"] = git_repo
+        return [selected_task]
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(tools, "JriService", FakeService)
+    monkeypatch.setitem(tools.run_list_tasks.__globals__, "list_tasks", fake_list_tasks)
+
+    assert invoke_tool(monkeypatch, "list-tasks", {"status": "doing"}) == 0
+
+    assert calls["tasks_dir"] == tmp_path / ".jri" / "tasks" / "doing"
+    assert calls["git_repo"] is git_repo
+    assert json.loads(capsys.readouterr().out)[0]["slug"] == "beta"
+
+
 def test_ralph_result_without_output_path_reports_no_write(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -508,6 +636,14 @@ def test_ralph_result_without_output_path_reports_no_write(
     assert invoke_tool(monkeypatch, "ralph-result", {"result": "completed"}) == 0
 
     assert capsys.readouterr().out == "JRI_RESULT_PATH not set"
+
+
+def test_ralph_result_rejects_invalid_result(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert invoke_tool(monkeypatch, "ralph-result", {"result": "bogus"}) == 1
+
+    assert "invalid result" in capsys.readouterr().err
 
 
 def test_ralph_result_rejects_incompleted_without_learnings(
