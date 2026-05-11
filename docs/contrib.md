@@ -33,6 +33,6 @@ uv build
 - Keep CLI docs in the CLI help text (`--help`), not in markdown files.
 - Lowercase commit messages, abbreviations encouraged.
 - Code changes require corresponding docs updates if docs reference that part of the code.
-- Follow TDD principles, keeping coverage at 100%.
+- Follow TDD principles: test public behavior first, keeping coverage at 90% or higher.
 - Do not write tests for docs or prompts.
 - Keep docs concise, split lines at sentence boundaries.
