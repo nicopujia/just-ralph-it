@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-import jri.core.graph as graph_module
 from jri.core.graph import GraphStore, apply_graph_patch
 from jri.core.models import GraphNode
 
@@ -222,8 +221,20 @@ def test_apply_graph_patch_updates_body_without_trailing_newline(
     ]
 
 
-def test_find_line_sequence_rejects_empty_sequence() -> None:
-    assert graph_module._find_line_sequence(["one"], (), 0) == -1
+def test_apply_graph_patch_rejects_empty_hunk(tmp_path: Path) -> None:
+    store = GraphStore(tmp_path)
+    store.create_node("auth/oauth", "OAuth", "Body\n")
+
+    with pytest.raises(ValueError, match="no-op"):
+        apply_graph_patch(
+            store,
+            """*** Begin Graph Patch
+*** Update Node: auth/oauth
+@@
+*** End Graph Patch""",
+        )
+
+    assert store.read_node("auth/oauth").body == "Body\n"
 
 
 def test_apply_graph_patch_rejects_missing_node(tmp_path: Path) -> None:

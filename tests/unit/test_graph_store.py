@@ -101,12 +101,13 @@ def test_read_node_skips_missing_child_node_directory(
     assert node.children == ()
 
 
-def test_child_summaries_returns_empty_when_parent_directory_missing(
+def test_read_node_missing_parent_has_no_children(
     tmp_path: Path,
 ) -> None:
     store = GraphStore(tmp_path)
+    store.create_node("product", "Product", "Product overview.\n")
 
-    assert store._child_summaries("product", 1) == []
+    assert store.read_node("product", depth=1).children == ()
 
 
 def test_list_nodes_returns_top_level_nodes_sorted(tmp_path: Path) -> None:
