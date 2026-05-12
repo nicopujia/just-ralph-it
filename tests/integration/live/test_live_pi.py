@@ -77,6 +77,11 @@ def test_start_with_real_pi_completes_setup_task(
     _skip_unless_live(run_live_agent)
 
     assert run_cli(["init"], cwd=git_repo) == 0
+    smoke_test = git_repo / "tests" / "test_smoke.py"
+    smoke_test.parent.mkdir()
+    smoke_test.write_text("def test_smoke():\n    assert True\n", encoding="utf-8")
+    git(git_repo, "add", "tests/test_smoke.py")
+    git(git_repo, "commit", "-m", "add smoke test")
     write_task(
         git_repo,
         status="todo",
@@ -85,20 +90,18 @@ def test_start_with_real_pi_completes_setup_task(
         priority=0,
         assignee="Ralph",
         body=(
-            "This is the greenfield setup task for this repository. Replace the "
-            "placeholder `Makefile` check target created by `jri init` with a "
-            "working bootstrap quality entrypoint. The resulting `make check` "
-            "must exit successfully in the current repository, and when "
-            "pytest-style tests exist under `tests/`, it must run them with "
-            "`PYTHONPATH=src python -m pytest -q tests`. Keep the setup minimal "
-            "and do not add application code."
+            "Replace the placeholder `Makefile` check target created by "
+            "`jri init`. The repository already contains "
+            "`tests/test_smoke.py`, so make `make check` run exactly "
+            "`PYTHONPATH=src python -m pytest -q tests`. Keep the change "
+            "limited to `Makefile` and do not add application code."
         ),
         acceptance_criteria=[
             "`Makefile` no longer contains the placeholder "
             "`make check is not configured yet` message.",
             "Running `make check` at the repository root exits successfully.",
-            "The `check` target runs `PYTHONPATH=src python -m pytest -q tests` "
-            "when pytest-style tests exist under `tests/`.",
+            "The `check` target runs exactly "
+            "`PYTHONPATH=src python -m pytest -q tests`.",
         ],
     )
     git(git_repo, "add", ".jri/tasks/todo/setup-quality-entrypoint.md")
