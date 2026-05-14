@@ -24,6 +24,7 @@ from jri.core.models import (
     HumanTaskPayload,
     ProcessState,
     RalphResultPayload,
+    ResetPoint,
     RunSummary,
     State,
     Task,
@@ -32,7 +33,13 @@ from jri.core.service import JriService, _FollowControls
 from jri.core.tasks import list_tasks, parse_task_file
 from jri.core.ui import CYAN, RESET
 from tests.conftest import run_cli as base_run_cli
-from tests.helpers import git, read_json, write_passing_makefile, write_task
+from tests.helpers import (
+    capture_worktree_state,
+    git,
+    read_json,
+    write_passing_makefile,
+    write_task,
+)
 
 
 def run_cli(args: list[str], cwd: Path) -> int:
@@ -1009,8 +1016,7 @@ def test_start_completes_single_task(git_repo: Path) -> None:
     assert (git_repo / "implemented.txt").read_text(encoding="utf-8") == "implemented\n"
     assert git(git_repo, "branch", "--show-current") == "main"
     tags = git(git_repo, "tag").splitlines()
-    assert "jri/begin/implement-file" in tags
-    assert "jri/end/implement-file" in tags
+    assert [tag for tag in tags if tag.startswith("jri/")] == []
     attempts = cast(
         list[dict[str, object]],
         read_json(git_repo / ".jri" / "state.json")["attempts"],
@@ -1033,6 +1039,170 @@ def test_start_completes_single_task(git_repo: Path) -> None:
     assert len(history_attempts) == 1
     assert history_attempts[0]["result_payload"] == attempts[0]["result_payload"]
     assert git(git_repo, "status", "--short") == ""
+
+
+def test_linked_worktree_feature_slash_name_is_self_contained(
+    git_repo: Path, tmp_path: Path
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+        acceptance_criteria=["implemented.txt exists"],
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+    main_state = capture_worktree_state(git_repo)
+    secondary = tmp_path / "secondary"
+    git(git_repo, "worktree", "add", "-b", "feature/slash-name", str(secondary), "HEAD")
+
+    service = JriService(secondary, agent_runtime=SuccessfulFakeAgentRuntime())
+
+    assert service.start(max_tasks=1, force=True) == 1
+    assert capture_worktree_state(git_repo) == main_state
+    assert (secondary / "implemented.txt").read_text(
+        encoding="utf-8"
+    ) == "implemented\n"
+    assert (secondary / ".jri" / "tasks" / "done" / "implement-file.md").exists()
+    assert git(
+        secondary, "rev-parse", "--verify", "refs/heads/ralph/feature/slash-name"
+    )
+    with pytest.raises(subprocess.CalledProcessError):
+        git(secondary, "rev-parse", "--verify", "refs/heads/ralph/main")
+
+
+def test_start_no_jri_boundary_tags_created(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="implement-file",
+        title="Implement file",
+        priority=0,
+        assignee="Ralph",
+        body="Create implemented.txt with the text implemented.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/implement-file.md")
+    git(git_repo, "commit", "-m", "add task")
+
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
+
+    assert service.start(max_tasks=1, force=True) == 1
+    assert [
+        tag for tag in git(git_repo, "tag").splitlines() if tag.startswith("jri/")
+    ] == []
+
+
+def test_duplicate_start_same_worktree_uses_existing_preflight_without_run_lock(
+    git_repo: Path,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="doing",
+        slug="existing",
+        title="Existing",
+        priority=0,
+        assignee="Ralph",
+        body="Already running.",
+    )
+    git(git_repo, "add", ".jri/tasks/doing/existing.md")
+    git(git_repo, "commit", "-m", "seed active task")
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
+    service.state_store.save_process(
+        loop_pid=os.getpid(),
+        child_pid=None,
+        log_path=git_repo / ".jri" / "logs" / "ralph" / "active.log",
+        detached=False,
+    )
+    before = capture_worktree_state(git_repo)
+
+    with pytest.raises(JriError, match="already running|already in progress"):
+        service.start(max_tasks=1, force=True)
+
+    assert not (git_repo / ".jri" / "run.lock").exists()
+    assert capture_worktree_state(git_repo) == before
+
+
+def test_same_host_branch_linked_worktree_start_fails_before_mutation(
+    git_repo: Path, tmp_path: Path
+) -> None:
+    git(git_repo, "checkout", "-b", "feature/shared")
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="shared-branch",
+        title="Shared branch",
+        priority=0,
+        assignee="Ralph",
+        body="This should not mutate either worktree.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/shared-branch.md")
+    git(git_repo, "commit", "-m", "add shared branch task")
+    peer = tmp_path / "peer"
+    git(git_repo, "worktree", "add", "--force", str(peer), "feature/shared")
+    before = capture_worktree_state(git_repo)
+
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
+
+    with pytest.raises(JriError, match="branch.*checked out.*worktree"):
+        service.start(max_tasks=1, force=True)
+    assert capture_worktree_state(git_repo) == before
+    assert git(git_repo, "status", "--porcelain=v1") == ""
+
+
+def test_detached_head_start_fails_before_mutation(git_repo: Path) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="detached-task",
+        title="Detached task",
+        priority=0,
+        assignee="Ralph",
+        body="This should not run from a detached HEAD.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/detached-task.md")
+    git(git_repo, "commit", "-m", "add detached task")
+    git(git_repo, "checkout", "--detach")
+    before = capture_worktree_state(git_repo)
+
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
+
+    with pytest.raises(JriError, match="detached HEAD"):
+        service.start(max_tasks=1, force=True)
+    assert capture_worktree_state(git_repo) == before
+
+
+def test_ref_namespace_collision_fails_before_mutation(git_repo: Path) -> None:
+    git(git_repo, "checkout", "-b", "feature/x")
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="todo",
+        slug="namespace-collision",
+        title="Namespace collision",
+        priority=0,
+        assignee="Ralph",
+        body="This should fail before creating ralph/feature/x.",
+    )
+    git(git_repo, "add", ".jri/tasks/todo/namespace-collision.md")
+    git(git_repo, "commit", "-m", "add namespace collision task")
+    git(git_repo, "checkout", "-b", "ralph/feature", "HEAD")
+    git(git_repo, "checkout", "feature/x")
+    before = capture_worktree_state(git_repo)
+
+    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
+
+    with pytest.raises(JriError, match="ralph/feature/x.*namespace"):
+        service.start(max_tasks=1, force=True)
+    assert capture_worktree_state(git_repo) == before
 
 
 def test_start_integrates_completed_ralph_work_when_main_diverges(
@@ -1328,14 +1498,14 @@ def test_start_rejects_active_attempt_task_slug_mismatch(git_repo: Path) -> None
             active_attempt=AttemptState(
                 number=1,
                 task_slug="other-task",
-                branch="ralph",
+                branch="ralph/main",
                 started_at=123,
             ),
             attempts=[
                 AttemptState(
                     number=1,
                     task_slug="other-task",
-                    branch="ralph",
+                    branch="ralph/main",
                     started_at=123,
                 )
             ],
@@ -1398,7 +1568,7 @@ def test_start_records_retry_attempt_after_interrupted_run(git_repo: Path) -> No
     interrupted_attempt = AttemptState(
         number=1,
         task_slug="implement-file",
-        branch="ralph",
+        branch="ralph/main",
         started_at=123,
         log_path=".jri/logs/ralph/1-interrupted.log",
     )
@@ -1461,7 +1631,7 @@ def test_start_reruns_unverified_completed_attempt(git_repo: Path) -> None:
     stale_attempt = AttemptState(
         number=1,
         task_slug="recover-me",
-        branch="ralph",
+        branch="ralph/main",
         started_at=123,
         finished_at=124,
         log_path=".jri/logs/ralph/recover-me-1970-01-01T00-02-03Z.log",
@@ -1538,7 +1708,7 @@ def test_start_does_not_resume_completed_attempt_from_timeline_event_only(
     stale_attempt = AttemptState(
         number=1,
         task_slug="recover-me",
-        branch="ralph",
+        branch="ralph/main",
         started_at=123,
         finished_at=124,
         log_path=".jri/logs/ralph/recover-me-1970-01-01T00-02-03Z.log",
@@ -2487,7 +2657,7 @@ def test_view_inspect_pretty_prints_saved_task_log(
     attempt = AttemptState(
         number=1,
         task_slug="task-a",
-        branch="ralph",
+        branch="ralph/main",
         started_at=1,
         finished_at=2,
         log_path=str(log_path),
@@ -2515,7 +2685,7 @@ def test_view_inspect_defaults_to_active_attempt(
     attempt = AttemptState(
         number=1,
         task_slug="current-task",
-        branch="ralph",
+        branch="ralph/main",
         started_at=1,
         log_path=str(log_path),
     )
@@ -2574,7 +2744,7 @@ def test_view_inspect_reads_historical_attempt_when_runtime_state_is_missing(
                     {
                         "number": 1,
                         "task_slug": "task-a",
-                        "branch": "ralph",
+                        "branch": "ralph/main",
                         "started_at": 1,
                         "finished_at": 2,
                         "log_path": str(
@@ -2585,7 +2755,7 @@ def test_view_inspect_reads_historical_attempt_when_runtime_state_is_missing(
                     {
                         "number": 2,
                         "task_slug": "task-a",
-                        "branch": "ralph",
+                        "branch": "ralph/main",
                         "started_at": 3,
                         "finished_at": 4,
                         "log_path": str(log_path),
@@ -2624,7 +2794,7 @@ def test_view_inspect_prefers_recovered_history_log_for_same_failed_attempt(
     state_attempt = AttemptState(
         number=1,
         task_slug="failed-task",
-        branch="ralph",
+        branch="ralph/main",
         started_at=1,
         finished_at=2,
         log_path=str(missing_log_path),
@@ -2633,7 +2803,7 @@ def test_view_inspect_prefers_recovered_history_log_for_same_failed_attempt(
     history_attempt = AttemptState(
         number=1,
         task_slug="failed-task",
-        branch="ralph",
+        branch="ralph/main",
         started_at=1,
         finished_at=2,
         log_path=str(recovered_log_path),
@@ -2705,7 +2875,7 @@ def test_start_retries_after_interrupted_completion_without_rerunning_task(
     assert not (git_repo / ".jri" / "tasks" / "doing" / "task-a.md").exists()
     assert (git_repo / ".jri" / "tasks" / "todo" / "task-b.md").exists()
     assert git(git_repo, "branch", "--show-current") == "main"
-    assert "jri/end/task-a" in git(git_repo, "tag").splitlines()
+    assert git(git_repo, "tag") == ""
 
     retry_client = SuccessfulFakeAgentRuntime()
     retry_service = JriService(git_repo, agent_runtime=retry_client)
@@ -5291,7 +5461,7 @@ def test_halt_then_start_recovery_consistency(git_repo: Path) -> None:
     interrupted_attempt = AttemptState(
         number=1,
         task_slug="interrupted-task",
-        branch="ralph",
+        branch="ralph/main",
         started_at=1234567890,
         log_path=".jri/logs/ralph/1-interrupted.log",
     )
@@ -5609,10 +5779,10 @@ def test_start_switches_branch_with_force(git_repo: Path) -> None:
     completed = service.start(max_tasks=1, force=True)
 
     assert completed == 1
-    assert git(git_repo, "branch", "--show-current") == "main"
+    assert git(git_repo, "branch", "--show-current") == "feature/x"
 
 
-def test_start_rejects_wrong_branch_confirmation(
+def test_start_from_feature_branch_uses_feature_as_host_branch(
     git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
@@ -5632,11 +5802,10 @@ def test_start_rejects_wrong_branch_confirmation(
 
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
-    with pytest.raises(JriError, match="aborted by user"):
-        service.start(max_tasks=1, force=False)
+    assert service.start(max_tasks=1, force=False) == 1
 
     assert git(git_repo, "branch", "--show-current") == "feature/reject"
-    assert (git_repo / ".jri" / "tasks" / "todo" / "implement-file.md").exists()
+    assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
 
 
 def test_follow_controls_poll_action_reads_ready_stdin(
@@ -5778,7 +5947,7 @@ def test_inspect_reports_missing_attempt_and_recovers_missing_logs(
                 AttemptState(
                     number=1,
                     task_slug="task-a",
-                    branch="ralph",
+                    branch="ralph/main",
                     started_at=1,
                 )
             ]
@@ -5799,7 +5968,7 @@ def test_inspect_reports_missing_attempt_and_recovers_missing_logs(
                 AttemptState(
                     number=1,
                     task_slug="task-b",
-                    branch="ralph",
+                    branch="ralph/main",
                     started_at=1,
                     log_path=str(git_repo / ".jri" / "logs" / "missing.log"),
                 )
@@ -5829,7 +5998,7 @@ def test_inspect_prints_unknown_result_and_adds_missing_newline(
             AttemptState(
                 number=1,
                 task_slug="odd-task",
-                branch="ralph",
+                branch="ralph/main",
                 started_at=1,
                 finished_at=2,
                 log_path=str(log_path),
@@ -6117,7 +6286,7 @@ def test_pi_runtime_helpers_reject_non_pi_runtime(git_repo: Path) -> None:
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
     with pytest.raises(JriError, match="non-Pi"):
-        service._start_pi_runtime(overrides={})
+        service._start_pi_runtime(overrides={}, host_branch="main")
     service._stop_pi_runtime(None)
 
 
@@ -6229,7 +6398,7 @@ def test_dirty_workdir_prompt_allows_stash_discard_and_abort(
         service._handle_dirty_workdir(force=False)
 
 
-def test_wrong_branch_prompt_allows_checkout_or_abort(
+def test_wrong_branch_rejects_without_checkout(
     git_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -6237,26 +6406,17 @@ def test_wrong_branch_prompt_allows_checkout_or_abort(
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     commands: list[tuple[str, ...]] = []
 
-    def fake_default_branch(hint: str | None = None) -> str:
-        del hint
-        return "main"
-
-    def fake_current_branch() -> str:
-        return "feature"
-
-    def fake_git_run(*args: str, **kwargs: object) -> None:
-        del kwargs
+    def fail_run(*args: str, check: bool = True) -> Never:
+        del check
         commands.append(args)
+        raise AssertionError(args)
 
-    monkeypatch.setattr(service.git, "default_branch", fake_default_branch)
-    monkeypatch.setattr(service.git, "current_branch", fake_current_branch)
-    monkeypatch.setattr(service.git, "run", fake_git_run)
-    monkeypatch.setattr("builtins.input", lambda: "")
-    service._handle_wrong_branch(force=False)
-    assert commands == [("checkout", "main")]
-    monkeypatch.setattr("builtins.input", lambda: "n")
-    with pytest.raises(JriError, match="aborted by user"):
-        service._handle_wrong_branch(force=False)
+    monkeypatch.setattr(service.git, "current_branch", lambda: "feature")
+    monkeypatch.setattr(service.git, "run", fail_run)
+
+    with pytest.raises(JriError, match="runtime branch changed"):
+        service._handle_wrong_branch(host_branch="main")
+    assert commands == []
 
 
 def test_stale_start_state_prompt_abort_and_started_state_cleanup(
@@ -6352,12 +6512,13 @@ def test_recover_unverified_completed_attempt_logs_failure(
             AttemptState(
                 number=1,
                 task_slug="done-task",
-                branch="ralph",
+                branch="ralph/main",
                 started_at=1,
             ),
             mode="foreground",
             reason="missing-completion-evidence",
             process=None,
+            host_branch="main",
         )
     assert "phase=recover-unverified-completed-attempt" in (
         git_repo / ".jri" / "logs" / "recovery-failures.log"
@@ -6380,8 +6541,10 @@ def test_complete_attempt_commits_partial_work_on_ralph_branch(
     git(git_repo, "add", ".jri/tasks/doing/done-task.md")
     git(git_repo, "commit", "-m", "seed doing task")
     git(git_repo, "checkout", "-b", "ralph/main")
-    git(git_repo, "tag", "jri/begin/done-task")
     (git_repo / "partial.txt").write_text("partial\n", encoding="utf-8")
+    git(git_repo, "add", "partial.txt")
+    git(git_repo, "commit", "-m", "partial work")
+    git(git_repo, "checkout", "main")
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     attempt = AttemptState(
         number=1,
@@ -6397,6 +6560,7 @@ def test_complete_attempt_commits_partial_work_on_ralph_branch(
         doing_task=parse_task_file(
             git_repo / ".jri" / "tasks" / "doing" / "done-task.md"
         ),
+        host_branch="main",
     )
 
     assert git(git_repo, "branch", "--show-current") == "main"
@@ -6410,7 +6574,7 @@ def test_complete_attempt_rejects_unrelated_branch(git_repo: Path) -> None:
     git(git_repo, "checkout", "-b", "feature")
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
-    with pytest.raises(JriError, match="must begin from the main branch"):
+    with pytest.raises(JriError, match="runtime branch changed"):
         service._complete_attempt(
             AttemptState(
                 number=1,
@@ -6419,6 +6583,7 @@ def test_complete_attempt_rejects_unrelated_branch(git_repo: Path) -> None:
                 started_at=1,
             ),
             doing_task=None,
+            host_branch="main",
         )
 
 
@@ -6492,7 +6657,9 @@ def test_current_follow_task_prefers_unfinished_active_attempt(git_repo: Path) -
     assert run_cli(["init"], cwd=git_repo) == 0
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     service.state_store.start_attempt(
-        AttemptState(number=1, task_slug="active-task", branch="ralph", started_at=1)
+        AttemptState(
+            number=1, task_slug="active-task", branch="ralph/main", started_at=1
+        )
     )
 
     assert service._current_follow_task() == "active-task"
@@ -6676,8 +6843,12 @@ def test_recover_stale_start_state_resumes_doing_task_with_evidence(
         return {"end_tag": "jri/end/task-a"}
 
     def fake_complete_attempt(
-        active_attempt: AttemptState, *, doing_task: Task | None
+        active_attempt: AttemptState,
+        *,
+        doing_task: Task | None,
+        host_branch: str | None = None,
     ) -> None:
+        del host_branch
         completed.append((active_attempt, doing_task))
 
     monkeypatch.setattr(
@@ -6753,6 +6924,54 @@ def test_start_completes_stale_completed_attempt_with_branch_work(
     assert "branch_work:ralph/main" in recovery_log
 
 
+def test_start_refuses_stale_completed_attempt_from_different_host_branch(
+    git_repo: Path,
+) -> None:
+    assert run_cli(["init"], cwd=git_repo) == 0
+    write_task(
+        git_repo,
+        status="doing",
+        slug="task-a",
+        title="Task A",
+        priority=0,
+        assignee="Ralph",
+        body="Done on main but interrupted.",
+    )
+    git(git_repo, "add", ".jri/tasks/doing/task-a.md")
+    git(git_repo, "commit", "-m", "seed stale completed task")
+    git(git_repo, "checkout", "-b", "ralph/main")
+    (git_repo / "branch-work.txt").write_text("branch work\n", encoding="utf-8")
+    git(git_repo, "add", "branch-work.txt")
+    git(git_repo, "commit", "-m", "complete task on ralph main")
+    git(git_repo, "checkout", "main")
+    git(git_repo, "checkout", "-b", "feature/x")
+
+    runtime = SuccessfulFakeAgentRuntime()
+    service = JriService(git_repo, agent_runtime=runtime)
+    attempt = AttemptState(
+        number=1,
+        task_slug="task-a",
+        branch="ralph/main",
+        started_at=1,
+        finished_at=2,
+        result_payload=RalphResultPayload(result="completed"),
+    )
+    service.state_store.save(
+        State(started_at=1, branch="main", active_attempt=attempt, attempts=[attempt])
+    )
+
+    with pytest.raises(JriError, match="belongs to host branch"):
+        service.start(max_tasks=1, force=True)
+
+    assert runtime.calls == []
+    assert git(git_repo, "branch", "--show-current") == "feature/x"
+    assert not (git_repo / "branch-work.txt").exists()
+    assert (git_repo / ".jri" / "tasks" / "doing" / "task-a.md").exists()
+    assert not (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
+    assert not (git_repo / ".jri" / "logs" / "recovery.log").exists()
+    assert service.state_store.load().active_attempt == attempt
+
+
 def test_recover_stale_start_state_handles_finished_active_attempt_without_task(
     git_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -6777,9 +6996,12 @@ def test_recover_stale_start_state_handles_finished_active_attempt_without_task(
         return {"end_tag": "jri/end/task-a"}
 
     def fake_complete_attempt(
-        active_attempt: AttemptState, *, doing_task: Task | None
+        active_attempt: AttemptState,
+        *,
+        doing_task: Task | None,
+        host_branch: str | None = None,
     ) -> None:
-        del active_attempt
+        del active_attempt, host_branch
         completed.append(doing_task)
 
     monkeypatch.setattr(
@@ -6876,6 +7098,7 @@ def test_recover_stale_task_rejects_dirty_default_branch(
             mode="foreground",
             reason="no-tracked-process",
             process=None,
+            host_branch="main",
         )
 
     assert "phase=recover-stale-task" in (
@@ -6899,11 +7122,13 @@ def test_recover_stale_task_commits_partial_from_managed_branch(
             body="Stale.",
         )
     )
+    git(git_repo, "add", ".jri/tasks/doing/stale-task.md")
+    git(git_repo, "commit", "-m", "seed stale task")
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     calls: list[tuple[str, str | None]] = []
 
     def fake_current_branch() -> str:
-        return "ralph/main"
+        return "main"
 
     def fake_commit_all_if_needed(message: str) -> None:
         calls.append(("commit", message))
@@ -6924,9 +7149,10 @@ def test_recover_stale_task_commits_partial_from_managed_branch(
         mode="foreground",
         reason="no-tracked-process",
         process=None,
+        host_branch="main",
     )
 
-    assert ("checkout", "main") in calls
+    assert ("reset", None) in calls
     assert (git_repo / ".jri" / "tasks" / "todo" / "stale-task.md").exists()
 
 
@@ -6949,12 +7175,13 @@ def test_recover_stale_task_rejects_unrelated_branch(
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     monkeypatch.setattr(service.git, "current_branch", lambda: "feature")
 
-    with pytest.raises(JriError, match="must begin from the main branch"):
+    with pytest.raises(JriError, match="runtime branch changed"):
         service._recover_stale_task(
             task,
             mode="foreground",
             reason="no-tracked-process",
             process=None,
+            host_branch="main",
         )
 
 
@@ -6966,12 +7193,15 @@ def test_recover_unverified_completed_attempt_rejects_unrelated_branch(
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     monkeypatch.setattr(service.git, "current_branch", lambda: "feature")
 
-    with pytest.raises(JriError, match="must begin from the main branch"):
+    with pytest.raises(JriError, match="runtime branch changed"):
         service._recover_unverified_completed_attempt(
-            AttemptState(number=1, task_slug="task-a", branch="ralph", started_at=1),
+            AttemptState(
+                number=1, task_slug="task-a", branch="ralph/main", started_at=1
+            ),
             mode="foreground",
             reason="missing-completion-evidence",
             process=None,
+            host_branch="main",
         )
 
 
@@ -7010,37 +7240,31 @@ def test_follow_log_cancels_stop_and_detaches_after_log_exists(
     )
 
 
-def test_reset_tag_helpers_cover_unmatched_and_unparsed_tags(
+def test_reset_point_helpers_describe_completion_and_begin_boundaries(
     git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-
-    def fake_git_run(*args: str, **kwargs: object) -> subprocess.CompletedProcess[str]:
-        del kwargs
-        return subprocess.CompletedProcess(
-            args,
-            0,
-            stdout="not-a-jri-tag\n",
-            stderr="",
-        )
-
-    monkeypatch.setattr(service.git, "run", fake_git_run)
-    assert service._find_latest_tag("end") is None
-
-    service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-    git(git_repo, "tag", "plain-tag")
-    assert service._resolve_reset_target_ref("plain-tag") == git(
-        git_repo,
-        "rev-parse",
-        "plain-tag",
+    completion = ResetPoint(
+        task_slug="task-a",
+        host_branch="main",
+        ralph_branch="ralph/main",
+        before_begin_commit=git(git_repo, "rev-parse", "HEAD"),
+        begin_commit=git(git_repo, "rev-parse", "HEAD"),
+        end_commit=git(git_repo, "rev-parse", "HEAD"),
     )
-    assert service._describe_reset_target("plain-tag") == "plain-tag"
-    assert service._describe_reset_target("jri/begin/task-a") == (
-        "just before jri/begin/task-a"
+    begin = ResetPoint(
+        task_slug="task-b",
+        host_branch="main",
+        ralph_branch="ralph/main",
+        before_begin_commit=git(git_repo, "rev-parse", "HEAD"),
+        begin_commit=git(git_repo, "rev-parse", "HEAD"),
     )
-    assert service._describe_reset_target("jri/end/task-a") == "jri/end/task-a"
+
+    assert service._resolve_reset_target_ref(completion) == completion.end_commit
+    assert service._resolve_reset_target_ref(begin) == begin.before_begin_commit
+    assert service._describe_reset_target(completion) == "completion of task-a"
+    assert service._describe_reset_target(begin) == "just before task-b began"
 
 
 def test_ensure_initialized_rejects_uninitialized_repo(git_repo: Path) -> None:
@@ -7126,8 +7350,10 @@ def test_run_loop_summary_records_timeout_result_without_running_agent(
     )
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
-    def fake_run_task(task: Task, task_timeout: int | None = None) -> str:
-        del task, task_timeout
+    def fake_run_task(
+        task: Task, *, host_branch: str, task_timeout: int | None = None
+    ) -> str:
+        del task, host_branch, task_timeout
         return "timeout"
 
     monkeypatch.setattr(service, "_run_task", fake_run_task)
@@ -7206,8 +7432,10 @@ def test_run_loop_summary_raises_restart_after_completed_iteration(
     )
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
-    def fake_run_task(task: Task, task_timeout: int | None = None) -> str:
-        del task, task_timeout
+    def fake_run_task(
+        task: Task, *, host_branch: str, task_timeout: int | None = None
+    ) -> str:
+        del task, host_branch, task_timeout
         return "completed"
 
     def fake_should_restart_process_after_iteration(**kwargs: object) -> bool:
@@ -7287,7 +7515,7 @@ def test_recover_unverified_completed_attempt_handles_managed_branch(
     calls: list[str] = []
 
     def fake_current_branch() -> str:
-        return "ralph/main"
+        return "main"
 
     def fake_commit_all_if_needed(message: str) -> None:
         calls.append(message)
@@ -7308,9 +7536,9 @@ def test_recover_unverified_completed_attempt_handles_managed_branch(
         mode="foreground",
         reason="missing-completion-evidence",
         process=None,
+        host_branch="main",
     )
 
-    assert "main" in calls
     assert "reset" in calls
 
 
@@ -7590,17 +7818,19 @@ def test_start_pushes_completed_task_refs_when_remote_exists(
 
     monkeypatch.setattr(service.git, "has_remote", lambda: True)
 
-    def fake_push_task_refs(*, branch: str, tag: str) -> None:
-        pushed_refs.append({"branch": branch, "tag": tag})
+    def fake_push_task_refs(*, branch: str, host_branch: str | None = None) -> None:
+        pushed_refs.append({"branch": branch, "host_branch": host_branch or ""})
 
     monkeypatch.setattr(service.git, "push_task_refs", fake_push_task_refs)
 
     assert service.start(max_tasks=1, force=True) == 1
-    assert pushed_refs == [{"branch": "ralph/main", "tag": "jri/end/implement-file"}]
-    assert "jri/end/implement-file" in git(git_repo, "tag").splitlines()
+    assert pushed_refs == [{"branch": "ralph/main", "host_branch": "main"}]
+    assert [
+        tag for tag in git(git_repo, "tag").splitlines() if tag.startswith("jri/")
+    ] == []
 
 
-def test_start_replaces_existing_end_tag_without_remote_push(
+def test_start_leaves_existing_end_tag_without_remote_push(
     git_repo: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -7623,15 +7853,15 @@ def test_start_replaces_existing_end_tag_without_remote_push(
     push_attempts: list[dict[str, str]] = []
     monkeypatch.setattr(service.git, "has_remote", lambda: False)
 
-    def fake_push_task_refs(*, branch: str, tag: str) -> None:
-        push_attempts.append({"branch": branch, "tag": tag})
+    def fake_push_task_refs(*, branch: str, host_branch: str | None = None) -> None:
+        push_attempts.append({"branch": branch, "host_branch": host_branch or ""})
 
     monkeypatch.setattr(service.git, "push_task_refs", fake_push_task_refs)
 
     assert service.start(max_tasks=1, force=True) == 1
 
     assert push_attempts == []
-    assert git(git_repo, "rev-parse", "jri/end/implement-file") != original_tag_target
+    assert git(git_repo, "rev-parse", "jri/end/implement-file") == original_tag_target
     assert (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
 
 
@@ -7818,17 +8048,25 @@ def test_reset_checks_out_default_branch_before_reset(git_repo: Path) -> None:
     assert service.start(max_tasks=1) == 1
     git(git_repo, "checkout", "-b", "feature")
 
-    service.reset()
+    with pytest.raises(JriError, match="no reset state found for branch 'feature'"):
+        service.reset()
 
-    assert git(git_repo, "branch", "--show-current") == "main"
+    assert git(git_repo, "branch", "--show-current") == "feature"
 
 
-def test_reset_latest_end_tag_wrapper_returns_matching_tag(git_repo: Path) -> None:
+def test_latest_reset_point_wrapper_returns_matching_task(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-    git(git_repo, "tag", "jri/end/task-a")
+    reset_point = ResetPoint(
+        task_slug="task-a",
+        host_branch="main",
+        ralph_branch="ralph/main",
+        before_begin_commit=git(git_repo, "rev-parse", "HEAD"),
+        begin_commit=git(git_repo, "rev-parse", "HEAD"),
+    )
+    service.state_store.save_reset_point(reset_point)
 
-    assert service._find_latest_end_tag() == "jri/end/task-a"
+    assert service.resolve_reset_target_point().task_slug == "task-a"
 
 
 def test_run_loop_summary_reports_invalid_todo_task(git_repo: Path) -> None:
@@ -7877,7 +8115,7 @@ def test_integrate_completed_branch_checks_out_default_and_rejects_dirty_tree(
 
     monkeypatch.setattr(service.git, "has_local_branch", fake_has_local_branch)
     monkeypatch.setattr(service.git, "is_ancestor", fake_is_ancestor)
-    monkeypatch.setattr(service.git, "current_branch", lambda: "ralph/main")
+    monkeypatch.setattr(service.git, "current_branch", lambda: "main")
 
     def fake_checkout(branch: str) -> None:
         calls.append(("checkout", branch))
@@ -7888,7 +8126,7 @@ def test_integrate_completed_branch_checks_out_default_and_rejects_dirty_tree(
     with pytest.raises(JriError, match="working tree must be clean"):
         service._integrate_completed_branch(task_slug="task-a", branch="ralph/main")
 
-    assert calls == [("checkout", "main")]
+    assert calls == []
 
 
 def test_run_loop_summary_reports_invalid_doing_task(git_repo: Path) -> None:
@@ -7939,10 +8177,13 @@ def test_recover_unverified_completed_attempt_rejects_dirty_default_branch(
 
     with pytest.raises(JriError, match="working tree must be clean"):
         service._recover_unverified_completed_attempt(
-            AttemptState(number=1, task_slug="task-a", branch="ralph", started_at=1),
+            AttemptState(
+                number=1, task_slug="task-a", branch="ralph/main", started_at=1
+            ),
             mode="foreground",
             reason="missing-completion-evidence",
             process=None,
+            host_branch="main",
         )
 
 
@@ -7951,11 +8192,13 @@ def test_save_recovered_inspect_attempt_adds_and_updates_active_attempt(
 ) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
-    original = AttemptState(number=1, task_slug="task-a", branch="ralph", started_at=1)
+    original = AttemptState(
+        number=1, task_slug="task-a", branch="ralph/main", started_at=1
+    )
     recovered = AttemptState(
         number=1,
         task_slug="task-a",
-        branch="ralph",
+        branch="ralph/main",
         started_at=1,
         result="failed",
     )
@@ -8124,14 +8367,14 @@ def test_recover_failed_task_syncs_worktree_without_main_doing_task(
     calls: list[str] = []
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
-    def fake_sync_worktree(wt_git: GitRepo) -> None:
-        del wt_git
+    def fake_sync_worktree(wt_git: GitRepo, *, host_branch: str) -> None:
+        del wt_git, host_branch
         calls.append("sync")
 
     monkeypatch.setattr(service, "_sync_worktree", fake_sync_worktree)
     monkeypatch.setattr(service, "_reset_runtime_state", lambda: calls.append("reset"))
 
-    service._recover_failed_task_wt(task, service.git)
+    service._recover_failed_task_wt(task, service.git, host_branch="main")
 
     assert calls == ["sync", "reset"]
 
@@ -8155,8 +8398,10 @@ def test_completed_task_reports_if_doing_file_disappears(
     git(git_repo, "commit", "-m", "add task")
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
-    def remove_doing_file(*, task_slug: str, branch: str) -> None:
-        del branch
+    def remove_doing_file(
+        *, task_slug: str, branch: str, host_branch: str | None = None
+    ) -> None:
+        del branch, host_branch
         service.paths.task_path("doing", task_slug).unlink()
 
     monkeypatch.setattr(service, "_integrate_completed_branch", remove_doing_file)
@@ -8236,8 +8481,8 @@ def test_recover_stale_task_syncs_existing_worktree(
     service.paths.worktree_dir.mkdir(parents=True)
     calls: list[str] = []
 
-    def fake_sync_worktree(wt_git: GitRepo) -> None:
-        del wt_git
+    def fake_sync_worktree(wt_git: GitRepo, *, host_branch: str) -> None:
+        del wt_git, host_branch
         calls.append("sync")
 
     monkeypatch.setattr(service, "_sync_worktree", fake_sync_worktree)
@@ -8247,6 +8492,7 @@ def test_recover_stale_task_syncs_existing_worktree(
         mode="foreground",
         reason="no-tracked-process",
         process=None,
+        host_branch="main",
     )
 
     assert calls == ["sync"]
@@ -8261,8 +8507,8 @@ def test_recover_unverified_completed_attempt_syncs_existing_worktree(
     service.paths.worktree_dir.mkdir(parents=True)
     calls: list[str] = []
 
-    def fake_sync_worktree(wt_git: GitRepo) -> None:
-        del wt_git
+    def fake_sync_worktree(wt_git: GitRepo, *, host_branch: str) -> None:
+        del wt_git, host_branch
         calls.append("sync")
 
     monkeypatch.setattr(service, "_sync_worktree", fake_sync_worktree)
@@ -8272,6 +8518,7 @@ def test_recover_unverified_completed_attempt_syncs_existing_worktree(
         mode="foreground",
         reason="missing-completion-evidence",
         process=None,
+        host_branch="main",
     )
 
     assert calls == ["sync"]
@@ -8293,11 +8540,15 @@ def test_complete_attempt_pushes_remote_refs_for_existing_branch(
             body="Body.",
         )
     )
+    git(git_repo, "add", ".jri/tasks/doing/task-a.md")
+    git(git_repo, "commit", "-m", "seed doing task-a")
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     calls: list[tuple[str, str]] = []
 
-    def fake_integrate_completed_branch(*, task_slug: str, branch: str) -> None:
-        del task_slug, branch
+    def fake_integrate_completed_branch(
+        *, task_slug: str, branch: str, host_branch: str | None = None
+    ) -> None:
+        del task_slug, branch, host_branch
 
     def fake_save_diff_artifact(task_slug: str) -> None:
         del task_slug
@@ -8306,8 +8557,10 @@ def test_complete_attempt_pushes_remote_refs_for_existing_branch(
         del branch
         return True
 
-    def fake_attempt_push_task_refs(*, branch: str, tag: str) -> None:
-        calls.append((branch, tag))
+    def fake_attempt_push_task_refs(
+        *, branch: str, host_branch: str | None = None
+    ) -> None:
+        calls.append((branch, host_branch or ""))
 
     monkeypatch.setattr(
         service, "_integrate_completed_branch", fake_integrate_completed_branch
@@ -8320,9 +8573,10 @@ def test_complete_attempt_pushes_remote_refs_for_existing_branch(
     service._complete_attempt(
         AttemptState(number=1, task_slug="task-a", branch="ralph/main", started_at=1),
         doing_task=doing_task,
+        host_branch="main",
     )
 
-    assert calls == [("ralph/main", "jri/end/task-a")]
+    assert calls == [("ralph/main", "main")]
 
 
 def test_follow_log_reacts_to_controls_before_and_after_log_exists(
@@ -8483,6 +8737,7 @@ def test_recover_needs_human_without_main_doing_still_resets_runtime(
         log_path=git_repo / ".jri" / "logs" / "ralph" / "missing.log",
         session_id=None,
         export_path=None,
+        host_branch="main",
     )
 
     assert service.state_store.load().started_at is None
@@ -8538,12 +8793,23 @@ def test_reset_skips_absent_worktree_removal(
     removed: list[Path] = []
     deleted: list[str] = []
 
-    def fake_resolve_reset_target_tag(target_task: str | None = None) -> str:
-        del target_task
-        return "jri/end/task-a"
+    reset_point = ResetPoint(
+        task_slug="task-a",
+        host_branch="main",
+        ralph_branch="ralph/main",
+        before_begin_commit="before",
+        begin_commit="begin",
+        end_commit="abc123",
+    )
 
-    def fake_resolve_reset_target_ref(target_tag: str) -> str:
-        del target_tag
+    def fake_resolve_reset_target_point(
+        target_task: str | None = None, *, host_branch: str | None = None
+    ) -> ResetPoint:
+        del target_task, host_branch
+        return reset_point
+
+    def fake_resolve_reset_target_ref(target: ResetPoint) -> str:
+        del target
         return "abc123"
 
     def fake_cleanup_tracked_processes(*, required: bool) -> None:
@@ -8561,7 +8827,7 @@ def test_reset_skips_absent_worktree_removal(
         return True
 
     monkeypatch.setattr(
-        service, "resolve_reset_target_tag", fake_resolve_reset_target_tag
+        service, "resolve_reset_target_point", fake_resolve_reset_target_point
     )
     monkeypatch.setattr(
         service, "_resolve_reset_target_ref", fake_resolve_reset_target_ref
@@ -8599,8 +8865,10 @@ def test_run_loop_summary_allows_unrecognized_task_result_to_continue(
     )
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
 
-    def fake_run_task(task: Task, task_timeout: int | None = None) -> str:
-        del task, task_timeout
+    def fake_run_task(
+        task: Task, *, host_branch: str, task_timeout: int | None = None
+    ) -> str:
+        del task, host_branch, task_timeout
         return cast(str, "odd")
 
     monkeypatch.setattr(service, "_run_task", fake_run_task)
@@ -8681,7 +8949,7 @@ def test_complete_attempt_on_clean_ralph_branch_skips_partial_commit(
     git(git_repo, "add", ".jri/tasks/doing/clean-task.md")
     git(git_repo, "commit", "-m", "seed clean task")
     git(git_repo, "checkout", "-b", "ralph/main")
-    git(git_repo, "tag", "jri/begin/clean-task")
+    git(git_repo, "checkout", "main")
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     partial_commits: list[str] = []
     original_commit_all = service.git.commit_all_if_needed
@@ -8703,6 +8971,7 @@ def test_complete_attempt_on_clean_ralph_branch_skips_partial_commit(
             result="completed",
         ),
         doing_task=doing_task,
+        host_branch="main",
     )
 
     assert partial_commits == []

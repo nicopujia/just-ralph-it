@@ -179,7 +179,7 @@ def _create_executable_todo_tasks(repo: Path) -> None:
 
 
 def _assert_convergence(repo: Path, completed: int) -> None:
-    """Verify the loop converged: all tasks done, task tags created."""
+    """Verify the loop converged with local reset state and no JRI tags."""
     # All three tasks completed
     assert completed == 3, f"expected 3 completed tasks, got {completed}"
 
@@ -196,16 +196,18 @@ def _assert_convergence(repo: Path, completed: int) -> None:
     ]
     assert todo_files == [], f"unexpected todo tasks: {todo_files}"
 
-    # Task tags: jri/begin/{slug} and jri/end/{slug} for each task
-    tags = git(repo, "tag").splitlines()
-    for slug, _title, _pri, _deps, _body, _criteria in _TASK_SPECS:
-        assert f"jri/begin/{slug}" in tags, f"tag jri/begin/{slug} should exist"
-        assert f"jri/end/{slug}" in tags, f"tag jri/end/{slug} should exist"
+    assert [
+        tag for tag in git(repo, "tag").splitlines() if tag.startswith("jri/")
+    ] == []
 
     # State has attempts recorded
     state = read_json(repo / ".jri" / "state.json")
     attempts = cast(list[dict[str, object]], state.get("attempts", []))
     assert len(attempts) == 3, f"expected 3 attempts, got {len(attempts)}"
+    reset_points = cast(dict[str, dict[str, object]], state.get("reset_points", {}))
+    assert set(reset_points.get("main", {})) == {
+        slug for slug, _title, _pri, _deps, _body, _criteria in _TASK_SPECS
+    }
 
     # Artifacts from each task exist on disk
     assert (repo / "src" / "greet.py").exists()

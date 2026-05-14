@@ -36,7 +36,6 @@ from .git import (
     MSG_ESCALATE_HUMAN,
     MSG_RALPH_FINALIZE,
     MSG_RALPH_INTEGRATE,
-    MSG_RALPH_PARTIAL,
     MSG_RECORD_ATTEMPT_HISTORY,
     MSG_RECOVER_FAILED,
     MSG_RECOVER_NEEDS_HUMAN,
@@ -44,8 +43,6 @@ from .git import (
     MSG_START_BEGIN,
     MSG_START_COMPLETE,
     GitRepo,
-    parse_tag_name,
-    tag_name,
 )
 from .graph import GraphCheckResult, check_graph_tree, parse_graph_node_file
 from .metrics import MetricEntry, MetricsStore
@@ -58,6 +55,7 @@ from .models import (
     HumanTaskPayload,
     ProcessState,
     RalphResultPayload,
+    ResetPoint,
     Result,
     RunOutcome,
     RunSummary,
@@ -320,8 +318,12 @@ class JriService:
     ) -> int:
         self.ensure_initialized()
         self._ensure_not_managed_worktree()
+        host_branch = self.git.host_branch()
+        self.git.ensure_managed_branches_available(host_branch)
         self._recover_stale_start_state(
-            mode="detached" if detached else "foreground", force=force
+            mode="detached" if detached else "foreground",
+            force=force,
+            host_branch=host_branch,
         )
         if detached:
             return self._start_detached(
@@ -361,8 +363,12 @@ class JriService:
     ) -> int:
         self.ensure_initialized()
         self._ensure_not_managed_worktree()
+        host_branch = self.git.host_branch()
+        self.git.ensure_managed_branches_available(host_branch)
         if recover:
-            self._recover_stale_start_state(mode=mode, force=force)
+            self._recover_stale_start_state(
+                mode=mode, force=force, host_branch=host_branch
+            )
 
         if isinstance(self.agent_runtime, PiRuntime):
             return self._run_loop(
@@ -370,6 +376,7 @@ class JriService:
                 task_timeout=task_timeout,
                 force=force,
                 dogfood=dogfood,
+                host_branch=host_branch,
                 model_overrides={
                     "ralph": model,
                     "ralph-validator": validator_model,
@@ -386,6 +393,7 @@ class JriService:
                 task_timeout=task_timeout,
                 force=force,
                 dogfood=dogfood,
+                host_branch=host_branch,
             )
         finally:
             self.agent_runtime.model = previous_model
@@ -404,13 +412,18 @@ class JriService:
     ) -> RunSummary:
         self.ensure_initialized()
         self._ensure_not_managed_worktree()
-        self._recover_stale_start_state(mode="foreground", force=force)
+        host_branch = self.git.host_branch()
+        self.git.ensure_managed_branches_available(host_branch)
+        self._recover_stale_start_state(
+            mode="foreground", force=force, host_branch=host_branch
+        )
         if isinstance(self.agent_runtime, PiRuntime):
             return self._run_loop_summary(
                 max_tasks,
                 task_timeout=task_timeout,
                 force=force,
                 dogfood=dogfood,
+                host_branch=host_branch,
                 model_overrides={
                     "ralph": model,
                     "ralph-validator": validator_model,
@@ -427,6 +440,7 @@ class JriService:
                 task_timeout=task_timeout,
                 force=force,
                 dogfood=dogfood,
+                host_branch=host_branch,
             )
         finally:
             self.agent_runtime.model = previous_model
@@ -445,7 +459,11 @@ class JriService:
     ) -> int:
         self.ensure_initialized()
         self._ensure_not_managed_worktree()
-        self._recover_stale_start_state(mode="foreground", force=force)
+        host_branch = self.git.host_branch()
+        self.git.ensure_managed_branches_available(host_branch)
+        self._recover_stale_start_state(
+            mode="foreground", force=force, host_branch=host_branch
+        )
         return self._start_followable(
             max_tasks,
             model,
@@ -924,108 +942,68 @@ class JriService:
         return self.metrics.summary()
 
     def reset(self, target_task: str | None = None) -> None:
-        """Reset the repository to the appropriate task tag boundary.
-
-        If target_task is provided, prefer jri/end/{target_task} and fall back to
-        jri/begin/{target_task}. Otherwise, find the most recent end tag and fall
-        back to the most recent begin tag when no end tag exists.
-
-        Resets to jri/end/{task} keep the tagged commit. Resets to
-        jri/begin/{task} land just before the tagged commit.
-        """
+        """Reset the current host branch to its local runtime reset point."""
         self.ensure_initialized()
         state = self.state_store.load()
-        target_tag = self.resolve_reset_target_tag(target_task)
-        target_ref = self._resolve_reset_target_ref(target_tag)
+        host_branch = self.git.host_branch()
+        reset_point = self.resolve_reset_target_point(
+            target_task, host_branch=host_branch
+        )
+        target_ref = self._resolve_reset_target_ref(reset_point)
 
         self._cleanup_tracked_processes(required=False)
-        default = self.git.default_branch(hint=state.branch)
-        current = self.git.current_branch()
-        if current != default:
-            self.git.run("checkout", "-f", default)
+        self._ensure_current_host_branch(host_branch)
         self.git.reset_hard(target_ref)
-        # Clean up worktree and Ralph's branch.
         if self.paths.worktree_dir.exists():
             self.git.remove_worktree(self.paths.worktree_dir)
-        for branch in self._managed_ralph_branches():
-            if self.git.has_local_branch(branch):
-                self.git.delete_branch(branch)
+        ralph_branch = self._ralph_branch(host_branch)
+        if self.git.has_local_branch(ralph_branch):
+            self.git.delete_branch(ralph_branch)
         self.state_store.save(
             State(
                 finished_at=state.finished_at,
                 session=state.session,
                 branch=state.branch,
                 attempts=state.attempts,
+                reset_points=state.reset_points,
             )
         )
 
-    def _find_latest_tag(self, stage: str) -> str | None:
-        """Find the most recent task tag for the given stage.
+    def resolve_reset_target_point(
+        self, target_task: str | None = None, *, host_branch: str | None = None
+    ) -> ResetPoint:
+        if host_branch is None:
+            host_branch = self.git.host_branch()
+        if target_task is not None:
+            reset_point = self.state_store.reset_point_for(
+                host_branch=host_branch, task_slug=target_task
+            )
+            if reset_point is None:
+                raise JriError(
+                    f"no reset state found for task '{target_task}' "
+                    f"on branch '{host_branch}'"
+                )
+            return reset_point
+        reset_point = self.state_store.latest_reset_point(host_branch=host_branch)
+        if reset_point is None:
+            raise JriError(
+                f"no reset state found for branch '{host_branch}' - "
+                "run `jri start` first"
+            )
+        return reset_point
 
-        Returns the tag name or None if no matching tags exist.
-        Uses git for-each-ref to list tags in reverse chronological order.
-        """
-        result = self.git.run(
-            "for-each-ref",
-            "--sort=-creatordate",
-            "--format=%(refname:short)",
-            f"refs/tags/jri/{stage}/",
-            check=False,
-        )
-        if result.returncode != 0 or not result.stdout.strip():
-            return None
-        tags = result.stdout.strip().split("\n")
-        for tag in tags:
-            parsed = parse_tag_name(tag)
-            if parsed and parsed[0] == stage:
-                return tag
-        return None
+    def _resolve_reset_target_ref(self, reset_point: ResetPoint) -> str:
+        if reset_point.end_commit is not None:
+            return self.git.rev_parse(reset_point.end_commit)
+        return self.git.rev_parse(reset_point.before_begin_commit)
 
-    def _find_latest_end_tag(self) -> str | None:
-        return self._find_latest_tag("end")
+    def describe_reset_target(self, reset_point: ResetPoint) -> str:
+        if reset_point.end_commit is not None:
+            return f"completion of {reset_point.task_slug}"
+        return f"just before {reset_point.task_slug} began"
 
-    def _find_latest_reset_tag(self) -> str | None:
-        return self._find_latest_tag("end") or self._find_latest_tag("begin")
-
-    def _find_reset_tag_for_task(self, task_slug: str) -> str | None:
-        for stage in ("end", "begin"):
-            candidate = tag_name(task_slug, stage)
-            if self.git.has_tag(candidate):
-                return candidate
-        return None
-
-    def resolve_reset_target_tag(self, target_task: str | None = None) -> str:
-        if target_task:
-            target_tag = self._find_reset_tag_for_task(target_task)
-            if target_tag is None:
-                raise JriError(f"no begin or end tag found for task '{target_task}'")
-            return target_tag
-
-        target_tag = self._find_latest_reset_tag()
-        if target_tag is None:
-            raise JriError("no task tag found — run `jri start` first")
-        return target_tag
-
-    def _resolve_reset_target_ref(self, target_tag: str) -> str:
-        parsed = parse_tag_name(target_tag)
-        if parsed is None:
-            return self.git.rev_parse(target_tag)
-        stage, _ = parsed
-        if stage == "begin":
-            return self.git.rev_parse(f"{target_tag}^")
-        return self.git.rev_parse(target_tag)
-
-    def describe_reset_target(self, target_tag: str) -> str:
-        parsed = parse_tag_name(target_tag)
-        if parsed is None:
-            return target_tag
-        stage, _ = parsed
-        if stage == "begin":
-            return f"just before {target_tag}"
-        return target_tag
-
-    def _describe_reset_target(self, target_tag: str) -> str:
-        return self.describe_reset_target(target_tag)
+    def _describe_reset_target(self, reset_point: ResetPoint) -> str:
+        return self.describe_reset_target(reset_point)
 
     def ensure_initialized(self) -> None:
         self.git.ensure_repo()
@@ -1073,24 +1051,42 @@ class JriService:
                 deps[task.slug] = list(task.metadata.depends_on)
         return deps
 
-    def _default_branch(self) -> str:
+    def _default_branch(self, host_branch: str | None = None) -> str:
+        if host_branch is not None:
+            return self.git.validate_default_branch_name(host_branch)
         return self.git.default_branch(hint=self.state_store.load().branch)
 
-    def _ralph_branch(self) -> str:
-        return self.git.ralph_branch(hint=self.state_store.load().branch)
+    def _ralph_branch(self, host_branch: str) -> str:
+        return self.git.ralph_branch_for(host_branch)
 
-    def _managed_ralph_branches(self) -> tuple[str, ...]:
-        default = self._default_branch()
-        return (f"ralph/{default}", f"ralph-{default}")
+    def _managed_ralph_branches(
+        self, host_branch: str | None = None
+    ) -> tuple[str, ...]:
+        if host_branch is None:
+            default = self._default_branch()
+            return (f"ralph/{default}", f"ralph-{default}")
+        return (self._ralph_branch(host_branch),)
 
     def has_managed_ralph_branch(self) -> bool:
-        return any(
-            self.git.has_local_branch(branch)
-            for branch in ("ralph", *self._managed_ralph_branches())
-        )
+        try:
+            host_branch = self.git.host_branch()
+        except JriError:
+            return False
+        return self.git.has_local_branch(self._ralph_branch(host_branch))
 
-    def _is_managed_ralph_branch(self, branch: str) -> bool:
-        return branch == "ralph" or branch in self._managed_ralph_branches()
+    def _is_managed_ralph_branch(
+        self, branch: str, host_branch: str | None = None
+    ) -> bool:
+        return branch == "ralph" or branch in self._managed_ralph_branches(host_branch)
+
+    def _ensure_current_host_branch(self, host_branch: str) -> None:
+        current = self.git.current_branch()
+        if current != host_branch:
+            current_description = current or "detached HEAD"
+            raise JriError(
+                f"jri runtime branch changed from '{host_branch}' to "
+                f"'{current_description}'"
+            )
 
     def _create_scaffold(self) -> list[Path]:
         created_files: list[Path] = []
@@ -1254,6 +1250,7 @@ class JriService:
         task_timeout: int | None = None,
         force: bool = False,
         dogfood: bool = False,
+        host_branch: str | None = None,
         model_overrides: dict[str, str | None] | None = None,
     ) -> int:
         return self._run_loop_summary(
@@ -1261,6 +1258,7 @@ class JriService:
             task_timeout=task_timeout,
             force=force,
             dogfood=dogfood,
+            host_branch=host_branch,
             model_overrides=model_overrides,
         ).completed
 
@@ -1270,8 +1268,12 @@ class JriService:
         task_timeout: int | None = None,
         force: bool = False,
         dogfood: bool = False,
+        host_branch: str | None = None,
         model_overrides: dict[str, str | None] | None = None,
     ) -> RunSummary:
+        if host_branch is None:
+            host_branch = self.git.host_branch()
+            self.git.ensure_managed_branches_available(host_branch)
         try:
             doing = list_tasks(self.paths.task_dir("doing"), git_repo=self.git)
         except ValueError as exc:
@@ -1279,7 +1281,7 @@ class JriService:
         if doing:
             raise JriError("a task is already in progress")
         self._handle_dirty_workdir(force=force)
-        self._handle_wrong_branch(force=force)
+        self._handle_wrong_branch(host_branch=host_branch)
         if self.paths.stop_signal_path.exists():
             self.paths.stop_signal_path.unlink()
 
@@ -1297,7 +1299,7 @@ class JriService:
             if isinstance(self.agent_runtime, PiRuntime) and not refresh_runtime:
                 runtime_started_here = True
                 runtime_context = self._start_pi_runtime(
-                    overrides=model_overrides or {}
+                    overrides=model_overrides or {}, host_branch=host_branch
                 )
             while max_tasks is None or attempted < max_tasks:
                 if self._halt_requested:
@@ -1336,10 +1338,18 @@ class JriService:
                     break
 
                 if refresh_runtime:
-                    with self._running_pi_runtime(overrides=model_overrides or {}):
-                        result = self._run_task(next_task, task_timeout=task_timeout)
+                    with self._running_pi_runtime(
+                        overrides=model_overrides or {}, host_branch=host_branch
+                    ):
+                        result = self._run_task(
+                            next_task,
+                            host_branch=host_branch,
+                            task_timeout=task_timeout,
+                        )
                 else:
-                    result = self._run_task(next_task, task_timeout=task_timeout)
+                    result = self._run_task(
+                        next_task, host_branch=host_branch, task_timeout=task_timeout
+                    )
                 attempted += 1
                 if result == "completed":
                     completed += 1
@@ -1428,16 +1438,16 @@ class JriService:
 
     @contextmanager
     def _running_pi_runtime(
-        self, *, overrides: dict[str, str | None]
+        self, *, overrides: dict[str, str | None], host_branch: str
     ) -> Generator[None]:
-        runtime = self._start_pi_runtime(overrides=overrides)
+        runtime = self._start_pi_runtime(overrides=overrides, host_branch=host_branch)
         try:
             yield
         finally:
             self._stop_pi_runtime(runtime)
 
     def _start_pi_runtime(
-        self, *, overrides: dict[str, str | None]
+        self, *, overrides: dict[str, str | None], host_branch: str
     ) -> AbstractContextManager[dict[str, str]]:
         if not isinstance(self.agent_runtime, PiRuntime):
             raise JriError("Pi runtime requested for non-Pi agent runtime")
@@ -1445,8 +1455,8 @@ class JriService:
         result_path.parent.mkdir(parents=True, exist_ok=True)
         # Ensure the worktree exists before Pi starts so Ralph's tools
         # resolve paths against the worktree, not the main repo.
-        wt_git, _ = self._ensure_worktree()
-        self._sync_worktree(wt_git)
+        wt_git, _ = self._ensure_worktree(host_branch)
+        self._sync_worktree(wt_git, host_branch=host_branch)
         runtime = runtime_env(overrides=overrides)
         pi_env = runtime.__enter__()
         previous_model = self.agent_runtime.model
@@ -1512,14 +1522,18 @@ class JriService:
         self.state_store.clear_process()
         return True
 
-    def _ensure_worktree(self) -> tuple[GitRepo, JriPaths]:
+    def _ensure_worktree(self, host_branch: str) -> tuple[GitRepo, JriPaths]:
         """Ensure the persistent Ralph worktree exists and return helpers."""
         wt_dir = self.paths.worktree_dir
-        branch = self._ralph_branch()
+        branch = self._ralph_branch(host_branch)
 
         if not self.git.has_local_branch(branch):
-            default_ref = self.git.rev_parse(self._default_branch())
-            self.git.run("branch", branch, default_ref)
+            host_ref = self.git.rev_parse(host_branch)
+            result = self.git.run("branch", branch, host_ref, check=False)
+            if result.returncode != 0:
+                raise JriError(
+                    result.stderr.strip() or f"failed to create branch {branch}"
+                )
 
         if not wt_dir.exists():
             self.git.prune_worktrees()
@@ -1527,9 +1541,9 @@ class JriService:
 
         return GitRepo(wt_dir), JriPaths(wt_dir)
 
-    def _sync_worktree(self, wt_git: GitRepo) -> None:
-        """Reset Ralph's worktree branch to the default-branch tip."""
-        branch = self._ralph_branch()
+    def _sync_worktree(self, wt_git: GitRepo, *, host_branch: str) -> None:
+        """Reset Ralph's worktree branch to the host-branch tip."""
+        branch = self._ralph_branch(host_branch)
         active_attempt = self.state_store.load().active_attempt
         if (
             active_attempt is not None
@@ -1540,8 +1554,8 @@ class JriService:
             wt_git.run("checkout", "--force", branch)
             wt_git.run("clean", "-fd")
             return
-        default_ref = self.git.rev_parse(self._default_branch())
-        self.git.reset_branch(branch, default_ref)
+        host_ref = self.git.rev_parse(host_branch)
+        self.git.reset_branch(branch, host_ref)
         wt_git.run("checkout", "--force", branch)
         wt_git.run("clean", "-fd")
 
@@ -1561,25 +1575,55 @@ class JriService:
         return None
 
     def _attempt_has_unintegrated_branch_work(self, attempt: AttemptState) -> bool:
-        if not self._is_managed_ralph_branch(attempt.branch):
+        host_branch = self._host_branch_for_managed_attempt(attempt.branch)
+        if host_branch is None:
             return False
         if not self.git.has_local_branch(attempt.branch):
             return False
-        return not self.git.is_ancestor(attempt.branch, self._default_branch())
+        return not self.git.is_ancestor(attempt.branch, host_branch)
 
-    def _integrate_completed_branch(self, *, task_slug: str, branch: str) -> None:
+    def _host_branch_for_managed_attempt(self, branch: str) -> str | None:
+        prefix = "ralph/"
+        if not branch.startswith(prefix):
+            return None
+        host_branch = branch.removeprefix(prefix)
+        if not host_branch:
+            return None
+        self.git.validate_default_branch_name(host_branch)
+        return host_branch
+
+    def _validate_attempt_host_branch(
+        self, attempt: AttemptState, *, host_branch: str
+    ) -> str:
+        attempt_host_branch = self._host_branch_for_managed_attempt(attempt.branch)
+        if attempt_host_branch is None:
+            raise JriError(
+                "active attempt branch "
+                f'"{attempt.branch}" is not a managed Ralph branch'
+            )
+        if attempt_host_branch != host_branch:
+            raise JriError(
+                "active attempt belongs to host branch "
+                f'"{attempt_host_branch}", not current host branch "{host_branch}"'
+            )
+        return attempt_host_branch
+
+    def _integrate_completed_branch(
+        self, *, task_slug: str, branch: str, host_branch: str | None = None
+    ) -> None:
+        if host_branch is None:
+            host_branch = self.git.host_branch()
+            self.git.ensure_managed_branches_available(host_branch)
         if not self.git.has_local_branch(branch):
             return
-        default = self._default_branch()
-        if self.git.is_ancestor(branch, default):
+        if self.git.is_ancestor(branch, host_branch):
             return
-        if self.git.current_branch() != default:
-            self.git.checkout(default)
+        self._ensure_current_host_branch(host_branch)
         if self.git.status_short():
             raise JriError(
                 "git working tree must be clean before integrating Ralph work"
             )
-        if self.git.is_ancestor(default, branch):
+        if self.git.is_ancestor(host_branch, branch):
             self.git.merge_ff_only(branch)
             return
         self.git.merge_no_ff(branch, message=MSG_RALPH_INTEGRATE.format(slug=task_slug))
@@ -1611,13 +1655,15 @@ class JriService:
         rendered = "\n".join(lines)
         return rendered[:2000]
 
-    def _run_task(self, task: Task, task_timeout: int | None = None) -> Result:
+    def _run_task(
+        self, task: Task, *, host_branch: str, task_timeout: int | None = None
+    ) -> Result:
         state = self.state_store.load()
         started_at = int(time.time())
         log_path = self.paths.ralph_log_path(task.slug, started_at)
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.touch(exist_ok=True)
-        branch = self._ralph_branch()
+        branch = self._ralph_branch(host_branch)
         print(task_header(task.slug))
         sys.stdout.flush()
 
@@ -1626,7 +1672,7 @@ class JriService:
         if task_timeout is not None and task_timeout > 0:
             deadline = started_at + task_timeout
 
-        wt_git, wt_paths = self._ensure_worktree()
+        wt_git, wt_paths = self._ensure_worktree(host_branch)
 
         attempt = AttemptState(
             number=len(state.attempts) + 1,
@@ -1649,18 +1695,21 @@ class JriService:
                 },
             )
         )
-        # Move task to doing in the MAIN repo first, commit, then sync the
-        # worktree so it inherits the move via the default-branch reset.
-        # This keeps `jri status` and the task state machine in main.
+        before_begin_commit = self.git.rev_parse(host_branch)
         main_doing_task = move_task(task, self.paths.task_dir("doing"))
         self.git.commit_all_if_needed(MSG_START_BEGIN.format(slug=task.slug))
-        # Create begin tag for this task
-        # (delete first if it exists from previous attempt)
-        begin_tag = tag_name(task.slug, "begin")
-        if self.git.has_tag(begin_tag):
-            self.git.run("tag", "-d", begin_tag, check=False)
-        self.git.create_tag(begin_tag)
-        self._sync_worktree(wt_git)
+        begin_commit = self.git.rev_parse(host_branch)
+        self.state_store.save_reset_point(
+            ResetPoint(
+                task_slug=task.slug,
+                host_branch=host_branch,
+                ralph_branch=branch,
+                before_begin_commit=before_begin_commit,
+                begin_commit=begin_commit,
+                started_at=started_at,
+            )
+        )
+        self._sync_worktree(wt_git, host_branch=host_branch)
         # Now read the same task from the worktree where Ralph will work.
         wt_task_path = wt_paths.task_path("doing", task.slug)
         doing_task = parse_task_file(wt_task_path)
@@ -1706,7 +1755,7 @@ class JriService:
                     detail={"message": message},
                 )
             )
-            self._recover_failed_task_wt(doing_task, wt_git)
+            self._recover_failed_task_wt(doing_task, wt_git, host_branch=host_branch)
             self._finish_attempt(attempt, result="failed")
             self.timeline.record(
                 TimelineEvent(
@@ -1749,7 +1798,7 @@ class JriService:
                     detail={"message": timeout_msg},
                 )
             )
-            self._recover_failed_task_wt(doing_task, wt_git)
+            self._recover_failed_task_wt(doing_task, wt_git, host_branch=host_branch)
             self._finish_attempt(attempt, result="timeout")
             self.timeline.record(
                 TimelineEvent(
@@ -1776,7 +1825,7 @@ class JriService:
 
         payload_violation = self._result_payload_violation(result)
         if payload_violation is not None:
-            self._recover_failed_task_wt(doing_task, wt_git)
+            self._recover_failed_task_wt(doing_task, wt_git, host_branch=host_branch)
             self._finish_attempt(attempt, result="failed")
             self.timeline.record(
                 TimelineEvent(
@@ -1791,7 +1840,7 @@ class JriService:
             return "failed"
 
         if result.returncode != 0:
-            self._recover_failed_task_wt(doing_task, wt_git)
+            self._recover_failed_task_wt(doing_task, wt_git, host_branch=host_branch)
             self._finish_attempt(attempt, result="failed")
             self.timeline.record(
                 TimelineEvent(
@@ -1817,7 +1866,7 @@ class JriService:
             task_slug=task.slug,
         )
         if not doing_task.path.exists():
-            self._recover_failed_task_wt(doing_task, wt_git)
+            self._recover_failed_task_wt(doing_task, wt_git, host_branch=host_branch)
             self._finish_attempt(attempt, result="failed")
             relative_path = doing_task.path.relative_to(wt_paths.root)
             raise JriError(f"task file `{relative_path}` disappeared during Ralph run")
@@ -1835,6 +1884,7 @@ class JriService:
                 log_path=log_path,
                 session_id=result.session_id,
                 export_path=export_path,
+                host_branch=host_branch,
             )
             self._finish_attempt(attempt, result="needs_human")
             self.timeline.record(
@@ -1851,7 +1901,7 @@ class JriService:
         if result.result == "incompleted" and (
             result.payload is None or not result.payload.learnings
         ):
-            self._recover_failed_task_wt(doing_task, wt_git)
+            self._recover_failed_task_wt(doing_task, wt_git, host_branch=host_branch)
             self._finish_attempt(attempt, result="failed")
             self.timeline.record(
                 TimelineEvent(
@@ -1866,7 +1916,7 @@ class JriService:
             return "failed"
 
         if result.result in {"failed", "incompleted"}:
-            self._recover_failed_task_wt(doing_task, wt_git)
+            self._recover_failed_task_wt(doing_task, wt_git, host_branch=host_branch)
             self._finish_attempt(attempt, result=result.result)
             self.timeline.record(
                 TimelineEvent(
@@ -1901,7 +1951,9 @@ class JriService:
                         detail={"message": make_msg},
                     )
                 )
-                self._recover_failed_task_wt(doing_task, wt_git)
+                self._recover_failed_task_wt(
+                    doing_task, wt_git, host_branch=host_branch
+                )
                 self.metrics.record(
                     MetricEntry(
                         task=task.slug,
@@ -1934,7 +1986,9 @@ class JriService:
                         detail={"stderr": check.stderr[:500] if check.stderr else ""},
                     )
                 )
-                self._recover_failed_task_wt(doing_task, wt_git)
+                self._recover_failed_task_wt(
+                    doing_task, wt_git, host_branch=host_branch
+                )
                 self.metrics.record(
                     MetricEntry(
                         task=task.slug,
@@ -1965,7 +2019,9 @@ class JriService:
         attempt = replace(attempt, finished_at=finished_at, result="completed")
         self.state_store.save_active_attempt(attempt)
 
-        self._integrate_completed_branch(task_slug=task.slug, branch=branch)
+        self._integrate_completed_branch(
+            task_slug=task.slug, branch=branch, host_branch=host_branch
+        )
 
         if not (self.paths.task_path("doing", task.slug)).exists():
             relative_path = f".jri/tasks/doing/{task.slug}.md"
@@ -1973,15 +2029,18 @@ class JriService:
         doing_on_main = parse_task_file(self.paths.task_path("doing", task.slug))
         move_task(doing_on_main, self.paths.task_dir("done"))
         self.git.commit_all_if_needed(MSG_START_COMPLETE.format(slug=task.slug))
-        # Create end tag for this task (delete first if it exists from previous attempt)
-        end_tag = tag_name(task.slug, "end")
-        if self.git.has_tag(end_tag):
-            self.git.run("tag", "-d", end_tag, check=False)
-        self.git.create_tag(end_tag)
+        end_commit = self.git.rev_parse(host_branch)
+        reset_point = self.state_store.reset_point_for(
+            host_branch=host_branch, task_slug=task.slug
+        )
+        if reset_point is not None:
+            self.state_store.save_reset_point(
+                replace(reset_point, end_commit=end_commit, finished_at=finished_at)
+            )
         self._save_diff_artifact(task.slug)
 
         if self.git.has_remote():
-            self.git.push_task_refs(branch=branch, tag=end_tag)
+            self.git.push_task_refs(branch=branch, host_branch=host_branch)
 
         self.state_store.save_active_attempt(attempt)
         self._persist_attempt_history(attempt)
@@ -2001,7 +2060,9 @@ class JriService:
         sys.stdout.flush()
         return "completed"
 
-    def _recover_failed_task_wt(self, doing_task: Task, wt_git: GitRepo) -> None:
+    def _recover_failed_task_wt(
+        self, doing_task: Task, wt_git: GitRepo, *, host_branch: str
+    ) -> None:
         """Recover from a failed task in the worktree."""
         try:
             # Move task back to todo on main repo first.
@@ -2013,7 +2074,7 @@ class JriService:
                     MSG_RECOVER_FAILED.format(slug=doing_task.slug)
                 )
             # Reset the worktree so it reflects main's new state.
-            self._sync_worktree(wt_git)
+            self._sync_worktree(wt_git, host_branch=host_branch)
             self._reset_runtime_state()
             self.timeline.record(
                 TimelineEvent(
@@ -2079,26 +2140,16 @@ class JriService:
             paths.append(path)
         return paths
 
-    def _handle_wrong_branch(self, *, force: bool) -> None:
-        """Handle being on the wrong branch before starting the loop."""
-        state = self.state_store.load()
-        default = self.git.default_branch(hint=state.branch)
-        current = self.git.current_branch()
-        if current == default:
-            return
-        if force:
-            self.git.run("checkout", default)
-            return
-        sys.stdout.write(f'Currently on branch "{current}", expected "{default}".\n')
-        sys.stdout.write(f"Switch to {default}? [Y/n] ")
-        sys.stdout.flush()
-        choice = input().strip().lower()
-        if choice in ("", "y"):
-            self.git.run("checkout", default)
-        else:
-            raise JriError("aborted by user")
+    def _handle_wrong_branch(self, *, host_branch: str) -> None:
+        """Ensure the runtime is still on the captured host branch."""
+        self._ensure_current_host_branch(host_branch)
 
-    def _recover_stale_start_state(self, *, mode: str, force: bool = False) -> None:
+    def _recover_stale_start_state(
+        self, *, mode: str, force: bool = False, host_branch: str | None = None
+    ) -> None:
+        if host_branch is None:
+            host_branch = self.git.host_branch()
+            self.git.ensure_managed_branches_available(host_branch)
         state = self.state_store.load()
         try:
             doing_tasks = list_tasks(self.paths.task_dir("doing"), git_repo=self.git)
@@ -2137,6 +2188,9 @@ class JriService:
                     raise JriError("active attempt does not match the task in progress")
                 completion_evidence = self._attempt_completion_evidence(active_attempt)
                 if completion_evidence is not None:
+                    self._validate_attempt_host_branch(
+                        active_attempt, host_branch=host_branch
+                    )
                     self._record_recovery(
                         mode=mode,
                         reason="resume-completed-attempt",
@@ -2144,7 +2198,11 @@ class JriService:
                         process=process,
                         evidence=completion_evidence,
                     )
-                    self._complete_attempt(active_attempt, doing_task=doing_tasks[0])
+                    self._complete_attempt(
+                        active_attempt,
+                        doing_task=doing_tasks[0],
+                        host_branch=host_branch,
+                    )
                     return
                 if active_attempt.result == "completed":
                     reason = "missing-completion-evidence"
@@ -2153,6 +2211,7 @@ class JriService:
                 mode=mode,
                 reason=reason,
                 process=process,
+                host_branch=host_branch,
             )
             return
 
@@ -2160,6 +2219,9 @@ class JriService:
             active_attempt = state.active_attempt
             completion_evidence = self._attempt_completion_evidence(active_attempt)
             if completion_evidence is not None:
+                self._validate_attempt_host_branch(
+                    active_attempt, host_branch=host_branch
+                )
                 self._record_recovery(
                     mode=mode,
                     reason="resume-completed-attempt",
@@ -2167,15 +2229,21 @@ class JriService:
                     process=process,
                     evidence=completion_evidence,
                 )
-                self._complete_attempt(active_attempt, doing_task=None)
+                self._complete_attempt(
+                    active_attempt, doing_task=None, host_branch=host_branch
+                )
                 return
             task_status = self._tracked_task_status(active_attempt.task_slug)
             if task_status in {"doing", "done"}:
+                self._validate_attempt_host_branch(
+                    active_attempt, host_branch=host_branch
+                )
                 self._recover_unverified_completed_attempt(
                     active_attempt,
                     mode=mode,
                     reason="missing-completion-evidence",
                     process=process,
+                    host_branch=host_branch,
                 )
                 return
             if active_attempt.result in {
@@ -2230,28 +2298,17 @@ class JriService:
         mode: str,
         reason: str,
         process: ProcessState | None,
+        host_branch: str,
     ) -> None:
         try:
-            default = self._default_branch()
-            current_branch = self.git.current_branch()
-
-            if current_branch == default:
-                if self.git.status_short():
-                    raise JriError(
-                        "git working tree must be clean before stale recovery"
-                    )
-            elif self._is_managed_ralph_branch(current_branch):
-                self.git.commit_all_if_needed(
-                    MSG_RALPH_PARTIAL.format(slug=doing_task.slug)
-                )
-                self.git.checkout(default)
-            else:
-                raise JriError(f"jri start must begin from the {default} branch")
+            self._ensure_current_host_branch(host_branch)
+            if self.git.status_short():
+                raise JriError("git working tree must be clean before stale recovery")
 
             # Reset worktree if it exists
             if self.paths.worktree_dir.exists():
                 wt_git = GitRepo(self.paths.worktree_dir)
-                self._sync_worktree(wt_git)
+                self._sync_worktree(wt_git, host_branch=host_branch)
 
             move_task(doing_task, self.paths.task_dir("todo"))
             self._record_recovery(
@@ -2294,6 +2351,7 @@ class JriService:
                 branch=state.branch,
                 active_attempt=state.active_attempt,
                 attempts=state.attempts,
+                reset_points=state.reset_points,
             )
         )
 
@@ -2318,7 +2376,7 @@ class JriService:
         self.state_store.clear_active_attempt()
 
     def _attempt_matches_task(self, attempt: AttemptState, task: Task) -> bool:
-        branch_ok = self._is_managed_ralph_branch(attempt.branch)
+        branch_ok = self._host_branch_for_managed_attempt(attempt.branch) is not None
         return attempt.task_slug == task.slug and branch_ok
 
     def _attempt_completion_evidence(
@@ -2350,8 +2408,13 @@ class JriService:
             if make_check_passed_ts is not None:
                 evidence["make_check_passed_event"] = make_check_passed_ts
 
-        if self.git.has_tag(tag_name(attempt.task_slug, "end")):
-            evidence["end_tag"] = tag_name(attempt.task_slug, "end")
+        host_branch = self._host_branch_for_managed_attempt(attempt.branch)
+        if host_branch is not None:
+            reset_point = self.state_store.reset_point_for(
+                host_branch=host_branch, task_slug=attempt.task_slug
+            )
+            if reset_point is not None and reset_point.end_commit is not None:
+                evidence["reset_point"] = reset_point.end_commit
 
         if self.paths.task_path("done", attempt.task_slug).exists():
             evidence["task_status"] = "done"
@@ -2362,14 +2425,14 @@ class JriService:
             evidence["branch_work"] = attempt.branch
 
         if "attempt_history" in evidence and (
-            "make_check_passed_event" in evidence or "end_tag" in evidence
+            "make_check_passed_event" in evidence or "reset_point" in evidence
         ):
             return evidence
         if "branch_work" in evidence and self._is_completed_attempt_payload(attempt):
             return evidence
         if {
             "task_status",
-            "end_tag",
+            "reset_point",
             "make_check_passed_event",
         }.issubset(evidence):
             return evidence
@@ -2408,27 +2471,17 @@ class JriService:
         mode: str,
         reason: str,
         process: ProcessState | None,
+        host_branch: str,
     ) -> None:
+        self._validate_attempt_host_branch(attempt, host_branch=host_branch)
         try:
-            default = self._default_branch()
-            current_branch = self.git.current_branch()
-
-            if current_branch == default:
-                if self.git.status_short():
-                    raise JriError(
-                        "git working tree must be clean before stale recovery"
-                    )
-            elif self._is_managed_ralph_branch(current_branch):
-                self.git.commit_all_if_needed(
-                    MSG_RALPH_PARTIAL.format(slug=attempt.task_slug)
-                )
-                self.git.checkout(default)
-            else:
-                raise JriError(f"jri start must begin from the {default} branch")
+            self._ensure_current_host_branch(host_branch)
+            if self.git.status_short():
+                raise JriError("git working tree must be clean before stale recovery")
 
             if self.paths.worktree_dir.exists():
                 wt_git = GitRepo(self.paths.worktree_dir)
-                self._sync_worktree(wt_git)
+                self._sync_worktree(wt_git, host_branch=host_branch)
 
             task_moved = False
             for status in ("doing", "done"):
@@ -2476,36 +2529,40 @@ class JriService:
         attempt: AttemptState,
         *,
         doing_task: Task | None,
+        host_branch: str | None = None,
     ) -> None:
-        default = self._default_branch()
-        current_branch = self.git.current_branch()
-        if current_branch == attempt.branch:
-            if self.git.status_short():
-                self.git.commit_all_if_needed(
-                    MSG_RALPH_PARTIAL.format(slug=attempt.task_slug)
-                )
-            self.git.checkout(default)
-        elif current_branch != default:
-            raise JriError(f"jri start must begin from the {default} branch")
+        if host_branch is None:
+            host_branch = self.git.host_branch()
+            self.git.ensure_managed_branches_available(host_branch)
+        self._validate_attempt_host_branch(attempt, host_branch=host_branch)
+        self._ensure_current_host_branch(host_branch)
+        if self.git.status_short():
+            raise JriError(
+                "git working tree must be clean before completing Ralph work"
+            )
 
         self._integrate_completed_branch(
             task_slug=attempt.task_slug,
             branch=attempt.branch,
+            host_branch=host_branch,
         )
 
         if doing_task is not None and doing_task.path.exists():
             move_task(doing_task, self.paths.task_dir("done"))
         self.git.commit_all_if_needed(MSG_START_COMPLETE.format(slug=attempt.task_slug))
-        # Create end tag for this task (delete first if it exists from previous attempt)
-        end_tag = tag_name(attempt.task_slug, "end")
-        if self.git.has_tag(end_tag):
-            self.git.run("tag", "-d", end_tag, check=False)
-        self.git.create_tag(end_tag)
+        finished_at = attempt.finished_at or int(time.time())
+        end_commit = self.git.rev_parse(host_branch)
+        reset_point = self.state_store.reset_point_for(
+            host_branch=host_branch, task_slug=attempt.task_slug
+        )
+        if reset_point is not None:
+            self.state_store.save_reset_point(
+                replace(reset_point, end_commit=end_commit, finished_at=finished_at)
+            )
         self._save_diff_artifact(attempt.task_slug)
         if self.git.has_remote() and self.git.has_local_branch(attempt.branch):
-            self.git.push_task_refs(branch=attempt.branch, tag=end_tag)
+            self.git.push_task_refs(branch=attempt.branch, host_branch=host_branch)
 
-        finished_at = attempt.finished_at or int(time.time())
         attempt = replace(attempt, finished_at=finished_at, result="completed")
         self.state_store.save_active_attempt(attempt)
         self._persist_attempt_history(attempt)
@@ -2642,6 +2699,7 @@ class JriService:
         log_path: Path,
         session_id: str | None,
         export_path: Path | None,
+        host_branch: str,
     ) -> None:
         try:
             # Move task back from doing to todo in main first.
@@ -2655,7 +2713,7 @@ class JriService:
             # Reset the worktree to reflect main's new state.
             if self.paths.worktree_dir.exists():
                 wt_git = GitRepo(self.paths.worktree_dir)
-                self._sync_worktree(wt_git)
+                self._sync_worktree(wt_git, host_branch=host_branch)
             todo_path = self.paths.task_path("todo", doing_task.slug)
             if todo_path.exists():
                 todo_task = parse_task_file(todo_path)
@@ -3075,14 +3133,14 @@ class JriService:
         return task
 
     def _save_diff_artifact(self, task_slug: str) -> None:
-        """Save a diff artifact between the previous end tag and current state.
-
-        Finds the most recent end tag (jri/end/{slug}) and creates a diff
-        between that tag and HEAD.
-        """
-        # Diff from the begin tag of current task to HEAD
-        begin_tag = tag_name(task_slug, "begin")
-        diff_text = self.git.diff(begin_tag, "HEAD")
+        """Save a diff artifact from this task's begin commit to HEAD."""
+        host_branch = self.git.host_branch()
+        reset_point = self.state_store.reset_point_for(
+            host_branch=host_branch, task_slug=task_slug
+        )
+        if reset_point is None:
+            return
+        diff_text = self.git.diff(reset_point.begin_commit, "HEAD")
         diff_path = self.paths.diff_artifact_path(task_slug)
         diff_path.parent.mkdir(parents=True, exist_ok=True)
         diff_path.write_text(diff_text, encoding="utf-8")

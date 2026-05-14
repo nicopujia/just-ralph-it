@@ -14,6 +14,24 @@ def git(repo: Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def capture_worktree_state(repo: Path) -> dict[str, str]:
+    symbolic_ref = subprocess.run(
+        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
+        cwd=repo,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    return {
+        "head": git(repo, "rev-parse", "HEAD"),
+        "branch": git(repo, "branch", "--show-current"),
+        "symbolic_ref": symbolic_ref.stdout.strip(),
+        "status": git(repo, "status", "--porcelain=v1"),
+        "cached_diff": git(repo, "diff", "--cached", "--name-status"),
+        "worktree_diff": git(repo, "diff", "--name-status"),
+    }
+
+
 def read_json(path: Path) -> dict[str, object]:
     return json.loads(path.read_text(encoding="utf-8"))
 
