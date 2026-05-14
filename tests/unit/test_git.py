@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from jri.core.errors import JriError
-from jri.core.git import GitRepo, parse_tag_name, tag_name
+from jri.core.git import GitRepo, WorktreeInfo, parse_tag_name, tag_name
 from jri.core.service import JriService
 from tests.conftest import run_cli
 from tests.helpers import git
@@ -68,6 +68,125 @@ def test_ralph_branch_falls_back_when_legacy_ralph_branch_exists(
     assert GitRepo(repo).ralph_branch() == "ralph-main"
 
 
+def test_host_branch_returns_checked_out_raw_branch(tmp_path: Path) -> None:
+    repo = make_git_repo(tmp_path, branch="main")
+    git(repo, "checkout", "-b", "feature/slash-name")
+
+    assert GitRepo(repo).host_branch() == "feature/slash-name"
+
+
+def test_host_branch_rejects_detached_head(tmp_path: Path) -> None:
+    repo = make_git_repo(tmp_path, branch="main")
+    git(repo, "checkout", "--detach")
+
+    with pytest.raises(JriError, match="checked-out branch"):
+        GitRepo(repo).host_branch()
+
+
+def test_ralph_branch_for_preserves_raw_host_branch(tmp_path: Path) -> None:
+    repo = GitRepo(tmp_path)
+
+    assert repo.ralph_branch_for("feature/slash-name") == "ralph/feature/slash-name"
+
+
+def test_worktree_list_parser_keeps_path_and_branch_ref(tmp_path: Path) -> None:
+    output = (
+        f"worktree {tmp_path / 'repo'}\n"
+        "HEAD abc123\n"
+        "branch refs/heads/main\n"
+        "\n"
+        f"worktree {tmp_path / 'detached'}\n"
+        "HEAD def456\n"
+        "detached\n"
+        "\n"
+    )
+
+    assert GitRepo.parse_worktree_list(output) == (
+        WorktreeInfo(tmp_path / "repo", "refs/heads/main"),
+        WorktreeInfo(tmp_path / "detached", None),
+    )
+
+
+def test_worktree_list_runs_porcelain_parser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fake_run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        _ = check
+        if args == ("worktree", "list", "--porcelain"):
+            return completed(
+                *args,
+                stdout=f"worktree {tmp_path}\nHEAD abc123\nbranch refs/heads/main\n",
+            )
+        raise AssertionError(args)
+
+    monkeypatch.setattr(repo, "run", fake_run)
+
+    assert repo.worktree_list() == (WorktreeInfo(tmp_path, "refs/heads/main"),)
+
+
+def test_worktree_list_checked_out_branch_conflict_rejects_other_worktree(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path / "repo")
+    other = tmp_path / "other"
+    monkeypatch.setattr(
+        repo,
+        "worktree_list",
+        lambda: (
+            WorktreeInfo(repo.root, "refs/heads/main"),
+            WorktreeInfo(other, "refs/heads/ralph/main"),
+        ),
+    )
+
+    with pytest.raises(JriError, match="ralph/main.*already checked out"):
+        repo.ensure_branches_not_checked_out_elsewhere("main", "ralph/main")
+
+
+@pytest.mark.parametrize(
+    ("existing_ref", "desired_branch"),
+    [
+        ("refs/heads/ralph/feature", "ralph/feature/x"),
+        ("refs/heads/ralph/feature/x", "ralph/feature"),
+    ],
+)
+def test_ref_namespace_collision_detects_prefix_conflicts(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    existing_ref: str,
+    desired_branch: str,
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fake_run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        _ = check
+        if args == ("for-each-ref", "--format=%(refname)", "refs/heads"):
+            return completed(*args, stdout=f"{existing_ref}\n")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(repo, "run", fake_run)
+
+    with pytest.raises(JriError, match="conflicts with existing ref"):
+        repo.ensure_no_local_branch_ref_namespace_collision(desired_branch)
+
+
+def test_ref_namespace_collision_ignores_exact_branch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = GitRepo(tmp_path)
+
+    def fake_run(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+        _ = check
+        if args == ("for-each-ref", "--format=%(refname)", "refs/heads"):
+            return completed(*args, stdout="refs/heads/ralph/feature\n")
+        raise AssertionError(args)
+
+    monkeypatch.setattr(repo, "run", fake_run)
+
+    repo.ensure_no_local_branch_ref_namespace_collision("ralph/feature")
+
+
 def test_handle_wrong_branch_prompts_for_detected_default_branch(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -79,13 +198,13 @@ def test_handle_wrong_branch_prompts_for_detected_default_branch(
 
     service = JriService(repo)
     monkeypatch.setattr("builtins.input", lambda: "y")
+    capsys.readouterr()
 
-    service._handle_wrong_branch(force=False)
+    with pytest.raises(JriError, match="runtime branch changed"):
+        service._handle_wrong_branch(host_branch="trunk")
 
-    output = capsys.readouterr().out
-    assert 'Currently on branch "feature/x", expected "trunk".' in output
-    assert "Switch to trunk? [Y/n]" in output
-    assert git(repo, "branch", "--show-current") == "trunk"
+    assert capsys.readouterr().out == ""
+    assert git(repo, "branch", "--show-current") == "feature/x"
 
 
 def completed(
@@ -811,12 +930,14 @@ def test_push_task_refs_raises_when_a_push_fails(
             return completed(*args)
         if args == ("push", "origin", "feature"):
             return completed(*args, returncode=1, stderr="push rejected\n")
+        if args == ("push", "origin", "v1.0.0"):
+            raise AssertionError("tags must not be pushed")
         raise AssertionError(args)
 
     monkeypatch.setattr(repo, "run", fail_push_run)
 
     with pytest.raises(JriError, match="push rejected"):
-        repo.push_task_refs(branch="feature", tag="v1.0.0")
+        repo.push_task_refs(branch="feature")
 
 
 def test_push_task_refs_succeeds(
@@ -834,7 +955,7 @@ def test_push_task_refs_succeeds(
 
     monkeypatch.setattr(repo, "run", ok_push_run)
 
-    repo.push_task_refs(branch="feature", tag="v1.0.0")
+    repo.push_task_refs(branch="feature")
 
 
 def test_diff_returns_stdout_for_non_error_returncodes(

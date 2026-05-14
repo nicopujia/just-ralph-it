@@ -1,4 +1,5 @@
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from .errors import JriError
@@ -15,6 +16,12 @@ MSG_RECORD_ATTEMPT_HISTORY = "jri: record attempt history for {slug}"
 MSG_RALPH_FINALIZE = "jri: finalize {slug}"
 MSG_RALPH_PARTIAL = "jri: partial work on {slug}"
 MSG_RALPH_INTEGRATE = "jri: integrate {slug}"
+
+
+@dataclass(frozen=True)
+class WorktreeInfo:
+    path: Path
+    branch_ref: str | None
 
 
 def tag_name(slug: str, suffix: str) -> str:
@@ -104,6 +111,14 @@ class GitRepo:
     def current_branch(self) -> str:
         return self.run("branch", "--show-current").stdout.strip()
 
+    def host_branch(self) -> str:
+        branch = self.current_branch()
+        if not branch:
+            raise JriError(
+                "jri requires a checked-out branch; detached HEAD is not supported"
+            )
+        return branch
+
     def _validated_default_branch(self, branch: str) -> str:
         if (
             not branch
@@ -182,6 +197,9 @@ class GitRepo:
         if self.has_local_branch("ralph") and not self.has_local_branch(branch):
             return f"ralph-{default}"
         return branch
+
+    def ralph_branch_for(self, host_branch: str) -> str:
+        return f"ralph/{self.validate_default_branch_name(host_branch)}"
 
     def ensure_default_branch(self, *, hint: str | None = None) -> None:
         default = self.default_branch(hint=hint)
@@ -312,12 +330,15 @@ class GitRepo:
     def has_remote(self) -> bool:
         return bool(self.run("remote").stdout.strip())
 
-    def push_task_refs(self, *, branch: str, tag: str) -> None:
-        default = self.default_branch()
+    def push_task_refs(self, *, branch: str, host_branch: str | None = None) -> None:
+        host = (
+            self.validate_default_branch_name(host_branch)
+            if host_branch is not None
+            else self.default_branch()
+        )
         for args in (
-            ("push", "origin", default),
+            ("push", "origin", host),
             ("push", "origin", branch),
-            ("push", "origin", tag),
         ):
             result = self.run(*args, check=False)
             if result.returncode != 0:
@@ -361,6 +382,89 @@ class GitRepo:
             raise JriError(
                 result.stderr.strip() or f"failed to remove worktree at {path}"
             )
+
+    @staticmethod
+    def parse_worktree_list(output: str) -> tuple[WorktreeInfo, ...]:
+        worktrees: list[WorktreeInfo] = []
+        record: dict[str, str] = {}
+        for line in [*output.splitlines(), ""]:
+            if not line:
+                if worktree_path := record.get("worktree"):
+                    worktrees.append(
+                        WorktreeInfo(
+                            path=Path(worktree_path),
+                            branch_ref=record.get("branch"),
+                        )
+                    )
+                record.clear()
+                continue
+            key, _, value = line.partition(" ")
+            record[key] = value
+        return tuple(worktrees)
+
+    def worktree_list(self) -> tuple[WorktreeInfo, ...]:
+        result = self.run("worktree", "list", "--porcelain", check=False)
+        if result.returncode != 0:
+            raise JriError(result.stderr.strip() or "failed to list worktrees")
+        return self.parse_worktree_list(result.stdout)
+
+    def checked_out_worktree_for_branch(self, branch: str) -> WorktreeInfo | None:
+        branch_ref = f"refs/heads/{self.validate_default_branch_name(branch)}"
+        root = self.root.resolve()
+        managed_worktree = (self.root / ".jri" / "worktree").resolve()
+        for worktree in self.worktree_list():
+            if worktree.branch_ref != branch_ref:
+                continue
+            try:
+                worktree_path = worktree.path.resolve()
+                if worktree_path in {root, managed_worktree}:
+                    continue
+            except OSError:
+                pass
+            return worktree
+        return None
+
+    def ensure_branches_not_checked_out_elsewhere(self, *branches: str) -> None:
+        for branch in branches:
+            worktree = self.checked_out_worktree_for_branch(branch)
+            if worktree is not None:
+                raise JriError(
+                    f"branch '{branch}' is already checked out in another "
+                    f"worktree at {worktree.path}"
+                )
+
+    def local_branch_ref_namespace_collision(self, branch: str) -> str | None:
+        branch = self.validate_default_branch_name(branch)
+        desired_ref = f"refs/heads/{branch}"
+        result = self.run(
+            "for-each-ref", "--format=%(refname)", "refs/heads", check=False
+        )
+        if result.returncode != 0:
+            raise JriError(result.stderr.strip() or "failed to list local branches")
+        for ref in (line.strip() for line in result.stdout.splitlines()):
+            if (
+                ref
+                and ref != desired_ref
+                and (
+                    ref.startswith(f"{desired_ref}/")
+                    or desired_ref.startswith(f"{ref}/")
+                )
+            ):
+                return ref
+        return None
+
+    def ensure_no_local_branch_ref_namespace_collision(self, branch: str) -> None:
+        collision = self.local_branch_ref_namespace_collision(branch)
+        if collision is not None:
+            raise JriError(
+                f"branch '{branch}' namespace conflicts with existing ref '{collision}'"
+            )
+
+    def ensure_managed_branches_available(self, host_branch: str) -> None:
+        managed_branch = self.ralph_branch_for(host_branch)
+        self.ensure_branches_not_checked_out_elsewhere(host_branch, managed_branch)
+        self.ensure_no_local_branch_ref_namespace_collision(host_branch)
+        self.ensure_no_local_branch_ref_namespace_collision(managed_branch)
 
     def rev_parse(self, ref: str) -> str:
         result = self.run("rev-parse", ref, check=False)
