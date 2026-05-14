@@ -313,6 +313,49 @@ class AttemptState:
         )
 
 
+@dataclass(frozen=True)
+class ResetPoint:
+    task_slug: str
+    host_branch: str
+    ralph_branch: str
+    before_begin_commit: str
+    begin_commit: str
+    end_commit: str | None = None
+    started_at: int | None = None
+    finished_at: int | None = None
+
+    def to_payload(self) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "task_slug": self.task_slug,
+            "host_branch": self.host_branch,
+            "ralph_branch": self.ralph_branch,
+            "before_begin_commit": self.before_begin_commit,
+            "begin_commit": self.begin_commit,
+        }
+        if self.end_commit is not None:
+            payload["end_commit"] = self.end_commit
+        if self.started_at is not None:
+            payload["started_at"] = self.started_at
+        if self.finished_at is not None:
+            payload["finished_at"] = self.finished_at
+        return payload
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> Self:
+        return cls(
+            task_slug=_str_or_none(payload.get("task_slug")) or "",
+            host_branch=_str_or_none(payload.get("host_branch")) or "",
+            ralph_branch=_str_or_none(payload.get("ralph_branch")) or "",
+            before_begin_commit=(
+                _str_or_none(payload.get("before_begin_commit")) or ""
+            ),
+            begin_commit=_str_or_none(payload.get("begin_commit")) or "",
+            end_commit=_str_or_none(payload.get("end_commit")),
+            started_at=_int_or_none(payload.get("started_at")),
+            finished_at=_int_or_none(payload.get("finished_at")),
+        )
+
+
 RunOutcome = Literal[
     "completed",
     "no_work",
@@ -339,6 +382,7 @@ class State:
     active_attempt: AttemptState | None = None
     attempts: list[AttemptState] = field(default_factory=list)
     current_task: str | None = None
+    reset_points: dict[str, dict[str, ResetPoint]] = field(default_factory=dict)
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {}
@@ -363,6 +407,14 @@ class State:
             payload["attempts"] = [attempt.to_payload() for attempt in self.attempts]
         if self.current_task is not None:
             payload["current_task"] = self.current_task
+        if self.reset_points:
+            payload["reset_points"] = {
+                host_branch: {
+                    task_slug: reset_point.to_payload()
+                    for task_slug, reset_point in task_points.items()
+                }
+                for host_branch, task_points in self.reset_points.items()
+            }
         return payload
 
     @classmethod
@@ -394,6 +446,25 @@ class State:
                 if isinstance(item, dict)
             ]
 
+        reset_points_raw = payload.get("reset_points")
+        reset_points: dict[str, dict[str, ResetPoint]] = {}
+        if isinstance(reset_points_raw, dict):
+            for host_branch, task_points_raw in cast(
+                dict[str, object], reset_points_raw
+            ).items():
+                if not isinstance(task_points_raw, dict):
+                    continue
+                task_points: dict[str, ResetPoint] = {}
+                for task_slug, reset_point_raw in cast(
+                    dict[str, object], task_points_raw
+                ).items():
+                    if isinstance(reset_point_raw, dict):
+                        task_points[task_slug] = ResetPoint.from_payload(
+                            cast(dict[str, object], reset_point_raw)
+                        )
+                if task_points:
+                    reset_points[host_branch] = task_points
+
         return cls(
             started_at=_int_or_none(payload.get("started_at")),
             finished_at=_int_or_none(payload.get("finished_at")),
@@ -403,6 +474,35 @@ class State:
             active_attempt=active_attempt,
             attempts=attempts,
             current_task=_str_or_none(payload.get("current_task")),
+            reset_points=reset_points,
+        )
+
+    def reset_point_for(self, *, host_branch: str, task_slug: str) -> ResetPoint | None:
+        return self.reset_points.get(host_branch, {}).get(task_slug)
+
+    def latest_reset_point(
+        self, *, host_branch: str | None = None, task_slug: str | None = None
+    ) -> ResetPoint | None:
+        reset_points = [
+            reset_point
+            for branch, task_points in self.reset_points.items()
+            if host_branch is None or branch == host_branch
+            for slug, reset_point in task_points.items()
+            if task_slug is None or slug == task_slug
+        ]
+        if not reset_points:
+            return None
+        return max(
+            reset_points,
+            key=lambda reset_point: (
+                reset_point.finished_at
+                if reset_point.finished_at is not None
+                else reset_point.started_at
+                if reset_point.started_at is not None
+                else -1,
+                reset_point.host_branch,
+                reset_point.task_slug,
+            ),
         )
 
 

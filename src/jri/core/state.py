@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import cast
 
 from .errors import JriError
-from .models import AttemptState, ProcessState, State
+from .models import AttemptState, ProcessState, ResetPoint, State
 from .tasks import validate_state_payload
 
 
@@ -105,6 +105,31 @@ class StateStore:
                 finished_at=finished_at,
                 current_task=None,
             )
+        )
+
+    def save_reset_point(self, reset_point: ResetPoint) -> None:
+        state = self.load()
+        reset_points = {
+            host_branch: dict(task_points)
+            for host_branch, task_points in state.reset_points.items()
+        }
+        reset_points.setdefault(reset_point.host_branch, {})[reset_point.task_slug] = (
+            reset_point
+        )
+        self.save(replace(state, reset_points=reset_points))
+
+    def reset_point_for(self, *, host_branch: str, task_slug: str) -> ResetPoint | None:
+        return self.load().reset_point_for(
+            host_branch=host_branch,
+            task_slug=task_slug,
+        )
+
+    def latest_reset_point(
+        self, *, host_branch: str | None = None, task_slug: str | None = None
+    ) -> ResetPoint | None:
+        return self.load().latest_reset_point(
+            host_branch=host_branch,
+            task_slug=task_slug,
         )
 
     def _load_path(self, path: Path) -> State:

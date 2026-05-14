@@ -102,6 +102,7 @@ def _validate_state_payload(payload: dict[str, object]) -> list[str]:
         "process",
         "active_attempt",
         "attempts",
+        "reset_points",
     }
     for key in sorted(set(payload) - allowed):
         errors.append(f"unexpected key `{key}`")
@@ -118,6 +119,7 @@ def _validate_state_payload(payload: dict[str, object]) -> list[str]:
         else:
             for index, attempt in enumerate(cast(list[object], attempts)):
                 _validate_attempt_payload(attempt, f"attempts[{index}]", errors)
+    _validate_reset_points_payload(payload.get("reset_points"), errors)
     return errors
 
 
@@ -218,6 +220,83 @@ def _validate_attempt_payload(value: object, label: str, errors: list[str]) -> N
         _validate_result_payload(
             attempt["result_payload"], f"{label}.result_payload", errors
         )
+
+
+def _validate_reset_points_payload(value: object, errors: list[str]) -> None:
+    if value is None:
+        return
+    if not isinstance(value, dict):
+        errors.append("`reset_points` must be an object")
+        return
+    for host_branch, task_points in cast(dict[str, object], value).items():
+        label = f"reset_points.{host_branch}"
+        if not isinstance(task_points, dict):
+            errors.append(f"`{label}` must be an object")
+            continue
+        for task_slug, reset_point in cast(dict[str, object], task_points).items():
+            _validate_reset_point_payload(
+                reset_point,
+                f"{label}.{task_slug}",
+                host_branch=host_branch,
+                task_slug=task_slug,
+                errors=errors,
+            )
+
+
+def _validate_reset_point_payload(
+    value: object,
+    label: str,
+    *,
+    host_branch: str,
+    task_slug: str,
+    errors: list[str],
+) -> None:
+    if not isinstance(value, dict):
+        errors.append(f"`{label}` must be an object")
+        return
+    reset_point = cast(dict[str, object], value)
+    allowed = {
+        "task_slug",
+        "host_branch",
+        "ralph_branch",
+        "before_begin_commit",
+        "begin_commit",
+        "end_commit",
+        "started_at",
+        "finished_at",
+    }
+    required = {
+        "task_slug",
+        "host_branch",
+        "ralph_branch",
+        "before_begin_commit",
+        "begin_commit",
+    }
+    for key in sorted(set(reset_point) - allowed):
+        errors.append(f"unexpected key `{label}.{key}`")
+    for key in sorted(required - set(reset_point)):
+        errors.append(f"`{label}.{key}` is required")
+    for key in (
+        "task_slug",
+        "host_branch",
+        "ralph_branch",
+        "before_begin_commit",
+        "begin_commit",
+        "end_commit",
+    ):
+        field_value = reset_point.get(key)
+        if key in reset_point and not isinstance(field_value, str):
+            errors.append(f"`{label}.{key}` must be a string")
+    for key in ("started_at", "finished_at"):
+        field_value = reset_point.get(key)
+        if key in reset_point and (
+            not isinstance(field_value, int) or isinstance(field_value, bool)
+        ):
+            errors.append(f"`{label}.{key}` must be an integer")
+    if reset_point.get("host_branch") != host_branch:
+        errors.append(f"`{label}.host_branch` must match reset_points key")
+    if reset_point.get("task_slug") != task_slug:
+        errors.append(f"`{label}.task_slug` must match reset_points key")
 
 
 def _validate_result_payload(value: object, label: str, errors: list[str]) -> None:

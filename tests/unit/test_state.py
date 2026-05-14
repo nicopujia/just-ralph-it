@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ from jri.core.models import (
     TASK_STATUSES,
     AttemptState,
     RalphResultPayload,
+    ResetPoint,
     State,
 )
 from jri.core.state import StateStore
@@ -297,6 +299,196 @@ def test_state_round_trips_current_task(tmp_path: Path) -> None:
     store.save(expected)
 
     assert store.load() == expected
+
+
+def test_state_round_trips_reset_points(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    reset_point = ResetPoint(
+        task_slug="task-a",
+        host_branch="main",
+        ralph_branch="ralph/main",
+        before_begin_commit="before",
+        begin_commit="begin",
+        end_commit="end",
+        started_at=100,
+        finished_at=200,
+    )
+    expected = State(reset_points={"main": {"task-a": reset_point}})
+
+    store.save(expected)
+
+    assert store.load() == expected
+    assert not (tmp_path / ".jri" / "attempts").exists()
+
+
+def test_state_round_trips_reset_point_missing_optional_fields(
+    tmp_path: Path,
+) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    reset_point = ResetPoint(
+        task_slug="task-a",
+        host_branch="main",
+        ralph_branch="ralph/main",
+        before_begin_commit="before",
+        begin_commit="begin",
+    )
+
+    store.save(State(reset_points={"main": {"task-a": reset_point}}))
+
+    payload = store.path.read_text(encoding="utf-8")
+    assert "end_commit" not in payload
+    assert "started_at" not in payload
+    assert "finished_at" not in payload
+    assert (
+        store.load().reset_point_for(
+            host_branch="main",
+            task_slug="task-a",
+        )
+        == reset_point
+    )
+
+
+def test_state_store_resolves_latest_reset_point(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    older = ResetPoint(
+        task_slug="task-a",
+        host_branch="main",
+        ralph_branch="ralph/main",
+        before_begin_commit="before-a",
+        begin_commit="begin-a",
+        started_at=100,
+        finished_at=200,
+    )
+    newer = ResetPoint(
+        task_slug="task-b",
+        host_branch="main",
+        ralph_branch="ralph/main",
+        before_begin_commit="before-b",
+        begin_commit="begin-b",
+        started_at=300,
+    )
+    newest = ResetPoint(
+        task_slug="task-c",
+        host_branch="feature",
+        ralph_branch="ralph/feature",
+        before_begin_commit="before-c",
+        begin_commit="begin-c",
+        finished_at=400,
+    )
+
+    store.save_reset_point(older)
+    store.save_reset_point(newer)
+    store.save_reset_point(newest)
+
+    assert store.latest_reset_point() == newest
+    assert store.latest_reset_point(host_branch="main") == newer
+
+
+def test_state_store_resolves_task_specific_reset_point(tmp_path: Path) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    first = ResetPoint(
+        task_slug="task-a",
+        host_branch="main",
+        ralph_branch="ralph/main",
+        before_begin_commit="before-a",
+        begin_commit="begin-a",
+        started_at=100,
+    )
+    updated = ResetPoint(
+        task_slug="task-a",
+        host_branch="main",
+        ralph_branch="ralph/main",
+        before_begin_commit="before-a",
+        begin_commit="begin-a2",
+        end_commit="end-a2",
+        started_at=100,
+        finished_at=250,
+    )
+    other_branch = ResetPoint(
+        task_slug="task-a",
+        host_branch="feature",
+        ralph_branch="ralph/feature",
+        before_begin_commit="before-feature",
+        begin_commit="begin-feature",
+        finished_at=300,
+    )
+
+    store.save_reset_point(first)
+    store.save_reset_point(updated)
+    store.save_reset_point(other_branch)
+
+    assert store.reset_point_for(host_branch="main", task_slug="task-a") == updated
+    assert store.latest_reset_point(task_slug="task-a") == other_branch
+    assert store.reset_point_for(host_branch="main", task_slug="missing") is None
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({"reset_points": []}, "reset_points"),
+        ({"reset_points": {"main": []}}, "reset_points.main"),
+        ({"reset_points": {"main": {"task-a": []}}}, "reset_points.main.task-a"),
+        (
+            {
+                "reset_points": {
+                    "main": {
+                        "task-a": {
+                            "task_slug": "task-a",
+                            "host_branch": "main",
+                            "ralph_branch": "ralph/main",
+                            "before_begin_commit": "before",
+                        }
+                    }
+                }
+            },
+            "begin_commit",
+        ),
+        (
+            {
+                "reset_points": {
+                    "main": {
+                        "task-a": {
+                            "task_slug": "task-a",
+                            "host_branch": "main",
+                            "ralph_branch": "ralph/main",
+                            "before_begin_commit": "before",
+                            "begin_commit": "begin",
+                            "finished_at": True,
+                        }
+                    }
+                }
+            },
+            "finished_at",
+        ),
+        (
+            {
+                "reset_points": {
+                    "main": {
+                        "task-a": {
+                            "task_slug": "task-b",
+                            "host_branch": "main",
+                            "ralph_branch": "ralph/main",
+                            "before_begin_commit": "before",
+                            "begin_commit": "begin",
+                        }
+                    }
+                }
+            },
+            "task_slug.*match",
+        ),
+    ],
+)
+def test_load_rejects_malformed_reset_point_payload(
+    tmp_path: Path,
+    payload: dict[str, object],
+    message: str,
+) -> None:
+    store = StateStore(tmp_path / ".jri" / "state.json")
+    store.path.parent.mkdir(parents=True, exist_ok=True)
+    store.path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+
+    with pytest.raises(JriError, match=message):
+        store.load()
 
 
 def test_lifecycle_invariant_vocabulary_covers_state_surfaces() -> None:
