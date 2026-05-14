@@ -82,9 +82,10 @@ Compile success commits graph changes and emitted todo task files together on th
 Compile failure creates no commit and leaves no emitted task files behind.
 
 Ralph execution is separate from compilation.
-Each Ralph iteration commits its own work on a separate git worktree to keep the main branch clean between iterations.
+Each Ralph iteration commits its own work on a separate git worktree to keep the invoking worktree's current branch clean between iterations.
+JRI creates the managed work branch as `ralph/<current-host-branch>` and keeps reset points in local runtime state instead of shared Git tags.
 
-Attempt history is persisted on the main branch under `.jri/attempts/<task-slug>.json` before JRI clears Ralph's runtime state.
+Attempt history is persisted on the invoking branch under `.jri/attempts/<task-slug>.json` before JRI clears Ralph's runtime state.
 
 ## Generated Structure
 
