@@ -227,12 +227,12 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 return 0
             case "reset":
                 if not args.force:
-                    target_tag = service.resolve_reset_target_tag(args.task)
+                    reset_point = service.resolve_reset_target_point(args.task)
 
                     has_uncommitted = bool(service.git.status_short())
                     has_ralph = service.has_managed_ralph_branch()
 
-                    reset_target = service.describe_reset_target(target_tag)
+                    reset_target = service.describe_reset_target(reset_point)
                     parts = [f"This will reset to {reset_target}."]
                     if has_uncommitted:
                         parts.append("Uncommitted changes will be discarded.")
@@ -486,13 +486,13 @@ def _build_parser() -> argparse.ArgumentParser:
 
     reset_parser = subparsers.add_parser(
         "reset",
-        help="Reset the default branch to the latest task tag boundary.",
+        help="Reset the current branch to the latest local task reset point.",
         description=(
-            "Hard-reset the default branch to the latest task tag boundary. "
-            "By default, resets to the most recent jri/end/{task} tag commit, "
-            "or just before a jri/begin/{task} tag when no end tag exists. "
-            "Optionally specify a task slug to reset to that task's end tag commit, "
-            "or just before its begin tag when no end tag exists. "
+            "Hard-reset the current branch to its latest local task reset point. "
+            "By default, resets to the most recent completed task reset point, "
+            "or just before the latest started task when no completion exists. "
+            "Optionally specify a task slug to reset to that task's completion, "
+            "or just before it began when no completion exists. "
             "Discards all uncommitted changes, commits, "
             "and task state since that task. Clears in-progress "
             "runtime state (process tracking, active attempt). "
@@ -503,8 +503,8 @@ def _build_parser() -> argparse.ArgumentParser:
         "task",
         nargs="?",
         help=(
-            "Optional task slug to reset to that task's end tag commit, or just "
-            "before its begin tag if no end tag exists."
+            "Optional task slug to reset to that task's completion, or just "
+            "before it began if no completion exists."
         ),
     )
     reset_parser.add_argument(

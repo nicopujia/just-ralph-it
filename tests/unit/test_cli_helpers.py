@@ -220,16 +220,16 @@ def test_main_reset_prompt_includes_discard_and_branch_message(
             self.root = root
             self.git = FakeGit()
 
-        def resolve_reset_target_tag(self, task: str | None) -> str:
-            calls["target_tag"] = task
-            return "jri/end/task-1"
+        def resolve_reset_target_point(self, task: str | None) -> str:
+            calls["reset_point"] = task
+            return "task-1 completion"
 
         def has_managed_ralph_branch(self) -> bool:
             return True
 
-        def describe_reset_target(self, target_tag: str) -> str:
-            calls["describe_reset_target"] = target_tag
-            return target_tag
+        def describe_reset_target(self, reset_point: str) -> str:
+            calls["describe_reset_target"] = reset_point
+            return reset_point
 
         def reset(self, *, target_task: str | None = None) -> None:
             calls["reset_task"] = target_task
@@ -242,8 +242,8 @@ def test_main_reset_prompt_includes_discard_and_branch_message(
     captured = capsys.readouterr()
     assert "Uncommitted changes will be discarded." in captured.out
     assert "The Ralph worktree branch and worktree will be deleted." in captured.out
-    assert calls["target_tag"] == "task-1"
-    assert calls["describe_reset_target"] == "jri/end/task-1"
+    assert calls["reset_point"] == "task-1"
+    assert calls["describe_reset_target"] == "task-1 completion"
     assert calls["reset_task"] == "task-1"
 
 
@@ -263,16 +263,16 @@ def test_main_reset_prompt_without_branch_message(
             self.root = root
             self.git = FakeGit()
 
-        def resolve_reset_target_tag(self, task: str | None) -> str:
-            calls["target_tag"] = task
-            return "jri/end/task-3"
+        def resolve_reset_target_point(self, task: str | None) -> str:
+            calls["reset_point"] = task
+            return "task-3 completion"
 
         def has_managed_ralph_branch(self) -> bool:
             return False
 
-        def describe_reset_target(self, target_tag: str) -> str:
-            calls["describe_reset_target"] = target_tag
-            return target_tag
+        def describe_reset_target(self, reset_point: str) -> str:
+            calls["describe_reset_target"] = reset_point
+            return reset_point
 
         def reset(self, *, target_task: str | None = None) -> None:
             calls["reset_task"] = target_task
@@ -285,8 +285,8 @@ def test_main_reset_prompt_without_branch_message(
     captured = capsys.readouterr()
     assert "The Ralph worktree branch and worktree will be deleted." not in captured.out
     assert "Are you sure? [y/N]" in captured.out
-    assert calls["target_tag"] == "task-3"
-    assert calls["describe_reset_target"] == "jri/end/task-3"
+    assert calls["reset_point"] == "task-3"
+    assert calls["describe_reset_target"] == "task-3 completion"
     assert calls["reset_task"] == "task-3"
 
 
@@ -306,15 +306,15 @@ def test_main_reset_aborts_when_confirmation_input_closes(
             self.root = root
             self.git = FakeGit()
 
-        def resolve_reset_target_tag(self, task: str | None) -> str:
-            calls["target_tag"] = task
-            return "jri/end/task-1"
+        def resolve_reset_target_point(self, task: str | None) -> str:
+            calls["reset_point"] = task
+            return "task-1 completion"
 
         def has_managed_ralph_branch(self) -> bool:
             return False
 
-        def describe_reset_target(self, target_tag: str) -> str:
-            return target_tag
+        def describe_reset_target(self, reset_point: str) -> str:
+            return reset_point
 
         def reset(self, *, target_task: str | None = None) -> None:
             calls["reset_task"] = target_task
@@ -343,16 +343,16 @@ def test_main_reset_force_skips_confirmation(
         def __init__(self, root: Path) -> None:
             self.root = root
 
-        def resolve_reset_target_tag(self, task: str | None) -> str:
-            calls["target_tag"] = task
-            return "jri/end/task-2"
+        def resolve_reset_target_point(self, task: str | None) -> str:
+            calls["reset_point"] = task
+            return "task-2 completion"
 
         def has_managed_ralph_branch(self) -> bool:
             return False
 
-        def describe_reset_target(self, target_tag: str) -> str:
-            calls["describe_reset_target"] = target_tag
-            return target_tag
+        def describe_reset_target(self, reset_point: str) -> str:
+            calls["describe_reset_target"] = reset_point
+            return reset_point
 
         def reset(self, *, target_task: str | None = None) -> None:
             calls["reset_task"] = target_task
