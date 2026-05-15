@@ -683,7 +683,7 @@ def test_jri_paths_construct_expected_paths(tmp_path: Path) -> None:
     )
     assert (
         paths.attempt_history_path("task-a")
-        == tmp_path / ".jri" / "attempts" / "task-a.json"
+        == tmp_path / ".jri" / "attempts" / "task-a.yaml"
     )
     assert paths.ralph_log_path("task-a", 0).name == "1970-01-01T00-00-00Z-task-a.log"
     assert paths.graph_node_path("product/checkout") == graph_node_path(

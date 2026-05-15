@@ -116,4 +116,4 @@ class JriPaths:
         return self.diffs_dir / f"{slug}.diff"
 
     def attempt_history_path(self, slug: str) -> Path:
-        return self.attempts_dir / f"{slug}.json"
+        return self.attempts_dir / f"{slug}.yaml"

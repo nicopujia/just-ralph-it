@@ -1,4 +1,3 @@
-import json
 import os
 import select
 import shutil
@@ -16,6 +15,8 @@ from importlib.resources import files
 from pathlib import Path
 from types import FrameType
 from typing import Any, cast
+
+import yaml
 
 from .agents import (
     AgentRuntime,
@@ -1633,27 +1634,17 @@ class JriService:
             attempt
             for attempt in self._load_attempt_history(task_slug)
             if attempt.result in {"incompleted", "needs_human", "failed", "timeout"}
-        ][-3:]
+        ]
         if not attempts:
             return ""
 
-        lines = ["Previous attempts:"]
-        for attempt in attempts:
-            lines.append(f"- Attempt {attempt.number}")
-            lines.append(f"  Result: {attempt.result}")
-            payload = attempt.result_payload
-            if payload is None:
-                continue
-            if payload.summary:
-                lines.append(f"  Summary: {_single_line(payload.summary, limit=240)}")
-            if payload.blocker:
-                lines.append(f"  Blocker: {_single_line(payload.blocker, limit=240)}")
-            if payload.learnings:
-                lines.append("  Actionable learnings:")
-                for learning in payload.learnings[:5]:
-                    lines.append(f"  - {_single_line(learning, limit=220)}")
-        rendered = "\n".join(lines)
-        return rendered[:2000]
+        history_path = self.paths.attempt_history_path(task_slug).relative_to(
+            self.paths.root
+        )
+        return (
+            f"Previous retry-relevant attempts: {len(attempts)}.\n"
+            f"History file: {history_path.as_posix()}."
+        )
 
     def _run_task(
         self, task: Task, *, host_branch: str, task_timeout: int | None = None
@@ -2651,7 +2642,7 @@ class JriService:
         history_path = self.paths.attempt_history_path(attempt.task_slug)
         history_path.parent.mkdir(parents=True, exist_ok=True)
         if history_path.exists():
-            payload: object = json.loads(history_path.read_text(encoding="utf-8"))
+            payload: object = yaml.safe_load(history_path.read_text(encoding="utf-8"))
             attempts = (
                 cast(dict[str, object], payload).get("attempts")
                 if isinstance(payload, dict)
@@ -2677,13 +2668,14 @@ class JriService:
                 break
         if not updated:
             history.append(serialized)
+        payload = yaml.safe_dump(
+            {"task_slug": attempt.task_slug, "attempts": history},
+            sort_keys=True,
+            default_flow_style=False,
+            allow_unicode=False,
+        ).rstrip("\n")
         history_path.write_text(
-            json.dumps(
-                {"task_slug": attempt.task_slug, "attempts": history},
-                indent=2,
-                sort_keys=True,
-            )
-            + "\n",
+            payload + "\n",
             encoding="utf-8",
         )
         self.git.commit_paths_if_needed(
@@ -2891,7 +2883,7 @@ class JriService:
         history_path = self.paths.attempt_history_path(slug)
         if not history_path.exists():
             return []
-        payload: object = json.loads(history_path.read_text(encoding="utf-8"))
+        payload: object = yaml.safe_load(history_path.read_text(encoding="utf-8"))
         attempts = (
             cast(dict[str, object], payload).get("attempts")
             if isinstance(payload, dict)
@@ -3261,10 +3253,3 @@ def _template_resource_parts(name: str) -> tuple[str, ...]:
     if parts and parts[0] == ".jri":
         return parts[1:]
     return parts
-
-
-def _single_line(text: str, *, limit: int) -> str:
-    line = " ".join(text.split())
-    if len(line) <= limit:
-        return line
-    return line[: limit - 3].rstrip() + "..."

@@ -334,7 +334,8 @@ def _assert_jri_run_artifacts(
             .read_text(encoding="utf-8")
             .strip()
         )
-        assert (repo / ".jri" / "attempts" / f"{slug}.json").exists()
+        assert (repo / ".jri" / "attempts" / f"{slug}.yaml").exists()
+        assert not (repo / ".jri" / "attempts" / f"{slug}.json").exists()
         inspected = _run(["jri", "inspect", slug], cwd=repo, env=env).stdout
         assert slug in inspected
 
