@@ -716,7 +716,7 @@ def test_package_manifest_uses_resource_manifest_paths(
     package = json.loads((tmp_path / "package.json").read_text(encoding="utf-8"))
     assert package["pi"] == {
         "extensions": ["./extension.ts"],
-        "skills": ["./ralph/skills"],
+        "skills": ["./interrogator/skills", "./ralph/skills"],
         "prompts": ["./interrogator"],
         "tools": ["./_shared/tools"],
         "themes": ["./theme.json"],
@@ -751,7 +751,7 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
     package_root = tmp_path / "package"
     (package_root / "ralph" / "skills" / "hosted-projects").mkdir(parents=True)
     (package_root / "ralph" / "skills" / "project-setup").mkdir(parents=True)
-    (package_root / "ralph" / "skills" / "reverse-ralph").mkdir()
+    (package_root / "interrogator" / "skills" / "reverse-ralph").mkdir(parents=True)
     (package_root / "extension.ts").write_text("", encoding="utf-8")
     (package_root / "ralph" / "prompt.md").write_text("", encoding="utf-8")
 
@@ -809,8 +809,6 @@ def test_pi_runtime_start_appends_ralph_prompt_and_loads_skills(
             str(package_root / "ralph" / "skills" / "hosted-projects"),
             "--skill",
             str(package_root / "ralph" / "skills" / "project-setup"),
-            "--skill",
-            str(package_root / "ralph" / "skills" / "reverse-ralph"),
         ]
     ]
     assert (
@@ -903,6 +901,7 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
         "", encoding="utf-8"
     )
     (package_root / "interrogator" / "prompt.md").write_text("", encoding="utf-8")
+    (package_root / "interrogator" / "skills" / "reverse-ralph").mkdir(parents=True)
     resolved_ids: list[str] = []
     resource_paths = {
         "extensions.default": "extension.ts",
@@ -953,6 +952,8 @@ def test_launch_chat_appends_interrogator_prompt_and_loads_extension(
             str(package_root / "extension.ts"),
             "--append-system-prompt",
             str(package_root / "interrogator" / "prompt.md"),
+            "--skill",
+            str(package_root / "interrogator" / "skills" / "reverse-ralph"),
             "--tools",
             (
                 "create-node,list-nodes,read-node,search-nodes,"

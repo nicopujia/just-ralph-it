@@ -19,7 +19,7 @@ REQUIRED_AGENT_RESOURCES = {
     "src/jri/core/agents/bundle/ralph/validator/prompt.md",
     "src/jri/core/agents/bundle/ralph/skills/project-setup/SKILL.md",
     "src/jri/core/agents/bundle/ralph/skills/hosted-projects/SKILL.md",
-    "src/jri/core/agents/bundle/ralph/skills/reverse-ralph/SKILL.md",
+    "src/jri/core/agents/bundle/interrogator/skills/reverse-ralph/SKILL.md",
     "src/jri/core/agents/bundle/_shared/tools/runner.ts",
     "src/jri/core/agents/bundle/_shared/tools/__init__.py",
     "src/jri/core/agents/bundle/_shared/tools/__main__.py",

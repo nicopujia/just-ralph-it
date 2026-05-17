@@ -133,7 +133,7 @@ def _write_package_manifest(
         "keywords": ["pi-package"],
         "pi": {
             "extensions": [_manifest_reference("extensions.default")],
-            "skills": ["./ralph/skills"],
+            "skills": ["./interrogator/skills", "./ralph/skills"],
             "prompts": [_manifest_top_level_reference("prompts.interrogator")],
             "tools": [_manifest_parent_reference("tools.pythonRunner")],
             "themes": [_manifest_top_level_reference("themes.modernYellow")],

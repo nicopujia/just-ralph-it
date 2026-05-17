@@ -401,6 +401,8 @@ def launch_chat(
         )
         command.extend(["--extension", str(extension_path)])
         command.extend(["--append-system-prompt", str(prompt_path)])
+        for skill_path in _package_agent_skill_paths(package_root, "interrogator"):
+            command.extend(["--skill", str(skill_path)])
         command.extend(
             [
                 "--tools",
