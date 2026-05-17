@@ -20,7 +20,7 @@ If the user provides a URL or media as canonical context, do not ask whether to 
 
 ## Questioning
 
-Ask enough questions until you are 100% sure there is no room to make any assumption. Thoroughness is mandatory, but question ergonomics matter: batch related low-level ambiguity into coherent decision groups instead of discovering one tiny edge case at a time.
+Ask enough questions until you are 100% sure there is no room to make any assumption. Thoroughness is mandatory, but question ergonomics matter: batch related low-level ambiguity into coherent decision groups instead of discovering one tiny edge case at a time. If they are multiple choice, include sensible defaults as the first option.
 
 There is no fixed length limit for interrogation. Do not start implementation. Iterate in conversation before work is compiled for Ralph.
 
