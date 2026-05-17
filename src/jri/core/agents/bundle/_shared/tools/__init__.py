@@ -13,11 +13,7 @@ from .graph import (
 )
 from .ralph_result import run_ralph_result
 from .readme import run_edit_readme, run_read_readme
-from .tasks import (
-    run_list_tasks,
-    run_read_tasks,
-    run_upsert_task,
-)
+from .tasks import run_list_tasks, run_read_tasks, run_upsert_task
 
 JriService = _JriService
 main = _main

@@ -25,19 +25,12 @@ from tests.helpers import git, read_json, write_task
 # -- Per-task file implementations the fake Ralph agent "writes" ---------------
 
 _TASK_ARTIFACTS: dict[str, tuple[str, str]] = {
-    "implement-greet": (
-        "src/greet.py",
-        'def greet(name: str) -> str:\n    return f"Hello, {name}!"\n',
-    ),
+    "implement-greet": ("src/greet.py", 'def greet(name: str) -> str:\n    return f"Hello, {name}!"\n'),
     "add-greet-tests": (
         "tests/test_greet.py",
-        "from greet import greet\n\n\ndef test_greet():\n"
-        "    assert greet('world') == 'Hello, world!'\n",
+        "from greet import greet\n\n\ndef test_greet():\n    assert greet('world') == 'Hello, world!'\n",
     ),
-    "update-changelog": (
-        "CHANGELOG.md",
-        "# Changelog\n\n## 0.1.0\n\n- Initial release.\n",
-    ),
+    "update-changelog": ("CHANGELOG.md", "# Changelog\n\n## 0.1.0\n\n- Initial release.\n"),
 }
 
 
@@ -70,10 +63,7 @@ class _SelfHostingFakeClient:
             returncode=0,
             result="completed",
             session_id=f"ses_proof_{slug}",
-            payload=RalphResultPayload(
-                result="completed",
-                summary=f"Completed {slug}.",
-            ),
+            payload=RalphResultPayload(result="completed", summary=f"Completed {slug}."),
         )
 
     def export_session(self, session_id: str, destination: Path) -> None:
@@ -113,14 +103,8 @@ def _setup_project_structure(repo: Path) -> None:
     """Create a repo that mirrors this project's structure."""
     assert run_cli(["init"], cwd=repo) == 0
 
-    (repo / "pyproject.toml").write_text(
-        "[project]\nname = 'proof'\nversion = '0.1.0'\n",
-        encoding="utf-8",
-    )
-    (repo / "Makefile").write_text(
-        ".PHONY: check\ncheck:\n\t@true\n",
-        encoding="utf-8",
-    )
+    (repo / "pyproject.toml").write_text("[project]\nname = 'proof'\nversion = '0.1.0'\n", encoding="utf-8")
+    (repo / "Makefile").write_text(".PHONY: check\ncheck:\n\t@true\n", encoding="utf-8")
     src_dir = repo / "src"
     src_dir.mkdir()
     (src_dir / "__init__.py").write_text("", encoding="utf-8")
@@ -189,25 +173,17 @@ def _assert_convergence(repo: Path, completed: int) -> None:
         assert done_path.exists(), f"task {slug} should be in done/"
 
     # No tasks remain in todo/
-    todo_files = [
-        p
-        for p in (repo / ".jri" / "tasks" / "todo").glob("*.md")
-        if p.name != ".gitkeep"
-    ]
+    todo_files = [p for p in (repo / ".jri" / "tasks" / "todo").glob("*.md") if p.name != ".gitkeep"]
     assert todo_files == [], f"unexpected todo tasks: {todo_files}"
 
-    assert [
-        tag for tag in git(repo, "tag").splitlines() if tag.startswith("jri/")
-    ] == []
+    assert [tag for tag in git(repo, "tag").splitlines() if tag.startswith("jri/")] == []
 
     # State has attempts recorded
     state = read_json(repo / ".jri" / "state.json")
     attempts = cast(list[dict[str, object]], state.get("attempts", []))
     assert len(attempts) == 3, f"expected 3 attempts, got {len(attempts)}"
     reset_points = cast(dict[str, dict[str, object]], state.get("reset_points", {}))
-    assert set(reset_points.get("main", {})) == {
-        slug for slug, _title, _pri, _deps, _body, _criteria in _TASK_SPECS
-    }
+    assert set(reset_points.get("main", {})) == {slug for slug, _title, _pri, _deps, _body, _criteria in _TASK_SPECS}
 
     # Artifacts from each task exist on disk
     assert (repo / "src" / "greet.py").exists()

@@ -93,12 +93,7 @@ class GraphStore:
 
         self._create_missing_parent_nodes(canonical_path)
         node_path.parent.mkdir(parents=True, exist_ok=True)
-        node = GraphNode(
-            path=node_path,
-            semantic_path=canonical_path,
-            metadata=metadata,
-            body=body,
-        )
+        node = GraphNode(path=node_path, semantic_path=canonical_path, metadata=metadata, body=body)
         self.write_node(node)
         return node
 
@@ -108,11 +103,7 @@ class GraphStore:
         node = self.read_existing_node(path)
         children = tuple(self._child_summaries(node.semantic_path, depth))
         return GraphNodeRead(
-            path=node.path,
-            semantic_path=node.semantic_path,
-            metadata=node.metadata,
-            body=node.body,
-            children=children,
+            path=node.path, semantic_path=node.semantic_path, metadata=node.metadata, body=node.body, children=children
         )
 
     def list_nodes(self) -> tuple[GraphNodeSummary, ...]:
@@ -122,21 +113,14 @@ class GraphStore:
             return ()
 
         summaries: list[GraphNodeSummary] = []
-        for child_dir in sorted(
-            (item for item in graph_dir.iterdir() if item.is_dir()),
-            key=lambda item: item.name,
-        ):
+        for child_dir in sorted((item for item in graph_dir.iterdir() if item.is_dir()), key=lambda item: item.name):
             semantic_path = child_dir.name
             node_path = graph_node_path(self.root, semantic_path)
             if not node_path.exists():
                 continue
             node = parse_graph_node_file(self.root, semantic_path)
             summaries.append(
-                GraphNodeSummary(
-                    semantic_path=node.semantic_path,
-                    title=node.metadata.title,
-                    state=node.metadata.state,
-                )
+                GraphNodeSummary(semantic_path=node.semantic_path, title=node.metadata.title, state=node.metadata.state)
             )
         return tuple(summaries)
 
@@ -184,22 +168,14 @@ class GraphStore:
     ) -> GraphNode:
         node = self.read_existing_node(path)
         next_state = state if state is not None else node.metadata.state
-        payload: dict[str, object] = {
-            "title": title if title is not None else node.metadata.title,
-            "state": next_state,
-        }
+        payload: dict[str, object] = {"title": title if title is not None else node.metadata.title, "state": next_state}
         if archive_reason is not None:
             payload["archive_reason"] = archive_reason
         elif next_state == "archived" and node.metadata.archive_reason is not None:
             payload["archive_reason"] = node.metadata.archive_reason
 
         metadata = validate_node_metadata(payload)
-        updated = GraphNode(
-            path=node.path,
-            semantic_path=node.semantic_path,
-            metadata=metadata,
-            body=node.body,
-        )
+        updated = GraphNode(path=node.path, semantic_path=node.semantic_path, metadata=metadata, body=node.body)
         self.write_node(updated)
         return updated
 
@@ -216,9 +192,7 @@ class GraphStore:
         if not source_node_path.exists():
             raise FileNotFoundError(f"graph node `{source_path}` not found")
         subtree_prefix = f"{source_path}/"
-        if destination_path != source_path and destination_path.startswith(
-            subtree_prefix
-        ):
+        if destination_path != source_path and destination_path.startswith(subtree_prefix):
             raise ValueError("cannot move graph node into its own subtree")
         if destination_node_path.exists() or destination_dir.exists():
             raise ValueError(f"graph node `{destination_path}` already exists")
@@ -266,9 +240,7 @@ class GraphStore:
                 node = GraphNode(
                     path=node_path,
                     semantic_path=parent_path,
-                    metadata=GraphNodeMetadata(
-                        title=_title_from_segment(parts[index - 1]), state="active"
-                    ),
+                    metadata=GraphNodeMetadata(title=_title_from_segment(parts[index - 1]), state="active"),
                     body="",
                 )
                 self.write_node(node)
@@ -293,10 +265,7 @@ class GraphStore:
             return []
 
         summaries: list[GraphChildSummary] = []
-        for child_dir in sorted(
-            (item for item in parent_dir.iterdir() if item.is_dir()),
-            key=lambda item: item.name,
-        ):
+        for child_dir in sorted((item for item in parent_dir.iterdir() if item.is_dir()), key=lambda item: item.name):
             child_semantic_path = f"{parent_path}/{child_dir.name}"
             child_node_path = graph_node_path(self.root, child_semantic_path)
             if not child_node_path.exists():
@@ -304,9 +273,7 @@ class GraphStore:
             child = parse_graph_node_file(self.root, child_semantic_path)
             summaries.append(
                 GraphChildSummary(
-                    semantic_path=child.semantic_path,
-                    title=child.metadata.title,
-                    state=child.metadata.state,
+                    semantic_path=child.semantic_path, title=child.metadata.title, state=child.metadata.state
                 )
             )
             if child.metadata.state == "active":
@@ -316,9 +283,7 @@ class GraphStore:
     def write_node(self, node: GraphNode) -> None:
         node.path.parent.mkdir(parents=True, exist_ok=True)
         text = dump_graph_node(node)
-        descriptor, temp_name = tempfile.mkstemp(
-            prefix=f".{node.path.name}.", suffix=".tmp", dir=node.path.parent
-        )
+        descriptor, temp_name = tempfile.mkstemp(prefix=f".{node.path.name}.", suffix=".tmp", dir=node.path.parent)
         temp_path = Path(temp_name)
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
@@ -336,9 +301,7 @@ def _search_tokens(text: str) -> list[str]:
     return re.findall(r"[\w]+", text.casefold())
 
 
-def _score_graph_node(
-    node: GraphNode, query_text: str, query_tokens: tuple[str, ...]
-) -> int:
+def _score_graph_node(node: GraphNode, query_text: str, query_tokens: tuple[str, ...]) -> int:
     title = node.metadata.title.casefold()
     path = node.semantic_path.casefold()
     body = node.body.casefold()
@@ -368,9 +331,7 @@ def _search_snippet(body: str, query_tokens: tuple[str, ...]) -> str:
     if not body:
         return ""
     lowered = body.casefold()
-    positions = [
-        lowered.find(token) for token in query_tokens if lowered.find(token) >= 0
-    ]
+    positions = [lowered.find(token) for token in query_tokens if lowered.find(token) >= 0]
     if not positions:
         return body.strip()[:120]
     start = max(0, min(positions) - 40)
@@ -389,9 +350,7 @@ def apply_graph_patch(store: GraphStore, patch_text: str) -> GraphPatchSummary:
 
     for operation in operations:
         node = store.read_existing_node(operation.path)
-        next_body, additions, deletions = _apply_graph_patch_hunks(
-            node.body, node.semantic_path, operation.hunks
-        )
+        next_body, additions, deletions = _apply_graph_patch_hunks(node.body, node.semantic_path, operation.hunks)
         planned.append((node, next_body, additions, deletions))
 
     if all(node.body == next_body for node, next_body, _, _ in planned):
@@ -402,18 +361,11 @@ def apply_graph_patch(store: GraphStore, patch_text: str) -> GraphPatchSummary:
     try:
         for node, next_body, additions, deletions in planned:
             updated = GraphNode(
-                path=node.path,
-                semantic_path=node.semantic_path,
-                metadata=node.metadata,
-                body=next_body,
+                path=node.path, semantic_path=node.semantic_path, metadata=node.metadata, body=next_body
             )
             written_originals.append(node)
             store.write_node(updated)
-            summaries.append(
-                GraphPatchNodeSummary(
-                    path=node.semantic_path, additions=additions, deletions=deletions
-                )
-            )
+            summaries.append(GraphPatchNodeSummary(path=node.semantic_path, additions=additions, deletions=deletions))
     except Exception:
         for original in reversed(written_originals):
             store.write_node(original)
@@ -429,10 +381,7 @@ def _parse_graph_patch(patch_text: str) -> tuple[_GraphPatchOperation, ...]:
     normalized = patch_text.replace("\r\n", "\n").replace("\r", "\n").rstrip("\n")
     lines = normalized.split("\n")
     if lines[0] != "*** Begin Graph Patch" or lines[-1] != "*** End Graph Patch":
-        raise ValueError(
-            "graph patch must start with `*** Begin Graph Patch` and end with "
-            "`*** End Graph Patch`"
-        )
+        raise ValueError("graph patch must start with `*** Begin Graph Patch` and end with `*** End Graph Patch`")
     if len(lines) == 2:
         raise ValueError("empty patch")
 
@@ -445,9 +394,7 @@ def _parse_graph_patch(patch_text: str) -> tuple[_GraphPatchOperation, ...]:
         if line.startswith("*** ") and not line.startswith("*** Update Node: "):
             raise ValueError("unsupported graph patch operation")
         if not line.startswith("*** Update Node: "):
-            raise ValueError(
-                "graph patch operation must be `*** Update Node: <semantic-path>`"
-            )
+            raise ValueError("graph patch operation must be `*** Update Node: <semantic-path>`")
 
         raw_path = line.removeprefix("*** Update Node: ")
         if raw_path != raw_path.strip() or raw_path == "":
@@ -456,9 +403,7 @@ def _parse_graph_patch(patch_text: str) -> tuple[_GraphPatchOperation, ...]:
         index += 1
 
         hunks: list[_GraphPatchHunk] = []
-        while index < len(lines) - 1 and not lines[index].startswith(
-            "*** Update Node: "
-        ):
+        while index < len(lines) - 1 and not lines[index].startswith("*** Update Node: "):
             if lines[index].startswith("*** Move to:"):
                 raise ValueError("graph patch does not support node move operations")
             if lines[index].startswith("*** "):
@@ -473,20 +418,14 @@ def _parse_graph_patch(patch_text: str) -> tuple[_GraphPatchOperation, ...]:
             deletions = 0
             while index < len(lines) - 1:
                 change_line = lines[index]
-                if change_line.startswith("@@") or change_line.startswith(
-                    "*** Update Node: "
-                ):
+                if change_line.startswith("@@") or change_line.startswith("*** Update Node: "):
                     break
                 if change_line.startswith("*** Move to:"):
-                    raise ValueError(
-                        "graph patch does not support node move operations"
-                    )
+                    raise ValueError("graph patch does not support node move operations")
                 if change_line.startswith("*** "):
                     raise ValueError("unsupported graph patch operation")
                 if not change_line or change_line[0] not in {" ", "-", "+"}:
-                    raise ValueError(
-                        "graph patch hunk lines must start with space, `-`, or `+`"
-                    )
+                    raise ValueError("graph patch hunk lines must start with space, `-`, or `+`")
 
                 content = change_line[1:]
                 if content == "---":
@@ -504,10 +443,7 @@ def _parse_graph_patch(patch_text: str) -> tuple[_GraphPatchOperation, ...]:
 
             hunks.append(
                 _GraphPatchHunk(
-                    old_lines=tuple(old_lines),
-                    new_lines=tuple(new_lines),
-                    additions=additions,
-                    deletions=deletions,
+                    old_lines=tuple(old_lines), new_lines=tuple(new_lines), additions=additions, deletions=deletions
                 )
             )
 
@@ -518,9 +454,7 @@ def _parse_graph_patch(patch_text: str) -> tuple[_GraphPatchOperation, ...]:
     return tuple(operations)
 
 
-def _apply_graph_patch_hunks(
-    body: str, path: str, hunks: tuple[_GraphPatchHunk, ...]
-) -> tuple[str, int, int]:
+def _apply_graph_patch_hunks(body: str, path: str, hunks: tuple[_GraphPatchHunk, ...]) -> tuple[str, int, int]:
     body_lines = _graph_body_to_lines(body)
     replacements: list[tuple[int, int, tuple[str, ...]]] = []
     additions = 0
@@ -538,9 +472,7 @@ def _apply_graph_patch_hunks(
         match_at = _find_line_sequence(body_lines, hunk.old_lines, search_start)
         if match_at == -1:
             expected = "\n".join(hunk.old_lines)
-            raise ValueError(
-                f"failed to find expected lines in graph node `{path}`:\n{expected}"
-            )
+            raise ValueError(f"failed to find expected lines in graph node `{path}`:\n{expected}")
         replacements.append((match_at, len(hunk.old_lines), hunk.new_lines))
         search_start = match_at + len(hunk.old_lines)
 
@@ -650,11 +582,7 @@ def validate_node_metadata(payload: dict[str, object]) -> GraphNodeMetadata:
     if state == "archived":
         if not isinstance(archive_reason, str) or not archive_reason.strip():
             raise ValueError("archived node metadata requires non-empty archive_reason")
-        return GraphNodeMetadata(
-            title=title,
-            state=cast(GraphNodeState, state),
-            archive_reason=archive_reason,
-        )
+        return GraphNodeMetadata(title=title, state=cast(GraphNodeState, state), archive_reason=archive_reason)
 
     if archive_reason is not None:
         if not isinstance(archive_reason, str):
@@ -671,12 +599,7 @@ def parse_graph_node_file(root: Path, semantic_path: str) -> GraphNode:
     text = node_path.read_text(encoding="utf-8")
     metadata_payload, body = _split_node_frontmatter(text)
     metadata = validate_node_metadata(metadata_payload)
-    return GraphNode(
-        path=node_path,
-        semantic_path=canonical_path,
-        metadata=metadata,
-        body=body,
-    )
+    return GraphNode(path=node_path, semantic_path=canonical_path, metadata=metadata, body=body)
 
 
 def _split_node_frontmatter(text: str) -> tuple[dict[str, object], str]:
@@ -703,19 +626,11 @@ def _split_node_frontmatter(text: str) -> tuple[dict[str, object], str]:
 def check_graph_tree(root: Path) -> GraphCheckResult:
     graph_dir = root.resolve(strict=False) / ".jri" / "graph"
     if graph_dir.resolve(strict=False) != graph_dir:
-        return GraphCheckResult(
-            active_count=0,
-            archived_count=0,
-            errors=(".jri/graph: symlink escapes .jri/graph",),
-        )
+        return GraphCheckResult(active_count=0, archived_count=0, errors=(".jri/graph: symlink escapes .jri/graph",))
     if not graph_dir.exists():
         return GraphCheckResult(active_count=0, archived_count=0, errors=())
     if not graph_dir.is_dir():
-        return GraphCheckResult(
-            active_count=0,
-            archived_count=0,
-            errors=(".jri/graph: expected directory",),
-        )
+        return GraphCheckResult(active_count=0, archived_count=0, errors=(".jri/graph: expected directory",))
 
     active_count = 0
     archived_count = 0
@@ -741,14 +656,9 @@ def check_graph_tree(root: Path) -> GraphCheckResult:
                 errors.append(f"{semantic_path}: missing NODE.md")
             elif node_path.is_symlink():
                 if _path_escapes(node_path, graph_dir):
-                    errors.append(
-                        f"{semantic_path}/NODE.md: symlink escapes .jri/graph"
-                    )
+                    errors.append(f"{semantic_path}/NODE.md: symlink escapes .jri/graph")
                 else:
-                    errors.append(
-                        f"{semantic_path}/NODE.md: "
-                        "symlinked graph entries are unsupported"
-                    )
+                    errors.append(f"{semantic_path}/NODE.md: symlinked graph entries are unsupported")
             elif node_path.is_file():
                 try:
                     node = parse_graph_node_file(root, semantic_path)
@@ -768,26 +678,18 @@ def check_graph_tree(root: Path) -> GraphCheckResult:
                 if _path_escapes(entry, graph_dir):
                     errors.append(f"{entry_relative}: symlink escapes .jri/graph")
                 else:
-                    errors.append(
-                        f"{entry_relative}: symlinked graph entries are unsupported"
-                    )
+                    errors.append(f"{entry_relative}: symlinked graph entries are unsupported")
                 continue
             if entry.is_dir():
                 pending.append(entry)
                 continue
             if semantic_path:
                 if entry.name != "NODE.md":
-                    errors.append(
-                        f"{entry_relative}: unexpected file in graph node directory"
-                    )
+                    errors.append(f"{entry_relative}: unexpected file in graph node directory")
             elif entry.name not in {".gitkeep", "MANIFEST.json"}:
                 errors.append(f"{entry_relative}: unexpected file in graph root")
 
-    return GraphCheckResult(
-        active_count=active_count,
-        archived_count=archived_count,
-        errors=tuple(sorted(errors)),
-    )
+    return GraphCheckResult(active_count=active_count, archived_count=archived_count, errors=tuple(sorted(errors)))
 
 
 def validate_graph_tree(root: Path) -> None:

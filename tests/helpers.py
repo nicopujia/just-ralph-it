@@ -4,23 +4,13 @@ from pathlib import Path
 
 
 def git(repo: Path, *args: str) -> str:
-    result = subprocess.run(
-        ["git", *args],
-        cwd=repo,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    result = subprocess.run(["git", *args], cwd=repo, check=True, capture_output=True, text=True)
     return result.stdout.strip()
 
 
 def capture_worktree_state(repo: Path) -> dict[str, str]:
     symbolic_ref = subprocess.run(
-        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"],
-        cwd=repo,
-        check=False,
-        capture_output=True,
-        text=True,
+        ["git", "symbolic-ref", "--quiet", "--short", "HEAD"], cwd=repo, check=False, capture_output=True, text=True
     )
     return {
         "head": git(repo, "rev-parse", "HEAD"),
@@ -37,10 +27,7 @@ def read_json(path: Path) -> dict[str, object]:
 
 
 def write_passing_makefile(repo: Path) -> None:
-    (repo / "Makefile").write_text(
-        ".PHONY: check\n\ncheck:\n\t@true\n",
-        encoding="utf-8",
-    )
+    (repo / "Makefile").write_text(".PHONY: check\n\ncheck:\n\t@true\n", encoding="utf-8")
 
 
 def write_live_makefile(repo: Path) -> None:
@@ -72,18 +59,10 @@ def write_task(
 ) -> Path:
     depends_on = depends_on or []
     task_path = repo / ".jri" / "tasks" / status / f"{slug}.md"
-    metadata = {
-        "title": title,
-        "priority": priority,
-        "assignee": assignee,
-        "depends_on": depends_on,
-    }
+    metadata = {"title": title, "priority": priority, "assignee": assignee, "depends_on": depends_on}
     if acceptance_criteria is not None:
         metadata["acceptance_criteria"] = acceptance_criteria
     elif status in {"todo", "doing", "done"}:
         metadata["acceptance_criteria"] = ["task completion is verifiable"]
-    task_path.write_text(
-        "---\n" + json.dumps(metadata, indent=2) + "\n---\n\n" + body,
-        encoding="utf-8",
-    )
+    task_path.write_text("---\n" + json.dumps(metadata, indent=2) + "\n---\n\n" + body, encoding="utf-8")
     return task_path

@@ -10,11 +10,7 @@ from jri.core.agents.bundle._shared import tools
 from jri.core.models import Task, TaskMetadata
 
 
-def invoke_tool(
-    monkeypatch: pytest.MonkeyPatch,
-    tool_name: str,
-    payload: object,
-) -> int:
+def invoke_tool(monkeypatch: pytest.MonkeyPatch, tool_name: str, payload: object) -> int:
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
     return tools.main([tool_name])
 
@@ -40,9 +36,7 @@ def test_tools_package_exports_only_public_handlers() -> None:
 
 
 def task_payload(
-    title: str = "Build safe tool tests",
-    body: str = "Implement meaningful coverage.",
-    **overrides: object,
+    title: str = "Build safe tool tests", body: str = "Implement meaningful coverage.", **overrides: object
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         "title": title,
@@ -79,9 +73,7 @@ def test_dispatcher_rejects_unknown_tool(capsys: pytest.CaptureFixture[str]) -> 
     assert "upsert-task" in captured.err
 
 
-def test_dispatcher_rejects_invalid_json(
-    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_dispatcher_rejects_invalid_json(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
     monkeypatch.setattr(sys, "stdin", io.StringIO("{"))
 
     assert tools.main(["ralph-result"]) == 1
@@ -94,12 +86,7 @@ def test_dispatcher_prints_successful_tool_output(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert (
-        invoke_tool(
-            monkeypatch,
-            "check-contrast",
-            {"foreground": "#000", "background": "#fff", "standard": "AA"},
-        )
-        == 0
+        invoke_tool(monkeypatch, "check-contrast", {"foreground": "#000", "background": "#fff", "standard": "AA"}) == 0
     )
 
     payload = json.loads(capsys.readouterr().out)
@@ -121,23 +108,14 @@ def test_contrast_check_rejects_empty_foreground(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert (
-        invoke_tool(
-            monkeypatch,
-            "check-contrast",
-            {"foreground": None, "background": "ffffff", "standard": "AA"},
-        )
-        == 1
+        invoke_tool(monkeypatch, "check-contrast", {"foreground": None, "background": "ffffff", "standard": "AA"}) == 1
     )
 
-    assert (
-        "`foreground` must be a non-empty hex color string" in capsys.readouterr().err
-    )
+    assert "`foreground` must be a non-empty hex color string" in capsys.readouterr().err
 
 
 def test_upsert_task_creates_todo_task_and_refuses_overwrite(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
@@ -146,43 +124,25 @@ def test_upsert_task_creates_todo_task_and_refuses_overwrite(
     assert task_path.exists()
     assert "created todo task" in capsys.readouterr().out
 
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "upsert-task",
-            task_payload(slug="safe-tool", body="Updated behavior lock."),
-        )
-        == 1
-    )
+    assert invoke_tool(monkeypatch, "upsert-task", task_payload(slug="safe-tool", body="Updated behavior lock.")) == 1
     assert "refusing to overwrite existing todo task" in capsys.readouterr().err
     assert "Updated behavior lock." not in task_path.read_text(encoding="utf-8")
 
 
 def test_upsert_task_validates_slug_and_acceptance_criteria(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
     assert invoke_tool(monkeypatch, "upsert-task", task_payload(slug="../escape")) == 1
     assert "characters not allowed" in capsys.readouterr().err
 
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "upsert-task",
-            task_payload(slug="missing-criteria", acceptance_criteria=[]),
-        )
-        == 1
-    )
+    assert invoke_tool(monkeypatch, "upsert-task", task_payload(slug="missing-criteria", acceptance_criteria=[])) == 1
     assert "acceptance_criteria" in capsys.readouterr().err
 
 
 def test_upsert_task_rejects_empty_title_and_body(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
@@ -194,9 +154,7 @@ def test_upsert_task_rejects_empty_title_and_body(
 
 
 def test_upsert_task_rejects_symlinked_task_path(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
     todo_dir = tmp_path / ".jri" / "tasks" / "todo"
@@ -210,20 +168,14 @@ def test_upsert_task_rejects_symlinked_task_path(
         del directory, slug
         return task_path
 
-    monkeypatch.setitem(
-        tools.run_upsert_task.__globals__,
-        "ensure_task_path_within",
-        fake_ensure_task_path_within,
-    )
+    monkeypatch.setitem(tools.run_upsert_task.__globals__, "ensure_task_path_within", fake_ensure_task_path_within)
 
     assert invoke_tool(monkeypatch, "upsert-task", task_payload(slug="blocked")) == 1
     assert "refusing to overwrite symlinked todo task" in capsys.readouterr().err
 
 
 def test_removed_task_crud_tools_are_not_registered(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
@@ -233,9 +185,7 @@ def test_removed_task_crud_tools_are_not_registered(
 
 
 def test_task_operations_reject_symlinked_jri_directory(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
     outside = tmp_path / "outside-jri"
@@ -248,9 +198,7 @@ def test_task_operations_reject_symlinked_jri_directory(
 
 
 def test_compile_graph_tool_invokes_service_and_returns_json(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
     calls: list[Path] = []
@@ -260,11 +208,7 @@ def test_compile_graph_tool_invokes_service_and_returns_json(
             calls.append(root)
 
         def compile_graph(self) -> dict[str, object]:
-            return {
-                "exit_code": "success",
-                "task_slugs": ["build-checkout"],
-                "commit": "abc123",
-            }
+            return {"exit_code": "success", "task_slugs": ["build-checkout"], "commit": "abc123"}
 
     monkeypatch.setattr(tools, "JriService", FakeService)
 
@@ -272,19 +216,13 @@ def test_compile_graph_tool_invokes_service_and_returns_json(
 
     assert calls == [tmp_path]
     payload = json.loads(capsys.readouterr().out)
-    assert payload == {
-        "exit_code": "success",
-        "task_slugs": ["build-checkout"],
-        "commit": "abc123",
-    }
+    assert payload == {"exit_code": "success", "task_slugs": ["build-checkout"], "commit": "abc123"}
     assert ".jri/graph" not in json.dumps(payload)
     assert "NODE.md" not in json.dumps(payload)
 
 
 def test_graph_tools_create_read_patch_metadata_and_move(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
@@ -292,19 +230,12 @@ def test_graph_tools_create_read_patch_metadata_and_move(
         invoke_tool(
             monkeypatch,
             "create-node",
-            {
-                "path": "product/auth/login",
-                "title": "Login Flow",
-                "body": "Initial behavior.\n",
-            },
+            {"path": "product/auth/login", "title": "Login Flow", "body": "Initial behavior.\n"},
         )
         == 0
     )
     created = json.loads(capsys.readouterr().out)
-    assert created == {
-        "path": "product/auth/login",
-        "auto_created_parents": ["product", "product/auth"],
-    }
+    assert created == {"path": "product/auth/login", "auto_created_parents": ["product", "product/auth"]}
 
     assert invoke_tool(monkeypatch, "read-node", {"path": "product", "depth": 2}) == 0
     read = json.loads(capsys.readouterr().out)
@@ -314,20 +245,14 @@ def test_graph_tools_create_read_patch_metadata_and_move(
         "body": "",
         "children": [
             {"path": "product/auth", "title": "Auth", "state": "active"},
-            {
-                "path": "product/auth/login",
-                "title": "Login Flow",
-                "state": "active",
-            },
+            {"path": "product/auth/login", "title": "Login Flow", "state": "active"},
         ],
     }
     assert "NODE.md" not in json.dumps(read)
 
     assert invoke_tool(monkeypatch, "list-nodes", {}) == 0
     listed = json.loads(capsys.readouterr().out)
-    assert listed == {
-        "nodes": [{"path": "product", "title": "Product", "state": "active"}]
-    }
+    assert listed == {"nodes": [{"path": "product", "title": "Product", "state": "active"}]}
 
     assert invoke_tool(monkeypatch, "search-nodes", {"query": "login behavior"}) == 0
     searched = json.loads(capsys.readouterr().out)
@@ -348,11 +273,7 @@ def test_graph_tools_create_read_patch_metadata_and_move(
 """
     assert invoke_tool(monkeypatch, "apply-graph-patch", {"patch": patch}) == 0
     patched = json.loads(capsys.readouterr().out)
-    assert patched == {
-        "changed_nodes": [
-            {"path": "product/auth/login", "additions": 2, "deletions": 1}
-        ]
-    }
+    assert patched == {"changed_nodes": [{"path": "product/auth/login", "additions": 2, "deletions": 1}]}
 
     assert (
         invoke_tool(
@@ -370,33 +291,19 @@ def test_graph_tools_create_read_patch_metadata_and_move(
     metadata = json.loads(capsys.readouterr().out)
     assert metadata == {
         "path": "product/auth/login",
-        "metadata": {
-            "title": "Password Login",
-            "state": "archived",
-            "archive_reason": "Replaced by passkeys.",
-        },
+        "metadata": {"title": "Password Login", "state": "archived", "archive_reason": "Replaced by passkeys."},
     }
 
     assert (
-        invoke_tool(
-            monkeypatch,
-            "move-node",
-            {"source_path": "product/auth", "destination_path": "product/sign-in"},
-        )
+        invoke_tool(monkeypatch, "move-node", {"source_path": "product/auth", "destination_path": "product/sign-in"})
         == 0
     )
     moved = json.loads(capsys.readouterr().out)
-    assert moved == {
-        "old_path": "product/auth",
-        "new_path": "product/sign-in",
-        "moved_subtree_count": 2,
-    }
+    assert moved == {"old_path": "product/auth", "new_path": "product/sign-in", "moved_subtree_count": 2}
 
 
 def test_graph_tools_reject_invalid_discovery_payloads(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
@@ -406,14 +313,7 @@ def test_graph_tools_reject_invalid_discovery_payloads(
     assert invoke_tool(monkeypatch, "search-nodes", {"query": ""}) == 1
     assert "non-empty string" in capsys.readouterr().err
 
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "search-nodes",
-            {"query": "checkout", "include_archived": "yes"},
-        )
-        == 1
-    )
+    assert invoke_tool(monkeypatch, "search-nodes", {"query": "checkout", "include_archived": "yes"}) == 1
     assert "boolean" in capsys.readouterr().err
 
 
@@ -423,19 +323,12 @@ def test_graph_tools_reject_invalid_discovery_payloads(
         ("create-node", {"path": ".jri/graph/auth/NODE.md", "title": "x", "body": ""}),
         ("read-node", {"path": "/absolute"}),
         ("update-node-metadata", {"path": "../escape", "title": "x"}),
-        (
-            "move-node",
-            {"source_path": "product/auth", "destination_path": "product//auth"},
-        ),
+        ("move-node", {"source_path": "product/auth", "destination_path": "product//auth"}),
         (
             "apply-graph-patch",
             {
                 "patch": (
-                    "*** Begin Graph Patch\n"
-                    "*** Update Node: .jri/graph/auth/NODE.md\n"
-                    "@@\n"
-                    "+new\n"
-                    "*** End Graph Patch\n"
+                    "*** Begin Graph Patch\n*** Update Node: .jri/graph/auth/NODE.md\n@@\n+new\n*** End Graph Patch\n"
                 )
             },
         ),
@@ -457,9 +350,7 @@ def test_graph_tools_reject_raw_or_malformed_paths(
 
 
 def test_readme_exact_edit_happy_path_and_missing_text_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
     readme_path = tmp_path / "README.md"
@@ -469,11 +360,7 @@ def test_readme_exact_edit_happy_path_and_missing_text_failure(
     assert capsys.readouterr().out == "# Project\n\nOld paragraph.\n"
 
     assert (
-        invoke_tool(
-            monkeypatch,
-            "edit-readme",
-            {"edits": [{"oldText": "Old paragraph.", "newText": "New paragraph."}]},
-        )
+        invoke_tool(monkeypatch, "edit-readme", {"edits": [{"oldText": "Old paragraph.", "newText": "New paragraph."}]})
         == 0
     )
     result = json.loads(capsys.readouterr().out)
@@ -481,21 +368,12 @@ def test_readme_exact_edit_happy_path_and_missing_text_failure(
     assert result["replacements"] == 1
     assert "New paragraph." in readme_path.read_text(encoding="utf-8")
 
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "edit-readme",
-            {"edits": [{"oldText": "not present", "newText": "ignored"}]},
-        )
-        == 1
-    )
+    assert invoke_tool(monkeypatch, "edit-readme", {"edits": [{"oldText": "not present", "newText": "ignored"}]}) == 1
     assert "was not found" in capsys.readouterr().err
 
 
 def test_readme_operations_reject_symlink(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
     target = tmp_path / "outside-readme.md"
@@ -505,56 +383,31 @@ def test_readme_operations_reject_symlink(
     assert invoke_tool(monkeypatch, "read-readme", {}) == 1
     assert "refusing to read symlinked README.md" in capsys.readouterr().err
 
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "edit-readme",
-            {"edits": [{"oldText": "outside", "newText": "inside"}]},
-        )
-        == 1
-    )
+    assert invoke_tool(monkeypatch, "edit-readme", {"edits": [{"oldText": "outside", "newText": "inside"}]}) == 1
     assert "refusing to edit symlinked README.md" in capsys.readouterr().err
     assert target.read_text(encoding="utf-8") == "outside"
 
 
 def test_readme_tool_rejects_missing_or_non_regular_readme(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
     assert invoke_tool(monkeypatch, "read-readme", {}) == 1
     assert "README.md does not exist" in capsys.readouterr().err
 
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "edit-readme",
-            {"edits": [{"oldText": "old", "newText": "new"}]},
-        )
-        == 1
-    )
+    assert invoke_tool(monkeypatch, "edit-readme", {"edits": [{"oldText": "old", "newText": "new"}]}) == 1
     assert "README.md does not exist" in capsys.readouterr().err
 
     readme_dir = tmp_path / "README.md"
     readme_dir.mkdir()
 
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "edit-readme",
-            {"edits": [{"oldText": "old", "newText": "new"}]},
-        )
-        == 1
-    )
+    assert invoke_tool(monkeypatch, "edit-readme", {"edits": [{"oldText": "old", "newText": "new"}]}) == 1
     assert "README.md is not a regular file" in capsys.readouterr().err
 
 
 def test_promote_tasks_tool_is_not_registered(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
@@ -564,9 +417,7 @@ def test_promote_tasks_tool_is_not_registered(
 
 
 def test_list_and_read_tasks_use_service_payload_mapping(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     alpha = make_task("alpha", "todo")
     beta = make_task("beta", "done")
@@ -596,9 +447,7 @@ def test_list_and_read_tasks_use_service_payload_mapping(
 
 
 def test_list_tasks_filters_by_status_via_service_and_helper(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     selected_task = make_task("beta", "doing")
     git_repo = object()
@@ -657,22 +506,13 @@ def test_ralph_result_rejects_incompleted_without_learnings(
 def test_ralph_result_rejects_needs_human_without_required_payload(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert (
-        invoke_tool(
-            monkeypatch,
-            "ralph-result",
-            {"result": "needs_human", "blocker": "unclear"},
-        )
-        == 1
-    )
+    assert invoke_tool(monkeypatch, "ralph-result", {"result": "needs_human", "blocker": "unclear"}) == 1
 
     assert "needs_human requires blocker and human_task" in capsys.readouterr().err
 
 
 def test_ralph_result_writes_valid_payload(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     output_path = tmp_path / "result.json"
     monkeypatch.setenv("JRI_RESULT_PATH", str(output_path))
@@ -709,16 +549,8 @@ def test_ralph_result_writes_valid_payload(
 
 
 def test_contrast_check_reports_pass_and_fail() -> None:
-    passing = json.loads(
-        tools.run_contrast_check(
-            {"foreground": "000000", "background": "ffffff", "standard": "AAA"}
-        )
-    )
-    failing = json.loads(
-        tools.run_contrast_check(
-            {"foreground": "777777", "background": "888888", "standard": "AA"}
-        )
-    )
+    passing = json.loads(tools.run_contrast_check({"foreground": "000000", "background": "ffffff", "standard": "AAA"}))
+    failing = json.loads(tools.run_contrast_check({"foreground": "777777", "background": "888888", "standard": "AA"}))
 
     assert passing["result"] == "pass"
     assert passing["threshold"] == 7.0
@@ -730,21 +562,12 @@ def test_contrast_check_validates_colors_and_standard(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     assert (
-        invoke_tool(
-            monkeypatch,
-            "check-contrast",
-            {"foreground": "not-hex", "background": "ffffff", "standard": "AA"},
-        )
+        invoke_tool(monkeypatch, "check-contrast", {"foreground": "not-hex", "background": "ffffff", "standard": "AA"})
         == 1
     )
     assert "foreground" in capsys.readouterr().err
 
     assert (
-        invoke_tool(
-            monkeypatch,
-            "check-contrast",
-            {"foreground": "000", "background": "fff", "standard": "BAD"},
-        )
-        == 1
+        invoke_tool(monkeypatch, "check-contrast", {"foreground": "000", "background": "fff", "standard": "BAD"}) == 1
     )
     assert "standard" in capsys.readouterr().err

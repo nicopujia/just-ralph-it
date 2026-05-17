@@ -22,12 +22,8 @@ def validate_task_metadata(payload: dict[str, object]) -> TaskMetadata:
     acceptance_criteria = payload.get("acceptance_criteria")
     assignee = payload["assignee"]
     priority = payload["priority"]
-    depends_on_list = cast(
-        list[str], depends_on if isinstance(depends_on, list) else []
-    )
-    criteria_list = cast(
-        list[str], acceptance_criteria if isinstance(acceptance_criteria, list) else []
-    )
+    depends_on_list = cast(list[str], depends_on if isinstance(depends_on, list) else [])
+    criteria_list = cast(list[str], acceptance_criteria if isinstance(acceptance_criteria, list) else [])
     return TaskMetadata(
         title=str(payload["title"]),
         priority=priority if isinstance(priority, int) else 0,
@@ -56,15 +52,9 @@ def _validate_task_metadata_payload(payload: dict[str, object]) -> list[str]:
     elif isinstance(title, str) and len(title) > 75:
         errors.append("`title` must be 75 characters or fewer")
     priority = payload.get("priority")
-    if "priority" in payload and (
-        not isinstance(priority, int) or isinstance(priority, bool)
-    ):
+    if "priority" in payload and (not isinstance(priority, int) or isinstance(priority, bool)):
         errors.append("`priority` must be an integer")
-    elif (
-        isinstance(priority, int)
-        and not isinstance(priority, bool)
-        and not 0 <= priority <= 4
-    ):
+    elif isinstance(priority, int) and not isinstance(priority, bool) and not 0 <= priority <= 4:
         errors.append("`priority` must be between 0 and 4")
     assignee = payload.get("assignee")
     if "assignee" in payload and assignee not in {"Ralph", "Human"}:
@@ -123,19 +113,13 @@ def _validate_state_payload(payload: dict[str, object]) -> list[str]:
     return errors
 
 
-def _validate_optional_int(
-    payload: dict[str, object], field_name: str, errors: list[str]
-) -> None:
+def _validate_optional_int(payload: dict[str, object], field_name: str, errors: list[str]) -> None:
     value = payload.get(field_name)
-    if field_name in payload and (
-        not isinstance(value, int) or isinstance(value, bool)
-    ):
+    if field_name in payload and (not isinstance(value, int) or isinstance(value, bool)):
         errors.append(f"`{field_name}` must be an integer")
 
 
-def _validate_optional_str(
-    payload: dict[str, object], field_name: str, errors: list[str]
-) -> None:
+def _validate_optional_str(payload: dict[str, object], field_name: str, errors: list[str]) -> None:
     value = payload.get(field_name)
     if field_name in payload and not isinstance(value, str):
         errors.append(f"`{field_name}` must be a string")
@@ -167,9 +151,7 @@ def _validate_process_payload(value: object, errors: list[str]) -> None:
         errors.append("`process.detached` must be a boolean")
 
 
-def _validate_attempt_field(
-    payload: dict[str, object], field_name: str, errors: list[str]
-) -> None:
+def _validate_attempt_field(payload: dict[str, object], field_name: str, errors: list[str]) -> None:
     if field_name in payload:
         _validate_attempt_payload(payload[field_name], field_name, errors)
 
@@ -197,9 +179,7 @@ def _validate_attempt_payload(value: object, label: str, errors: list[str]) -> N
         errors.append(f"`{label}.{key}` is required")
     for key in ("number", "started_at", "finished_at"):
         field_value = attempt.get(key)
-        if key in attempt and (
-            not isinstance(field_value, int) or isinstance(field_value, bool)
-        ):
+        if key in attempt and (not isinstance(field_value, int) or isinstance(field_value, bool)):
             errors.append(f"`{label}.{key}` must be an integer")
     for key in ("task_slug", "branch", "log_path", "session_id"):
         field_value = attempt.get(key)
@@ -217,9 +197,7 @@ def _validate_attempt_payload(value: object, label: str, errors: list[str]) -> N
     }:
         errors.append(f"`{label}.result` must be a known attempt result")
     if "result_payload" in attempt:
-        _validate_result_payload(
-            attempt["result_payload"], f"{label}.result_payload", errors
-        )
+        _validate_result_payload(attempt["result_payload"], f"{label}.result_payload", errors)
 
 
 def _validate_reset_points_payload(value: object, errors: list[str]) -> None:
@@ -235,21 +213,12 @@ def _validate_reset_points_payload(value: object, errors: list[str]) -> None:
             continue
         for task_slug, reset_point in cast(dict[str, object], task_points).items():
             _validate_reset_point_payload(
-                reset_point,
-                f"{label}.{task_slug}",
-                host_branch=host_branch,
-                task_slug=task_slug,
-                errors=errors,
+                reset_point, f"{label}.{task_slug}", host_branch=host_branch, task_slug=task_slug, errors=errors
             )
 
 
 def _validate_reset_point_payload(
-    value: object,
-    label: str,
-    *,
-    host_branch: str,
-    task_slug: str,
-    errors: list[str],
+    value: object, label: str, *, host_branch: str, task_slug: str, errors: list[str]
 ) -> None:
     if not isinstance(value, dict):
         errors.append(f"`{label}` must be an object")
@@ -265,33 +234,18 @@ def _validate_reset_point_payload(
         "started_at",
         "finished_at",
     }
-    required = {
-        "task_slug",
-        "host_branch",
-        "ralph_branch",
-        "before_begin_commit",
-        "begin_commit",
-    }
+    required = {"task_slug", "host_branch", "ralph_branch", "before_begin_commit", "begin_commit"}
     for key in sorted(set(reset_point) - allowed):
         errors.append(f"unexpected key `{label}.{key}`")
     for key in sorted(required - set(reset_point)):
         errors.append(f"`{label}.{key}` is required")
-    for key in (
-        "task_slug",
-        "host_branch",
-        "ralph_branch",
-        "before_begin_commit",
-        "begin_commit",
-        "end_commit",
-    ):
+    for key in ("task_slug", "host_branch", "ralph_branch", "before_begin_commit", "begin_commit", "end_commit"):
         field_value = reset_point.get(key)
         if key in reset_point and not isinstance(field_value, str):
             errors.append(f"`{label}.{key}` must be a string")
     for key in ("started_at", "finished_at"):
         field_value = reset_point.get(key)
-        if key in reset_point and (
-            not isinstance(field_value, int) or isinstance(field_value, bool)
-        ):
+        if key in reset_point and (not isinstance(field_value, int) or isinstance(field_value, bool)):
             errors.append(f"`{label}.{key}` must be an integer")
     if reset_point.get("host_branch") != host_branch:
         errors.append(f"`{label}.host_branch` must match reset_points key")
@@ -308,9 +262,7 @@ def _validate_result_payload(value: object, label: str, errors: list[str]) -> No
     for key in sorted(set(payload) - allowed):
         errors.append(f"unexpected key `{label}.{key}`")
     if payload.get("result") not in {"completed", "incompleted", "needs_human"}:
-        errors.append(
-            f"`{label}.result` must be one of completed, incompleted, needs_human"
-        )
+        errors.append(f"`{label}.result` must be one of completed, incompleted, needs_human")
     for key in ("summary", "blocker"):
         field_value = payload.get(key)
         if key in payload and not isinstance(field_value, str):
@@ -324,9 +276,7 @@ def _validate_result_payload(value: object, label: str, errors: list[str]) -> No
                 if not isinstance(item, str):
                     errors.append(f"`{label}.learnings[{index}]` must be a string")
     if "human_task" in payload:
-        _validate_human_task_payload(
-            payload["human_task"], f"{label}.human_task", errors
-        )
+        _validate_human_task_payload(payload["human_task"], f"{label}.human_task", errors)
 
 
 def _validate_human_task_payload(value: object, label: str, errors: list[str]) -> None:
@@ -343,9 +293,7 @@ def _validate_human_task_payload(value: object, label: str, errors: list[str]) -
             errors.append(f"`{label}.{key}` must be a string")
     _validate_string_list_field(payload, "acceptance_criteria", errors, unique=False)
     priority = payload.get("priority")
-    if "priority" in payload and (
-        not isinstance(priority, int) or isinstance(priority, bool)
-    ):
+    if "priority" in payload and (not isinstance(priority, int) or isinstance(priority, bool)):
         errors.append(f"`{label}.priority` must be an integer")
 
 
@@ -359,12 +307,7 @@ def create_task_batch(root: Path, specs: list[CompilerTaskSpec]) -> list[Task]:
     try:
         for task in tasks:
             task_path = _task_path_within(todo_dir, task.slug)
-            task_to_write = Task(
-                path=task_path,
-                slug=task.slug,
-                metadata=task.metadata,
-                body=task.body,
-            )
+            task_to_write = Task(path=task_path, slug=task.slug, metadata=task.metadata, body=task.body)
             written_paths.append(task_path)
             task_path.write_text(dump_task(task_to_write), encoding="utf-8")
     except Exception:
@@ -388,34 +331,24 @@ def _validate_task_batch(root: Path, specs: list[CompilerTaskSpec]) -> list[Task
         batch_slugs.add(slug)
         metadata = _validate_compiler_task_spec(index, spec)
         if not metadata.acceptance_criteria:
-            raise ValueError(
-                f"task `{slug}` acceptance_criteria must be a non-empty list"
-            )
+            raise ValueError(f"task `{slug}` acceptance_criteria must be a non-empty list")
         tasks.append(
             Task(
-                path=repo_root / ".jri" / "tasks" / "todo" / f"{slug}.md",
-                slug=slug,
-                metadata=metadata,
-                body=spec.body,
+                path=repo_root / ".jri" / "tasks" / "todo" / f"{slug}.md", slug=slug, metadata=metadata, body=spec.body
             )
         )
 
     existing_slugs = _existing_lifecycle_task_slugs(repo_root)
     for task in tasks:
         if task.slug in existing_slugs:
-            raise ValueError(
-                f"refusing to overwrite existing task `{task.slug}`; "
-                "create a follow-up todo task instead"
-            )
+            raise ValueError(f"refusing to overwrite existing task `{task.slug}`; create a follow-up todo task instead")
 
     allowed_dependencies = existing_slugs | batch_slugs
     for task in tasks:
         for dependency in task.metadata.depends_on:
             _validate_task_slug("depends_on", dependency)
             if dependency not in allowed_dependencies:
-                raise ValueError(
-                    f"task `{task.slug}` references unknown dependency `{dependency}`"
-                )
+                raise ValueError(f"task `{task.slug}` references unknown dependency `{dependency}`")
     return tasks
 
 
@@ -484,10 +417,7 @@ def _task_path_within(todo_dir: Path, slug: str) -> Path:
     except ValueError as exc:
         raise ValueError("refusing to write outside `.jri/tasks/todo`") from exc
     if os.path.lexists(task_path):
-        raise ValueError(
-            f"refusing to overwrite existing task `{slug}`; "
-            "create a follow-up todo task instead"
-        )
+        raise ValueError(f"refusing to overwrite existing task `{slug}`; create a follow-up todo task instead")
     return task_path
 
 
@@ -522,9 +452,7 @@ def list_tasks(directory: Path, *, git_repo: GitRepo | None = None) -> list[Task
     return tasks
 
 
-def _validate_acceptance_criteria_for_status(
-    path: Path, metadata: TaskMetadata
-) -> None:
+def _validate_acceptance_criteria_for_status(path: Path, metadata: TaskMetadata) -> None:
     if path.parent.name not in _LIFECYCLE_TASK_STATUSES:
         return
     if metadata.acceptance_criteria:
@@ -537,22 +465,18 @@ def _ensure_append_only_lifecycle_task(path: Path, git_repo: GitRepo) -> None:
         return
     relative_path = git_repo.relative_path(path)
     raise ValueError(
-        f"lifecycle task file `{relative_path}` was modified in place; "
-        "create a follow-up todo task instead"
+        f"lifecycle task file `{relative_path}` was modified in place; create a follow-up todo task instead"
     )
 
 
-def select_next_task(
-    tasks: list[Task], *, done_slugs: set[str], doing_tasks: list[Task]
-) -> Task | None:
+def select_next_task(tasks: list[Task], *, done_slugs: set[str], doing_tasks: list[Task]) -> Task | None:
     if doing_tasks:
         raise ValueError("a task is already in progress")
 
     eligible = [
         task
         for task in tasks
-        if task.metadata.assignee == "Ralph"
-        and set(task.metadata.depends_on).issubset(done_slugs)
+        if task.metadata.assignee == "Ralph" and set(task.metadata.depends_on).issubset(done_slugs)
     ]
     if not eligible:
         return None
@@ -564,9 +488,7 @@ def move_task(task: Task, destination_dir: Path) -> Task:
     destination_dir.mkdir(parents=True, exist_ok=True)
     destination = destination_dir / task.path.name
     task.path.replace(destination)
-    return Task(
-        path=destination, slug=task.slug, metadata=task.metadata, body=task.body
-    )
+    return Task(path=destination, slug=task.slug, metadata=task.metadata, body=task.body)
 
 
 def dump_task(task: Task) -> str:
@@ -690,17 +612,13 @@ def _normalize_frontmatter_plain_scalars(metadata_text: str) -> str:
                     normalized.append(line)
                     continue
                 if value and _should_quote_plain_scalar(value):
-                    normalized.append(
-                        f"{key}: {_quote_yaml_string(value)}{_line_ending(line)}"
-                    )
+                    normalized.append(f"{key}: {_quote_yaml_string(value)}{_line_ending(line)}")
                     continue
 
         if list_key is not None and line.startswith("  - "):
             value = _strip_inline_comment(line[4:].rstrip("\r\n"))
             if _should_quote_plain_scalar(value):
-                normalized.append(
-                    f"  - {_quote_yaml_string(value)}{_line_ending(line)}"
-                )
+                normalized.append(f"  - {_quote_yaml_string(value)}{_line_ending(line)}")
                 continue
 
         normalized.append(line)

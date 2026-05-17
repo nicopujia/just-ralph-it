@@ -64,12 +64,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
         match args.command:
             case "chat":
                 chat_models = resolve_preset_models(
-                    args.preset,
-                    mode="chat",
-                    overrides={
-                        "model": args.model,
-                        "explore_model": args.explore_model,
-                    },
+                    args.preset, mode="chat", overrides={"model": args.model, "explore_model": args.explore_model}
                 )
                 return _finalize_command_return(
                     "chat",
@@ -90,10 +85,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                 print(f"Tasks: {total} total")
                 print(service.ralph_status_summary())
                 graph_status = service.graph_status()
-                graph_summary = (
-                    f"Graph: {graph_status.active_count} active, "
-                    f"{graph_status.archived_count} archived"
-                )
+                graph_summary = f"Graph: {graph_status.active_count} active, {graph_status.archived_count} archived"
                 if graph_status.malformed_count:
                     graph_summary += f", {graph_status.malformed_count} malformed"
                 print(graph_summary)
@@ -167,11 +159,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
             case "init":
                 directory = (working_directory / args.directory).resolve()
                 init_service = JriService(directory)
-                init_service.init(
-                    delete=args.delete,
-                    commit_message=MSG_INIT,
-                    branch=args.branch,
-                )
+                init_service.init(delete=args.delete, commit_message=MSG_INIT, branch=args.branch)
                 _print_command_message("init")
                 return 0
             case "start":
@@ -237,9 +225,7 @@ def main(argv: list[str] | None = None, *, cwd: Path | None = None) -> int:
                     if has_uncommitted:
                         parts.append("Uncommitted changes will be discarded.")
                     if has_ralph:
-                        parts.append(
-                            "The Ralph worktree branch and worktree will be deleted."
-                        )
+                        parts.append("The Ralph worktree branch and worktree will be deleted.")
                     parts.append("Are you sure? [y/N]")
 
                     print(" ".join(parts))
@@ -350,9 +336,7 @@ def _override_remaining_tasks(max_tasks: int | None) -> int | None:
         return max_tasks
 
 
-def _restart_internal_run_loop(
-    argv: list[str], *, remaining_tasks: int | None
-) -> NoReturn:
+def _restart_internal_run_loop(argv: list[str], *, remaining_tasks: int | None) -> NoReturn:
     env = os.environ.copy()
     env[_ALLOW_SELF_RESTART_ENV] = "1"
     if remaining_tasks is None:
@@ -366,8 +350,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="jri",
         description=(
-            "Manage a project and run the Ralph task loop. "
-            "Use 'jri <command> --help' for command-specific details."
+            "Manage a project and run the Ralph task loop. Use 'jri <command> --help' for command-specific details."
         ),
     )
     subparsers = parser.add_subparsers(dest="command", metavar="command")
@@ -376,45 +359,26 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser(
         "attach",
         help="Follow the tracked Ralph runtime.",
-        description=(
-            "Follow the tracked Ralph runtime, including runs already started "
-            "in the background."
-        ),
+        description=("Follow the tracked Ralph runtime, including runs already started in the background."),
     )
 
     chat_parser = subparsers.add_parser(
         "chat",
         help="Open an interactive chat session for this project.",
-        description=(
-            "Launch chat in the current project, reusing the saved session "
-            "when one is available."
-        ),
+        description=("Launch chat in the current project, reusing the saved session when one is available."),
     )
     chat_parser.add_argument(
-        "--fresh",
-        "--new",
-        action="store_true",
-        help="Clear the existing interrogator session and start fresh.",
+        "--fresh", "--new", action="store_true", help="Clear the existing interrogator session and start fresh."
     )
     chat_parser.add_argument(
         "-p",
         "--preset",
         choices=preset_choices(),
-        help=(
-            "Apply the named model preset for chat. "
-            "Use 'default' to match the checked-in config."
-        ),
+        help=("Apply the named model preset for chat. Use 'default' to match the checked-in config."),
     )
-    chat_parser.add_argument(
-        "-m",
-        "--model",
-        help="Override the interrogator model for this chat run only.",
-    )
+    chat_parser.add_argument("-m", "--model", help="Override the interrogator model for this chat run only.")
     chat_parser.add_argument("--validator-model", help=argparse.SUPPRESS)
-    chat_parser.add_argument(
-        "--explore-model",
-        help="Override the explore subagent model for this chat run only.",
-    )
+    chat_parser.add_argument("--explore-model", help="Override the explore subagent model for this chat run only.")
 
     complete_human_parser = subparsers.add_parser(
         "complete-human",
@@ -426,33 +390,21 @@ def _build_parser() -> argparse.ArgumentParser:
             "task complete."
         ),
     )
-    complete_human_parser.add_argument(
-        "slug",
-        help="Slug of the tracked Human task to complete.",
-    )
+    complete_human_parser.add_argument("slug", help="Slug of the tracked Human task to complete.")
 
     subparsers.add_parser(
         "halt",
         help="Terminate the currently tracked Ralph process immediately.",
-        description=(
-            "Send SIGTERM to the tracked Ralph loop and clear its tracked "
-            "process state."
-        ),
+        description=("Send SIGTERM to the tracked Ralph loop and clear its tracked process state."),
     )
 
     init_parser = subparsers.add_parser(
         "init",
         help="Initialize JRI in the current project directory.",
-        description=(
-            "Create the .jri scaffold and initial state for this project, "
-            "creating a git repo when needed."
-        ),
+        description=("Create the .jri scaffold and initial state for this project, creating a git repo when needed."),
     )
     init_parser.add_argument(
-        "directory",
-        nargs="?",
-        default=".",
-        help="Target project directory. Defaults to the current directory.",
+        "directory", nargs="?", default=".", help="Target project directory. Defaults to the current directory."
     )
     init_modes = init_parser.add_mutually_exclusive_group()
     init_modes.add_argument(
@@ -474,14 +426,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     inspect_parser = subparsers.add_parser(
-        "inspect",
-        help="Inspect a task slug.",
-        description="Inspect a task by slug.",
+        "inspect", help="Inspect a task slug.", description="Inspect a task by slug."
     )
     inspect_parser.add_argument(
-        "slug",
-        nargs="?",
-        help="Task slug to inspect. Defaults to the active or latest attempt.",
+        "slug", nargs="?", help="Task slug to inspect. Defaults to the active or latest attempt."
     )
 
     reset_parser = subparsers.add_parser(
@@ -503,15 +451,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "task",
         nargs="?",
         help=(
-            "Optional task slug to reset to that task's completion, or just "
-            "before it began if no completion exists."
+            "Optional task slug to reset to that task's completion, or just before it began if no completion exists."
         ),
     )
     reset_parser.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help="Skip confirmation prompt and proceed with reset.",
+        "-f", "--force", action="store_true", help="Skip confirmation prompt and proceed with reset."
     )
 
     start_parser = subparsers.add_parser(
@@ -524,63 +468,31 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     start_parser.add_argument(
-        "-n",
-        "--tasks",
-        type=int,
-        dest="max_tasks",
-        help="Maximum number of tasks to run in this invocation.",
+        "-n", "--tasks", type=int, dest="max_tasks", help="Maximum number of tasks to run in this invocation."
     )
     start_parser.add_argument(
-        "-d",
-        "--detached",
-        action="store_true",
-        help="Run the loop in the background and track it in .jri/state.json.",
+        "-d", "--detached", action="store_true", help="Run the loop in the background and track it in .jri/state.json."
     )
     start_parser.add_argument(
         "-p",
         "--preset",
         choices=preset_choices(),
-        help=(
-            "Apply the named model preset for start. "
-            "Use 'default' to match the checked-in config."
-        ),
+        help=("Apply the named model preset for start. Use 'default' to match the checked-in config."),
+    )
+    start_parser.add_argument("-m", "--model", help="Override the Ralph model for this start run only.")
+    start_parser.add_argument("--validator-model", help="Override the Ralph validator model for this start run only.")
+    start_parser.add_argument("--general-model", help="Override the general subagent model for this start run only.")
+    start_parser.add_argument("--explore-model", help="Override the explore subagent model for this start run only.")
+    start_parser.add_argument(
+        "--task-timeout", type=int, metavar="SECONDS", help="Maximum seconds per task (0 or unset = no limit)."
     )
     start_parser.add_argument(
-        "-m",
-        "--model",
-        help="Override the Ralph model for this start run only.",
-    )
-    start_parser.add_argument(
-        "--validator-model",
-        help="Override the Ralph validator model for this start run only.",
-    )
-    start_parser.add_argument(
-        "--general-model",
-        help="Override the general subagent model for this start run only.",
-    )
-    start_parser.add_argument(
-        "--explore-model",
-        help="Override the explore subagent model for this start run only.",
-    )
-    start_parser.add_argument(
-        "--task-timeout",
-        type=int,
-        metavar="SECONDS",
-        help="Maximum seconds per task (0 or unset = no limit).",
-    )
-    start_parser.add_argument(
-        "-f",
-        "--force",
-        action="store_true",
-        help="Auto-resolve pre-flight checks without interactive prompts.",
+        "-f", "--force", action="store_true", help="Auto-resolve pre-flight checks without interactive prompts."
     )
     start_parser.add_argument(
         "--dogfood",
         action="store_true",
-        help=(
-            "Restart JRI between completed iterations so the next task uses "
-            "updated JRI code."
-        ),
+        help=("Restart JRI between completed iterations so the next task uses updated JRI code."),
     )
 
     subparsers.add_parser(
@@ -596,20 +508,12 @@ def _build_parser() -> argparse.ArgumentParser:
     stop_parser = subparsers.add_parser(
         "stop",
         help="Ask Ralph to stop after the current task.",
-        description=(
-            "Write a stop signal that prevents the next Ralph task from starting."
-        ),
+        description=("Write a stop signal that prevents the next Ralph task from starting."),
     )
     stop_parser.add_argument(
-        "--cancel",
-        action="store_true",
-        help="Delete an existing stop signal so Ralph continues to the next task.",
+        "--cancel", action="store_true", help="Delete an existing stop signal so Ralph continues to the next task."
     )
-    stop_parser.add_argument(
-        "reason",
-        nargs="?",
-        help="Optional text written into the stop signal file.",
-    )
+    stop_parser.add_argument("reason", nargs="?", help="Optional text written into the stop signal file.")
 
     timeline_parser = subparsers.add_parser(
         "timeline",
@@ -620,15 +524,9 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    timeline_parser.add_argument("--task", help="Filter to events for a specific task slug.")
     timeline_parser.add_argument(
-        "--task",
-        help="Filter to events for a specific task slug.",
-    )
-    timeline_parser.add_argument(
-        "--json",
-        action="store_true",
-        dest="json",
-        help="Output raw JSONL instead of formatted text.",
+        "--json", action="store_true", dest="json", help="Output raw JSONL instead of formatted text."
     )
 
     return parser

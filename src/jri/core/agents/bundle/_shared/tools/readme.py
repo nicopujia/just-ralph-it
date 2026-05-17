@@ -1,11 +1,6 @@
 import json
 
-from ._validation import (
-    apply_exact_edits,
-    assert_exact_edits,
-    diff_text,
-    repo_root_child,
-)
+from ._validation import apply_exact_edits, assert_exact_edits, diff_text, repo_root_child
 
 
 def run_read_readme(_payload: dict[str, object]) -> str:
@@ -30,9 +25,5 @@ def run_edit_readme(payload: dict[str, object]) -> str:
     source = readme_path.read_text(encoding="utf-8")
     updated, replacements = apply_exact_edits(source, edits)
     readme_path.write_text(updated, encoding="utf-8")
-    result = {
-        "path": "README.md",
-        "replacements": replacements,
-        "diff": diff_text("README.md", source, updated),
-    }
+    result = {"path": "README.md", "replacements": replacements, "diff": diff_text("README.md", source, updated)}
     return json.dumps(result, indent=2) + "\n"

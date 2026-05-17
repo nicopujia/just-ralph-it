@@ -8,9 +8,7 @@ import pytest
 cli_main = importlib.import_module("jri.cli.main")
 
 
-def test_finalize_command_return_reports_nonzero_status(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_finalize_command_return_reports_nonzero_status(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli_main._finalize_command_return("start", 7) == 7
 
     captured = capsys.readouterr()
@@ -18,9 +16,7 @@ def test_finalize_command_return_reports_nonzero_status(
     assert captured.err == "start: command exited with status 7\n"
 
 
-def test_finalize_command_return_leaves_success_quiet(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_finalize_command_return_leaves_success_quiet(capsys: pytest.CaptureFixture[str]) -> None:
     assert cli_main._finalize_command_return("chat", 0) == 0
 
     captured = capsys.readouterr()
@@ -28,17 +24,13 @@ def test_finalize_command_return_leaves_success_quiet(
     assert captured.err == ""
 
 
-def test_override_remaining_tasks_uses_valid_env_override(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_override_remaining_tasks_uses_valid_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("JRI_REMAINING_TASKS", "3")
 
     assert cli_main._override_remaining_tasks(10) == 3
 
 
-def test_override_remaining_tasks_keeps_argument_when_env_missing_or_invalid(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_override_remaining_tasks_keeps_argument_when_env_missing_or_invalid(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("JRI_REMAINING_TASKS", raising=False)
     assert cli_main._override_remaining_tasks(5) == 5
 
@@ -56,33 +48,19 @@ def test_format_timeline_detail_adds_known_reason_summary() -> None:
 
 
 def test_format_timeline_detail_preserves_existing_summary() -> None:
-    detail: dict[str, object] = {
-        "reason": "needs_human",
-        "summary": "Custom",
-        "count": 2,
-    }
+    detail: dict[str, object] = {"reason": "needs_human", "summary": "Custom", "count": 2}
 
-    assert cli_main._format_timeline_detail(detail) == (
-        "reason=needs_human summary=Custom count=2"
-    )
+    assert cli_main._format_timeline_detail(detail) == ("reason=needs_human summary=Custom count=2")
 
 
 def test_format_timeline_detail_formats_unknown_reason_without_summary() -> None:
-    assert cli_main._format_timeline_detail({"reason": "custom", "count": 1}) == (
-        "reason=custom count=1"
-    )
+    assert cli_main._format_timeline_detail({"reason": "custom", "count": 1}) == ("reason=custom count=1")
 
 
-def test_restart_internal_run_loop_execs_module_with_remaining_tasks(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_restart_internal_run_loop_execs_module_with_remaining_tasks(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}
 
-    def fake_execve(
-        executable: str,
-        args: list[str],
-        env: dict[str, str],
-    ) -> NoReturn:
+    def fake_execve(executable: str, args: list[str], env: dict[str, str]) -> NoReturn:
         captured["executable"] = executable
         captured["args"] = args
         captured["env"] = env
@@ -95,29 +73,17 @@ def test_restart_internal_run_loop_execs_module_with_remaining_tasks(
         cli_main._restart_internal_run_loop(["start", "--dogfood"], remaining_tasks=2)
 
     assert captured["executable"] == cli_main.sys.executable
-    assert captured["args"] == [
-        cli_main.sys.executable,
-        "-m",
-        "jri",
-        "start",
-        "--dogfood",
-    ]
+    assert captured["args"] == [cli_main.sys.executable, "-m", "jri", "start", "--dogfood"]
     env = captured["env"]
     assert isinstance(env, dict)
     assert env["JRI_ALLOW_SELF_RESTART"] == "1"
     assert env["JRI_REMAINING_TASKS"] == "2"
 
 
-def test_restart_internal_run_loop_removes_remaining_tasks_when_unbounded(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_restart_internal_run_loop_removes_remaining_tasks_when_unbounded(monkeypatch: pytest.MonkeyPatch) -> None:
     captured_env: dict[str, str] = {}
 
-    def fake_execve(
-        _executable: str,
-        _args: list[str],
-        env: dict[str, str],
-    ) -> NoReturn:
+    def fake_execve(_executable: str, _args: list[str], env: dict[str, str]) -> NoReturn:
         captured_env.update(env)
         raise RuntimeError("execve intercepted")
 
@@ -132,9 +98,7 @@ def test_restart_internal_run_loop_removes_remaining_tasks_when_unbounded(
 
 
 def test_main_without_command_prints_help_and_returns_one(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     class FakeService:
         def __init__(self, root: Path) -> None:
@@ -150,9 +114,7 @@ def test_main_without_command_prints_help_and_returns_one(
 
 
 def test_main_rejects_stop_reason_with_cancel(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     class FakeService:
         def __init__(self, root: Path) -> None:
@@ -167,10 +129,7 @@ def test_main_rejects_stop_reason_with_cancel(
     assert "unrecognized arguments: reason" in capsys.readouterr().err
 
 
-def test_main_runs_attach_command(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_main_runs_attach_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: dict[str, bool] = {}
 
     class FakeService:
@@ -187,9 +146,7 @@ def test_main_runs_attach_command(
 
 
 def test_main_reports_detached_start_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     class FakeService:
         def __init__(self, root: Path) -> None:
@@ -205,9 +162,7 @@ def test_main_reports_detached_start_failure(
 
 
 def test_main_reset_prompt_includes_discard_and_branch_message(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     class FakeGit:
         def status_short(self) -> list[str]:
@@ -248,9 +203,7 @@ def test_main_reset_prompt_includes_discard_and_branch_message(
 
 
 def test_main_reset_prompt_without_branch_message(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     class FakeGit:
         def status_short(self) -> list[str]:
@@ -291,9 +244,7 @@ def test_main_reset_prompt_without_branch_message(
 
 
 def test_main_reset_aborts_when_confirmation_input_closes(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     class FakeGit:
         def status_short(self) -> list[str]:
@@ -333,10 +284,7 @@ def test_main_reset_aborts_when_confirmation_input_closes(
     assert "reset_task" not in calls
 
 
-def test_main_reset_force_skips_confirmation(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_main_reset_force_skips_confirmation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     calls: dict[str, object] = {}
 
     class FakeService:
@@ -364,18 +312,14 @@ def test_main_reset_force_skips_confirmation(
 
 
 def test_main_translates_called_process_error_with_string_command(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     class FakeService:
         def __init__(self, root: Path) -> None:
             self.root = root
 
         def init(self, **_: object) -> None:
-            raise subprocess.CalledProcessError(
-                returncode=1, cmd="git status", stderr=""
-            )
+            raise subprocess.CalledProcessError(returncode=1, cmd="git status", stderr="")
 
     monkeypatch.setattr(cli_main, "JriService", FakeService)
 
@@ -387,20 +331,14 @@ def test_main_translates_called_process_error_with_string_command(
 
 
 def test_main_translates_called_process_error(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     class FakeService:
         def __init__(self, root: Path) -> None:
             self.root = root
 
         def init(self, **_: object) -> None:
-            raise subprocess.CalledProcessError(
-                returncode=1,
-                cmd=["git", "commit"],
-                stderr="boom\n",
-            )
+            raise subprocess.CalledProcessError(returncode=1, cmd=["git", "commit"], stderr="boom\n")
 
     monkeypatch.setattr(cli_main, "JriService", FakeService)
 

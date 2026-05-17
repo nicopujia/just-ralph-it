@@ -23,9 +23,7 @@ def test_apply_graph_patch_updates_single_node_body(tmp_path: Path) -> None:
     )
 
     assert store.read_node("auth/oauth").body == "First line\nNew line\nLast line\n"
-    assert [(item.path, item.additions, item.deletions) for item in summary.nodes] == [
-        ("auth/oauth", 1, 1)
-    ]
+    assert [(item.path, item.additions, item.deletions) for item in summary.nodes] == [("auth/oauth", 1, 1)]
 
 
 def test_apply_graph_patch_updates_multiple_nodes_atomically(tmp_path: Path) -> None:
@@ -57,11 +55,7 @@ def test_apply_graph_patch_updates_multiple_nodes_atomically(tmp_path: Path) -> 
 
 def test_apply_graph_patch_counts_duplicate_shared_lines(tmp_path: Path) -> None:
     store = GraphStore(tmp_path)
-    store.create_node(
-        "auth/oauth",
-        "OAuth",
-        "Keep\nRepeated\nRepeated\nOld\nRepeated\nDone\n",
-    )
+    store.create_node("auth/oauth", "OAuth", "Keep\nRepeated\nRepeated\nOld\nRepeated\nDone\n")
 
     summary = apply_graph_patch(
         store,
@@ -79,12 +73,8 @@ def test_apply_graph_patch_counts_duplicate_shared_lines(tmp_path: Path) -> None
 *** End Graph Patch""",
     )
 
-    assert store.read_node("auth/oauth").body == (
-        "Keep\nRepeated\nRepeated\nNew\nRepeated\nDone\n"
-    )
-    assert [(item.path, item.additions, item.deletions) for item in summary.nodes] == [
-        ("auth/oauth", 2, 2)
-    ]
+    assert store.read_node("auth/oauth").body == ("Keep\nRepeated\nRepeated\nNew\nRepeated\nDone\n")
+    assert [(item.path, item.additions, item.deletions) for item in summary.nodes] == [("auth/oauth", 2, 2)]
 
 
 @pytest.mark.parametrize(
@@ -94,75 +84,33 @@ def test_apply_graph_patch_counts_duplicate_shared_lines(tmp_path: Path) -> None
         ("*** Begin Graph Patch\n*** End Graph Patch", "empty patch"),
         ("*** Begin Patch\n*** End Patch", "Begin Graph Patch"),
         (
-            "*** Begin Graph Patch\n"
-            "*** Add Node: auth/oauth\n"
-            "+Body\n"
-            "*** End Graph Patch",
+            "*** Begin Graph Patch\n*** Add Node: auth/oauth\n+Body\n*** End Graph Patch",
             "unsupported graph patch operation",
         ),
         (
             "*** Begin Graph Patch\n*** Delete Node: auth/oauth\n*** End Graph Patch",
             "unsupported graph patch operation",
         ),
+        ("*** Begin Graph Patch\n*** Move to: auth/openid\n*** End Graph Patch", "move"),
+        ("*** Begin Graph Patch\n*** Update Node: auth/oauth\n*** Move to: auth/openid\n*** End Graph Patch", "move"),
         (
-            "*** Begin Graph Patch\n*** Move to: auth/openid\n*** End Graph Patch",
+            "*** Begin Graph Patch\n*** Update Node: auth/oauth\n*** Delete Node: auth/openid\n*** End Graph Patch",
+            "unsupported graph patch operation",
+        ),
+        ("*** Begin Graph Patch\n@@\n*** End Graph Patch", "graph patch operation must be"),
+        ("*** Begin Graph Patch\n*** Update Node: auth/oauth \n*** End Graph Patch", "malformed"),
+        ("*** Begin Graph Patch\n*** Update Node: auth/oauth\nBody\n*** End Graph Patch", "hunks starting with `@@`"),
+        ("*** Begin Graph Patch\n*** Update Node: auth/oauth\n*** End Graph Patch", "at least one hunk"),
+        (
+            "*** Begin Graph Patch\n*** Update Node: auth/oauth\n@@\n*** Move to: auth/openid\n*** End Graph Patch",
             "move",
         ),
         (
-            "*** Begin Graph Patch\n"
-            "*** Update Node: auth/oauth\n"
-            "*** Move to: auth/openid\n"
-            "*** End Graph Patch",
-            "move",
-        ),
-        (
-            "*** Begin Graph Patch\n"
-            "*** Update Node: auth/oauth\n"
-            "*** Delete Node: auth/openid\n"
-            "*** End Graph Patch",
+            "*** Begin Graph Patch\n*** Update Node: auth/oauth\n@@\n*** Delete Node: auth/openid\n*** End Graph Patch",
             "unsupported graph patch operation",
         ),
         (
-            "*** Begin Graph Patch\n@@\n*** End Graph Patch",
-            "graph patch operation must be",
-        ),
-        (
-            "*** Begin Graph Patch\n*** Update Node: auth/oauth \n*** End Graph Patch",
-            "malformed",
-        ),
-        (
-            "*** Begin Graph Patch\n"
-            "*** Update Node: auth/oauth\n"
-            "Body\n"
-            "*** End Graph Patch",
-            "hunks starting with `@@`",
-        ),
-        (
-            "*** Begin Graph Patch\n*** Update Node: auth/oauth\n*** End Graph Patch",
-            "at least one hunk",
-        ),
-        (
-            "*** Begin Graph Patch\n"
-            "*** Update Node: auth/oauth\n"
-            "@@\n"
-            "*** Move to: auth/openid\n"
-            "*** End Graph Patch",
-            "move",
-        ),
-        (
-            "*** Begin Graph Patch\n"
-            "*** Update Node: auth/oauth\n"
-            "@@\n"
-            "*** Delete Node: auth/openid\n"
-            "*** End Graph Patch",
-            "unsupported graph patch operation",
-        ),
-        (
-            "*** Begin Graph Patch\n"
-            "*** Update Node: auth/oauth\n"
-            "@@\n"
-            "?bad\n"
-            "*** End Graph Patch",
+            "*** Begin Graph Patch\n*** Update Node: auth/oauth\n@@\n?bad\n*** End Graph Patch",
             "graph patch hunk lines must start with space",
         ),
     ],
@@ -193,14 +141,10 @@ def test_apply_graph_patch_inserts_into_empty_body(tmp_path: Path) -> None:
     )
 
     assert store.read_node("auth/oauth").body == "Created body\n"
-    assert [(item.path, item.additions, item.deletions) for item in summary.nodes] == [
-        ("auth/oauth", 1, 0)
-    ]
+    assert [(item.path, item.additions, item.deletions) for item in summary.nodes] == [("auth/oauth", 1, 0)]
 
 
-def test_apply_graph_patch_updates_body_without_trailing_newline(
-    tmp_path: Path,
-) -> None:
+def test_apply_graph_patch_updates_body_without_trailing_newline(tmp_path: Path) -> None:
     store = GraphStore(tmp_path)
     store.create_node("auth/oauth", "OAuth", "First line\nOld line")
 
@@ -216,9 +160,7 @@ def test_apply_graph_patch_updates_body_without_trailing_newline(
     )
 
     assert store.read_node("auth/oauth").body == "First line\nNew line\n"
-    assert [(item.path, item.additions, item.deletions) for item in summary.nodes] == [
-        ("auth/oauth", 1, 1)
-    ]
+    assert [(item.path, item.additions, item.deletions) for item in summary.nodes] == [("auth/oauth", 1, 1)]
 
 
 def test_apply_graph_patch_rejects_empty_hunk(tmp_path: Path) -> None:
@@ -307,9 +249,7 @@ def test_apply_graph_patch_rejects_no_op_patch(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("raw_path", ["auth//oauth", "auth/NODE.md", "/auth/oauth"])
-def test_apply_graph_patch_rejects_malformed_paths(
-    tmp_path: Path, raw_path: str
-) -> None:
+def test_apply_graph_patch_rejects_malformed_paths(tmp_path: Path, raw_path: str) -> None:
     store = GraphStore(tmp_path)
 
     with pytest.raises(ValueError):
@@ -429,6 +369,4 @@ def test_apply_graph_patch_allows_empty_final_body(tmp_path: Path) -> None:
     )
 
     assert store.read_node("auth/oauth").body == ""
-    assert [(item.path, item.additions, item.deletions) for item in summary.nodes] == [
-        ("auth/oauth", 0, 1)
-    ]
+    assert [(item.path, item.additions, item.deletions) for item in summary.nodes] == [("auth/oauth", 0, 1)]

@@ -35,9 +35,7 @@ def test_load_returns_default_state_when_state_file_is_missing(tmp_path: Path) -
     assert store.load() == State()
 
 
-def test_load_recovers_primary_from_valid_backup_and_repairs_primary_file(
-    tmp_path: Path,
-) -> None:
+def test_load_recovers_primary_from_valid_backup_and_repairs_primary_file(tmp_path: Path) -> None:
     store = StateStore(tmp_path / ".jri" / "state.json")
     expected = State(finished_at=123, session="ses_123")
 
@@ -63,12 +61,7 @@ def test_load_prefers_readable_primary_over_stale_backup(tmp_path: Path) -> None
 def test_clear_process_removes_saved_process_state(tmp_path: Path) -> None:
     store = StateStore(tmp_path / ".jri" / "state.json")
 
-    store.save_process(
-        loop_pid=7,
-        child_pid=8,
-        log_path=tmp_path / "logs" / "loop.log",
-        detached=True,
-    )
+    store.save_process(loop_pid=7, child_pid=8, log_path=tmp_path / "logs" / "loop.log", detached=True)
     store.clear_process()
 
     assert store.load().process is None
@@ -105,12 +98,7 @@ def test_state_store_updates_process_session_and_attempt_fields(tmp_path: Path) 
         result="timeout",
     )
 
-    store.save_process(
-        loop_pid=7,
-        child_pid=8,
-        log_path=tmp_path / "logs" / "loop.log",
-        detached=True,
-    )
+    store.save_process(loop_pid=7, child_pid=8, log_path=tmp_path / "logs" / "loop.log", detached=True)
     store.save_session("ses_state")
     store.start_attempt(first_attempt)
     store.save_active_attempt(updated_attempt)
@@ -137,23 +125,11 @@ def test_state_store_updates_process_session_and_attempt_fields(tmp_path: Path) 
     assert state.attempts[1] == second_attempt
 
 
-def test_save_active_attempt_preserves_different_tasks_with_same_number(
-    tmp_path: Path,
-) -> None:
+def test_save_active_attempt_preserves_different_tasks_with_same_number(tmp_path: Path) -> None:
     store = StateStore(tmp_path / ".jri" / "state.json")
-    task_a_attempt = AttemptState(
-        number=1,
-        task_slug="task-a",
-        branch="ralph/task-a",
-        started_at=100,
-        result="failed",
-    )
+    task_a_attempt = AttemptState(number=1, task_slug="task-a", branch="ralph/task-a", started_at=100, result="failed")
     task_b_attempt = AttemptState(
-        number=1,
-        task_slug="task-b",
-        branch="ralph/task-b",
-        started_at=200,
-        result="completed",
+        number=1, task_slug="task-b", branch="ralph/task-b", started_at=200, result="completed"
     )
 
     store.save_active_attempt(task_a_attempt)
@@ -165,9 +141,7 @@ def test_save_active_attempt_preserves_different_tasks_with_same_number(
     assert state.attempts == [task_a_attempt, task_b_attempt]
 
 
-def test_mark_task_finished_preserves_current_task_on_slug_mismatch(
-    tmp_path: Path,
-) -> None:
+def test_mark_task_finished_preserves_current_task_on_slug_mismatch(tmp_path: Path) -> None:
     store = StateStore(tmp_path / ".jri" / "state.json")
     store.mark_task_started(task_slug="task-a", started_at=100)
 
@@ -230,9 +204,7 @@ def test_load_recovers_primary_from_manually_seeded_backup(tmp_path: Path) -> No
     assert StateStore(store.path).load() == expected
 
 
-def test_saved_state_is_recoverable_when_primary_becomes_unreadable(
-    tmp_path: Path,
-) -> None:
+def test_saved_state_is_recoverable_when_primary_becomes_unreadable(tmp_path: Path) -> None:
     store = StateStore(tmp_path / ".jri" / "state.json")
     state = State(branch="main")
 
@@ -254,18 +226,11 @@ def test_state_round_trips_attempt_metadata(tmp_path: Path) -> None:
         session_id="ses_123",
         result="interrupted",
         result_payload=RalphResultPayload(
-            result="incompleted",
-            summary="Needs follow-up work.",
-            learnings=["Capture the partial failure context."],
+            result="incompleted", summary="Needs follow-up work.", learnings=["Capture the partial failure context."]
         ),
     )
     expected = State(
-        started_at=123,
-        finished_at=456,
-        session="ses_latest",
-        branch="main",
-        active_attempt=attempt,
-        attempts=[attempt],
+        started_at=123, finished_at=456, session="ses_latest", branch="main", active_attempt=attempt, attempts=[attempt]
     )
 
     store.save(expected)
@@ -321,9 +286,7 @@ def test_state_round_trips_reset_points(tmp_path: Path) -> None:
     assert not (tmp_path / ".jri" / "attempts").exists()
 
 
-def test_state_round_trips_reset_point_missing_optional_fields(
-    tmp_path: Path,
-) -> None:
+def test_state_round_trips_reset_point_missing_optional_fields(tmp_path: Path) -> None:
     store = StateStore(tmp_path / ".jri" / "state.json")
     reset_point = ResetPoint(
         task_slug="task-a",
@@ -339,13 +302,7 @@ def test_state_round_trips_reset_point_missing_optional_fields(
     assert "end_commit" not in payload
     assert "started_at" not in payload
     assert "finished_at" not in payload
-    assert (
-        store.load().reset_point_for(
-            host_branch="main",
-            task_slug="task-a",
-        )
-        == reset_point
-    )
+    assert store.load().reset_point_for(host_branch="main", task_slug="task-a") == reset_point
 
 
 def test_state_store_resolves_latest_reset_point(tmp_path: Path) -> None:
@@ -478,11 +435,7 @@ def test_state_store_resolves_task_specific_reset_point(tmp_path: Path) -> None:
         ),
     ],
 )
-def test_load_rejects_malformed_reset_point_payload(
-    tmp_path: Path,
-    payload: dict[str, object],
-    message: str,
-) -> None:
+def test_load_rejects_malformed_reset_point_payload(tmp_path: Path, payload: dict[str, object], message: str) -> None:
     store = StateStore(tmp_path / ".jri" / "state.json")
     store.path.parent.mkdir(parents=True, exist_ok=True)
     store.path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
@@ -492,24 +445,14 @@ def test_load_rejects_malformed_reset_point_payload(
 
 
 def test_lifecycle_invariant_vocabulary_covers_state_surfaces() -> None:
-    invariants = {
-        invariant.surface: invariant for invariant in JRI_LIFECYCLE_INVARIANTS
-    }
+    invariants = {invariant.surface: invariant for invariant in JRI_LIFECYCLE_INVARIANTS}
 
     assert tuple(TASK_STATUSES) == ("todo", "doing", "done")
     assert invariants["task_files"].vocabulary == TASK_STATUSES
     assert invariants["persisted_attempts"].vocabulary == ATTEMPT_RESULT_VALUES
-    assert invariants["result_payload"].vocabulary == (
-        "present",
-        "missing",
-        "invalid",
-    )
+    assert invariants["result_payload"].vocabulary == ("present", "missing", "invalid")
     assert invariants["logs"].vocabulary == ("present", "missing", "recovered")
-    assert invariants["human_blockers"].vocabulary == (
-        "todo",
-        "depends_on",
-        "needs_human",
-    )
+    assert invariants["human_blockers"].vocabulary == ("todo", "depends_on", "needs_human")
 
 
 def test_load_normalizes_legacy_incomplete_attempt_result(tmp_path: Path) -> None:

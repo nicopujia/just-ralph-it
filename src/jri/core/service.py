@@ -18,19 +18,9 @@ from typing import Any, cast
 
 import yaml
 
-from .agents import (
-    AgentRuntime,
-    PiRuntime,
-    launch_chat,
-    render_saved_log,
-)
+from .agents import AgentRuntime, PiRuntime, launch_chat, render_saved_log
 from .agents.client import SavedLogRenderer
-from .agents.session import (
-    detect_latest_session,
-    export_session_if_available,
-    list_sessions,
-    runtime_env,
-)
+from .agents.session import detect_latest_session, export_session_if_available, list_sessions, runtime_env
 from .errors import HaltRequested, JriError, RestartRequested
 from .git import (
     MSG_COMPLETE_HUMAN,
@@ -66,14 +56,7 @@ from .models import (
 )
 from .paths import JriPaths
 from .state import StateStore
-from .tasks import (
-    create_task_batch,
-    dump_task,
-    list_tasks,
-    move_task,
-    parse_task_file,
-    select_next_task,
-)
+from .tasks import create_task_batch, dump_task, list_tasks, move_task, parse_task_file, select_next_task
 from .timeline import TimelineEvent, TimelineStore
 from .ui import (
     cyan,
@@ -170,37 +153,20 @@ class _FollowControls:
 
 
 class JriService:
-    def __init__(
-        self,
-        root: Path,
-        *,
-        agent_runtime: Any | None = None,
-    ) -> None:
+    def __init__(self, root: Path, *, agent_runtime: Any | None = None) -> None:
         self.root = root.resolve()
         self.paths = JriPaths(self.root)
         self.git = GitRepo(self.root)
         self.state_store = StateStore(self.paths.state_path)
         self.timeline = TimelineStore(self.paths.timeline_path)
         self.metrics = MetricsStore(self.paths.metrics_path)
-        self.agent_runtime: AgentRuntime = cast(
-            AgentRuntime, agent_runtime or PiRuntime()
-        )
+        self.agent_runtime: AgentRuntime = cast(AgentRuntime, agent_runtime or PiRuntime())
         self._halt_requested = False
         self._previous_agent_model: str | None = None
 
-    def init(
-        self,
-        *,
-        delete: bool,
-        commit_message: str,
-        branch: str | None = None,
-    ) -> None:
+    def init(self, *, delete: bool, commit_message: str, branch: str | None = None) -> None:
         repo_exists = self.git.is_repo()
-        requested_branch = (
-            self.git.validate_default_branch_name(branch)
-            if branch is not None
-            else None
-        )
+        requested_branch = self.git.validate_default_branch_name(branch) if branch is not None else None
         init_branch = requested_branch or "main"
         self.git.init_if_needed(branch=init_branch)
 
@@ -242,12 +208,7 @@ class JriService:
         self.git.run("commit", "-m", commit_message, "--", *commit_paths)
 
     def chat(
-        self,
-        extra_args: list[str],
-        *,
-        fresh: bool = False,
-        model: str | None = None,
-        explore_model: str | None = None,
+        self, extra_args: list[str], *, fresh: bool = False, model: str | None = None, explore_model: str | None = None
     ) -> int:
         self.ensure_initialized()
         if fresh:
@@ -257,11 +218,7 @@ class JriService:
             for session in list_sessions(self.agent_runtime, root=self.root)
             if isinstance((session_id := session.get("id")), str)
         }
-        binary = (
-            self.agent_runtime.binary
-            if isinstance(self.agent_runtime, PiRuntime)
-            else "pi"
-        )
+        binary = self.agent_runtime.binary if isinstance(self.agent_runtime, PiRuntime) else "pi"
         is_pi_chat_runtime = isinstance(self.agent_runtime, PiRuntime)
         state = self.state_store.load()
         session_id = state.session
@@ -270,11 +227,7 @@ class JriService:
             session_id = None
         session_dir = self.paths.chat_logs_dir if is_pi_chat_runtime else None
         with runtime_env(
-            overrides={
-                "interrogator": model,
-                "explore": explore_model,
-            },
-            included_agents={"interrogator", "explorer"},
+            overrides={"interrogator": model, "explore": explore_model}, included_agents={"interrogator", "explorer"}
         ) as env:
             returncode = launch_chat(
                 root=self.root,
@@ -287,9 +240,7 @@ class JriService:
         if returncode != 0:
             return returncode
         after = list_sessions(self.agent_runtime, root=self.root)
-        detected_session_id = detect_latest_session(
-            root=self.root, before=before, sessions=after
-        )
+        detected_session_id = detect_latest_session(root=self.root, before=before, sessions=after)
         if detected_session_id is not None:
             session_id = detected_session_id
         if session_id is not None:
@@ -322,19 +273,11 @@ class JriService:
         host_branch = self.git.host_branch()
         self.git.ensure_managed_branches_available(host_branch)
         self._recover_stale_start_state(
-            mode="detached" if detached else "foreground",
-            force=force,
-            host_branch=host_branch,
+            mode="detached" if detached else "foreground", force=force, host_branch=host_branch
         )
         if detached:
             return self._start_detached(
-                max_tasks,
-                model,
-                validator_model,
-                general_model,
-                explore_model,
-                task_timeout,
-                dogfood,
+                max_tasks, model, validator_model, general_model, explore_model, task_timeout, dogfood
             )
 
         return self.run_loop_process(
@@ -367,9 +310,7 @@ class JriService:
         host_branch = self.git.host_branch()
         self.git.ensure_managed_branches_available(host_branch)
         if recover:
-            self._recover_stale_start_state(
-                mode=mode, force=force, host_branch=host_branch
-            )
+            self._recover_stale_start_state(mode=mode, force=force, host_branch=host_branch)
 
         if isinstance(self.agent_runtime, PiRuntime):
             return self._run_loop(
@@ -390,11 +331,7 @@ class JriService:
         self.agent_runtime.model = model
         try:
             return self._run_loop(
-                max_tasks,
-                task_timeout=task_timeout,
-                force=force,
-                dogfood=dogfood,
-                host_branch=host_branch,
+                max_tasks, task_timeout=task_timeout, force=force, dogfood=dogfood, host_branch=host_branch
             )
         finally:
             self.agent_runtime.model = previous_model
@@ -415,9 +352,7 @@ class JriService:
         self._ensure_not_managed_worktree()
         host_branch = self.git.host_branch()
         self.git.ensure_managed_branches_available(host_branch)
-        self._recover_stale_start_state(
-            mode="foreground", force=force, host_branch=host_branch
-        )
+        self._recover_stale_start_state(mode="foreground", force=force, host_branch=host_branch)
         if isinstance(self.agent_runtime, PiRuntime):
             return self._run_loop_summary(
                 max_tasks,
@@ -437,11 +372,7 @@ class JriService:
         self.agent_runtime.model = model
         try:
             return self._run_loop_summary(
-                max_tasks,
-                task_timeout=task_timeout,
-                force=force,
-                dogfood=dogfood,
-                host_branch=host_branch,
+                max_tasks, task_timeout=task_timeout, force=force, dogfood=dogfood, host_branch=host_branch
             )
         finally:
             self.agent_runtime.model = previous_model
@@ -462,18 +393,9 @@ class JriService:
         self._ensure_not_managed_worktree()
         host_branch = self.git.host_branch()
         self.git.ensure_managed_branches_available(host_branch)
-        self._recover_stale_start_state(
-            mode="foreground", force=force, host_branch=host_branch
-        )
+        self._recover_stale_start_state(mode="foreground", force=force, host_branch=host_branch)
         return self._start_followable(
-            max_tasks,
-            model,
-            validator_model,
-            general_model,
-            explore_model,
-            task_timeout,
-            force,
-            dogfood,
+            max_tasks, model, validator_model, general_model, explore_model, task_timeout, force, dogfood
         )
 
     def attach(self) -> None:
@@ -482,11 +404,7 @@ class JriService:
         process = state.process
         if process is None or not process.log_path:
             raise JriError("no Ralph run is available to attach")
-        detached = self._follow_log(
-            Path(process.log_path),
-            loop_pid=process.loop_pid,
-            allow_detach=True,
-        )
+        detached = self._follow_log(Path(process.log_path), loop_pid=process.loop_pid, allow_detach=True)
         if detached:
             self._set_tracked_process_detached(detached=True)
 
@@ -525,10 +443,7 @@ class JriService:
     def status(self) -> dict[str, list[Task]]:
         self.ensure_initialized()
         try:
-            return {
-                status: list_tasks(self.paths.task_dir(status), git_repo=self.git)
-                for status in _TRACKED_TASK_DIRS
-            }
+            return {status: list_tasks(self.paths.task_dir(status), git_repo=self.git) for status in _TRACKED_TASK_DIRS}
         except ValueError as exc:
             raise JriError(str(exc)) from exc
 
@@ -544,10 +459,7 @@ class JriService:
 
         changed_graph_paths = self._changed_graph_paths()
         if not changed_graph_paths:
-            return {
-                "exit_code": "fail",
-                "errors": ["no uncommitted graph changes to compile"],
-            }
+            return {"exit_code": "fail", "errors": ["no uncommitted graph changes to compile"]}
 
         context = self._compiler_context(changed_graph_paths)
         try:
@@ -562,8 +474,7 @@ class JriService:
 
         task_paths = [self.git.relative_path(task.path) for task in tasks]
         commit_paths = self._commit_paths(
-            [self._graph_relative_path(path) for path in changed_graph_paths]
-            + task_paths
+            [self._graph_relative_path(path) for path in changed_graph_paths] + task_paths
         )
         try:
             committed = self._commit_compiled_graph("jri: compile graph", commit_paths)
@@ -591,9 +502,7 @@ class JriService:
     def _compiler_context(self, changed_graph_paths: list[str]) -> dict[str, object]:
         return {
             "changed_paths": changed_graph_paths,
-            "graph_nodes": [
-                self._compiler_graph_node(path) for path in changed_graph_paths
-            ],
+            "graph_nodes": [self._compiler_graph_node(path) for path in changed_graph_paths],
             "graph_check": {
                 "active_count": check_graph_tree(self.root).active_count,
                 "archived_count": check_graph_tree(self.root).archived_count,
@@ -605,16 +514,11 @@ class JriService:
         node = parse_graph_node_file(self.root, semantic_path)
         payload: dict[str, object] = {
             "path": node.semantic_path,
-            "metadata": {
-                "title": node.metadata.title,
-                "state": node.metadata.state,
-            },
+            "metadata": {"title": node.metadata.title, "state": node.metadata.state},
             "body": node.body,
         }
         if node.metadata.archive_reason is not None:
-            cast(dict[str, object], payload["metadata"])["archive_reason"] = (
-                node.metadata.archive_reason
-            )
+            cast(dict[str, object], payload["metadata"])["archive_reason"] = node.metadata.archive_reason
         return payload
 
     def _changed_graph_paths(self) -> list[str]:
@@ -665,9 +569,7 @@ class JriService:
     def _graph_relative_path(self, semantic_path: str) -> str:
         return f".jri/graph/{semantic_path}/NODE.md"
 
-    def _compiler_failure(
-        self, raw_result: dict[str, object]
-    ) -> list[dict[str, object]] | None:
+    def _compiler_failure(self, raw_result: dict[str, object]) -> list[dict[str, object]] | None:
         if raw_result.get("exit_code") != "fail":
             return None
         errors = raw_result.get("errors")
@@ -685,9 +587,7 @@ class JriService:
             if not isinstance(location, str) or not location.strip():
                 raise ValueError(f"compiler error[{index}] must include `location`")
             if not isinstance(ambiguous_area, str) or not ambiguous_area.strip():
-                raise ValueError(
-                    f"compiler error[{index}] must include `ambiguous_area`"
-                )
+                raise ValueError(f"compiler error[{index}] must include `ambiguous_area`")
             if (
                 not isinstance(plausible, list)
                 or not plausible
@@ -696,26 +596,18 @@ class JriService:
                     for candidate in cast(list[object], plausible)
                 )
             ):
-                raise ValueError(
-                    f"compiler error[{index}] must include `plausible_interpretations`"
-                )
+                raise ValueError(f"compiler error[{index}] must include `plausible_interpretations`")
             if not isinstance(draft_question, str) or not draft_question.strip():
-                raise ValueError(
-                    f"compiler error[{index}] must include `draft_question`"
-                )
-            normalized.append(
-                {
-                    "location": location,
-                    "ambiguous_area": ambiguous_area,
-                    "plausible_interpretations": plausible,
-                    "draft_question": draft_question,
-                }
-            )
+                raise ValueError(f"compiler error[{index}] must include `draft_question`")
+            normalized.append({
+                "location": location,
+                "ambiguous_area": ambiguous_area,
+                "plausible_interpretations": plausible,
+                "draft_question": draft_question,
+            })
         return normalized
 
-    def _compiler_task_specs(
-        self, raw_result: dict[str, object]
-    ) -> list[CompilerTaskSpec]:
+    def _compiler_task_specs(self, raw_result: dict[str, object]) -> list[CompilerTaskSpec]:
         raw_tasks = raw_result.get("tasks")
         if not isinstance(raw_tasks, list) or not raw_tasks:
             raise ValueError("compiler output must include non-empty `tasks`")
@@ -730,9 +622,7 @@ class JriService:
                     priority=self._compiler_int(task, "priority", index),
                     assignee=cast(Any, self._compiler_str(task, "assignee", index)),
                     depends_on=self._compiler_str_list(task, "depends_on", index),
-                    acceptance_criteria=self._compiler_str_list(
-                        task, "acceptance_criteria", index
-                    ),
+                    acceptance_criteria=self._compiler_str_list(task, "acceptance_criteria", index),
                     body=self._compiler_str(task, "body", index),
                 )
             )
@@ -750,13 +640,9 @@ class JriService:
             raise ValueError(f"task[{index}] `{key}` must be an integer")
         return value
 
-    def _compiler_str_list(
-        self, task: dict[str, object], key: str, index: int
-    ) -> list[str]:
+    def _compiler_str_list(self, task: dict[str, object], key: str, index: int) -> list[str]:
         value = task.get(key)
-        if not isinstance(value, list) or any(
-            not isinstance(item, str) for item in cast(list[object], value)
-        ):
+        if not isinstance(value, list) or any(not isinstance(item, str) for item in cast(list[object], value)):
             raise ValueError(f"task[{index}] `{key}` must be a string array")
         return cast(list[str], value)
 
@@ -788,51 +674,31 @@ class JriService:
             if task.metadata.assignee == "Human"
         }
 
-        for task in sorted(
-            todo_tasks,
-            key=lambda item: (item.metadata.priority, item.slug),
-        ):
+        for task in sorted(todo_tasks, key=lambda item: (item.metadata.priority, item.slug)):
             if task.metadata.assignee != "Ralph":
                 continue
-            blocking_humans = [
-                slug
-                for slug in task.metadata.depends_on
-                if slug in actionable_human_slugs
-            ]
+            blocking_humans = [slug for slug in task.metadata.depends_on if slug in actionable_human_slugs]
             if blocking_humans:
                 slug = sorted(blocking_humans)[0]
-                return (
-                    f"complete Human task {slug}, then run `jri complete-human {slug}`."
-                )
+                return f"complete Human task {slug}, then run `jri complete-human {slug}`."
 
         try:
-            next_task = select_next_task(
-                todo_tasks,
-                done_slugs=done_slugs,
-                doing_tasks=doing_tasks,
-            )
+            next_task = select_next_task(todo_tasks, done_slugs=done_slugs, doing_tasks=doing_tasks)
         except ValueError:
             next_task = None
         if next_task is not None:
             verb = (
-                "retry"
-                if next_task.metadata.depends_on
-                or self._latest_attempt_result(next_task.slug)
-                else "work on"
+                "retry" if next_task.metadata.depends_on or self._latest_attempt_result(next_task.slug) else "work on"
             )
             return f"run `jri start` to {verb} {next_task.slug}."
 
         blocked = [
             task
             for task in todo_tasks
-            if task.metadata.assignee == "Ralph"
-            and not set(task.metadata.depends_on).issubset(done_slugs)
+            if task.metadata.assignee == "Ralph" and not set(task.metadata.depends_on).issubset(done_slugs)
         ]
         if blocked:
-            task = sorted(
-                blocked,
-                key=lambda item: (item.metadata.priority, item.slug),
-            )[0]
+            task = sorted(blocked, key=lambda item: (item.metadata.priority, item.slug))[0]
             missing = sorted(set(task.metadata.depends_on) - done_slugs)
             return f"waiting for dependency {missing[0]} before {task.slug} can start."
 
@@ -845,9 +711,7 @@ class JriService:
             raise JriError(f"human task not found: {slug}")
         status, task = task_by_status
         if task.metadata.assignee != "Human":
-            raise JriError(
-                f"task '{slug}' is assigned to {task.metadata.assignee}, not Human"
-            )
+            raise JriError(f"task '{slug}' is assigned to {task.metadata.assignee}, not Human")
         if status == "done":
             raise JriError(f"human task '{slug}' is already done")
         if status not in {"todo", "doing"}:
@@ -855,17 +719,8 @@ class JriService:
         source_path = self.git.relative_path(task.path)
         completed = move_task(task, self.paths.task_dir("done"))
         destination_path = self.git.relative_path(completed.path)
-        self.git.commit_paths_if_needed(
-            MSG_COMPLETE_HUMAN.format(slug=slug),
-            [source_path, destination_path],
-        )
-        self.timeline.record(
-            TimelineEvent(
-                ts=TimelineStore.now_iso(),
-                event="human_task_completed",
-                task=slug,
-            )
-        )
+        self.git.commit_paths_if_needed(MSG_COMPLETE_HUMAN.format(slug=slug), [source_path, destination_path])
+        self.timeline.record(TimelineEvent(ts=TimelineStore.now_iso(), event="human_task_completed", task=slug))
         return completed
 
     def ralph_status_summary(self) -> str:
@@ -876,8 +731,7 @@ class JriService:
         process_alive = loop_pid is not None and self._is_pid_alive(loop_pid)
         active_task = (
             state.active_attempt.task_slug
-            if state.active_attempt is not None
-            and state.active_attempt.finished_at is None
+            if state.active_attempt is not None and state.active_attempt.finished_at is None
             else state.current_task
         )
 
@@ -900,10 +754,7 @@ class JriService:
         if any(task.metadata.assignee == "Ralph" for task in doing_tasks):
             return "Ralph: not running (task left in doing)"
 
-        if (
-            state.active_attempt is not None
-            and state.active_attempt.finished_at is None
-        ):
+        if state.active_attempt is not None and state.active_attempt.finished_at is None:
             return "Ralph: not running (previous run was interrupted)"
 
         return "Ralph: not running"
@@ -916,22 +767,14 @@ class JriService:
             return False
         if process is not None:
             return True
-        if any(
-            task.metadata.assignee == "Ralph"
-            for task in tasks_by_status.get("doing", [])
-        ):
+        if any(task.metadata.assignee == "Ralph" for task in tasks_by_status.get("doing", [])):
             return True
-        return (
-            state.active_attempt is not None
-            and state.active_attempt.finished_at is None
-        )
+        return state.active_attempt is not None and state.active_attempt.finished_at is None
 
     def _latest_attempt_result(self, task_slug: str) -> str | None:
         attempts = [
             attempt
-            for attempt in (
-                self.state_store.load().attempts + self._load_attempt_history(task_slug)
-            )
+            for attempt in (self.state_store.load().attempts + self._load_attempt_history(task_slug))
             if attempt.task_slug == task_slug and attempt.result is not None
         ]
         if not attempts:
@@ -947,9 +790,7 @@ class JriService:
         self.ensure_initialized()
         state = self.state_store.load()
         host_branch = self.git.host_branch()
-        reset_point = self.resolve_reset_target_point(
-            target_task, host_branch=host_branch
-        )
+        reset_point = self.resolve_reset_target_point(target_task, host_branch=host_branch)
         target_ref = self._resolve_reset_target_ref(reset_point)
 
         self._cleanup_tracked_processes(required=False)
@@ -976,21 +817,13 @@ class JriService:
         if host_branch is None:
             host_branch = self.git.host_branch()
         if target_task is not None:
-            reset_point = self.state_store.reset_point_for(
-                host_branch=host_branch, task_slug=target_task
-            )
+            reset_point = self.state_store.reset_point_for(host_branch=host_branch, task_slug=target_task)
             if reset_point is None:
-                raise JriError(
-                    f"no reset state found for task '{target_task}' "
-                    f"on branch '{host_branch}'"
-                )
+                raise JriError(f"no reset state found for task '{target_task}' on branch '{host_branch}'")
             return reset_point
         reset_point = self.state_store.latest_reset_point(host_branch=host_branch)
         if reset_point is None:
-            raise JriError(
-                f"no reset state found for branch '{host_branch}' - "
-                "run `jri start` first"
-            )
+            raise JriError(f"no reset state found for branch '{host_branch}' - run `jri start` first")
         return reset_point
 
     def _resolve_reset_target_ref(self, reset_point: ResetPoint) -> str:
@@ -1013,10 +846,7 @@ class JriService:
 
     def _ensure_not_managed_worktree(self) -> None:
         if self.root.name == "worktree" and self.root.parent.name == ".jri":
-            raise JriError(
-                "jri start cannot run from .jri/worktree; "
-                "run it from the main repository root"
-            )
+            raise JriError("jri start cannot run from .jri/worktree; run it from the main repository root")
 
     def _commit_paths(self, paths: list[str]) -> list[str]:
         scoped_paths: list[str] = []
@@ -1060,9 +890,7 @@ class JriService:
     def _ralph_branch(self, host_branch: str) -> str:
         return self.git.ralph_branch_for(host_branch)
 
-    def _managed_ralph_branches(
-        self, host_branch: str | None = None
-    ) -> tuple[str, ...]:
+    def _managed_ralph_branches(self, host_branch: str | None = None) -> tuple[str, ...]:
         if host_branch is None:
             default = self._default_branch()
             return (f"ralph/{default}", f"ralph-{default}")
@@ -1075,19 +903,14 @@ class JriService:
             return False
         return self.git.has_local_branch(self._ralph_branch(host_branch))
 
-    def _is_managed_ralph_branch(
-        self, branch: str, host_branch: str | None = None
-    ) -> bool:
+    def _is_managed_ralph_branch(self, branch: str, host_branch: str | None = None) -> bool:
         return branch == "ralph" or branch in self._managed_ralph_branches(host_branch)
 
     def _ensure_current_host_branch(self, host_branch: str) -> None:
         current = self.git.current_branch()
         if current != host_branch:
             current_description = current or "detached HEAD"
-            raise JriError(
-                f"jri runtime branch changed from '{host_branch}' to "
-                f"'{current_description}'"
-            )
+            raise JriError(f"jri runtime branch changed from '{host_branch}' to '{current_description}'")
 
     def _create_scaffold(self) -> list[Path]:
         created_files: list[Path] = []
@@ -1103,10 +926,7 @@ class JriService:
     _GITIGNORE_CONTENT = "logs/\nsignals/\n*state.json*\nmetrics.json\nworktree/\n"
 
     def _write_gitignore_file(self) -> None:
-        self.paths.gitignore_path.write_text(
-            self._GITIGNORE_CONTENT,
-            encoding="utf-8",
-        )
+        self.paths.gitignore_path.write_text(self._GITIGNORE_CONTENT, encoding="utf-8")
 
     def _write_template_files(self, relative_paths: tuple[str, ...]) -> None:
         for relative_path in relative_paths:
@@ -1168,20 +988,10 @@ class JriService:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_file = log_path.open("a", encoding="utf-8")
         process = subprocess.Popen(
-            command,
-            cwd=self.root,
-            env=env,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
+            command, cwd=self.root, env=env, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True
         )
         log_file.close()
-        self.state_store.save_process(
-            loop_pid=process.pid,
-            child_pid=None,
-            log_path=log_path,
-            detached=True,
-        )
+        self.state_store.save_process(loop_pid=process.pid, child_pid=None, log_path=log_path, detached=True)
         return 0
 
     def _start_followable(
@@ -1220,26 +1030,11 @@ class JriService:
             env["CLICOLOR_FORCE"] = "1"
         log_file = run_log_path.open("a", encoding="utf-8")
         process = subprocess.Popen(
-            command,
-            cwd=self.root,
-            env=env,
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
+            command, cwd=self.root, env=env, stdout=log_file, stderr=subprocess.STDOUT, start_new_session=True
         )
         log_file.close()
-        self.state_store.save_process(
-            loop_pid=process.pid,
-            child_pid=None,
-            log_path=run_log_path,
-            detached=False,
-        )
-        detached = self._follow_log(
-            run_log_path,
-            loop_pid=process.pid,
-            loop_process=process,
-            allow_detach=True,
-        )
+        self.state_store.save_process(loop_pid=process.pid, child_pid=None, log_path=run_log_path, detached=False)
+        detached = self._follow_log(run_log_path, loop_pid=process.pid, loop_process=process, allow_detach=True)
         if detached:
             self._set_tracked_process_detached(detached=True)
             return 0
@@ -1299,26 +1094,15 @@ class JriService:
         try:
             if isinstance(self.agent_runtime, PiRuntime) and not refresh_runtime:
                 runtime_started_here = True
-                runtime_context = self._start_pi_runtime(
-                    overrides=model_overrides or {}, host_branch=host_branch
-                )
+                runtime_context = self._start_pi_runtime(overrides=model_overrides or {}, host_branch=host_branch)
             while max_tasks is None or attempted < max_tasks:
                 if self._halt_requested:
                     raise HaltRequested("Ralph halt requested")
 
                 try:
-                    todo_tasks = list_tasks(
-                        self.paths.task_dir("todo"),
-                        git_repo=self.git,
-                    )
-                    done_tasks = list_tasks(
-                        self.paths.task_dir("done"),
-                        git_repo=self.git,
-                    )
-                    doing_tasks = list_tasks(
-                        self.paths.task_dir("doing"),
-                        git_repo=self.git,
-                    )
+                    todo_tasks = list_tasks(self.paths.task_dir("todo"), git_repo=self.git)
+                    done_tasks = list_tasks(self.paths.task_dir("done"), git_repo=self.git)
+                    doing_tasks = list_tasks(self.paths.task_dir("doing"), git_repo=self.git)
                 except ValueError as exc:
                     raise JriError(str(exc)) from exc
 
@@ -1339,31 +1123,19 @@ class JriService:
                     break
 
                 if refresh_runtime:
-                    with self._running_pi_runtime(
-                        overrides=model_overrides or {}, host_branch=host_branch
-                    ):
-                        result = self._run_task(
-                            next_task,
-                            host_branch=host_branch,
-                            task_timeout=task_timeout,
-                        )
+                    with self._running_pi_runtime(overrides=model_overrides or {}, host_branch=host_branch):
+                        result = self._run_task(next_task, host_branch=host_branch, task_timeout=task_timeout)
                 else:
-                    result = self._run_task(
-                        next_task, host_branch=host_branch, task_timeout=task_timeout
-                    )
+                    result = self._run_task(next_task, host_branch=host_branch, task_timeout=task_timeout)
                 attempted += 1
                 if result == "completed":
                     completed += 1
                     task_results[next_task.slug] = result
                     outcome = "completed"
                     if self._should_restart_process_after_iteration(
-                        dogfood=dogfood,
-                        max_tasks=max_tasks,
-                        completed=attempted,
+                        dogfood=dogfood, max_tasks=max_tasks, completed=attempted
                     ):
-                        remaining_tasks = (
-                            max_tasks - attempted if max_tasks is not None else None
-                        )
+                        remaining_tasks = max_tasks - attempted if max_tasks is not None else None
                         raise RestartRequested(remaining_tasks=remaining_tasks)
                 elif result in {"failed", "incompleted"}:
                     task_results[next_task.slug] = result
@@ -1382,10 +1154,7 @@ class JriService:
                             ts=TimelineStore.now_iso(),
                             event="loop_stopped",
                             task=next_task.slug,
-                            detail={
-                                "reason": "task_timeout",
-                                "limit_seconds": task_timeout,
-                            },
+                            detail={"reason": "task_timeout", "limit_seconds": task_timeout},
                         )
                     )
                     break
@@ -1395,11 +1164,7 @@ class JriService:
                     break
 
             # Record if we stopped due to task limit
-            if (
-                max_tasks is not None
-                and attempted >= max_tasks
-                and outcome != "timeout"
-            ):
+            if max_tasks is not None and attempted >= max_tasks and outcome != "timeout":
                 self.timeline.record(
                     TimelineEvent(
                         ts=TimelineStore.now_iso(),
@@ -1414,19 +1179,9 @@ class JriService:
             self._restore_signal_handlers(old_handlers)
             self.state_store.clear_process()
 
-        return RunSummary(
-            completed=completed,
-            outcome=outcome,
-            task_results=task_results,
-        )
+        return RunSummary(completed=completed, outcome=outcome, task_results=task_results)
 
-    def _should_restart_process_after_iteration(
-        self,
-        *,
-        dogfood: bool,
-        max_tasks: int | None,
-        completed: int,
-    ) -> bool:
+    def _should_restart_process_after_iteration(self, *, dogfood: bool, max_tasks: int | None, completed: int) -> bool:
         if not dogfood:
             return False
         if os.environ.get("JRI_ALLOW_SELF_RESTART") != "1":
@@ -1438,9 +1193,7 @@ class JriService:
         return True
 
     @contextmanager
-    def _running_pi_runtime(
-        self, *, overrides: dict[str, str | None], host_branch: str
-    ) -> Generator[None]:
+    def _running_pi_runtime(self, *, overrides: dict[str, str | None], host_branch: str) -> Generator[None]:
         runtime = self._start_pi_runtime(overrides=overrides, host_branch=host_branch)
         try:
             yield
@@ -1466,11 +1219,7 @@ class JriService:
         self._previous_agent_model = previous_model
         try:
             self.agent_runtime.start(
-                env={
-                    **pi_env,
-                    "JRI_RESULT_PATH": str(result_path.resolve()),
-                },
-                cwd=self.paths.worktree_dir,
+                env={**pi_env, "JRI_RESULT_PATH": str(result_path.resolve())}, cwd=self.paths.worktree_dir
             )
         except BaseException as exc:
             self.agent_runtime.model = previous_model
@@ -1479,9 +1228,7 @@ class JriService:
             raise
         return runtime
 
-    def _stop_pi_runtime(
-        self, runtime: AbstractContextManager[dict[str, str]] | None
-    ) -> None:
+    def _stop_pi_runtime(self, runtime: AbstractContextManager[dict[str, str]] | None) -> None:
         if not isinstance(self.agent_runtime, PiRuntime):
             return
         self.agent_runtime.stop()
@@ -1532,9 +1279,7 @@ class JriService:
             host_ref = self.git.rev_parse(host_branch)
             result = self.git.run("branch", branch, host_ref, check=False)
             if result.returncode != 0:
-                raise JriError(
-                    result.stderr.strip() or f"failed to create branch {branch}"
-                )
+                raise JriError(result.stderr.strip() or f"failed to create branch {branch}")
 
         if not wt_dir.exists():
             self.git.prune_worktrees()
@@ -1562,8 +1307,7 @@ class JriService:
 
     def _is_completed_attempt_payload(self, attempt: AttemptState) -> bool:
         return attempt.result == "completed" or (
-            attempt.result_payload is not None
-            and attempt.result_payload.result == "completed"
+            attempt.result_payload is not None and attempt.result_payload.result == "completed"
         )
 
     def _result_payload_violation(self, result: AgentRunResult) -> str | None:
@@ -1593,15 +1337,10 @@ class JriService:
         self.git.validate_default_branch_name(host_branch)
         return host_branch
 
-    def _validate_attempt_host_branch(
-        self, attempt: AttemptState, *, host_branch: str
-    ) -> str:
+    def _validate_attempt_host_branch(self, attempt: AttemptState, *, host_branch: str) -> str:
         attempt_host_branch = self._host_branch_for_managed_attempt(attempt.branch)
         if attempt_host_branch is None:
-            raise JriError(
-                "active attempt branch "
-                f'"{attempt.branch}" is not a managed Ralph branch'
-            )
+            raise JriError(f'active attempt branch "{attempt.branch}" is not a managed Ralph branch')
         if attempt_host_branch != host_branch:
             raise JriError(
                 "active attempt belongs to host branch "
@@ -1609,9 +1348,7 @@ class JriService:
             )
         return attempt_host_branch
 
-    def _integrate_completed_branch(
-        self, *, task_slug: str, branch: str, host_branch: str | None = None
-    ) -> None:
+    def _integrate_completed_branch(self, *, task_slug: str, branch: str, host_branch: str | None = None) -> None:
         if host_branch is None:
             host_branch = self.git.host_branch()
             self.git.ensure_managed_branches_available(host_branch)
@@ -1621,9 +1358,7 @@ class JriService:
             return
         self._ensure_current_host_branch(host_branch)
         if self.git.status_short():
-            raise JriError(
-                "git working tree must be clean before integrating Ralph work"
-            )
+            raise JriError("git working tree must be clean before integrating Ralph work")
         if self.git.is_ancestor(host_branch, branch):
             self.git.merge_ff_only(branch)
             return
@@ -1638,17 +1373,14 @@ class JriService:
         if not attempts:
             return ""
 
-        history_path = self.paths.attempt_history_path(task_slug).relative_to(
-            self.paths.root
-        )
+        history_path = self.paths.attempt_history_path(task_slug).relative_to(self.paths.root)
         return (
             f"Previous retry-relevant attempts: {len(attempts)}.\n"
-            f"History file: {history_path.as_posix()}."
+            f"History file: {history_path.as_posix()}.\n"
+            f"Inspect it with `jri inspect {task_slug}` before retrying."
         )
 
-    def _run_task(
-        self, task: Task, *, host_branch: str, task_timeout: int | None = None
-    ) -> Result:
+    def _run_task(self, task: Task, *, host_branch: str, task_timeout: int | None = None) -> Result:
         state = self.state_store.load()
         started_at = int(time.time())
         log_path = self.paths.ralph_log_path(task.slug, started_at)
@@ -1679,11 +1411,7 @@ class JriService:
                 ts=TimelineStore.now_iso(),
                 event="attempt_started",
                 task=task.slug,
-                detail={
-                    "attempt": attempt.number,
-                    "branch": branch,
-                    "log_path": str(log_path),
-                },
+                detail={"attempt": attempt.number, "branch": branch, "log_path": str(log_path)},
             )
         )
         before_begin_commit = self.git.rev_parse(host_branch)
@@ -1740,10 +1468,7 @@ class JriService:
             print(message, file=sys.stderr)
             self.timeline.record(
                 TimelineEvent(
-                    ts=TimelineStore.now_iso(),
-                    event="stderr_warning",
-                    task=task.slug,
-                    detail={"message": message},
+                    ts=TimelineStore.now_iso(), event="stderr_warning", task=task.slug, detail={"message": message}
                 )
             )
             self._recover_failed_task_wt(doing_task, wt_git, host_branch=host_branch)
@@ -1753,40 +1478,24 @@ class JriService:
                     ts=TimelineStore.now_iso(),
                     event="task_failed",
                     task=task.slug,
-                    detail={
-                        "reason": "agent_runtime_exception",
-                        "error_type": type(exc).__name__,
-                        "error": str(exc),
-                    },
+                    detail={"reason": "agent_runtime_exception", "error_type": type(exc).__name__, "error": str(exc)},
                 )
             )
             print(task_footer("failed"))
             sys.stdout.flush()
             return "failed"
 
-        attempt = replace(
-            attempt,
-            session_id=result.session_id,
-            result_payload=result.payload,
-        )
+        attempt = replace(attempt, session_id=result.session_id, result_payload=result.payload)
         self.state_store.save_active_attempt(attempt)
 
         # Check for task timeout
         finished_at = int(time.time())
-        if result.result == "timeout" or (
-            deadline is not None and finished_at > deadline
-        ):
-            timeout_msg = (
-                f"Task {task.slug} exceeded timeout of {task_timeout}s "
-                f"(took {finished_at - started_at}s)"
-            )
+        if result.result == "timeout" or (deadline is not None and finished_at > deadline):
+            timeout_msg = f"Task {task.slug} exceeded timeout of {task_timeout}s (took {finished_at - started_at}s)"
             print(timeout_msg, file=sys.stderr)
             self.timeline.record(
                 TimelineEvent(
-                    ts=TimelineStore.now_iso(),
-                    event="stderr_warning",
-                    task=task.slug,
-                    detail={"message": timeout_msg},
+                    ts=TimelineStore.now_iso(), event="stderr_warning", task=task.slug, detail={"message": timeout_msg}
                 )
             )
             self._recover_failed_task_wt(doing_task, wt_git, host_branch=host_branch)
@@ -1807,10 +1516,7 @@ class JriService:
         for warning in result.warnings:
             self.timeline.record(
                 TimelineEvent(
-                    ts=TimelineStore.now_iso(),
-                    event="stderr_warning",
-                    task=task.slug,
-                    detail={"message": warning},
+                    ts=TimelineStore.now_iso(), event="stderr_warning", task=task.slug, detail={"message": warning}
                 )
             )
 
@@ -1838,10 +1544,7 @@ class JriService:
                     ts=TimelineStore.now_iso(),
                     event="task_failed",
                     task=task.slug,
-                    detail={
-                        "reason": "nonzero_returncode",
-                        "returncode": result.returncode,
-                    },
+                    detail={"reason": "nonzero_returncode", "returncode": result.returncode},
                 )
             )
             print(task_footer("failed"))
@@ -1878,20 +1581,12 @@ class JriService:
                 host_branch=host_branch,
             )
             self._finish_attempt(attempt, result="needs_human")
-            self.timeline.record(
-                TimelineEvent(
-                    ts=TimelineStore.now_iso(),
-                    event="task_needs_human",
-                    task=task.slug,
-                )
-            )
+            self.timeline.record(TimelineEvent(ts=TimelineStore.now_iso(), event="task_needs_human", task=task.slug))
             print(task_footer("needs_human"))
             sys.stdout.flush()
             return "needs_human"
 
-        if result.result == "incompleted" and (
-            result.payload is None or not result.payload.learnings
-        ):
+        if result.result == "incompleted" and (result.payload is None or not result.payload.learnings):
             self._recover_failed_task_wt(doing_task, wt_git, host_branch=host_branch)
             self._finish_attempt(attempt, result="failed")
             self.timeline.record(
@@ -1925,33 +1620,17 @@ class JriService:
 
         if (wt_paths.root / "Makefile").exists():
             try:
-                check = subprocess.run(
-                    ["make", "check"],
-                    cwd=wt_paths.root,
-                    capture_output=True,
-                    text=True,
-                )
+                check = subprocess.run(["make", "check"], cwd=wt_paths.root, capture_output=True, text=True)
             except FileNotFoundError:
                 make_msg = "make: command not found"
                 print(make_msg, file=sys.stderr)
                 self.timeline.record(
                     TimelineEvent(
-                        ts=TimelineStore.now_iso(),
-                        event="stderr_warning",
-                        task=task.slug,
-                        detail={"message": make_msg},
+                        ts=TimelineStore.now_iso(), event="stderr_warning", task=task.slug, detail={"message": make_msg}
                     )
                 )
-                self._recover_failed_task_wt(
-                    doing_task, wt_git, host_branch=host_branch
-                )
-                self.metrics.record(
-                    MetricEntry(
-                        task=task.slug,
-                        ts=MetricsStore.now_iso(),
-                        result="fail",
-                    )
-                )
+                self._recover_failed_task_wt(doing_task, wt_git, host_branch=host_branch)
+                self.metrics.record(MetricEntry(task=task.slug, ts=MetricsStore.now_iso(), result="fail"))
                 self._finish_attempt(attempt, result="failed")
                 print(task_footer("failed"))
                 sys.stdout.flush()
@@ -1964,9 +1643,7 @@ class JriService:
                         ts=TimelineStore.now_iso(),
                         event="stderr_warning",
                         task=task.slug,
-                        detail={
-                            "message": make_fail_msg[:500] if make_fail_msg else ""
-                        },
+                        detail={"message": make_fail_msg[:500] if make_fail_msg else ""},
                     )
                 )
                 self.timeline.record(
@@ -1977,42 +1654,20 @@ class JriService:
                         detail={"stderr": check.stderr[:500] if check.stderr else ""},
                     )
                 )
-                self._recover_failed_task_wt(
-                    doing_task, wt_git, host_branch=host_branch
-                )
-                self.metrics.record(
-                    MetricEntry(
-                        task=task.slug,
-                        ts=MetricsStore.now_iso(),
-                        result="fail",
-                    )
-                )
+                self._recover_failed_task_wt(doing_task, wt_git, host_branch=host_branch)
+                self.metrics.record(MetricEntry(task=task.slug, ts=MetricsStore.now_iso(), result="fail"))
                 self._finish_attempt(attempt, result="failed")
                 print(task_footer("failed"))
                 sys.stdout.flush()
                 return "failed"
-            self.timeline.record(
-                TimelineEvent(
-                    ts=TimelineStore.now_iso(),
-                    event="make_check_passed",
-                    task=task.slug,
-                )
-            )
-            self.metrics.record(
-                MetricEntry(
-                    task=task.slug,
-                    ts=MetricsStore.now_iso(),
-                    result="pass",
-                )
-            )
+            self.timeline.record(TimelineEvent(ts=TimelineStore.now_iso(), event="make_check_passed", task=task.slug))
+            self.metrics.record(MetricEntry(task=task.slug, ts=MetricsStore.now_iso(), result="pass"))
 
         finished_at = int(time.time())
         attempt = replace(attempt, finished_at=finished_at, result="completed")
         self.state_store.save_active_attempt(attempt)
 
-        self._integrate_completed_branch(
-            task_slug=task.slug, branch=branch, host_branch=host_branch
-        )
+        self._integrate_completed_branch(task_slug=task.slug, branch=branch, host_branch=host_branch)
 
         if not (self.paths.task_path("doing", task.slug)).exists():
             relative_path = f".jri/tasks/doing/{task.slug}.md"
@@ -2021,13 +1676,9 @@ class JriService:
         move_task(doing_on_main, self.paths.task_dir("done"))
         self.git.commit_all_if_needed(MSG_START_COMPLETE.format(slug=task.slug))
         end_commit = self.git.rev_parse(host_branch)
-        reset_point = self.state_store.reset_point_for(
-            host_branch=host_branch, task_slug=task.slug
-        )
+        reset_point = self.state_store.reset_point_for(host_branch=host_branch, task_slug=task.slug)
         if reset_point is not None:
-            self.state_store.save_reset_point(
-                replace(reset_point, end_commit=end_commit, finished_at=finished_at)
-            )
+            self.state_store.save_reset_point(replace(reset_point, end_commit=end_commit, finished_at=finished_at))
         self._save_diff_artifact(task.slug)
 
         if self.git.has_remote():
@@ -2035,25 +1686,14 @@ class JriService:
 
         self.state_store.save_active_attempt(attempt)
         self._persist_attempt_history(attempt)
-        self.state_store.mark_task_finished(
-            task_slug=task.slug,
-            finished_at=finished_at,
-        )
+        self.state_store.mark_task_finished(task_slug=task.slug, finished_at=finished_at)
         self.state_store.clear_active_attempt()
-        self.timeline.record(
-            TimelineEvent(
-                ts=TimelineStore.now_iso(),
-                event="task_completed",
-                task=task.slug,
-            )
-        )
+        self.timeline.record(TimelineEvent(ts=TimelineStore.now_iso(), event="task_completed", task=task.slug))
         print(task_footer("completed"))
         sys.stdout.flush()
         return "completed"
 
-    def _recover_failed_task_wt(
-        self, doing_task: Task, wt_git: GitRepo, *, host_branch: str
-    ) -> None:
+    def _recover_failed_task_wt(self, doing_task: Task, wt_git: GitRepo, *, host_branch: str) -> None:
         """Recover from a failed task in the worktree."""
         try:
             # Move task back to todo on main repo first.
@@ -2061,9 +1701,7 @@ class JriService:
             if main_doing.exists():
                 main_task = parse_task_file(main_doing)
                 move_task(main_task, self.paths.task_dir("todo"))
-                self.git.commit_all_if_needed(
-                    MSG_RECOVER_FAILED.format(slug=doing_task.slug)
-                )
+                self.git.commit_all_if_needed(MSG_RECOVER_FAILED.format(slug=doing_task.slug))
             # Reset the worktree so it reflects main's new state.
             self._sync_worktree(wt_git, host_branch=host_branch)
             self._reset_runtime_state()
@@ -2076,11 +1714,7 @@ class JriService:
                 )
             )
         except Exception as recovery_error:
-            self._record_recovery_failure(
-                task_slug=doing_task.slug,
-                phase="recover-failed-task",
-                error=recovery_error,
-            )
+            self._record_recovery_failure(task_slug=doing_task.slug, phase="recover-failed-task", error=recovery_error)
             self.timeline.record(
                 TimelineEvent(
                     ts=TimelineStore.now_iso(),
@@ -2135,9 +1769,7 @@ class JriService:
         """Ensure the runtime is still on the captured host branch."""
         self._ensure_current_host_branch(host_branch)
 
-    def _recover_stale_start_state(
-        self, *, mode: str, force: bool = False, host_branch: str | None = None
-    ) -> None:
+    def _recover_stale_start_state(self, *, mode: str, force: bool = False, host_branch: str | None = None) -> None:
         if host_branch is None:
             host_branch = self.git.host_branch()
             self.git.ensure_managed_branches_available(host_branch)
@@ -2155,33 +1787,25 @@ class JriService:
         process_alive = loop_pid is not None and self._is_pid_alive(loop_pid)
 
         if process_alive:
-            raise JriError(
-                "a Ralph process is already running; use `jri attach` to follow it"
-            )
+            raise JriError("a Ralph process is already running; use `jri attach` to follow it")
 
         if doing_tasks:
             if not force:
                 slug = doing_tasks[0].slug
-                sys.stdout.write(
-                    f'Task "{slug}" has incomplete work from a crashed run.\n'
-                )
+                sys.stdout.write(f'Task "{slug}" has incomplete work from a crashed run.\n')
                 sys.stdout.write("Reset and move back to todo? [Y/n] ")
                 sys.stdout.flush()
                 choice = input().strip().lower()
                 if choice not in ("", "y"):
                     raise JriError("aborted by user")
-            reason = (
-                "dead-tracked-process" if loop_pid is not None else "no-tracked-process"
-            )
+            reason = "dead-tracked-process" if loop_pid is not None else "no-tracked-process"
             active_attempt = state.active_attempt
             if active_attempt is not None:
                 if not self._attempt_matches_task(active_attempt, doing_tasks[0]):
                     raise JriError("active attempt does not match the task in progress")
                 completion_evidence = self._attempt_completion_evidence(active_attempt)
                 if completion_evidence is not None:
-                    self._validate_attempt_host_branch(
-                        active_attempt, host_branch=host_branch
-                    )
+                    self._validate_attempt_host_branch(active_attempt, host_branch=host_branch)
                     self._record_recovery(
                         mode=mode,
                         reason="resume-completed-attempt",
@@ -2189,30 +1813,18 @@ class JriService:
                         process=process,
                         evidence=completion_evidence,
                     )
-                    self._complete_attempt(
-                        active_attempt,
-                        doing_task=doing_tasks[0],
-                        host_branch=host_branch,
-                    )
+                    self._complete_attempt(active_attempt, doing_task=doing_tasks[0], host_branch=host_branch)
                     return
                 if active_attempt.result == "completed":
                     reason = "missing-completion-evidence"
-            self._recover_stale_task(
-                doing_tasks[0],
-                mode=mode,
-                reason=reason,
-                process=process,
-                host_branch=host_branch,
-            )
+            self._recover_stale_task(doing_tasks[0], mode=mode, reason=reason, process=process, host_branch=host_branch)
             return
 
         if state.active_attempt is not None:
             active_attempt = state.active_attempt
             completion_evidence = self._attempt_completion_evidence(active_attempt)
             if completion_evidence is not None:
-                self._validate_attempt_host_branch(
-                    active_attempt, host_branch=host_branch
-                )
+                self._validate_attempt_host_branch(active_attempt, host_branch=host_branch)
                 self._record_recovery(
                     mode=mode,
                     reason="resume-completed-attempt",
@@ -2220,15 +1832,11 @@ class JriService:
                     process=process,
                     evidence=completion_evidence,
                 )
-                self._complete_attempt(
-                    active_attempt, doing_task=None, host_branch=host_branch
-                )
+                self._complete_attempt(active_attempt, doing_task=None, host_branch=host_branch)
                 return
             task_status = self._tracked_task_status(active_attempt.task_slug)
             if task_status in {"doing", "done"}:
-                self._validate_attempt_host_branch(
-                    active_attempt, host_branch=host_branch
-                )
+                self._validate_attempt_host_branch(active_attempt, host_branch=host_branch)
                 self._recover_unverified_completed_attempt(
                     active_attempt,
                     mode=mode,
@@ -2237,37 +1845,20 @@ class JriService:
                     host_branch=host_branch,
                 )
                 return
-            if active_attempt.result in {
-                "failed",
-                "incompleted",
-                "needs_human",
-                "interrupted",
-            }:
+            if active_attempt.result in {"failed", "incompleted", "needs_human", "interrupted"}:
                 self._reset_runtime_state()
                 self.state_store.clear_active_attempt()
                 return
 
         if process is not None:
-            reason = (
-                "dead-tracked-process" if loop_pid is not None else "missing-loop-pid"
-            )
-            self._record_recovery(
-                mode=mode,
-                reason=reason,
-                task_slug=None,
-                process=process,
-            )
+            reason = "dead-tracked-process" if loop_pid is not None else "missing-loop-pid"
+            self._record_recovery(mode=mode, reason=reason, task_slug=None, process=process)
             self._mark_active_attempt_interrupted()
             self._reset_runtime_state()
             return
 
         if state.started_at is not None:
-            self._record_recovery(
-                mode=mode,
-                reason="stale-task-state",
-                task_slug=None,
-                process=None,
-            )
+            self._record_recovery(mode=mode, reason="stale-task-state", task_slug=None, process=None)
             self._mark_active_attempt_interrupted()
             self._reset_runtime_state()
 
@@ -2283,13 +1874,7 @@ class JriService:
         return True
 
     def _recover_stale_task(
-        self,
-        doing_task: Task,
-        *,
-        mode: str,
-        reason: str,
-        process: ProcessState | None,
-        host_branch: str,
+        self, doing_task: Task, *, mode: str, reason: str, process: ProcessState | None, host_branch: str
     ) -> None:
         try:
             self._ensure_current_host_branch(host_branch)
@@ -2302,23 +1887,12 @@ class JriService:
                 self._sync_worktree(wt_git, host_branch=host_branch)
 
             move_task(doing_task, self.paths.task_dir("todo"))
-            self._record_recovery(
-                mode=mode,
-                reason=reason,
-                task_slug=doing_task.slug,
-                process=process,
-            )
+            self._record_recovery(mode=mode, reason=reason, task_slug=doing_task.slug, process=process)
             self._mark_active_attempt_interrupted()
             self._reset_runtime_state()
-            self.git.commit_all_if_needed(
-                MSG_RECOVER_STALE.format(slug=doing_task.slug)
-            )
+            self.git.commit_all_if_needed(MSG_RECOVER_STALE.format(slug=doing_task.slug))
         except Exception as recovery_error:
-            self._record_recovery_failure(
-                task_slug=doing_task.slug,
-                phase="recover-stale-task",
-                error=recovery_error,
-            )
+            self._record_recovery_failure(task_slug=doing_task.slug, phase="recover-stale-task", error=recovery_error)
             self.timeline.record(
                 TimelineEvent(
                     ts=TimelineStore.now_iso(),
@@ -2358,9 +1932,7 @@ class JriService:
         if state.active_attempt is None:
             return
         attempt = replace(
-            state.active_attempt,
-            finished_at=state.active_attempt.finished_at or int(time.time()),
-            result="interrupted",
+            state.active_attempt, finished_at=state.active_attempt.finished_at or int(time.time()), result="interrupted"
         )
         self.state_store.save_active_attempt(attempt)
         self._persist_attempt_history(attempt)
@@ -2370,76 +1942,51 @@ class JriService:
         branch_ok = self._host_branch_for_managed_attempt(attempt.branch) is not None
         return attempt.task_slug == task.slug and branch_ok
 
-    def _attempt_completion_evidence(
-        self, attempt: AttemptState
-    ) -> dict[str, str] | None:
+    def _attempt_completion_evidence(self, attempt: AttemptState) -> dict[str, str] | None:
         evidence: dict[str, str] = {}
         history_entry = next(
             (
                 entry
                 for entry in self._load_attempt_history(attempt.task_slug)
-                if entry.number == attempt.number
-                and entry.result == "completed"
-                and entry.finished_at is not None
+                if entry.number == attempt.number and entry.result == "completed" and entry.finished_at is not None
             ),
             None,
         )
         if history_entry is not None:
             evidence["attempt_history"] = (
-                f"{self.git.relative_path(self.paths.attempt_history_path(attempt.task_slug))}"
-                f"#{attempt.number}"
+                f"{self.git.relative_path(self.paths.attempt_history_path(attempt.task_slug))}#{attempt.number}"
             )
 
         if (self.root / "Makefile").exists():
             make_check_passed_ts = self._timeline_event_ts(
-                task_slug=attempt.task_slug,
-                event="make_check_passed",
-                not_before=attempt.started_at,
+                task_slug=attempt.task_slug, event="make_check_passed", not_before=attempt.started_at
             )
             if make_check_passed_ts is not None:
                 evidence["make_check_passed_event"] = make_check_passed_ts
 
         host_branch = self._host_branch_for_managed_attempt(attempt.branch)
         if host_branch is not None:
-            reset_point = self.state_store.reset_point_for(
-                host_branch=host_branch, task_slug=attempt.task_slug
-            )
+            reset_point = self.state_store.reset_point_for(host_branch=host_branch, task_slug=attempt.task_slug)
             if reset_point is not None and reset_point.end_commit is not None:
                 evidence["reset_point"] = reset_point.end_commit
 
         if self.paths.task_path("done", attempt.task_slug).exists():
             evidence["task_status"] = "done"
 
-        if self._is_completed_attempt_payload(
-            attempt
-        ) and self._attempt_has_unintegrated_branch_work(attempt):
+        if self._is_completed_attempt_payload(attempt) and self._attempt_has_unintegrated_branch_work(attempt):
             evidence["branch_work"] = attempt.branch
 
-        if "attempt_history" in evidence and (
-            "make_check_passed_event" in evidence or "reset_point" in evidence
-        ):
+        if "attempt_history" in evidence and ("make_check_passed_event" in evidence or "reset_point" in evidence):
             return evidence
         if "branch_work" in evidence and self._is_completed_attempt_payload(attempt):
             return evidence
-        if {
-            "task_status",
-            "reset_point",
-            "make_check_passed_event",
-        }.issubset(evidence):
+        if {"task_status", "reset_point", "make_check_passed_event"}.issubset(evidence):
             return evidence
         return None
 
-    def _timeline_event_ts(
-        self,
-        *,
-        task_slug: str,
-        event: str,
-        not_before: int | None,
-    ) -> str | None:
+    def _timeline_event_ts(self, *, task_slug: str, event: str, not_before: int | None) -> str | None:
         minimum_ts = (
-            datetime.fromtimestamp(not_before, UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-            if not_before is not None
-            else None
+            datetime.fromtimestamp(not_before, UTC).strftime("%Y-%m-%dT%H:%M:%SZ") if not_before is not None else None
         )
         for timeline_event in reversed(self.timeline.read()):
             if timeline_event.task != task_slug or timeline_event.event != event:
@@ -2456,13 +2003,7 @@ class JriService:
         return None
 
     def _recover_unverified_completed_attempt(
-        self,
-        attempt: AttemptState,
-        *,
-        mode: str,
-        reason: str,
-        process: ProcessState | None,
-        host_branch: str,
+        self, attempt: AttemptState, *, mode: str, reason: str, process: ProcessState | None, host_branch: str
     ) -> None:
         self._validate_attempt_host_branch(attempt, host_branch=host_branch)
         try:
@@ -2483,23 +2024,14 @@ class JriService:
                 task_moved = True
                 break
 
-            self._record_recovery(
-                mode=mode,
-                reason=reason,
-                task_slug=attempt.task_slug,
-                process=process,
-            )
+            self._record_recovery(mode=mode, reason=reason, task_slug=attempt.task_slug, process=process)
             self._mark_active_attempt_interrupted()
             self._reset_runtime_state()
             if task_moved:
-                self.git.commit_all_if_needed(
-                    MSG_RECOVER_STALE.format(slug=attempt.task_slug)
-                )
+                self.git.commit_all_if_needed(MSG_RECOVER_STALE.format(slug=attempt.task_slug))
         except Exception as recovery_error:
             self._record_recovery_failure(
-                task_slug=attempt.task_slug,
-                phase="recover-unverified-completed-attempt",
-                error=recovery_error,
+                task_slug=attempt.task_slug, phase="recover-unverified-completed-attempt", error=recovery_error
             )
             self.timeline.record(
                 TimelineEvent(
@@ -2516,11 +2048,7 @@ class JriService:
             raise
 
     def _complete_attempt(
-        self,
-        attempt: AttemptState,
-        *,
-        doing_task: Task | None,
-        host_branch: str | None = None,
+        self, attempt: AttemptState, *, doing_task: Task | None, host_branch: str | None = None
     ) -> None:
         if host_branch is None:
             host_branch = self.git.host_branch()
@@ -2528,28 +2056,18 @@ class JriService:
         self._validate_attempt_host_branch(attempt, host_branch=host_branch)
         self._ensure_current_host_branch(host_branch)
         if self.git.status_short():
-            raise JriError(
-                "git working tree must be clean before completing Ralph work"
-            )
+            raise JriError("git working tree must be clean before completing Ralph work")
 
-        self._integrate_completed_branch(
-            task_slug=attempt.task_slug,
-            branch=attempt.branch,
-            host_branch=host_branch,
-        )
+        self._integrate_completed_branch(task_slug=attempt.task_slug, branch=attempt.branch, host_branch=host_branch)
 
         if doing_task is not None and doing_task.path.exists():
             move_task(doing_task, self.paths.task_dir("done"))
         self.git.commit_all_if_needed(MSG_START_COMPLETE.format(slug=attempt.task_slug))
         finished_at = attempt.finished_at or int(time.time())
         end_commit = self.git.rev_parse(host_branch)
-        reset_point = self.state_store.reset_point_for(
-            host_branch=host_branch, task_slug=attempt.task_slug
-        )
+        reset_point = self.state_store.reset_point_for(host_branch=host_branch, task_slug=attempt.task_slug)
         if reset_point is not None:
-            self.state_store.save_reset_point(
-                replace(reset_point, end_commit=end_commit, finished_at=finished_at)
-            )
+            self.state_store.save_reset_point(replace(reset_point, end_commit=end_commit, finished_at=finished_at))
         self._save_diff_artifact(attempt.task_slug)
         if self.git.has_remote() and self.git.has_local_branch(attempt.branch):
             self.git.push_task_refs(branch=attempt.branch, host_branch=host_branch)
@@ -2557,10 +2075,7 @@ class JriService:
         attempt = replace(attempt, finished_at=finished_at, result="completed")
         self.state_store.save_active_attempt(attempt)
         self._persist_attempt_history(attempt)
-        self.state_store.mark_task_finished(
-            task_slug=attempt.task_slug,
-            finished_at=finished_at,
-        )
+        self.state_store.mark_task_finished(task_slug=attempt.task_slug, finished_at=finished_at)
         self.state_store.clear_process()
         self.state_store.clear_active_attempt()
 
@@ -2590,9 +2105,7 @@ class JriService:
             f"log_path={log_path or '-'}",
         ]
         if evidence:
-            evidence_summary = ",".join(
-                f"{key}:{value}" for key, value in sorted(evidence.items())
-            )
+            evidence_summary = ",".join(f"{key}:{value}" for key, value in sorted(evidence.items()))
             parts.append(f"evidence={evidence_summary}")
         line = " ".join(parts)
         self.paths.recovery_log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2612,30 +2125,20 @@ class JriService:
             )
         )
 
-    def _record_recovery_failure(
-        self,
-        *,
-        task_slug: str | None,
-        phase: str,
-        error: Exception,
-    ) -> None:
+    def _record_recovery_failure(self, *, task_slug: str | None, phase: str, error: Exception) -> None:
         timestamp = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         error_type = type(error).__name__
         error_message = str(error).replace("\n", "\\n")
-        line = " ".join(
-            (
-                timestamp,
-                "event=recovery-failure",
-                f"task={task_slug or '-'}",
-                f"phase={phase}",
-                f"error_type={error_type}",
-                f"error_message={error_message}",
-            )
-        )
+        line = " ".join((
+            timestamp,
+            "event=recovery-failure",
+            f"task={task_slug or '-'}",
+            f"phase={phase}",
+            f"error_type={error_type}",
+            f"error_message={error_message}",
+        ))
         self.paths.recovery_failures_log_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.paths.recovery_failures_log_path.open(
-            "a", encoding="utf-8"
-        ) as handle:
+        with self.paths.recovery_failures_log_path.open("a", encoding="utf-8") as handle:
             handle.write(line + "\n")
 
     def _persist_attempt_history(self, attempt: AttemptState) -> None:
@@ -2643,17 +2146,9 @@ class JriService:
         history_path.parent.mkdir(parents=True, exist_ok=True)
         if history_path.exists():
             payload: object = yaml.safe_load(history_path.read_text(encoding="utf-8"))
-            attempts = (
-                cast(dict[str, object], payload).get("attempts")
-                if isinstance(payload, dict)
-                else None
-            )
+            attempts = cast(dict[str, object], payload).get("attempts") if isinstance(payload, dict) else None
             history: list[dict[str, object]] = (
-                [
-                    cast(dict[str, object], item)
-                    for item in cast(list[object], attempts)
-                    if isinstance(item, dict)
-                ]
+                [cast(dict[str, object], item) for item in cast(list[object], attempts) if isinstance(item, dict)]
                 if isinstance(attempts, list)
                 else []
             )
@@ -2674,13 +2169,9 @@ class JriService:
             default_flow_style=False,
             allow_unicode=False,
         ).rstrip("\n")
-        history_path.write_text(
-            payload + "\n",
-            encoding="utf-8",
-        )
+        history_path.write_text(payload + "\n", encoding="utf-8")
         self.git.commit_paths_if_needed(
-            MSG_RECORD_ATTEMPT_HISTORY.format(slug=attempt.task_slug),
-            [self.git.relative_path(history_path)],
+            MSG_RECORD_ATTEMPT_HISTORY.format(slug=attempt.task_slug), [self.git.relative_path(history_path)]
         )
 
     def _recover_needs_human_task(
@@ -2699,9 +2190,7 @@ class JriService:
             if main_doing.exists():
                 main_task = parse_task_file(main_doing)
                 move_task(main_task, self.paths.task_dir("todo"))
-                self.git.commit_all_if_needed(
-                    MSG_RECOVER_NEEDS_HUMAN.format(slug=doing_task.slug)
-                )
+                self.git.commit_all_if_needed(MSG_RECOVER_NEEDS_HUMAN.format(slug=doing_task.slug))
             # Reset the worktree to reflect main's new state.
             if self.paths.worktree_dir.exists():
                 wt_git = GitRepo(self.paths.worktree_dir)
@@ -2710,19 +2199,11 @@ class JriService:
             if todo_path.exists():
                 todo_task = parse_task_file(todo_path)
                 human_task = self._create_needs_human_task(
-                    todo_task,
-                    result_payload,
-                    log_path=log_path,
-                    session_id=session_id,
-                    export_path=export_path,
+                    todo_task, result_payload, log_path=log_path, session_id=session_id, export_path=export_path
                 )
-                blocked_task = self._block_task_on_dependency(
-                    todo_task, human_task.slug
-                )
+                blocked_task = self._block_task_on_dependency(todo_task, human_task.slug)
                 self._write_task_file(blocked_task)
-                self.git.commit_all_if_needed(
-                    MSG_ESCALATE_HUMAN.format(slug=doing_task.slug)
-                )
+                self.git.commit_all_if_needed(MSG_ESCALATE_HUMAN.format(slug=doing_task.slug))
                 active_attempt = self.state_store.load().active_attempt
                 self.timeline.record(
                     TimelineEvent(
@@ -2730,16 +2211,8 @@ class JriService:
                         event="task_escalated",
                         task=doing_task.slug,
                         detail={
-                            "attempt": (
-                                active_attempt.number
-                                if active_attempt is not None
-                                else None
-                            ),
-                            "blocker": (
-                                result_payload.blocker
-                                if result_payload is not None
-                                else None
-                            ),
+                            "attempt": (active_attempt.number if active_attempt is not None else None),
+                            "blocker": (result_payload.blocker if result_payload is not None else None),
                             "human_task": human_task.slug,
                             "session_id": session_id,
                         },
@@ -2756,9 +2229,7 @@ class JriService:
             )
         except Exception as recovery_error:
             self._record_recovery_failure(
-                task_slug=doing_task.slug,
-                phase="recover-needs-human-task",
-                error=recovery_error,
+                task_slug=doing_task.slug, phase="recover-needs-human-task", error=recovery_error
             )
             self.timeline.record(
                 TimelineEvent(
@@ -2780,9 +2251,7 @@ class JriService:
                 return state.active_attempt
             if state.attempts:
                 latest = state.attempts[-1]
-                return self._best_inspect_attempt(
-                    [latest, *self._load_attempt_history(latest.task_slug)]
-                )
+                return self._best_inspect_attempt([latest, *self._load_attempt_history(latest.task_slug)])
             raise JriError("no task attempts recorded")
         matches = [attempt for attempt in state.attempts if attempt.task_slug == slug]
         if state.active_attempt is not None and state.active_attempt.task_slug == slug:
@@ -2794,12 +2263,8 @@ class JriService:
 
     def _best_inspect_attempt(self, attempts: list[AttemptState]) -> AttemptState:
         latest_number = max(attempt.number for attempt in attempts)
-        latest_attempts = [
-            attempt for attempt in attempts if attempt.number == latest_number
-        ]
-        inspectable = [
-            attempt for attempt in latest_attempts if self._attempt_log_exists(attempt)
-        ]
+        latest_attempts = [attempt for attempt in attempts if attempt.number == latest_number]
+        inspectable = [attempt for attempt in latest_attempts if self._attempt_log_exists(attempt)]
         if inspectable:
             return inspectable[-1]
         return latest_attempts[-1]
@@ -2823,21 +2288,16 @@ class JriService:
         return self._recover_missing_inspect_log(attempt)
 
     def _recover_missing_inspect_log(self, attempt: AttemptState) -> Path:
-        log_path = self.paths.ralph_log_path(
-            f"{attempt.task_slug}-inspect-recovered",
-            int(time.time()),
-        )
+        log_path = self.paths.ralph_log_path(f"{attempt.task_slug}-inspect-recovered", int(time.time()))
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text(
-            "\n".join(
-                (
-                    "JRI recovered missing inspect log.",
-                    f"Task: {attempt.task_slug}",
-                    f"Attempt: {attempt.number}",
-                    f"Result: {attempt.result or 'unknown'}",
-                    f"Original log path: {attempt.log_path or 'not recorded'}",
-                )
-            )
+            "\n".join((
+                "JRI recovered missing inspect log.",
+                f"Task: {attempt.task_slug}",
+                f"Attempt: {attempt.number}",
+                f"Result: {attempt.result or 'unknown'}",
+                f"Original log path: {attempt.log_path or 'not recorded'}",
+            ))
             + "\n",
             encoding="utf-8",
         )
@@ -2848,32 +2308,21 @@ class JriService:
                 ts=TimelineStore.now_iso(),
                 event="recovery_completed",
                 task=attempt.task_slug,
-                detail={
-                    "reason": "inspect_log_missing",
-                    "attempt": attempt.number,
-                    "log_path": str(log_path),
-                },
+                detail={"reason": "inspect_log_missing", "attempt": attempt.number, "log_path": str(log_path)},
             )
         )
         return log_path
 
     def _save_recovered_inspect_attempt(self, attempt: AttemptState) -> None:
         state = self.state_store.load()
-        attempts = [
-            attempt if self._same_attempt(existing, attempt) else existing
-            for existing in state.attempts
-        ]
-        already_recorded = any(
-            self._same_attempt(existing, attempt) for existing in state.attempts
-        )
+        attempts = [attempt if self._same_attempt(existing, attempt) else existing for existing in state.attempts]
+        already_recorded = any(self._same_attempt(existing, attempt) for existing in state.attempts)
         if not already_recorded:
             attempts.append(attempt)
         active_attempt = state.active_attempt
         if active_attempt is not None and self._same_attempt(active_attempt, attempt):
             active_attempt = attempt
-        self.state_store.save(
-            replace(state, active_attempt=active_attempt, attempts=attempts)
-        )
+        self.state_store.save(replace(state, active_attempt=active_attempt, attempts=attempts))
         self._persist_attempt_history(attempt)
 
     def _same_attempt(self, left: AttemptState, right: AttemptState) -> bool:
@@ -2884,11 +2333,7 @@ class JriService:
         if not history_path.exists():
             return []
         payload: object = yaml.safe_load(history_path.read_text(encoding="utf-8"))
-        attempts = (
-            cast(dict[str, object], payload).get("attempts")
-            if isinstance(payload, dict)
-            else None
-        )
+        attempts = cast(dict[str, object], payload).get("attempts") if isinstance(payload, dict) else None
         if not isinstance(attempts, list):
             return []
         return [
@@ -2897,9 +2342,7 @@ class JriService:
             if isinstance(item, dict)
         ]
 
-    def _save_runtime_process(
-        self, *, child_pid: int | None, task_log_path: Path
-    ) -> None:
+    def _save_runtime_process(self, *, child_pid: int | None, task_log_path: Path) -> None:
         state = self.state_store.load()
         process = state.process
         tracked_log_path: Path | None = task_log_path
@@ -2909,10 +2352,7 @@ class JriService:
             if process.log_path:
                 tracked_log_path = Path(process.log_path)
         self.state_store.save_process(
-            loop_pid=os.getpid(),
-            child_pid=child_pid,
-            log_path=tracked_log_path,
-            detached=detached,
+            loop_pid=os.getpid(), child_pid=child_pid, log_path=tracked_log_path, detached=detached
         )
 
     def _set_tracked_process_detached(self, *, detached: bool) -> None:
@@ -3009,9 +2449,7 @@ class JriService:
                 time.sleep(0.05)
 
             with log_path.open("r", encoding="utf-8") as handle:
-                renderer = SavedLogRenderer(
-                    cwd_hint=str(self.root).rstrip("/") + "/",
-                )
+                renderer = SavedLogRenderer(cwd_hint=str(self.root).rstrip("/") + "/")
                 while True:
                     chunk = handle.read()
                     if chunk:
@@ -3036,14 +2474,8 @@ class JriService:
                         _clear_footer()
                         self.halt()
                         return False
-                    process_exited = (
-                        loop_process is not None and loop_process.poll() is not None
-                    )
-                    if (
-                        process_exited
-                        or loop_pid is None
-                        or not self._is_pid_alive(loop_pid)
-                    ):
+                    process_exited = loop_process is not None and loop_process.poll() is not None
+                    if process_exited or loop_pid is None or not self._is_pid_alive(loop_pid):
                         chunk = handle.read()
                         rendered = renderer.render_chunk(chunk, final=True)
                         if rendered:
@@ -3078,10 +2510,7 @@ class JriService:
 
     def _current_follow_task(self) -> str | None:
         state = self.state_store.load()
-        if (
-            state.active_attempt is not None
-            and state.active_attempt.finished_at is None
-        ):
+        if state.active_attempt is not None and state.active_attempt.finished_at is None:
             return state.active_attempt.task_slug
         return state.current_task
 
@@ -3103,11 +2532,7 @@ class JriService:
             slug=slug,
             metadata=TaskMetadata(
                 title=human_task.title[:_MAX_TASK_TITLE_LENGTH].rstrip(),
-                priority=(
-                    human_task.priority
-                    if human_task.priority is not None
-                    else original_task.metadata.priority
-                ),
+                priority=(human_task.priority if human_task.priority is not None else original_task.metadata.priority),
                 assignee="Human",
                 depends_on=[],
                 acceptance_criteria=human_task.acceptance_criteria,
@@ -3127,9 +2552,7 @@ class JriService:
     def _save_diff_artifact(self, task_slug: str) -> None:
         """Save a diff artifact from this task's begin commit to HEAD."""
         host_branch = self.git.host_branch()
-        reset_point = self.state_store.reset_point_for(
-            host_branch=host_branch, task_slug=task_slug
-        )
+        reset_point = self.state_store.reset_point_for(host_branch=host_branch, task_slug=task_slug)
         if reset_point is None:
             return
         diff_text = self.git.diff(reset_point.begin_commit, "HEAD")
@@ -3142,18 +2565,14 @@ class JriService:
             return
         relative_path = self.git.relative_path(task.path)
         raise JriError(
-            f"lifecycle task file `{relative_path}` was modified in place; "
-            "create a follow-up todo task instead"
+            f"lifecycle task file `{relative_path}` was modified in place; create a follow-up todo task instead"
         )
 
     def _block_task_on_dependency(self, task: Task, dependency_slug: str) -> Task:
         depends_on = list(task.metadata.depends_on)
         if dependency_slug not in depends_on:
             depends_on.append(dependency_slug)
-        return replace(
-            task,
-            metadata=replace(task.metadata, depends_on=depends_on),
-        )
+        return replace(task, metadata=replace(task.metadata, depends_on=depends_on))
 
     def _write_task_file(self, task: Task) -> None:
         task.path.parent.mkdir(parents=True, exist_ok=True)
@@ -3161,11 +2580,7 @@ class JriService:
 
     def _allocate_needs_human_slug(self, original_slug: str) -> str:
         base = f"{original_slug}--needs-human"
-        used = {
-            path.stem
-            for status in _TRACKED_TASK_DIRS
-            for path in self.paths.task_dir(status).glob("*.md")
-        }
+        used = {path.stem for status in _TRACKED_TASK_DIRS for path in self.paths.task_dir(status).glob("*.md")}
         if base not in used:
             return base
         suffix = 2
@@ -3192,35 +2607,33 @@ class JriService:
         )
         session_label = session_id or "not available"
         return (
-            "\n".join(
-                (
-                    f"Ralph reported `needs_human` while working on `{original_path}`.",
-                    "",
-                    f"Complete this task to unblock `{original_task.slug}`.",
-                    "",
-                    "## Blocker",
-                    result_payload.blocker or "Not provided.",
-                    "",
-                    "## Requested human work",
-                    human_task.body,
-                    "",
-                    "## Original Ralph task",
-                    f"- Slug: `{original_task.slug}`",
-                    f"- Title: {original_task.metadata.title}",
-                    f"- Task file: `{original_path}`",
-                    "",
-                    "## Ralph summary",
-                    result_payload.summary or "Not provided.",
-                    "",
-                    "## Run artifacts",
-                    f"- Ralph log: `{log_relative}`",
-                    f"- Pi session: `{session_label}`",
-                    f"- Pi export: `{export_relative}`",
-                    "",
-                    "## Ralph task description",
-                    original_task.body,
-                )
-            ).rstrip()
+            "\n".join((
+                f"Ralph reported `needs_human` while working on `{original_path}`.",
+                "",
+                f"Complete this task to unblock `{original_task.slug}`.",
+                "",
+                "## Blocker",
+                result_payload.blocker or "Not provided.",
+                "",
+                "## Requested human work",
+                human_task.body,
+                "",
+                "## Original Ralph task",
+                f"- Slug: `{original_task.slug}`",
+                f"- Title: {original_task.metadata.title}",
+                f"- Task file: `{original_path}`",
+                "",
+                "## Ralph summary",
+                result_payload.summary or "Not provided.",
+                "",
+                "## Run artifacts",
+                f"- Ralph log: `{log_relative}`",
+                f"- Pi session: `{session_label}`",
+                f"- Pi export: `{export_relative}`",
+                "",
+                "## Ralph task description",
+                original_task.body,
+            )).rstrip()
             + "\n"
         )
 
@@ -3241,11 +2654,7 @@ class JriService:
 
 
 def _load_managed_template(name: str) -> str:
-    return (
-        files("jri.core.template")
-        .joinpath(*_template_resource_parts(name))
-        .read_text(encoding="utf-8")
-    )
+    return files("jri.core.template").joinpath(*_template_resource_parts(name)).read_text(encoding="utf-8")
 
 
 def _template_resource_parts(name: str) -> tuple[str, ...]:

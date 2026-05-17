@@ -43,35 +43,17 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--run-live-agent",
         action="store_true",
         default=False,
-        help=(
-            "run live tests against a real agent runtime and disable "
-            "pytest capture so agent output streams live"
-        ),
+        help=("run live tests against a real agent runtime and disable pytest capture so agent output streams live"),
     )
     parser.addoption(
         "--preset",
         choices=preset_choices(),
-        help=(
-            "Apply the named start preset for live agent tests. "
-            "Use 'default' to match the checked-in config."
-        ),
+        help=("Apply the named start preset for live agent tests. Use 'default' to match the checked-in config."),
     )
-    parser.addoption(
-        "--model",
-        help="Override the Ralph model for live start tests.",
-    )
-    parser.addoption(
-        "--validator-model",
-        help="Override the Ralph validator model for live start tests.",
-    )
-    parser.addoption(
-        "--general-model",
-        help="Override the general subagent model for live start tests.",
-    )
-    parser.addoption(
-        "--explore-model",
-        help="Override the explore subagent model for live start tests.",
-    )
+    parser.addoption("--model", help="Override the Ralph model for live start tests.")
+    parser.addoption("--validator-model", help="Override the Ralph validator model for live start tests.")
+    parser.addoption("--general-model", help="Override the general subagent model for live start tests.")
+    parser.addoption("--explore-model", help="Override the explore subagent model for live start tests.")
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -152,7 +134,7 @@ def git_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
     git(repo, "init", "-b", "main")
-    git(repo, "config", "user.name", "JRI Tests")
+    git(repo, "config", "user.name", "nicopujia")
     git(repo, "config", "user.email", "jri-tests@example.com")
     (repo / "README.md").write_text("# temp repo\n", encoding="utf-8")
     git(repo, "add", "README.md")

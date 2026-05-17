@@ -74,7 +74,7 @@ Intent stays in the Intent Graph until compilation creates todo tasks.
 - Every started Ralph task has persisted attempt history.
 - `jri inspect` reads the active or latest attempt and can recover a safe placeholder log when the original inspect log is missing, so failed and recovered attempts stay inspectable.
 - Missing local diagnostics tools, such as an unavailable LSP, are recorded as evidence rather than hidden.
-- Ralph should use project-native substitutes such as `make check`, lint, typecheck, build, tests, schema checks, or a small driver when optional diagnostics are unavailable.
+- Ralph should use project-native substitutes such as `make check`, lint, typecheck, build, tests, or a small driver when optional diagnostics are unavailable.
 
 ### Git History
 

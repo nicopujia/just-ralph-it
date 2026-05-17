@@ -15,11 +15,7 @@ class MetricEntry:
     result: MetricResult
 
     def to_dict(self) -> dict[str, object]:
-        return {
-            "task": self.task,
-            "ts": self.ts,
-            "result": self.result,
-        }
+        return {"task": self.task, "ts": self.ts, "result": self.result}
 
 
 @dataclass
@@ -41,10 +37,7 @@ class MetricsStore:
             tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
             tmp.replace(self.path)
         except Exception as exc:
-            print(
-                f"metrics write failed: {exc}. Entry: {json.dumps(entry.to_dict())}",
-                file=sys.stderr,
-            )
+            print(f"metrics write failed: {exc}. Entry: {json.dumps(entry.to_dict())}", file=sys.stderr)
 
     def read(self) -> list[MetricEntry]:
         if not self.path.exists():
@@ -63,9 +56,7 @@ class MetricsStore:
             task = entry.get("task")
             ts = entry.get("ts")
             result = _metric_result_or_none(entry.get("result"))
-            if not (
-                isinstance(task, str) and isinstance(ts, str) and result is not None
-            ):
+            if not (isinstance(task, str) and isinstance(ts, str) and result is not None):
                 continue
             entries.append(MetricEntry(task=task, ts=ts, result=result))
         return entries
@@ -79,9 +70,7 @@ class MetricsStore:
         passed = sum(1 for e in entries if e.result == "pass")
         failed = total - passed
         rate = round(passed / total * 100) if total > 0 else 0
-        return (
-            f"metrics: {total} runs, {passed} pass, {failed} fail ({rate}% pass rate)"
-        )
+        return f"metrics: {total} runs, {passed} pass, {failed} fail ({rate}% pass rate)"
 
     @staticmethod
     def now_iso() -> str:

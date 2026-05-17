@@ -8,9 +8,7 @@ def run_ralph_result(payload: dict[str, object]) -> str:
         raise ValueError("invalid result")
     if result == "incompleted" and not payload.get("learnings"):
         raise ValueError("incompleted requires non-empty learnings")
-    if result == "needs_human" and (
-        not payload.get("blocker") or payload.get("human_task") is None
-    ):
+    if result == "needs_human" and (not payload.get("blocker") or payload.get("human_task") is None):
         raise ValueError("needs_human requires blocker and human_task")
 
     output_path = os.environ.get("JRI_RESULT_PATH")

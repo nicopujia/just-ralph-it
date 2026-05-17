@@ -291,7 +291,7 @@ function runExplorerTask(
     };
     const killChild = () => {
       try {
-        if (process.platform !== "win32") {
+        if (process.platform !== "win32" && child.pid !== undefined) {
           process.kill(-child.pid, "SIGTERM");
         } else {
           child.kill("SIGTERM");

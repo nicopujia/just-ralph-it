@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-from jri.checks.schema import validate_repo
 from jri.core.graph import check_graph_tree, validate_graph_tree
 
 
@@ -45,9 +44,7 @@ def test_check_graph_tree_allows_missing_or_empty_root(tmp_path: Path) -> None:
     assert placeholder.errors == ()
 
 
-def test_check_graph_tree_counts_valid_active_and_archived_nodes(
-    tmp_path: Path,
-) -> None:
+def test_check_graph_tree_counts_valid_active_and_archived_nodes(tmp_path: Path) -> None:
     _write_node(tmp_path, "product", title="Product")
     _write_node(
         tmp_path,
@@ -63,16 +60,12 @@ def test_check_graph_tree_counts_valid_active_and_archived_nodes(
     assert result.archived_count == 1
     assert result.errors == ()
     validate_graph_tree(tmp_path)
-    validate_repo(tmp_path)
 
 
 def test_check_graph_tree_reports_malformed_yaml(tmp_path: Path) -> None:
     node_path = tmp_path / ".jri" / "graph" / "product" / "NODE.md"
     node_path.parent.mkdir(parents=True)
-    node_path.write_text(
-        "---\ntitle: [Product\nstate: active\n---\n\nBody\n",
-        encoding="utf-8",
-    )
+    node_path.write_text("---\ntitle: [Product\nstate: active\n---\n\nBody\n", encoding="utf-8")
 
     result = check_graph_tree(tmp_path)
 
@@ -81,15 +74,10 @@ def test_check_graph_tree_reports_malformed_yaml(tmp_path: Path) -> None:
     assert result.errors == ("product/NODE.md: invalid node metadata YAML",)
 
 
-def test_check_graph_tree_accepts_node_body_without_blank_separator(
-    tmp_path: Path,
-) -> None:
+def test_check_graph_tree_accepts_node_body_without_blank_separator(tmp_path: Path) -> None:
     node_path = tmp_path / ".jri" / "graph" / "product" / "NODE.md"
     node_path.parent.mkdir(parents=True)
-    node_path.write_text(
-        "---\ntitle: Product\nstate: active\n---\nBody without blank line\n",
-        encoding="utf-8",
-    )
+    node_path.write_text("---\ntitle: Product\nstate: active\n---\nBody without blank line\n", encoding="utf-8")
 
     result = check_graph_tree(tmp_path)
 
@@ -100,10 +88,7 @@ def test_check_graph_tree_accepts_node_body_without_blank_separator(
 
 def test_check_graph_tree_reports_unknown_frontmatter_keys(tmp_path: Path) -> None:
     node_path = _write_node(tmp_path, "product", title="Product")
-    node_path.write_text(
-        "---\ntitle: Product\nstate: active\nowner: team\n---\n\nBody\n",
-        encoding="utf-8",
-    )
+    node_path.write_text("---\ntitle: Product\nstate: active\nowner: team\n---\n\nBody\n", encoding="utf-8")
 
     result = check_graph_tree(tmp_path)
 
@@ -115,14 +100,10 @@ def test_check_graph_tree_reports_invalid_state(tmp_path: Path) -> None:
 
     result = check_graph_tree(tmp_path)
 
-    assert result.errors == (
-        "product/NODE.md: node metadata state must be active or archived",
-    )
+    assert result.errors == ("product/NODE.md: node metadata state must be active or archived",)
 
 
-def test_check_graph_tree_reports_missing_node_file_for_graph_directory(
-    tmp_path: Path,
-) -> None:
+def test_check_graph_tree_reports_missing_node_file_for_graph_directory(tmp_path: Path) -> None:
     (tmp_path / ".jri" / "graph" / "product").mkdir(parents=True)
 
     result = check_graph_tree(tmp_path)
@@ -148,9 +129,7 @@ def test_check_graph_tree_ignores_node_path_that_is_directory(tmp_path: Path) ->
 
     assert result.active_count == 0
     assert result.archived_count == 0
-    assert result.errors == (
-        "product/NODE.md: graph path must not include raw NODE.md filenames",
-    )
+    assert result.errors == ("product/NODE.md: graph path must not include raw NODE.md filenames",)
 
 
 def test_check_graph_tree_reports_symlinked_jri_escape(tmp_path: Path) -> None:
@@ -179,10 +158,7 @@ def test_check_graph_tree_reports_symlinked_node_file_escape(tmp_path: Path) -> 
     outside = tmp_path / "outside"
     outside.mkdir()
     node_file = outside / "NODE.md"
-    node_file.write_text(
-        "---\ntitle: Outside\nstate: active\n---\n\nBody\n",
-        encoding="utf-8",
-    )
+    node_file.write_text("---\ntitle: Outside\nstate: active\n---\n\nBody\n", encoding="utf-8")
     node_dir = tmp_path / ".jri" / "graph" / "product"
     node_dir.mkdir(parents=True)
     (node_dir / "NODE.md").symlink_to(node_file)
@@ -192,21 +168,15 @@ def test_check_graph_tree_reports_symlinked_node_file_escape(tmp_path: Path) -> 
     assert result.errors == ("product/NODE.md: symlink escapes .jri/graph",)
 
 
-def test_check_graph_tree_reports_symlinked_node_file_inside_graph(
-    tmp_path: Path,
-) -> None:
+def test_check_graph_tree_reports_symlinked_node_file_inside_graph(tmp_path: Path) -> None:
     _write_node(tmp_path, "shared", title="Shared")
     node_dir = tmp_path / ".jri" / "graph" / "product"
     node_dir.mkdir(parents=True)
-    (node_dir / "NODE.md").symlink_to(
-        tmp_path / ".jri" / "graph" / "shared" / "NODE.md"
-    )
+    (node_dir / "NODE.md").symlink_to(tmp_path / ".jri" / "graph" / "shared" / "NODE.md")
 
     result = check_graph_tree(tmp_path)
 
-    assert result.errors == (
-        "product/NODE.md: symlinked graph entries are unsupported",
-    )
+    assert result.errors == ("product/NODE.md: symlinked graph entries are unsupported",)
 
 
 def test_check_graph_tree_reports_symlinked_graph_entry(tmp_path: Path) -> None:
@@ -223,10 +193,7 @@ def test_check_graph_tree_reports_unexpected_files(tmp_path: Path) -> None:
     _write_node(tmp_path, "product", title="Product")
     (tmp_path / ".jri" / "graph" / "README.md").write_text("no\n", encoding="utf-8")
     (tmp_path / ".jri" / "graph" / "MANIFEST.json").write_text("{}\n", encoding="utf-8")
-    (tmp_path / ".jri" / "graph" / "product" / "extra.txt").write_text(
-        "no\n",
-        encoding="utf-8",
-    )
+    (tmp_path / ".jri" / "graph" / "product" / "extra.txt").write_text("no\n", encoding="utf-8")
 
     result = check_graph_tree(tmp_path)
 
@@ -241,27 +208,20 @@ def test_check_graph_tree_reports_archived_node_missing_reason(tmp_path: Path) -
 
     result = check_graph_tree(tmp_path)
 
-    assert result.errors == (
-        "product/NODE.md: archived node metadata requires non-empty archive_reason",
-    )
+    assert result.errors == ("product/NODE.md: archived node metadata requires non-empty archive_reason",)
 
 
 def test_check_graph_tree_reports_malformed_directory_path(tmp_path: Path) -> None:
     bad_dir = tmp_path / ".jri" / "graph" / "bad\\path"
     bad_dir.mkdir(parents=True)
-    (bad_dir / "NODE.md").write_text(
-        "---\ntitle: Bad\nstate: active\n---\n\nBody\n",
-        encoding="utf-8",
-    )
+    (bad_dir / "NODE.md").write_text("---\ntitle: Bad\nstate: active\n---\n\nBody\n", encoding="utf-8")
 
     result = check_graph_tree(tmp_path)
 
     assert result.errors == ("bad\\path: graph path must be slash-separated with `/`",)
 
 
-def test_validate_graph_tree_raises_deterministic_combined_errors(
-    tmp_path: Path,
-) -> None:
+def test_validate_graph_tree_raises_deterministic_combined_errors(tmp_path: Path) -> None:
     (tmp_path / ".jri" / "graph" / "b").mkdir(parents=True)
     (tmp_path / ".jri" / "graph" / "a").mkdir(parents=True)
 

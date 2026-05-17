@@ -40,12 +40,7 @@ class StateStore:
         self.save(replace(state, process=None))
 
     def save_process(
-        self,
-        *,
-        loop_pid: int | None,
-        child_pid: int | None,
-        log_path: Path | None,
-        detached: bool,
+        self, *, loop_pid: int | None, child_pid: int | None, log_path: Path | None, detached: bool
     ) -> None:
         state = self.load()
         process = ProcessState(
@@ -62,27 +57,15 @@ class StateStore:
 
     def start_attempt(self, attempt: AttemptState) -> None:
         state = self.load()
-        self.save(
-            replace(
-                state,
-                active_attempt=attempt,
-                attempts=[*state.attempts, attempt],
-            )
-        )
+        self.save(replace(state, active_attempt=attempt, attempts=[*state.attempts, attempt]))
 
     def save_active_attempt(self, attempt: AttemptState) -> None:
         state = self.load()
         attempt_key = (attempt.task_slug, attempt.number)
         attempts = [
-            attempt
-            if (existing.task_slug, existing.number) == attempt_key
-            else existing
-            for existing in state.attempts
+            attempt if (existing.task_slug, existing.number) == attempt_key else existing for existing in state.attempts
         ]
-        if not any(
-            (existing.task_slug, existing.number) == attempt_key
-            for existing in state.attempts
-        ):
+        if not any((existing.task_slug, existing.number) == attempt_key for existing in state.attempts):
             attempts.append(attempt)
         self.save(replace(state, active_attempt=attempt, attempts=attempts))
 
@@ -98,39 +81,19 @@ class StateStore:
         state = self.load()
         if state.current_task != task_slug:
             return
-        self.save(
-            replace(
-                state,
-                started_at=None,
-                finished_at=finished_at,
-                current_task=None,
-            )
-        )
+        self.save(replace(state, started_at=None, finished_at=finished_at, current_task=None))
 
     def save_reset_point(self, reset_point: ResetPoint) -> None:
         state = self.load()
-        reset_points = {
-            host_branch: dict(task_points)
-            for host_branch, task_points in state.reset_points.items()
-        }
-        reset_points.setdefault(reset_point.host_branch, {})[reset_point.task_slug] = (
-            reset_point
-        )
+        reset_points = {host_branch: dict(task_points) for host_branch, task_points in state.reset_points.items()}
+        reset_points.setdefault(reset_point.host_branch, {})[reset_point.task_slug] = reset_point
         self.save(replace(state, reset_points=reset_points))
 
     def reset_point_for(self, *, host_branch: str, task_slug: str) -> ResetPoint | None:
-        return self.load().reset_point_for(
-            host_branch=host_branch,
-            task_slug=task_slug,
-        )
+        return self.load().reset_point_for(host_branch=host_branch, task_slug=task_slug)
 
-    def latest_reset_point(
-        self, *, host_branch: str | None = None, task_slug: str | None = None
-    ) -> ResetPoint | None:
-        return self.load().latest_reset_point(
-            host_branch=host_branch,
-            task_slug=task_slug,
-        )
+    def latest_reset_point(self, *, host_branch: str | None = None, task_slug: str | None = None) -> ResetPoint | None:
+        return self.load().latest_reset_point(host_branch=host_branch, task_slug=task_slug)
 
     def _load_path(self, path: Path) -> State:
         text = path.read_text(encoding="utf-8")
@@ -156,15 +119,9 @@ class StateStore:
 
         backup_text = self.backup_path.read_text(encoding="utf-8")
         try:
-            state = self._state_from_text(
-                backup_text,
-                file_label=self.backup_path.name,
-            )
+            state = self._state_from_text(backup_text, file_label=self.backup_path.name)
         except JriError as exc:
-            raise JriError(
-                f"{primary_error}. Backup recovery from "
-                f"{self.backup_path.name} failed: {exc}"
-            ) from exc
+            raise JriError(f"{primary_error}. Backup recovery from {self.backup_path.name} failed: {exc}") from exc
 
         try:
             self._write_text_atomically(self.path, backup_text)

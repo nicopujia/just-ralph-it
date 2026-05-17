@@ -102,25 +102,15 @@ def test_task_source_and_exact_edit_validation_behaviors(tmp_path: Path) -> None
     assert metadata["depends_on"] == ["task-a"]
     assert body == "Implement the quality gate.\n"
 
-    metadata_again, body_again = read_task_source(
-        task_path, task_path.read_text(encoding="utf-8")
-    )
+    metadata_again, body_again = read_task_source(task_path, task_path.read_text(encoding="utf-8"))
     assert metadata_again == metadata
     assert body_again == body
 
     minimal_task_path = tmp_path / "minimal.md"
     minimal_task_path.write_text(
-        "---\n"
-        'title: "Minimal task"\n'
-        "priority: 0\n"
-        'assignee: "Human"\n'
-        "---\n\n"
-        "Body only.\n",
-        encoding="utf-8",
+        '---\ntitle: "Minimal task"\npriority: 0\nassignee: "Human"\n---\n\nBody only.\n', encoding="utf-8"
     )
-    minimal_metadata, minimal_body = read_task_source(
-        minimal_task_path, minimal_task_path.read_text(encoding="utf-8")
-    )
+    minimal_metadata, minimal_body = read_task_source(minimal_task_path, minimal_task_path.read_text(encoding="utf-8"))
     assert minimal_metadata["title"] == "Minimal task"
     assert minimal_metadata.get("depends_on") is None
     assert minimal_metadata.get("acceptance_criteria") is None
@@ -191,21 +181,13 @@ def test_load_payload_and_print_result_use_stdio(
 
 
 def test_load_payload_rejects_non_object_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "sys.stdin",
-        types.SimpleNamespace(
-            read=lambda: "[]",
-        ),
-        raising=False,
-    )
+    monkeypatch.setattr("sys.stdin", types.SimpleNamespace(read=lambda: "[]"), raising=False)
 
     with pytest.raises(ValueError, match="must be a JSON object"):
         load_payload()
 
 
-def test_service_uses_package_export_then_fallback_import(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_service_uses_package_export_then_fallback_import(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     class PackageService:
         def __init__(self, root: Path) -> None:
             self.root = root

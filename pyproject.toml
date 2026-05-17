@@ -60,6 +60,14 @@ exclude = [
 [tool.hatch.build.targets.wheel]
 packages = ["src/jri"]
 
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.format]
+preview = true
+line-ending = "lf"
+skip-magic-trailing-comma = true
+
 [tool.ruff.lint]
 select = ["E", "F", "B", "I", "UP"]
 

@@ -12,11 +12,7 @@ import yaml
 
 import jri.core.tasks as tasks_module
 from jri.core.agents.bundle._shared.tools import run_contrast_check, run_upsert_task
-from jri.core.agents.resources import (
-    resource_manifest,
-    resource_path,
-    resource_relative_path,
-)
+from jri.core.agents.resources import resource_manifest, resource_path, resource_relative_path
 from jri.core.git import GitRepo
 from jri.core.models import CompilerTaskSpec, Task, TaskMetadata
 from jri.core.tasks import (
@@ -104,11 +100,7 @@ def read_agent_sources(*names: str) -> str:
 
 
 def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
-    source = read_agent_sources(
-        "extension.ts",
-        "_shared/commits.ts",
-        "ralph/tools.ts",
-    )
+    source = read_agent_sources("extension.ts", "_shared/commits.ts", "ralph/tools.ts")
 
     assert 'pi.on("tool_call"' in source
     assert 'event.toolName !== "bash"' in source
@@ -118,9 +110,7 @@ def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
 
 
 def test_pi_extension_does_not_register_validator_approval_tool() -> None:
-    source = read_agent_sources(
-        "extension.ts", "interrogator/tools.ts", "ralph/tools.ts"
-    )
+    source = read_agent_sources("extension.ts", "interrogator/tools.ts", "ralph/tools.ts")
 
     removed_tool = "approve" + "-draft" + "-promotion"
     assert f'registerPythonTool(\n    pi,\n    "{removed_tool}"' not in source
@@ -139,9 +129,7 @@ def test_pi_extension_does_not_launch_interrogator_validator_runtime() -> None:
 
 
 def test_pi_extension_launches_ralph_validator_runtime() -> None:
-    source = read_agent_sources(
-        "extension.ts", "ralph/validator/tools.ts", "ralph/tools.ts"
-    )
+    source = read_agent_sources("extension.ts", "ralph/validator/tools.ts", "ralph/tools.ts")
 
     assert 'name: "ralph-validator"' in source
     assert 'resourcePath("prompts.ralphValidator", packageRoot)' in source
@@ -155,9 +143,7 @@ def test_pi_extension_launches_ralph_validator_runtime() -> None:
 
 
 def test_pi_extension_splits_chat_and_ralph_tool_registration() -> None:
-    source = read_agent_sources(
-        "extension.ts", "interrogator/tools.ts", "ralph/tools.ts"
-    )
+    source = read_agent_sources("extension.ts", "interrogator/tools.ts", "ralph/tools.ts")
 
     assert "function registerChatTools" in source
     assert "function registerRalphTools" in source
@@ -165,9 +151,7 @@ def test_pi_extension_splits_chat_and_ralph_tool_registration() -> None:
     assert 'registerPythonTool(\n    pi,\n    "read-readme"' in source
     assert 'registerPythonTool(\n    pi,\n    "edit-readme"' in source
     assert 'registerPythonTool(\n    pi,\n    "edit-draft-task"' not in source
-    assert 'registerPythonTool(\n    pi,\n    "upsert-task"' not in read_agent_sources(
-        "interrogator/tools.ts"
-    )
+    assert 'registerPythonTool(\n    pi,\n    "upsert-task"' not in read_agent_sources("interrogator/tools.ts")
     assert "registerExplorer(pi)" in source
 
 
@@ -225,11 +209,7 @@ def test_interrogator_validator_resources_are_not_in_manifest() -> None:
     assert "prompts.interrogatorValidator" not in manifest
 
 
-def inspect_python_tool_spawn_env(
-    tmp_path: Path,
-    *,
-    env: dict[str, str],
-) -> dict[str, object]:
+def inspect_python_tool_spawn_env(tmp_path: Path, *, env: dict[str, str]) -> dict[str, object]:
     bun = shutil.which("bun")
     assert bun is not None, "bun is required to inspect TypeScript Python tool env"
 
@@ -241,17 +221,11 @@ def inspect_python_tool_spawn_env(
         .joinpath("_shared", "tools", "runner.ts")
         .read_text(encoding="utf-8")
         .replace(
-            'import { spawnSync } from "node:child_process";',
-            'import { spawnSync } from "./child_process.ts";',
-            1,
+            'import { spawnSync } from "node:child_process";', 'import { spawnSync } from "./child_process.ts";', 1
         )
         .replace(
-            (
-                "import { PYTHON_TOOL_MAX_BUFFER, PYTHON_TOOL_TIMEOUT_MS } "
-                'from "../subagents.ts";'
-            ),
-            "const PYTHON_TOOL_MAX_BUFFER = 4 * 1024 * 1024;\n"
-            "const PYTHON_TOOL_TIMEOUT_MS = 30_000;",
+            ('import { PYTHON_TOOL_MAX_BUFFER, PYTHON_TOOL_TIMEOUT_MS } from "../subagents.ts";'),
+            "const PYTHON_TOOL_MAX_BUFFER = 4 * 1024 * 1024;\nconst PYTHON_TOOL_TIMEOUT_MS = 30_000;",
             1,
         )
     )
@@ -279,10 +253,7 @@ def inspect_python_tool_spawn_env(
         "}\n",
         encoding="utf-8",
     )
-    script = (
-        "import { runPythonTool } from './runner.ts';\n"
-        "runPythonTool('ralph-result', { result: 'completed' });\n"
-    )
+    script = "import { runPythonTool } from './runner.ts';\nrunPythonTool('ralph-result', { result: 'completed' });\n"
     subprocess.run(
         [bun, "--eval", script],
         cwd=harness,
@@ -330,11 +301,7 @@ def compiler_spec(
         priority=priority,
         assignee=assignee,
         depends_on=depends_on or [],
-        acceptance_criteria=(
-            ["The task is complete"]
-            if acceptance_criteria is None
-            else acceptance_criteria
-        ),
+        acceptance_criteria=(["The task is complete"] if acceptance_criteria is None else acceptance_criteria),
         body=body,
     )
 
@@ -343,7 +310,7 @@ def make_git_repo(tmp_path: Path) -> Path:
     repo = tmp_path / "repo"
     repo.mkdir()
     git(repo, "init", "-b", "main")
-    git(repo, "config", "user.name", "JRI Tests")
+    git(repo, "config", "user.name", "nicopujia")
     git(repo, "config", "user.email", "jri-tests@example.com")
     (repo / "README.md").write_text("# temp repo\n", encoding="utf-8")
     git(repo, "add", "README.md")
@@ -367,9 +334,7 @@ def test_select_next_task_uses_dependencies_priority_and_slug_order() -> None:
 
 def test_select_next_task_rejects_existing_doing_tasks() -> None:
     with pytest.raises(ValueError, match="already in progress"):
-        select_next_task(
-            [make_task("alpha")], done_slugs=set(), doing_tasks=[make_task("doing")]
-        )
+        select_next_task([make_task("alpha")], done_slugs=set(), doing_tasks=[make_task("doing")])
 
 
 def test_validate_task_metadata_rejects_invalid_values() -> None:
@@ -377,62 +342,48 @@ def test_validate_task_metadata_rejects_invalid_values() -> None:
         validate_task_metadata({"title": "Bad task", "priority": 1})
 
     with pytest.raises(ValueError, match="assignee"):
-        validate_task_metadata(
-            {
-                "title": "Bad task",
-                "priority": 1,
-                "assignee": "Robot",
-                "depends_on": [],
-                "acceptance_criteria": [],
-            }
-        )
+        validate_task_metadata({
+            "title": "Bad task",
+            "priority": 1,
+            "assignee": "Robot",
+            "depends_on": [],
+            "acceptance_criteria": [],
+        })
 
     with pytest.raises(ValueError, match="priority"):
-        validate_task_metadata(
-            {
-                "title": "Bad task",
-                "priority": 9,
-                "assignee": "Ralph",
-                "depends_on": [],
-                "acceptance_criteria": [],
-            }
-        )
+        validate_task_metadata({
+            "title": "Bad task",
+            "priority": 9,
+            "assignee": "Ralph",
+            "depends_on": [],
+            "acceptance_criteria": [],
+        })
 
     with pytest.raises(ValueError, match="depends_on"):
-        validate_task_metadata(
-            {
-                "title": "Bad task",
-                "priority": 1,
-                "assignee": "Ralph",
-                "depends_on": ["a", "a"],
-                "acceptance_criteria": [],
-            }
-        )
+        validate_task_metadata({
+            "title": "Bad task",
+            "priority": 1,
+            "assignee": "Ralph",
+            "depends_on": ["a", "a"],
+            "acceptance_criteria": [],
+        })
 
     with pytest.raises(ValueError, match="unexpected key"):
-        validate_task_metadata(
-            {
-                "title": "Bad task",
-                "priority": 1,
-                "assignee": "Ralph",
-                "depends_on": [],
-                "acceptance_criteria": [],
-                "status": "draft",
-            }
-        )
+        validate_task_metadata({
+            "title": "Bad task",
+            "priority": 1,
+            "assignee": "Ralph",
+            "depends_on": [],
+            "acceptance_criteria": [],
+            "status": "draft",
+        })
 
 
 def test_validate_task_metadata_defaults_optional_lists() -> None:
-    metadata = validate_task_metadata(
-        {"title": "Good task", "priority": 0, "assignee": "Human"}
-    )
+    metadata = validate_task_metadata({"title": "Good task", "priority": 0, "assignee": "Human"})
 
     assert metadata == TaskMetadata(
-        title="Good task",
-        priority=0,
-        assignee="Human",
-        depends_on=[],
-        acceptance_criteria=[],
+        title="Good task", priority=0, assignee="Human", depends_on=[], acceptance_criteria=[]
     )
 
 
@@ -442,42 +393,16 @@ def test_validate_task_metadata_defaults_optional_lists() -> None:
         ({"title": 12, "priority": 1, "assignee": "Ralph"}, "title"),
         ({"title": "a" * 76, "priority": 1, "assignee": "Ralph"}, "75"),
         ({"title": "Task", "priority": True, "assignee": "Ralph"}, "priority"),
+        ({"title": "Task", "priority": 1, "assignee": "Ralph", "depends_on": "setup"}, "depends_on"),
+        ({"title": "Task", "priority": 1, "assignee": "Ralph", "depends_on": [1]}, r"depends_on\[0\]"),
+        ({"title": "Task", "priority": 1, "assignee": "Ralph", "acceptance_criteria": "done"}, "acceptance_criteria"),
         (
-            {
-                "title": "Task",
-                "priority": 1,
-                "assignee": "Ralph",
-                "depends_on": "setup",
-            },
-            "depends_on",
-        ),
-        (
-            {"title": "Task", "priority": 1, "assignee": "Ralph", "depends_on": [1]},
-            r"depends_on\[0\]",
-        ),
-        (
-            {
-                "title": "Task",
-                "priority": 1,
-                "assignee": "Ralph",
-                "acceptance_criteria": "done",
-            },
-            "acceptance_criteria",
-        ),
-        (
-            {
-                "title": "Task",
-                "priority": 1,
-                "assignee": "Ralph",
-                "acceptance_criteria": [False],
-            },
+            {"title": "Task", "priority": 1, "assignee": "Ralph", "acceptance_criteria": [False]},
             r"acceptance_criteria\[0\]",
         ),
     ],
 )
-def test_validate_task_metadata_reports_field_contract_errors(
-    payload: dict[str, object], message: str
-) -> None:
+def test_validate_task_metadata_reports_field_contract_errors(payload: dict[str, object], message: str) -> None:
     with pytest.raises(ValueError, match=message):
         validate_task_metadata(payload)
 
@@ -487,55 +412,42 @@ def test_validate_state_payload_accepts_empty() -> None:
 
 
 def test_validate_state_payload_allows_runtime_process_metadata() -> None:
-    validate_state_payload(
-        {
-            "started_at": 1234567890,
-            "process": {
-                "loop_pid": 123,
-                "child_pid": None,
-                "log_path": ".jri/logs/ralph/task.log",
-                "detached": True,
-            },
-        }
-    )
+    validate_state_payload({
+        "started_at": 1234567890,
+        "process": {"loop_pid": 123, "child_pid": None, "log_path": ".jri/logs/ralph/task.log", "detached": True},
+    })
 
 
 def test_validate_state_payload_rejects_promotion_record() -> None:
     with pytest.raises(ValueError, match="promotion"):
-        validate_state_payload(
-            {
-                "started_at": 1234567890,
-                "promotion": {
-                    "confirmed_at": 1,
-                    "task_slugs": ["clarify-scope"],
-                    "content_digests": {
-                        "clarify-scope": "a" * 64,
-                    },
-                    "target_status": "todo",
-                },
-            }
-        )
+        validate_state_payload({
+            "started_at": 1234567890,
+            "promotion": {
+                "confirmed_at": 1,
+                "task_slugs": ["clarify-scope"],
+                "content_digests": {"clarify-scope": "a" * 64},
+                "target_status": "todo",
+            },
+        })
 
 
 def test_validate_state_payload_allows_attempt_result_payload() -> None:
-    validate_state_payload(
-        {
-            "attempts": [
-                {
-                    "number": 1,
-                    "task_slug": "retry-task",
-                    "branch": "ralph/main",
-                    "started_at": 1,
+    validate_state_payload({
+        "attempts": [
+            {
+                "number": 1,
+                "task_slug": "retry-task",
+                "branch": "ralph/main",
+                "started_at": 1,
+                "result": "incompleted",
+                "result_payload": {
                     "result": "incompleted",
-                    "result_payload": {
-                        "result": "incompleted",
-                        "summary": "Partial progress.",
-                        "learnings": ["Use the existing helper."],
-                    },
-                }
-            ]
-        }
-    )
+                    "summary": "Partial progress.",
+                    "learnings": ["Use the existing helper."],
+                },
+            }
+        ]
+    })
 
 
 @pytest.mark.parametrize(
@@ -551,54 +463,21 @@ def test_validate_state_payload_allows_attempt_result_payload() -> None:
         ({"process": {"log_path": 3}}, "process.log_path"),
         ({"process": {"detached": "yes"}}, "process.detached"),
         ({"active_attempt": "task"}, "active_attempt"),
+        ({"active_attempt": {"number": 1, "task_slug": "task", "branch": "main"}}, "active_attempt.started_at"),
         (
-            {"active_attempt": {"number": 1, "task_slug": "task", "branch": "main"}},
-            "active_attempt.started_at",
-        ),
-        (
-            {
-                "active_attempt": {
-                    "number": "1",
-                    "task_slug": "task",
-                    "branch": "main",
-                    "started_at": 1,
-                }
-            },
+            {"active_attempt": {"number": "1", "task_slug": "task", "branch": "main", "started_at": 1}},
             "active_attempt.number",
         ),
         (
-            {
-                "active_attempt": {
-                    "number": 1,
-                    "task_slug": 3,
-                    "branch": "main",
-                    "started_at": 1,
-                }
-            },
+            {"active_attempt": {"number": 1, "task_slug": 3, "branch": "main", "started_at": 1}},
             "active_attempt.task_slug",
         ),
         (
-            {
-                "active_attempt": {
-                    "number": 1,
-                    "task_slug": "task",
-                    "branch": "main",
-                    "started_at": 1,
-                    "result": "ok",
-                }
-            },
+            {"active_attempt": {"number": 1, "task_slug": "task", "branch": "main", "started_at": 1, "result": "ok"}},
             "known attempt result",
         ),
         (
-            {
-                "active_attempt": {
-                    "number": 1,
-                    "task_slug": "task",
-                    "branch": "main",
-                    "started_at": 1,
-                    "extra": True,
-                }
-            },
+            {"active_attempt": {"number": 1, "task_slug": "task", "branch": "main", "started_at": 1, "extra": True}},
             "active_attempt.extra",
         ),
         (
@@ -680,58 +559,43 @@ def test_validate_state_payload_allows_attempt_result_payload() -> None:
                     "task_slug": "task",
                     "branch": "main",
                     "started_at": 1,
-                    "result_payload": {
-                        "result": "completed",
-                        "human_task": {"title": 1, "body": "Ask", "extra": True},
-                    },
+                    "result_payload": {"result": "completed", "human_task": {"title": 1, "body": "Ask", "extra": True}},
                 }
             },
             "human_task.extra",
         ),
     ],
 )
-def test_validate_state_payload_reports_nested_contract_errors(
-    payload: dict[str, object], message: str
-) -> None:
+def test_validate_state_payload_reports_nested_contract_errors(payload: dict[str, object], message: str) -> None:
     with pytest.raises(ValueError, match=message):
         validate_state_payload(payload)
 
 
-def test_validate_state_payload_reports_extra_result_payload_and_human_priority() -> (
-    None
-):
+def test_validate_state_payload_reports_extra_result_payload_and_human_priority() -> None:
     with pytest.raises(ValueError, match="result_payload.extra"):
-        validate_state_payload(
-            {
-                "active_attempt": {
-                    "number": 1,
-                    "task_slug": "task",
-                    "branch": "main",
-                    "started_at": 1,
-                    "result_payload": {"result": "completed", "extra": True},
-                }
+        validate_state_payload({
+            "active_attempt": {
+                "number": 1,
+                "task_slug": "task",
+                "branch": "main",
+                "started_at": 1,
+                "result_payload": {"result": "completed", "extra": True},
             }
-        )
+        })
 
     with pytest.raises(ValueError, match="human_task.priority"):
-        validate_state_payload(
-            {
-                "active_attempt": {
-                    "number": 1,
-                    "task_slug": "task",
-                    "branch": "main",
-                    "started_at": 1,
-                    "result_payload": {
-                        "result": "needs_human",
-                        "human_task": {
-                            "title": "Ask human",
-                            "body": "Please decide.",
-                            "priority": True,
-                        },
-                    },
-                }
+        validate_state_payload({
+            "active_attempt": {
+                "number": 1,
+                "task_slug": "task",
+                "branch": "main",
+                "started_at": 1,
+                "result_payload": {
+                    "result": "needs_human",
+                    "human_task": {"title": "Ask human", "body": "Please decide.", "priority": True},
+                },
             }
-        )
+        })
 
 
 def test_non_schema_package_resources_are_available() -> None:
@@ -837,11 +701,7 @@ console.log(JSON.stringify({
 """
 
     result = subprocess.run(
-        [bun, "--eval", script],
-        cwd=Path(__file__).resolve().parents[2],
-        check=True,
-        capture_output=True,
-        text=True,
+        [bun, "--eval", script], cwd=Path(__file__).resolve().parents[2], check=True, capture_output=True, text=True
     )
     payload = json.loads(result.stdout)
 
@@ -851,29 +711,16 @@ console.log(JSON.stringify({
     assert payload["invalidIdMessage"] == "unknown agent resource ID: missing.resource"
 
 
-def test_typescript_agent_resource_manifest_rejects_unsafe_paths(
-    tmp_path: Path,
-) -> None:
+def test_typescript_agent_resource_manifest_rejects_unsafe_paths(tmp_path: Path) -> None:
     bun = shutil.which("bun")
     assert bun is not None, "bun is required to check the TypeScript resolver"
 
-    source_dir = (
-        Path(__file__).resolve().parents[2]
-        / "src"
-        / "jri"
-        / "core"
-        / "agents"
-        / "bundle"
-        / "_shared"
-    )
+    source_dir = Path(__file__).resolve().parents[2] / "src" / "jri" / "core" / "agents" / "bundle" / "_shared"
     harness = tmp_path / "agents"
     shared = harness / "_shared"
     shared.mkdir(parents=True)
     shutil.copyfile(source_dir / "assets.ts", shared / "assets.ts")
-    (harness / "manifest.json").write_text(
-        json.dumps({"bad.parent": "../outside"}) + "\n",
-        encoding="utf-8",
-    )
+    (harness / "manifest.json").write_text(json.dumps({"bad.parent": "../outside"}) + "\n", encoding="utf-8")
 
     script = """
 import { resourceManifest } from './_shared/assets.ts';
@@ -885,17 +732,9 @@ try {
 }
 """
 
-    result = subprocess.run(
-        [bun, "--eval", script],
-        cwd=harness,
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    result = subprocess.run([bun, "--eval", script], cwd=harness, check=True, capture_output=True, text=True)
 
-    assert result.stdout.strip() == (
-        "agent resource 'bad.parent' path must not traverse parents"
-    )
+    assert result.stdout.strip() == ("agent resource 'bad.parent' path must not traverse parents")
 
 
 def test_run_python_tool_uses_forwarded_pythonpath(tmp_path: Path) -> None:
@@ -910,11 +749,7 @@ def test_run_python_tool_uses_forwarded_pythonpath(tmp_path: Path) -> None:
     )
 
     assert captured["command"] == sys.executable
-    assert captured["args"] == [
-        "-m",
-        "jri.core.agents.bundle._shared.tools",
-        "ralph-result",
-    ]
+    assert captured["args"] == ["-m", "jri.core.agents.bundle._shared.tools", "ralph-result"]
     options_obj = captured["options"]
     assert isinstance(options_obj, dict)
     options = cast(dict[str, object], options_obj)
@@ -923,14 +758,10 @@ def test_run_python_tool_uses_forwarded_pythonpath(tmp_path: Path) -> None:
     assert options["killSignal"] == "SIGTERM"
     spawned_env = options["env"]
     assert isinstance(spawned_env, dict)
-    assert cast(dict[str, str], spawned_env)["PYTHONPATH"] == (
-        "/tmp/jri-src:/tmp/existing-path"
-    )
+    assert cast(dict[str, str], spawned_env)["PYTHONPATH"] == ("/tmp/jri-src:/tmp/existing-path")
 
 
-def test_upsert_task_tool_writes_parseable_todo_and_refuses_overwrite(
-    tmp_path: Path,
-) -> None:
+def test_upsert_task_tool_writes_parseable_todo_and_refuses_overwrite(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     (repo / ".jri" / "tasks").mkdir(parents=True)
 
@@ -983,19 +814,13 @@ def test_readme_tools_read_and_apply_exact_replacement(tmp_path: Path) -> None:
     (repo / "README.md").write_text("# Project\n\nOld summary.\n", encoding="utf-8")
 
     assert run_agent_tool(repo, {}, "read-readme") == "# Project\n\nOld summary.\n"
-    output = run_agent_tool(
-        repo,
-        {"edits": [{"oldText": "Old summary.", "newText": "New summary."}]},
-        "edit-readme",
-    )
+    output = run_agent_tool(repo, {"edits": [{"oldText": "Old summary.", "newText": "New summary."}]}, "edit-readme")
 
     result = json.loads(output)
     assert result["path"] == "README.md"
     assert result["replacements"] == 1
     assert "+New summary." in result["diff"]
-    assert (repo / "README.md").read_text(encoding="utf-8") == (
-        "# Project\n\nNew summary.\n"
-    )
+    assert (repo / "README.md").read_text(encoding="utf-8") == ("# Project\n\nNew summary.\n")
 
 
 def test_edit_readme_tool_rejects_missing_old_text(tmp_path: Path) -> None:
@@ -1004,11 +829,7 @@ def test_edit_readme_tool_rejects_missing_old_text(tmp_path: Path) -> None:
     (repo / "README.md").write_text("# Project\n", encoding="utf-8")
 
     with pytest.raises(subprocess.CalledProcessError):
-        run_agent_tool(
-            repo,
-            {"edits": [{"oldText": "Missing", "newText": "Replacement"}]},
-            "edit-readme",
-        )
+        run_agent_tool(repo, {"edits": [{"oldText": "Missing", "newText": "Replacement"}]}, "edit-readme")
 
 
 def test_readme_tools_reject_symlink(tmp_path: Path) -> None:
@@ -1021,21 +842,14 @@ def test_readme_tools_reject_symlink(tmp_path: Path) -> None:
     with pytest.raises(subprocess.CalledProcessError):
         run_agent_tool(repo, {}, "read-readme")
     with pytest.raises(subprocess.CalledProcessError):
-        run_agent_tool(
-            repo,
-            {"edits": [{"oldText": "Outside", "newText": "Inside"}]},
-            "edit-readme",
-        )
+        run_agent_tool(repo, {"edits": [{"oldText": "Outside", "newText": "Inside"}]}, "edit-readme")
 
 
 def test_upsert_task_tool_rejects_invalid_slug(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    with pytest.raises(
-        subprocess.CalledProcessError,
-        match="returned non-zero exit status",
-    ):
+    with pytest.raises(subprocess.CalledProcessError, match="returned non-zero exit status"):
         run_agent_tool(
             repo,
             {
@@ -1050,23 +864,19 @@ def test_upsert_task_tool_rejects_invalid_slug(tmp_path: Path) -> None:
         )
 
 
-def test_run_upsert_task_accepts_75_char_titles(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_run_upsert_task_accepts_75_char_titles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = tmp_path / "repo"
     (repo / ".jri" / "tasks").mkdir(parents=True)
     monkeypatch.chdir(repo)
 
     title = "a" * 75
-    result = run_upsert_task(
-        {
-            "title": title,
-            "body": "Draft the scope.\n",
-            "assignee": "Ralph",
-            "priority": 1,
-            "acceptance_criteria": ["Scope is approved"],
-        }
-    )
+    result = run_upsert_task({
+        "title": title,
+        "body": "Draft the scope.\n",
+        "assignee": "Ralph",
+        "priority": 1,
+        "acceptance_criteria": ["Scope is approved"],
+    })
 
     assert result == f"created todo task: .jri/tasks/todo/{title}.md"
     task = parse_task_file(repo / ".jri" / "tasks" / "todo" / f"{title}.md")
@@ -1075,30 +885,21 @@ def test_run_upsert_task_accepts_75_char_titles(
 
 def test_run_upsert_task_rejects_titles_over_75_chars() -> None:
     with pytest.raises(ValueError, match="75 characters or fewer"):
-        run_upsert_task(
-            {
-                "title": "a" * 76,
-                "body": "Draft the scope.\n",
-                "assignee": "Ralph",
-                "priority": 1,
-                "acceptance_criteria": ["Scope is approved"],
-            }
-        )
+        run_upsert_task({
+            "title": "a" * 76,
+            "body": "Draft the scope.\n",
+            "assignee": "Ralph",
+            "priority": 1,
+            "acceptance_criteria": ["Scope is approved"],
+        })
 
 
 def test_promote_task_tool_rejects_non_slug_entries(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
 
-    with pytest.raises(
-        subprocess.CalledProcessError,
-        match="returned non-zero exit status",
-    ):
-        run_agent_tool(
-            repo,
-            {"slugs": ["title: Build README\npriority: 1"], "check_only": True},
-            "promote-tasks",
-        )
+    with pytest.raises(subprocess.CalledProcessError, match="returned non-zero exit status"):
+        run_agent_tool(repo, {"slugs": ["title: Build README\npriority: 1"], "check_only": True}, "promote-tasks")
 
 
 def test_removed_draft_task_tools_are_not_registered(tmp_path: Path) -> None:
@@ -1106,10 +907,7 @@ def test_removed_draft_task_tools_are_not_registered(tmp_path: Path) -> None:
     repo.mkdir()
 
     for tool_name in ("edit-draft-task", "rename-task", "delete-task"):
-        with pytest.raises(
-            subprocess.CalledProcessError,
-            match="returned non-zero exit status",
-        ):
+        with pytest.raises(subprocess.CalledProcessError, match="returned non-zero exit status"):
             run_agent_tool(repo, {"slug": "clarify-scope"}, tool_name)
 
 
@@ -1117,49 +915,22 @@ def test_removed_validator_approval_tool_is_not_available(tmp_path: Path) -> Non
     repo = make_git_repo(tmp_path)
     assert run_cli(["init"], cwd=repo) == 0
 
-    with pytest.raises(
-        subprocess.CalledProcessError,
-        match="returned non-zero exit status",
-    ):
-        run_agent_tool(
-            repo,
-            {"slugs": ["clarify-scope"]},
-            "approve" + "-draft" + "-promotion",
-        )
+    with pytest.raises(subprocess.CalledProcessError, match="returned non-zero exit status"):
+        run_agent_tool(repo, {"slugs": ["clarify-scope"]}, "approve" + "-draft" + "-promotion")
 
 
 def test_contrast_check_matches_webaim_thresholds() -> None:
-    result = json.loads(
-        run_contrast_check(
-            {"foreground": "777777", "background": "FFFFFF", "standard": "AA"}
-        )
-    )
+    result = json.loads(run_contrast_check({"foreground": "777777", "background": "FFFFFF", "standard": "AA"}))
 
-    assert result == {
-        "standard": "AA",
-        "ratio": 4.48,
-        "threshold": 4.5,
-        "result": "fail",
-    }
+    assert result == {"standard": "AA", "ratio": 4.48, "threshold": 4.5, "result": "fail"}
 
 
 def test_contrast_check_supports_foreground_alpha() -> None:
     result = json.loads(
-        run_contrast_check(
-            {
-                "foreground": "0000FF80",
-                "background": "FFFFFF",
-                "standard": "GraphicsAA",
-            }
-        )
+        run_contrast_check({"foreground": "0000FF80", "background": "FFFFFF", "standard": "GraphicsAA"})
     )
 
-    assert result == {
-        "standard": "GraphicsAA",
-        "ratio": 3.29,
-        "threshold": 3.0,
-        "result": "pass",
-    }
+    assert result == {"standard": "GraphicsAA", "ratio": 3.29, "threshold": 3.0, "result": "pass"}
 
 
 def test_contrast_check_tool_executes_via_agent_tool_module(tmp_path: Path) -> None:
@@ -1167,11 +938,7 @@ def test_contrast_check_tool_executes_via_agent_tool_module(tmp_path: Path) -> N
     repo.mkdir()
 
     result = json.loads(
-        run_agent_tool(
-            repo,
-            {"foreground": "000000", "background": "FFFFFF", "standard": "AAA"},
-            "check-contrast",
-        )
+        run_agent_tool(repo, {"foreground": "000000", "background": "FFFFFF", "standard": "AAA"}, "check-contrast")
     )
 
     assert result["ratio"] == 21.0
@@ -1180,20 +947,12 @@ def test_contrast_check_tool_executes_via_agent_tool_module(tmp_path: Path) -> N
 
 def test_contrast_check_rejects_invalid_hex() -> None:
     with pytest.raises(ValueError, match="`foreground` must be a valid"):
-        run_contrast_check(
-            {"foreground": "blue", "background": "FFFFFF", "standard": "AA"}
-        )
+        run_contrast_check({"foreground": "blue", "background": "FFFFFF", "standard": "AA"})
 
 
 def test_contrast_check_rejects_invalid_standard() -> None:
     with pytest.raises(ValueError, match="`standard` must be one of"):
-        run_contrast_check(
-            {
-                "foreground": "000000",
-                "background": "FFFFFF",
-                "standard": "normal-text",
-            }
-        )
+        run_contrast_check({"foreground": "000000", "background": "FFFFFF", "standard": "normal-text"})
 
 
 def test_read_tasks_tool_reads_requested_slugs(tmp_path: Path) -> None:
@@ -1220,20 +979,8 @@ def test_read_tasks_tool_reads_requested_slugs(tmp_path: Path) -> None:
         acceptance_criteria=["UI is shipped"],
     )
 
-    single = json.loads(
-        run_agent_tool(
-            repo,
-            {"slugs": ["clarify-scope"]},
-            "read-tasks",
-        )
-    )
-    multiple = json.loads(
-        run_agent_tool(
-            repo,
-            {"slugs": ["ship-ui", "clarify-scope"]},
-            "read-tasks",
-        )
-    )
+    single = json.loads(run_agent_tool(repo, {"slugs": ["clarify-scope"]}, "read-tasks"))
+    multiple = json.loads(run_agent_tool(repo, {"slugs": ["ship-ui", "clarify-scope"]}, "read-tasks"))
 
     assert [task["slug"] for task in single] == ["clarify-scope"]
     assert single[0]["status"] == "todo"
@@ -1246,21 +993,11 @@ def test_read_tasks_tool_rejects_missing_or_invalid_inputs(tmp_path: Path) -> No
     repo = make_git_repo(tmp_path)
     assert run_cli(["init"], cwd=repo) == 0
 
-    with pytest.raises(
-        subprocess.CalledProcessError,
-        match="returned non-zero exit status",
-    ):
+    with pytest.raises(subprocess.CalledProcessError, match="returned non-zero exit status"):
         run_agent_tool(repo, {}, "read-tasks")
 
-    with pytest.raises(
-        subprocess.CalledProcessError,
-        match="returned non-zero exit status",
-    ):
-        run_agent_tool(
-            repo,
-            {"slugs": []},
-            "read-tasks",
-        )
+    with pytest.raises(subprocess.CalledProcessError, match="returned non-zero exit status"):
+        run_agent_tool(repo, {"slugs": []}, "read-tasks")
 
 
 def test_list_tasks_tool_lists_and_filters_by_status(tmp_path: Path) -> None:
@@ -1288,13 +1025,7 @@ def test_list_tasks_tool_lists_and_filters_by_status(tmp_path: Path) -> None:
     )
 
     all_tasks = json.loads(run_agent_tool(repo, {}, "list-tasks"))
-    done_tasks = json.loads(
-        run_agent_tool(
-            repo,
-            {"status": "done"},
-            "list-tasks",
-        )
-    )
+    done_tasks = json.loads(run_agent_tool(repo, {"status": "done"}, "list-tasks"))
 
     assert [task["slug"] for task in all_tasks] == ["clarify-scope", "setup"]
     assert [task["status"] for task in all_tasks] == ["todo", "done"]
@@ -1317,15 +1048,8 @@ def test_list_tasks_tool_rejects_invalid_status(tmp_path: Path) -> None:
     repo = make_git_repo(tmp_path)
     assert run_cli(["init"], cwd=repo) == 0
 
-    with pytest.raises(
-        subprocess.CalledProcessError,
-        match="returned non-zero exit status",
-    ):
-        run_agent_tool(
-            repo,
-            {"status": "blocked"},
-            "list-tasks",
-        )
+    with pytest.raises(subprocess.CalledProcessError, match="returned non-zero exit status"):
+        run_agent_tool(repo, {"status": "blocked"}, "list-tasks")
 
 
 def test_upsert_task_tool_rejects_symlinked_todo_dir(tmp_path: Path) -> None:
@@ -1335,10 +1059,7 @@ def test_upsert_task_tool_rejects_symlinked_todo_dir(tmp_path: Path) -> None:
     (repo / ".jri" / "tasks").mkdir(parents=True)
     (repo / ".jri" / "tasks" / "todo").symlink_to(outside, target_is_directory=True)
 
-    with pytest.raises(
-        subprocess.CalledProcessError,
-        match="returned non-zero exit status",
-    ):
+    with pytest.raises(subprocess.CalledProcessError, match="returned non-zero exit status"):
         run_agent_tool(
             repo,
             {
@@ -1355,9 +1076,7 @@ def test_upsert_task_tool_rejects_symlinked_todo_dir(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("symlink_path", [".jri", ".jri/tasks"])
-def test_upsert_task_tool_rejects_symlinked_parent_dir(
-    tmp_path: Path, symlink_path: str
-) -> None:
+def test_upsert_task_tool_rejects_symlinked_parent_dir(tmp_path: Path, symlink_path: str) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     outside = tmp_path / "outside"
@@ -1366,10 +1085,7 @@ def test_upsert_task_tool_rejects_symlinked_parent_dir(
     target.parent.mkdir(parents=True, exist_ok=True)
     target.symlink_to(outside, target_is_directory=True)
 
-    with pytest.raises(
-        subprocess.CalledProcessError,
-        match="returned non-zero exit status",
-    ):
+    with pytest.raises(subprocess.CalledProcessError, match="returned non-zero exit status"):
         run_agent_tool(
             repo,
             {
@@ -1393,10 +1109,7 @@ def test_upsert_task_tool_rejects_symlinked_todo_file(tmp_path: Path) -> None:
     todo_dir.mkdir(parents=True)
     (todo_dir / "clarify-scope.md").symlink_to(outside)
 
-    with pytest.raises(
-        subprocess.CalledProcessError,
-        match="returned non-zero exit status",
-    ):
+    with pytest.raises(subprocess.CalledProcessError, match="returned non-zero exit status"):
         run_agent_tool(
             repo,
             {
@@ -1414,16 +1127,11 @@ def test_upsert_task_tool_rejects_symlinked_todo_file(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("criteria", [None, []])
-def test_upsert_task_tool_requires_non_empty_acceptance_criteria(
-    tmp_path: Path, criteria: list[str] | None
-) -> None:
+def test_upsert_task_tool_requires_non_empty_acceptance_criteria(tmp_path: Path, criteria: list[str] | None) -> None:
     repo = tmp_path / "repo"
     (repo / ".jri" / "tasks").mkdir(parents=True)
 
-    with pytest.raises(
-        subprocess.CalledProcessError,
-        match="returned non-zero exit status",
-    ):
+    with pytest.raises(subprocess.CalledProcessError, match="returned non-zero exit status"):
         run_agent_tool(
             repo,
             {
@@ -1476,10 +1184,7 @@ def test_parse_task_file_reads_body_without_blank_separator(tmp_path: Path) -> N
 
 def test_parse_task_file_rejects_invalid_filename_slug(tmp_path: Path) -> None:
     task_path = tmp_path / "bad slug.md"
-    task_path.write_text(
-        "---\ntitle: Bad slug\npriority: 1\nassignee: Ralph\n---\n\nBody\n",
-        encoding="utf-8",
-    )
+    task_path.write_text("---\ntitle: Bad slug\npriority: 1\nassignee: Ralph\n---\n\nBody\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="task filename `bad slug.md`"):
         parse_task_file(task_path)
@@ -1509,9 +1214,7 @@ def test_parse_task_file_rejects_non_object_frontmatter(tmp_path: Path) -> None:
         parse_task_file(task_path)
 
 
-def test_parse_task_file_allows_fenced_code_in_frontmatter_block_scalars(
-    tmp_path: Path,
-) -> None:
+def test_parse_task_file_allows_fenced_code_in_frontmatter_block_scalars(tmp_path: Path) -> None:
     task_path = tmp_path / "document-parser.md"
     task_path.write_text(
         "---\n"
@@ -1535,9 +1238,7 @@ def test_parse_task_file_allows_fenced_code_in_frontmatter_block_scalars(
     assert task.body == "Explain the parser fix.\n"
 
 
-def test_parse_task_file_allows_markdown_like_plain_scalars_in_frontmatter(
-    tmp_path: Path,
-) -> None:
+def test_parse_task_file_allows_markdown_like_plain_scalars_in_frontmatter(tmp_path: Path) -> None:
     task_path = tmp_path / "implement-computer-ai.md"
     task_path.write_text(
         "---\n"
@@ -1561,8 +1262,7 @@ def test_parse_task_file_allows_markdown_like_plain_scalars_in_frontmatter(
     assert task.metadata.depends_on == ["implement-tripos-engine"]
     assert task.metadata.acceptance_criteria == [
         "The app exposes two computer difficulties: `Normal` and `Insane`.",
-        "Automated tests cover at least: legal move rejection and "
-        "perfect-play choices.",
+        "Automated tests cover at least: legal move rejection and perfect-play choices.",
     ]
 
 
@@ -1628,10 +1328,7 @@ def test_list_tasks_rejects_in_place_edits_for_todo_tasks(git_repo: Path) -> Non
     git(git_repo, "commit", "-m", "add todo task")
 
     todo_path = git_repo / ".jri" / "tasks" / "todo" / "clarify-scope.md"
-    todo_path.write_text(
-        todo_path.read_text(encoding="utf-8") + "\nMutated in place.\n",
-        encoding="utf-8",
-    )
+    todo_path.write_text(todo_path.read_text(encoding="utf-8") + "\nMutated in place.\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="modified in place"):
         list_tasks(todo_path.parent, git_repo=GitRepo(git_repo))
@@ -1645,12 +1342,10 @@ def test_list_tasks_sorts_by_slug_and_wraps_malformed_files(tmp_path: Path) -> N
     tasks_dir = tmp_path / "tasks"
     tasks_dir.mkdir()
     (tasks_dir / "zeta.md").write_text(
-        dump_task(make_task("zeta", acceptance_criteria=["Zeta done"])),
-        encoding="utf-8",
+        dump_task(make_task("zeta", acceptance_criteria=["Zeta done"])), encoding="utf-8"
     )
     (tasks_dir / "alpha.md").write_text(
-        dump_task(make_task("alpha", acceptance_criteria=["Alpha done"])),
-        encoding="utf-8",
+        dump_task(make_task("alpha", acceptance_criteria=["Alpha done"])), encoding="utf-8"
     )
 
     assert [task.slug for task in list_tasks(tasks_dir)] == ["alpha", "zeta"]
@@ -1664,18 +1359,13 @@ def test_lifecycle_task_files_require_acceptance_criteria(tmp_path: Path) -> Non
     todo_dir = tmp_path / ".jri" / "tasks" / "todo"
     todo_dir.mkdir(parents=True)
     task_path = todo_dir / "missing-criteria.md"
-    task_path.write_text(
-        "---\ntitle: Missing criteria\npriority: 1\nassignee: Ralph\n---\n\nBody\n",
-        encoding="utf-8",
-    )
+    task_path.write_text("---\ntitle: Missing criteria\npriority: 1\nassignee: Ralph\n---\n\nBody\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="non-empty acceptance_criteria"):
         parse_task_file(task_path)
 
 
-def test_create_task_batch_accepts_existing_done_dependency_and_normalizes_slug(
-    tmp_path: Path,
-) -> None:
+def test_create_task_batch_accepts_existing_done_dependency_and_normalizes_slug(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     (repo / ".jri" / "tasks" / "done").mkdir(parents=True)
     write_task(
@@ -1734,10 +1424,7 @@ def test_create_task_batch_rejects_symlinked_todo_directory(tmp_path: Path) -> N
     outside = tmp_path / "outside"
     outside.mkdir()
     (repo / ".jri" / "tasks").mkdir(parents=True)
-    (repo / ".jri" / "tasks" / "todo").symlink_to(
-        outside,
-        target_is_directory=True,
-    )
+    (repo / ".jri" / "tasks" / "todo").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(ValueError, match="outside `.jri/tasks/todo`"):
         create_task_batch(repo, [compiler_spec("Safe write")])
@@ -1771,9 +1458,7 @@ def test_create_task_batch_ignores_cleanup_failure_after_write_failure(
     original_write_text = Path.write_text
     original_unlink = Path.unlink
 
-    def write_text_with_second_task_failure(
-        self: Path, data: str, encoding: str | None = None
-    ) -> int:
+    def write_text_with_second_task_failure(self: Path, data: str, encoding: str | None = None) -> int:
         if self.name == "second-task.md":
             raise OSError("disk full")
         return original_write_text(self, data, encoding=encoding)
@@ -1787,17 +1472,13 @@ def test_create_task_batch_ignores_cleanup_failure_after_write_failure(
     monkeypatch.setattr(Path, "unlink", unlink_with_cleanup_failure)
 
     with pytest.raises(OSError, match="disk full"):
-        create_task_batch(
-            repo, [compiler_spec("First task"), compiler_spec("Second task")]
-        )
+        create_task_batch(repo, [compiler_spec("First task"), compiler_spec("Second task")])
 
     first_task = repo / ".jri" / "tasks" / "todo" / "first-task.md"
     assert parse_task_file(first_task).slug == "first-task"
 
 
-def test_create_task_batch_rejects_racy_existing_todo_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_create_task_batch_rejects_racy_existing_todo_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = tmp_path / "repo"
     todo_dir = repo / ".jri" / "tasks" / "todo"
     todo_dir.mkdir(parents=True)
@@ -1807,19 +1488,13 @@ def test_create_task_batch_rejects_racy_existing_todo_path(
         del root
         return set()
 
-    monkeypatch.setattr(
-        tasks_module,
-        "_existing_lifecycle_task_slugs",
-        fake_existing_lifecycle_task_slugs,
-    )
+    monkeypatch.setattr(tasks_module, "_existing_lifecycle_task_slugs", fake_existing_lifecycle_task_slugs)
 
     with pytest.raises(ValueError, match="refusing to overwrite existing task"):
         create_task_batch(repo, [compiler_spec("Safe write")])
 
 
-def test_create_task_batch_rejects_racy_symlink_escape_path(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_create_task_batch_rejects_racy_symlink_escape_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = tmp_path / "repo"
     outside = tmp_path / "outside.md"
     outside.write_text("outside\n", encoding="utf-8")
@@ -1831,11 +1506,7 @@ def test_create_task_batch_rejects_racy_symlink_escape_path(
         del root
         return set()
 
-    monkeypatch.setattr(
-        tasks_module,
-        "_existing_lifecycle_task_slugs",
-        fake_existing_lifecycle_task_slugs,
-    )
+    monkeypatch.setattr(tasks_module, "_existing_lifecycle_task_slugs", fake_existing_lifecycle_task_slugs)
 
     with pytest.raises(ValueError, match="outside `.jri/tasks/todo`"):
         create_task_batch(repo, [compiler_spec("Safe write")])
@@ -1876,13 +1547,7 @@ def test_parse_task_file_rejects_frontmatter_when_yaml_mark_is_missing(
 ) -> None:
     task_path = tmp_path / "missing-mark.md"
     task_path.write_text(
-        "---\n"
-        "title: Missing mark\n"
-        "priority: 1\n"
-        "assignee: Ralph\n"
-        "acceptance_criteria:\n"
-        "  - It parses\n"
-        "---\n",
+        "---\ntitle: Missing mark\npriority: 1\nassignee: Ralph\nacceptance_criteria:\n  - It parses\n---\n",
         encoding="utf-8",
     )
 
@@ -1990,9 +1655,7 @@ def test_parse_task_file_normalizes_comments_block_dedents_and_crlf(
         "Body\r\n"
     )
 
-    def read_exact_text(
-        _self: Path, encoding: str | None = None, errors: str | None = None
-    ) -> str:
+    def read_exact_text(_self: Path, encoding: str | None = None, errors: str | None = None) -> str:
         assert encoding == "utf-8"
         assert errors is None
         return text
@@ -2005,30 +1668,14 @@ def test_parse_task_file_normalizes_comments_block_dedents_and_crlf(
     assert task.metadata.acceptance_criteria == ["It parses: with colon"]
 
 
-def test_parse_task_file_rejects_unquoted_empty_and_boolean_plain_scalars(
-    tmp_path: Path,
-) -> None:
+def test_parse_task_file_rejects_unquoted_empty_and_boolean_plain_scalars(tmp_path: Path) -> None:
     empty_item = tmp_path / "empty-item.md"
     empty_item.write_text(
-        "---\n"
-        "title: Empty item\n"
-        "priority: 1\n"
-        "assignee: Ralph\n"
-        "acceptance_criteria:\n"
-        "  - \n"
-        "---\n",
-        encoding="utf-8",
+        "---\ntitle: Empty item\npriority: 1\nassignee: Ralph\nacceptance_criteria:\n  - \n---\n", encoding="utf-8"
     )
     boolean_title = tmp_path / "boolean-title.md"
     boolean_title.write_text(
-        "---\n"
-        "title: true\n"
-        "priority: 1\n"
-        "assignee: Ralph\n"
-        "acceptance_criteria:\n"
-        "  - It parses\n"
-        "---\n",
-        encoding="utf-8",
+        "---\ntitle: true\npriority: 1\nassignee: Ralph\nacceptance_criteria:\n  - It parses\n---\n", encoding="utf-8"
     )
 
     with pytest.raises(ValueError, match=r"acceptance_criteria\[0\]"):
@@ -2041,26 +1688,11 @@ def test_parse_task_file_normalizes_plain_scalar_without_line_ending(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     task_path = tmp_path / "no-line-ending.md"
-    text = (
-        "---\n"
-        "title: No newline\n"
-        "priority: 1\n"
-        "assignee: Ralph\n"
-        "acceptance_criteria:\n"
-        "  - Needs: quote---\n"
-        "Body\n"
-    )
+    text = "---\ntitle: No newline\npriority: 1\nassignee: Ralph\nacceptance_criteria:\n  - Needs: quote---\nBody\n"
     task_path.write_text(text, encoding="utf-8")
 
     class Mark:
-        index = len(
-            "---\n"
-            "title: No newline\n"
-            "priority: 1\n"
-            "assignee: Ralph\n"
-            "acceptance_criteria:\n"
-            "  - Needs: quote"
-        )
+        index = len("---\ntitle: No newline\npriority: 1\nassignee: Ralph\nacceptance_criteria:\n  - Needs: quote")
 
     def fake_parse_mark(text: str) -> list[object]:
         del text

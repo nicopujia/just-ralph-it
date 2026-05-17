@@ -19,10 +19,7 @@ _START_PROCESS_TIMEOUT_SECONDS = 2400
 
 
 def test_e2e_intent_to_converged_software(
-    git_repo: Path,
-    run_live_agent: bool,
-    preset: str | None,
-    tmp_path: Path,
+    git_repo: Path, run_live_agent: bool, preset: str | None, tmp_path: Path
 ) -> None:
     if not run_live_agent:
         pytest.skip("pass -L/--run-live-agent to enable live agent E2E tests")
@@ -80,45 +77,18 @@ def test_e2e_intent_to_converged_software(
     assert git(git_repo, "status", "--short", "--untracked-files=all") == ""
 
 
-def _run(
-    args: list[str],
-    *,
-    cwd: Path,
-    env: dict[str, str],
-    timeout: int = 120,
-) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(
-        args,
-        cwd=cwd,
-        env=env,
-        text=True,
-        capture_output=True,
-        timeout=timeout,
-        check=False,
-    )
+def _run(args: list[str], *, cwd: Path, env: dict[str, str], timeout: int = 120) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(args, cwd=cwd, env=env, text=True, capture_output=True, timeout=timeout, check=False)
     assert result.returncode == 0, (
-        f"command failed: {' '.join(args)}\n"
-        f"stdout:\n{result.stdout}\n"
-        f"stderr:\n{result.stderr}"
+        f"command failed: {' '.join(args)}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
     )
     return result
 
 
 def _run_with_heartbeat(
-    args: list[str],
-    *,
-    cwd: Path,
-    env: dict[str, str],
-    label: str,
-    timeout: int,
+    args: list[str], *, cwd: Path, env: dict[str, str], label: str, timeout: int
 ) -> subprocess.CompletedProcess[str]:
-    process = subprocess.Popen(
-        args,
-        cwd=cwd,
-        env=env,
-        text=True,
-        start_new_session=True,
-    )
+    process = subprocess.Popen(args, cwd=cwd, env=env, text=True, start_new_session=True)
     deadline = time.monotonic() + timeout
     while True:
         try:
@@ -130,13 +100,9 @@ def _run_with_heartbeat(
             if time.monotonic() <= deadline:
                 continue
             _terminate_process_group(process)
-            raise AssertionError(
-                f"command timed out after {timeout}s: {_command_label(args)}"
-            ) from exc
+            raise AssertionError(f"command timed out after {timeout}s: {_command_label(args)}") from exc
 
-    assert returncode == 0, (
-        f"command failed with status {returncode}: {_command_label(args)}"
-    )
+    assert returncode == 0, f"command failed with status {returncode}: {_command_label(args)}"
     return subprocess.CompletedProcess(args=args, returncode=returncode)
 
 
@@ -233,32 +199,10 @@ def _assert_markit_behavior(repo: Path, *, env: dict[str, str]) -> None:
     assert markit.is_file()
     markit_env = {**env, "PATH": f"{repo}{os.pathsep}{env.get('PATH', '')}"}
 
-    add_example = _run(
-        [
-            "markit",
-            "add",
-            "https://example.com",
-            "Example",
-            "--tag",
-            "docs",
-        ],
-        cwd=repo,
-        env=markit_env,
-    )
+    add_example = _run(["markit", "add", "https://example.com", "Example", "--tag", "docs"], cwd=repo, env=markit_env)
     assert add_example.stdout.strip() == "added 1 Example https://example.com"
 
-    add_python = _run(
-        [
-            "markit",
-            "add",
-            "https://python.org",
-            "Python",
-            "--tag",
-            "language",
-        ],
-        cwd=repo,
-        env=markit_env,
-    )
+    add_python = _run(["markit", "add", "https://python.org", "Python", "--tag", "language"], cwd=repo, env=markit_env)
     assert add_python.stdout.strip() == "added 2 Python https://python.org"
 
     listed = _run(["markit", "list"], cwd=repo, env=markit_env).stdout.splitlines()
@@ -267,18 +211,18 @@ def _assert_markit_behavior(repo: Path, *, env: dict[str, str]) -> None:
         "2 [active] Python https://python.org tags=language",
     ]
 
-    assert _run(
-        ["markit", "search", "docs"], cwd=repo, env=markit_env
-    ).stdout.splitlines() == ["1 [active] Example https://example.com tags=docs"]
-    assert _run(
-        ["markit", "search", "example"], cwd=repo, env=markit_env
-    ).stdout.splitlines() == ["1 [active] Example https://example.com tags=docs"]
-    assert _run(
-        ["markit", "search", "DoCs"], cwd=repo, env=markit_env
-    ).stdout.splitlines() == ["1 [active] Example https://example.com tags=docs"]
-    assert _run(
-        ["markit", "search", "PY"], cwd=repo, env=markit_env
-    ).stdout.splitlines() == ["2 [active] Python https://python.org tags=language"]
+    assert _run(["markit", "search", "docs"], cwd=repo, env=markit_env).stdout.splitlines() == [
+        "1 [active] Example https://example.com tags=docs"
+    ]
+    assert _run(["markit", "search", "example"], cwd=repo, env=markit_env).stdout.splitlines() == [
+        "1 [active] Example https://example.com tags=docs"
+    ]
+    assert _run(["markit", "search", "DoCs"], cwd=repo, env=markit_env).stdout.splitlines() == [
+        "1 [active] Example https://example.com tags=docs"
+    ]
+    assert _run(["markit", "search", "PY"], cwd=repo, env=markit_env).stdout.splitlines() == [
+        "2 [active] Python https://python.org tags=language"
+    ]
 
     archived = _run(["markit", "archive", "1"], cwd=repo, env=markit_env)
     assert archived.stdout.strip() == "archived 1"
@@ -287,40 +231,24 @@ def _assert_markit_behavior(repo: Path, *, env: dict[str, str]) -> None:
         "2 [active] Python https://python.org tags=language"
     ]
     assert _run(["markit", "search", "example"], cwd=repo, env=markit_env).stdout == ""
-    assert _run(
-        ["markit", "list", "--all"], cwd=repo, env=markit_env
-    ).stdout.splitlines() == [
+    assert _run(["markit", "list", "--all"], cwd=repo, env=markit_env).stdout.splitlines() == [
         "1 [archived] Example https://example.com tags=docs",
         "2 [active] Python https://python.org tags=language",
     ]
 
     missing = subprocess.run(
-        ["markit", "archive", "999"],
-        cwd=repo,
-        env=markit_env,
-        text=True,
-        capture_output=True,
-        check=False,
+        ["markit", "archive", "999"], cwd=repo, env=markit_env, text=True, capture_output=True, check=False
     )
     assert missing.returncode != 0
     assert "999" in missing.stderr
 
 
-def _assert_jri_run_artifacts(
-    repo: Path,
-    *,
-    slugs: list[str],
-    env: dict[str, str],
-) -> None:
+def _assert_jri_run_artifacts(repo: Path, *, slugs: list[str], env: dict[str, str]) -> None:
     status = _run(["jri", "status"], cwd=repo, env=env).stdout
     assert "done" in status
     assert "todo" in status
     assert list_tasks(repo / ".jri" / "tasks" / "doing") == []
-    assert [
-        task
-        for task in list_tasks(repo / ".jri" / "tasks" / "todo")
-        if task.metadata.assignee == "Ralph"
-    ] == []
+    assert [task for task in list_tasks(repo / ".jri" / "tasks" / "todo") if task.metadata.assignee == "Ralph"] == []
     tags = set(git(repo, "tag").splitlines())
 
     for slug in slugs:
@@ -329,11 +257,7 @@ def _assert_jri_run_artifacts(
         assert (repo / ".jri" / "tasks" / "done" / f"{slug}.md").exists()
         assert not (repo / ".jri" / "tasks" / "todo" / f"{slug}.md").exists()
         assert not (repo / ".jri" / "tasks" / "doing" / f"{slug}.md").exists()
-        assert (
-            (repo / ".jri" / "logs" / "diffs" / f"{slug}.diff")
-            .read_text(encoding="utf-8")
-            .strip()
-        )
+        assert (repo / ".jri" / "logs" / "diffs" / f"{slug}.diff").read_text(encoding="utf-8").strip()
         assert (repo / ".jri" / "attempts" / f"{slug}.yaml").exists()
         assert not (repo / ".jri" / "attempts" / f"{slug}.json").exists()
         inspected = _run(["jri", "inspect", slug], cwd=repo, env=env).stdout

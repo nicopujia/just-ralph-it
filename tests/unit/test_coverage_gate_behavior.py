@@ -19,11 +19,7 @@ from jri.core.agents.client import (
 from jri.core.errors import JriError
 
 
-def invoke_tool(
-    monkeypatch: pytest.MonkeyPatch,
-    tool_name: str,
-    payload: object,
-) -> int:
+def invoke_tool(monkeypatch: pytest.MonkeyPatch, tool_name: str, payload: object) -> int:
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
     return tools.main([tool_name])
 
@@ -46,15 +42,13 @@ def write_todo_task(repo: Path, slug: str, body: str = "Original body.\n") -> Pa
     task_path.parent.mkdir(parents=True, exist_ok=True)
     task_path.write_text(
         "---\n"
-        + json.dumps(
-            {
-                "title": slug.replace("-", " ").title(),
-                "priority": 1,
-                "assignee": "Ralph",
-                "depends_on": [],
-                "acceptance_criteria": ["observable"],
-            }
-        )
+        + json.dumps({
+            "title": slug.replace("-", " ").title(),
+            "priority": 1,
+            "assignee": "Ralph",
+            "depends_on": [],
+            "acceptance_criteria": ["observable"],
+        })
         + "\n---\n\n"
         + body,
         encoding="utf-8",
@@ -66,9 +60,10 @@ def test_saved_log_renderer_tracks_task_tools_and_filters_duplicate_events() -> 
     renderer = SavedLogRenderer(cwd_hint="/repo/")
     seen: set[str] = set()
 
-    assert render_saved_event(
-        {"payload": {"type": "message_update", "text": "hi"}}, seen_tool_calls=seen
-    ) == ("hi", False)
+    assert render_saved_event({"payload": {"type": "message_update", "text": "hi"}}, seen_tool_calls=seen) == (
+        "hi",
+        False,
+    )
     assert renderer.render_chunk("plain line\n") == "plain line\n"
 
     first_tool = cast(
@@ -80,10 +75,7 @@ def test_saved_log_renderer_tracks_task_tools_and_filters_duplicate_events() -> 
                     "type": "tool",
                     "tool": "task",
                     "callID": "call-1",
-                    "state": {
-                        "status": "running",
-                        "input": {"description": "inspect repo"},
-                    },
+                    "state": {"status": "running", "input": {"description": "inspect repo"}},
                 }
             },
         },
@@ -109,38 +101,24 @@ def test_saved_log_renderer_tracks_task_tools_and_filters_duplicate_events() -> 
     assert newline_before is True
     assert "read src/module.py" in text
 
-    assert renderer.render_event(
-        {"type": "tool_execution_update", "toolCallId": "call-2"}
-    ) == ("", False)
+    assert renderer.render_event({"type": "tool_execution_update", "toolCallId": "call-2"}) == ("", False)
     assert (
         renderer.render_chunk(
-            json.dumps(
-                {
-                    "type": "message.part.delta",
-                    "properties": {"field": "text", "delta": "done"},
-                }
-            ),
-            final=True,
+            json.dumps({"type": "message.part.delta", "properties": {"field": "text", "delta": "done"}}), final=True
         )
         == "done"
     )
 
 
-def test_parse_event_line_and_result_payload_validation(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_parse_event_line_and_result_payload_validation(capsys: pytest.CaptureFixture[str]) -> None:
     assert _parse_event_line("not-json") == (None, "not-json", False)
     assert _parse_event_line("[]") == (None, None, False)
-    assert _parse_event_line(
-        json.dumps({"type": "message_update", "delta": "hello"})
-    ) == (
+    assert _parse_event_line(json.dumps({"type": "message_update", "delta": "hello"})) == (
         {"type": "message_update", "delta": "hello"},
         "hello",
         False,
     )
-    event, text, is_tool_output = _parse_event_line(
-        json.dumps({"type": "tool_execution_end", "output": "x" * 4000})
-    )
+    event, text, is_tool_output = _parse_event_line(json.dumps({"type": "tool_execution_end", "output": "x" * 4000}))
     assert event == {"type": "tool_execution_end", "output": "x" * 4000}
     assert text is not None and "trimmed" in text
     assert is_tool_output is True
@@ -155,36 +133,32 @@ def test_parse_event_line_and_result_payload_validation(
     assert "requires non-empty" in capsys.readouterr().err
     assert (
         _parse_result_payload(
-            json.dumps(
-                {
-                    "result": "needs_human",
-                    "blocker": "decision needed",
-                    "human_task": {
-                        "slug": "not-accepted",
-                        "title": "Choose path",
-                        "body": "Pick one.",
-                        "acceptance_criteria": ["choice exists"],
-                    },
-                }
-            )
+            json.dumps({
+                "result": "needs_human",
+                "blocker": "decision needed",
+                "human_task": {
+                    "slug": "not-accepted",
+                    "title": "Choose path",
+                    "body": "Pick one.",
+                    "acceptance_criteria": ["choice exists"],
+                },
+            })
         )[0]
         is None
     )
     assert "slug` is not supported" in capsys.readouterr().err
 
     payload, warnings = _parse_result_payload(
-        json.dumps(
-            {
-                "result": "needs_human",
-                "blocker": "decision needed",
-                "human_task": {
-                    "title": "Choose path",
-                    "body": "Pick one.",
-                    "acceptance_criteria": ["choice exists"],
-                    "priority": 2,
-                },
-            }
-        )
+        json.dumps({
+            "result": "needs_human",
+            "blocker": "decision needed",
+            "human_task": {
+                "title": "Choose path",
+                "body": "Pick one.",
+                "acceptance_criteria": ["choice exists"],
+                "priority": 2,
+            },
+        })
     )
     assert warnings == []
     assert payload is not None
@@ -193,23 +167,15 @@ def test_parse_event_line_and_result_payload_validation(
     assert payload.human_task.priority == 2
 
 
-def test_launch_chat_builds_managed_capability_command(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_launch_chat_builds_managed_capability_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     package_root = tmp_path / "package"
     (package_root / "interrogator").mkdir(parents=True)
     (package_root / "ralph" / "skills" / "alpha").mkdir(parents=True)
-    (package_root / "ralph" / "skills" / "file.txt").write_text(
-        "ignored", encoding="utf-8"
-    )
+    (package_root / "ralph" / "skills" / "file.txt").write_text("ignored", encoding="utf-8")
     calls: list[tuple[list[str], Path, dict[str, str]]] = []
 
     def fake_run(
-        command: list[str],
-        *,
-        cwd: Path,
-        env: dict[str, str],
-        check: bool,
+        command: list[str], *, cwd: Path, env: dict[str, str], check: bool
     ) -> subprocess.CompletedProcess[str]:
         calls.append((command, cwd, env))
         assert check is False
@@ -233,52 +199,28 @@ def test_launch_chat_builds_managed_capability_command(
     assert cwd == tmp_path
     assert env["JRI_CHAT_RUNTIME"] == "1"
     assert env["EXTRA"] == "1"
-    assert command[:5] == [
-        "pi-fake",
-        "--session-dir",
-        str(tmp_path / "sessions"),
-        "--session",
-        "ses_123",
-    ]
+    assert command[:5] == ["pi-fake", "--session-dir", str(tmp_path / "sessions"), "--session", "ses_123"]
     assert "--no-extensions" in command
     assert "--extension" in command
     assert str(package_root / "extension.ts") in command
     assert str(package_root / "interrogator" / "prompt.md") in command
 
     with pytest.raises(JriError, match="unsupported arg: --tools"):
-        launch_chat(
-            root=tmp_path,
-            session_id=None,
-            extra_args=["--tools=read"],
-            binary="pi-fake",
-        )
+        launch_chat(root=tmp_path, session_id=None, extra_args=["--tools=read"], binary="pi-fake")
 
 
 def test_tool_upsert_task_rejects_invalid_metadata_and_symlinked_task(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    assert (
-        invoke_tool(monkeypatch, "upsert-task", valid_task_payload(title="x" * 76)) == 1
-    )
+    assert invoke_tool(monkeypatch, "upsert-task", valid_task_payload(title="x" * 76)) == 1
     assert "75 characters" in capsys.readouterr().err
-    assert (
-        invoke_tool(monkeypatch, "upsert-task", valid_task_payload(assignee="Bot")) == 1
-    )
+    assert invoke_tool(monkeypatch, "upsert-task", valid_task_payload(assignee="Bot")) == 1
     assert "Ralph" in capsys.readouterr().err
-    assert (
-        invoke_tool(monkeypatch, "upsert-task", valid_task_payload(priority=True)) == 1
-    )
+    assert invoke_tool(monkeypatch, "upsert-task", valid_task_payload(priority=True)) == 1
     assert "integer from 0 to 4" in capsys.readouterr().err
-    assert (
-        invoke_tool(
-            monkeypatch, "upsert-task", valid_task_payload(depends_on=["dup", "dup"])
-        )
-        == 1
-    )
+    assert invoke_tool(monkeypatch, "upsert-task", valid_task_payload(depends_on=["dup", "dup"])) == 1
     assert "must not contain duplicates" in capsys.readouterr().err
     assert invoke_tool(monkeypatch, "upsert-task", valid_task_payload(title="!!!")) == 1
     assert "could not derive" in capsys.readouterr().err
@@ -288,23 +230,17 @@ def test_tool_upsert_task_rejects_invalid_metadata_and_symlinked_task(
     todo_dir = tmp_path / ".jri" / "tasks" / "todo"
     todo_dir.mkdir(parents=True, exist_ok=True)
     (todo_dir / "linked.md").symlink_to(outside)
-    assert (
-        invoke_tool(monkeypatch, "upsert-task", valid_task_payload(slug="linked")) == 1
-    )
+    assert invoke_tool(monkeypatch, "upsert-task", valid_task_payload(slug="linked")) == 1
     assert "refusing to write outside `.jri/tasks/`" in capsys.readouterr().err
 
 
 def test_tool_task_writes_reject_existing_todo_conflicts_and_removed_tools(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.chdir(tmp_path)
     write_todo_task(tmp_path, "source")
 
-    assert (
-        invoke_tool(monkeypatch, "upsert-task", valid_task_payload(slug="source")) == 1
-    )
+    assert invoke_tool(monkeypatch, "upsert-task", valid_task_payload(slug="source")) == 1
     assert "refusing to overwrite existing todo task" in capsys.readouterr().err
 
     for removed_tool in ("rename-task", "delete-task", "edit-draft-task"):
@@ -313,9 +249,7 @@ def test_tool_task_writes_reject_existing_todo_conflicts_and_removed_tools(
 
 
 def test_tool_list_and_read_tasks_validate_empty_and_filtered_requests(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     class FakeService:
         def __init__(self, root: Path) -> None:

@@ -16,11 +16,11 @@ It is OK if the user discards or pivots the idea mid-interrogation. Treat the co
 
 Right after the first message, quickly estimate the repo shape. Use the `explore` tool for bounded read-only repository discovery when the repo has existing code or the user's request depends on unknown project structure. If the repo is empty or nearly empty, say that directly and begin interrogation instead of launching broad exploration.
 
-If the user provides a URL as canonical context, do not ask whether to use it. Delegate an `explore` task to fetch and summarize that exact URL first, then ask only about ambiguities that remain.
+If the user provides a URL or media as canonical context, do not ask whether to use it. Delegate an `explore` task to fetch and summarize that exact content first, then ask only about ambiguities that remain.
 
 ## Questioning
 
-Ask enough questions until you are 100% sure there is no room to make any assumption. Thoroughness is mandatory, but question ergonomics matter: batch related low-level ambiguity into coherent decision groups instead of discovering one tiny edge case at a time.
+Ask enough questions until you are 100% sure there is no room to make any assumption. Thoroughness is mandatory, but question ergonomics matter: batch related low-level ambiguity into coherent decision groups instead of discovering one tiny edge case at a time. If they are multiple choice, include sensible defaults as the first option.
 
 There is no fixed length limit for interrogation. Do not start implementation. Iterate in conversation before work is compiled for Ralph.
 
