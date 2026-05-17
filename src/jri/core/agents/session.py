@@ -14,10 +14,7 @@ from .resources import resource_relative_path
 
 @contextmanager
 def runtime_env(
-    *,
-    overrides: dict[str, str | None],
-    config_name: str = "package.json",
-    included_agents: set[str] | None = None,
+    *, overrides: dict[str, str | None], config_name: str = "package.json", included_agents: set[str] | None = None
 ) -> Generator[dict[str, str]]:
     del config_name, included_agents
     with tempfile.TemporaryDirectory(prefix="jri-pi-") as tmp_dir:
@@ -35,12 +32,7 @@ def runtime_env(
         }
 
 
-def call_with_runtime(
-    runtime: AgentRuntime,
-    *,
-    root: Path,
-    operation: Callable[[], Any],
-) -> Any:
+def call_with_runtime(runtime: AgentRuntime, *, root: Path, operation: Callable[[], Any]) -> Any:
     if isinstance(runtime, PiRuntime) and not runtime.is_healthy():
         with runtime_env(overrides={}) as env:
             runtime.start(env=env, cwd=root)
@@ -51,24 +43,13 @@ def call_with_runtime(
     return operation()
 
 
-def list_sessions(
-    runtime: AgentRuntime,
-    *,
-    root: Path,
-) -> list[dict[str, object]]:
+def list_sessions(runtime: AgentRuntime, *, root: Path) -> list[dict[str, object]]:
     if isinstance(runtime, PiRuntime):
         return runtime.list_sessions(root=root)
-    return call_with_runtime(
-        runtime, root=root, operation=lambda: runtime.list_sessions(root=root)
-    )
+    return call_with_runtime(runtime, root=root, operation=lambda: runtime.list_sessions(root=root))
 
 
-def detect_latest_session(
-    *,
-    root: Path,
-    before: set[str],
-    sessions: list[dict[str, object]],
-) -> str | None:
+def detect_latest_session(*, root: Path, before: set[str], sessions: list[dict[str, object]]) -> str | None:
     for session in sessions:
         session_id = session.get("id")
         directory = session.get("directory")
@@ -78,11 +59,7 @@ def detect_latest_session(
     for session in sessions:
         session_id = session.get("id")
         directory = session.get("directory")
-        if (
-            isinstance(session_id, str)
-            and isinstance(directory, str)
-            and Path(directory).resolve() == root
-        ):
+        if isinstance(session_id, str) and isinstance(directory, str) and Path(directory).resolve() == root:
             return session_id
     return None
 
@@ -101,11 +78,7 @@ def export_session_if_available(
     export_path = destination_dir / f"{session_id}.json"
     export_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        call_with_runtime(
-            runtime,
-            root=root,
-            operation=lambda: runtime.export_session(session_id, export_path),
-        )
+        call_with_runtime(runtime, root=root, operation=lambda: runtime.export_session(session_id, export_path))
     except JriError as exc:
         error_msg = f"Failed to export session {session_id}: {exc}"
         print(error_msg, file=sys.stderr)
@@ -114,19 +87,14 @@ def export_session_if_available(
                 ts=TimelineStore.now_iso(),
                 event="export_failed",
                 task=task_slug,
-                detail={
-                    "session_id": session_id,
-                    "error": str(exc),
-                },
+                detail={"session_id": session_id, "error": str(exc)},
             )
         )
         return None
     return export_path
 
 
-def _write_package_manifest(
-    bundle_root: Path, *, overrides: dict[str, str | None]
-) -> None:
+def _write_package_manifest(bundle_root: Path, *, overrides: dict[str, str | None]) -> None:
     package = {
         "name": "jri-pi-runtime",
         "private": True,
@@ -138,13 +106,9 @@ def _write_package_manifest(
             "tools": [_manifest_parent_reference("tools.pythonRunner")],
             "themes": [_manifest_top_level_reference("themes.modernYellow")],
         },
-        "jri": {
-            "models": {name: model for name, model in overrides.items() if model},
-        },
+        "jri": {"models": {name: model for name, model in overrides.items() if model}},
     }
-    (bundle_root / "package.json").write_text(
-        __import__("json").dumps(package, indent=2) + "\n", encoding="utf-8"
-    )
+    (bundle_root / "package.json").write_text(__import__("json").dumps(package, indent=2) + "\n", encoding="utf-8")
 
 
 def _manifest_reference(resource_id: str) -> str:

@@ -15,10 +15,7 @@ _DEFAULT_GENERAL_MODEL = "openrouter/qwen/qwen3-30b-a3b-thinking-2507"
 _DEFAULT_EXPLORE_MODEL = "openrouter/z-ai/glm-4.7-flash"
 _PRESET_CONFIG: dict[str, object] = {
     "default": {
-        "chat": {
-            "model": _DEFAULT_CHAT_MODEL,
-            "explore_model": _DEFAULT_EXPLORE_MODEL,
-        },
+        "chat": {"model": _DEFAULT_CHAT_MODEL, "explore_model": _DEFAULT_EXPLORE_MODEL},
         "start": {
             "model": _DEFAULT_START_MODEL,
             "validator_model": _DEFAULT_VALIDATOR_MODEL,
@@ -27,10 +24,7 @@ _PRESET_CONFIG: dict[str, object] = {
         },
     },
     "openai": {
-        "chat": {
-            "model": "openai-codex/gpt-5.4",
-            "explore_model": "openai-codex/gpt-5.4-mini",
-        },
+        "chat": {"model": "openai-codex/gpt-5.4", "explore_model": "openai-codex/gpt-5.4-mini"},
         "start": {
             "model": "openai-codex/gpt-5.4",
             "validator_model": "openai-codex/gpt-5.4",
@@ -46,14 +40,9 @@ def preset_choices() -> tuple[str, ...]:
 
 
 def resolve_preset_models(
-    preset: str | None,
-    *,
-    mode: PresetMode,
-    overrides: dict[str, str | None],
+    preset: str | None, *, mode: PresetMode, overrides: dict[str, str | None]
 ) -> dict[str, str | None]:
-    resolved: dict[str, str | None] = {
-        name: value for name, value in _preset_models(preset, mode=mode).items()
-    }
+    resolved: dict[str, str | None] = {name: value for name, value in _preset_models(preset, mode=mode).items()}
     for name, value in overrides.items():
         if value is not None:
             resolved[name] = value
@@ -80,10 +69,7 @@ def _configured_preset_models(preset: str, *, mode: PresetMode) -> dict[str, str
     if not isinstance(mode_data, dict):
         raise JriError(f"failed to resolve preset '{preset}' mode '{mode}'")
     mode_data = cast(dict[str, object], mode_data)
-    return {
-        name: _extract_preset_model(mode_data, preset, mode, name)
-        for name in _preset_fields(mode)
-    }
+    return {name: _extract_preset_model(mode_data, preset, mode, name) for name in _preset_fields(mode)}
 
 
 def _preset_fields(mode: PresetMode) -> tuple[str, ...]:
@@ -92,15 +78,10 @@ def _preset_fields(mode: PresetMode) -> tuple[str, ...]:
     return _START_FIELDS
 
 
-def _extract_preset_model(
-    mode_data: dict[str, object], preset: str, mode: PresetMode, field_name: str
-) -> str:
+def _extract_preset_model(mode_data: dict[str, object], preset: str, mode: PresetMode, field_name: str) -> str:
     value = mode_data.get(field_name)
     if not isinstance(value, str):
-        raise JriError(
-            "failed to resolve preset model for "
-            f"preset '{preset}' mode '{mode}' field '{field_name}'"
-        )
+        raise JriError(f"failed to resolve preset model for preset '{preset}' mode '{mode}' field '{field_name}'")
     return value
 
 

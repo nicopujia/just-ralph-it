@@ -41,38 +41,17 @@ REQUIRED_TEMPLATE_RESOURCES = {
     "src/jri/core/template/learnings.md",
 }
 
-FORBIDDEN_ARTIFACT_PARTS = {
-    "__pycache__",
-    ".sisyphus",
-    ".jri",
-    "htmlcov",
-    ".pytest_cache",
-}
+FORBIDDEN_ARTIFACT_PARTS = {"__pycache__", ".sisyphus", ".jri", "htmlcov", ".pytest_cache"}
 
-FORBIDDEN_ARTIFACT_NAMES = {
-    ".coverage",
-    "coverage.xml",
-}
+FORBIDDEN_ARTIFACT_NAMES = {".coverage", "coverage.xml"}
 
-FORBIDDEN_ARTIFACT_SUFFIXES = {
-    ".pyc",
-    ".pyo",
-}
+FORBIDDEN_ARTIFACT_SUFFIXES = {".pyc", ".pyo"}
 
-FORBIDDEN_PACKAGED_JAVASCRIPT_SUFFIXES = {
-    ".js",
-    ".mjs",
-}
+FORBIDDEN_PACKAGED_JAVASCRIPT_SUFFIXES = {".js", ".mjs"}
 
 
-def test_built_wheel_and_sdist_include_agent_runtime_resources(
-    tmp_path: Path,
-) -> None:
-    subprocess.run(
-        ["uv", "build", "--out-dir", str(tmp_path)],
-        check=True,
-        cwd=Path(__file__).resolve().parents[2],
-    )
+def test_built_wheel_and_sdist_include_agent_runtime_resources(tmp_path: Path) -> None:
+    subprocess.run(["uv", "build", "--out-dir", str(tmp_path)], check=True, cwd=Path(__file__).resolve().parents[2])
 
     wheel_paths = sorted(tmp_path.glob("*.whl"))
     sdist_paths = sorted(tmp_path.glob("*.tar.gz"))
@@ -81,16 +60,12 @@ def test_built_wheel_and_sdist_include_agent_runtime_resources(
     assert len(sdist_paths) == 1
     _assert_required_resources(
         _wheel_names(wheel_paths[0]),
-        required_paths={
-            name.removeprefix("src/")
-            for name in REQUIRED_AGENT_RESOURCES | REQUIRED_TEMPLATE_RESOURCES
-        },
+        required_paths={name.removeprefix("src/") for name in REQUIRED_AGENT_RESOURCES | REQUIRED_TEMPLATE_RESOURCES},
     )
     _assert_required_resources(
         sdist_names := _sdist_names(sdist_paths[0]),
         required_paths={
-            f"{_sdist_root(sdist_names)}/{name}"
-            for name in REQUIRED_AGENT_RESOURCES | REQUIRED_TEMPLATE_RESOURCES
+            f"{_sdist_root(sdist_names)}/{name}" for name in REQUIRED_AGENT_RESOURCES | REQUIRED_TEMPLATE_RESOURCES
         },
     )
 
@@ -106,9 +81,7 @@ def _sdist_names(path: Path) -> set[str]:
 
 
 def _sdist_root(names: set[str]) -> str:
-    roots = {
-        PurePosixPath(name).parts[0] for name in names if PurePosixPath(name).parts
-    }
+    roots = {PurePosixPath(name).parts[0] for name in names if PurePosixPath(name).parts}
     assert len(roots) == 1
     return roots.pop()
 
@@ -133,6 +106,4 @@ def _is_packaged_stale_javascript(path: PurePosixPath) -> bool:
         return False
 
     parts = path.parts
-    return parts[0] == "jri" or any(
-        parts[index : index + 2] == ("src", "jri") for index in range(len(parts) - 1)
-    )
+    return parts[0] == "jri" or any(parts[index : index + 2] == ("src", "jri") for index in range(len(parts) - 1))

@@ -3,12 +3,8 @@ import re
 
 
 def run_contrast_check(payload: dict[str, object]) -> str:
-    foreground = _normalize_hex_color(
-        "foreground", payload.get("foreground"), allow_alpha=True
-    )
-    background = _normalize_hex_color(
-        "background", payload.get("background"), allow_alpha=False
-    )
+    foreground = _normalize_hex_color("foreground", payload.get("foreground"), allow_alpha=True)
+    background = _normalize_hex_color("background", payload.get("background"), allow_alpha=False)
     standard, threshold = _assert_contrast_standard(payload.get("standard"))
 
     fg_red, fg_green, fg_blue, fg_alpha = _hex_to_rgba(foreground)
@@ -41,41 +37,24 @@ def _normalize_hex_color(name: str, value: object, *, allow_alpha: bool) -> str:
     allowed_lengths = {3, 6}
     if allow_alpha:
         allowed_lengths |= {4, 8}
-    if len(normalized) not in allowed_lengths or not re.fullmatch(
-        r"[0-9a-fA-F]+", normalized
-    ):
-        raise ValueError(
-            f"`{name}` must be a valid {sorted(allowed_lengths)}-digit hex color"
-        )
+    if len(normalized) not in allowed_lengths or not re.fullmatch(r"[0-9a-fA-F]+", normalized):
+        raise ValueError(f"`{name}` must be a valid {sorted(allowed_lengths)}-digit hex color")
     if len(normalized) in {3, 4}:
         normalized = "".join(ch * 2 for ch in normalized)
     return normalized.upper()
 
 
 def _assert_contrast_standard(value: object) -> tuple[str, float]:
-    thresholds = {
-        "AA": 4.5,
-        "AALarge": 3.0,
-        "AAA": 7.0,
-        "AAALarge": 4.5,
-        "GraphicsAA": 3.0,
-    }
+    thresholds = {"AA": 4.5, "AALarge": 3.0, "AAA": 7.0, "AAALarge": 4.5, "GraphicsAA": 3.0}
     if not isinstance(value, str) or value not in thresholds:
-        raise ValueError(
-            "`standard` must be one of: AA, AALarge, AAA, AAALarge, GraphicsAA"
-        )
+        raise ValueError("`standard` must be one of: AA, AALarge, AAA, AAALarge, GraphicsAA")
     return value, thresholds[value]
 
 
 def _hex_to_rgba(color: str) -> tuple[int, int, int, int | None]:
     if len(color) == 6:
         return int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16), None
-    return (
-        int(color[0:2], 16),
-        int(color[2:4], 16),
-        int(color[4:6], 16),
-        int(color[6:8], 16),
-    )
+    return (int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16), int(color[6:8], 16))
 
 
 def _relative_luminance(red: float, green: float, blue: float) -> float:

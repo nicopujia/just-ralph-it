@@ -23,10 +23,7 @@ def test_timeline_event_to_jsonl_omits_none_fields() -> None:
 
 def test_timeline_event_to_jsonl_includes_optional_fields() -> None:
     event = TimelineEvent(
-        ts="2025-01-01T00:00:00Z",
-        event="task_failed",
-        task="my-task",
-        detail={"reason": "make_check"},
+        ts="2025-01-01T00:00:00Z", event="task_failed", task="my-task", detail={"reason": "make_check"}
     )
     line = event.to_jsonl()
     payload = __import__("json").loads(line)
@@ -38,20 +35,8 @@ def test_timeline_store_record_and_read(tmp_path: Path) -> None:
     path = tmp_path / "timeline.jsonl"
     store = TimelineStore(path)
 
-    store.record(
-        TimelineEvent(
-            ts="2025-01-01T00:00:00Z",
-            event="attempt_started",
-            task="task-a",
-        )
-    )
-    store.record(
-        TimelineEvent(
-            ts="2025-01-01T00:01:00Z",
-            event="task_completed",
-            task="task-a",
-        )
-    )
+    store.record(TimelineEvent(ts="2025-01-01T00:00:00Z", event="attempt_started", task="task-a"))
+    store.record(TimelineEvent(ts="2025-01-01T00:01:00Z", event="task_completed", task="task-a"))
 
     events = store.read()
     assert len(events) == 2
@@ -74,9 +59,7 @@ def test_timeline_store_read_skips_malformed_lines(tmp_path: Path) -> None:
 
 
 def test_timeline_store_record_reports_write_failures(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "timeline.jsonl"
     store = TimelineStore(path)

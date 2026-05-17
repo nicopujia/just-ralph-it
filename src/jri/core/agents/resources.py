@@ -45,7 +45,5 @@ def _validate_manifest_path(resource_id: str, raw_path: str) -> str:
     if path.is_absolute() or PureWindowsPath(raw_path).is_absolute() or not path.parts:
         raise ValueError(f"agent resource '{resource_id}' path must be relative")
     if any(part in {"", ".", ".."} for part in path.parts):
-        raise ValueError(
-            f"agent resource '{resource_id}' path must not traverse parents"
-        )
+        raise ValueError(f"agent resource '{resource_id}' path must not traverse parents")
     return path.as_posix()

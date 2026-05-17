@@ -59,18 +59,14 @@ class TimeoutThenExitProcess(FakeProcess):
     def wait(self, timeout: int | float | None = None) -> int:
         self.wait_timeouts.append(timeout)
         if len(self.wait_timeouts) == 1:
-            raise subprocess.TimeoutExpired(
-                cmd="pi", timeout=0 if timeout is None else timeout
-            )
+            raise subprocess.TimeoutExpired(cmd="pi", timeout=0 if timeout is None else timeout)
         return 0
 
 
 class AlwaysTimeoutProcess(FakeProcess):
     def wait(self, timeout: int | float | None = None) -> int:
         self.wait_timeouts.append(timeout)
-        raise subprocess.TimeoutExpired(
-            cmd="pi", timeout=0 if timeout is None else timeout
-        )
+        raise subprocess.TimeoutExpired(cmd="pi", timeout=0 if timeout is None else timeout)
 
 
 def write_session_file(repo: Path, session_id: str, *, cwd: Path | None = None) -> Path:
@@ -95,18 +91,9 @@ def test_render_saved_event_ignores_malformed_events_and_deduplicates_tools() ->
         {"type": "message.part.delta", "properties": {"field": "thinking"}},
         {"type": "message.part.updated"},
         {"type": "message.part.updated", "properties": {"part": "tool"}},
-        {
-            "type": "message.part.updated",
-            "properties": {"part": {"type": "text"}},
-        },
-        {
-            "type": "message.part.updated",
-            "properties": {"part": {"type": "tool"}},
-        },
-        {
-            "type": "message.part.updated",
-            "properties": {"part": {"type": "tool", "state": {"status": "done"}}},
-        },
+        {"type": "message.part.updated", "properties": {"part": {"type": "text"}}},
+        {"type": "message.part.updated", "properties": {"part": {"type": "tool"}}},
+        {"type": "message.part.updated", "properties": {"part": {"type": "tool", "state": {"status": "done"}}}},
         {"type": "message_start"},
         {"type": "unknown"},
     ]
@@ -115,22 +102,17 @@ def test_render_saved_event_ignores_malformed_events_and_deduplicates_tools() ->
         assert render_saved_event(event, seen_tool_calls=seen) == ("", False)
 
     text, newline_before = render_saved_event(
-        {
-            "type": "tool_execution_start",
-            "toolCallId": "call-1",
-            "toolName": "bash",
-            "input": {"command": "x" * 90},
-        },
+        {"type": "tool_execution_start", "toolCallId": "call-1", "toolName": "bash", "input": {"command": "x" * 90}},
         seen_tool_calls=seen,
     )
 
     assert newline_before is True
     assert "bash " in text
     assert "..." in text
-    assert render_saved_event(
-        {"type": "tool_execution_update", "toolCallId": "call-1"},
-        seen_tool_calls=seen,
-    ) == ("", False)
+    assert render_saved_event({"type": "tool_execution_update", "toolCallId": "call-1"}, seen_tool_calls=seen) == (
+        "",
+        False,
+    )
 
     text, newline_before = render_saved_event(
         {
@@ -151,12 +133,7 @@ def test_render_saved_event_ignores_malformed_events_and_deduplicates_tools() ->
     assert "read /outside.py" in text
     assert (
         render_saved_event(
-            {
-                "type": "tool_execution_start",
-                "toolName": "todowrite",
-                "input": {"todos": []},
-            },
-            seen_tool_calls=seen,
+            {"type": "tool_execution_start", "toolName": "todowrite", "input": {"todos": []}}, seen_tool_calls=seen
         )[1]
         is True
     )
@@ -164,13 +141,7 @@ def test_render_saved_event_ignores_malformed_events_and_deduplicates_tools() ->
     text, newline_before = render_saved_event(
         {
             "type": "message.part.updated",
-            "properties": {
-                "part": {
-                    "type": "tool",
-                    "tool": "bash",
-                    "state": {"status": "running"},
-                }
-            },
+            "properties": {"part": {"type": "tool", "tool": "bash", "state": {"status": "running"}}},
         },
         seen_tool_calls=seen,
     )
@@ -181,12 +152,7 @@ def test_render_saved_event_ignores_malformed_events_and_deduplicates_tools() ->
         {
             "type": "message.part.updated",
             "properties": {
-                "part": {
-                    "type": "tool",
-                    "id": "call-3",
-                    "tool": "unknown-tool",
-                    "state": {"status": "running"},
-                }
+                "part": {"type": "tool", "id": "call-3", "tool": "unknown-tool", "state": {"status": "running"}}
             },
         },
         seen_tool_calls=seen,
@@ -195,9 +161,7 @@ def test_render_saved_event_ignores_malformed_events_and_deduplicates_tools() ->
     assert "unknown-tool" in text
 
 
-def test_saved_log_renderer_preserves_plain_text_and_ignores_non_rendered_json() -> (
-    None
-):
+def test_saved_log_renderer_preserves_plain_text_and_ignores_non_rendered_json() -> None:
     renderer = client_module.SavedLogRenderer()
 
     assert renderer.render_chunk("partial") == ""
@@ -217,29 +181,22 @@ def test_saved_log_renderer_task_tracking_guards_and_legacy_task_events() -> Non
         {"type": "message.part.updated"},
         {"type": "message.part.updated", "properties": {"part": "task"}},
         {"type": "message.part.updated", "properties": {"part": {"type": "text"}}},
+        {"type": "message.part.updated", "properties": {"part": {"type": "tool", "tool": "task"}}},
         {
             "type": "message.part.updated",
-            "properties": {"part": {"type": "tool", "tool": "task"}},
-        },
-        {
-            "type": "message.part.updated",
-            "properties": {
-                "part": {"type": "tool", "tool": "task", "state": {"status": "done"}}
-            },
+            "properties": {"part": {"type": "tool", "tool": "task", "state": {"status": "done"}}},
         },
     ]
     for event in malformed_task_updates:
         assert renderer.render_event(event) == ("", False)
         assert renderer.active_task_detail is None
 
-    text, newline_before = renderer.render_event(
-        {
-            "type": "tool_execution_start",
-            "toolName": "task",
-            "id": "task-1",
-            "input": {"description": "inspect"},
-        }
-    )
+    text, newline_before = renderer.render_event({
+        "type": "tool_execution_start",
+        "toolName": "task",
+        "id": "task-1",
+        "input": {"description": "inspect"},
+    })
 
     assert newline_before is True
     assert "task inspect" in text
@@ -252,47 +209,17 @@ def test_saved_log_renderer_task_tracking_guards_and_legacy_task_events() -> Non
         ("not-an-object", "requires `blocker` and `human_task`"),
         ({"title": "", "body": "Body", "acceptance_criteria": ["ok"]}, "title"),
         ({"title": "Title", "body": "", "acceptance_criteria": ["ok"]}, "body"),
-        (
-            {"title": "Title", "body": "Body", "acceptance_criteria": []},
-            "acceptance_criteria",
-        ),
-        (
-            {"title": "Title", "body": "Body", "acceptance_criteria": [""]},
-            "acceptance_criteria",
-        ),
-        (
-            {
-                "title": "Title",
-                "body": "Body",
-                "acceptance_criteria": ["ok"],
-                "priority": True,
-            },
-            "priority",
-        ),
-        (
-            {
-                "title": "Title",
-                "body": "Body",
-                "acceptance_criteria": ["ok"],
-                "priority": 5,
-            },
-            "priority",
-        ),
+        ({"title": "Title", "body": "Body", "acceptance_criteria": []}, "acceptance_criteria"),
+        ({"title": "Title", "body": "Body", "acceptance_criteria": [""]}, "acceptance_criteria"),
+        ({"title": "Title", "body": "Body", "acceptance_criteria": ["ok"], "priority": True}, "priority"),
+        ({"title": "Title", "body": "Body", "acceptance_criteria": ["ok"], "priority": 5}, "priority"),
     ],
 )
 def test_parse_result_payload_reports_invalid_human_task_variants(
-    human_task: object,
-    warning_text: str,
-    capsys: pytest.CaptureFixture[str],
+    human_task: object, warning_text: str, capsys: pytest.CaptureFixture[str]
 ) -> None:
     payload, warnings = parse_result_payload(
-        json.dumps(
-            {
-                "result": "needs_human",
-                "blocker": "blocked",
-                "human_task": human_task,
-            }
-        )
+        json.dumps({"result": "needs_human", "blocker": "blocked", "human_task": human_task})
     )
 
     assert payload is None
@@ -309,9 +236,7 @@ def test_parse_event_line_returns_payload_without_text_for_non_rendered_event() 
 
 
 def test_parse_event_line_ignores_empty_tool_output() -> None:
-    payload, text, is_tool_output = parse_event_line(
-        '{"type":"tool_execution_update","output":""}'
-    )
+    payload, text, is_tool_output = parse_event_line('{"type":"tool_execution_update","output":""}')
 
     assert payload == {"type": "tool_execution_update", "output": ""}
     assert text is None
@@ -320,8 +245,7 @@ def test_parse_event_line_ignores_empty_tool_output() -> None:
 
 def test_human_task_payload_validation_rejects_non_object() -> None:
     assert (
-        client_module._validate_human_task_payload({"human_task": "not-an-object"})
-        == "`human_task` must be an object"
+        client_module._validate_human_task_payload({"human_task": "not-an-object"}) == "`human_task` must be an object"
     )
 
 
@@ -333,11 +257,7 @@ def test_launch_chat_reports_missing_binary_and_preserves_package_args(
     commands: list[list[str]] = []
 
     def fake_run(
-        command: list[str],
-        *,
-        cwd: Path,
-        env: dict[str, str],
-        check: bool,
+        command: list[str], *, cwd: Path, env: dict[str, str], check: bool
     ) -> subprocess.CompletedProcess[str]:
         commands.append(command)
         assert cwd == tmp_path
@@ -368,17 +288,10 @@ def test_launch_chat_reports_missing_binary_and_preserves_package_args(
 
     monkeypatch.setattr(client_module.subprocess, "run", missing_binary)
     with pytest.raises(JriError, match="could not find `pi-missing`"):
-        launch_chat(
-            root=tmp_path,
-            session_id=None,
-            extra_args=[],
-            binary="pi-missing",
-        )
+        launch_chat(root=tmp_path, session_id=None, extra_args=[], binary="pi-missing")
 
 
-def test_pi_runtime_stop_returns_when_no_process(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_pi_runtime_stop_returns_when_no_process(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = PiRuntime(binary="pi")
 
     def fail_getpgid(pid: int) -> int:
@@ -392,9 +305,7 @@ def test_pi_runtime_stop_returns_when_no_process(
     assert runtime._process is None
 
 
-def test_pi_runtime_stop_drops_already_exited_process(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_pi_runtime_stop_drops_already_exited_process(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = PiRuntime(binary="pi")
     process = FakeProcess(poll_result=7)
     runtime._process = cast(Any, process)
@@ -413,9 +324,7 @@ def test_pi_runtime_stop_drops_already_exited_process(
     assert process.killed is False
 
 
-def test_pi_runtime_stop_terminates_process_group(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_pi_runtime_stop_terminates_process_group(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = PiRuntime(binary="pi")
     process = FakeProcess()
     runtime._process = cast(Any, process)
@@ -441,9 +350,7 @@ def test_pi_runtime_stop_terminates_process_group(
     assert process.killed is False
 
 
-def test_pi_runtime_stop_kills_process_after_terminate_timeout(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_pi_runtime_stop_kills_process_after_terminate_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = PiRuntime(binary="pi")
     process = TimeoutThenExitProcess()
     runtime._process = cast(Any, process)
@@ -462,9 +369,7 @@ def test_pi_runtime_stop_kills_process_after_terminate_timeout(
     assert process.wait_timeouts == [5, 5]
 
 
-def test_pi_runtime_stop_swallows_process_cleanup_errors(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_pi_runtime_stop_swallows_process_cleanup_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = PiRuntime(binary="pi")
     process = AlwaysTimeoutProcess()
     runtime._process = cast(Any, process)
@@ -486,9 +391,7 @@ def test_pi_runtime_stop_swallows_process_cleanup_errors(
     assert runtime._process is None
 
 
-def test_pi_runtime_stop_swallows_repeated_process_group_wait_timeouts(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_pi_runtime_stop_swallows_repeated_process_group_wait_timeouts(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = PiRuntime(binary="pi")
     process = AlwaysTimeoutProcess()
     runtime._process = cast(Any, process)
@@ -558,9 +461,7 @@ def test_pi_runtime_start_reuses_healthy_process_and_reports_start_failures(
     assert stopped == [True]
 
 
-def test_pi_runtime_start_records_session_state_from_rpc(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_pi_runtime_start_records_session_state_from_rpc(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = PiRuntime(binary="pi")
     package_root = tmp_path / "package"
     (package_root / "ralph" / "skills" / "alpha").mkdir(parents=True)
@@ -583,9 +484,7 @@ def test_pi_runtime_start_records_session_state_from_rpc(
     monkeypatch.setattr(runtime, "_rpc_request", fake_rpc_request)
 
     runtime.start(
-        env={"JRI_PI_PACKAGE": str(package_root), "JRI_CHAT_RUNTIME": "1"},
-        cwd=tmp_path,
-        extra_args=["--debug"],
+        env={"JRI_PI_PACKAGE": str(package_root), "JRI_CHAT_RUNTIME": "1"}, cwd=tmp_path, extra_args=["--debug"]
     )
 
     assert runtime._session_id == "ses_start"
@@ -646,21 +545,10 @@ def test_pi_runtime_list_sessions_inserts_healthy_runtime_state(
     sessions = runtime.list_sessions(root=repo)
 
     assert sessions == [
-        {
-            "id": "ses_live",
-            "directory": str(repo.resolve()),
-            "sessionFile": str(live_session_file),
-        },
-        {
-            "id": "ses_saved",
-            "directory": str(repo),
-            "sessionFile": str(session_file),
-        },
+        {"id": "ses_live", "directory": str(repo.resolve()), "sessionFile": str(live_session_file)},
+        {"id": "ses_saved", "directory": str(repo), "sessionFile": str(session_file)},
     ]
-    assert runtime._listed_session_files == {
-        "ses_live": live_session_file,
-        "ses_saved": session_file,
-    }
+    assert runtime._listed_session_files == {"ses_live": live_session_file, "ses_saved": session_file}
 
 
 def test_pi_runtime_list_sessions_ignores_malformed_headers(tmp_path: Path) -> None:
@@ -670,23 +558,16 @@ def test_pi_runtime_list_sessions_ignores_malformed_headers(tmp_path: Path) -> N
     (session_dir / "empty.jsonl").write_text("", encoding="utf-8")
     (session_dir / "bad-json.jsonl").write_text("{\n", encoding="utf-8")
     (session_dir / "array.jsonl").write_text("[]\n", encoding="utf-8")
-    (session_dir / "missing-id.jsonl").write_text(
-        json.dumps({"cwd": str(repo)}) + "\n", encoding="utf-8"
-    )
-    (session_dir / "missing-cwd.jsonl").write_text(
-        json.dumps({"id": "ses_missing_cwd"}) + "\n", encoding="utf-8"
-    )
+    (session_dir / "missing-id.jsonl").write_text(json.dumps({"cwd": str(repo)}) + "\n", encoding="utf-8")
+    (session_dir / "missing-cwd.jsonl").write_text(json.dumps({"id": "ses_missing_cwd"}) + "\n", encoding="utf-8")
     (session_dir / "other-repo.jsonl").write_text(
-        json.dumps({"id": "ses_other", "cwd": str(tmp_path / "other")}) + "\n",
-        encoding="utf-8",
+        json.dumps({"id": "ses_other", "cwd": str(tmp_path / "other")}) + "\n", encoding="utf-8"
     )
     valid_file = write_session_file(repo, "ses_valid")
 
     sessions = PiRuntime(binary="pi").list_sessions(root=repo)
 
-    assert sessions == [
-        {"id": "ses_valid", "directory": str(repo), "sessionFile": str(valid_file)}
-    ]
+    assert sessions == [{"id": "ses_valid", "directory": str(repo), "sessionFile": str(valid_file)}]
 
 
 def test_pi_runtime_list_sessions_ignores_header_with_non_string_directory(
@@ -696,15 +577,9 @@ def test_pi_runtime_list_sessions_ignores_header_with_non_string_directory(
     repo.mkdir()
 
     def fake_read_pi_session_header(session_file: Path) -> dict[str, object]:
-        return {
-            "id": "ses_bad",
-            "directory": 123,
-            "sessionFile": str(session_file),
-        }
+        return {"id": "ses_bad", "directory": 123, "sessionFile": str(session_file)}
 
-    monkeypatch.setattr(
-        client_module, "_read_pi_session_header", fake_read_pi_session_header
-    )
+    monkeypatch.setattr(client_module, "_read_pi_session_header", fake_read_pi_session_header)
     session_dir = repo / ".jri" / "logs" / "chat"
     session_dir.mkdir(parents=True)
     (session_dir / "bad.jsonl").write_text("{}\n", encoding="utf-8")
@@ -720,10 +595,7 @@ def test_pi_runtime_list_sessions_ignores_malformed_directories(
     session_dir = repo / ".jri" / "logs" / "chat"
     session_dir.mkdir(parents=True)
     bad_directory_file = session_dir / "bad-directory.jsonl"
-    bad_directory_file.write_text(
-        json.dumps({"id": "ses_bad", "cwd": str(repo / "missing")}) + "\n",
-        encoding="utf-8",
-    )
+    bad_directory_file.write_text(json.dumps({"id": "ses_bad", "cwd": str(repo / "missing")}) + "\n", encoding="utf-8")
     valid_file = write_session_file(repo, "ses_valid")
     original_path = client_module.Path
 
@@ -736,14 +608,10 @@ def test_pi_runtime_list_sessions_ignores_malformed_directories(
 
     sessions = PiRuntime(binary="pi").list_sessions(root=repo)
 
-    assert sessions == [
-        {"id": "ses_valid", "directory": str(repo), "sessionFile": str(valid_file)}
-    ]
+    assert sessions == [{"id": "ses_valid", "directory": str(repo), "sessionFile": str(valid_file)}]
 
 
-def test_pi_runtime_list_sessions_ignores_unhealthy_live_state(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_pi_runtime_list_sessions_ignores_unhealthy_live_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = PiRuntime(binary="pi")
     runtime._process = cast(Any, FakeProcess())
 
@@ -777,11 +645,7 @@ def test_pi_runtime_list_sessions_tracks_live_state_without_session_file(
     runtime._process = cast(Any, FakeProcess())
 
     def fake_rpc_request(command: str) -> dict[str, object]:
-        return {
-            "type": "response",
-            "command": command,
-            "data": {"sessionId": "ses_live"},
-        }
+        return {"type": "response", "command": command, "data": {"sessionId": "ses_live"}}
 
     monkeypatch.setattr(runtime, "_rpc_request", fake_rpc_request)
 
@@ -801,9 +665,7 @@ def test_pi_runtime_export_session_uses_listed_session_file(tmp_path: Path) -> N
 
     runtime.export_session("ses_saved", destination)
 
-    assert destination.read_text(encoding="utf-8") == session_file.read_text(
-        encoding="utf-8"
-    )
+    assert destination.read_text(encoding="utf-8") == session_file.read_text(encoding="utf-8")
 
 
 def test_pi_runtime_export_session_rejects_unavailable_file(tmp_path: Path) -> None:
@@ -815,15 +677,11 @@ def test_pi_runtime_export_session_rejects_unavailable_file(tmp_path: Path) -> N
         runtime.export_session("ses_missing", tmp_path / "export.jsonl")
 
 
-def test_pi_runtime_run_ralph_task_returns_timeout_result(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_pi_runtime_run_ralph_task_returns_timeout_result(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = PiRuntime(binary="pi")
     stops: list[int] = []
 
-    def fake_start(
-        *, env: dict[str, str] | None = None, cwd: Path | None = None
-    ) -> None:
+    def fake_start(*, env: dict[str, str] | None = None, cwd: Path | None = None) -> None:
         del env
         assert cwd == tmp_path
         runtime._process = cast(Any, FakeProcess())
@@ -836,9 +694,7 @@ def test_pi_runtime_run_ralph_task_returns_timeout_result(
     monkeypatch.setattr(runtime, "start", fake_start)
     monkeypatch.setattr(runtime, "stop", fake_stop)
 
-    def fake_rpc_request(
-        command: str, extra: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def fake_rpc_request(command: str, extra: dict[str, object] | None = None) -> dict[str, object]:
         assert extra == {"message": "/ralph do task"}
         return {"type": "response", "command": command, "success": True}
 
@@ -871,9 +727,7 @@ def test_pi_runtime_does_not_stall_during_active_tool_execution(
 ) -> None:
     runtime = PiRuntime(binary="pi")
 
-    def fake_start(
-        *, env: dict[str, str] | None = None, cwd: Path | None = None
-    ) -> None:
+    def fake_start(*, env: dict[str, str] | None = None, cwd: Path | None = None) -> None:
         del env
         assert cwd == tmp_path
         runtime._process = cast(Any, FakeProcess())
@@ -882,18 +736,12 @@ def test_pi_runtime_does_not_stall_during_active_tool_execution(
     monkeypatch.setattr(runtime, "start", fake_start)
     monkeypatch.setattr(runtime, "stop", lambda: None)
 
-    def fake_rpc_request(
-        command: str, extra: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def fake_rpc_request(command: str, extra: dict[str, object] | None = None) -> dict[str, object]:
         assert extra == {"message": "/ralph do task"}
         return {"type": "response", "command": command, "success": True}
 
     events: list[dict[str, object] | None] = [
-        {
-            "type": "tool_execution_start",
-            "toolCallId": "call_1",
-            "toolName": "ralph-validator",
-        },
+        {"type": "tool_execution_start", "toolCallId": "call_1", "toolName": "ralph-validator"},
         None,
         {"type": "tool_execution_end", "toolCallId": "call_1", "output": "PASS"},
         {"type": "agent_end"},
@@ -916,10 +764,7 @@ def test_pi_runtime_does_not_stall_during_active_tool_execution(
     monkeypatch.setattr("jri.core.agents.client.time.monotonic", fake_monotonic)
 
     result = runtime.run_ralph_task(
-        root=tmp_path,
-        prompt="do task",
-        log_path=tmp_path / "logs" / "ralph.log",
-        result_path=result_path,
+        root=tmp_path, prompt="do task", log_path=tmp_path / "logs" / "ralph.log", result_path=result_path
     )
 
     assert result.result == "completed"
@@ -931,17 +776,13 @@ def test_pi_runtime_run_ralph_task_reports_prompt_start_failure(
 ) -> None:
     runtime = PiRuntime(binary="pi")
 
-    def fake_start(
-        *, env: dict[str, str] | None = None, cwd: Path | None = None
-    ) -> None:
+    def fake_start(*, env: dict[str, str] | None = None, cwd: Path | None = None) -> None:
         del env, cwd
         runtime._process = cast(Any, FakeProcess())
 
     monkeypatch.setattr(runtime, "start", fake_start)
 
-    def fake_rpc_request(
-        command: str, extra: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def fake_rpc_request(command: str, extra: dict[str, object] | None = None) -> dict[str, object]:
         del extra
         return {"type": "response", "command": command, "success": False}
 
@@ -949,10 +790,7 @@ def test_pi_runtime_run_ralph_task_reports_prompt_start_failure(
 
     with pytest.raises(JriError, match="failed to start ralph prompt"):
         runtime.run_ralph_task(
-            root=tmp_path,
-            prompt="do task",
-            log_path=tmp_path / "ralph.log",
-            result_path=tmp_path / "result.json",
+            root=tmp_path, prompt="do task", log_path=tmp_path / "ralph.log", result_path=tmp_path / "result.json"
         )
 
 
@@ -961,9 +799,7 @@ def test_pi_runtime_run_ralph_task_reports_missing_process_after_start(
 ) -> None:
     runtime = PiRuntime(binary="pi")
 
-    def fake_start(
-        *, env: dict[str, str] | None = None, cwd: Path | None = None
-    ) -> None:
+    def fake_start(*, env: dict[str, str] | None = None, cwd: Path | None = None) -> None:
         del env, cwd
         runtime._process = None
 
@@ -971,10 +807,7 @@ def test_pi_runtime_run_ralph_task_reports_missing_process_after_start(
 
     with pytest.raises(JriError, match="pi rpc process is not running"):
         runtime.run_ralph_task(
-            root=tmp_path,
-            prompt="do task",
-            log_path=tmp_path / "ralph.log",
-            result_path=tmp_path / "result.json",
+            root=tmp_path, prompt="do task", log_path=tmp_path / "ralph.log", result_path=tmp_path / "result.json"
         )
 
 
@@ -986,9 +819,7 @@ def test_pi_runtime_run_ralph_task_writes_logs_calls_on_start_and_reads_payload(
     result_path.write_text("old", encoding="utf-8")
     started_pids: list[int] = []
 
-    def fake_start(
-        *, env: dict[str, str] | None = None, cwd: Path | None = None
-    ) -> None:
+    def fake_start(*, env: dict[str, str] | None = None, cwd: Path | None = None) -> None:
         del env
         assert cwd == tmp_path
         runtime._process = cast(Any, FakeProcess())
@@ -996,9 +827,7 @@ def test_pi_runtime_run_ralph_task_writes_logs_calls_on_start_and_reads_payload(
 
     monkeypatch.setattr(runtime, "start", fake_start)
 
-    def fake_rpc_request(
-        command: str, extra: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def fake_rpc_request(command: str, extra: dict[str, object] | None = None) -> dict[str, object]:
         del extra
         return {"type": "response", "command": command, "success": True}
 
@@ -1037,9 +866,7 @@ def test_pi_runtime_run_ralph_task_writes_logs_calls_on_start_and_reads_payload(
     assert result.result == "completed"
     assert result.session_id == "ses_done"
     assert "old" not in result_path.read_text(encoding="utf-8")
-    assert "message_update" in (tmp_path / "logs" / "ralph.log").read_text(
-        encoding="utf-8"
-    )
+    assert "message_update" in (tmp_path / "logs" / "ralph.log").read_text(encoding="utf-8")
     assert "hello\n" in capsys.readouterr().out
 
 
@@ -1050,15 +877,11 @@ def test_pi_runtime_run_ralph_task_requests_missing_payload_follow_up(
     prompts: list[str] = []
     result_path = tmp_path / "result.json"
 
-    def fake_start(
-        *, env: dict[str, str] | None = None, cwd: Path | None = None
-    ) -> None:
+    def fake_start(*, env: dict[str, str] | None = None, cwd: Path | None = None) -> None:
         del env, cwd
         runtime._process = cast(Any, FakeProcess())
 
-    def fake_rpc_request(
-        command: str, extra: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def fake_rpc_request(command: str, extra: dict[str, object] | None = None) -> dict[str, object]:
         assert command == "prompt"
         assert extra is not None
         prompts.append(cast(str, extra["message"]))
@@ -1079,10 +902,7 @@ def test_pi_runtime_run_ralph_task_requests_missing_payload_follow_up(
     monkeypatch.setattr(client_module.time, "monotonic", lambda: 0.0)
 
     result = runtime.run_ralph_task(
-        root=tmp_path,
-        prompt="do task",
-        log_path=tmp_path / "ralph.log",
-        result_path=result_path,
+        root=tmp_path, prompt="do task", log_path=tmp_path / "ralph.log", result_path=result_path
     )
 
     assert result.result == "completed"
@@ -1095,9 +915,7 @@ def test_pi_runtime_run_ralph_task_handles_failed_follow_up_stall_and_missing_pa
     def prepare_runtime() -> PiRuntime:
         runtime = PiRuntime(binary="pi")
 
-        def fake_start(
-            *, env: dict[str, str] | None = None, cwd: Path | None = None
-        ) -> None:
+        def fake_start(*, env: dict[str, str] | None = None, cwd: Path | None = None) -> None:
             del env, cwd
             runtime._process = cast(Any, FakeProcess())
 
@@ -1107,9 +925,7 @@ def test_pi_runtime_run_ralph_task_handles_failed_follow_up_stall_and_missing_pa
     runtime = prepare_runtime()
     calls = 0
 
-    def failed_follow_up_rpc(
-        command: str, extra: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def failed_follow_up_rpc(command: str, extra: dict[str, object] | None = None) -> dict[str, object]:
         nonlocal calls
         del extra
         calls += 1
@@ -1124,23 +940,16 @@ def test_pi_runtime_run_ralph_task_handles_failed_follow_up_stall_and_missing_pa
     monkeypatch.setattr(runtime, "_read_rpc_line", fake_read_rpc_line)
     monkeypatch.setattr(client_module.time, "monotonic", lambda: 0.0)
     result = runtime.run_ralph_task(
-        root=tmp_path,
-        prompt="do task",
-        log_path=tmp_path / "follow-up.log",
-        result_path=tmp_path / "follow-up.json",
+        root=tmp_path, prompt="do task", log_path=tmp_path / "follow-up.log", result_path=tmp_path / "follow-up.json"
     )
     assert result.result == "failed"
-    assert result.warnings == [
-        "missing result payload for Ralph run; treating run as failed"
-    ]
+    assert result.warnings == ["missing result payload for Ralph run; treating run as failed"]
 
     runtime = prepare_runtime()
     stops: list[int] = []
     monkeypatch.setattr(runtime, "stop", lambda: stops.append(1))
 
-    def fake_rpc_request(
-        command: str, extra: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def fake_rpc_request(command: str, extra: dict[str, object] | None = None) -> dict[str, object]:
         del extra
         return {"type": "response", "command": command, "success": True}
 
@@ -1153,19 +962,14 @@ def test_pi_runtime_run_ralph_task_handles_failed_follow_up_stall_and_missing_pa
     ticks = iter([0.0, 301.0])
     monkeypatch.setattr(client_module.time, "monotonic", lambda: next(ticks))
     result = runtime.run_ralph_task(
-        root=tmp_path,
-        prompt="do task",
-        log_path=tmp_path / "stall.log",
-        result_path=tmp_path / "stall.json",
+        root=tmp_path, prompt="do task", log_path=tmp_path / "stall.log", result_path=tmp_path / "stall.json"
     )
     assert result.result == "failed"
     assert "stalled" in result.warnings[0]
     assert stops == [1]
 
 
-def test_pi_runtime_rpc_request_times_out(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_pi_runtime_rpc_request_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = PiRuntime(binary="pi")
     process = FakeProcess()
     runtime._process = cast(Any, process)
@@ -1175,15 +979,10 @@ def test_pi_runtime_rpc_request_times_out(
     with pytest.raises(JriError, match="rpc command 'prompt' timed out"):
         runtime._rpc_request("prompt", {"message": "hello"})
 
-    assert json.loads(process.stdin.getvalue()) == {
-        "type": "prompt",
-        "message": "hello",
-    }
+    assert json.loads(process.stdin.getvalue()) == {"type": "prompt", "message": "hello"}
 
 
-def test_pi_runtime_rpc_request_ignores_non_matching_events(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_pi_runtime_rpc_request_ignores_non_matching_events(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = PiRuntime(binary="pi")
     runtime._process = cast(Any, FakeProcess())
     events: list[dict[str, object] | None] = [
@@ -1200,11 +999,7 @@ def test_pi_runtime_rpc_request_ignores_non_matching_events(
 
     monkeypatch.setattr(runtime, "_read_rpc_line", fake_read_rpc_line)
 
-    assert runtime._rpc_request("prompt") == {
-        "type": "response",
-        "command": "prompt",
-        "success": True,
-    }
+    assert runtime._rpc_request("prompt") == {"type": "response", "command": "prompt", "success": True}
 
 
 def test_pi_runtime_rpc_helpers_report_missing_streams() -> None:
@@ -1230,9 +1025,7 @@ def test_pi_runtime_rpc_helpers_report_missing_streams() -> None:
         runtime._read_rpc_line(timeout=0)
 
 
-def test_pi_runtime_read_rpc_line_handles_raw_text_and_process_exit(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_pi_runtime_read_rpc_line_handles_raw_text_and_process_exit(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = PiRuntime(binary="pi")
     process = FakeProcess()
     process.stdout = io.StringIO("not json\n")
@@ -1247,9 +1040,7 @@ def test_pi_runtime_read_rpc_line_handles_raw_text_and_process_exit(
         assert timeout == 0
         return None
 
-    monkeypatch.setattr(
-        "jri.core.agents.client._readline_with_timeout", fake_readline_with_timeout
-    )
+    monkeypatch.setattr("jri.core.agents.client._readline_with_timeout", fake_readline_with_timeout)
 
     with pytest.raises(JriError, match="pi rpc process exited unexpectedly"):
         runtime._read_rpc_line(timeout=0)
@@ -1264,34 +1055,25 @@ def test_pi_runtime_read_rpc_line_ignores_non_object_json() -> None:
     assert runtime._read_rpc_line(timeout=0) is None
 
 
-def test_pi_runtime_read_rpc_line_returns_none_while_process_is_alive(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_pi_runtime_read_rpc_line_returns_none_while_process_is_alive(monkeypatch: pytest.MonkeyPatch) -> None:
     runtime = PiRuntime(binary="pi")
     runtime._process = cast(Any, FakeProcess())
 
     def fake_readline_with_timeout(stream: io.StringIO, *, timeout: float) -> None:
         del stream, timeout
 
-    monkeypatch.setattr(
-        client_module, "_readline_with_timeout", fake_readline_with_timeout
-    )
+    monkeypatch.setattr(client_module, "_readline_with_timeout", fake_readline_with_timeout)
 
     assert runtime._read_rpc_line(timeout=0.1) is None
 
 
-def test_readline_with_timeout_reports_timeout_and_falls_back(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_readline_with_timeout_reports_timeout_and_falls_back(monkeypatch: pytest.MonkeyPatch) -> None:
     stream = io.StringIO("line\n")
 
     class FakeSelect:
         @staticmethod
         def select(
-            read_list: list[io.StringIO],
-            write_list: list[object],
-            error_list: list[object],
-            timeout: float,
+            read_list: list[io.StringIO], write_list: list[object], error_list: list[object], timeout: float
         ) -> tuple[list[io.StringIO], list[object], list[object]]:
             del write_list, error_list
             assert read_list == [stream]
@@ -1304,10 +1086,7 @@ def test_readline_with_timeout_reports_timeout_and_falls_back(
     class ReadySelect:
         @staticmethod
         def select(
-            read_list: list[io.StringIO],
-            write_list: list[object],
-            error_list: list[object],
-            timeout: float,
+            read_list: list[io.StringIO], write_list: list[object], error_list: list[object], timeout: float
         ) -> tuple[list[io.StringIO], list[object], list[object]]:
             del write_list, error_list, timeout
             return read_list, [], []
@@ -1326,9 +1105,7 @@ def test_readline_with_timeout_reports_timeout_and_falls_back(
     assert _readline_with_timeout(fallback_stream, timeout=0.1) == "fallback\n"
 
 
-def test_readline_with_timeout_reads_directly_on_non_posix(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_readline_with_timeout_reads_directly_on_non_posix(monkeypatch: pytest.MonkeyPatch) -> None:
     stream = io.StringIO("windows\n")
     monkeypatch.setattr(client_module.os, "name", "nt")
 
@@ -1342,10 +1119,7 @@ def test_pi_runtime_compile_intent_graph_prompts_read_only_and_parses_json(
     prompts: list[dict[str, object] | None] = []
 
     def fake_start(
-        *,
-        env: dict[str, str] | None = None,
-        cwd: Path | None = None,
-        extra_args: list[str] | None = None,
+        *, env: dict[str, str] | None = None, cwd: Path | None = None, extra_args: list[str] | None = None
     ) -> None:
         assert env is None
         assert cwd == tmp_path
@@ -1361,17 +1135,12 @@ def test_pi_runtime_compile_intent_graph_prompts_read_only_and_parses_json(
         runtime._process = cast(Any, FakeProcess())
         runtime._session_id = "ses_compiler"
 
-    def fake_rpc_request(
-        command: str, extra: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def fake_rpc_request(command: str, extra: dict[str, object] | None = None) -> dict[str, object]:
         assert command == "prompt"
         prompts.append(extra)
         return {"type": "response", "command": command, "success": True}
 
-    events: list[dict[str, object]] = [
-        {"type": "message_update", "text": '{"tasks": []}'},
-        {"type": "agent_end"},
-    ]
+    events: list[dict[str, object]] = [{"type": "message_update", "text": '{"tasks": []}'}, {"type": "agent_end"}]
 
     def fake_read_rpc_line(*, timeout: float) -> dict[str, object]:
         assert timeout == 0.5
@@ -1381,10 +1150,7 @@ def test_pi_runtime_compile_intent_graph_prompts_read_only_and_parses_json(
     monkeypatch.setattr(runtime, "_rpc_request", fake_rpc_request)
     monkeypatch.setattr(runtime, "_read_rpc_line", fake_read_rpc_line)
 
-    result = runtime.compile_intent_graph(
-        root=tmp_path,
-        context={"changed_paths": ["product"], "graph_nodes": []},
-    )
+    result = runtime.compile_intent_graph(root=tmp_path, context={"changed_paths": ["product"], "graph_nodes": []})
 
     assert result == {"tasks": []}
     assert prompts and prompts[0] is not None
@@ -1400,10 +1166,7 @@ def test_pi_runtime_compile_intent_graph_rejects_non_json_output(
     runtime = PiRuntime(binary="pi")
 
     def fake_start(
-        *,
-        env: dict[str, str] | None = None,
-        cwd: Path | None = None,
-        extra_args: list[str] | None = None,
+        *, env: dict[str, str] | None = None, cwd: Path | None = None, extra_args: list[str] | None = None
     ) -> None:
         del env
         assert cwd == tmp_path
@@ -1414,20 +1177,11 @@ def test_pi_runtime_compile_intent_graph_rejects_non_json_output(
 
     monkeypatch.setattr(runtime, "start", fake_start)
 
-    def fake_rpc_request(
-        command: str, extra: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def fake_rpc_request(command: str, extra: dict[str, object] | None = None) -> dict[str, object]:
         del extra
-        return {
-            "type": "response",
-            "command": command,
-            "success": True,
-        }
+        return {"type": "response", "command": command, "success": True}
 
-    events: list[dict[str, object]] = [
-        {"type": "message_update", "text": "not json"},
-        {"type": "agent_end"},
-    ]
+    events: list[dict[str, object]] = [{"type": "message_update", "text": "not json"}, {"type": "agent_end"}]
 
     def fake_read_rpc_line(*, timeout: float) -> dict[str, object]:
         del timeout
@@ -1441,53 +1195,26 @@ def test_pi_runtime_compile_intent_graph_rejects_non_json_output(
 
 
 def test_compiler_event_text_extracts_public_message_shapes() -> None:
+    assert _compiler_event_text({"type": "message.part.delta", "properties": {"field": "text", "delta": "a"}}) == "a"
+    assert _compiler_event_text({"type": "message.part.delta", "properties": {"field": "text", "delta": 1}}) == ""
+    assert _compiler_event_text({"type": "message.part.delta", "properties": {"field": "thinking"}}) == ""
     assert (
-        _compiler_event_text(
-            {
-                "type": "message.part.delta",
-                "properties": {"field": "text", "delta": "a"},
-            }
-        )
-        == "a"
-    )
-    assert (
-        _compiler_event_text(
-            {"type": "message.part.delta", "properties": {"field": "text", "delta": 1}}
-        )
-        == ""
-    )
-    assert (
-        _compiler_event_text(
-            {"type": "message.part.delta", "properties": {"field": "thinking"}}
-        )
-        == ""
-    )
-    assert (
-        _compiler_event_text(
-            {
-                "type": "message",
-                "message": {
-                    "role": "assistant",
-                    "content": [
-                        {"type": "text", "text": "b"},
-                        {"type": "image", "text": "ignored"},
-                        "ignored",
-                        {"type": "text", "text": "c"},
-                    ],
-                },
-            }
-        )
+        _compiler_event_text({
+            "type": "message",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {"type": "text", "text": "b"},
+                    {"type": "image", "text": "ignored"},
+                    "ignored",
+                    {"type": "text", "text": "c"},
+                ],
+            },
+        })
         == "bc"
     )
-    assert (
-        _compiler_event_text(
-            {"type": "assistant", "assistantMessageEvent": {"content": "d"}}
-        )
-        == "d"
-    )
-    assert (
-        _compiler_event_text({"type": "assistant", "message": {"role": "user"}}) == ""
-    )
+    assert _compiler_event_text({"type": "assistant", "assistantMessageEvent": {"content": "d"}}) == "d"
+    assert _compiler_event_text({"type": "assistant", "message": {"role": "user"}}) == ""
     assert _message_content_text({"type": "text", "text": "ignored"}) == ""
 
 
@@ -1503,10 +1230,7 @@ def test_pi_runtime_compile_intent_graph_stops_healthy_process_first(
         runtime._process = None
 
     def fake_start(
-        *,
-        env: dict[str, str] | None = None,
-        cwd: Path | None = None,
-        extra_args: list[str] | None = None,
+        *, env: dict[str, str] | None = None, cwd: Path | None = None, extra_args: list[str] | None = None
     ) -> None:
         del env, extra_args
         assert cwd == tmp_path
@@ -1515,9 +1239,7 @@ def test_pi_runtime_compile_intent_graph_stops_healthy_process_first(
     monkeypatch.setattr(runtime, "stop", fake_stop)
     monkeypatch.setattr(runtime, "start", fake_start)
 
-    def fake_rpc_request(
-        command: str, extra: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def fake_rpc_request(command: str, extra: dict[str, object] | None = None) -> dict[str, object]:
         del extra
         return {"type": "response", "command": command, "success": True}
 
@@ -1540,11 +1262,7 @@ def test_pi_runtime_compile_intent_graph_stops_healthy_process_first(
     ("start_sets_process", "response", "expected"),
     [
         (False, {"success": True}, "pi rpc process is not running"),
-        (
-            True,
-            {"success": False, "error": "nope"},
-            "failed to start intent compiler prompt",
-        ),
+        (True, {"success": False, "error": "nope"}, "failed to start intent compiler prompt"),
     ],
 )
 def test_pi_runtime_compile_intent_graph_reports_start_and_prompt_failures(
@@ -1557,10 +1275,7 @@ def test_pi_runtime_compile_intent_graph_reports_start_and_prompt_failures(
     runtime = PiRuntime(binary="pi")
 
     def fake_start(
-        *,
-        env: dict[str, str] | None = None,
-        cwd: Path | None = None,
-        extra_args: list[str] | None = None,
+        *, env: dict[str, str] | None = None, cwd: Path | None = None, extra_args: list[str] | None = None
     ) -> None:
         del env, cwd, extra_args
         if start_sets_process:
@@ -1568,9 +1283,7 @@ def test_pi_runtime_compile_intent_graph_reports_start_and_prompt_failures(
 
     monkeypatch.setattr(runtime, "start", fake_start)
 
-    def fake_rpc_request(
-        command: str, extra: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def fake_rpc_request(command: str, extra: dict[str, object] | None = None) -> dict[str, object]:
         del extra
         return {"type": "response", "command": command, **response}
 
@@ -1587,10 +1300,7 @@ def test_pi_runtime_compile_intent_graph_times_out_and_rejects_non_object(
     stops: list[int] = []
 
     def fake_start(
-        *,
-        env: dict[str, str] | None = None,
-        cwd: Path | None = None,
-        extra_args: list[str] | None = None,
+        *, env: dict[str, str] | None = None, cwd: Path | None = None, extra_args: list[str] | None = None
     ) -> None:
         del env, cwd, extra_args
         runtime._process = cast(Any, FakeProcess())
@@ -1598,9 +1308,7 @@ def test_pi_runtime_compile_intent_graph_times_out_and_rejects_non_object(
     monkeypatch.setattr(runtime, "start", fake_start)
     monkeypatch.setattr(runtime, "stop", lambda: stops.append(1))
 
-    def fake_rpc_request(
-        command: str, extra: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def fake_rpc_request(command: str, extra: dict[str, object] | None = None) -> dict[str, object]:
         del extra
         return {"type": "response", "command": command, "success": True}
 
@@ -1620,28 +1328,19 @@ def test_pi_runtime_compile_intent_graph_times_out_and_rejects_non_object(
     runtime = PiRuntime(binary="pi")
 
     def fake_start_non_object(
-        *,
-        env: dict[str, str] | None = None,
-        cwd: Path | None = None,
-        extra_args: list[str] | None = None,
+        *, env: dict[str, str] | None = None, cwd: Path | None = None, extra_args: list[str] | None = None
     ) -> None:
         del env, cwd, extra_args
         runtime._process = cast(Any, FakeProcess())
 
     monkeypatch.setattr(runtime, "start", fake_start_non_object)
 
-    def fake_rpc_request_non_object(
-        command: str, extra: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def fake_rpc_request_non_object(command: str, extra: dict[str, object] | None = None) -> dict[str, object]:
         del extra
         return {"type": "response", "command": command, "success": True}
 
     monkeypatch.setattr(runtime, "_rpc_request", fake_rpc_request_non_object)
-    events: list[dict[str, object] | None] = [
-        None,
-        {"type": "message_update", "text": "[]"},
-        {"type": "agent_end"},
-    ]
+    events: list[dict[str, object] | None] = [None, {"type": "message_update", "text": "[]"}, {"type": "agent_end"}]
 
     def fake_read_rpc_line(*, timeout: float) -> dict[str, object] | None:
         del timeout

@@ -30,34 +30,20 @@ def test_graph_tool_handlers_validate_optional_payloads_and_return_json(
 ) -> None:
     monkeypatch.chdir(tmp_path)
 
-    created = json.loads(
-        run_create_node({"path": "product/checkout", "title": "Checkout"})
-    )
-    assert created == {
-        "path": "product/checkout",
-        "auto_created_parents": ["product"],
-    }
+    created = json.loads(run_create_node({"path": "product/checkout", "title": "Checkout"}))
+    assert created == {"path": "product/checkout", "auto_created_parents": ["product"]}
 
-    child = json.loads(
-        run_create_node({"path": "product/checkout/payment", "title": "Payment"})
-    )
+    child = json.loads(run_create_node({"path": "product/checkout/payment", "title": "Payment"}))
     assert child == {"path": "product/checkout/payment", "auto_created_parents": []}
 
     with pytest.raises(ValueError, match="must be a string"):
         run_create_node({"path": "product/other", "title": "Other", "body": 12})
 
-    updated = json.loads(
-        run_update_node_metadata({"path": "product/checkout", "title": "Checkout v2"})
-    )
-    assert updated == {
-        "path": "product/checkout",
-        "metadata": {"title": "Checkout v2", "state": "active"},
-    }
+    updated = json.loads(run_update_node_metadata({"path": "product/checkout", "title": "Checkout v2"}))
+    assert updated == {"path": "product/checkout", "metadata": {"title": "Checkout v2", "state": "active"}}
 
     with pytest.raises(ValueError, match="active or archived"):
-        run_update_node_metadata(
-            {"path": "product/checkout", "title": "Checkout", "state": "draft"}
-        )
+        run_update_node_metadata({"path": "product/checkout", "title": "Checkout", "state": "draft"})
 
     read = json.loads(run_read_node({"path": "product/checkout"}))
     assert read["path"] == "product/checkout"
@@ -73,33 +59,18 @@ def test_graph_tool_handlers_validate_optional_payloads_and_return_json(
         run_search_nodes({"query": "checkout", "limit": True})
 
     patch = json.loads(
-        run_apply_graph_patch(
-            {
-                "patch": """*** Begin Graph Patch
+        run_apply_graph_patch({
+            "patch": """*** Begin Graph Patch
 *** Update Node: product/checkout
 @@
 +Checkout body
-*** End Graph Patch""",
-            }
-        )
+*** End Graph Patch"""
+        })
     )
-    assert patch == {
-        "changed_nodes": [{"path": "product/checkout", "additions": 1, "deletions": 0}]
-    }
+    assert patch == {"changed_nodes": [{"path": "product/checkout", "additions": 1, "deletions": 0}]}
 
-    moved = json.loads(
-        run_move_node(
-            {
-                "source_path": "product/checkout",
-                "destination_path": "platform/shop/checkout",
-            }
-        )
-    )
-    assert moved == {
-        "old_path": "product/checkout",
-        "new_path": "platform/shop/checkout",
-        "moved_subtree_count": 2,
-    }
+    moved = json.loads(run_move_node({"source_path": "product/checkout", "destination_path": "platform/shop/checkout"}))
+    assert moved == {"old_path": "product/checkout", "new_path": "platform/shop/checkout", "moved_subtree_count": 2}
 
 
 def test_graph_tool_handlers_cover_remaining_public_wrapper_branches(
@@ -119,9 +90,7 @@ def test_graph_tool_handlers_cover_remaining_public_wrapper_branches(
     monkeypatch.setattr(graph_tools_module, "service", fake_service)
 
     assert json.loads(run_compile_graph({})) == {"compiled": True}
-    assert json.loads(run_list_nodes({})) == {
-        "nodes": [{"path": "product", "title": "Product", "state": "active"}]
-    }
+    assert json.loads(run_list_nodes({})) == {"nodes": [{"path": "product", "title": "Product", "state": "active"}]}
 
     with pytest.raises(ValueError, match="non-empty string"):
         run_search_nodes({"query": ""})
@@ -133,28 +102,20 @@ def test_graph_tool_handlers_cover_remaining_public_wrapper_branches(
         run_search_nodes({"query": "product", "include_archived": "yes"})
 
     archived = json.loads(
-        run_update_node_metadata(
-            {
-                "path": "product",
-                "title": "Product",
-                "state": "archived",
-                "archive_reason": "Retired",
-            }
-        )
-    )
-    assert archived == {
-        "path": "product",
-        "metadata": {
+        run_update_node_metadata({
+            "path": "product",
             "title": "Product",
             "state": "archived",
             "archive_reason": "Retired",
-        },
+        })
+    )
+    assert archived == {
+        "path": "product",
+        "metadata": {"title": "Product", "state": "archived", "archive_reason": "Retired"},
     }
 
 
-def test_run_move_node_reports_missing_source(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_run_move_node_reports_missing_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(FileNotFoundError, match="not found"):

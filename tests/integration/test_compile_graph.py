@@ -28,18 +28,14 @@ class FakeCompilerRuntime:
                             "assignee": "Ralph",
                             "depends_on": [],
                             "acceptance_criteria": ["Checkout can be completed"],
-                            "body": (
-                                "Implement the checkout flow from the graph intent.\n"
-                            ),
+                            "body": ("Implement the checkout flow from the graph intent.\n"),
                         },
                         {
                             "title": "Verify checkout flow",
                             "priority": 2,
                             "assignee": "Ralph",
                             "depends_on": ["build-checkout-flow"],
-                            "acceptance_criteria": [
-                                "Checkout verification is documented"
-                            ],
+                            "acceptance_criteria": ["Checkout verification is documented"],
                             "body": "Verify the checkout flow end to end.\n",
                         },
                     ]
@@ -69,9 +65,7 @@ class FakeCompilerRuntime:
     def export_session(self, session_id: str, destination: Path) -> None:
         raise AssertionError("compile_graph should not export sessions")
 
-    def compile_intent_graph(
-        self, *, root: Path, context: dict[str, object]
-    ) -> dict[str, object]:
+    def compile_intent_graph(self, *, root: Path, context: dict[str, object]) -> dict[str, object]:
         self.compile_calls.append(context)
         return self.result
 
@@ -91,9 +85,7 @@ def _init(repo: Path) -> None:
     assert run_cli(["init"], cwd=repo) == 0
 
 
-def _write_graph_node(
-    repo: Path, semantic_path: str, body: str = "Original intent.\n"
-) -> Path:
+def _write_graph_node(repo: Path, semantic_path: str, body: str = "Original intent.\n") -> Path:
     parts = semantic_path.split("/")
     for index in range(1, len(parts)):
         parent_path = "/".join(parts[:index])
@@ -105,11 +97,7 @@ def _write_single_graph_node(repo: Path, semantic_path: str, body: str) -> Path:
     node_path = repo / ".jri" / "graph" / semantic_path / "NODE.md"
     node_path.parent.mkdir(parents=True, exist_ok=True)
     node_path.write_text(
-        "---\n"
-        f"title: {semantic_path.rsplit('/', 1)[-1].replace('-', ' ').title()}\n"
-        "state: active\n"
-        "---\n\n"
-        f"{body}",
+        f"---\ntitle: {semantic_path.rsplit('/', 1)[-1].replace('-', ' ').title()}\nstate: active\n---\n\n{body}",
         encoding="utf-8",
     )
     return node_path
@@ -124,11 +112,7 @@ def _head(repo: Path) -> str:
 
 
 def _head_files(repo: Path) -> set[str]:
-    return set(
-        git(
-            repo, "show", "--name-only", "--format=", "--no-renames", "HEAD"
-        ).splitlines()
-    )
+    return set(git(repo, "show", "--name-only", "--format=", "--no-renames", "HEAD").splitlines())
 
 
 def test_compile_graph_commits_graph_changes_and_emitted_tasks(git_repo: Path) -> None:
@@ -161,27 +145,21 @@ def test_compile_graph_commits_graph_changes_and_emitted_tasks(git_repo: Path) -
     assert git(git_repo, "status", "--short") == ""
 
 
-def test_compile_graph_ambiguity_failure_writes_no_tasks_or_commit(
-    git_repo: Path,
-) -> None:
+def test_compile_graph_ambiguity_failure_writes_no_tasks_or_commit(git_repo: Path) -> None:
     _init(git_repo)
     _write_graph_node(git_repo, "product/checkout", "Need checkout or invoice?\n")
     before = _head(git_repo)
-    runtime = FakeCompilerRuntime(
-        {
-            "exit_code": "fail",
-            "errors": [
-                {
-                    "location": "product/checkout",
-                    "ambiguous_area": "payment destination",
-                    "plausible_interpretations": ["checkout", "invoice"],
-                    "draft_question": (
-                        "Should Ralph build checkout or invoice payment first?"
-                    ),
-                }
-            ],
-        }
-    )
+    runtime = FakeCompilerRuntime({
+        "exit_code": "fail",
+        "errors": [
+            {
+                "location": "product/checkout",
+                "ambiguous_area": "payment destination",
+                "plausible_interpretations": ["checkout", "invoice"],
+                "draft_question": ("Should Ralph build checkout or invoice payment first?"),
+            }
+        ],
+    })
 
     result = JriService(git_repo, agent_runtime=runtime).compile_graph()
 
@@ -192,9 +170,7 @@ def test_compile_graph_ambiguity_failure_writes_no_tasks_or_commit(
                 "location": "product/checkout",
                 "ambiguous_area": "payment destination",
                 "plausible_interpretations": ["checkout", "invoice"],
-                "draft_question": (
-                    "Should Ralph build checkout or invoice payment first?"
-                ),
+                "draft_question": ("Should Ralph build checkout or invoice payment first?"),
             }
         ],
     }
@@ -207,28 +183,26 @@ def test_compile_graph_invalid_compiler_output_rolls_back_tasks(git_repo: Path) 
     _init(git_repo)
     _write_graph_node(git_repo, "product/checkout")
     before = _head(git_repo)
-    runtime = FakeCompilerRuntime(
-        {
-            "tasks": [
-                {
-                    "title": "Build checkout flow",
-                    "priority": 1,
-                    "assignee": "Ralph",
-                    "depends_on": [],
-                    "acceptance_criteria": ["Checkout can be completed"],
-                    "body": "Implement checkout.\n",
-                },
-                {
-                    "title": "Broken output",
-                    "priority": 1,
-                    "assignee": "Ralph",
-                    "depends_on": ["missing-task"],
-                    "acceptance_criteria": ["Broken output is rejected"],
-                    "body": "This should not persist.\n",
-                },
-            ]
-        }
-    )
+    runtime = FakeCompilerRuntime({
+        "tasks": [
+            {
+                "title": "Build checkout flow",
+                "priority": 1,
+                "assignee": "Ralph",
+                "depends_on": [],
+                "acceptance_criteria": ["Checkout can be completed"],
+                "body": "Implement checkout.\n",
+            },
+            {
+                "title": "Broken output",
+                "priority": 1,
+                "assignee": "Ralph",
+                "depends_on": ["missing-task"],
+                "acceptance_criteria": ["Broken output is rejected"],
+                "body": "This should not persist.\n",
+            },
+        ]
+    })
 
     result = JriService(git_repo, agent_runtime=runtime).compile_graph()
 
@@ -305,10 +279,7 @@ def test_compile_graph_rejects_when_no_graph_paths_changed(git_repo: Path) -> No
 
     result = JriService(git_repo, agent_runtime=runtime).compile_graph()
 
-    assert result == {
-        "exit_code": "fail",
-        "errors": ["no uncommitted graph changes to compile"],
-    }
+    assert result == {"exit_code": "fail", "errors": ["no uncommitted graph changes to compile"]}
     assert runtime.compile_calls == []
     assert _head(git_repo) == before
     assert _task_paths(git_repo) == []
@@ -321,10 +292,7 @@ def test_compile_graph_reports_unavailable_compiler(git_repo: Path) -> None:
 
     result = JriService(git_repo, agent_runtime=NoCompilerRuntime()).compile_graph()
 
-    assert result == {
-        "exit_code": "fail",
-        "errors": ["agent runtime does not provide an intent compiler"],
-    }
+    assert result == {"exit_code": "fail", "errors": ["agent runtime does not provide an intent compiler"]}
     assert _head(git_repo) == before
     assert _task_paths(git_repo) == []
 
@@ -337,10 +305,7 @@ def test_compile_graph_reports_non_object_compiler_output(git_repo: Path) -> Non
 
     result = JriService(git_repo, agent_runtime=runtime).compile_graph()
 
-    assert result == {
-        "exit_code": "fail",
-        "errors": ["compiler output must be an object"],
-    }
+    assert result == {"exit_code": "fail", "errors": ["compiler output must be an object"]}
     assert len(runtime.compile_calls) == 1
     assert _head(git_repo) == before
     assert _task_paths(git_repo) == []
@@ -354,10 +319,7 @@ def test_compile_graph_reports_malformed_failure_payload(git_repo: Path) -> None
 
     result = JriService(git_repo, agent_runtime=runtime).compile_graph()
 
-    assert result == {
-        "exit_code": "fail",
-        "errors": ["compiler failure must include non-empty `errors`"],
-    }
+    assert result == {"exit_code": "fail", "errors": ["compiler failure must include non-empty `errors`"]}
     assert _head(git_repo) == before
     assert _task_paths(git_repo) == []
 
@@ -366,27 +328,22 @@ def test_compile_graph_reports_malformed_task_payload(git_repo: Path) -> None:
     _init(git_repo)
     _write_graph_node(git_repo, "product/checkout")
     before = _head(git_repo)
-    runtime = FakeCompilerRuntime(
-        {
-            "tasks": [
-                {
-                    "title": "Build checkout flow",
-                    "priority": True,
-                    "assignee": "Ralph",
-                    "depends_on": [],
-                    "acceptance_criteria": ["Checkout can be completed"],
-                    "body": "Implement checkout.\n",
-                }
-            ]
-        }
-    )
+    runtime = FakeCompilerRuntime({
+        "tasks": [
+            {
+                "title": "Build checkout flow",
+                "priority": True,
+                "assignee": "Ralph",
+                "depends_on": [],
+                "acceptance_criteria": ["Checkout can be completed"],
+                "body": "Implement checkout.\n",
+            }
+        ]
+    })
 
     result = JriService(git_repo, agent_runtime=runtime).compile_graph()
 
-    assert result == {
-        "exit_code": "fail",
-        "errors": ["task[0] `priority` must be an integer"],
-    }
+    assert result == {"exit_code": "fail", "errors": ["task[0] `priority` must be an integer"]}
     assert _head(git_repo) == before
     assert _task_paths(git_repo) == []
 
@@ -410,15 +367,9 @@ def test_compile_graph_context_includes_archived_graph_metadata(git_repo: Path) 
 
     assert result["exit_code"] == "success"
     context = runtime.compile_calls[0]
-    assert context["graph_check"] == {
-        "active_count": 1,
-        "archived_count": 1,
-        "errors": [],
-    }
+    assert context["graph_check"] == {"active_count": 1, "archived_count": 1, "errors": []}
     graph_nodes = cast(list[dict[str, object]], context["graph_nodes"])
-    checkout_node = next(
-        node for node in graph_nodes if node["path"] == "product/checkout"
-    )
+    checkout_node = next(node for node in graph_nodes if node["path"] == "product/checkout")
     assert checkout_node["metadata"] == {
         "title": "Checkout",
         "state": "archived",
@@ -426,26 +377,18 @@ def test_compile_graph_context_includes_archived_graph_metadata(git_repo: Path) 
     }
 
 
-def test_compile_graph_reports_noop_commit_and_rolls_back_tasks(
-    git_repo: Path,
-) -> None:
+def test_compile_graph_reports_noop_commit_and_rolls_back_tasks(git_repo: Path) -> None:
     _init(git_repo)
     _write_graph_node(git_repo, "product/checkout")
     runtime = FakeCompilerRuntime()
 
     result = NoopCommitService(git_repo, agent_runtime=runtime).compile_graph()
 
-    assert result == {
-        "exit_code": "fail",
-        "errors": ["no graph or task changes to commit"],
-    }
+    assert result == {"exit_code": "fail", "errors": ["no graph or task changes to commit"]}
     assert _task_paths(git_repo) == []
 
 
-def test_compile_graph_reports_graph_status_command_failure(
-    git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_compile_graph_reports_graph_status_command_failure(git_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _init(git_repo)
     _write_graph_node(git_repo, "product/checkout")
     service = JriService(git_repo, agent_runtime=FakeCompilerRuntime())
@@ -462,8 +405,7 @@ def test_compile_graph_reports_graph_status_command_failure(
 
 
 def test_compile_graph_status_parser_expands_directories_and_renames(
-    git_repo: Path,
-    monkeypatch: pytest.MonkeyPatch,
+    git_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _init(git_repo)
     _write_graph_node(git_repo, "product")
@@ -477,17 +419,14 @@ def test_compile_graph_status_parser_expands_directories_and_renames(
             return subprocess.CompletedProcess(
                 args,
                 0,
-                "\n".join(
-                    (
-                        "?? .jri/graph",
-                        "R  .jri/graph/old/NODE.md -> "
-                        ".jri/graph/product/checkout/NODE.md",
-                        "?? .jri/graph/product/",
-                        "?? .jri/graph/product/notes.txt",
-                        "?? README.md",
-                        "?? xx",
-                    )
-                ),
+                "\n".join((
+                    "?? .jri/graph",
+                    "R  .jri/graph/old/NODE.md -> .jri/graph/product/checkout/NODE.md",
+                    "?? .jri/graph/product/",
+                    "?? .jri/graph/product/notes.txt",
+                    "?? README.md",
+                    "?? xx",
+                )),
                 "",
             )
         return real_git.run(*args, **kwargs)
@@ -503,19 +442,12 @@ def test_compile_graph_status_parser_expands_directories_and_renames(
 @pytest.mark.parametrize(
     ("compiler_result", "message"),
     [
-        (
-            {"exit_code": "fail", "errors": ["bad"]},
-            "compiler error[0] must be an object",
-        ),
+        ({"exit_code": "fail", "errors": ["bad"]}, "compiler error[0] must be an object"),
         (
             {
                 "exit_code": "fail",
                 "errors": [
-                    {
-                        "ambiguous_area": "area",
-                        "plausible_interpretations": ["one"],
-                        "draft_question": "Question?",
-                    }
+                    {"ambiguous_area": "area", "plausible_interpretations": ["one"], "draft_question": "Question?"}
                 ],
             },
             "compiler error[0] must include `location`",
@@ -551,11 +483,7 @@ def test_compile_graph_status_parser_expands_directories_and_renames(
             {
                 "exit_code": "fail",
                 "errors": [
-                    {
-                        "location": "product/checkout",
-                        "ambiguous_area": "area",
-                        "plausible_interpretations": ["one"],
-                    }
+                    {"location": "product/checkout", "ambiguous_area": "area", "plausible_interpretations": ["one"]}
                 ],
             },
             "compiler error[0] must include `draft_question`",
@@ -594,16 +522,11 @@ def test_compile_graph_status_parser_expands_directories_and_renames(
     ],
 )
 def test_compile_graph_reports_malformed_compiler_branches(
-    git_repo: Path,
-    compiler_result: dict[str, object],
-    message: str,
+    git_repo: Path, compiler_result: dict[str, object], message: str
 ) -> None:
     _init(git_repo)
     _write_graph_node(git_repo, "product/checkout")
 
-    result = JriService(
-        git_repo,
-        agent_runtime=FakeCompilerRuntime(compiler_result),
-    ).compile_graph()
+    result = JriService(git_repo, agent_runtime=FakeCompilerRuntime(compiler_result)).compile_graph()
 
     assert result == {"exit_code": "fail", "errors": [message]}

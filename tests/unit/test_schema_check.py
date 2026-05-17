@@ -46,9 +46,7 @@ def test_validate_repo_accepts_valid_jri_tree(tmp_path: Path) -> None:
     assert main([str(tmp_path)]) == 0
 
 
-def test_validate_repo_accepts_current_lifecycle_task_directories(
-    tmp_path: Path,
-) -> None:
+def test_validate_repo_accepts_current_lifecycle_task_directories(tmp_path: Path) -> None:
     for status in ("todo", "doing", "done"):
         task_path = tmp_path / ".jri" / "tasks" / status / f"{status}-quality.md"
         task_path.parent.mkdir(parents=True, exist_ok=True)
@@ -91,9 +89,7 @@ def test_schema_command_returns_nonzero_for_invalid_task_file(tmp_path: Path) ->
     assert result.stdout == ""
 
 
-def test_validate_repo_rejects_lifecycle_task_without_acceptance_criteria(
-    tmp_path: Path,
-) -> None:
+def test_validate_repo_rejects_lifecycle_task_without_acceptance_criteria(tmp_path: Path) -> None:
     task_path = tmp_path / ".jri" / "tasks" / "todo" / "quality-gate.md"
     task_path.parent.mkdir(parents=True)
     task_path.write_text(
@@ -111,9 +107,7 @@ def test_validate_repo_rejects_lifecycle_task_without_acceptance_criteria(
         validate_repo(tmp_path)
 
 
-def test_validate_repo_rejects_lifecycle_task_with_empty_acceptance_criteria(
-    tmp_path: Path,
-) -> None:
+def test_validate_repo_rejects_lifecycle_task_with_empty_acceptance_criteria(tmp_path: Path) -> None:
     task_path = tmp_path / ".jri" / "tasks" / "todo" / "quality-gate.md"
     task_path.parent.mkdir(parents=True)
     task_path.write_text(
@@ -132,9 +126,7 @@ def test_validate_repo_rejects_lifecycle_task_with_empty_acceptance_criteria(
         validate_repo(tmp_path)
 
 
-def test_validate_repo_rejects_in_place_mutation_of_lifecycle_task(
-    git_repo: Path,
-) -> None:
+def test_validate_repo_rejects_in_place_mutation_of_lifecycle_task(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -150,10 +142,7 @@ def test_validate_repo_rejects_in_place_mutation_of_lifecycle_task(
     git(git_repo, "commit", "-m", "add quality gate task")
 
     task_path = git_repo / ".jri" / "tasks" / "todo" / "quality-gate.md"
-    task_path.write_text(
-        task_path.read_text(encoding="utf-8") + "\nMutated in place.\n",
-        encoding="utf-8",
-    )
+    task_path.write_text(task_path.read_text(encoding="utf-8") + "\nMutated in place.\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="modified in place"):
         validate_repo(git_repo)

@@ -8,23 +8,10 @@ from typing import cast
 import pytest
 
 from jri.core.errors import JriError
-from jri.core.models import (
-    AgentRunResult,
-    AttemptState,
-    ProcessState,
-    RalphResultPayload,
-    ResetPoint,
-    State,
-)
+from jri.core.models import AgentRunResult, AttemptState, ProcessState, RalphResultPayload, ResetPoint, State
 from jri.core.service import JriService
 from tests.conftest import run_cli as base_run_cli
-from tests.helpers import (
-    capture_worktree_state,
-    git,
-    read_json,
-    write_passing_makefile,
-    write_task,
-)
+from tests.helpers import capture_worktree_state, git, read_json, write_passing_makefile, write_task
 
 
 def run_cli(args: list[str], cwd: Path) -> int:
@@ -190,27 +177,13 @@ def test_reset_after_successful_task(git_repo: Path) -> None:
     assert "active_attempt" not in state
 
 
-def test_reset_prefers_latest_end_tag(
-    git_repo: Path,
-) -> None:
+def test_reset_prefers_latest_end_tag(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
-        git_repo,
-        status="todo",
-        slug="task-a",
-        title="Task A",
-        priority=0,
-        assignee="Ralph",
-        body="Complete task A.",
+        git_repo, status="todo", slug="task-a", title="Task A", priority=0, assignee="Ralph", body="Complete task A."
     )
     write_task(
-        git_repo,
-        status="todo",
-        slug="task-b",
-        title="Task B",
-        priority=0,
-        assignee="Ralph",
-        body="Complete task B.",
+        git_repo, status="todo", slug="task-b", title="Task B", priority=0, assignee="Ralph", body="Complete task B."
     )
     git(git_repo, "add", ".jri/tasks/todo")
     git(git_repo, "commit", "-m", "add two tasks")
@@ -239,13 +212,7 @@ def test_reset_prefers_latest_end_tag(
 def test_reset_after_failed_task(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
-        git_repo,
-        status="todo",
-        slug="task-a",
-        title="Task A",
-        priority=0,
-        assignee="Ralph",
-        body="Complete task A.",
+        git_repo, status="todo", slug="task-a", title="Task A", priority=0, assignee="Ralph", body="Complete task A."
     )
     git(git_repo, "add", ".jri/tasks/todo/task-a.md")
     git(git_repo, "commit", "-m", "add task-a")
@@ -254,13 +221,7 @@ def test_reset_after_failed_task(git_repo: Path) -> None:
     assert service.start(max_tasks=1) == 1
 
     write_task(
-        git_repo,
-        status="todo",
-        slug="task-b",
-        title="Task B",
-        priority=0,
-        assignee="Ralph",
-        body="This will fail.",
+        git_repo, status="todo", slug="task-b", title="Task B", priority=0, assignee="Ralph", body="This will fail."
     )
     git(git_repo, "add", ".jri/tasks/todo/task-b.md")
     git(git_repo, "commit", "-m", "add task-b")
@@ -284,13 +245,7 @@ def test_reset_after_failed_task(git_repo: Path) -> None:
 def test_reset_uses_begin_boundary_when_no_completion_boundary(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
-        git_repo,
-        status="todo",
-        slug="task-a",
-        title="Task A",
-        priority=0,
-        assignee="Ralph",
-        body="Complete task A.",
+        git_repo, status="todo", slug="task-a", title="Task A", priority=0, assignee="Ralph", body="Complete task A."
     )
     git(git_repo, "add", ".jri/tasks/todo/task-a.md")
     git(git_repo, "commit", "-m", "add task-a")
@@ -298,9 +253,7 @@ def test_reset_uses_begin_boundary_when_no_completion_boundary(git_repo: Path) -
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert service.start(max_tasks=1) == 1
 
-    reset_point = service.state_store.reset_point_for(
-        host_branch="main", task_slug="task-a"
-    )
+    reset_point = service.state_store.reset_point_for(host_branch="main", task_slug="task-a")
     assert reset_point is not None
     service.state_store.save_reset_point(
         ResetPoint(
@@ -319,9 +272,7 @@ def test_reset_uses_begin_boundary_when_no_completion_boundary(git_repo: Path) -
 
     service.reset()
 
-    assert [
-        tag for tag in git(git_repo, "tag").splitlines() if tag.startswith("jri/")
-    ] == []
+    assert [tag for tag in git(git_repo, "tag").splitlines() if tag.startswith("jri/")] == []
     assert not (git_repo / "after-begin.txt").exists()
     assert (git_repo / ".jri" / "tasks" / "todo" / "task-a.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "doing" / "task-a.md").exists()
@@ -360,22 +311,14 @@ def test_reset_from_feature_branch_with_stale_state(git_repo: Path) -> None:
     git(git_repo, "commit", "-m", "simulate stale doing task")
 
     stale_attempt = AttemptState(
-        number=len(prior_state.attempts) + 1,
-        task_slug="some-task",
-        branch="ralph",
-        started_at=999,
+        number=len(prior_state.attempts) + 1, task_slug="some-task", branch="ralph", started_at=999
     )
     service.state_store.save(
         State(
             finished_at=prior_state.finished_at,
             session=prior_state.session,
             branch=prior_state.branch,
-            process=ProcessState(
-                loop_pid=_dead_pid(),
-                child_pid=None,
-                log_path=None,
-                detached=False,
-            ),
+            process=ProcessState(loop_pid=_dead_pid(), child_pid=None, log_path=None, detached=False),
             active_attempt=stale_attempt,
             attempts=[*prior_state.attempts, stale_attempt],
             reset_points=prior_state.reset_points,
@@ -399,9 +342,7 @@ def test_reset_from_feature_branch_with_stale_state(git_repo: Path) -> None:
     assert "active_attempt" not in state
 
 
-def test_reset_discards_uncommitted_changes_on_default_branch(
-    git_repo: Path,
-) -> None:
+def test_reset_discards_uncommitted_changes_on_default_branch(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     service = _run_successful_task(git_repo)
 
@@ -415,9 +356,7 @@ def test_reset_discards_uncommitted_changes_on_default_branch(
     assert git(git_repo, "diff", "--cached", "--name-only") == ""
 
 
-def test_reset_refuses_when_no_reset_state(
-    git_repo: Path,
-) -> None:
+def test_reset_refuses_when_no_reset_state(git_repo: Path) -> None:
     """When no task has started, reset requires local reset state."""
     assert run_cli(["init"], cwd=git_repo) == 0
 
@@ -482,10 +421,7 @@ def test_reset_clears_active_attempt(git_repo: Path) -> None:
 
     prior_state = service.state_store.load()
     fake_attempt = AttemptState(
-        number=len(prior_state.attempts) + 1,
-        task_slug="stale-task",
-        branch="ralph",
-        started_at=1234,
+        number=len(prior_state.attempts) + 1, task_slug="stale-task", branch="ralph", started_at=1234
     )
     service.state_store.save(
         State(
@@ -512,10 +448,7 @@ def test_reset_clears_tracked_process(git_repo: Path) -> None:
     service = _run_successful_task(git_repo)
 
     service.state_store.save_process(
-        loop_pid=_dead_pid(),
-        child_pid=None,
-        log_path=git_repo / ".jri" / "logs" / "ralph" / "fake.log",
-        detached=True,
+        loop_pid=_dead_pid(), child_pid=None, log_path=git_repo / ".jri" / "logs" / "ralph" / "fake.log", detached=True
     )
 
     pre_state = read_json(git_repo / ".jri" / "state.json")
@@ -555,13 +488,7 @@ def test_reset_terminates_tracked_process_before_cleanup(git_repo: Path) -> None
 def test_reset_preserves_attempt_history(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
-        git_repo,
-        status="todo",
-        slug="task-a",
-        title="Task A",
-        priority=0,
-        assignee="Ralph",
-        body="Complete task A.",
+        git_repo, status="todo", slug="task-a", title="Task A", priority=0, assignee="Ralph", body="Complete task A."
     )
     git(git_repo, "add", ".jri/tasks/todo/task-a.md")
     git(git_repo, "commit", "-m", "add task-a")
@@ -570,13 +497,7 @@ def test_reset_preserves_attempt_history(git_repo: Path) -> None:
     assert service.start(max_tasks=1) == 1
 
     write_task(
-        git_repo,
-        status="todo",
-        slug="task-b",
-        title="Task B",
-        priority=0,
-        assignee="Ralph",
-        body="This will fail.",
+        git_repo, status="todo", slug="task-b", title="Task B", priority=0, assignee="Ralph", body="This will fail."
     )
     git(git_repo, "add", ".jri/tasks/todo/task-b.md")
     git(git_repo, "commit", "-m", "add task-b")
@@ -606,11 +527,7 @@ def test_reset_cli_aborts_on_negative_confirmation(git_repo: Path) -> None:
 
     # Simulate user entering 'n' for the confirmation prompt
     result = subprocess.run(
-        [sys.executable, "-m", "jri", "reset"],
-        cwd=git_repo,
-        input="n\n",
-        capture_output=True,
-        text=True,
+        [sys.executable, "-m", "jri", "reset"], cwd=git_repo, input="n\n", capture_output=True, text=True
     )
 
     assert result.returncode == 1
@@ -630,11 +547,7 @@ def test_reset_cli_aborts_on_empty_confirmation(git_repo: Path) -> None:
 
     # Simulate user just pressing Enter
     result = subprocess.run(
-        [sys.executable, "-m", "jri", "reset"],
-        cwd=git_repo,
-        input="\n",
-        capture_output=True,
-        text=True,
+        [sys.executable, "-m", "jri", "reset"], cwd=git_repo, input="\n", capture_output=True, text=True
     )
 
     assert result.returncode == 1
@@ -654,10 +567,7 @@ def test_reset_cli_force_skips_confirmation(git_repo: Path) -> None:
 
     # Use --force flag, should not prompt
     result = subprocess_module.run(
-        [sys.executable, "-m", "jri", "reset", "--force"],
-        cwd=git_repo,
-        capture_output=True,
-        text=True,
+        [sys.executable, "-m", "jri", "reset", "--force"], cwd=git_repo, capture_output=True, text=True
     )
 
     assert result.returncode == 0
@@ -673,11 +583,7 @@ def test_reset_cli_prompt_includes_target_reset_point(git_repo: Path) -> None:
 
     # Simulate user entering 'n' to see the prompt
     result = subprocess_module.run(
-        [sys.executable, "-m", "jri", "reset"],
-        cwd=git_repo,
-        input="n\n",
-        capture_output=True,
-        text=True,
+        [sys.executable, "-m", "jri", "reset"], cwd=git_repo, input="n\n", capture_output=True, text=True
     )
 
     assert result.returncode == 1
@@ -688,22 +594,10 @@ def test_reset_cli_prompt_includes_target_reset_point(git_repo: Path) -> None:
 def test_reset_cli_prompt_uses_requested_task_reset_point(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
-        git_repo,
-        status="todo",
-        slug="task-a",
-        title="Task A",
-        priority=0,
-        assignee="Ralph",
-        body="Complete task A.",
+        git_repo, status="todo", slug="task-a", title="Task A", priority=0, assignee="Ralph", body="Complete task A."
     )
     write_task(
-        git_repo,
-        status="todo",
-        slug="task-b",
-        title="Task B",
-        priority=0,
-        assignee="Ralph",
-        body="Complete task B.",
+        git_repo, status="todo", slug="task-b", title="Task B", priority=0, assignee="Ralph", body="Complete task B."
     )
     git(git_repo, "add", ".jri/tasks/todo")
     git(git_repo, "commit", "-m", "add two tasks")
@@ -714,11 +608,7 @@ def test_reset_cli_prompt_uses_requested_task_reset_point(git_repo: Path) -> Non
     assert service.start(max_tasks=1, force=True) == 1
 
     result = subprocess_module.run(
-        [sys.executable, "-m", "jri", "reset", "task-a"],
-        cwd=git_repo,
-        input="n\n",
-        capture_output=True,
-        text=True,
+        [sys.executable, "-m", "jri", "reset", "task-a"], cwd=git_repo, input="n\n", capture_output=True, text=True
     )
 
     assert result.returncode == 1
@@ -730,13 +620,7 @@ def test_reset_cli_prompt_uses_requested_task_reset_point(git_repo: Path) -> Non
 def test_reset_to_begin_boundary_lands_before_begin_commit(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
-        git_repo,
-        status="todo",
-        slug="task-a",
-        title="Task A",
-        priority=0,
-        assignee="Ralph",
-        body="Complete task A.",
+        git_repo, status="todo", slug="task-a", title="Task A", priority=0, assignee="Ralph", body="Complete task A."
     )
     git(git_repo, "add", ".jri/tasks/todo/task-a.md")
     git(git_repo, "commit", "-m", "add task-a")
@@ -744,9 +628,7 @@ def test_reset_to_begin_boundary_lands_before_begin_commit(git_repo: Path) -> No
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert service.start(max_tasks=1) == 1
 
-    reset_point = service.state_store.reset_point_for(
-        host_branch="main", task_slug="task-a"
-    )
+    reset_point = service.state_store.reset_point_for(host_branch="main", task_slug="task-a")
     assert reset_point is not None
     service.state_store.save_reset_point(
         ResetPoint(
@@ -765,27 +647,17 @@ def test_reset_to_begin_boundary_lands_before_begin_commit(git_repo: Path) -> No
     assert not (git_repo / ".jri" / "tasks" / "done" / "task-a.md").exists()
 
 
-def test_reset_cli_prompt_describes_begin_boundary_as_before_commit(
-    git_repo: Path,
-) -> None:
+def test_reset_cli_prompt_describes_begin_boundary_as_before_commit(git_repo: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
-        git_repo,
-        status="todo",
-        slug="task-a",
-        title="Task A",
-        priority=0,
-        assignee="Ralph",
-        body="Complete task A.",
+        git_repo, status="todo", slug="task-a", title="Task A", priority=0, assignee="Ralph", body="Complete task A."
     )
     git(git_repo, "add", ".jri/tasks/todo/task-a.md")
     git(git_repo, "commit", "-m", "add task-a")
 
     service = JriService(git_repo, agent_runtime=SuccessfulFakeAgentRuntime())
     assert service.start(max_tasks=1) == 1
-    reset_point = service.state_store.reset_point_for(
-        host_branch="main", task_slug="task-a"
-    )
+    reset_point = service.state_store.reset_point_for(host_branch="main", task_slug="task-a")
     assert reset_point is not None
     service.state_store.save_reset_point(
         ResetPoint(
@@ -799,11 +671,7 @@ def test_reset_cli_prompt_describes_begin_boundary_as_before_commit(
     )
 
     result = subprocess_module.run(
-        [sys.executable, "-m", "jri", "reset", "task-a"],
-        cwd=git_repo,
-        input="n\n",
-        capture_output=True,
-        text=True,
+        [sys.executable, "-m", "jri", "reset", "task-a"], cwd=git_repo, input="n\n", capture_output=True, text=True
     )
 
     assert result.returncode == 1
@@ -820,11 +688,7 @@ def test_reset_cli_prompt_shows_uncommitted_changes(git_repo: Path) -> None:
 
     # Simulate user entering 'n' to see the prompt
     result = subprocess_module.run(
-        [sys.executable, "-m", "jri", "reset"],
-        cwd=git_repo,
-        input="n\n",
-        capture_output=True,
-        text=True,
+        [sys.executable, "-m", "jri", "reset"], cwd=git_repo, input="n\n", capture_output=True, text=True
     )
 
     assert result.returncode == 1
@@ -839,11 +703,7 @@ def test_reset_cli_prompt_shows_ralph_branch(git_repo: Path) -> None:
 
     # Simulate user entering 'n' to see the prompt
     result = subprocess_module.run(
-        [sys.executable, "-m", "jri", "reset"],
-        cwd=git_repo,
-        input="n\n",
-        capture_output=True,
-        text=True,
+        [sys.executable, "-m", "jri", "reset"], cwd=git_repo, input="n\n", capture_output=True, text=True
     )
 
     assert result.returncode == 1
@@ -854,10 +714,7 @@ def test_reset_cli_prompt_shows_ralph_branch(git_repo: Path) -> None:
 def test_reset_cli_help_shows_force_flag(git_repo: Path) -> None:
     """Test that --help documents the --force flag."""
     result = subprocess_module.run(
-        [sys.executable, "-m", "jri", "reset", "--help"],
-        cwd=git_repo,
-        capture_output=True,
-        text=True,
+        [sys.executable, "-m", "jri", "reset", "--help"], cwd=git_repo, capture_output=True, text=True
     )
 
     assert result.returncode == 0
@@ -899,9 +756,7 @@ def test_reset_preserves_unrelated_ralph_branch(git_repo: Path) -> None:
     assert not (git_repo / ".jri" / "worktree").exists()
 
 
-def test_linked_worktree_reset_uses_local_runtime_state_not_tags(
-    git_repo: Path, tmp_path: Path
-) -> None:
+def test_linked_worktree_reset_uses_local_runtime_state_not_tags(git_repo: Path, tmp_path: Path) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_task(
         git_repo,
@@ -916,9 +771,7 @@ def test_linked_worktree_reset_uses_local_runtime_state_not_tags(
     git(git_repo, "commit", "-m", "add reset task")
     main_state = capture_worktree_state(git_repo)
     secondary = tmp_path / "secondary-reset"
-    git(
-        git_repo, "worktree", "add", "-b", "feature/reset-local", str(secondary), "HEAD"
-    )
+    git(git_repo, "worktree", "add", "-b", "feature/reset-local", str(secondary), "HEAD")
 
     service = JriService(secondary, agent_runtime=SuccessfulFakeAgentRuntime())
 
@@ -934,9 +787,5 @@ def test_linked_worktree_reset_uses_local_runtime_state_not_tags(
 
     assert capture_worktree_state(git_repo) == main_state
     assert not (secondary / "extra-after-run.txt").exists()
-    assert (secondary / "implemented.txt").read_text(
-        encoding="utf-8"
-    ) == "implemented\n"
-    assert [
-        tag for tag in git(secondary, "tag").splitlines() if tag.startswith("jri/")
-    ] == []
+    assert (secondary / "implemented.txt").read_text(encoding="utf-8") == "implemented\n"
+    assert [tag for tag in git(secondary, "tag").splitlines() if tag.startswith("jri/")] == []

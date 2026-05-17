@@ -10,11 +10,7 @@ def _entrypoint_env() -> dict[str, str]:
 
 def test_jri_package_entrypoint_shows_cli_help() -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "jri", "--help"],
-        capture_output=True,
-        text=True,
-        check=False,
-        env=_entrypoint_env(),
+        [sys.executable, "-m", "jri", "--help"], capture_output=True, text=True, check=False, env=_entrypoint_env()
     )
 
     assert result.returncode == 0

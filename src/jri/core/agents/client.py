@@ -63,9 +63,7 @@ def _unwrap_event(event: dict[str, object]) -> dict[str, object]:
     return event
 
 
-def render_saved_event(
-    event: dict[str, object], *, seen_tool_calls: set[str], cwd_hint: str = ""
-) -> tuple[str, bool]:
+def render_saved_event(event: dict[str, object], *, seen_tool_calls: set[str], cwd_hint: str = "") -> tuple[str, bool]:
     """Return rendered output for a persisted Pi event."""
     event = _unwrap_event(event)
     etype = event.get("type")
@@ -157,11 +155,7 @@ class SavedLogRenderer:
 
     def render_event(self, event: dict[str, object]) -> tuple[str, bool]:
         self._track_task_state(event)
-        return render_saved_event(
-            event,
-            seen_tool_calls=self._seen_tool_calls,
-            cwd_hint=self._cwd_hint,
-        )
+        return render_saved_event(event, seen_tool_calls=self._seen_tool_calls, cwd_hint=self._cwd_hint)
 
     def _append_line(self, rendered: list[str], raw_line: str) -> None:
         line = raw_line.rstrip("\n")
@@ -276,33 +270,24 @@ def parse_result_payload(text: str) -> tuple[RalphResultPayload | None, list[str
     result = payload.get("result")
     normalized = _normalize_result(result) if isinstance(result, str) else None
     if normalized is None:
-        warning = (
-            "invalid result payload; treating run as failed: "
-            "missing or unknown `result`"
-        )
+        warning = "invalid result payload; treating run as failed: missing or unknown `result`"
         print(warning, file=sys.stderr)
         return None, [warning]
     parsed = RalphResultPayload.from_payload(payload)
     if parsed.result == "incompleted" and not parsed.learnings:
-        warning = (
-            "invalid result payload; treating run as failed: "
-            "`incompleted` requires non-empty `learnings`"
-        )
+        warning = "invalid result payload; treating run as failed: `incompleted` requires non-empty `learnings`"
         print(warning, file=sys.stderr)
         return None, [warning]
     if parsed.result == "needs_human":
         if not parsed.blocker or parsed.human_task is None:
             warning = (
-                "invalid result payload; treating run as failed: "
-                "`needs_human` requires `blocker` and `human_task`"
+                "invalid result payload; treating run as failed: `needs_human` requires `blocker` and `human_task`"
             )
             print(warning, file=sys.stderr)
             return None, [warning]
         validation_error = _validate_human_task_payload(payload)
         if validation_error is not None:
-            warning = (
-                f"invalid result payload; treating run as failed: {validation_error}"
-            )
+            warning = f"invalid result payload; treating run as failed: {validation_error}"
             print(warning, file=sys.stderr)
             return None, [warning]
     return parsed, []
@@ -333,11 +318,7 @@ def _validate_human_task_payload(payload: dict[str, object]) -> str | None:
         return "`human_task.acceptance_criteria` must be a non-empty string list"
 
     priority = human_task.get("priority")
-    if priority is not None and (
-        not isinstance(priority, int)
-        or isinstance(priority, bool)
-        or not 0 <= priority <= 4
-    ):
+    if priority is not None and (not isinstance(priority, int) or isinstance(priority, bool) or not 0 <= priority <= 4):
         return "`human_task.priority` must be an integer between 0 and 4"
 
     return None
@@ -350,9 +331,7 @@ _parse_result_payload = parse_result_payload
 class AgentRuntime(Protocol):
     model: str | None
 
-    def list_sessions(
-        self, *, root: Path, limit: int = 20
-    ) -> list[dict[str, object]]: ...
+    def list_sessions(self, *, root: Path, limit: int = 20) -> list[dict[str, object]]: ...
 
     def run_ralph_task(
         self,
@@ -367,9 +346,7 @@ class AgentRuntime(Protocol):
 
     def export_session(self, session_id: str, destination: Path) -> None: ...
 
-    def compile_intent_graph(
-        self, *, root: Path, context: dict[str, object]
-    ) -> dict[str, object]: ...
+    def compile_intent_graph(self, *, root: Path, context: dict[str, object]) -> dict[str, object]: ...
 
 
 def launch_chat(
@@ -391,40 +368,29 @@ def launch_chat(
     if env and (package_root := env.get("JRI_PI_PACKAGE")):
         extension_path = _package_resource_path(package_root, "extensions.default")
         prompt_path = _package_resource_path(package_root, "prompts.interrogator")
-        command.extend(
-            [
-                "--no-extensions",
-                "--no-skills",
-                "--no-prompt-templates",
-                "--no-context-files",
-            ]
-        )
+        command.extend(["--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files"])
         command.extend(["--extension", str(extension_path)])
         command.extend(["--append-system-prompt", str(prompt_path)])
         for skill_path in _package_agent_skill_paths(package_root, "interrogator"):
             command.extend(["--skill", str(skill_path)])
-        command.extend(
-            [
-                "--tools",
-                ",".join(
-                    [
-                        "create-node",
-                        "list-nodes",
-                        "read-node",
-                        "search-nodes",
-                        "apply-graph-patch",
-                        "update-node-metadata",
-                        "move-node",
-                        "compile-graph",
-                        "list-tasks",
-                        "read-tasks",
-                        "read-readme",
-                        "edit-readme",
-                        "explore",
-                    ]
-                ),
-            ]
-        )
+        command.extend([
+            "--tools",
+            ",".join([
+                "create-node",
+                "list-nodes",
+                "read-node",
+                "search-nodes",
+                "apply-graph-patch",
+                "update-node-metadata",
+                "move-node",
+                "compile-graph",
+                "list-tasks",
+                "read-tasks",
+                "read-readme",
+                "edit-readme",
+                "explore",
+            ]),
+        ])
     command.extend(extra_args)
     try:
         merged_env = os.environ.copy()
@@ -464,9 +430,7 @@ def _reject_chat_capability_args(extra_args: list[str]) -> None:
     for arg in extra_args:
         flag = arg.split("=", 1)[0]
         if flag in _CHAT_CAPABILITY_FLAGS:
-            raise JriError(
-                f"`jri chat` manages Pi capabilities; unsupported arg: {flag}"
-            )
+            raise JriError(f"`jri chat` manages Pi capabilities; unsupported arg: {flag}")
 
 
 def _package_resource_path(package_root: str, resource_id: str) -> Path:
@@ -557,23 +521,13 @@ def _read_pi_session_header(session_file: Path) -> dict[str, object] | None:
     directory = payload.get("cwd")
     if not isinstance(session_id, str) or not isinstance(directory, str):
         return None
-    return {
-        "id": session_id,
-        "directory": directory,
-        "sessionFile": str(session_file),
-    }
+    return {"id": session_id, "directory": directory, "sessionFile": str(session_file)}
 
 
 class PiRuntime:
     """Drives Ralph sessions through `pi --mode rpc`."""
 
-    def __init__(
-        self,
-        *,
-        binary: str = "pi",
-        port: int | None = None,
-        model: str | None = None,
-    ) -> None:
+    def __init__(self, *, binary: str = "pi", port: int | None = None, model: str | None = None) -> None:
         del port
         self.binary = binary
         self.model = model
@@ -586,11 +540,7 @@ class PiRuntime:
         self._cwd: Path | None = None
 
     def start(
-        self,
-        *,
-        env: dict[str, str] | None = None,
-        cwd: Path | None = None,
-        extra_args: list[str] | None = None,
+        self, *, env: dict[str, str] | None = None, cwd: Path | None = None, extra_args: list[str] | None = None
     ) -> None:
         if self._process is not None and self._process.poll() is None:
             return
@@ -644,9 +594,7 @@ class PiRuntime:
             session_id = data.get("sessionId")
             session_file = data.get("sessionFile")
             self._session_id = session_id if isinstance(session_id, str) else None
-            self._session_file = (
-                Path(session_file) if isinstance(session_file, str) else None
-            )
+            self._session_file = Path(session_file) if isinstance(session_file, str) else None
 
     def stop(self) -> None:
         process = self._process
@@ -683,14 +631,11 @@ class PiRuntime:
 
     def list_sessions(self, *, root: Path, limit: int = 20) -> list[dict[str, object]]:
         sessions = _list_pi_session_files(root=root, limit=limit)
-        self._listed_session_files.update(
-            {
-                cast(str, session["id"]): Path(cast(str, session["sessionFile"]))
-                for session in sessions
-                if isinstance(session.get("id"), str)
-                and isinstance(session.get("sessionFile"), str)
-            }
-        )
+        self._listed_session_files.update({
+            cast(str, session["id"]): Path(cast(str, session["sessionFile"]))
+            for session in sessions
+            if isinstance(session.get("id"), str) and isinstance(session.get("sessionFile"), str)
+        })
         if self.is_healthy():
             state = self._rpc_request("get_state")
             data = state.get("data")
@@ -700,12 +645,7 @@ class PiRuntime:
                 session_file = data.get("sessionFile")
                 if isinstance(session_id, str):
                     sessions.insert(
-                        0,
-                        {
-                            "id": session_id,
-                            "directory": str(root.resolve()),
-                            "sessionFile": session_file,
-                        },
+                        0, {"id": session_id, "directory": str(root.resolve()), "sessionFile": session_file}
                     )
                     if isinstance(session_file, str):
                         self._listed_session_files[session_id] = Path(session_file)
@@ -722,21 +662,14 @@ class PiRuntime:
             raise JriError(f"pi session file is unavailable for '{session_id}'")
         shutil.copyfile(session_file, destination)
 
-    def compile_intent_graph(
-        self, *, root: Path, context: dict[str, object]
-    ) -> dict[str, object]:
+    def compile_intent_graph(self, *, root: Path, context: dict[str, object]) -> dict[str, object]:
         if self.is_healthy():
             self.stop()
-        package_root = self._env.get("JRI_PI_PACKAGE") or os.environ.get(
-            "JRI_PI_PACKAGE"
-        )
+        package_root = self._env.get("JRI_PI_PACKAGE") or os.environ.get("JRI_PI_PACKAGE")
         self.start(cwd=root, extra_args=_intent_compiler_args(package_root))
         if self._process is None or self._process.stdout is None:
             raise JriError("pi rpc process is not running")
-        response = self._rpc_request(
-            "prompt",
-            {"message": _intent_compiler_prompt(context)},
-        )
+        response = self._rpc_request("prompt", {"message": _intent_compiler_prompt(context)})
         if response.get("success") is not True:
             raise JriError(f"failed to start intent compiler prompt: {response}")
 
@@ -788,12 +721,7 @@ class PiRuntime:
         if on_start is not None:
             on_start(self._process.pid)
 
-        response = self._rpc_request(
-            "prompt",
-            {
-                "message": _ralph_prompt(prompt),
-            },
-        )
+        response = self._rpc_request("prompt", {"message": _ralph_prompt(prompt)})
         if response.get("success") is not True:
             raise JriError(f"failed to start ralph prompt: {response}")
 
@@ -811,10 +739,7 @@ class PiRuntime:
                 if deadline is not None and time.monotonic() > deadline:
                     timed_out = True
                     break
-                if (
-                    active_tool_executions == 0
-                    and time.monotonic() - last_non_heartbeat_at > _RUN_STALL_TIMEOUT
-                ):
+                if active_tool_executions == 0 and time.monotonic() - last_non_heartbeat_at > _RUN_STALL_TIMEOUT:
                     stalled = True
                     break
                 event = self._read_rpc_line(timeout=0.5)
@@ -838,10 +763,7 @@ class PiRuntime:
                     last_terminal_char = text_to_print[-1]
                 if event.get("type") == "agent_end":
                     if not result_path.exists() and not sent_missing_result_follow_up:
-                        follow_up = self._rpc_request(
-                            "prompt",
-                            {"message": _MISSING_RESULT_FOLLOW_UP_PROMPT},
-                        )
+                        follow_up = self._rpc_request("prompt", {"message": _MISSING_RESULT_FOLLOW_UP_PROMPT})
                         if follow_up.get("success") is not True:
                             break
                         sent_missing_result_follow_up = True
@@ -859,17 +781,12 @@ class PiRuntime:
             self.stop()
         elif stalled:
             result = "failed"
-            msg = (
-                "pi prompt stalled after "
-                f"{int(_RUN_STALL_TIMEOUT)}s without non-heartbeat events"
-            )
+            msg = f"pi prompt stalled after {int(_RUN_STALL_TIMEOUT)}s without non-heartbeat events"
             print(msg, file=sys.stderr)
             warnings.append(msg)
             self.stop()
         elif result_path.exists():
-            payload, warnings = parse_result_payload(
-                result_path.read_text(encoding="utf-8")
-            )
+            payload, warnings = parse_result_payload(result_path.read_text(encoding="utf-8"))
             result = payload.result if payload is not None else "failed"
         else:
             result, warnings = missing_result_payload(context="Ralph run")
@@ -882,9 +799,7 @@ class PiRuntime:
             warnings=warnings,
         )
 
-    def _rpc_request(
-        self, command: str, extra: dict[str, object] | None = None
-    ) -> dict[str, object]:
+    def _rpc_request(self, command: str, extra: dict[str, object] | None = None) -> dict[str, object]:
         request: dict[str, object] = {"type": command}
         if extra:
             request.update(extra)

@@ -40,24 +40,19 @@ class LifecycleReconciliationFakeAgentRuntime:
         self._slug_calls[slug] = self._slug_calls.get(slug, 0) + 1
 
         if slug == "complete-first":
-            (root / "complete-first.txt").write_text(
-                "complete-first ok\n", encoding="utf-8"
-            )
+            (root / "complete-first.txt").write_text("complete-first ok\n", encoding="utf-8")
             log_path.write_text("completed complete-first\n", encoding="utf-8")
             return AgentRunResult(
                 returncode=0,
                 session_id="ses_complete_first",
                 result="completed",
                 payload=RalphResultPayload(
-                    result="completed",
-                    summary="Completed the first deterministic lifecycle task.",
+                    result="completed", summary="Completed the first deterministic lifecycle task."
                 ),
             )
 
         if slug == "needs-human-origin" and self._slug_calls[slug] == 1:
-            log_path.write_text(
-                "needs human for deterministic input\n", encoding="utf-8"
-            )
+            log_path.write_text("needs human for deterministic input\n", encoding="utf-8")
             return AgentRunResult(
                 returncode=0,
                 session_id="ses_needs_human_origin",
@@ -67,28 +62,21 @@ class LifecycleReconciliationFakeAgentRuntime:
                     blocker="A deterministic human approval is required.",
                     human_task=HumanTaskPayload(
                         title="Approve deterministic lifecycle input",
-                        body=(
-                            "Confirm the synthetic lifecycle-derived "
-                            "input is available."
-                        ),
+                        body=("Confirm the synthetic lifecycle-derived input is available."),
                         acceptance_criteria=["The synthetic input is approved"],
                     ),
                 ),
             )
 
         if slug == "needs-human-origin":
-            (root / "needs-human-origin.txt").write_text(
-                "needs-human-origin resumed\n",
-                encoding="utf-8",
-            )
+            (root / "needs-human-origin.txt").write_text("needs-human-origin resumed\n", encoding="utf-8")
             log_path.write_text("resumed after human input\n", encoding="utf-8")
             return AgentRunResult(
                 returncode=0,
                 session_id="ses_needs_human_resumed",
                 result="completed",
                 payload=RalphResultPayload(
-                    result="completed",
-                    summary="Resumed successfully after explicit Human completion.",
+                    result="completed", summary="Resumed successfully after explicit Human completion."
                 ),
             )
 
@@ -99,23 +87,15 @@ class LifecycleReconciliationFakeAgentRuntime:
 
     def export_session(self, session_id: str, destination: Path) -> None:
         destination.write_text(
-            json.dumps({"session": session_id, "source": "deterministic-fake"}) + "\n",
-            encoding="utf-8",
+            json.dumps({"session": session_id, "source": "deterministic-fake"}) + "\n", encoding="utf-8"
         )
 
-    def compile_intent_graph(
-        self, *, root: Path, context: dict[str, object]
-    ) -> dict[str, object]:
+    def compile_intent_graph(self, *, root: Path, context: dict[str, object]) -> dict[str, object]:
         del root, context
-        raise AssertionError(
-            "compile_intent_graph should not be called in lifecycle tests"
-        )
+        raise AssertionError("compile_intent_graph should not be called in lifecycle tests")
 
 
-def test_lifecycle_reconciliation_regression(
-    git_repo: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_lifecycle_reconciliation_regression(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert run_cli(["init"], cwd=git_repo) == 0
     write_passing_makefile(git_repo)
     git(git_repo, "add", "Makefile")
@@ -134,22 +114,14 @@ def test_lifecycle_reconciliation_regression(
         "needs-human-origin": "needs_human",
         "startup-before-payload": "failed",
     }
-    assert runtime.calls == [
-        "complete-first",
-        "needs-human-origin",
-        "startup-before-payload",
-    ]
+    assert runtime.calls == ["complete-first", "needs-human-origin", "startup-before-payload"]
     assert (git_repo / ".jri" / "tasks" / "done" / "complete-first.md").exists()
-    assert (git_repo / "complete-first.txt").read_text(encoding="utf-8") == (
-        "complete-first ok\n"
-    )
+    assert (git_repo / "complete-first.txt").read_text(encoding="utf-8") == ("complete-first ok\n")
 
     todo_tasks = list_tasks(git_repo / ".jri" / "tasks" / "todo")
     human_tasks = [task for task in todo_tasks if task.metadata.assignee == "Human"]
     assert [task.slug for task in human_tasks] == ["needs-human-origin--needs-human"]
-    original = parse_task_file(
-        git_repo / ".jri" / "tasks" / "todo" / "needs-human-origin.md"
-    )
+    original = parse_task_file(git_repo / ".jri" / "tasks" / "todo" / "needs-human-origin.md")
     assert original.metadata.depends_on == ["needs-human-origin--needs-human"]
     assert (git_repo / ".jri" / "tasks" / "todo" / "startup-before-payload.md").exists()
 
@@ -191,64 +163,35 @@ def test_lifecycle_reconciliation_regression(
     assert "recovery_completed task=startup-before-payload" in timeline_output
     assert _text_has_no_secret_markers(timeline_output)
 
-    assert (
-        run_cli(["complete-human", "needs-human-origin--needs-human"], cwd=git_repo)
-        == 0
-    )
+    assert run_cli(["complete-human", "needs-human-origin--needs-human"], cwd=git_repo) == 0
     capsys.readouterr()
-    assert (
-        git_repo / ".jri" / "tasks" / "done" / "needs-human-origin--needs-human.md"
-    ).exists()
+    assert (git_repo / ".jri" / "tasks" / "done" / "needs-human-origin--needs-human.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "done" / "needs-human-origin.md").exists()
 
     assert run_cli(["status"], cwd=git_repo) == 0
     unblocked_status = capsys.readouterr().out
     assert "[done  ] [P1] needs-human-origin--needs-human" in unblocked_status
-    assert (
-        "Action needed: run `jri start` to retry needs-human-origin."
-        in unblocked_status
-    )
+    assert "Action needed: run `jri start` to retry needs-human-origin." in unblocked_status
 
-    retry_summary = JriService(git_repo, agent_runtime=runtime).start_summary(
-        max_tasks=1,
-        force=True,
-    )
+    retry_summary = JriService(git_repo, agent_runtime=runtime).start_summary(max_tasks=1, force=True)
 
     assert retry_summary.completed == 1
     assert retry_summary.outcome == "completed"
     assert retry_summary.task_results == {"needs-human-origin": "completed"}
-    assert runtime.calls == [
-        "complete-first",
-        "needs-human-origin",
-        "startup-before-payload",
-        "needs-human-origin",
-    ]
+    assert runtime.calls == ["complete-first", "needs-human-origin", "startup-before-payload", "needs-human-origin"]
     assert (git_repo / ".jri" / "tasks" / "done" / "needs-human-origin.md").exists()
-    assert (git_repo / "needs-human-origin.txt").read_text(encoding="utf-8") == (
-        "needs-human-origin resumed\n"
-    )
+    assert (git_repo / "needs-human-origin.txt").read_text(encoding="utf-8") == ("needs-human-origin resumed\n")
     assert (git_repo / ".jri" / "tasks" / "todo" / "startup-before-payload.md").exists()
 
     capsys.readouterr()
     assert run_cli(["status"], cwd=git_repo) == 0
     final_status = capsys.readouterr().out
     assert "Tasks: 4 total" in final_status
-    assert (
-        "Action needed: run `jri start` to retry startup-before-payload."
-        in final_status
-    )
+    assert "Action needed: run `jri start` to retry startup-before-payload." in final_status
 
     assert run_cli(["timeline", "--json"], cwd=git_repo) == 0
-    timeline_events = [
-        json.loads(line)
-        for line in capsys.readouterr().out.splitlines()
-        if line.strip()
-    ]
-    assert _event_names(timeline_events, "complete-first") >= {
-        "attempt_started",
-        "make_check_passed",
-        "task_completed",
-    }
+    timeline_events = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.strip()]
+    assert _event_names(timeline_events, "complete-first") >= {"attempt_started", "make_check_passed", "task_completed"}
     assert _event_names(timeline_events, "needs-human-origin") >= {
         "attempt_started",
         "task_needs_human",
@@ -260,9 +203,7 @@ def test_lifecycle_reconciliation_regression(
         "task_failed",
         "recovery_completed",
     }
-    assert _event_names(timeline_events, "needs-human-origin--needs-human") == {
-        "human_task_completed"
-    }
+    assert _event_names(timeline_events, "needs-human-origin--needs-human") == {"human_task_completed"}
 
 
 def _write_lifecycle_tasks(repo: Path) -> None:

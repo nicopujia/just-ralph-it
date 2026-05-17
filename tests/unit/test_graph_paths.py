@@ -2,12 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from jri.core.graph import (
-    graph_node_path,
-    parse_graph_node_file,
-    validate_graph_path,
-    validate_node_metadata,
-)
+from jri.core.graph import graph_node_path, parse_graph_node_file, validate_graph_path, validate_node_metadata
 from jri.core.models import GraphNodeMetadata
 from jri.core.paths import JriPaths
 
@@ -35,9 +30,7 @@ def test_graph_path_maps_to_node_file_under_graph_dir(tmp_path: Path) -> None:
         ("NODE.md", "NODE.md"),
     ],
 )
-def test_graph_path_rejects_unsafe_or_non_semantic_inputs(
-    raw_path: str, expected_message: str
-) -> None:
+def test_graph_path_rejects_unsafe_or_non_semantic_inputs(raw_path: str, expected_message: str) -> None:
     with pytest.raises(ValueError, match=expected_message):
         validate_graph_path(raw_path)
 
@@ -67,21 +60,19 @@ def test_node_metadata_accepts_active_and_archived_states() -> None:
     assert validate_node_metadata({"title": "Checkout", "state": "active"}) == (
         GraphNodeMetadata(title="Checkout", state="active")
     )
-    assert validate_node_metadata(
-        {"title": "Old checkout", "state": "archived", "archive_reason": "Replaced"}
-    ) == GraphNodeMetadata(
-        title="Old checkout", state="archived", archive_reason="Replaced"
+    assert validate_node_metadata({
+        "title": "Old checkout",
+        "state": "archived",
+        "archive_reason": "Replaced",
+    }) == GraphNodeMetadata(title="Old checkout", state="archived", archive_reason="Replaced")
+    assert validate_node_metadata({"title": "Checkout", "state": "active", "archive_reason": ""}) == GraphNodeMetadata(
+        title="Checkout", state="active"
     )
-    assert validate_node_metadata(
-        {"title": "Checkout", "state": "active", "archive_reason": ""}
-    ) == GraphNodeMetadata(title="Checkout", state="active")
 
 
 def test_node_metadata_rejects_non_string_archive_reason_for_active_node() -> None:
     with pytest.raises(ValueError, match="archive_reason"):
-        validate_node_metadata(
-            {"title": "Checkout", "state": "active", "archive_reason": 12}
-        )
+        validate_node_metadata({"title": "Checkout", "state": "active", "archive_reason": 12})
 
 
 @pytest.mark.parametrize(
@@ -92,23 +83,12 @@ def test_node_metadata_rejects_non_string_archive_reason_for_active_node() -> No
         ({"title": "Checkout", "state": "draft"}, "state"),
         ({"title": "Checkout", "state": "active", "extra": True}, "unknown"),
         ({"title": "Checkout", "state": "archived"}, "archive_reason"),
-        (
-            {"title": "Checkout", "state": "archived", "archive_reason": ""},
-            "archive_reason",
-        ),
-        (
-            {"title": "Checkout", "state": "active", "archive_reason": "Replaced"},
-            "active",
-        ),
-        (
-            {"title": "Checkout", "state": "archived", "archive_reason": 12},
-            "archive_reason",
-        ),
+        ({"title": "Checkout", "state": "archived", "archive_reason": ""}, "archive_reason"),
+        ({"title": "Checkout", "state": "active", "archive_reason": "Replaced"}, "active"),
+        ({"title": "Checkout", "state": "archived", "archive_reason": 12}, "archive_reason"),
     ],
 )
-def test_node_metadata_rejects_invalid_payloads(
-    payload: dict[str, object], expected_message: str
-) -> None:
+def test_node_metadata_rejects_invalid_payloads(payload: dict[str, object], expected_message: str) -> None:
     with pytest.raises(ValueError, match=expected_message):
         validate_node_metadata(payload)
 
@@ -116,10 +96,7 @@ def test_node_metadata_rejects_invalid_payloads(
 def test_parse_graph_node_file_reads_frontmatter_and_body(tmp_path: Path) -> None:
     node_file = graph_node_path(tmp_path, "product/checkout")
     node_file.parent.mkdir(parents=True)
-    node_file.write_text(
-        "---\ntitle: Checkout\nstate: active\n---\n\nOwns checkout intent.\n",
-        encoding="utf-8",
-    )
+    node_file.write_text("---\ntitle: Checkout\nstate: active\n---\n\nOwns checkout intent.\n", encoding="utf-8")
 
     node = parse_graph_node_file(tmp_path, "product/checkout")
 
@@ -143,15 +120,10 @@ def test_parse_graph_node_file_rejects_missing_frontmatter(tmp_path: Path) -> No
         parse_graph_node_file(tmp_path, "product/checkout")
 
 
-def test_parse_graph_node_file_rejects_missing_frontmatter_boundary(
-    tmp_path: Path,
-) -> None:
+def test_parse_graph_node_file_rejects_missing_frontmatter_boundary(tmp_path: Path) -> None:
     node_file = graph_node_path(tmp_path, "product/checkout")
     node_file.parent.mkdir(parents=True)
-    node_file.write_text(
-        "---\ntitle: Checkout\nstate: active\n\nOwns checkout.\n",
-        encoding="utf-8",
-    )
+    node_file.write_text("---\ntitle: Checkout\nstate: active\n\nOwns checkout.\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="end frontmatter"):
         parse_graph_node_file(tmp_path, "product/checkout")
@@ -169,10 +141,7 @@ def test_parse_graph_node_file_rejects_non_object_frontmatter(tmp_path: Path) ->
 def test_parse_graph_node_file_wraps_invalid_yaml(tmp_path: Path) -> None:
     node_file = graph_node_path(tmp_path, "product/checkout")
     node_file.parent.mkdir(parents=True)
-    node_file.write_text(
-        "---\ntitle: [Checkout\nstate: active\n---\n\nOwns checkout intent.\n",
-        encoding="utf-8",
-    )
+    node_file.write_text("---\ntitle: [Checkout\nstate: active\n---\n\nOwns checkout intent.\n", encoding="utf-8")
 
     with pytest.raises(ValueError, match="invalid node metadata YAML"):
         parse_graph_node_file(tmp_path, "product/checkout")

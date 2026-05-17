@@ -6,14 +6,7 @@ Assignee = Literal["Ralph", "Human"]
 TaskStatus = Literal["todo", "doing", "done"]
 RalphResult = Literal["completed", "incompleted", "needs_human"]
 Result = Literal["completed", "incompleted", "needs_human", "failed", "timeout"]
-AttemptResult = Literal[
-    "completed",
-    "incompleted",
-    "needs_human",
-    "failed",
-    "interrupted",
-    "timeout",
-]
+AttemptResult = Literal["completed", "incompleted", "needs_human", "failed", "interrupted", "timeout"]
 RuntimeProcessState = Literal["running", "not_running", "stale"]
 AttemptLifecycleState = Literal["active", "persisted"]
 PayloadLifecycleState = Literal["present", "missing", "invalid"]
@@ -22,18 +15,8 @@ GraphNodeState = Literal["active", "archived"]
 
 TASK_STATUSES: tuple[TaskStatus, ...] = ("todo", "doing", "done")
 LIFECYCLE_TASK_STATUSES: tuple[TaskStatus, ...] = ("todo", "doing", "done")
-RALPH_RESULT_VALUES: tuple[RalphResult, ...] = (
-    "completed",
-    "incompleted",
-    "needs_human",
-)
-RESULT_VALUES: tuple[Result, ...] = (
-    "completed",
-    "incompleted",
-    "needs_human",
-    "failed",
-    "timeout",
-)
+RALPH_RESULT_VALUES: tuple[RalphResult, ...] = ("completed", "incompleted", "needs_human")
+RESULT_VALUES: tuple[Result, ...] = ("completed", "incompleted", "needs_human", "failed", "timeout")
 ATTEMPT_RESULT_VALUES: tuple[AttemptResult, ...] = (
     "completed",
     "incompleted",
@@ -42,25 +25,10 @@ ATTEMPT_RESULT_VALUES: tuple[AttemptResult, ...] = (
     "interrupted",
     "timeout",
 )
-RUNTIME_PROCESS_STATES: tuple[RuntimeProcessState, ...] = (
-    "running",
-    "not_running",
-    "stale",
-)
-ATTEMPT_LIFECYCLE_STATES: tuple[AttemptLifecycleState, ...] = (
-    "active",
-    "persisted",
-)
-PAYLOAD_LIFECYCLE_STATES: tuple[PayloadLifecycleState, ...] = (
-    "present",
-    "missing",
-    "invalid",
-)
-LOG_LIFECYCLE_STATES: tuple[LogLifecycleState, ...] = (
-    "present",
-    "missing",
-    "recovered",
-)
+RUNTIME_PROCESS_STATES: tuple[RuntimeProcessState, ...] = ("running", "not_running", "stale")
+ATTEMPT_LIFECYCLE_STATES: tuple[AttemptLifecycleState, ...] = ("active", "persisted")
+PAYLOAD_LIFECYCLE_STATES: tuple[PayloadLifecycleState, ...] = ("present", "missing", "invalid")
+LOG_LIFECYCLE_STATES: tuple[LogLifecycleState, ...] = ("present", "missing", "recovered")
 GRAPH_NODE_STATES: tuple[GraphNodeState, ...] = ("active", "archived")
 
 
@@ -75,39 +43,27 @@ JRI_LIFECYCLE_INVARIANTS: tuple[LifecycleInvariant, ...] = (
     LifecycleInvariant(
         surface="task_files",
         vocabulary=TASK_STATUSES,
-        invariant=(
-            "Ralph selects todo tasks, owns one doing task, and acceptance moves "
-            "doing to done"
-        ),
+        invariant=("Ralph selects todo tasks, owns one doing task, and acceptance moves doing to done"),
     ),
     LifecycleInvariant(
         surface="runtime_process",
         vocabulary=RUNTIME_PROCESS_STATES,
-        invariant=(
-            "a stale or missing runtime cannot keep a task in doing without recovery"
-        ),
+        invariant=("a stale or missing runtime cannot keep a task in doing without recovery"),
     ),
     LifecycleInvariant(
         surface="active_attempt",
         vocabulary=ATTEMPT_LIFECYCLE_STATES,
-        invariant=(
-            "active_attempt exists only while execution or final bookkeeping is pending"
-        ),
+        invariant=("active_attempt exists only while execution or final bookkeeping is pending"),
     ),
     LifecycleInvariant(
         surface="persisted_attempts",
         vocabulary=ATTEMPT_RESULT_VALUES,
-        invariant=(
-            "every started Ralph task has an inspectable persisted attempt result"
-        ),
+        invariant=("every started Ralph task has an inspectable persisted attempt result"),
     ),
     LifecycleInvariant(
         surface="result_payload",
         vocabulary=PAYLOAD_LIFECYCLE_STATES,
-        invariant=(
-            "completed, incompleted, and needs_human require a valid Ralph "
-            "result payload"
-        ),
+        invariant=("completed, incompleted, and needs_human require a valid Ralph result payload"),
     ),
     LifecycleInvariant(
         surface="logs",
@@ -117,10 +73,7 @@ JRI_LIFECYCLE_INVARIANTS: tuple[LifecycleInvariant, ...] = (
     LifecycleInvariant(
         surface="human_blockers",
         vocabulary=("todo", "depends_on", "needs_human"),
-        invariant=(
-            "needs_human creates a Human todo task and blocks the original "
-            "Ralph todo task"
-        ),
+        invariant=("needs_human creates a Human todo task and blocks the original Ralph todo task"),
     ),
 )
 
@@ -185,11 +138,7 @@ class RalphResultPayload:
             result=cast(RalphResult, payload.get("result")),
             summary=_str_or_none(payload.get("summary")),
             learnings=(
-                [
-                    item
-                    for item in cast(list[object], learnings)
-                    if isinstance(item, str)
-                ]
+                [item for item in cast(list[object], learnings) if isinstance(item, str)]
                 if isinstance(learnings, list)
                 else []
             ),
@@ -304,9 +253,7 @@ class AttemptState:
             session_id=_str_or_none(payload.get("session_id")),
             result=_attempt_result_or_none(payload.get("result")),
             result_payload=(
-                RalphResultPayload.from_payload(
-                    cast(dict[str, object], payload["result_payload"])
-                )
+                RalphResultPayload.from_payload(cast(dict[str, object], payload["result_payload"]))
                 if isinstance(payload.get("result_payload"), dict)
                 else None
             ),
@@ -346,9 +293,7 @@ class ResetPoint:
             task_slug=_str_or_none(payload.get("task_slug")) or "",
             host_branch=_str_or_none(payload.get("host_branch")) or "",
             ralph_branch=_str_or_none(payload.get("ralph_branch")) or "",
-            before_begin_commit=(
-                _str_or_none(payload.get("before_begin_commit")) or ""
-            ),
+            before_begin_commit=(_str_or_none(payload.get("before_begin_commit")) or ""),
             begin_commit=_str_or_none(payload.get("begin_commit")) or "",
             end_commit=_str_or_none(payload.get("end_commit")),
             started_at=_int_or_none(payload.get("started_at")),
@@ -356,13 +301,7 @@ class ResetPoint:
         )
 
 
-RunOutcome = Literal[
-    "completed",
-    "no_work",
-    "task_failure",
-    "timeout",
-    "needs_human",
-]
+RunOutcome = Literal["completed", "no_work", "task_failure", "timeout", "needs_human"]
 
 
 @dataclass(frozen=True)
@@ -409,10 +348,7 @@ class State:
             payload["current_task"] = self.current_task
         if self.reset_points:
             payload["reset_points"] = {
-                host_branch: {
-                    task_slug: reset_point.to_payload()
-                    for task_slug, reset_point in task_points.items()
-                }
+                host_branch: {task_slug: reset_point.to_payload() for task_slug, reset_point in task_points.items()}
                 for host_branch, task_points in self.reset_points.items()
             }
         return payload
@@ -433,9 +369,7 @@ class State:
         active_attempt_raw = payload.get("active_attempt")
         active_attempt = None
         if isinstance(active_attempt_raw, dict):
-            active_attempt = AttemptState.from_payload(
-                cast(dict[str, object], active_attempt_raw)
-            )
+            active_attempt = AttemptState.from_payload(cast(dict[str, object], active_attempt_raw))
 
         attempts_raw = payload.get("attempts")
         attempts: list[AttemptState] = []
@@ -449,19 +383,13 @@ class State:
         reset_points_raw = payload.get("reset_points")
         reset_points: dict[str, dict[str, ResetPoint]] = {}
         if isinstance(reset_points_raw, dict):
-            for host_branch, task_points_raw in cast(
-                dict[str, object], reset_points_raw
-            ).items():
+            for host_branch, task_points_raw in cast(dict[str, object], reset_points_raw).items():
                 if not isinstance(task_points_raw, dict):
                     continue
                 task_points: dict[str, ResetPoint] = {}
-                for task_slug, reset_point_raw in cast(
-                    dict[str, object], task_points_raw
-                ).items():
+                for task_slug, reset_point_raw in cast(dict[str, object], task_points_raw).items():
                     if isinstance(reset_point_raw, dict):
-                        task_points[task_slug] = ResetPoint.from_payload(
-                            cast(dict[str, object], reset_point_raw)
-                        )
+                        task_points[task_slug] = ResetPoint.from_payload(cast(dict[str, object], reset_point_raw))
                 if task_points:
                     reset_points[host_branch] = task_points
 
@@ -480,9 +408,7 @@ class State:
     def reset_point_for(self, *, host_branch: str, task_slug: str) -> ResetPoint | None:
         return self.reset_points.get(host_branch, {}).get(task_slug)
 
-    def latest_reset_point(
-        self, *, host_branch: str | None = None, task_slug: str | None = None
-    ) -> ResetPoint | None:
+    def latest_reset_point(self, *, host_branch: str | None = None, task_slug: str | None = None) -> ResetPoint | None:
         reset_points = [
             reset_point
             for branch, task_points in self.reset_points.items()
@@ -521,13 +447,6 @@ def _str_or_none(value: object) -> str | None:
 def _attempt_result_or_none(value: object) -> AttemptResult | None:
     if value == "incomplete":
         return "incompleted"
-    if value in {
-        "completed",
-        "incompleted",
-        "needs_human",
-        "failed",
-        "interrupted",
-        "timeout",
-    }:
+    if value in {"completed", "incompleted", "needs_human", "failed", "interrupted", "timeout"}:
         return cast(AttemptResult, value)
     return None

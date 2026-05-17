@@ -8,9 +8,7 @@ from tests.conftest import run_cli
 from tests.helpers import git
 
 
-def test_init_creates_scaffold_and_commit(
-    git_repo: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_init_creates_scaffold_and_commit(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     exit_code = run_cli(["init"], cwd=git_repo)
 
     assert exit_code == 0
@@ -23,15 +21,10 @@ def test_init_creates_scaffold_and_commit(
     assert (git_repo / ".jri" / "tasks" / "done" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "attempts" / ".gitkeep").exists()
     assert (git_repo / ".jri" / "graph").is_dir()
-    assert sorted(item.name for item in (git_repo / ".jri" / "graph").iterdir()) == [
-        ".gitkeep"
-    ]
+    assert sorted(item.name for item in (git_repo / ".jri" / "graph").iterdir()) == [".gitkeep"]
     assert not (git_repo / ".jri" / "graph" / "NODE.md").exists()
     assert (git_repo / "Makefile").read_text(encoding="utf-8") == (
-        ".PHONY: check\n\n"
-        "check:\n"
-        '\t@echo "make check is not configured yet"\n'
-        "\t@false\n"
+        '.PHONY: check\n\ncheck:\n\t@echo "make check is not configured yet"\n\t@false\n'
     )
     assert not (git_repo / ".jri" / "signals").exists()
     assert not (git_repo / ".jri" / "logs").exists()
@@ -43,20 +36,9 @@ def test_init_creates_scaffold_and_commit(
     assert not (git_repo / ".jri" / "pi.json").exists()
     assert not (git_repo / ".gitignore").exists()
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_INIT
-    changed_files = set(
-        git(
-            git_repo,
-            "diff-tree",
-            "--no-commit-id",
-            "--name-only",
-            "-r",
-            "HEAD",
-        ).splitlines()
-    )
+    changed_files = set(git(git_repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines())
     assert "Makefile" in changed_files
-    assert (git_repo / ".jri" / ".gitignore").read_text(
-        encoding="utf-8"
-    ).splitlines() == [
+    assert (git_repo / ".jri" / ".gitignore").read_text(encoding="utf-8").splitlines() == [
         "logs/",
         "signals/",
         "*state.json*",
@@ -65,21 +47,13 @@ def test_init_creates_scaffold_and_commit(
     ]
     assert git(git_repo, "status", "--short") == ""
 
-    check = subprocess.run(
-        ["make", "check"],
-        cwd=git_repo,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    check = subprocess.run(["make", "check"], cwd=git_repo, capture_output=True, text=True, check=False)
     assert check.returncode != 0
     assert "make check is not configured yet" in check.stdout
 
 
 def test_init_creates_git_repo_when_missing(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
@@ -98,10 +72,7 @@ def test_init_creates_git_repo_when_missing(
     assert git(repo, "status", "--short") == ""
 
 
-def test_init_creates_git_repo_on_requested_default_branch(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_init_creates_git_repo_on_requested_default_branch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     monkeypatch.setenv("GIT_AUTHOR_NAME", "JRI Tests")
@@ -125,9 +96,7 @@ def test_init_uses_requested_existing_default_branch(git_repo: Path) -> None:
     assert exit_code == 0
     assert git(git_repo, "branch", "--show-current") == "trunk"
     assert git(git_repo, "log", "-1", "--pretty=%s") == git_module.MSG_INIT
-    assert '"branch": "trunk"' in (git_repo / ".jri" / "state.json").read_text(
-        encoding="utf-8"
-    )
+    assert '"branch": "trunk"' in (git_repo / ".jri" / "state.json").read_text(encoding="utf-8")
 
 
 def test_init_creates_requested_branch_when_missing(git_repo: Path) -> None:
@@ -139,15 +108,10 @@ def test_init_creates_requested_branch_when_missing(git_repo: Path) -> None:
     assert git(git_repo, "branch", "--show-current") == "trunk"
     assert git(git_repo, "rev-parse", "trunk^") == main_ref
     assert git(git_repo, "rev-parse", "main") == main_ref
-    assert '"branch": "trunk"' in (git_repo / ".jri" / "state.json").read_text(
-        encoding="utf-8"
-    )
+    assert '"branch": "trunk"' in (git_repo / ".jri" / "state.json").read_text(encoding="utf-8")
 
 
-def test_init_accepts_branch_short_flag(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_init_accepts_branch_short_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     monkeypatch.setenv("GIT_AUTHOR_NAME", "JRI Tests")
@@ -161,10 +125,7 @@ def test_init_accepts_branch_short_flag(
     assert git(repo, "branch", "--show-current") == "trunk"
 
 
-def test_init_help_includes_branch_flags(
-    git_repo: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
+def test_init_help_includes_branch_flags(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
         run_cli(["init", "--help"], cwd=git_repo)
 
@@ -176,9 +137,7 @@ def test_init_help_includes_branch_flags(
     assert "--default-branch" not in help_text
 
 
-def test_init_commits_only_scaffold_when_unrelated_changes_exist(
-    git_repo: Path,
-) -> None:
+def test_init_commits_only_scaffold_when_unrelated_changes_exist(git_repo: Path) -> None:
     (git_repo / "README.md").write_text("# changed\n", encoding="utf-8")
     (git_repo / "notes.txt").write_text("keep staged\n", encoding="utf-8")
     git(git_repo, "add", "notes.txt")
@@ -186,16 +145,7 @@ def test_init_commits_only_scaffold_when_unrelated_changes_exist(
     exit_code = run_cli(["init"], cwd=git_repo)
 
     assert exit_code == 0
-    changed_files = set(
-        git(
-            git_repo,
-            "diff-tree",
-            "--no-commit-id",
-            "--name-only",
-            "-r",
-            "HEAD",
-        ).splitlines()
-    )
+    changed_files = set(git(git_repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines())
     assert "README.md" not in changed_files
     assert "notes.txt" not in changed_files
     assert "Makefile" in changed_files
@@ -215,16 +165,7 @@ def test_init_creates_empty_readme_when_missing(git_repo: Path) -> None:
     assert exit_code == 0
     assert (git_repo / "README.md").read_text(encoding="utf-8") == ""
     assert (git_repo / ".jri" / "learnings.md").read_text(encoding="utf-8") == ""
-    changed_files = set(
-        git(
-            git_repo,
-            "diff-tree",
-            "--no-commit-id",
-            "--name-only",
-            "-r",
-            "HEAD",
-        ).splitlines()
-    )
+    changed_files = set(git(git_repo, "diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines())
     assert "README.md" in changed_files
     assert ".jri/learnings.md" in changed_files
 
@@ -271,19 +212,11 @@ def test_init_leaves_existing_makefile_untouched(git_repo: Path) -> None:
     exit_code = run_cli(["init"], cwd=git_repo)
 
     assert exit_code == 0
-    assert (git_repo / "Makefile").read_text(encoding="utf-8") == (
-        "check:\n\t@echo custom\n"
-    )
+    assert (git_repo / "Makefile").read_text(encoding="utf-8") == ("check:\n\t@echo custom\n")
 
 
-@pytest.mark.parametrize(
-    "args",
-    [["upgrade"], ["init", "--upgrade"], ["init", "--bogus"]],
-)
-def test_init_rejects_removed_upgrade_command_and_unknown_flags(
-    git_repo: Path,
-    args: list[str],
-) -> None:
+@pytest.mark.parametrize("args", [["upgrade"], ["init", "--upgrade"], ["init", "--bogus"]])
+def test_init_rejects_removed_upgrade_command_and_unknown_flags(git_repo: Path, args: list[str]) -> None:
     with pytest.raises(SystemExit) as exc_info:
         run_cli(args, cwd=git_repo)
 

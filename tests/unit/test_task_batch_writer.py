@@ -17,11 +17,7 @@ def spec(
     acceptance_criteria: list[str] | None = None,
     body: str = "Complete the task.\n",
 ) -> CompilerTaskSpec:
-    criteria = (
-        ["The behavior is verified"]
-        if acceptance_criteria is None
-        else acceptance_criteria
-    )
+    criteria = ["The behavior is verified"] if acceptance_criteria is None else acceptance_criteria
     return CompilerTaskSpec(
         title=title,
         priority=priority,
@@ -53,18 +49,11 @@ def test_create_task_batch_writes_deterministic_todo_tasks(tmp_path: Path) -> No
         repo,
         [
             spec("Build compiler writer", depends_on=["design-ready"]),
-            spec(
-                "Wire compiler output",
-                priority=2,
-                depends_on=["build-compiler-writer"],
-            ),
+            spec("Wire compiler output", priority=2, depends_on=["build-compiler-writer"]),
         ],
     )
 
-    assert [task.slug for task in tasks] == [
-        "build-compiler-writer",
-        "wire-compiler-output",
-    ]
+    assert [task.slug for task in tasks] == ["build-compiler-writer", "wire-compiler-output"]
     first = parse_task_file(task_path(repo, "build-compiler-writer"))
     second = parse_task_file(task_path(repo, "wire-compiler-output"))
     assert first.metadata.depends_on == ["design-ready"]
@@ -114,20 +103,11 @@ def test_create_task_batch_rejects_existing_lifecycle_task(tmp_path: Path) -> No
     repo = tmp_path / "repo"
     (repo / ".jri" / "tasks" / "doing").mkdir(parents=True)
     existing = write_task(
-        repo,
-        status="doing",
-        slug="build-api",
-        title="Build API",
-        priority=1,
-        assignee="Ralph",
-        body="Existing task.\n",
+        repo, status="doing", slug="build-api", title="Build API", priority=1, assignee="Ralph", body="Existing task.\n"
     )
     original = existing.read_text(encoding="utf-8")
 
-    with pytest.raises(
-        ValueError,
-        match="refusing to overwrite existing task `build-api`",
-    ):
+    with pytest.raises(ValueError, match="refusing to overwrite existing task `build-api`"):
         create_task_batch(repo, [spec("Build API")])
 
     assert existing.read_text(encoding="utf-8") == original
@@ -143,29 +123,16 @@ def test_create_task_batch_rejects_path_escape_slug(tmp_path: Path) -> None:
     assert not (repo / ".jri").exists()
 
 
-def test_create_task_batch_rolls_back_files_on_write_failure(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_create_task_batch_rolls_back_files_on_write_failure(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = tmp_path / "repo"
     original_write_text = Path.write_text
 
     def fail_second_write(
-        self: Path,
-        data: str,
-        encoding: str | None = None,
-        errors: str | None = None,
-        newline: str | None = None,
+        self: Path, data: str, encoding: str | None = None, errors: str | None = None, newline: str | None = None
     ) -> int:
         if self.name == "second-task.md":
             raise OSError("disk full")
-        return original_write_text(
-            self,
-            data,
-            encoding=encoding,
-            errors=errors,
-            newline=newline,
-        )
+        return original_write_text(self, data, encoding=encoding, errors=errors, newline=newline)
 
     monkeypatch.setattr(Path, "write_text", fail_second_write)
 

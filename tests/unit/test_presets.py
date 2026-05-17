@@ -18,12 +18,7 @@ def test_resolve_preset_models_uses_default_start_bundle() -> None:
     resolved = resolve_preset_models(
         "default",
         mode="start",
-        overrides={
-            "model": None,
-            "validator_model": None,
-            "general_model": None,
-            "explore_model": None,
-        },
+        overrides={"model": None, "validator_model": None, "general_model": None, "explore_model": None},
     )
 
     assert resolved == {
@@ -35,31 +30,16 @@ def test_resolve_preset_models_uses_default_start_bundle() -> None:
 
 
 def test_resolve_preset_models_uses_default_chat_bundle() -> None:
-    resolved = resolve_preset_models(
-        "default",
-        mode="chat",
-        overrides={
-            "model": None,
-            "explore_model": None,
-        },
-    )
+    resolved = resolve_preset_models("default", mode="chat", overrides={"model": None, "explore_model": None})
 
-    assert resolved == {
-        "model": DEFAULT_CHAT_MODEL,
-        "explore_model": DEFAULT_EXPLORE_MODEL,
-    }
+    assert resolved == {"model": DEFAULT_CHAT_MODEL, "explore_model": DEFAULT_EXPLORE_MODEL}
 
 
 def test_resolve_preset_models_uses_openai_start_bundle() -> None:
     resolved = resolve_preset_models(
         "openai",
         mode="start",
-        overrides={
-            "model": None,
-            "validator_model": None,
-            "general_model": None,
-            "explore_model": None,
-        },
+        overrides={"model": None, "validator_model": None, "general_model": None, "explore_model": None},
     )
 
     assert resolved == {
@@ -71,19 +51,9 @@ def test_resolve_preset_models_uses_openai_start_bundle() -> None:
 
 
 def test_resolve_preset_models_uses_openai_chat_bundle() -> None:
-    resolved = resolve_preset_models(
-        "openai",
-        mode="chat",
-        overrides={
-            "model": None,
-            "explore_model": None,
-        },
-    )
+    resolved = resolve_preset_models("openai", mode="chat", overrides={"model": None, "explore_model": None})
 
-    assert resolved == {
-        "model": "openai-codex/gpt-5.4",
-        "explore_model": "openai-codex/gpt-5.4-mini",
-    }
+    assert resolved == {"model": "openai-codex/gpt-5.4", "explore_model": "openai-codex/gpt-5.4-mini"}
 
 
 def test_resolve_preset_models_allows_explicit_overrides() -> None:
@@ -109,11 +79,5 @@ def test_resolve_preset_models_allows_explicit_overrides() -> None:
 def test_resolve_preset_models_rejects_unknown_preset() -> None:
     with pytest.raises(JriError, match="unknown preset 'bogus'"):
         resolve_preset_models(
-            "bogus",
-            mode="chat",
-            overrides={
-                "model": None,
-                "validator_model": None,
-                "explore_model": None,
-            },
+            "bogus", mode="chat", overrides={"model": None, "validator_model": None, "explore_model": None}
         )

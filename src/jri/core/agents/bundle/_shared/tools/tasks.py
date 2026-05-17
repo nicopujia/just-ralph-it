@@ -28,25 +28,15 @@ def run_upsert_task(payload: dict[str, object]) -> str:
         raise ValueError("`body` must be a non-empty string")
     if assignee not in {"Ralph", "Human"}:
         raise ValueError("`assignee` must be either `Ralph` or `Human`")
-    if (
-        not isinstance(priority, int)
-        or isinstance(priority, bool)
-        or not 0 <= priority <= 4
-    ):
+    if not isinstance(priority, int) or isinstance(priority, bool) or not 0 <= priority <= 4:
         raise ValueError("`priority` must be an integer from 0 to 4")
 
     slug_value = payload.get("slug")
-    task_slug = (
-        assert_slug("slug", slug_value) if slug_value is not None else slugify(title)
-    )
+    task_slug = assert_slug("slug", slug_value) if slug_value is not None else slugify(title)
     depends_on = assert_string_list("depends_on", payload.get("depends_on")) or []
-    acceptance_criteria = assert_string_list(
-        "acceptance_criteria", payload.get("acceptance_criteria")
-    )
+    acceptance_criteria = assert_string_list("acceptance_criteria", payload.get("acceptance_criteria"))
     if not acceptance_criteria:
-        raise ValueError(
-            "`acceptance_criteria` must be a non-empty list of non-empty strings"
-        )
+        raise ValueError("`acceptance_criteria` must be a non-empty list of non-empty strings")
 
     todo_dir, _, _ = task_dirs(Path.cwd())
     task_path = ensure_task_path_within(todo_dir, task_slug)
@@ -55,12 +45,7 @@ def run_upsert_task(payload: dict[str, object]) -> str:
     if task_path.exists():
         raise ValueError("refusing to overwrite existing todo task")
 
-    metadata = {
-        "title": title.strip(),
-        "priority": priority,
-        "assignee": assignee,
-        "depends_on": depends_on,
-    }
+    metadata = {"title": title.strip(), "priority": priority, "assignee": assignee, "depends_on": depends_on}
     metadata["acceptance_criteria"] = acceptance_criteria
 
     task_path.write_text(serialize_task(metadata, body), encoding="utf-8")
@@ -74,9 +59,7 @@ def run_read_tasks(payload: dict[str, object]) -> str:
 
     jri_service = service(Path.cwd())
     tasks_by_status = jri_service.status()
-    tasks_by_slug = {
-        task.slug: task for tasks in tasks_by_status.values() for task in tasks
-    }
+    tasks_by_slug = {task.slug: task for tasks in tasks_by_status.values() for task in tasks}
     missing = [slug for slug in slugs if slug not in tasks_by_slug]
     if missing:
         raise ValueError(f"task not found: {', '.join(missing)}")

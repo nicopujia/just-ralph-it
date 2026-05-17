@@ -7,17 +7,9 @@ from jri.core.metrics import MetricEntry, MetricsStore
 
 
 def test_metric_entry_to_dict_contains_all_fields() -> None:
-    entry = MetricEntry(
-        task="some-slug",
-        ts="2026-04-05T14:30:00Z",
-        result="pass",
-    )
+    entry = MetricEntry(task="some-slug", ts="2026-04-05T14:30:00Z", result="pass")
     d = entry.to_dict()
-    assert d == {
-        "task": "some-slug",
-        "ts": "2026-04-05T14:30:00Z",
-        "result": "pass",
-    }
+    assert d == {"task": "some-slug", "ts": "2026-04-05T14:30:00Z", "result": "pass"}
 
 
 def test_metric_entry_result_can_be_pass_or_fail() -> None:
@@ -31,20 +23,8 @@ def test_metrics_store_record_and_read(tmp_path: Path) -> None:
     path = tmp_path / "metrics.json"
     store = MetricsStore(path)
 
-    store.record(
-        MetricEntry(
-            task="task-a",
-            ts="2026-04-05T10:00:00Z",
-            result="pass",
-        )
-    )
-    store.record(
-        MetricEntry(
-            task="task-b",
-            ts="2026-04-05T11:00:00Z",
-            result="fail",
-        )
-    )
+    store.record(MetricEntry(task="task-a", ts="2026-04-05T10:00:00Z", result="pass"))
+    store.record(MetricEntry(task="task-b", ts="2026-04-05T11:00:00Z", result="fail"))
 
     entries = store.read()
     assert len(entries) == 2
@@ -78,10 +58,7 @@ def test_metrics_store_read_skips_entries_with_wrong_types(tmp_path: Path) -> No
     import json
 
     path = tmp_path / "metrics.json"
-    payload = [
-        {"task": 2, "ts": "t", "result": "pass"},
-        {"task": "a", "ts": "t", "result": "unknown"},
-    ]
+    payload = [{"task": 2, "ts": "t", "result": "pass"}, {"task": "a", "ts": "t", "result": "unknown"}]
     path.write_text(json.dumps(payload) + "\n", encoding="utf-8")
     store = MetricsStore(path)
     assert store.read() == []
@@ -91,9 +68,7 @@ def test_metrics_store_read_skips_non_dict_entries(tmp_path: Path) -> None:
     import json
 
     path = tmp_path / "metrics.json"
-    path.write_text(
-        json.dumps([1, {"task": "a", "ts": "t", "result": "pass"}]), encoding="utf-8"
-    )
+    path.write_text(json.dumps([1, {"task": "a", "ts": "t", "result": "pass"}]), encoding="utf-8")
     store = MetricsStore(path)
 
     entries = store.read()
@@ -103,9 +78,7 @@ def test_metrics_store_read_skips_non_dict_entries(tmp_path: Path) -> None:
 
 
 def test_metrics_store_record_reports_write_failures(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "metrics.json"
     store = MetricsStore(path)

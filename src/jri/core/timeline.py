@@ -57,10 +57,7 @@ class TimelineStore:
                 handle.write(event.to_jsonl() + "\n")
         except Exception as exc:
             # Fallback: emit to stderr so the event is not lost
-            print(
-                f"timeline write failed: {exc}. Event: {event.to_jsonl()}",
-                file=sys.stderr,
-            )
+            print(f"timeline write failed: {exc}. Event: {event.to_jsonl()}", file=sys.stderr)
 
     def read(self) -> list[TimelineEvent]:
         if not self.path.exists():

@@ -2,12 +2,7 @@ import json
 from pathlib import Path
 from typing import cast
 
-from .....graph import (
-    GraphStore,
-    apply_graph_patch,
-    graph_node_path,
-    validate_graph_path,
-)
+from .....graph import GraphStore, apply_graph_patch, graph_node_path, validate_graph_path
 from .....models import GraphNodeMetadata, GraphNodeState
 from ._validation import service
 
@@ -26,30 +21,14 @@ def run_create_node(payload: dict[str, object]) -> str:
     store = GraphStore(Path.cwd())
     auto_created_parents = _missing_parent_paths(store.root, path)
     node = store.create_node(path, title, body)
-    return _json(
-        {
-            "path": node.semantic_path,
-            "auto_created_parents": auto_created_parents,
-        }
-    )
+    return _json({"path": node.semantic_path, "auto_created_parents": auto_created_parents})
 
 
 def run_list_nodes(payload: dict[str, object]) -> str:
     if payload:
         raise ValueError("list-nodes does not accept arguments")
     nodes = GraphStore(Path.cwd()).list_nodes()
-    return _json(
-        {
-            "nodes": [
-                {
-                    "path": node.semantic_path,
-                    "title": node.title,
-                    "state": node.state,
-                }
-                for node in nodes
-            ]
-        }
-    )
+    return _json({"nodes": [{"path": node.semantic_path, "title": node.title, "state": node.state} for node in nodes]})
 
 
 def run_read_node(payload: dict[str, object]) -> str:
@@ -57,21 +36,14 @@ def run_read_node(payload: dict[str, object]) -> str:
     depth = _optional_non_negative_int(payload, "depth", default=1)
 
     node = GraphStore(Path.cwd()).read_node(path, depth=depth)
-    return _json(
-        {
-            "path": node.semantic_path,
-            "metadata": _metadata_payload(node.metadata),
-            "body": node.body,
-            "children": [
-                {
-                    "path": child.semantic_path,
-                    "title": child.title,
-                    "state": child.state,
-                }
-                for child in node.children
-            ],
-        }
-    )
+    return _json({
+        "path": node.semantic_path,
+        "metadata": _metadata_payload(node.metadata),
+        "body": node.body,
+        "children": [
+            {"path": child.semantic_path, "title": child.title, "state": child.state} for child in node.children
+        ],
+    })
 
 
 def run_search_nodes(payload: dict[str, object]) -> str:
@@ -79,41 +51,30 @@ def run_search_nodes(payload: dict[str, object]) -> str:
     limit = min(_optional_non_negative_int(payload, "limit", default=10), 50)
     include_archived = _optional_bool(payload, "include_archived", default=False)
 
-    matches = GraphStore(Path.cwd()).search_nodes(
-        query, limit=limit, include_archived=include_archived
-    )
-    return _json(
-        {
-            "query": query,
-            "matches": [
-                {
-                    "path": match.semantic_path,
-                    "title": match.title,
-                    "state": match.state,
-                    "score": match.score,
-                    "snippet": match.snippet,
-                }
-                for match in matches
-            ],
-        }
-    )
+    matches = GraphStore(Path.cwd()).search_nodes(query, limit=limit, include_archived=include_archived)
+    return _json({
+        "query": query,
+        "matches": [
+            {
+                "path": match.semantic_path,
+                "title": match.title,
+                "state": match.state,
+                "score": match.score,
+                "snippet": match.snippet,
+            }
+            for match in matches
+        ],
+    })
 
 
 def run_apply_graph_patch(payload: dict[str, object]) -> str:
     patch = _required_string(payload, "patch")
     summary = apply_graph_patch(GraphStore(Path.cwd()), patch)
-    return _json(
-        {
-            "changed_nodes": [
-                {
-                    "path": node.path,
-                    "additions": node.additions,
-                    "deletions": node.deletions,
-                }
-                for node in summary.nodes
-            ]
-        }
-    )
+    return _json({
+        "changed_nodes": [
+            {"path": node.path, "additions": node.additions, "deletions": node.deletions} for node in summary.nodes
+        ]
+    })
 
 
 def run_update_node_metadata(payload: dict[str, object]) -> str:
@@ -125,15 +86,8 @@ def run_update_node_metadata(payload: dict[str, object]) -> str:
     if title is None and state is None and archive_reason is None:
         raise ValueError("at least one metadata field must be provided")
 
-    node = GraphStore(Path.cwd()).update_node_metadata(
-        path,
-        title=title,
-        state=state,
-        archive_reason=archive_reason,
-    )
-    return _json(
-        {"path": node.semantic_path, "metadata": _metadata_payload(node.metadata)}
-    )
+    node = GraphStore(Path.cwd()).update_node_metadata(path, title=title, state=state, archive_reason=archive_reason)
+    return _json({"path": node.semantic_path, "metadata": _metadata_payload(node.metadata)})
 
 
 def run_move_node(payload: dict[str, object]) -> str:
@@ -143,13 +97,7 @@ def run_move_node(payload: dict[str, object]) -> str:
     store = GraphStore(Path.cwd())
     moved_subtree_count = _subtree_node_count(store.root, source_path)
     node = store.move_node(source_path, destination_path)
-    return _json(
-        {
-            "old_path": source_path,
-            "new_path": node.semantic_path,
-            "moved_subtree_count": moved_subtree_count,
-        }
-    )
+    return _json({"old_path": source_path, "new_path": node.semantic_path, "moved_subtree_count": moved_subtree_count})
 
 
 def _required_graph_path(payload: dict[str, object], name: str) -> str:
@@ -163,9 +111,7 @@ def _required_string(payload: dict[str, object], name: str) -> str:
     return value
 
 
-def _optional_string(
-    payload: dict[str, object], name: str, *, default: str | None = None
-) -> str | None:
+def _optional_string(payload: dict[str, object], name: str, *, default: str | None = None) -> str | None:
     value = payload.get(name, default)
     if value is None:
         return None
@@ -181,9 +127,7 @@ def _optional_bool(payload: dict[str, object], name: str, *, default: bool) -> b
     return value
 
 
-def _optional_graph_state(
-    payload: dict[str, object], name: str
-) -> GraphNodeState | None:
+def _optional_graph_state(payload: dict[str, object], name: str) -> GraphNodeState | None:
     value = payload.get(name)
     if value is None:
         return None
@@ -192,9 +136,7 @@ def _optional_graph_state(
     return cast(GraphNodeState, value)
 
 
-def _optional_non_negative_int(
-    payload: dict[str, object], name: str, *, default: int
-) -> int:
+def _optional_non_negative_int(payload: dict[str, object], name: str, *, default: int) -> int:
     value = payload.get(name, default)
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
         raise ValueError(f"`{name}` must be a non-negative integer")

@@ -150,9 +150,7 @@ def apply_exact_edits(source: str, edits: list[ExactEdit]) -> tuple[str, int]:
         if count == 0:
             raise ValueError(f"`edits[{index}].oldText` was not found")
         if count > 1:
-            raise ValueError(
-                f"`edits[{index}].oldText` matched {count} blocks; make it unique"
-            )
+            raise ValueError(f"`edits[{index}].oldText` matched {count} blocks; make it unique")
         updated = updated.replace(old_text, edit["newText"], 1)
         replacements += 1
     return updated, replacements

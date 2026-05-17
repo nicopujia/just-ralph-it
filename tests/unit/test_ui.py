@@ -82,21 +82,13 @@ def test_follow_status_bar_shows_stop_requested_feedback() -> None:
 
 
 def test_follow_status_bar_shows_armed_halt_confirmation_prompt() -> None:
-    result = follow_status_bar(
-        "my-task",
-        confirming_halt=True,
-        halt_armed=True,
-    )
+    result = follow_status_bar("my-task", confirming_halt=True, halt_armed=True)
     assert "Enter confirm" in result
     assert "n cancel" in result
 
 
 def test_follow_status_bar_shows_active_subagent_spinner() -> None:
-    result = follow_status_bar(
-        "my-task",
-        activity="research phase",
-        spinner_frame="/",
-    )
+    result = follow_status_bar("my-task", activity="research phase", spinner_frame="/")
     assert "task: my-task" in result
     assert "/ research phase" in result
 
@@ -180,9 +172,7 @@ def test_supports_color_with_force_color_env(monkeypatch: pytest.MonkeyPatch) ->
         assert supports_color() is True
 
 
-def test_supports_color_with_clicolor_force_env(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_supports_color_with_clicolor_force_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("CLICOLOR_FORCE", "1")
     with patch("sys.stdout.isatty", return_value=False):
         assert supports_color() is True
@@ -194,9 +184,7 @@ def test_cyan_wraps_text_when_color_is_forced(monkeypatch: pytest.MonkeyPatch) -
     assert cyan("hello") == "\033[36mhello\033[0m"
 
 
-def test_supports_interactive_footer_requires_tty_stdio(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_supports_interactive_footer_requires_tty_stdio(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
     monkeypatch.setattr("sys.stdout.isatty", lambda: True)
     assert supports_interactive_footer() is True

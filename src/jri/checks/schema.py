@@ -50,13 +50,7 @@ def validate_state_file(root: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Validate JRI managed files.")
-    parser.add_argument(
-        "root",
-        nargs="?",
-        default=Path.cwd(),
-        type=Path,
-        help="repository root to validate",
-    )
+    parser.add_argument("root", nargs="?", default=Path.cwd(), type=Path, help="repository root to validate")
     args = parser.parse_args(argv)
 
     try:

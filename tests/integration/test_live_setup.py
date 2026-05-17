@@ -47,47 +47,27 @@ class _FakePluginManager:
 def test_live_makefile_passes_without_tests_and_runs_pytest(git_repo: Path) -> None:
     write_live_makefile(git_repo)
 
-    empty_check = subprocess.run(
-        ["make", "check"],
-        cwd=git_repo,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    empty_check = subprocess.run(["make", "check"], cwd=git_repo, capture_output=True, text=True, check=False)
 
     assert empty_check.returncode == 0
 
     src_dir = git_repo / "src"
     src_dir.mkdir()
-    (src_dir / "greet.py").write_text(
-        'def greet(name: str) -> str:\n    return f"Hello, {name}!"\n',
-        encoding="utf-8",
-    )
+    (src_dir / "greet.py").write_text('def greet(name: str) -> str:\n    return f"Hello, {name}!"\n', encoding="utf-8")
     tests_dir = git_repo / "tests"
     tests_dir.mkdir()
     (tests_dir / "test_greet.py").write_text(
-        "from greet import greet\n\n"
-        "\n"
-        "def test_greet() -> None:\n"
-        '    assert greet("world") == "nope"\n',
+        'from greet import greet\n\n\ndef test_greet() -> None:\n    assert greet("world") == "nope"\n',
         encoding="utf-8",
     )
 
-    failing_check = subprocess.run(
-        ["make", "check"],
-        cwd=git_repo,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    failing_check = subprocess.run(["make", "check"], cwd=git_repo, capture_output=True, text=True, check=False)
 
     assert failing_check.returncode != 0
     assert "FAILED" in failing_check.stdout
 
 
-def test_live_pytest_config_disables_capture_for_live_runs(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+def test_live_pytest_config_disables_capture_for_live_runs(monkeypatch: pytest.MonkeyPatch) -> None:
     capturemanager = _FakeCaptureManager()
     pluginmanager = _FakePluginManager(capturemanager)
     cleanups: list[object] = []
@@ -102,10 +82,7 @@ def test_live_pytest_config_disables_capture_for_live_runs(
         add_cleanup=cleanups.append,
     )
 
-    monkeypatch.setattr(
-        "tests.conftest.CaptureManager",
-        _FakeCaptureManager,
-    )
+    monkeypatch.setattr("tests.conftest.CaptureManager", _FakeCaptureManager)
 
     _disable_pytest_capture_for_live_runs(cast(Any, config))
 
@@ -133,10 +110,7 @@ def test_live_pytest_config_leaves_non_live_capture_unchanged() -> None:
         del cleanup
 
     config = SimpleNamespace(
-        option=SimpleNamespace(capture="fd"),
-        pluginmanager=pluginmanager,
-        getoption=getoption,
-        add_cleanup=add_cleanup,
+        option=SimpleNamespace(capture="fd"), pluginmanager=pluginmanager, getoption=getoption, add_cleanup=add_cleanup
     )
 
     _disable_pytest_capture_for_live_runs(cast(Any, config))

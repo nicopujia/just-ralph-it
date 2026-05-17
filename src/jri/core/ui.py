@@ -44,15 +44,9 @@ def follow_status_bar(
 ) -> str:
     width = max(width or shutil.get_terminal_size((80, 24)).columns, 20)
     height = max(height or shutil.get_terminal_size((80, 24)).lines, 1)
-    left = _follow_status_left_text(
-        task_slug,
-        activity=activity,
-        spinner_frame=spinner_frame,
-    )
+    left = _follow_status_left_text(task_slug, activity=activity, spinner_frame=spinner_frame)
     right = _follow_status_controls_text(
-        stop_requested=stop_requested,
-        confirming_halt=confirming_halt,
-        halt_armed=halt_armed,
+        stop_requested=stop_requested, confirming_halt=confirming_halt, halt_armed=halt_armed
     )
 
     if len(left) + len(right) > width:
@@ -108,10 +102,7 @@ def task_footer(result: str) -> str:
 
 
 def _follow_status_left_text(
-    task_slug: str | None,
-    *,
-    activity: str | None = None,
-    spinner_frame: str | None = None,
+    task_slug: str | None, *, activity: str | None = None, spinner_frame: str | None = None
 ) -> str:
     left = f" task: {task_slug or 'idle'} "
     if activity:
@@ -120,17 +111,10 @@ def _follow_status_left_text(
 
 
 def _follow_status_controls_text(
-    *,
-    stop_requested: bool = False,
-    confirming_halt: bool = False,
-    halt_armed: bool = False,
+    *, stop_requested: bool = False, confirming_halt: bool = False, halt_armed: bool = False
 ) -> str:
     if confirming_halt:
-        return (
-            " halt? Enter confirm  n cancel "
-            if halt_armed
-            else " halt? y then Enter  n cancel "
-        )
+        return " halt? Enter confirm  n cancel " if halt_armed else " halt? y then Enter  n cancel "
     if stop_requested:
         return " d detach  s stop (requested)  h halt "
     return " d detach  s stop  h halt "
@@ -146,9 +130,7 @@ def _truncate(text: str, width: int) -> str:
     return text[: width - 3] + "..."
 
 
-def trim_tool_output(
-    text: str, *, max_lines: int = 20, max_chars: int = 2000
-) -> str | None:
+def trim_tool_output(text: str, *, max_lines: int = 20, max_chars: int = 2000) -> str | None:
     lines = text.splitlines()
     within = len(lines) <= max_lines and len(text) <= max_chars
     if within:

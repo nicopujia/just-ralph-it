@@ -87,9 +87,7 @@ class JriPaths:
         return graph_node_path(self.root, semantic_path)
 
     def ralph_log_path(self, task_slug: str, started_at: int) -> Path:
-        timestamp = datetime.fromtimestamp(started_at, UTC).strftime(
-            "%Y-%m-%dT%H-%M-%SZ"
-        )
+        timestamp = datetime.fromtimestamp(started_at, UTC).strftime("%Y-%m-%dT%H-%M-%SZ")
         return self.ralph_logs_dir / f"{timestamp}-{task_slug}.log"
 
     @property
