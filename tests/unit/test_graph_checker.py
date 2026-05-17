@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-from jri.checks.schema import validate_repo
 from jri.core.graph import check_graph_tree, validate_graph_tree
 
 
@@ -61,7 +60,6 @@ def test_check_graph_tree_counts_valid_active_and_archived_nodes(tmp_path: Path)
     assert result.archived_count == 1
     assert result.errors == ()
     validate_graph_tree(tmp_path)
-    validate_repo(tmp_path)
 
 
 def test_check_graph_tree_reports_malformed_yaml(tmp_path: Path) -> None:

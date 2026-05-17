@@ -8,9 +8,9 @@ description: Use for project setup, greenfield setup, skeleton work, and canonic
 - Inspect the repo's existing tooling first.
 - Use the project's native config and entrypoints.
 - If the repo has `make check`, wire it as the canonical quality gate when appropriate.
-- Include the applicable formatting, linting, type checking, tests, build, and schema checks.
+- Include the applicable formatting, linting, type checking, tests, and build.
 - Treat local diagnostics tools such as LSPs and specialized analyzers as useful but optional unless the task explicitly requires them.
-- If optional diagnostics are unavailable, record the unavailable tool and run the strongest project-native substitutes available, such as `make check`, lint, typecheck, build, tests, schema checks, or a small driver.
+- If optional diagnostics are unavailable, record the unavailable tool and run the strongest project-native substitutes available, such as `make check`, lint, typecheck, build, tests, or a small driver.
 - Missing optional diagnostics is not fatal by itself when substitute project gates pass; failing substitute gates remain failures.
 - Do not require installing optional diagnostics tooling just to prove the task, and do not hide unavailable tooling from the final evidence.
 - Do not write tests for docs, prompts, or config-only changes.
