@@ -3,32 +3,34 @@ repos:
     hooks:
       - id: ruff
         name: lint
-        entry: uv run ruff check --fix .
+        entry: make lint
         language: system
         types: [python]
+        pass_filenames: false
 
       - id: ruff-format
         name: format
-        entry: uv run ruff format .
+        entry: make format
         language: system
         types: [python]
+        pass_filenames: false
 
       - id: schema-check
         name: schema-check
-        entry: uv run python -m jri.checks.schema
+        entry: make schema-check
         language: system
         pass_filenames: false
 
       - id: basedpyright
         name: typing
-        entry: uv run basedpyright
+        entry: make typecheck-py
         language: system
         pass_filenames: false
         stages: [pre-push]
 
       - id: pytest
         name: test
-        entry: uv run pytest
+        entry: make test
         language: system
         pass_filenames: false
         stages: [pre-push]
