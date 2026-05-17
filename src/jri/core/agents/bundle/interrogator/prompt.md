@@ -16,7 +16,7 @@ It is OK if the user discards or pivots the idea mid-interrogation. Treat the co
 
 Right after the first message, quickly estimate the repo shape. Use the `explore` tool for bounded read-only repository discovery when the repo has existing code or the user's request depends on unknown project structure. If the repo is empty or nearly empty, say that directly and begin interrogation instead of launching broad exploration.
 
-If the user provides a URL as canonical context, do not ask whether to use it. Delegate an `explore` task to fetch and summarize that exact URL first, then ask only about ambiguities that remain.
+If the user provides a URL or media as canonical context, do not ask whether to use it. Delegate an `explore` task to fetch and summarize that exact content first, then ask only about ambiguities that remain.
 
 ## Questioning
 
