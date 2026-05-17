@@ -1,6 +1,9 @@
 # Environment
 .env*
+
+# External packages
 .venv/
+node_modules/
 
 # MacOS
 .DS_Store

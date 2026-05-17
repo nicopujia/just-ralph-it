@@ -1,7 +1,8 @@
-.PHONY: setup check lint format typecheck schema-check test
+.PHONY: setup check lint format typecheck typecheck-ts schema-check test
 
 setup:
 	uv sync --all-groups
+	bun install
 	./.venv/bin/python -m pre_commit install
 	./.venv/bin/python -m pre_commit install --hook-type pre-push
 
@@ -14,8 +15,13 @@ format:
 	uv run ruff format .
 	uv run ruff check --select I --fix .
 
-typecheck:
+typecheck: typecheck-py typecheck-ts
+
+typecheck-py:
 	uv run basedpyright
+
+typecheck-ts:
+	bun run typecheck
 
 schema-check:
 	uv run python -m jri.checks.schema

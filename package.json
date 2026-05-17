@@ -1,0 +1,13 @@
+{
+  "name": "justralph-it",
+  "private": true,
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-coding-agent": "^0.73.1",
+    "@types/node": "^25.8.0",
+    "typebox": "^1.1.38",
+    "typescript": "^6.0.3"
+  }
+}
