@@ -113,7 +113,7 @@ def test_chat_reuses_existing_session_and_exports_it(initialized_repo: Path) -> 
                 Path(env["JRI_PI_PACKAGE"]).joinpath("extension.ts").is_file() if env is not None else False
             ),
             "tool_runner_exists": (
-                Path(env["JRI_PI_PACKAGE"]).joinpath("_shared", "runner.ts").is_file() if env is not None else False
+                Path(env["JRI_PI_PACKAGE"]).joinpath("(shared)", "runner.ts").is_file() if env is not None else False
             ),
             "theme_exists": (
                 Path(env["JRI_PI_PACKAGE"]).joinpath("theme.json").is_file() if env is not None else False

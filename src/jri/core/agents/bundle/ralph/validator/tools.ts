@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
-import { SLUG_RE, text } from "../../_shared/registry.ts";
+import { SLUG_RE, text } from "../../(shared)/registry.ts";
 import {
   CHILD_PI_MAX_BUFFER,
   VALIDATOR_TIMEOUT_MS,
@@ -10,8 +10,8 @@ import {
   finalAssistantText,
   getPiInvocation,
   runUntilTerminalOutput,
-} from "../../_shared/subagents.ts";
-import { resourcePath } from "../../_shared/assets.ts";
+} from "../../(shared)/subagents.ts";
+import { resourcePath } from "../../(shared)/assets.ts";
 
 export function registerRalphValidator(pi: ExtensionAPI) {
   const extensionDir = dirname(fileURLToPath(import.meta.url));

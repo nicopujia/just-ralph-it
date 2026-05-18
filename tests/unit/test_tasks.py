@@ -100,7 +100,7 @@ def read_agent_sources(*names: str) -> str:
 
 
 def test_pi_extension_registers_tools_and_commit_prefix_guard() -> None:
-    source = read_agent_sources("extension.ts", "_shared/commits.ts", "ralph/tools.ts")
+    source = read_agent_sources("extension.ts", "(shared)/commits.ts", "ralph/tools.ts")
 
     assert 'pi.on("tool_call"' in source
     assert 'event.toolName !== "bash"' in source
@@ -218,7 +218,7 @@ def inspect_python_tool_spawn_env(tmp_path: Path, *, env: dict[str, str]) -> dic
     capture_path = harness / "capture.json"
     source = (
         files("jri.core.agents.bundle")
-        .joinpath("_shared", "runner.ts")
+        .joinpath("(shared)", "runner.ts")
         .read_text(encoding="utf-8")
         .replace(
             'import { spawnSync } from "node:child_process";', 'import { spawnSync } from "./child_process.ts";', 1
@@ -611,16 +611,16 @@ def test_non_schema_package_resources_are_available() -> None:
     assert builtins.joinpath("ralph", "skills", "project-setup", "SKILL.md").is_file()
     assert builtins.joinpath("extension.ts").is_file()
     assert builtins.joinpath("interrogator", "tools.ts").is_file()
-    assert builtins.joinpath("_shared", "registry.ts").is_file()
-    assert builtins.joinpath("_shared", "commits.ts").is_file()
-    assert builtins.joinpath("_shared", "assets.ts").is_file()
+    assert builtins.joinpath("(shared)", "registry.ts").is_file()
+    assert builtins.joinpath("(shared)", "commits.ts").is_file()
+    assert builtins.joinpath("(shared)", "assets.ts").is_file()
     assert builtins.joinpath("manifest.json").is_file()
     assert builtins.joinpath("theme.json").is_file()
     assert builtins.joinpath("explorer", "tools.ts").is_file()
-    assert builtins.joinpath("_shared", "subagents.ts").is_file()
+    assert builtins.joinpath("(shared)", "subagents.ts").is_file()
     assert builtins.joinpath("ralph", "tools.ts").is_file()
     assert builtins.joinpath("ralph", "validator", "tools.ts").is_file()
-    assert builtins.joinpath("_shared", "runner.ts").is_file()
+    assert builtins.joinpath("(shared)", "runner.ts").is_file()
 
 
 def test_agent_resource_manifest_resolves_current_package_resources() -> None:
@@ -631,7 +631,7 @@ def test_agent_resource_manifest_resolves_current_package_resources() -> None:
         "prompts.compiler": "compiler/prompt.md",
         "prompts.ralphValidator": "ralph/validator/prompt.md",
         "prompts.explorer": "explorer/prompt.md",
-        "tools.pythonRunner": "_shared/runner.ts",
+        "tools.pythonRunner": "(shared)/runner.ts",
         "themes.modernYellow": "theme.json",
     }
 
@@ -681,7 +681,7 @@ import {
   resourceManifest,
   resourcePath,
   resourceRelativePath,
-} from './src/jri/core/agents/bundle/_shared/assets.ts';
+} from './src/jri/core/agents/bundle/(shared)/assets.ts';
 
 let invalidIdMessage = '';
 try {
@@ -713,15 +713,15 @@ def test_typescript_agent_resource_manifest_rejects_unsafe_paths(tmp_path: Path)
     bun = shutil.which("bun")
     assert bun is not None, "bun is required to check the TypeScript resolver"
 
-    source_dir = Path(__file__).resolve().parents[2] / "src" / "jri" / "core" / "agents" / "bundle" / "_shared"
+    source_dir = Path(__file__).resolve().parents[2] / "src" / "jri" / "core" / "agents" / "bundle" / "(shared)"
     harness = tmp_path / "agents"
-    shared = harness / "_shared"
+    shared = harness / "(shared)"
     shared.mkdir(parents=True)
     shutil.copyfile(source_dir / "assets.ts", shared / "assets.ts")
     (harness / "manifest.json").write_text(json.dumps({"bad.parent": "../outside"}) + "\n", encoding="utf-8")
 
     script = """
-import { resourceManifest } from './_shared/assets.ts';
+import { resourceManifest } from './(shared)/assets.ts';
 
 try {
   resourceManifest();

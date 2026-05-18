@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
-import { text } from "../_shared/registry.ts";
+import { text } from "../(shared)/registry.ts";
 import {
   CHILD_PI_MAX_BUFFER,
   EXPLORER_TASK_TIMEOUT_MS,
@@ -14,8 +14,8 @@ import {
   finalAssistantText,
   getPiInvocation,
   terminalAssistantText,
-} from "../_shared/subagents.ts";
-import { resourcePath } from "../_shared/assets.ts";
+} from "../(shared)/subagents.ts";
+import { resourcePath } from "../(shared)/assets.ts";
 
 const EXPLORER_MAX_TASKS = 8;
 const EXPLORER_MAX_CONCURRENCY = 4;

@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { registerCommitPrefixGuard } from "./_shared/commits.ts";
+import { registerCommitPrefixGuard } from "./(shared)/commits.ts";
 import { registerExplorerTools } from "./explorer/tools.ts";
 import { registerChatTools } from "./interrogator/tools.ts";
 import { registerRalphTools } from "./ralph/tools.ts";

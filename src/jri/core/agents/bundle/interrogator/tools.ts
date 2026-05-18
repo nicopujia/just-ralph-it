@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
-import { ExactEdit, registerPythonTool } from "../_shared/registry.ts";
+import { ExactEdit, registerPythonTool } from "../(shared)/registry.ts";
 import { registerExplorer } from "../explorer/tools.ts";
 
 export function registerChatTools(pi: ExtensionAPI) {

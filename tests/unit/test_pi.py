@@ -571,7 +571,7 @@ def test_package_manifest_uses_resource_manifest_paths(tmp_path: Path, monkeypat
     resource_paths = {
         "extensions.default": "extension.ts",
         "prompts.interrogator": "interrogator/prompt.md",
-        "tools.pythonRunner": "_shared/runner.ts",
+        "tools.pythonRunner": "(shared)/runner.ts",
         "themes.modernYellow": "theme.json",
     }
     resolved_ids: list[str] = []
@@ -589,7 +589,7 @@ def test_package_manifest_uses_resource_manifest_paths(tmp_path: Path, monkeypat
         "extensions": ["./extension.ts"],
         "skills": ["./interrogator/skills", "./ralph/skills"],
         "prompts": ["./interrogator"],
-        "tools": ["./_shared"],
+        "tools": ["./(shared)"],
         "themes": ["./theme.json"],
     }
     assert resolved_ids == ["extensions.default", "prompts.interrogator", "tools.pythonRunner", "themes.modernYellow"]
@@ -603,8 +603,8 @@ def test_runtime_env_copies_complete_agent_bundle() -> None:
         assert not (package_root / "__init__.py").exists()
         assert (package_root / "manifest.json").is_file()
         assert (package_root / "compiler" / "prompt.md").is_file()
-        assert (package_root / "_shared" / "runner.ts").is_file()
-        assert not (package_root / "_shared" / "__init__.py").exists()
+        assert (package_root / "(shared)" / "runner.ts").is_file()
+        assert not (package_root / "(shared)" / "__init__.py").exists()
         assert not (package_root / "interrogator" / "validator").exists()
         project_setup_skill = package_root / "ralph" / "skills" / "project-setup" / "SKILL.md"
         assert project_setup_skill.is_file()
