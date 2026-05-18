@@ -159,7 +159,7 @@ class JriService:
         self.git = GitRepo(self.root)
         self.state_store = StateStore(self.paths.state_path)
         self.timeline = TimelineStore(self.paths.timeline_path)
-        self.metrics = MetricsStore(self.paths.metrics_path)
+        self.metrics = MetricsStore(self.state_store, legacy_path=self.paths.jri_dir / "metrics.json")
         self.agent_runtime: AgentRuntime = cast(AgentRuntime, agent_runtime or PiRuntime())
         self._halt_requested = False
         self._previous_agent_model: str | None = None
@@ -923,7 +923,7 @@ class JriService:
         self.state_store.initialize(branch=self.git.current_branch() or None)
         return created_files
 
-    _GITIGNORE_CONTENT = "logs/\nsignals/\n*state.json*\nmetrics.json\nworktree/\n"
+    _GITIGNORE_CONTENT = "logs/\nsignals/\n*state.json*\nworktree/\n"
 
     def _write_gitignore_file(self) -> None:
         self.paths.gitignore_path.write_text(self._GITIGNORE_CONTENT, encoding="utf-8")

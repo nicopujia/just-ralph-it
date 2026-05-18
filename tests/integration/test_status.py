@@ -1,10 +1,12 @@
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from jri.core.models import AttemptState
+from jri.core.models import AttemptState, MetricEntry
 from jri.core.service import JriService
+from jri.core.state import StateStore
 from tests.conftest import run_cli
 from tests.helpers import git, write_task
 
@@ -278,19 +280,17 @@ def test_status_rejects_in_place_mutation_of_lifecycle_task(git_repo: Path, caps
 
 def test_status_shows_metrics_summary(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """Metrics summary is displayed when metrics exist."""
-    import json
-
     _init(git_repo)
-    # Write a metrics file with some entries
-    metrics_path = git_repo / ".jri" / "metrics.json"
-    metrics_path.write_text(
-        json.dumps([
-            {"task": "a", "ts": "t1", "result": "pass"},
-            {"task": "b", "ts": "t2", "result": "pass"},
-            {"task": "c", "ts": "t3", "result": "fail"},
-        ])
-        + "\n",
-        encoding="utf-8",
+    state_store = StateStore(git_repo / ".jri" / "state.json")
+    state_store.save(
+        replace(
+            state_store.load(),
+            metrics=[
+                MetricEntry(task="a", ts="t1", result="pass"),
+                MetricEntry(task="b", ts="t2", result="pass"),
+                MetricEntry(task="c", ts="t3", result="fail"),
+            ],
+        )
     )
 
     rc = run_cli(["status"], cwd=git_repo)
@@ -300,7 +300,7 @@ def test_status_shows_metrics_summary(git_repo: Path, capsys: pytest.CaptureFixt
 
 
 def test_status_hides_metrics_when_none(git_repo: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    """No metrics line is shown when metrics.json does not exist."""
+    """No metrics line is shown when no metrics are recorded."""
     _init(git_repo)
 
     rc = run_cli(["status"], cwd=git_repo)

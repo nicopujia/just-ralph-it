@@ -420,6 +420,10 @@ def test_validate_state_payload_allows_runtime_process_metadata() -> None:
     })
 
 
+def test_validate_state_payload_allows_metrics() -> None:
+    validate_state_payload({"metrics": [{"task": "task-a", "ts": "2026-04-05T14:30:00Z", "result": "pass"}]})
+
+
 def test_validate_state_payload_rejects_promotion_record() -> None:
     with pytest.raises(ValueError, match="promotion"):
         validate_state_payload({
@@ -464,6 +468,13 @@ def test_validate_state_payload_allows_attempt_result_payload() -> None:
         ({"process": {"child_pid": "123"}}, "process.child_pid"),
         ({"process": {"log_path": 3}}, "process.log_path"),
         ({"process": {"detached": "yes"}}, "process.detached"),
+        ({"metrics": {}}, "metrics"),
+        ({"metrics": [1]}, r"metrics\[0\]"),
+        ({"metrics": [{"task": "a", "ts": "t", "result": "pass", "extra": True}]}, r"metrics\[0\].extra"),
+        ({"metrics": [{"ts": "t", "result": "pass"}]}, r"metrics\[0\].task"),
+        ({"metrics": [{"task": 1, "ts": "t", "result": "pass"}]}, r"metrics\[0\].task"),
+        ({"metrics": [{"task": "a", "ts": 1, "result": "pass"}]}, r"metrics\[0\].ts"),
+        ({"metrics": [{"task": "a", "ts": "t", "result": "ok"}]}, r"metrics\[0\].result"),
         ({"active_attempt": "task"}, "active_attempt"),
         ({"active_attempt": {"number": 1, "task_slug": "task", "branch": "main"}}, "active_attempt.started_at"),
         (

@@ -95,10 +95,6 @@ class JriPaths:
         return self.logs_dir / "timeline.jsonl"
 
     @property
-    def metrics_path(self) -> Path:
-        return self.jri_dir / "metrics.json"
-
-    @property
     def learnings_path(self) -> Path:
         return self.jri_dir / "learnings.md"
 

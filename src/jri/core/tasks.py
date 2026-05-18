@@ -93,6 +93,7 @@ def _validate_state_payload(payload: dict[str, object]) -> list[str]:
         "active_attempt",
         "attempts",
         "reset_points",
+        "metrics",
     }
     for key in sorted(set(payload) - allowed):
         errors.append(f"unexpected key `{key}`")
@@ -110,6 +111,7 @@ def _validate_state_payload(payload: dict[str, object]) -> list[str]:
             for index, attempt in enumerate(cast(list[object], attempts)):
                 _validate_attempt_payload(attempt, f"attempts[{index}]", errors)
     _validate_reset_points_payload(payload.get("reset_points"), errors)
+    _validate_metrics_payload(payload, errors)
     return errors
 
 
@@ -198,6 +200,34 @@ def _validate_attempt_payload(value: object, label: str, errors: list[str]) -> N
         errors.append(f"`{label}.result` must be a known attempt result")
     if "result_payload" in attempt:
         _validate_result_payload(attempt["result_payload"], f"{label}.result_payload", errors)
+
+
+def _validate_metrics_payload(payload: dict[str, object], errors: list[str]) -> None:
+    if "metrics" not in payload:
+        return
+    metrics = payload["metrics"]
+    if not isinstance(metrics, list):
+        errors.append("`metrics` must be an array")
+        return
+    for index, item in enumerate(cast(list[object], metrics)):
+        label = f"metrics[{index}]"
+        if not isinstance(item, dict):
+            errors.append(f"`{label}` must be an object")
+            continue
+        entry = cast(dict[str, object], item)
+        allowed = {"task", "ts", "result"}
+        required = allowed
+        for key in sorted(set(entry) - allowed):
+            errors.append(f"unexpected key `{label}.{key}`")
+        for key in sorted(required - set(entry)):
+            errors.append(f"`{label}.{key}` is required")
+        for key in ("task", "ts"):
+            field_value = entry.get(key)
+            if key in entry and not isinstance(field_value, str):
+                errors.append(f"`{label}.{key}` must be a string")
+        result = entry.get("result")
+        if "result" in entry and result not in {"pass", "fail"}:
+            errors.append(f"`{label}.result` must be pass or fail")
 
 
 def _validate_reset_points_payload(value: object, errors: list[str]) -> None:

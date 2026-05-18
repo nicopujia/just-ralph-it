@@ -12,6 +12,7 @@ AttemptLifecycleState = Literal["active", "persisted"]
 PayloadLifecycleState = Literal["present", "missing", "invalid"]
 LogLifecycleState = Literal["present", "missing", "recovered"]
 GraphNodeState = Literal["active", "archived"]
+MetricResult = Literal["pass", "fail"]
 
 TASK_STATUSES: tuple[TaskStatus, ...] = ("todo", "doing", "done")
 LIFECYCLE_TASK_STATUSES: tuple[TaskStatus, ...] = ("todo", "doing", "done")
@@ -30,6 +31,7 @@ ATTEMPT_LIFECYCLE_STATES: tuple[AttemptLifecycleState, ...] = ("active", "persis
 PAYLOAD_LIFECYCLE_STATES: tuple[PayloadLifecycleState, ...] = ("present", "missing", "invalid")
 LOG_LIFECYCLE_STATES: tuple[LogLifecycleState, ...] = ("present", "missing", "recovered")
 GRAPH_NODE_STATES: tuple[GraphNodeState, ...] = ("active", "archived")
+METRIC_RESULT_VALUES: tuple[MetricResult, ...] = ("pass", "fail")
 
 
 @dataclass(frozen=True)
@@ -211,6 +213,28 @@ class ProcessState:
 
 
 @dataclass(frozen=True)
+class MetricEntry:
+    task: str
+    ts: str
+    result: MetricResult
+
+    def to_payload(self) -> dict[str, object]:
+        return {"task": self.task, "ts": self.ts, "result": self.result}
+
+    def to_dict(self) -> dict[str, object]:
+        return self.to_payload()
+
+    @classmethod
+    def from_payload(cls, payload: dict[str, object]) -> Self | None:
+        task = _str_or_none(payload.get("task"))
+        ts = _str_or_none(payload.get("ts"))
+        result = _metric_result_or_none(payload.get("result"))
+        if task is None or ts is None or result is None:
+            return None
+        return cls(task=task, ts=ts, result=result)
+
+
+@dataclass(frozen=True)
 class AttemptState:
     number: int
     task_slug: str
@@ -322,6 +346,7 @@ class State:
     attempts: list[AttemptState] = field(default_factory=list)
     current_task: str | None = None
     reset_points: dict[str, dict[str, ResetPoint]] = field(default_factory=dict)
+    metrics: list[MetricEntry] = field(default_factory=list)
 
     def to_payload(self) -> dict[str, object]:
         payload: dict[str, object] = {}
@@ -351,6 +376,8 @@ class State:
                 host_branch: {task_slug: reset_point.to_payload() for task_slug, reset_point in task_points.items()}
                 for host_branch, task_points in self.reset_points.items()
             }
+        if self.metrics:
+            payload["metrics"] = [entry.to_payload() for entry in self.metrics]
         return payload
 
     @classmethod
@@ -393,6 +420,16 @@ class State:
                 if task_points:
                     reset_points[host_branch] = task_points
 
+        metrics_raw = payload.get("metrics")
+        metrics: list[MetricEntry] = []
+        if isinstance(metrics_raw, list):
+            for item in cast(list[object], metrics_raw):
+                if not isinstance(item, dict):
+                    continue
+                entry = MetricEntry.from_payload(cast(dict[str, object], item))
+                if entry is not None:
+                    metrics.append(entry)
+
         return cls(
             started_at=_int_or_none(payload.get("started_at")),
             finished_at=_int_or_none(payload.get("finished_at")),
@@ -403,6 +440,7 @@ class State:
             attempts=attempts,
             current_task=_str_or_none(payload.get("current_task")),
             reset_points=reset_points,
+            metrics=metrics,
         )
 
     def reset_point_for(self, *, host_branch: str, task_slug: str) -> ResetPoint | None:
@@ -449,4 +487,10 @@ def _attempt_result_or_none(value: object) -> AttemptResult | None:
         return "incompleted"
     if value in {"completed", "incompleted", "needs_human", "failed", "interrupted", "timeout"}:
         return cast(AttemptResult, value)
+    return None
+
+
+def _metric_result_or_none(value: object) -> MetricResult | None:
+    if value in {"pass", "fail"}:
+        return cast(MetricResult, value)
     return None

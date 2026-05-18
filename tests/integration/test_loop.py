@@ -3520,8 +3520,6 @@ def test_make_check_runs_after_completion(git_repo: Path) -> None:
 
 def test_make_check_pass_records_metric(git_repo: Path) -> None:
     """A passing make check records a pass metric entry."""
-    import json
-
     assert run_cli(["init"], cwd=git_repo) == 0
     (git_repo / "Makefile").write_text("check:\n\t@echo ok\n", encoding="utf-8")
     write_task(
@@ -3541,9 +3539,7 @@ def test_make_check_pass_records_metric(git_repo: Path) -> None:
     completed = service.start(max_tasks=1, force=True)
 
     assert completed == 1
-    metrics_path = git_repo / ".jri" / "metrics.json"
-    assert metrics_path.exists()
-    entries = json.loads(metrics_path.read_text(encoding="utf-8"))
+    entries = cast(list[dict[str, object]], read_json(git_repo / ".jri" / "state.json")["metrics"])
     assert len(entries) == 1
     assert entries[0]["result"] == "pass"
     assert entries[0]["task"] == "implement-file"
@@ -3551,8 +3547,6 @@ def test_make_check_pass_records_metric(git_repo: Path) -> None:
 
 def test_failing_make_check_records_metric(git_repo: Path) -> None:
     """A failing make check records a fail metric entry."""
-    import json
-
     assert run_cli(["init"], cwd=git_repo) == 0
     (git_repo / "Makefile").write_text("check:\n\texit 1\n", encoding="utf-8")
     write_task(
@@ -3572,9 +3566,7 @@ def test_failing_make_check_records_metric(git_repo: Path) -> None:
     completed = service.start(max_tasks=1, force=True)
 
     assert completed == 0
-    metrics_path = git_repo / ".jri" / "metrics.json"
-    assert metrics_path.exists()
-    entries = json.loads(metrics_path.read_text(encoding="utf-8"))
+    entries = cast(list[dict[str, object]], read_json(git_repo / ".jri" / "state.json")["metrics"])
     assert len(entries) == 1
     assert entries[0]["result"] == "fail"
     assert entries[0]["task"] == "implement-file"
@@ -3650,7 +3642,7 @@ def test_missing_make_binary_records_failure_and_recovers(
     assert "make: command not found" in capsys.readouterr().err
     assert (git_repo / ".jri" / "tasks" / "todo" / "implement-file.md").exists()
     assert not (git_repo / ".jri" / "tasks" / "done" / "implement-file.md").exists()
-    metrics = json.loads((git_repo / ".jri" / "metrics.json").read_text(encoding="utf-8"))
+    metrics = cast(list[dict[str, object]], read_json(git_repo / ".jri" / "state.json")["metrics"])
     assert metrics == [{"task": "implement-file", "ts": metrics[0]["ts"], "result": "fail"}]
     events = TimelineStore(git_repo / ".jri" / "logs" / "timeline.jsonl").read()
     warning_events = [event for event in events if event.event == "stderr_warning"]

@@ -1,49 +1,45 @@
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, cast
+from typing import TYPE_CHECKING, cast
 
-MetricResult = Literal["pass", "fail"]
+from .models import MetricEntry, MetricResult
 
-
-@dataclass(frozen=True)
-class MetricEntry:
-    task: str
-    ts: str
-    result: MetricResult
-
-    def to_dict(self) -> dict[str, object]:
-        return {"task": self.task, "ts": self.ts, "result": self.result}
+if TYPE_CHECKING:
+    from .state import StateStore
 
 
 @dataclass
 class MetricsStore:
-    path: Path
+    state_store: "StateStore"
+    legacy_path: Path | None = None
 
     def record(self, entry: MetricEntry) -> None:
-        """Append a metric entry to the metrics file.
-
-        Loads the existing array, appends the new entry, and saves atomically
-        via a same-directory temp-file write.
-        """
+        """Append a metric entry to runtime state."""
         try:
             entries = self.read()
             entries.append(entry)
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            payload = [e.to_dict() for e in entries]
-            tmp = self.path.with_suffix(".tmp")
-            tmp.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-            tmp.replace(self.path)
+            state = self.state_store.load()
+            self.state_store.save(replace(state, metrics=entries))
+            if self.legacy_path is not None:
+                self.legacy_path.unlink(missing_ok=True)
         except Exception as exc:
             print(f"metrics write failed: {exc}. Entry: {json.dumps(entry.to_dict())}", file=sys.stderr)
 
     def read(self) -> list[MetricEntry]:
-        if not self.path.exists():
+        entries = list(self.state_store.load().metrics)
+        legacy_entries = self._read_legacy()
+        if legacy_entries:
+            return [*legacy_entries, *entries]
+        return entries
+
+    def _read_legacy(self) -> list[MetricEntry]:
+        if self.legacy_path is None or not self.legacy_path.exists():
             return []
         try:
-            payload: object = json.loads(self.path.read_text(encoding="utf-8"))
+            payload: object = json.loads(self.legacy_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             return []
         if not isinstance(payload, list):

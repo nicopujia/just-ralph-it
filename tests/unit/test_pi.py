@@ -556,7 +556,6 @@ def test_jri_paths_construct_expected_paths(tmp_path: Path) -> None:
     assert paths.recovery_log_path == tmp_path / ".jri" / "logs" / "recovery.log"
     assert paths.recovery_failures_log_path == tmp_path / ".jri" / "logs" / "recovery-failures.log"
     assert paths.timeline_path == tmp_path / ".jri" / "logs" / "timeline.jsonl"
-    assert paths.metrics_path == tmp_path / ".jri" / "metrics.json"
     assert paths.learnings_path == tmp_path / ".jri" / "learnings.md"
     assert paths.attempts_dir == tmp_path / ".jri" / "attempts"
     assert paths.worktree_dir == tmp_path / ".jri" / "worktree"

@@ -15,7 +15,7 @@ description: Use for project setup, greenfield setup, skeleton work, and canonic
 - Do not require installing optional diagnostics tooling just to prove the task, and do not hide unavailable tooling from the final evidence.
 - Do not write tests for docs, prompts, or config-only changes.
 - Keep generated JRI runtime artifacts out of broad scans via the target project's native ignore mechanisms.
-- Exclude: `.jri/logs/`, `.jri/signals/`, `.jri/worktree/`, `.jri/*state.json*`, `.jri/metrics.json`.
+- Exclude: `.jri/logs/`, `.jri/signals/`, `.jri/worktree/`, `.jri/*state.json*`.
 - Do not blindly exclude durable `.jri/tasks/`, `.jri/attempts/`, or `.jri/learnings.md`; only do so when a tool-specific failure requires it and the reason is documented.
 
 ## Shipped And User-Facing QA
