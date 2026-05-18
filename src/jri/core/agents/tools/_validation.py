@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, TypedDict, cast
 
 import yaml
 
-from .....tasks import validate_task_metadata
+from ...tasks import validate_task_metadata
 
 if TYPE_CHECKING:
-    from .....service import JriService
+    from ...service import JriService
 
 SLUG_RE = re.compile(r"^[a-zA-Z0-9][-a-zA-Z0-9_.]*$")
 
@@ -202,10 +202,10 @@ def slugify(title: str) -> str:
 
 
 def service(root: Path) -> "JriService":
-    package = sys.modules.get("jri.core.agents.bundle._shared.tools")
+    package = sys.modules.get("jri.core.agents.tools")
     service_type = getattr(package, "JriService", None) if package is not None else None
     if service_type is None:
-        from .....service import JriService
+        from ...service import JriService
 
         service_type = JriService
     return cast("type[JriService]", service_type)(root)

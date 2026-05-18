@@ -1,8 +1,8 @@
 import json
 from pathlib import Path
 
-from .....models import Task
-from .....tasks import list_tasks
+from ...models import Task
+from ...tasks import list_tasks
 from ._validation import (
     assert_slug,
     assert_slug_list,

@@ -1,6 +1,6 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "typebox";
-import { runPythonTool } from "./tools/runner.ts";
+import { runPythonTool } from "./runner.ts";
 
 export const SLUG_RE = /^[a-zA-Z0-9][-a-zA-Z0-9_.]*$/;
 

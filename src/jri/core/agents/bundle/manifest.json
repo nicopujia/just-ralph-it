@@ -5,6 +5,6 @@
   "prompts.compiler": "compiler/prompt.md",
   "prompts.ralphValidator": "ralph/validator/prompt.md",
   "prompts.explorer": "explorer/prompt.md",
-  "tools.pythonRunner": "_shared/tools/runner.ts",
+  "tools.pythonRunner": "_shared/runner.ts",
   "themes.modernYellow": "theme.json"
 }

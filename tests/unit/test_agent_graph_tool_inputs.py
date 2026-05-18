@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-import jri.core.agents.bundle._shared.tools.graph as graph_tools_module
-from jri.core.agents.bundle._shared.tools.graph import (
+import jri.core.agents.tools.graph as graph_tools_module
+from jri.core.agents.tools.graph import (
     run_apply_graph_patch,
     run_compile_graph,
     run_create_node,

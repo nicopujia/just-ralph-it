@@ -2,8 +2,8 @@ import json
 from pathlib import Path
 from typing import cast
 
-from .....graph import GraphStore, apply_graph_patch, graph_node_path, validate_graph_path
-from .....models import GraphNodeMetadata, GraphNodeState
+from ...graph import GraphStore, apply_graph_patch, graph_node_path, validate_graph_path
+from ...models import GraphNodeMetadata, GraphNodeState
 from ._validation import service
 
 

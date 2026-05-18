@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import path from "node:path";
-import { PYTHON_TOOL_MAX_BUFFER, PYTHON_TOOL_TIMEOUT_MS } from "../subagents.ts";
+import { PYTHON_TOOL_MAX_BUFFER, PYTHON_TOOL_TIMEOUT_MS } from "./subagents.ts";
 
 export function runPythonTool(toolName: string, payload: unknown): string {
   const candidates = [process.env.JRI_PYTHON, "python3", "python"].filter(
@@ -15,7 +15,7 @@ export function runPythonTool(toolName: string, payload: unknown): string {
   }
 
   for (const command of candidates) {
-    const result = spawnSync(command, ["-m", "jri.core.agents.bundle._shared.tools", toolName], {
+    const result = spawnSync(command, ["-m", "jri.core.agents.tools", toolName], {
       input: JSON.stringify(payload),
       encoding: "utf-8",
       env,

@@ -10,7 +10,7 @@ def iter_bundle_assets() -> tuple[str, ...]:
             sorted(
                 str(item.relative_to(root))
                 for item in root.rglob("*")
-                if item.is_file() and "__pycache__" not in item.parts and item.suffix != ".pyc"
+                if item.is_file() and "__pycache__" not in item.parts and item.suffix not in {".py", ".pyc"}
             )
         )
 

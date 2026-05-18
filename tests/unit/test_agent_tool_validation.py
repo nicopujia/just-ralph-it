@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-import jri.core.agents.bundle._shared.tools as tools_package
-from jri.core.agents.bundle._shared.tools._validation import (
+import jri.core.agents.tools as tools_package
+from jri.core.agents.tools._validation import (
     apply_exact_edits,
     assert_exact_edits,
     assert_slug,

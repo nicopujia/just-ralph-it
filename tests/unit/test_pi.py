@@ -571,7 +571,7 @@ def test_package_manifest_uses_resource_manifest_paths(tmp_path: Path, monkeypat
     resource_paths = {
         "extensions.default": "extension.ts",
         "prompts.interrogator": "interrogator/prompt.md",
-        "tools.pythonRunner": "_shared/tools/runner.ts",
+        "tools.pythonRunner": "_shared/runner.ts",
         "themes.modernYellow": "theme.json",
     }
     resolved_ids: list[str] = []
@@ -589,7 +589,7 @@ def test_package_manifest_uses_resource_manifest_paths(tmp_path: Path, monkeypat
         "extensions": ["./extension.ts"],
         "skills": ["./interrogator/skills", "./ralph/skills"],
         "prompts": ["./interrogator"],
-        "tools": ["./_shared/tools"],
+        "tools": ["./_shared"],
         "themes": ["./theme.json"],
     }
     assert resolved_ids == ["extensions.default", "prompts.interrogator", "tools.pythonRunner", "themes.modernYellow"]
@@ -600,12 +600,15 @@ def test_runtime_env_copies_complete_agent_bundle() -> None:
     with runtime_env(overrides={}) as env:
         package_root = Path(env["JRI_PI_PACKAGE"])
 
-        assert (package_root / "__init__.py").is_file()
+        assert not (package_root / "__init__.py").exists()
         assert (package_root / "manifest.json").is_file()
         assert (package_root / "compiler" / "prompt.md").is_file()
+        assert (package_root / "_shared" / "runner.ts").is_file()
+        assert not (package_root / "_shared" / "__init__.py").exists()
         assert not (package_root / "interrogator" / "validator").exists()
         project_setup_skill = package_root / "ralph" / "skills" / "project-setup" / "SKILL.md"
         assert project_setup_skill.is_file()
+        assert not any(path.suffix == ".py" for path in package_root.rglob("*"))
         assert not any("__pycache__" in path.parts for path in package_root.rglob("*"))
 
 

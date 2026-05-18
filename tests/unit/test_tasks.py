@@ -11,8 +11,8 @@ import pytest
 import yaml
 
 import jri.core.tasks as tasks_module
-from jri.core.agents.bundle._shared.tools import run_contrast_check, run_upsert_task
 from jri.core.agents.resources import resource_manifest, resource_path, resource_relative_path
+from jri.core.agents.tools import run_contrast_check, run_upsert_task
 from jri.core.git import GitRepo
 from jri.core.models import CompilerTaskSpec, Task, TaskMetadata
 from jri.core.tasks import (
@@ -84,7 +84,7 @@ PI_REQUIRED_THEME_COLOR_TOKENS = (
 
 def run_agent_tool(cwd: Path, payload: dict[str, object], tool_name: str) -> str:
     result = subprocess.run(
-        [sys.executable, "-m", "jri.core.agents.bundle._shared.tools", tool_name],
+        [sys.executable, "-m", "jri.core.agents.tools", tool_name],
         cwd=cwd,
         input=json.dumps(payload),
         check=True,
@@ -218,13 +218,13 @@ def inspect_python_tool_spawn_env(tmp_path: Path, *, env: dict[str, str]) -> dic
     capture_path = harness / "capture.json"
     source = (
         files("jri.core.agents.bundle")
-        .joinpath("_shared", "tools", "runner.ts")
+        .joinpath("_shared", "runner.ts")
         .read_text(encoding="utf-8")
         .replace(
             'import { spawnSync } from "node:child_process";', 'import { spawnSync } from "./child_process.ts";', 1
         )
         .replace(
-            ('import { PYTHON_TOOL_MAX_BUFFER, PYTHON_TOOL_TIMEOUT_MS } from "../subagents.ts";'),
+            ('import { PYTHON_TOOL_MAX_BUFFER, PYTHON_TOOL_TIMEOUT_MS } from "./subagents.ts";'),
             "const PYTHON_TOOL_MAX_BUFFER = 4 * 1024 * 1024;\nconst PYTHON_TOOL_TIMEOUT_MS = 30_000;",
             1,
         )
@@ -620,9 +620,7 @@ def test_non_schema_package_resources_are_available() -> None:
     assert builtins.joinpath("_shared", "subagents.ts").is_file()
     assert builtins.joinpath("ralph", "tools.ts").is_file()
     assert builtins.joinpath("ralph", "validator", "tools.ts").is_file()
-    assert builtins.joinpath("_shared", "tools", "__init__.py").is_file()
-    assert builtins.joinpath("_shared", "tools", "__main__.py").is_file()
-    assert builtins.joinpath("_shared", "tools", "runner.ts").is_file()
+    assert builtins.joinpath("_shared", "runner.ts").is_file()
 
 
 def test_agent_resource_manifest_resolves_current_package_resources() -> None:
@@ -633,7 +631,7 @@ def test_agent_resource_manifest_resolves_current_package_resources() -> None:
         "prompts.compiler": "compiler/prompt.md",
         "prompts.ralphValidator": "ralph/validator/prompt.md",
         "prompts.explorer": "explorer/prompt.md",
-        "tools.pythonRunner": "_shared/tools/runner.ts",
+        "tools.pythonRunner": "_shared/runner.ts",
         "themes.modernYellow": "theme.json",
     }
 
@@ -749,7 +747,7 @@ def test_run_python_tool_uses_forwarded_pythonpath(tmp_path: Path) -> None:
     )
 
     assert captured["command"] == sys.executable
-    assert captured["args"] == ["-m", "jri.core.agents.bundle._shared.tools", "ralph-result"]
+    assert captured["args"] == ["-m", "jri.core.agents.tools", "ralph-result"]
     options_obj = captured["options"]
     assert isinstance(options_obj, dict)
     options = cast(dict[str, object], options_obj)

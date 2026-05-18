@@ -21,7 +21,7 @@ def test_jri_package_entrypoint_shows_cli_help() -> None:
 
 def test_tools_package_entrypoint_reports_missing_git_repo(tmp_path: Path) -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "jri.core.agents.bundle._shared.tools", "list-tasks"],
+        [sys.executable, "-m", "jri.core.agents.tools", "list-tasks"],
         input="{}",
         capture_output=True,
         text=True,
