@@ -11,6 +11,8 @@ from .client import AgentRuntime, PiRuntime
 from .config import iter_bundle_assets, load_asset_text
 from .resources import resource_relative_path
 
+_AGENT_SKILL_ROOTS = ("interrogator/skills", "ralph/skills", "explorer/skills", "ralph/validator/skills")
+
 
 @contextmanager
 def runtime_env(
@@ -101,7 +103,7 @@ def _write_package_manifest(bundle_root: Path, *, overrides: dict[str, str | Non
         "keywords": ["pi-package"],
         "pi": {
             "extensions": [_manifest_reference("extensions.default")],
-            "skills": ["./interrogator/skills", "./ralph/skills"],
+            "skills": _manifest_skill_roots(bundle_root),
             "prompts": [_manifest_top_level_reference("prompts.interrogator")],
             "tools": [_manifest_parent_reference("tools.pythonRunner")],
             "themes": [_manifest_top_level_reference("themes.modernYellow")],
@@ -109,6 +111,10 @@ def _write_package_manifest(bundle_root: Path, *, overrides: dict[str, str | Non
         "jri": {"models": {name: model for name, model in overrides.items() if model}},
     }
     (bundle_root / "package.json").write_text(__import__("json").dumps(package, indent=2) + "\n", encoding="utf-8")
+
+
+def _manifest_skill_roots(bundle_root: Path) -> list[str]:
+    return [f"./{skill_root}" for skill_root in _AGENT_SKILL_ROOTS if (bundle_root / skill_root).is_dir()]
 
 
 def _manifest_reference(resource_id: str) -> str:

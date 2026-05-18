@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, posix, win32 } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -39,6 +39,18 @@ export function resourceRelativePath(resourceId: string): string {
 
 export function resourcePath(resourceId: string, root = moduleDir): string {
   return join(root, ...resourceRelativePath(resourceId).split("/"));
+}
+
+export function agentSkillPaths(packageRoot: string, agent: string): string[] {
+  const skillRoot = join(packageRoot, ...agent.split("/"), "skills");
+  try {
+    return readdirSync(skillRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(skillRoot, entry.name))
+      .sort();
+  } catch {
+    return [];
+  }
 }
 
 function validateManifestPath(resourceId: string, rawPath: string): string {

@@ -581,13 +581,15 @@ def test_package_manifest_uses_resource_manifest_paths(tmp_path: Path, monkeypat
         return resource_paths[resource_id]
 
     monkeypatch.setattr("jri.core.agents.session.resource_relative_path", fake_resource_relative_path)
+    for skill_root in ("interrogator/skills", "ralph/skills", "explorer/skills", "ralph/validator/skills"):
+        (tmp_path / skill_root).mkdir(parents=True)
 
     _write_package_manifest(tmp_path, overrides={"ralph": "test-model"})
 
     package = json.loads((tmp_path / "package.json").read_text(encoding="utf-8"))
     assert package["pi"] == {
         "extensions": ["./extension.ts"],
-        "skills": ["./interrogator/skills", "./ralph/skills"],
+        "skills": ["./interrogator/skills", "./ralph/skills", "./explorer/skills", "./ralph/validator/skills"],
         "prompts": ["./interrogator"],
         "tools": ["./(shared)"],
         "themes": ["./theme.json"],

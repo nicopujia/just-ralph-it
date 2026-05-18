@@ -134,6 +134,7 @@ def test_pi_extension_launches_ralph_validator_runtime() -> None:
     assert 'name: "ralph-validator"' in source
     assert 'resourcePath("prompts.ralphValidator", packageRoot)' in source
     assert 'configuredModel(packageRoot, "ralph-validator")' in source
+    assert 'agentSkillPaths(packageRoot, "ralph/validator")' in source
     assert '"read,bash,grep,find,ls,list-tasks,read-tasks,check-contrast"' in source
     assert "CHILD_PI_MAX_BUFFER" in source
     assert "VALIDATOR_TIMEOUT_MS" in source
@@ -185,6 +186,7 @@ def test_pi_extension_explorer_runs_read_only_child_pi() -> None:
     assert '"--no-skills"' in source
     assert '"--no-prompt-templates"' in source
     assert '"--no-context-files"' in source
+    assert 'agentSkillPaths(packageRoot, "explorer")' in source
     assert '"read,grep,find,ls,fetch-url,web-search"' in source
     assert "JRI_EXPLORER_RUNTIME" in source
     assert 'name: "fetch-url"' in source
@@ -733,6 +735,35 @@ try {
     result = subprocess.run([bun, "--eval", script], cwd=harness, check=True, capture_output=True, text=True)
 
     assert result.stdout.strip() == ("agent resource 'bad.parent' path must not traverse parents")
+
+
+def test_typescript_agent_skill_paths_lists_only_skill_directories(tmp_path: Path) -> None:
+    bun = shutil.which("bun")
+    assert bun is not None, "bun is required to check the TypeScript resolver"
+
+    source_dir = Path(__file__).resolve().parents[2] / "src" / "jri" / "core" / "agents" / "bundle" / "(shared)"
+    harness = tmp_path / "agents"
+    shared = harness / "(shared)"
+    shared.mkdir(parents=True)
+    shutil.copyfile(source_dir / "assets.ts", shared / "assets.ts")
+    (harness / "manifest.json").write_text(json.dumps(resource_manifest()) + "\n", encoding="utf-8")
+    (harness / "explorer" / "skills" / "beta").mkdir(parents=True)
+    (harness / "explorer" / "skills" / "alpha").mkdir(parents=True)
+    (harness / "explorer" / "skills" / "README.md").write_text("ignored\n", encoding="utf-8")
+
+    script = """
+import { agentSkillPaths } from './(shared)/assets.ts';
+
+console.log(JSON.stringify({
+  explorer: agentSkillPaths(process.cwd(), 'explorer').map((path) => path.split('/').pop()),
+  missing: agentSkillPaths(process.cwd(), 'ralph/validator'),
+}));
+"""
+
+    result = subprocess.run([bun, "--eval", script], cwd=harness, check=True, capture_output=True, text=True)
+    payload = json.loads(result.stdout)
+
+    assert payload == {"explorer": ["alpha", "beta"], "missing": []}
 
 
 def test_run_python_tool_uses_forwarded_pythonpath(tmp_path: Path) -> None:

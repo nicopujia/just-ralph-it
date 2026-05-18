@@ -11,7 +11,7 @@ import {
   getPiInvocation,
   runUntilTerminalOutput,
 } from "../../(shared)/subagents.ts";
-import { resourcePath } from "../../(shared)/assets.ts";
+import { agentSkillPaths, resourcePath } from "../../(shared)/assets.ts";
 
 export function registerRalphValidator(pi: ExtensionAPI) {
   const extensionDir = dirname(fileURLToPath(import.meta.url));
@@ -46,6 +46,9 @@ export function registerRalphValidator(pi: ExtensionAPI) {
         "read,bash,grep,find,ls,list-tasks,read-tasks,check-contrast",
       ];
       const model = configuredModel(packageRoot, "ralph-validator");
+      for (const skillPath of agentSkillPaths(packageRoot, "ralph/validator")) {
+        args.push("--skill", skillPath);
+      }
       if (model) args.push("--model", model);
       args.push(slug);
 

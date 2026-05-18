@@ -15,7 +15,7 @@ import {
   getPiInvocation,
   terminalAssistantText,
 } from "../(shared)/subagents.ts";
-import { resourcePath } from "../(shared)/assets.ts";
+import { agentSkillPaths, resourcePath } from "../(shared)/assets.ts";
 
 const EXPLORER_MAX_TASKS = 8;
 const EXPLORER_MAX_CONCURRENCY = 4;
@@ -265,6 +265,9 @@ function runExplorerTask(
     "read,grep,find,ls,fetch-url,web-search",
   ];
   const model = configuredModel(packageRoot, "explore");
+  for (const skillPath of agentSkillPaths(packageRoot, "explorer")) {
+    args.push("--skill", skillPath);
+  }
   if (model) args.push("--model", model);
   args.push(request.task);
 
