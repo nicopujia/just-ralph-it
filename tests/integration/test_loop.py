@@ -915,9 +915,10 @@ def test_start_completes_single_task(git_repo: Path) -> None:
     attempt_history = yaml.safe_load(
         (git_repo / ".jri" / "attempts" / "implement-file.yaml").read_text(encoding="utf-8")
     )
-    assert attempt_history["task_slug"] == "implement-file"
+    assert "task_slug" not in attempt_history
     history_attempts = cast(list[dict[str, object]], attempt_history["attempts"])
     assert len(history_attempts) == 1
+    assert "task_slug" not in history_attempts[0]
     assert history_attempts[0]["result_payload"] == attempts[0]["result_payload"]
     assert git(git_repo, "status", "--short") == ""
 
@@ -5884,16 +5885,9 @@ def test_persist_attempt_history_writes_yaml_not_json(git_repo: Path) -> None:
     assert not (git_repo / ".jri" / "attempts" / "task-a.json").exists()
     loaded = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
     assert isinstance(loaded, dict)
-    assert loaded["task_slug"] == "task-a"
+    assert "task_slug" not in loaded
     assert loaded["attempts"] == [
-        {
-            "number": 1,
-            "task_slug": "task-a",
-            "branch": "ralph/main",
-            "started_at": 1,
-            "finished_at": 2,
-            "result": "completed",
-        }
+        {"number": 1, "branch": "ralph/main", "started_at": 1, "finished_at": 2, "result": "completed"}
     ]
 
 

@@ -2154,7 +2154,8 @@ class JriService:
             )
         else:
             history = []
-        serialized = attempt.to_payload()
+        history = [{key: value for key, value in existing.items() if key != "task_slug"} for existing in history]
+        serialized = {key: value for key, value in attempt.to_payload().items() if key != "task_slug"}
         updated = False
         for index, existing in enumerate(history):
             if existing.get("number") == attempt.number:
@@ -2164,10 +2165,7 @@ class JriService:
         if not updated:
             history.append(serialized)
         payload = yaml.safe_dump(
-            {"task_slug": attempt.task_slug, "attempts": history},
-            sort_keys=True,
-            default_flow_style=False,
-            allow_unicode=False,
+            {"attempts": history}, sort_keys=True, default_flow_style=False, allow_unicode=False
         ).rstrip("\n")
         history_path.write_text(payload + "\n", encoding="utf-8")
         self.git.commit_paths_if_needed(
@@ -2337,7 +2335,7 @@ class JriService:
         if not isinstance(attempts, list):
             return []
         return [
-            AttemptState.from_payload(cast(dict[str, object], item))
+            AttemptState.from_payload({**cast(dict[str, object], item), "task_slug": slug})
             for item in cast(list[object], attempts)
             if isinstance(item, dict)
         ]
