@@ -7,7 +7,7 @@ import { getRecoveredStatus, observeLoop } from "./daemon-runtime";
 import { daemonHaltLoop, daemonObserveLoop, daemonRequestStop, daemonResumeLoop, daemonStartLoop, daemonStatus } from "./daemon-ipc";
 import { invokeDefaultHarness } from "./harness";
 import { readInterrogationState } from "./interrogation-state";
-import { defaultConfig, defaultStatus, parseJsonObject, validateConfig, validateStatus } from "./schema";
+import { assertStatusProjectDir, defaultConfig, defaultStatus, parseJsonObject, validateConfig, validateStatus } from "./schema";
 import type { AuthResult, AuthState, ChatInput, CoreEvent, HaltOptions, LoopObserveOptions, ProjectConfig, ProjectStatus } from "./types";
 
 const agentsTemplate = `## Build & Run
@@ -90,7 +90,7 @@ export class Project {
     if (!(await Bun.file(path).exists())) {
       throw new JriError("JRI status does not exist yet.", "uninitialized", "Run bare jri or call ensureInitialized() to create the scaffold.");
     }
-    return validateStatus(parseJsonObject(await Bun.file(path).text(), path), path);
+    return assertStatusProjectDir(validateStatus(parseJsonObject(await Bun.file(path).text(), path), path), this.projectDir, path);
   }
 
   private async *sendChat(input: ChatInput): AsyncIterable<CoreEvent> {
@@ -154,7 +154,7 @@ export async function validateExistingProject(projectDir: string): Promise<void>
 
   const statusPath = join(jriDir, "status.json");
   if (await Bun.file(statusPath).exists()) {
-    validateStatus(parseJsonObject(await Bun.file(statusPath).text(), statusPath), statusPath);
+    assertStatusProjectDir(validateStatus(parseJsonObject(await Bun.file(statusPath).text(), statusPath), statusPath), projectDir, statusPath);
   }
 
   await readInterrogationState(projectDir);

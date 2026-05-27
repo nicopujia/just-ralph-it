@@ -1,3 +1,4 @@
+import { isAbsolute } from "node:path";
 import { JriError } from "./errors";
 import type { AgentConfig, AgentName, BlockerReason, LockOperation, ProjectConfig, ProjectState, ProjectStatus, ReasoningLevel } from "./types";
 
@@ -6,6 +7,7 @@ const reasoningLevels = new Set<ReasoningLevel>(["low", "medium", "high", "xhigh
 const projectStates = new Set<ProjectState>(["idle", "auditing", "planning", "building", "blocked", "stopped", "halted"]);
 const blockerReasons = new Set<BlockerReason>(["ambiguousSpecs", "needsHumanTask"]);
 const lockOperations = new Set<LockOperation>(["audit", "plan", "build", "halt", "resume"]);
+const activeStates = new Set<ProjectState>(["auditing", "planning", "building"]);
 
 export const defaultConfig: ProjectConfig = {
   $schema: "https://justralph.it/schemas/config.schema.json",
@@ -137,6 +139,9 @@ export function validateStatus(value: Record<string, unknown>, filePath: string)
   if (typeof value.projectDir !== "string" || value.projectDir.length === 0) {
     throw new JriError(`${filePath} must include projectDir.`, "invalid-status", "Set projectDir to the absolute project root.");
   }
+  if (!isAbsolute(value.projectDir)) {
+    throw new JriError(`${filePath} projectDir must be absolute.`, "invalid-status", "Set projectDir to the absolute project root.");
+  }
   if (typeof value.state !== "string" || !projectStates.has(value.state as ProjectState)) {
     throw new JriError(`${filePath} has an invalid state.`, "invalid-status", "Use a supported JRI state.");
   }
@@ -163,9 +168,23 @@ export function validateStatus(value: Record<string, unknown>, filePath: string)
   return value as ProjectStatus;
 }
 
+export function assertStatusProjectDir(status: ProjectStatus, projectDir: string, filePath: string): ProjectStatus {
+  if (status.projectDir !== projectDir) {
+    throw new JriError(
+      `${filePath} projectDir does not match the current project root.`,
+      "invalid-status",
+      `Update ${filePath} so projectDir is ${projectDir}.`,
+    );
+  }
+  return status;
+}
+
 function validateStatusInvariants(value: Record<string, unknown>, filePath: string): void {
   const state = value.state as ProjectState;
   const activeLoopId = value.activeLoopId;
+  const blocker = value.blocker;
+  const process = value.process;
+  const preservesAmbiguousSpecsDuringAudit = state === "auditing" && isRecord(blocker) && blocker.reason === "ambiguousSpecs";
 
   if (state === "idle" && activeLoopId !== null) {
     throw new JriError(`${filePath} idle status cannot have an activeLoopId.`, "invalid-status", "Set activeLoopId to null when state is idle.");
@@ -179,6 +198,35 @@ function validateStatusInvariants(value: Record<string, unknown>, filePath: stri
     throw new JriError(`${filePath} blocked status requires blocker details.`, "invalid-status", "Record the blocker reason, description, and resolution guide.");
   }
 
+  if (state !== "blocked" && blocker !== undefined && !preservesAmbiguousSpecsDuringAudit) {
+    throw new JriError(
+      `${filePath} ${state} status cannot keep blocker details.`,
+      "invalid-status",
+      "Clear blocker details unless the project is currently blocked or re-auditing an ambiguous-spec blocker.",
+    );
+  }
+
+  if (!activeStates.has(state) && process !== undefined) {
+    throw new JriError(
+      `${filePath} ${state} status cannot keep live process metadata.`,
+      "invalid-status",
+      "Clear process metadata unless JRI is actively auditing, planning, or building.",
+    );
+  }
+
+  if (
+    state === "blocked" &&
+    isRecord(blocker) &&
+    blocker.reason === "needsHumanTask" &&
+    isRecord(blocker.resolution) &&
+    blocker.resumePhase === undefined
+  ) {
+    throw new JriError(
+      `${filePath} verified needsHumanTask blockers must record blocker.resumePhase.`,
+      "invalid-status",
+      "Preserve blocker.resumePhase so JRI can resume the verified lifecycle at the correct phase.",
+    );
+  }
 }
 
 function validateProcess(value: unknown, filePath: string): void {

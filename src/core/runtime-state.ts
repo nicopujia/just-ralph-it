@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { JriError } from "./errors";
-import { parseJsonObject, validateStatus } from "./schema";
+import { assertStatusProjectDir, parseJsonObject, validateStatus } from "./schema";
 import type { BlockerReason, CoreEvent, LockOperation, ProjectState, ProjectStatus } from "./types";
 
 const activeStates = new Set<ProjectState>(["auditing", "planning", "building"]);
@@ -14,12 +14,12 @@ export async function readStatus(projectDir: string): Promise<ProjectStatus> {
   if (!(await Bun.file(path).exists())) {
     throw new JriError("JRI status does not exist yet.", "uninitialized", "Run bare jri or call ensureInitialized() to create the scaffold.");
   }
-  return validateStatus(parseJsonObject(await Bun.file(path).text(), path), path);
+  return assertStatusProjectDir(validateStatus(parseJsonObject(await Bun.file(path).text(), path), path), projectDir, path);
 }
 
 export async function writeStatusAtomic(projectDir: string, status: ProjectStatus): Promise<void> {
   const path = statusPath(projectDir);
-  validateStatus(status as unknown as Record<string, unknown>, path);
+  assertStatusProjectDir(validateStatus(status as unknown as Record<string, unknown>, path), projectDir, path);
   await mkdir(dirname(path), { recursive: true });
   await atomicWrite(path, `${JSON.stringify(status, null, 2)}\n`);
 }
@@ -56,13 +56,20 @@ export async function transitionStatus(
 
     const timestamp = (options.now ?? new Date()).toISOString();
     const patched = applyStatusPatch(current, options.update);
-    return {
+    const next: Record<string, unknown> = {
       ...patched,
       state: nextState,
       activeLoopId,
       ...(activeLoopId ? { lastLoopId: activeLoopId } : {}),
       ...(nextState === "idle" || nextState === "stopped" || nextState === "halted" ? { finishedAt: timestamp } : {}),
     };
+    if (!(nextState === "blocked" || (nextState === "auditing" && current.blocker?.reason === "ambiguousSpecs"))) {
+      delete next.blocker;
+    }
+    if (!isActiveState(nextState)) {
+      delete next.process;
+    }
+    return next as ProjectStatus;
   });
 }
 

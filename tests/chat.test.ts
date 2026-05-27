@@ -1104,6 +1104,7 @@ describe("interrogation chat", () => {
             steps: ["Set the deployment token."],
             resumeInstruction: "Say done in bare jri after the token is available.",
           },
+          resumePhase: "building",
         },
       });
 
@@ -1147,6 +1148,7 @@ describe("interrogation chat", () => {
             steps: ["Set the deployment token."],
             resumeInstruction: "Say done in bare jri after the token is available.",
           },
+          resumePhase: "building",
         },
       });
 
@@ -1189,6 +1191,7 @@ describe("interrogation chat", () => {
             steps: ["Set the deployment token."],
             resumeInstruction: "Say done in bare jri after the token is available.",
           },
+          resumePhase: "building",
         },
       });
 
@@ -1235,6 +1238,7 @@ describe("interrogation chat", () => {
             resumeInstruction: "Say done in bare jri after the token is available.",
             sensitive: true,
           },
+          resumePhase: "building",
         },
       });
 
@@ -1274,6 +1278,7 @@ describe("interrogation chat", () => {
             successCriteria: ["path exists: deploy/token-ready.txt"],
             resumeInstruction: "Say done in bare jri after the proof file exists.",
           },
+          resumePhase: "building",
         },
       });
 
@@ -1308,6 +1313,7 @@ describe("interrogation chat", () => {
             successCriteria: ["Cloudflare dashboard shows account active"],
             resumeInstruction: "Say done in bare jri after the account is active.",
           },
+          resumePhase: "building",
         },
       });
 
@@ -1352,6 +1358,7 @@ describe("interrogation chat", () => {
             successCriteria: ["JRI can deploy without an account setup error."],
             resumeInstruction: "Say done in bare jri after billing is enabled.",
           },
+          resumePhase: "building",
         },
       });
 

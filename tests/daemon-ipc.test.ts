@@ -290,6 +290,7 @@ describe("daemon IPC", () => {
             steps: ["Resume the loop."],
             resumeInstruction: "Run jri loop resume.",
           },
+          resumePhase: "building",
           resolution: {
             status: "verified",
             verifiedAt: "2026-05-27T19:10:00.000Z",

@@ -258,10 +258,49 @@ describe("runtime state primitives", () => {
     expect(() => validateStatus({ ...base, state: "blocked", activeLoopId: "20260527T184210Z" }, ".jri/status.json")).toThrow(
       "blocked status requires blocker details",
     );
-    expect(validateStatus({ ...base, state: "auditing", activeLoopId: "20260527T184210Z", blocker }, ".jri/status.json")).toMatchObject({
-      state: "auditing",
-      blocker,
-    });
+    expect(() => validateStatus({ ...base, projectDir: "relative/path" }, ".jri/status.json")).toThrow("projectDir must be absolute");
+    expect(() => validateStatus({ ...base, state: "planning", activeLoopId: "20260527T184210Z", blocker }, ".jri/status.json")).toThrow(
+      "planning status cannot keep blocker details",
+    );
+    expect(
+      () =>
+        validateStatus(
+          {
+            ...base,
+            state: "stopped",
+            activeLoopId: "20260527T184210Z",
+            process: {
+              pid: 123,
+              startedAt: "2026-05-27T18:42:10.000Z",
+            },
+          },
+          ".jri/status.json",
+        ),
+    ).toThrow("stopped status cannot keep live process metadata");
+    expect(
+      () =>
+        validateStatus(
+          {
+            ...base,
+            state: "blocked",
+            activeLoopId: "20260527T184210Z",
+            blocker: {
+              reason: "needsHumanTask",
+              description: "Deployment token is missing.",
+              resolutionGuide: {
+                summary: "A deployment token is required.",
+                steps: ["Set the deployment token."],
+                resumeInstruction: "Say done in bare jri after the token is available.",
+              },
+              resolution: {
+                status: "verified",
+                verifiedAt: "2026-05-27T18:42:10.000Z",
+              },
+            },
+          },
+          ".jri/status.json",
+        ),
+    ).toThrow("verified needsHumanTask blockers must record blocker.resumePhase");
   });
 });
 

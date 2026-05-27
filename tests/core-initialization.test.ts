@@ -126,6 +126,45 @@ describe("project initialization", () => {
     }
   });
 
+  test("open rejects a verified human-task blocker that is missing its durable resume phase", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri"), { recursive: true });
+      await writeFile(
+        join(dir, ".jri", "status.json"),
+        JSON.stringify(
+          {
+            schemaVersion: 1,
+            projectDir: dir,
+            state: "blocked",
+            activeLoopId: "20260527T184210Z",
+            stopRequested: false,
+            blocker: {
+              reason: "needsHumanTask",
+              description: "Deployment credentials are missing.",
+              resolutionGuide: {
+                summary: "Credentials are required.",
+                steps: ["Set the deployment token."],
+                resumeInstruction: "Say done in bare jri after the token is available.",
+              },
+              resolution: {
+                status: "verified",
+                verifiedAt: "2026-05-27T18:42:10.000Z",
+              },
+            },
+          },
+          null,
+          2,
+        ),
+        "utf8",
+      );
+
+      await expect(open(dir)).rejects.toThrow(/resumePhase/i);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("root resolution prefers nearest .jri ancestor before git root", async () => {
     const dir = await tempProject();
     try {

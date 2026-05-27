@@ -1115,27 +1115,36 @@ describe("daemon/runtime scaffolding", () => {
     const dir = await tempProject();
     let spawnCalled = false;
     try {
-      await writeStatusAtomic(dir, {
-        ...defaultStatus(dir),
-        state: "blocked",
-        activeLoopId: "20260527T184210Z",
-        lastLoopId: "20260527T184210Z",
-        authorizedSpecsFingerprint: emptySpecsFingerprint,
-        blocker: {
-          reason: "needsHumanTask",
-          description: "Provide deployment credentials.",
-          resolutionGuide: {
-            summary: "Credentials are required.",
-            steps: ["Provide the deployment token."],
-            resumeInstruction: "Say done in bare jri after the token is available.",
+      await mkdir(join(dir, ".jri"), { recursive: true });
+      await writeFile(
+        join(dir, ".jri", "status.json"),
+        `${JSON.stringify(
+          {
+            ...defaultStatus(dir),
+            state: "blocked",
+            activeLoopId: "20260527T184210Z",
+            lastLoopId: "20260527T184210Z",
+            authorizedSpecsFingerprint: emptySpecsFingerprint,
+            blocker: {
+              reason: "needsHumanTask",
+              description: "Provide deployment credentials.",
+              resolutionGuide: {
+                summary: "Credentials are required.",
+                steps: ["Provide the deployment token."],
+                resumeInstruction: "Say done in bare jri after the token is available.",
+              },
+              resolution: {
+                status: "verified",
+                verifiedAt: "2026-05-27T19:10:00.000Z",
+                verificationSummary: "Deployment token is present.",
+              },
+            },
           },
-          resolution: {
-            status: "verified",
-            verifiedAt: "2026-05-27T19:10:00.000Z",
-            verificationSummary: "Deployment token is present.",
-          },
-        },
-      });
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
 
       await expect(
         collect(
@@ -1146,7 +1155,7 @@ describe("daemon/runtime scaffolding", () => {
             },
           }),
         ),
-      ).rejects.toThrow("did not record a resume phase");
+      ).rejects.toThrow("must record blocker.resumePhase");
 
       expect(spawnCalled).toBe(false);
     } finally {
