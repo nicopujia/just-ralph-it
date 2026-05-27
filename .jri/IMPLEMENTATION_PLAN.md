@@ -8,6 +8,7 @@
   - Extend fake harness coverage for assistant chunks, artifacts, capability errors, auth errors, delays, cancellation, malformed/missing handoffs, and wrong-agent/wrong-phase handoffs.
 
 - P0: Thread real cancellation through chat, loop phases, harness sessions, and capability processes.
+  - Implemented/covered: harness command execution now honors `AbortSignal` for the default harness, legacy controlled Pi sessions, and explorer command capture; focused coverage was added in `tests/harness.test.ts`.
   - Replace fresh disconnected `AbortController().signal` values with lifecycle-owned signals for chat turns and loop runner phases.
   - Honor cancellation before start, during SDK/session execution, during web/explorer capability work, after timeout, and during halt.
   - Use one cancellation path with best-effort termination followed by forceful cleanup after a short grace period.

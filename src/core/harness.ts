@@ -53,6 +53,7 @@ export type HarnessSessionRequest = {
   phase: HarnessPhase;
   stdoutPath: string;
   env?: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
   contextRefs?: string[];
   contextInline?: string[];
   explorerTask?: string;
@@ -69,6 +70,9 @@ export type PiHarnessCommand = {
 
 export async function runControlledPiSession(request: HarnessSessionRequest): Promise<number> {
   const built = await buildControlledPiCommand(request);
+  if (request.signal?.aborted) {
+    throw harnessCancelledError();
+  }
   const proc = Bun.spawn(built.command, {
     cwd: request.projectDir,
     stdout: "pipe",
@@ -76,13 +80,20 @@ export async function runControlledPiSession(request: HarnessSessionRequest): Pr
     stdin: "ignore",
     env: built.env,
   });
-  await appendMergedStreams(request.stdoutPath, [proc.stdout, proc.stderr]);
-  return await proc.exited;
+  const cancellation = bindProcessCancellation(proc, request.signal);
+  try {
+    await appendMergedStreams(request.stdoutPath, [proc.stdout, proc.stderr]);
+    const exitCode = await proc.exited;
+    if (cancellation.cancelled) throw harnessCancelledError();
+    return exitCode;
+  } finally {
+    cancellation.cleanup();
+  }
 }
 
 export async function invokeDefaultHarness(invocation: HarnessInvocation, env: NodeJS.ProcessEnv = process.env): Promise<HarnessResult> {
   if (invocation.signal.aborted) {
-    throw new JriError("Harness invocation was cancelled before it started.", "harness-cancelled", "Retry the operation if it is still needed.");
+    throw harnessCancelledError();
   }
 
   const loopId = invocation.owner.kind === "loop" ? invocation.owner.loopId : `chat-${invocation.owner.turnId}`;
@@ -102,6 +113,7 @@ export async function invokeDefaultHarness(invocation: HarnessInvocation, env: N
     cwd: invocation.projectDir,
     env: built.env,
     timeoutMs: 10 * 60 * 1000,
+    signal: invocation.signal,
   });
   const assistantText = stripHandoffLines(output.text).trim();
   if (assistantText) await invocation.output.write(assistantText);
@@ -171,6 +183,7 @@ export async function runExplorerTask(
         cwd: request.projectDir,
         env: built.env,
         timeoutMs: request.timeoutMs ?? explorerTimeoutMs,
+        ...(request.signal ? { signal: request.signal } : {}),
       });
       const artifactRef = await writeExplorerArtifact(request.projectDir, request.loopId, task, output.text);
       if (output.exitCode !== 0) {
@@ -380,9 +393,13 @@ type CapturedCommand = {
   cwd: string;
   env: NodeJS.ProcessEnv;
   timeoutMs: number;
+  signal?: AbortSignal;
 };
 
 async function runCommandCapture(request: CapturedCommand): Promise<{ exitCode: number; text: string }> {
+  if (request.signal?.aborted) {
+    throw harnessCancelledError();
+  }
   const proc = Bun.spawn(request.command, {
     cwd: request.cwd,
     stdout: "pipe",
@@ -390,13 +407,53 @@ async function runCommandCapture(request: CapturedCommand): Promise<{ exitCode: 
     stdin: "ignore",
     env: request.env,
   });
-  const timeout = setTimeout(() => proc.kill("SIGTERM"), request.timeoutMs);
+  let timedOut = false;
+  const cancellation = bindProcessCancellation(proc, request.signal);
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    terminateProcess(proc);
+  }, request.timeoutMs);
   try {
     const [stdout, stderr, exitCode] = await Promise.all([streamText(proc.stdout), streamText(proc.stderr), proc.exited]);
+    if (cancellation.cancelled) throw harnessCancelledError();
+    if (timedOut) {
+      throw new JriError(
+        `JRI harness timed out after ${request.timeoutMs}ms.`,
+        "harness-timeout",
+        "Retry after narrowing the task or resolving the unresponsive harness.",
+      );
+    }
     return { exitCode, text: `${stdout}${stderr ? `${stdout ? "\n" : ""}${stderr}` : ""}` };
   } finally {
     clearTimeout(timeout);
+    cancellation.cleanup();
   }
+}
+
+function bindProcessCancellation(proc: Bun.Subprocess, signal: AbortSignal | undefined): { readonly cancelled: boolean; cleanup: () => void } {
+  let cancelled = false;
+  const abort = (): void => {
+    cancelled = true;
+    terminateProcess(proc);
+  };
+  signal?.addEventListener("abort", abort, { once: true });
+  return {
+    get cancelled() {
+      return cancelled;
+    },
+    cleanup: () => {
+      signal?.removeEventListener("abort", abort);
+    },
+  };
+}
+
+function terminateProcess(proc: Bun.Subprocess): void {
+  proc.kill("SIGTERM");
+  setTimeout(() => proc.kill("SIGKILL"), 250).unref?.();
+}
+
+function harnessCancelledError(): JriError {
+  return new JriError("JRI harness invocation was cancelled.", "harness-cancelled", "Retry the operation if it is still needed.");
 }
 
 async function streamText(stream: ReadableStream<Uint8Array>): Promise<string> {

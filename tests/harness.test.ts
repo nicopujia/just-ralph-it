@@ -175,6 +175,88 @@ describe("controlled Pi harness", () => {
     }
   });
 
+  test("default harness cancels an in-flight Pi child process", async () => {
+    const dir = await tempProject();
+    try {
+      const fakePi = join(dir, "fake-pi-sleep.ts");
+      await writeFile(
+        fakePi,
+        [
+          `#!${process.execPath}`,
+          "process.on('SIGTERM', () => {});",
+          "await new Promise((resolve) => setTimeout(resolve, 5000));",
+          "process.stdout.write('JRI_HANDOFF_JSON: {\"agent\":\"interrogator\",\"action\":\"messageOnly\"}\\n');",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      const controller = new AbortController();
+      const startedAt = Date.now();
+      const promise = invokeDefaultHarness(
+        {
+          owner: { kind: "chat", turnId: "turn-1" },
+          projectDir: dir,
+          agent: "interrogator",
+          phase: "interrogation",
+          model: { model: "gpt-5.5", reasoning: "xhigh" },
+          context: { refs: [], inline: ["Cancel this turn."] },
+          capabilities: [],
+          output: { write: () => {} },
+          signal: controller.signal,
+        },
+        {
+          JRI_PI_COMMAND: fakePi,
+        },
+      );
+
+      setTimeout(() => controller.abort(), 50);
+
+      await expect(promise).rejects.toThrow("JRI harness invocation was cancelled");
+      expect(Date.now() - startedAt).toBeLessThan(1_500);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("controlled Pi session honors cancellation while streaming merged output", async () => {
+    const dir = await tempProject();
+    try {
+      const fakePi = join(dir, "fake-pi-stream-sleep.ts");
+      await writeFile(
+        fakePi,
+        [
+          `#!${process.execPath}`,
+          "process.on('SIGTERM', () => {});",
+          "process.stdout.write('started\\n');",
+          "await new Promise((resolve) => setTimeout(resolve, 5000));",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      const stdoutPath = join(dir, ".jri", "logs", "20260527T184210Z", "stdout.log");
+      const controller = new AbortController();
+      const promise = runControlledPiSession({
+        projectDir: dir,
+        loopId: "20260527T184210Z",
+        phase: "building",
+        stdoutPath,
+        env: {
+          JRI_PI_COMMAND: fakePi,
+        },
+        signal: controller.signal,
+      });
+
+      setTimeout(() => controller.abort(), 50);
+
+      await expect(promise).rejects.toThrow("JRI harness invocation was cancelled");
+      expect(await readFile(stdoutPath, "utf8")).toContain("started");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("controlled Pi session writes stdout and stderr through one merged log sink", async () => {
     const dir = await tempProject();
     try {
