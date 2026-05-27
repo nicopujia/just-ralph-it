@@ -376,7 +376,7 @@ describe("daemon/runtime scaffolding", () => {
 
   test("halt kills recorded process, clears ownership, and moves active loop to halted", async () => {
     const dir = await tempProject();
-    const killed: number[] = [];
+    const killed: Array<{ pid: number; signal: string | undefined }> = [];
     const lockOperationsDuringKill: string[] = [];
     try {
       await writeStatusAtomic(dir, {
@@ -402,17 +402,21 @@ describe("daemon/runtime scaffolding", () => {
         haltLoop(dir, {
           now: new Date("2026-05-27T18:50:00.000Z"),
           isProcessAlive: () => true,
-          killProcess: (pid) => {
+          killProcess: (pid, signal) => {
             const status = JSON.parse(readFileSync(join(dir, ".jri", "status.json"), "utf8"));
             lockOperationsDuringKill.push(status.lock?.operation);
-            killed.push(pid);
+            killed.push({ pid, signal });
           },
+          childKillGraceMs: 1,
         }),
       );
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
 
-      expect(killed).toEqual([67890]);
-      expect(lockOperationsDuringKill).toEqual(["halt"]);
+      expect(killed).toEqual([
+        { pid: 67890, signal: "SIGTERM" },
+        { pid: 67890, signal: "SIGKILL" },
+      ]);
+      expect(lockOperationsDuringKill).toEqual(["halt", "halt"]);
       expect(events[0]).toMatchObject({
         type: "loopHalted",
         data: { killedPid: 67890, resetOffered: true, resetAccepted: false, rollbackCommit: "abc123" },
@@ -428,7 +432,7 @@ describe("daemon/runtime scaffolding", () => {
 
   test("halt kills registered loop child processes before clearing ownership", async () => {
     const dir = await tempProject();
-    const killed: number[] = [];
+    const killed: Array<{ pid: number; signal: string | undefined }> = [];
     try {
       await writeStatusAtomic(dir, {
         ...defaultStatus(dir),
@@ -448,11 +452,19 @@ describe("daemon/runtime scaffolding", () => {
       const events = await collect(
         haltLoop(dir, {
           isProcessAlive: () => true,
-          killProcess: (pid) => killed.push(pid),
+          killProcess: (pid, signal) => killed.push({ pid, signal }),
+          childKillGraceMs: 1,
         }),
       );
 
-      expect(killed).toEqual([11111, 22222, 67890]);
+      expect(killed).toEqual([
+        { pid: 11111, signal: "SIGTERM" },
+        { pid: 22222, signal: "SIGTERM" },
+        { pid: 67890, signal: "SIGTERM" },
+        { pid: 11111, signal: "SIGKILL" },
+        { pid: 22222, signal: "SIGKILL" },
+        { pid: 67890, signal: "SIGKILL" },
+      ]);
       expect(events[0]).toMatchObject({
         type: "loopHalted",
         data: { killedPid: 67890, killedChildPids: [11111, 22222] },
@@ -1429,6 +1441,61 @@ describe("daemon/runtime scaffolding", () => {
 
       const events = await collect(observeLoop(dir));
       expect(events).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runner cancellation fans out to registered loop children before recording failure", async () => {
+    const dir = await tempProject();
+    const controller = new AbortController();
+    const killed: Array<{ pid: number; signal: string | undefined; state: string }> = [];
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build", process.pid),
+      });
+      await registerLoopChild(dir, "20260527T184210Z", { pid: 11111, capability: "web" });
+      await registerLoopChild(dir, "20260527T184210Z", { pid: 22222, capability: "explorer" });
+
+      await runLoopProcess(dir, "20260527T184210Z", "building", {
+        signal: controller.signal,
+        childKillGraceMs: 1,
+        killProcess: (pid, signal) => {
+          const status = JSON.parse(readFileSync(join(dir, ".jri", "status.json"), "utf8"));
+          killed.push({ pid, signal, state: status.state });
+        },
+        harnessAdapter: async (invocation) => {
+          controller.abort();
+          expect(invocation.signal.aborted).toBe(true);
+          return {
+            handoff: {
+              agent: "builder",
+              action: "continue",
+              summary: "Cancelled after adapter return.",
+              validation: [{ command: "bun run test", exitCode: 0, passed: true, summary: "Tests passed." }],
+            },
+          };
+        },
+      });
+
+      const events = await collect(observeLoop(dir));
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(killed).toEqual([
+        { pid: 11111, signal: "SIGTERM", state: "building" },
+        { pid: 22222, signal: "SIGTERM", state: "building" },
+        { pid: 11111, signal: "SIGKILL", state: "building" },
+        { pid: 22222, signal: "SIGKILL", state: "building" },
+      ]);
+      expect(events.at(-1)).toMatchObject({ type: "loopFinished", data: { outcome: "failed" } });
+      expect(status).toMatchObject({
+        state: "stopped",
+        lastResult: { outcome: "failed", summary: expect.stringContaining("cancelled") },
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

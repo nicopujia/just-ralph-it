@@ -45,7 +45,8 @@ import type {
 } from "./types";
 
 export type ProcessAliveCheck = (pid: number) => boolean;
-export type ProcessKiller = (pid: number) => void;
+export type KillSignal = "SIGTERM" | "SIGKILL";
+export type ProcessKiller = (pid: number, signal?: KillSignal) => void;
 export type GitResetRunner = (projectDir: string, rollbackCommit: string) => Promise<GitResetResult>;
 
 export type GitResetResult = {
@@ -64,6 +65,7 @@ export type RuntimeOptions = {
   harnessAdapter?: HarnessAdapter;
   harnessRunner?: HarnessSessionRunner;
   observePollIntervalMs?: number;
+  childKillGraceMs?: number;
 };
 
 export type RunnerPhase = "auditing" | "planning" | "building";
@@ -360,7 +362,7 @@ export async function* haltLoop(projectDir: string, options: RuntimeOptions = {}
   if (!loopId) {
     throw new JriError("Cannot halt without an active loop id.", "missing-loop-id", "Reload status and retry halt.");
   }
-  const killedProcesses = await haltProcesses(projectDir, loopId, haltStatus, options.killProcess ?? defaultKillProcess);
+  const killedProcesses = await haltProcesses(projectDir, loopId, haltStatus, options.killProcess ?? defaultKillProcess, options.childKillGraceMs);
   const rollbackCommit = haltStatus.currentIteration?.rollbackCommit;
   const resetOffered = Boolean(rollbackCommit && haltStatus.currentIteration?.trackedTreeCleanAtStart);
   const resetAccepted = Boolean(options.resetGit && resetOffered && rollbackCommit);
@@ -727,6 +729,9 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
   } catch (error) {
     if (error instanceof LoopAlreadyFinished) return;
     if (error instanceof JriError && isLoopFailureError(error)) {
+      if (isCancellationFanoutError(error)) {
+        await terminateRegisteredLoopProcesses(projectDir, loopId, options.killProcess ?? defaultKillProcess, options.childKillGraceMs);
+      }
       await finishRuntimeFailureRun(projectDir, loopId, currentPhase, error);
       return;
     }
@@ -976,22 +981,43 @@ async function haltProcesses(
   loopId: string,
   status: ProjectStatus,
   killProcess: ProcessKiller,
+  childKillGraceMs = 250,
 ): Promise<HaltedProcesses> {
-  const killed = new Set<number>();
-  const kill = (pid: number): void => {
-    if (killed.has(pid)) return;
-    killProcess(pid);
-    killed.add(pid);
-  };
-
   const childPids = (await readActiveLoopChildren(projectDir, loopId)).map((child) => child.pid);
-  for (const pid of childPids) kill(pid);
-  if (status.process) kill(status.process.pid);
+  const pids = [...childPids, ...(status.process ? [status.process.pid] : [])];
+  await terminatePids(pids, killProcess, childKillGraceMs);
 
   return {
     ...(status.process ? { runnerPid: status.process.pid } : {}),
     childPids: childPids.filter((pid) => pid !== status.process?.pid),
   };
+}
+
+async function terminateRegisteredLoopProcesses(
+  projectDir: string,
+  loopId: string,
+  killProcess: ProcessKiller,
+  childKillGraceMs = 250,
+): Promise<number[]> {
+  const pids = (await readActiveLoopChildren(projectDir, loopId)).map((child) => child.pid);
+  await terminatePids(pids, killProcess, childKillGraceMs);
+  return uniquePids(pids);
+}
+
+async function terminatePids(pids: number[], killProcess: ProcessKiller, childKillGraceMs: number): Promise<void> {
+  const unique = uniquePids(pids);
+  if (unique.length === 0) return;
+  for (const pid of unique) {
+    killProcess(pid, "SIGTERM");
+  }
+  await sleep(childKillGraceMs);
+  for (const pid of unique) {
+    killProcess(pid, "SIGKILL");
+  }
+}
+
+function uniquePids(pids: number[]): number[] {
+  return [...new Set(pids.filter((pid) => Number.isInteger(pid) && pid > 0))];
 }
 
 function defaultProcessAlive(pid: number): boolean {
@@ -1004,9 +1030,9 @@ function defaultProcessAlive(pid: number): boolean {
   }
 }
 
-function defaultKillProcess(pid: number): void {
+function defaultKillProcess(pid: number, signal: KillSignal = "SIGTERM"): void {
   try {
-    process.kill(pid, "SIGTERM");
+    process.kill(pid, signal);
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ESRCH") return;
     throw error;
@@ -1251,6 +1277,7 @@ async function runAgentPhase(projectDir: string, loopId: string, phase: RunnerPh
   };
   assertHarnessCapabilities(invocation);
   const result = await (options.harnessAdapter ?? invokeDefaultHarness)(invocation);
+  throwIfRuntimeCancelled(options.signal);
   return result.handoff;
 }
 
@@ -1643,6 +1670,10 @@ function isLoopFailureError(error: JriError): boolean {
     "runtime-cancelled",
     "unsupported-harness-agent",
   ].includes(error.code);
+}
+
+function isCancellationFanoutError(error: JriError): boolean {
+  return error.code === "runtime-cancelled" || error.code === "harness-cancelled" || error.code === "harness-timeout";
 }
 
 async function successfulExplorerProof(projectDir: string, loopId: string): Promise<{ used: boolean; summary?: string; artifactRef?: string } | undefined> {
