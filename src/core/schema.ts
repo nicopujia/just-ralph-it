@@ -158,8 +158,27 @@ export function validateStatus(value: Record<string, unknown>, filePath: string)
   validateLastResult(value.lastResult, filePath);
   validateRecoveryNote(value.recoveryNote, filePath);
   validateLock(value.lock, filePath);
+  validateStatusInvariants(value, filePath);
 
   return value as ProjectStatus;
+}
+
+function validateStatusInvariants(value: Record<string, unknown>, filePath: string): void {
+  const state = value.state as ProjectState;
+  const activeLoopId = value.activeLoopId;
+
+  if (state === "idle" && activeLoopId !== null) {
+    throw new JriError(`${filePath} idle status cannot have an activeLoopId.`, "invalid-status", "Set activeLoopId to null when state is idle.");
+  }
+
+  if (state !== "idle" && (typeof activeLoopId !== "string" || activeLoopId.length === 0)) {
+    throw new JriError(`${filePath} ${state} status requires an activeLoopId.`, "invalid-status", "Preserve the loop id for active, blocked, stopped, and halted lifecycles.");
+  }
+
+  if (state === "blocked" && value.blocker === undefined) {
+    throw new JriError(`${filePath} blocked status requires blocker details.`, "invalid-status", "Record the blocker reason, description, and resolution guide.");
+  }
+
 }
 
 function validateProcess(value: unknown, filePath: string): void {

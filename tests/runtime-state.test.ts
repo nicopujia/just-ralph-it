@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { defaultStatus } from "../src/core/schema";
+import { defaultStatus, validateStatus } from "../src/core/schema";
 import type { ProjectStatus } from "../src/core/types";
 import {
   acquireLock,
@@ -237,6 +237,31 @@ describe("runtime state primitives", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  test("validateStatus rejects lifecycle-inconsistent status shapes", () => {
+    const base = defaultStatus("/tmp/jri-project");
+    const blocker = {
+      reason: "ambiguousSpecs" as const,
+      description: "Scope is unclear.",
+      resolutionGuide: {
+        summary: "Clarify scope.",
+        steps: ["Update the spec."],
+        resumeInstruction: "Say just ralph it after updating specs.",
+      },
+    };
+
+    expect(() => validateStatus({ ...base, state: "idle", activeLoopId: "20260527T184210Z" }, ".jri/status.json")).toThrow(
+      "idle status cannot have an activeLoopId",
+    );
+    expect(() => validateStatus({ ...base, state: "building", activeLoopId: null }, ".jri/status.json")).toThrow("building status requires an activeLoopId");
+    expect(() => validateStatus({ ...base, state: "blocked", activeLoopId: "20260527T184210Z" }, ".jri/status.json")).toThrow(
+      "blocked status requires blocker details",
+    );
+    expect(validateStatus({ ...base, state: "auditing", activeLoopId: "20260527T184210Z", blocker }, ".jri/status.json")).toMatchObject({
+      state: "auditing",
+      blocker,
+    });
   });
 });
 

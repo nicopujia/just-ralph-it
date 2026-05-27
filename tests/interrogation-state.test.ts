@@ -262,4 +262,26 @@ describe("interrogation state", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("rejects traversal-like persisted spec paths", async () => {
+    const dir = await tempProject();
+    try {
+      await writeFile(
+        join(dir, ".jri", "interrogation-state.json"),
+        `${JSON.stringify({
+          schemaVersion: 1,
+          topics: {
+            app: {
+              specFile: ".jri/specs/app/../other.md",
+              status: "open",
+            },
+          },
+        })}\n`,
+      );
+
+      await expect(readInterrogationState(dir)).rejects.toThrow("invalid specFile");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

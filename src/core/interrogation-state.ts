@@ -173,7 +173,7 @@ function validateInterrogationState(value: Record<string, unknown>, filePath: st
       throw new JriError(`${filePath} topic ${topicId} must be an object.`, "invalid-interrogation-state", "Set each topic to a valid topic object.");
     }
     rejectUnknownKeys(topic, new Set(["specFile", "status", "lastReconciledSpecFingerprint", "pendingReconciliation"]), filePath);
-    if (typeof topic.specFile !== "string" || !topic.specFile.startsWith(".jri/specs/") || topic.specFile.endsWith("/")) {
+    if (typeof topic.specFile !== "string" || !isStableSpecFilePath(topic.specFile)) {
       throw new JriError(`${filePath} topic ${topicId} has an invalid specFile.`, "invalid-interrogation-state", "Use a .jri/specs/* relative path.");
     }
     if (topic.status !== "open" && topic.status !== "sealed") {
@@ -251,7 +251,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function validateSpecFilePath(specFile: string): `.jri/specs/${string}` {
-  if (!specFile.startsWith(".jri/specs/") || specFile.includes("..") || specFile.endsWith("/") || specFile.slice(".jri/specs/".length).includes("/")) {
+  if (!isStableSpecFilePath(specFile)) {
     throw new JriError(
       `Invalid interrogator spec path: ${specFile}`,
       "invalid-spec-path",
@@ -259,6 +259,19 @@ function validateSpecFilePath(specFile: string): `.jri/specs/${string}` {
     );
   }
   return specFile as `.jri/specs/${string}`;
+}
+
+function isStableSpecFilePath(specFile: string): specFile is `.jri/specs/${string}` {
+  const relative = specFile.slice(".jri/specs/".length);
+  return (
+    specFile.startsWith(".jri/specs/") &&
+    relative.length > 0 &&
+    !relative.includes("/") &&
+    !relative.includes("\\") &&
+    relative !== "." &&
+    relative !== ".." &&
+    !relative.includes("..")
+  );
 }
 
 function topicIdForSpecFile(specFile: `.jri/specs/${string}`): string {

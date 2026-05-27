@@ -146,7 +146,7 @@ function parseInterrogator(value: Record<string, unknown>): InterrogatorHandoff 
       return { agent: "interrogator", action: "humanTaskVerified", ...optionalVerificationSummary(value, "interrogator") };
     case "humanTaskStillBlocked":
       assertKnownKeys(value, "interrogator handoff", ["agent", "action", "blocker"], "interrogator");
-      return { agent: "interrogator", action: "humanTaskStillBlocked", blocker: parseBlocker(value.blocker) };
+      return { agent: "interrogator", action: "humanTaskStillBlocked", blocker: parseBlocker(value.blocker, "interrogator") };
     case "startRequested": {
       assertKnownKeys(value, "interrogator handoff", ["agent", "action", "trigger"], "interrogator");
       const trigger = value.trigger;
@@ -200,7 +200,7 @@ function parsePlanner(value: Record<string, unknown>): PlannerHandoff {
       };
     case "blocked":
       assertKnownKeys(value, "planner handoff", ["agent", "action", "blocker"], "planner");
-      return { agent: "planner", action: "blocked", blocker: parseBlocker(value.blocker) };
+      return { agent: "planner", action: "blocked", blocker: parseBlocker(value.blocker, "planner") };
     default:
       throw invalidHandoff("planner", "Unsupported planner handoff action.");
   }
@@ -231,7 +231,7 @@ function parseBuilder(value: Record<string, unknown>): BuilderHandoff {
       };
     case "blocked":
       assertKnownKeys(value, "builder handoff", ["agent", "action", "blocker", "validation"], "builder");
-      return { agent: "builder", action: "blocked", blocker: parseBlocker(value.blocker), ...(validation ? { validation } : {}) };
+      return { agent: "builder", action: "blocked", blocker: parseBlocker(value.blocker, "builder"), ...(validation ? { validation } : {}) };
     case "needsReplan":
       assertKnownKeys(value, "builder handoff", ["agent", "action", "reason", "summary", "validation"], "builder");
       return {
@@ -266,41 +266,41 @@ function parseVerifier(value: Record<string, unknown>): HumanTaskVerificationHan
       return { agent: "verifier", action: "verified", ...optionalVerificationSummary(value, "verifier") };
     case "stillBlocked":
       assertKnownKeys(value, "verifier handoff", ["agent", "action", "blocker"], "verifier");
-      return { agent: "verifier", action: "stillBlocked", blocker: parseBlocker(value.blocker) };
+      return { agent: "verifier", action: "stillBlocked", blocker: parseBlocker(value.blocker, "verifier") };
     default:
       throw invalidHandoff("verifier", "Unsupported verifier handoff action.");
   }
 }
 
-export function parseBlocker(value: unknown): Blocker {
+export function parseBlocker(value: unknown, agent: HandoffAgent = "builder"): Blocker {
   if (!isRecord(value)) {
-    throw invalidHandoff("builder", "The blocker must be a JSON object.");
+    throw invalidHandoff(agent, "The blocker must be a JSON object.");
   }
-  assertKnownKeys(value, "builder blocker", ["reason", "description", "resolutionGuide", "changedFiles", "validationRan", "resumePhase"], "builder");
+  assertKnownKeys(value, `${agent} blocker`, ["reason", "description", "resolutionGuide", "changedFiles", "validationRan", "resumePhase"], agent);
   const reason = value.reason;
   if (reason !== "ambiguousSpecs" && reason !== "needsHumanTask") {
-    throw invalidHandoff("builder", "The blocker reason must be ambiguousSpecs or needsHumanTask.");
+    throw invalidHandoff(agent, "The blocker reason must be ambiguousSpecs or needsHumanTask.");
   }
   const guide = value.resolutionGuide;
   if (!isRecord(guide)) {
-    throw invalidHandoff("builder", "The blocker needs a resolutionGuide object.");
+    throw invalidHandoff(agent, "The blocker needs a resolutionGuide object.");
   }
-  assertKnownKeys(guide, "builder blocker.resolutionGuide", ["summary", "steps", "successCriteria", "resumeInstruction", "sensitive"], "builder");
+  assertKnownKeys(guide, `${agent} blocker.resolutionGuide`, ["summary", "steps", "successCriteria", "resumeInstruction", "sensitive"], agent);
   return {
     reason: reason as BlockerReason,
-    description: requiredString(value.description, "blocker.description", "builder"),
+    description: requiredString(value.description, "blocker.description", agent),
     resolutionGuide: {
-      summary: requiredString(guide.summary, "blocker.resolutionGuide.summary", "builder"),
-      steps: requiredStringArray(guide.steps, "blocker.resolutionGuide.steps", "builder"),
+      summary: requiredString(guide.summary, "blocker.resolutionGuide.summary", agent),
+      steps: requiredStringArray(guide.steps, "blocker.resolutionGuide.steps", agent),
       ...(guide.successCriteria === undefined
         ? {}
-        : { successCriteria: requiredStringArray(guide.successCriteria, "blocker.resolutionGuide.successCriteria", "builder") }),
-      resumeInstruction: requiredString(guide.resumeInstruction, "blocker.resolutionGuide.resumeInstruction", "builder"),
-      ...(guide.sensitive === undefined ? {} : { sensitive: requiredBoolean(guide.sensitive, "blocker.resolutionGuide.sensitive", "builder") }),
+        : { successCriteria: requiredStringArray(guide.successCriteria, "blocker.resolutionGuide.successCriteria", agent) }),
+      resumeInstruction: requiredString(guide.resumeInstruction, "blocker.resolutionGuide.resumeInstruction", agent),
+      ...(guide.sensitive === undefined ? {} : { sensitive: requiredBoolean(guide.sensitive, "blocker.resolutionGuide.sensitive", agent) }),
     },
-    ...(value.changedFiles === undefined ? {} : { changedFiles: requiredStringArray(value.changedFiles, "blocker.changedFiles", "builder") }),
-    ...(value.validationRan === undefined ? {} : { validationRan: requiredBoolean(value.validationRan, "blocker.validationRan", "builder") }),
-    ...(value.resumePhase === undefined ? {} : { resumePhase: requiredResumePhase(value.resumePhase, "blocker.resumePhase", "builder") }),
+    ...(value.changedFiles === undefined ? {} : { changedFiles: requiredStringArray(value.changedFiles, "blocker.changedFiles", agent) }),
+    ...(value.validationRan === undefined ? {} : { validationRan: requiredBoolean(value.validationRan, "blocker.validationRan", agent) }),
+    ...(value.resumePhase === undefined ? {} : { resumePhase: requiredResumePhase(value.resumePhase, "blocker.resumePhase", agent) }),
   };
 }
 

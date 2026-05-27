@@ -199,7 +199,31 @@ describe("agent handoff contracts", () => {
           },
         },
       }),
-    ).toThrow("Unknown builder blocker.resolutionGuide key: hint");
+    ).toThrow("Unknown planner blocker.resolutionGuide key: hint");
+  });
+
+  test("reports blocker validation errors with the owning agent contract", () => {
+    expect(() =>
+      parseHandoff("interrogator", {
+        agent: "interrogator",
+        action: "humanTaskStillBlocked",
+        blocker: { ...blocker, reason: "external" },
+      }),
+    ).toThrow("The blocker reason must be ambiguousSpecs or needsHumanTask.");
+
+    expect(() =>
+      parseHandoff("verifier", {
+        agent: "verifier",
+        action: "stillBlocked",
+        blocker: {
+          ...blocker,
+          resolutionGuide: {
+            ...blocker.resolutionGuide,
+            hint: "unexpected",
+          },
+        },
+      }),
+    ).toThrow("Unknown verifier blocker.resolutionGuide key: hint");
   });
 
   test("rejects unstable spec and artifact handoff paths", () => {
