@@ -223,13 +223,14 @@ export async function startRalphLoop(projectDir: string, options: RuntimeOptions
     status.state === "stopped" || status.blocker?.reason === "ambiguousSpecs"
       ? (status.activeLoopId ?? (await generateLoopId(projectDir, options.now ?? new Date())))
       : await generateLoopId(projectDir, options.now ?? new Date());
-  const runner = (options.spawnRunner ?? defaultSpawnRunner)({ projectDir, loopId, phase: "auditing" });
   const lock = await acquireLock(projectDir, "audit", {
-    pid: runner.pid,
+    pid: process.pid,
     ...(options.now ? { now: options.now } : {}),
     ...(options.isProcessAlive ? { isProcessAlive: options.isProcessAlive } : {}),
   });
 
+  let runner: RunnerProcess | undefined;
+  let statusChanged = false;
   try {
     await transitionStatus(projectDir, "auditing", {
       loopId,
@@ -238,16 +239,15 @@ export async function startRalphLoop(projectDir: string, options: RuntimeOptions
       update: {
         stopRequested: false,
         startedAt: (options.now ?? new Date()).toISOString(),
-        process: {
-          pid: runner.pid,
-          command: runner.command,
-          startedAt: (options.now ?? new Date()).toISOString(),
-        },
         lock,
         blocker: undefined,
         currentIteration: undefined,
       },
     });
+    statusChanged = true;
+
+    runner = (options.spawnRunner ?? defaultSpawnRunner)({ projectDir, loopId, phase: "auditing" });
+    await transferStartupOwnership(projectDir, loopId, lock, runner, options.now ?? new Date());
 
     return await appendLoopEvent(projectDir, {
       type: "loopStarted",
@@ -257,7 +257,13 @@ export async function startRalphLoop(projectDir: string, options: RuntimeOptions
     });
   } catch (error) {
     try {
-      await releaseLock(projectDir, lock);
+      if (runner) (options.killProcess ?? defaultKillProcess)(runner.pid);
+    } catch {
+      // Preserve the original startup error.
+    }
+    try {
+      if (statusChanged) await writeStatusAtomic(projectDir, status);
+      else await releaseLock(projectDir, lock);
     } catch {
       // Preserve the original startup error.
     }
@@ -355,13 +361,14 @@ export async function* resumeLoop(projectDir: string, options: RuntimeOptions = 
     }
 
     const phase = eligibleHumanTask ? "building" : await chooseResumePhase(projectDir);
-    const runner = (options.spawnRunner ?? defaultSpawnRunner)({ projectDir, loopId, phase });
     const lock = await acquireLock(projectDir, phaseToOperation(phase), {
-      pid: runner.pid,
+      pid: process.pid,
       ...(options.now ? { now: options.now } : {}),
       ...(options.isProcessAlive ? { isProcessAlive: options.isProcessAlive } : {}),
     });
 
+    let runner: RunnerProcess | undefined;
+    let statusChanged = false;
     try {
       await transitionStatus(projectDir, phase, {
         loopId,
@@ -371,15 +378,13 @@ export async function* resumeLoop(projectDir: string, options: RuntimeOptions = 
           stopRequested: false,
           startedAt: (options.now ?? new Date()).toISOString(),
           authorizedSpecsFingerprint: currentSpecsFingerprint,
-          process: {
-            pid: runner.pid,
-            command: runner.command,
-            startedAt: (options.now ?? new Date()).toISOString(),
-          },
           lock,
           ...(eligibleHumanTask ? { blocker: undefined } : {}),
         },
       });
+      statusChanged = true;
+      runner = (options.spawnRunner ?? defaultSpawnRunner)({ projectDir, loopId, phase });
+      await transferStartupOwnership(projectDir, loopId, lock, runner, options.now ?? new Date());
 
       if (eligibleHumanTask && status.blocker?.reason) {
         yield await appendLoopEvent(projectDir, {
@@ -397,7 +402,13 @@ export async function* resumeLoop(projectDir: string, options: RuntimeOptions = 
       return;
     } catch (error) {
       try {
-        await releaseLock(projectDir, lock);
+        if (runner) (options.killProcess ?? defaultKillProcess)(runner.pid);
+      } catch {
+        // Preserve the original startup error.
+      }
+      try {
+        if (statusChanged) await writeStatusAtomic(projectDir, status);
+        else await releaseLock(projectDir, lock);
       } catch {
         // Preserve the original startup error.
       }
@@ -413,7 +424,7 @@ export async function* resumeLoop(projectDir: string, options: RuntimeOptions = 
 
 export async function runLoopProcess(projectDir: string, loopId: string, phase: RunnerPhase, options: RuntimeOptions = {}): Promise<void> {
   const status = await getRecoveredStatus(projectDir, options);
-  const lock = status.lock;
+  const lock = await waitForRunnerLock(projectDir, loopId, phase, status, options);
   if (!lock || lock.pid !== process.pid || lock.operation !== phaseToOperation(phase)) {
     throw new JriError("The JRI runner does not own the project lock.", "lock-lost", "Resume the loop again so the daemon can start a fresh runner.");
   }
@@ -778,6 +789,67 @@ function defaultSpawnRunner(request: RunnerSpawnRequest): RunnerProcess {
     throw new JriError("Failed to start the JRI runner process.", "runner-start-failed", "Retry resume; if it repeats, inspect daemon logs and .jri/status.json.");
   }
   return { pid: proc.pid, command: command.join(" ") };
+}
+
+async function transferStartupOwnership(
+  projectDir: string,
+  loopId: string,
+  expectedLock: NonNullable<ProjectStatus["lock"]>,
+  runner: RunnerProcess,
+  now: Date,
+): Promise<void> {
+  const runnerLock = {
+    ...expectedLock,
+    pid: runner.pid,
+    heartbeatAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 30_000).toISOString(),
+  };
+  await updateStatus(projectDir, (current) => {
+    if (current.activeLoopId !== loopId || !locksMatch(current.lock, expectedLock)) {
+      throw new JriError("The loop changed before runner ownership could be recorded.", "status-race", "Reload status and retry the start request.");
+    }
+    return {
+      ...current,
+      process: {
+        pid: runner.pid,
+        command: runner.command,
+        startedAt: now.toISOString(),
+      },
+      lock: runnerLock,
+    };
+  });
+}
+
+async function waitForRunnerLock(
+  projectDir: string,
+  loopId: string,
+  phase: RunnerPhase,
+  initialStatus: ProjectStatus,
+  options: RuntimeOptions,
+): Promise<ProjectStatus["lock"]> {
+  const expectedOperation = phaseToOperation(phase);
+  let status = initialStatus;
+  const deadline = Date.now() + 2_000;
+  for (;;) {
+    if (status.activeLoopId !== loopId || status.state !== phase) {
+      throw new JriError("The JRI runner startup state changed before ownership was confirmed.", "lock-lost", "Resume the loop again so the daemon can start a fresh runner.");
+    }
+    if (status.lock?.pid === process.pid && status.lock.operation === expectedOperation) return status.lock;
+    if (status.lock?.operation !== expectedOperation || Date.now() >= deadline) return status.lock;
+    await sleep(options.observePollIntervalMs ?? 25);
+    status = await readStatus(projectDir);
+  }
+}
+
+function locksMatch(left: ProjectStatus["lock"], right: ProjectStatus["lock"]): boolean {
+  return Boolean(
+    left &&
+      right &&
+      left.owner === right.owner &&
+      left.pid === right.pid &&
+      left.operation === right.operation &&
+      left.acquiredAt === right.acquiredAt,
+  );
 }
 
 async function runHarnessSession(projectDir: string, loopId: string, phase: RunnerPhase, options: RuntimeOptions): Promise<number> {

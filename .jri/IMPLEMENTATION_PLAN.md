@@ -27,12 +27,14 @@
 
 - [ ] P0: Route accepted chat triggers through daemon-owned `loop.start`.
   - Completed/tested slice: daemon IPC now exposes streaming `loop.start`; `Project.chat.send` injects daemon start with local fallback when the daemon is unavailable; chat can stream the returned `loopStarted` event.
+  - Completed/tested slice: runner start/resume ordering was hardened so start/resume acquire a daemon-held startup lock and enter the active state before spawning, then transfer process/lock ownership to the runner PID; spawn failures restore the prior durable status.
   - Focused tests passed: `bun test tests/chat.test.ts` and `bun test tests/daemon-ipc.test.ts`.
+  - Focused tests passed: `bun test tests/daemon-runtime.test.ts`.
+  - Final validation for this increment: `bun run test` passed with 81 tests, `bun run typecheck` passed, and `bun run lint` passed.
   - Remaining: daemon-owned start must fully own loop id selection, registry update, lock acquisition, status transition, runner spawn, and initial `loopStarted` event.
   - Remaining: reject active loops, human-task blockers, pending interrogation reconciliation, and invalid trigger text with concise state-specific errors; keep interrogation-state gating narrow and actionable.
 
 - [ ] P0: Harden runtime ownership, locking, and resume safety.
-  - Fix runner spawn ordering so no child process is started before lock acquisition and legal transition success can be guaranteed or rolled back.
   - Replace read-mutator-write lock acquisition with a real compare-and-swap or document/enforce a single-daemon mutation guarantee that satisfies `runtime-state.md`.
   - Apply specs fingerprint checks to verified `needsHumanTask` resume as well as `stopped` resume; resume must not silently authorize changed requirements.
   - Tighten crash recovery across audit/planning/build, process death, daemon fallback, repaired states, stdout replay offsets, and event cursors.

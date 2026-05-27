@@ -1,8 +1,9 @@
+import { readFileSync } from "node:fs";
 import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop, runLoopProcess } from "../src/core/daemon-runtime";
+import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop, runLoopProcess, startRalphLoop } from "../src/core/daemon-runtime";
 import { appendLoopEvent, writeStatusAtomic } from "../src/core/runtime-state";
 import { defaultStatus } from "../src/core/schema";
 
@@ -306,6 +307,62 @@ describe("daemon/runtime scaffolding", () => {
         type: "loopHalted",
         data: { resetOffered: false, resetAccepted: false, rollbackCommit: "abc123" },
       });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("start acquires lock and enters auditing before spawning the runner", async () => {
+    const dir = await tempProject();
+    const observedStates: unknown[] = [];
+    try {
+      const event = await startRalphLoop(dir, {
+        now: new Date("2026-05-27T20:00:00.000Z"),
+        isProcessAlive: () => false,
+        spawnRunner: ({ phase }) => {
+          observedStates.push(JSON.parse(readFileSync(join(dir, ".jri", "status.json"), "utf8")));
+          return { pid: 24680, command: `runner ${phase}` };
+        },
+      });
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(event).toMatchObject({
+        type: "loopStarted",
+        loopId: "20260527T200000Z",
+        data: { projectDir: dir, pid: 24680 },
+      });
+      expect(observedStates).toHaveLength(1);
+      expect(observedStates[0]).toMatchObject({
+        state: "auditing",
+        activeLoopId: "20260527T200000Z",
+        lock: { owner: "daemon", pid: process.pid, operation: "audit" },
+      });
+      expect((observedStates[0] as { process?: unknown }).process).toBeUndefined();
+      expect(status).toMatchObject({
+        state: "auditing",
+        process: { pid: 24680, command: "runner auditing" },
+        lock: { owner: "daemon", pid: 24680, operation: "audit" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("start restores prior status when runner spawn fails after lock acquisition", async () => {
+    const dir = await tempProject();
+    try {
+      await expect(
+        startRalphLoop(dir, {
+          now: new Date("2026-05-27T20:00:00.000Z"),
+          isProcessAlive: () => false,
+          spawnRunner: () => {
+            throw new Error("spawn unavailable");
+          },
+        }),
+      ).rejects.toThrow("spawn unavailable");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(status).toEqual(defaultStatus(dir));
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
