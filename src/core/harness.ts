@@ -20,6 +20,7 @@ import { JriError } from "./errors";
 import { extractLatestHandoffFromText } from "./handoffs";
 import { buildPiPrompt, modelForAgent } from "./prompts";
 import { readProjectConfig } from "./project-config";
+import { buildSdkCapabilityTools } from "./sdk-capability-tools";
 import { appendLoopEvent } from "./runtime-state";
 import type { CoreEvent } from "./types";
 import type { AgentConfig, AgentHandoff, AgentName, ArtifactRef } from "./types";
@@ -225,6 +226,14 @@ export async function invokePiSdkHarness(
     sessionDir,
     retry: { enabled: false },
   });
+  const nativeCapabilityTools = buildSdkCapabilityTools({
+    owner: invocation.owner,
+    projectDir: invocation.projectDir,
+    agent: invocation.agent,
+    phase: invocation.phase,
+    capabilities: invocation.capabilities,
+    env,
+  });
   const resourceLoader = new DefaultResourceLoader({
     cwd: invocation.projectDir,
     agentDir,
@@ -247,7 +256,8 @@ export async function invokePiSdkHarness(
     modelRegistry,
     model,
     thinkingLevel: invocation.model.reasoning,
-    tools: allowedToolsForPhase(invocation.phase),
+    tools: [...new Set([...allowedToolsForPhase(invocation.phase), ...nativeCapabilityTools.activeToolNames])],
+    customTools: nativeCapabilityTools.customTools,
     resourceLoader,
     settingsManager,
     sessionManager: SessionManager.create(invocation.projectDir, sessionDir),

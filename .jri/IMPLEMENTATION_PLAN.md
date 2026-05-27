@@ -1,5 +1,6 @@
 - [ ] Replace prompt-level web/explorer shell escape hatches with harness-native capabilities that are actually reachable for interrogator, auditor, and explorer under the intended tool grants; this matters because the current prompt-driven path hides real capability gaps and makes the roles look more complete than they are.
   - Note: web/explorer remain prompt-driven in the SDK harness and need native tool wiring.
+  - Progress: SDK-native interrogator `web.search` is now wired through `invokePiSdkHarness` custom tools with focused acceptance coverage; native wiring for other operations/agents remains open.
 - [ ] Consolidate capability policy into descriptors, reduce over-granted explorer/web access, strongly validate chat-owned capability ownership, and add preflight plus actionable recovery for missing `pi-web-access` / `pi-subagent`.
   - Note: explicit override preflight is now implemented for `JRI_PI_WEB_COMMAND` and `JRI_PI_SUBAGENT_EXTENSION`, with focused acceptance coverage; native capability wiring and broader policy cleanup remain open.
 - [ ] Implement the primary bare-`jri` Pi terminal chat UI path; if the readline fallback must remain temporarily, record verified evidence and rationale for that degraded path in durable project notes.
