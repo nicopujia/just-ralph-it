@@ -71,6 +71,44 @@ describe("interrogation state", () => {
     }
   });
 
+  test("detects added spec files before start", async () => {
+    const dir = await tempProject();
+    try {
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
+      await recordInterrogatorSpecUpdate(dir, [".jri/specs/app.md"], {
+        sealedSpecFiles: [".jri/specs/app.md"],
+      });
+
+      await writeFile(join(dir, ".jri", "specs", "billing.md"), "# Billing\n\nAdd paid plans.\n");
+      const result = await checkInterrogationStartGate(dir, { now: new Date("2026-05-27T20:00:00.000Z") });
+      const persisted = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+
+      expect(result).toMatchObject({
+        ok: false,
+        pending: [
+          {
+            topicId: "billing",
+            topic: {
+              specFile: ".jri/specs/billing.md",
+              status: "open",
+              pendingReconciliation: {
+                reason: "specFileAdded",
+                detectedAt: "2026-05-27T20:00:00.000Z",
+              },
+            },
+          },
+        ],
+      });
+      expect(persisted.topics.billing).toMatchObject({
+        specFile: ".jri/specs/billing.md",
+        status: "open",
+        pendingReconciliation: { reason: "specFileAdded" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("records interrogator spec updates as reconciled topic fingerprints", async () => {
     const dir = await tempProject();
     try {

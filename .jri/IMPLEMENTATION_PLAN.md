@@ -16,7 +16,8 @@
   - Current harness invocation passes broad refs (`.jri/specs`, `.jri/scratchpad.md`, `.jri/status.json`, full `.jri/logs/interrogation.jsonl`), and the default Pi CLI adapter only uses the last inline user message; implement selected context refs from `.jri/interrogation-state.json`: open topics, pending reconciliation, recent unsealed turns, status, relevant loop summaries, specs, and scratchpad.
   - Add topic/open-turn selection so sealed topics omit old chat logs while their spec files remain requirements truth; cover reopen after manual edit, deleted spec, added spec, and context passed to fakes.
   - Add interrogator web capability support with chat-owned owner metadata and artifacts under `.jri/logs/interrogation-artifacts/`, separate from loop events/status.
-  - Finding: `checkInterrogationStartGate` still lacks added/untracked spec-file detection.
+  - Completed/Tested: added spec files under `.jri/specs` are now detected as pending `specFileAdded` reconciliation in `checkInterrogationStartGate`.
+    - Verified with `bun test tests/interrogation-state.test.ts`, full `bun run test` (108 tests), `bun run typecheck`, and `bun run lint`.
 
 - P0: Replace Pi CLI shellout harness with the controlled SDK adapter contract.
   - Current `invokeDefaultHarness` and `runControlledPiSession` build `pi --print` commands; loop phases still use `HarnessSessionRunner` with `{ projectDir, loopId, phase, stdoutPath }`, bypassing `HarnessInvocation` fields for owner, context refs, capabilities, and cancellation.

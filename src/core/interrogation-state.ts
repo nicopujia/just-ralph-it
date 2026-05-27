@@ -12,7 +12,7 @@ export type InterrogationTopicState = {
 };
 
 export type PendingSpecReconciliation = {
-  reason: "manualSpecEdit" | "specFileDeleted";
+  reason: "manualSpecEdit" | "specFileDeleted" | "specFileAdded";
   detectedAt: string;
   summary: string;
 };
@@ -73,6 +73,25 @@ export async function checkInterrogationStartGate(projectDir: string, options: {
       };
       changed = true;
     }
+  }
+
+  const knownSpecFiles = new Set(Object.values(next.topics).map((topic) => topic.specFile));
+  for (const specFile of await listSpecFiles(projectDir)) {
+    if (knownSpecFiles.has(specFile)) continue;
+
+    const topicId = uniqueTopicId(next, topicIdForSpecFile(specFile));
+    next.topics[topicId] = {
+      specFile,
+      status: "open",
+      lastReconciledSpecFingerprint: await fingerprintSpecFile(projectDir, specFile),
+      pendingReconciliation: {
+        reason: "specFileAdded",
+        detectedAt: now,
+        summary: `${specFile} was added outside the interrogator. Confirm whether it belongs in the current build scope before starting Ralph.`,
+      },
+    };
+    knownSpecFiles.add(specFile);
+    changed = true;
   }
 
   if (changed) await writeInterrogationState(projectDir, next);
@@ -165,8 +184,8 @@ function validatePending(value: unknown, filePath: string, topicId: string): Pen
     throw new JriError(`${filePath} topic ${topicId} pendingReconciliation must be an object.`, "invalid-interrogation-state", "Set a valid reconciliation object.");
   }
   rejectUnknownKeys(value, new Set(["reason", "detectedAt", "summary"]), filePath);
-  if (value.reason !== "manualSpecEdit" && value.reason !== "specFileDeleted") {
-    throw new JriError(`${filePath} topic ${topicId} has an invalid reconciliation reason.`, "invalid-interrogation-state", "Use manualSpecEdit or specFileDeleted.");
+  if (value.reason !== "manualSpecEdit" && value.reason !== "specFileDeleted" && value.reason !== "specFileAdded") {
+    throw new JriError(`${filePath} topic ${topicId} has an invalid reconciliation reason.`, "invalid-interrogation-state", "Use manualSpecEdit, specFileDeleted, or specFileAdded.");
   }
   if (typeof value.detectedAt !== "string" || value.detectedAt.length === 0) {
     throw new JriError(`${filePath} topic ${topicId} reconciliation needs detectedAt.`, "invalid-interrogation-state", "Set detectedAt to an ISO timestamp.");
