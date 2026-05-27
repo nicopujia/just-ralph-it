@@ -1701,6 +1701,177 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("project chat completes a started loop after native builder explorer delegation records durable proof", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const previousEnv = captureDaemonEnv();
+    const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    const specContent = "# App\n\nBuild a CLI.\n";
+    const runnerPromises: Array<Promise<void>> = [];
+    let capturedBuilderPrompt = "";
+    let capturedBuilderTools: string[] = [];
+    let capturedExplorerResult = "";
+    const runtimeOptions: RuntimeOptions = {
+      now: new Date("2026-05-27T20:00:00.000Z"),
+      observePollIntervalMs: 10,
+    };
+    runtimeOptions.harnessAdapter = async (invocation) => {
+      if (invocation.phase === "auditing") {
+        return {
+          handoff: {
+            agent: "auditor",
+            action: "passed",
+            specFiles: [".jri/specs/app.md"],
+            specsFingerprint: specsFingerprintForFiles({ "app.md": specContent }),
+            summary: "Specs ready.",
+          },
+        };
+      }
+      if (invocation.phase === "planning") {
+        await writeFile(join(dir, ".jri", "IMPLEMENTATION_PLAN.md"), "- [ ] Build the CLI.\n", "utf8");
+        return {
+          handoff: {
+            agent: "planner",
+            action: "planned",
+            planPath: ".jri/IMPLEMENTATION_PLAN.md",
+            summary: "Plan ready.",
+          },
+        };
+      }
+
+      const listeners: Array<(event: unknown) => void> = [];
+      const createSession: PiSdkSessionFactory = async (options) => {
+        capturedBuilderTools = options.customTools?.map((tool) => tool.name) ?? [];
+        return {
+          extensionsResult: { extensions: [], diagnostics: [], collisions: [] },
+          session: {
+            subscribe(listener: (event: unknown) => void) {
+              listeners.push(listener);
+              return () => {};
+            },
+            async prompt(prompt: string) {
+              capturedBuilderPrompt = prompt;
+              const explorerTool = options.customTools?.find((tool) => tool.name === "jri_explorer");
+              if (explorerTool) {
+                const toolResult = await explorerTool.execute(
+                  "tool-call-1",
+                  { task: "Inspect the relevant code path." },
+                  undefined,
+                  undefined,
+                  {} as never,
+                );
+                capturedExplorerResult = toolResult.content
+                  .flatMap((entry) => ("text" in entry && typeof entry.text === "string" ? [entry.text] : []))
+                  .join("\n");
+              }
+              for (const listener of listeners) {
+                listener({
+                  type: "message_update",
+                  assistantMessageEvent: {
+                    type: "text_delta",
+                    delta:
+                      'Builder completed after explorer delegation.\nJRI_HANDOFF_JSON: {"agent":"builder","action":"complete","summary":"Build complete.","validation":[{"command":"bun run test --filter chat","exitCode":0,"passed":true,"summary":"Focused chat coverage passed."}]}\n',
+                  },
+                });
+              }
+            },
+            async abort() {},
+            dispose() {},
+          },
+        } as unknown as Awaited<ReturnType<PiSdkSessionFactory>>;
+      };
+
+      return await invokePiSdkHarness(invocation, { OPENAI_API_KEY: "test-openai-key", JRI_PI_COMMAND: process.env.JRI_PI_COMMAND }, createSession);
+    };
+    runtimeOptions.spawnRunner = ({ loopId, phase }) => {
+      const promise = runLoopProcess(dir, loopId, phase, runtimeOptions);
+      runnerPromises.push(promise);
+      void promise.catch(() => {});
+      return { pid: process.pid, command: `runner ${phase}` };
+    };
+    const daemon = await startDaemonServer({
+      paths,
+      idleTimeoutMs: 10_000,
+      runtimeOptions,
+    });
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), specContent, "utf8");
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await recordInterrogatorSpecUpdate(dir, [".jri/specs/app.md"], {
+        sealedSpecFiles: [".jri/specs/app.md"],
+        now: new Date("2026-05-27T20:00:00.000Z"),
+      });
+      applyDaemonEnv(paths);
+      process.env.OPENAI_API_KEY = "test-openai-key";
+      const fakePi = join(dir, "fake-start-and-explorer-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          'prompt="${@: -1}"',
+          'if [[ "$prompt" == *"You are the JRI interrogator."* ]]; then',
+          "  printf 'Start request accepted.\\n'",
+          `  printf 'JRI_HANDOFF_JSON: {"agent":"interrogator","action":"startRequested","trigger":"just ralph it"}\\n'`,
+          "  exit 0",
+          "fi",
+          `printf 'JRI_EXPLORER_SUMMARY_JSON: {"summary":"Explorer found the relevant code path."}\\n'`,
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+
+      const project = await open(dir);
+      const events = await collect(project.chat.send({ message: "just ralph it" }));
+      await Promise.allSettled(runnerPromises);
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const loopEvents = await readJsonl(join(dir, ".jri", "logs", "20260527T200000Z", "events.jsonl"));
+
+      expect(events.map((event) => event.type)).toContain("loopFinished");
+      expect(capturedBuilderTools).toEqual(["jri_web_search", "jri_web_fetch", "jri_explorer"]);
+      expect(capturedBuilderPrompt).toContain("jri_explorer");
+      expect(capturedBuilderPrompt).not.toContain("jri --run-explorer");
+      expect(capturedBuilderPrompt).not.toContain("jri --run-web");
+      expect(capturedExplorerResult).toContain('"summary": "Explorer found the relevant code path."');
+      expect(loopEvents.map((event: { type: string }) => event.type)).toContain("subagentStarted");
+      expect(loopEvents.map((event: { type: string }) => event.type)).toContain("subagentFinished");
+      expect(loopEvents.at(-1)).toMatchObject({
+        type: "loopFinished",
+        data: {
+          outcome: "completed",
+          summary: "Build complete.",
+          explorer: {
+            used: true,
+            summary: "Explorer found the relevant code path.",
+          },
+        },
+      });
+      expect(status).toMatchObject({
+        state: "idle",
+        activeLoopId: null,
+        lastLoopId: "20260527T200000Z",
+        lastResult: {
+          outcome: "completed",
+          summary: "Build complete.",
+          explorer: {
+            used: true,
+            summary: "Explorer found the relevant code path.",
+          },
+        },
+      });
+    } finally {
+      restoreEnv("OPENAI_API_KEY", previousOpenAiApiKey);
+      restoreEnv("JRI_PI_COMMAND", previousPiCommand);
+      restoreDaemonEnv(previousEnv);
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("done verifies an existing needs-human-task blocker only after verifier approval", async () => {
     const dir = await tempProject();
     try {

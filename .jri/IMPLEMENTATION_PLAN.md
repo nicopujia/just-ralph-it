@@ -18,4 +18,4 @@
 
 - [ ] Backfill focused coverage for the remaining confirmed contract gaps.
   - Current state: the suite already covers CLI, chat, harness, runtime state, daemon runtime, auth, handoffs, and capabilities broadly.
-  - Remaining: add coverage for the remaining native capability paths, especially web fetch and explorer delegation; builder completion now requires durable explorer `subagentStarted` plus `subagentFinished` evidence, and that contract should stay pinned by regression coverage.
+  - Remaining: add coverage for the remaining native capability paths; a positive public-path chat acceptance now proves native builder explorer delegation can succeed through the `project.chat.send()`/accepted loop start with durable `subagentStarted` and `subagentFinished` evidence. Keep this open for chat-level native web search acceptance and a true plain-`jri` CLI smoke covering native capability paths.
