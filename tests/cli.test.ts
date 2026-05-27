@@ -22,6 +22,16 @@ async function tempInitializedProject(): Promise<string> {
   return dir;
 }
 
+async function activateLoop(dir: string, loopId: string, state: "auditing" | "planning" | "building" = "building"): Promise<void> {
+  await mkdir(join(dir, ".jri", "logs", loopId), { recursive: true });
+  await writeStatusAtomic(dir, {
+    ...defaultStatus(dir),
+    state,
+    activeLoopId: loopId,
+    lastLoopId: loopId,
+  });
+}
+
 describe("CLI", () => {
   test("bare jri records a piped interrogation message", async () => {
     const dir = await tempProject();
@@ -310,8 +320,8 @@ describe("CLI", () => {
   test("hidden run-explorer command prints a bounded handoff and artifact ref", async () => {
     const dir = await tempProject();
     try {
-      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
       await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await activateLoop(dir, "20260527T184210Z", "building");
       const fakePi = join(dir, "fake-pi.sh");
       await writeFile(fakePi, "#!/usr/bin/env bash\nprintf 'CLI explorer result\\n'\n", "utf8");
       await chmod(fakePi, 0o755);
@@ -340,6 +350,7 @@ describe("CLI", () => {
   test("hidden web commands print bounded JSON results", async () => {
     const dir = await tempProject();
     try {
+      await activateLoop(dir, "20260527T184210Z", "planning");
       const fakeWeb = join(dir, "fake-web.sh");
       await writeFile(
         fakeWeb,
@@ -374,6 +385,56 @@ describe("CLI", () => {
       const fetchStdout = await new Response(fetch.stdout).text();
       expect(await fetch.exited).toBe(0);
       expect(JSON.parse(fetchStdout).markdown).toBe("# Docs");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("hidden capability commands reject stale loop ownership", async () => {
+    const dir = await tempProject();
+    try {
+      await activateLoop(dir, "active-loop", "building");
+      const proc = Bun.spawn(["bun", cliPath, "--run-web", "search", dir, "stale-loop", "docs"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, JRI_PI_WEB_COMMAND: "/bin/false" },
+      });
+
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("stale or mismatched loop");
+      expect(stderr).toContain("currently running Ralph loop");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("hidden capability commands reject inactive loop ownership", async () => {
+    const dir = await tempProject();
+    try {
+      const loopId = "20260527T184210Z";
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "stopped",
+        activeLoopId: loopId,
+        lastLoopId: loopId,
+      });
+      const proc = Bun.spawn(["bun", cliPath, "--run-explorer", dir, loopId, "Inspect CLI dispatch."], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, JRI_PI_COMMAND: "/bin/false" },
+      });
+
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("cannot run while the loop is stopped");
+      expect(stderr).toContain("active auditing, planning, or building loop");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

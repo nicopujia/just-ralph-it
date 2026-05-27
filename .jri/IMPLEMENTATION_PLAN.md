@@ -34,6 +34,7 @@
 
 - P0: Enforce capability ownership, cancellation, and stdout policy.
   - Add owner metadata validation to internal `--run-web`, `--run-explorer`, and any adapter-only capability entrypoints; reject missing, stale, or mismatched `{ projectDir, loopId, owner }`.
+  - Completed/Tested: Internal `--run-web`/`--run-explorer` now validate status-derived loop ownership before executing, and focused CLI tests cover stale and inactive loop rejection.
   - Ensure chat-owned capability artifacts go under `.jri/logs/interrogation-artifacts/` and cannot mutate loop status or append loop events.
   - Register loop-owned web/explorer children with the runner so halt cancels the runner and children; graceful stop prevents new loop-owned capability work only at safe phase/iteration boundaries.
   - Replace concurrent stdout/stderr appends with one ordered merged `stdout.log` writer per loop; record channel-specific evidence in structured events, handoffs, or artifacts when needed.

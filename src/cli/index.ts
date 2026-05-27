@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { open, isJriError, JriError } from "../core";
+import { assertLoopCapabilityOwnership } from "../core/capability-ownership";
 import type { CoreEvent, Project, ProjectStatus, ProjectState } from "../core";
 import { runDaemon } from "../core/daemon-ipc";
 import { runLoopProcess, type RunnerPhase } from "../core/daemon-runtime";
@@ -30,6 +31,7 @@ async function main(argv: string[]): Promise<number> {
     if (!projectDir || !loopId || !task) {
       return usage("Invalid internal explorer invocation.");
     }
+    await assertLoopCapabilityOwnership(projectDir, loopId, "explorer");
     const result = await runExplorerTask({ projectDir, loopId, task });
     console.log(result.summary);
     if (result.artifactRef) console.log(`artifactRef: ${result.artifactRef}`);
@@ -42,6 +44,7 @@ async function main(argv: string[]): Promise<number> {
       if (!projectDir || !loopId || !query) {
         return usage("Invalid internal web search invocation.");
       }
+      await assertLoopCapabilityOwnership(projectDir, loopId, "web");
       console.log(JSON.stringify(await runWebSearch({ projectDir, loopId, query }), null, 2));
       return 0;
     }
@@ -50,6 +53,7 @@ async function main(argv: string[]): Promise<number> {
       if (!projectDir || !loopId || !url) {
         return usage("Invalid internal web fetch invocation.");
       }
+      await assertLoopCapabilityOwnership(projectDir, loopId, "web");
       console.log(JSON.stringify(await runWebFetch({ projectDir, loopId, url }), null, 2));
       return 0;
     }
