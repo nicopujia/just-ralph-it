@@ -324,6 +324,7 @@ describe("daemon/runtime scaffolding", () => {
   test("halt kills recorded process, clears ownership, and moves active loop to halted", async () => {
     const dir = await tempProject();
     const killed: number[] = [];
+    const lockOperationsDuringKill: string[] = [];
     try {
       await writeStatusAtomic(dir, {
         ...defaultStatus(dir),
@@ -331,6 +332,7 @@ describe("daemon/runtime scaffolding", () => {
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
         stopRequested: true,
+        lock: activeTestLock("build", 67890),
         process: {
           pid: 67890,
           command: "jri-daemon",
@@ -347,12 +349,17 @@ describe("daemon/runtime scaffolding", () => {
         haltLoop(dir, {
           now: new Date("2026-05-27T18:50:00.000Z"),
           isProcessAlive: () => true,
-          killProcess: (pid) => killed.push(pid),
+          killProcess: (pid) => {
+            const status = JSON.parse(readFileSync(join(dir, ".jri", "status.json"), "utf8"));
+            lockOperationsDuringKill.push(status.lock?.operation);
+            killed.push(pid);
+          },
         }),
       );
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
 
       expect(killed).toEqual([67890]);
+      expect(lockOperationsDuringKill).toEqual(["halt"]);
       expect(events[0]).toMatchObject({
         type: "loopHalted",
         data: { killedPid: 67890, resetOffered: true, resetAccepted: false, rollbackCommit: "abc123" },

@@ -34,10 +34,9 @@
   - Add tests for active capability halt fanout, SIGTERM-then-SIGKILL escalation, capability timeout evidence, pre-start abort, in-flight abort, halt while a child is active, no new loop-owned capability work after graceful stop boundaries, and daemon request/read timeouts.
 
 - P0: Harden runtime recovery, lifecycle invariants, and event/status consistency.
-  - Confirmed implemented: audit failure `blockerReported` parity is covered alongside blocked status, stable handoff path validation rejects traversal-like segments, stop toggle and stopped resume fingerprint gating are implemented, daemon-owned lifecycle mutation is the normal public path, runtime recovery repairs active states with no process/lock by consulting the latest loop event when terminal evidence exists or otherwise marking the orphaned active lifecycle as a failed stopped loop with a `statusRepaired` event, and runtime recovery now appends a missing `loopStarted` milestone when active startup ownership has a live recorded runner process but no `loopStarted` event, with daemon-runtime regression coverage.
+  - Confirmed implemented: audit failure `blockerReported` parity is covered alongside blocked status, stable handoff path validation rejects traversal-like segments, stop toggle and stopped resume fingerprint gating are implemented, daemon-owned lifecycle mutation is the normal public path, runtime recovery repairs active states with no process/lock by consulting the latest loop event when terminal evidence exists or otherwise marking the orphaned active lifecycle as a failed stopped loop with a `statusRepaired` event, runtime recovery now appends a missing `loopStarted` milestone when active startup ownership has a live recorded runner process but no `loopStarted` event, and halt now acquires the defined halt lock before killing the recorded active runner and before final halted status mutation, with daemon-runtime regression coverage.
   - Confirmed gaps: auditor-reported `specsFingerprint` is trusted without daemon recomputation, `iterationStarted` writes status before its event, the loop-start trigger variant is not persisted in the start event/status, and halt/reset confirmation ordering remains fragile.
   - Confirmed gaps: fresh or legacy projects with specs but no interrogation-state can bypass start-gate reconciliation, and open topics without `pendingReconciliation` do not block start.
-  - Confirmed gap: halt mutates lifecycle state and kills processes without acquiring the defined halt lock.
   - Normalize malformed/missing handoff parser failures, SDK failures, capability failures, runner phase mismatches, lock loss, and cancellation into structured `loopFinished` failure evidence plus status recovery.
   - Implement the spec's event/status ordering policy, including documented startup/runner ownership exceptions and remaining ownership/milestone recovery cases.
   - Verify auditor fingerprints against core-computed spec fingerprints before storing `authorizedSpecsFingerprint`.
@@ -51,12 +50,6 @@
   - In interactive bare `jri`, launch or guide inline auth and continue into interrogation after success when possible.
   - In non-interactive mode, print direct recovery commands and exit cleanly when auth is required for the requested operation.
   - Keep core auth UI-neutral; CLI owns display.
-
-- P1: Tighten durable validation, schema, and safety checks.
-  - Confirmed implemented: core records validation evidence, rejects git-changing successful handoffs without at least one concrete `passed: true` validation item, rejects successful builder `continue`/`complete` handoffs that include failed validation evidence even without git mutation, records commits/tags it observes, guards blocked/failed-validation outcomes against unexpected git mutations, and requires the expected next semantic-version patch tag on successful git-changing iterations.
-  - Confirmed gaps: `validateStatus()` validates shape but not all lifecycle invariants, and interrogation-state durable `specFile` validation is looser than the stable `.jri/specs/*` path rules used by handoffs.
-  - Preserve changed files for inspection on validation failure and blocker outcomes; keep destructive rollback behind explicit halt/reset confirmation.
-  - Add tests for active states without loop ids, idle with active loop ids, blocked without blocker details, and traversal-like interrogation-state spec paths.
 
 - P1: Finish observation-mode and terminal workflow hardening.
   - Confirmed gap: active-loop observation mode is prompt/handoff-restricted, but the interrogator still has write/edit tools and no post-run file-diff guard against `.jri/specs/*` mutation.

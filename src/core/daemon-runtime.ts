@@ -348,16 +348,21 @@ export async function* haltLoop(projectDir: string, options: RuntimeOptions = {}
     );
   }
 
-  const killedPid = haltProcess(status, options.killProcess ?? defaultKillProcess);
-  const rollbackCommit = status.currentIteration?.rollbackCommit;
-  const resetOffered = Boolean(rollbackCommit && status.currentIteration?.trackedTreeCleanAtStart);
+  const { status: haltStatus, lock: haltLock } = await acquireHaltLock(projectDir, status, options);
+  const loopId = haltStatus.activeLoopId;
+  if (!loopId) {
+    throw new JriError("Cannot halt without an active loop id.", "missing-loop-id", "Reload status and retry halt.");
+  }
+  const killedPid = haltProcess(haltStatus, options.killProcess ?? defaultKillProcess);
+  const rollbackCommit = haltStatus.currentIteration?.rollbackCommit;
+  const resetOffered = Boolean(rollbackCommit && haltStatus.currentIteration?.trackedTreeCleanAtStart);
   const resetAccepted = Boolean(options.resetGit && resetOffered && rollbackCommit);
   const resetResult = resetAccepted
     ? await (options.gitResetRunner ?? resetTrackedFiles)(projectDir, rollbackCommit as string)
     : undefined;
   const event = await appendLoopEvent(projectDir, {
     type: "loopHalted",
-    loopId: status.activeLoopId,
+    loopId,
     data: {
       ...(killedPid === undefined ? {} : { killedPid }),
       resetOffered,
@@ -369,7 +374,7 @@ export async function* haltLoop(projectDir: string, options: RuntimeOptions = {}
   });
 
   await updateStatus(projectDir, (current) => {
-    if (current.activeLoopId !== status.activeLoopId || !isActiveState(current.state)) {
+    if (current.activeLoopId !== loopId || !isActiveState(current.state) || !locksMatch(current.lock, haltLock)) {
       throw new JriError("The loop changed before halt could be recorded.", "status-race", "Reload status and retry halt.");
     }
     const { process, lock, ...withoutRuntimeOwnership } = current;
@@ -388,6 +393,31 @@ export async function* haltLoop(projectDir: string, options: RuntimeOptions = {}
   });
 
   yield event;
+}
+
+async function acquireHaltLock(
+  projectDir: string,
+  status: ProjectStatus,
+  options: RuntimeOptions,
+): Promise<{ status: ProjectStatus; lock: NonNullable<ProjectStatus["lock"]> }> {
+  const now = options.now ?? new Date();
+  const acquiredAt = now.toISOString();
+  const lock: NonNullable<ProjectStatus["lock"]> = {
+    owner: "daemon",
+    pid: process.pid,
+    operation: "halt",
+    acquiredAt,
+    heartbeatAt: acquiredAt,
+    expiresAt: new Date(now.getTime() + 30_000).toISOString(),
+  };
+
+  const locked = await updateStatus(projectDir, (current) => {
+    if (current.activeLoopId !== status.activeLoopId || !isActiveState(current.state)) {
+      throw new JriError("The loop changed before halt could acquire ownership.", "status-race", "Reload status and retry halt.");
+    }
+    return { ...current, lock };
+  });
+  return { status: locked, lock };
 }
 
 export async function* resumeLoop(projectDir: string, options: RuntimeOptions = {}): AsyncIterable<CoreEvent> {
