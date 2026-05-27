@@ -237,6 +237,80 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("halt accepts eligible rollback reset and records success", async () => {
+    const dir = await tempProject();
+    const resets: Array<{ projectDir: string; rollbackCommit: string }> = [];
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        currentIteration: {
+          iteration: 1,
+          rollbackCommit: "abc123",
+          trackedTreeCleanAtStart: true,
+        },
+      });
+
+      const events = await collect(
+        haltLoop(dir, {
+          resetGit: true,
+          gitResetRunner: async (projectDir, rollbackCommit) => {
+            resets.push({ projectDir, rollbackCommit });
+            return { succeeded: true };
+          },
+        }),
+      );
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(resets).toEqual([{ projectDir: dir, rollbackCommit: "abc123" }]);
+      expect(events[0]).toMatchObject({
+        type: "loopHalted",
+        data: { resetOffered: true, resetAccepted: true, resetSucceeded: true, rollbackCommit: "abc123" },
+      });
+      expect(status.lastResult.summary).toContain("Rollback reset completed.");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("halt does not reset when rollback is ineligible", async () => {
+    const dir = await tempProject();
+    let resetCalled = false;
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        currentIteration: {
+          iteration: 1,
+          rollbackCommit: "abc123",
+          trackedTreeCleanAtStart: false,
+        },
+      });
+
+      const events = await collect(
+        haltLoop(dir, {
+          resetGit: true,
+          gitResetRunner: async () => {
+            resetCalled = true;
+            return { succeeded: true };
+          },
+        }),
+      );
+
+      expect(resetCalled).toBe(false);
+      expect(events[0]).toMatchObject({
+        type: "loopHalted",
+        data: { resetOffered: false, resetAccepted: false, rollbackCommit: "abc123" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("resume from stopped starts a controlled runner and records ownership", async () => {
     const dir = await tempProject();
     try {

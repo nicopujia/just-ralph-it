@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import {
+  daemonHaltLoop,
   daemonObserveLoop,
   daemonRequestStop,
   daemonStatus,
@@ -74,6 +75,38 @@ describe("daemon IPC", () => {
       const events = await collect(daemonObserveLoop(dir, { paths, includeStdout: true }));
       expect(events.map((event) => event.type)).toEqual(["loopOutput", "loopStarted", "stopRequested"]);
       expect(events[0]).toMatchObject({ type: "loopOutput", data: { text: "agent output\n", replayed: true } });
+    } finally {
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("routes halt reset option over daemon IPC", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const daemon = await startDaemonServer({ paths, idleTimeoutMs: 10_000 });
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        currentIteration: {
+          iteration: 1,
+          rollbackCommit: "not-a-real-commit",
+          trackedTreeCleanAtStart: true,
+        },
+      });
+
+      const events = await collect(daemonHaltLoop(dir, { paths, resetGit: true }));
+      const halted = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(events[0]).toMatchObject({
+        type: "loopHalted",
+        data: { resetOffered: true, resetAccepted: true, resetSucceeded: false, rollbackCommit: "not-a-real-commit" },
+      });
+      expect(events[0]?.type === "loopHalted" ? events[0].data.resetError : "").toContain("not a git repository");
+      expect(halted.state).toBe("halted");
     } finally {
       await daemon.close();
       await rm(dir, { recursive: true, force: true });

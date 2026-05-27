@@ -6,7 +6,7 @@ import { JriError } from "./errors";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
 import { daemonHaltLoop, daemonObserveLoop, daemonRequestStop, daemonResumeLoop, daemonStatus } from "./daemon-ipc";
 import { defaultConfig, defaultStatus, parseJsonObject, validateConfig, validateStatus } from "./schema";
-import type { AuthResult, AuthState, ChatInput, CoreEvent, LoopObserveOptions, ProjectConfig, ProjectStatus } from "./types";
+import type { AuthResult, AuthState, ChatInput, CoreEvent, HaltOptions, LoopObserveOptions, ProjectConfig, ProjectStatus } from "./types";
 
 const agentsTemplate = `## Build & Run
 
@@ -73,8 +73,8 @@ export class Project {
         await requestGracefulStop(this.projectDir);
       }
     },
-    halt: (): AsyncIterable<CoreEvent> => {
-      return haltWithFallback(this.projectDir);
+    halt: (options: HaltOptions = {}): AsyncIterable<CoreEvent> => {
+      return haltWithFallback(this.projectDir, options);
     },
     resume: (): AsyncIterable<CoreEvent> => {
       return resumeWithFallback(this.projectDir);
@@ -132,12 +132,12 @@ async function* observeWithFallback(projectDir: string, options: LoopObserveOpti
   }
 }
 
-async function* haltWithFallback(projectDir: string): AsyncIterable<CoreEvent> {
+async function* haltWithFallback(projectDir: string, options: HaltOptions): AsyncIterable<CoreEvent> {
   try {
-    yield* daemonHaltLoop(projectDir);
+    yield* daemonHaltLoop(projectDir, options);
   } catch (error) {
     if (!isDaemonUnavailable(error)) throw error;
-    yield* haltLoop(projectDir);
+    yield* haltLoop(projectDir, options);
   }
 }
 

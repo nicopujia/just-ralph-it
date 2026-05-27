@@ -31,11 +31,19 @@ import type {
 
 export type ProcessAliveCheck = (pid: number) => boolean;
 export type ProcessKiller = (pid: number) => void;
+export type GitResetRunner = (projectDir: string, rollbackCommit: string) => Promise<GitResetResult>;
+
+export type GitResetResult = {
+  succeeded: boolean;
+  error?: string;
+};
 
 export type RuntimeOptions = {
   now?: Date;
   isProcessAlive?: ProcessAliveCheck;
   killProcess?: ProcessKiller;
+  resetGit?: boolean;
+  gitResetRunner?: GitResetRunner;
   spawnRunner?: RunnerSpawner;
   harnessRunner?: HarnessSessionRunner;
   observePollIntervalMs?: number;
@@ -279,13 +287,20 @@ export async function* haltLoop(projectDir: string, options: RuntimeOptions = {}
 
   const killedPid = haltProcess(status, options.killProcess ?? defaultKillProcess);
   const rollbackCommit = status.currentIteration?.rollbackCommit;
+  const resetOffered = Boolean(rollbackCommit && status.currentIteration?.trackedTreeCleanAtStart);
+  const resetAccepted = Boolean(options.resetGit && resetOffered && rollbackCommit);
+  const resetResult = resetAccepted
+    ? await (options.gitResetRunner ?? resetTrackedFiles)(projectDir, rollbackCommit as string)
+    : undefined;
   const event = await appendLoopEvent(projectDir, {
     type: "loopHalted",
     loopId: status.activeLoopId,
     data: {
       ...(killedPid === undefined ? {} : { killedPid }),
-      resetOffered: Boolean(rollbackCommit && status.currentIteration?.trackedTreeCleanAtStart),
-      resetAccepted: false,
+      resetOffered,
+      resetAccepted,
+      ...(resetResult ? { resetSucceeded: resetResult.succeeded } : {}),
+      ...(resetResult?.error ? { resetError: resetResult.error } : {}),
       ...(rollbackCommit ? { rollbackCommit } : {}),
     },
   });
@@ -304,7 +319,7 @@ export async function* haltLoop(projectDir: string, options: RuntimeOptions = {}
       finishedAt: (options.now ?? new Date()).toISOString(),
       lastResult: {
         outcome: "halted",
-        summary: killedPid === undefined ? "Loop halted; no live process was recorded." : `Loop halted by killing pid ${killedPid}.`,
+        summary: haltSummary(killedPid, resetOffered, resetAccepted, resetResult),
       },
     };
   });
@@ -851,6 +866,27 @@ async function gitOutput(projectDir: string, args: string[]): Promise<string | u
   const output = await new Response(proc.stdout).text();
   const exitCode = await proc.exited;
   return exitCode === 0 ? output : undefined;
+}
+
+async function resetTrackedFiles(projectDir: string, rollbackCommit: string): Promise<GitResetResult> {
+  const proc = Bun.spawn(["git", "reset", "--hard", rollbackCommit], {
+    cwd: projectDir,
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: "ignore",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]);
+  if (exitCode === 0) return { succeeded: true };
+  const error = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n") || `git reset --hard exited with code ${exitCode}.`;
+  return { succeeded: false, error };
+}
+
+function haltSummary(killedPid: number | undefined, resetOffered: boolean, resetAccepted: boolean, resetResult: GitResetResult | undefined): string {
+  const halt = killedPid === undefined ? "Loop halted; no live process was recorded." : `Loop halted by killing pid ${killedPid}.`;
+  if (!resetOffered) return `${halt} No rollback reset was available.`;
+  if (!resetAccepted) return `${halt} Rollback reset was skipped.`;
+  if (resetResult?.succeeded) return `${halt} Rollback reset completed.`;
+  return `${halt} Rollback reset failed${resetResult?.error ? `: ${resetResult.error}` : "."}`;
 }
 
 function firstLine(text: string | undefined): string | undefined {

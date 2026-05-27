@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { JriError, isJriError } from "./errors";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
 import { isActiveState } from "./runtime-state";
-import type { CoreEvent, LoopObserveOptions, ProjectStatus } from "./types";
+import type { CoreEvent, HaltOptions, LoopObserveOptions, ProjectStatus } from "./types";
 
 export const DAEMON_PROTOCOL_VERSION = 1;
 
@@ -51,7 +51,8 @@ type DaemonServerOptions = {
   idleTimeoutMs?: number;
 };
 
-type DaemonClientOptions = LoopObserveOptions & {
+type DaemonClientOptions = LoopObserveOptions &
+  HaltOptions & {
   paths?: DaemonPaths;
   startIfUnavailable?: boolean;
   startupTimeoutMs?: number;
@@ -89,7 +90,7 @@ export async function daemonRequestStop(projectDir: string, options: DaemonClien
 }
 
 export async function* daemonHaltLoop(projectDir: string, options: DaemonClientOptions = {}): AsyncIterable<CoreEvent> {
-  yield* daemonStream("loop.halt", { projectDir }, { ...options, startIfUnavailable: true });
+  yield* daemonStream("loop.halt", { projectDir, halt: haltOptionsParam(options) }, { ...options, startIfUnavailable: true });
 }
 
 export async function* daemonResumeLoop(projectDir: string, options: DaemonClientOptions = {}): AsyncIterable<CoreEvent> {
@@ -455,7 +456,7 @@ async function handleRequestLine(socket: Socket, paths: DaemonPaths, line: strin
       return;
     }
     if (request.method === "loop.halt") {
-      for await (const event of haltLoop(projectDir)) {
+      for await (const event of haltLoop(projectDir, haltOptionsFromParams(request.params))) {
         writeStreamEvent(socket, request.id, event);
       }
       await updateRegistry(paths, projectDir);
@@ -597,6 +598,20 @@ function observeOptionsFromParams(params: unknown): LoopObserveOptions {
       ? { recentStdoutLines: observe.recentStdoutLines }
       : {}),
     ...(typeof observe.follow === "boolean" ? { follow: observe.follow } : {}),
+  };
+}
+
+function haltOptionsParam(options: HaltOptions): HaltOptions {
+  return {
+    ...(options.resetGit === undefined ? {} : { resetGit: options.resetGit }),
+  };
+}
+
+function haltOptionsFromParams(params: unknown): HaltOptions {
+  if (!params || typeof params !== "object" || !("halt" in params) || !params.halt || typeof params.halt !== "object") return {};
+  const halt = params.halt as Record<string, unknown>;
+  return {
+    ...(typeof halt.resetGit === "boolean" ? { resetGit: halt.resetGit } : {}),
   };
 }
 

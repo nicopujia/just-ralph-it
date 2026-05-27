@@ -112,6 +112,10 @@ export type LoopObserveOptions = {
   follow?: boolean;
 };
 
+export type HaltOptions = {
+  resetGit?: boolean;
+};
+
 export type ArtifactRef = {
   path: `.jri/logs/${string}`;
   summary?: string;
@@ -209,7 +213,7 @@ export type CoreEvent =
   | (BaseEvent & {
       type: "loopHalted";
       loopId: string;
-      data: { killedPid?: number; resetOffered: boolean; resetAccepted: boolean; resetSucceeded?: boolean; rollbackCommit?: string };
+      data: { killedPid?: number; resetOffered: boolean; resetAccepted: boolean; resetSucceeded?: boolean; resetError?: string; rollbackCommit?: string };
     })
   | (BaseEvent & { type: "loopFinished"; loopId: string; data: { outcome: "completed" | "failed"; summary?: string; url?: string; commit?: string; tag?: string } })
   | (BaseEvent & { type: "statusRepaired"; loopId?: string; data: { repairedFrom: string; repairedTo: string; reason: string } })

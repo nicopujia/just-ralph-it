@@ -24,7 +24,7 @@
 
 - [ ] P0: Finish CLI loop controls and state-specific UX.
   - `jri loop attach` must become the live TUI surface: merged recent/live stdout plus milestone events, stable footer, `[d]etach`, `[s]top`, no footer redraws in `stdout.log`, and concise state-specific errors for blocked/stopped/halted/idle.
-  - `jri loop halt` needs the second `git reset --hard` confirmation path, rollback eligibility checks, tracked-file reset execution, skipped/failed reset handling, and matching `loopHalted` status/event details.
+  - Completed/tested slice: `jri loop halt` now supports the second rollback reset decision through CLI/runtime/daemon IPC. Reset is offered only when `currentIteration.rollbackCommit` exists and `trackedTreeCleanAtStart` is true; accepted resets run `git reset --hard`, and skipped/succeeded/failed outcomes are recorded in `loopHalted` data and halted status summaries. This matters because halt must leave durable evidence about whether JRI killed only the process or also restored tracked files.
   - Bare `jri` needs the initialization notice, Pi-backed or fallback interactive status line, blocked auto-guide display, inline auth recovery that can continue on success, and `jri auth --help` text that lists stable commands before passthrough behavior.
 
 - [ ] P0: Harden daemon/runtime protocol behavior for long-running dogfood.
@@ -39,6 +39,7 @@
 - [ ] P0: Fill MVP-critical tests before dogfood.
   - Add focused tests for Pi SDK harness fakes, web search/fetch capability errors/artifacts/citations, Pi-subagent explorer descriptors and halt cancellation, real interrogator handoffs/spec updates/context reconstruction/manual edit reconciliation, verified vs still-blocked human-task flow, chat persistence semantics, daemon handshake/version negotiation, attach TUI controls/state errors, halt reset handling, canonical schema export, and handoff trim edge cases.
   - Canonical schema export and handoff trim-edge tests are now covered.
+  - Halt reset handling is now covered at runtime and daemon IPC boundaries, including eligible reset execution, ineligible rollback refusal, and failed reset reporting.
   - Keep existing validation command set as the feedback loop: `bun run test`, `bun run typecheck`, and `bun run lint`.
 
 - [ ] P0: Dogfood only through the allowed JRI interface.

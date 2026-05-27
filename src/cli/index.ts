@@ -92,7 +92,12 @@ async function main(argv: string[]): Promise<number> {
         console.log("Halt canceled.");
         return 0;
       }
-      for await (const event of project.loop.halt()) {
+      const status = await project.status.get();
+      const rollbackCommit = status.currentIteration?.rollbackCommit;
+      const resetGit =
+        Boolean(rollbackCommit && status.currentIteration?.trackedTreeCleanAtStart) &&
+        (await confirm(`Reset tracked files with git reset --hard ${rollbackCommit}?`));
+      for await (const event of project.loop.halt({ resetGit })) {
         console.log(formatLoopEvent(event));
       }
       return 0;
