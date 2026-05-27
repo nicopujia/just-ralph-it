@@ -379,6 +379,11 @@ describe("daemon/runtime scaffolding", () => {
         stopRequested: true,
         authorizedSpecsFingerprint: emptySpecsFingerprint,
       });
+      await appendLoopEvent(dir, {
+        type: "loopStopped",
+        loopId: "20260527T184210Z",
+        data: { reason: "gracefulStopRequested", nextPhase: "planning", specsFingerprint: emptySpecsFingerprint },
+      });
 
       const events = await collect(
         resumeLoop(dir, {
@@ -407,7 +412,7 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
-  test("resume with an existing implementation plan starts in building", async () => {
+  test("resume uses the persisted stopped event next phase instead of plan-file existence", async () => {
     const dir = await tempProject();
     try {
       await Bun.write(join(dir, ".jri", "IMPLEMENTATION_PLAN.md"), "# Plan\n");
@@ -418,6 +423,11 @@ describe("daemon/runtime scaffolding", () => {
         lastLoopId: "20260527T184210Z",
         authorizedSpecsFingerprint: emptySpecsFingerprint,
       });
+      await appendLoopEvent(dir, {
+        type: "loopStopped",
+        loopId: "20260527T184210Z",
+        data: { reason: "gracefulStopRequested", nextPhase: "planning", specsFingerprint: emptySpecsFingerprint },
+      });
 
       await collect(
         resumeLoop(dir, {
@@ -427,10 +437,39 @@ describe("daemon/runtime scaffolding", () => {
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
 
       expect(status).toMatchObject({
-        state: "building",
-        process: { pid: 13579, command: "runner building" },
-        lock: { operation: "build" },
+        state: "planning",
+        process: { pid: 13579, command: "runner planning" },
+        lock: { operation: "plan" },
       });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resume rejects stopped loops without durable next-phase evidence", async () => {
+    const dir = await tempProject();
+    let spawnCalled = false;
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        authorizedSpecsFingerprint: emptySpecsFingerprint,
+      });
+
+      await expect(
+        collect(
+          resumeLoop(dir, {
+            spawnRunner: ({ phase }) => {
+              spawnCalled = true;
+              return { pid: 13579, command: `runner ${phase}` };
+            },
+          }),
+        ),
+      ).rejects.toThrow("next safe phase was not recorded");
+
+      expect(spawnCalled).toBe(false);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -773,6 +812,7 @@ describe("daemon/runtime scaffolding", () => {
       const events = await collect(observeLoop(dir));
 
       expect(events.map((event) => event.type)).toEqual(["planningStarted", "planningFinished", "loopStopped"]);
+      expect(events[2]).toMatchObject({ type: "loopStopped", data: { reason: "gracefulStopRequested", nextPhase: "building" } });
       expect(status).toMatchObject({
         state: "stopped",
         activeLoopId: "20260527T184210Z",
@@ -827,7 +867,7 @@ describe("daemon/runtime scaffolding", () => {
       const events = await collect(observeLoop(dir));
 
       expect(events.map((event) => event.type)).toEqual(["iterationStarted", "iterationFinished", "loopStopped"]);
-      expect(events[2]).toMatchObject({ type: "loopStopped", data: { reason: "gracefulStopRequested", iteration: 1 } });
+      expect(events[2]).toMatchObject({ type: "loopStopped", data: { reason: "gracefulStopRequested", nextPhase: "building", iteration: 1 } });
       expect(status).toMatchObject({
         state: "stopped",
         activeLoopId: "20260527T184210Z",

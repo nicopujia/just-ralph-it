@@ -372,7 +372,7 @@ export async function* resumeLoop(projectDir: string, options: RuntimeOptions = 
       );
     }
 
-    const phase = eligibleHumanTask ? "building" : await chooseResumePhase(projectDir);
+    const phase = eligibleHumanTask ? "building" : await chooseResumePhase(projectDir, loopId);
     const lock = await acquireLock(projectDir, phaseToOperation(phase), {
       pid: process.pid,
       ...(options.now ? { now: options.now } : {}),
@@ -478,7 +478,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
           ...current,
           authorizedSpecsFingerprint: auditorHandoff.specsFingerprint,
         }));
-        if (await stopIfRequested(projectDir, loopId)) return;
+        if (await stopIfRequested(projectDir, loopId, "planning")) return;
         currentLock = await switchRunnerPhase(projectDir, currentLock, "planning");
         currentPhase = "planning";
         continue;
@@ -502,7 +502,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
           loopId,
           data: { planPath: ".jri/IMPLEMENTATION_PLAN.md" },
         });
-        if (await stopIfRequested(projectDir, loopId)) return;
+        if (await stopIfRequested(projectDir, loopId, "building")) return;
         currentLock = await switchRunnerPhase(projectDir, currentLock, "building");
         currentPhase = "building";
         continue;
@@ -557,7 +557,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         iteration: finishedIteration,
         data: iterationResult,
       });
-      if (await stopIfRequested(projectDir, loopId, finishedIteration)) return;
+      if (await stopIfRequested(projectDir, loopId, "building", finishedIteration)) return;
       if (builderHandoff.action === "needsReplan") {
         await appendLoopEvent(projectDir, {
           type: "planRegenerationRequested",
@@ -578,7 +578,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
           return;
         }
         await appendLoopEvent(projectDir, { type: "planRegenerationFinished", loopId, data: {} });
-        if (await stopIfRequested(projectDir, loopId)) return;
+        if (await stopIfRequested(projectDir, loopId, "building")) return;
         currentLock = await switchRunnerPhase(projectDir, currentLock, "building");
         currentPhase = "building";
         continue;
@@ -626,7 +626,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
   }
 }
 
-async function stopIfRequested(projectDir: string, loopId: string, iteration?: number): Promise<boolean> {
+async function stopIfRequested(projectDir: string, loopId: string, nextPhase: Exclude<RunnerPhase, "auditing">, iteration?: number): Promise<boolean> {
   const status = await readStatus(projectDir);
   if (!status.stopRequested) return false;
   const authorizedSpecsFingerprint = await computeSpecsFingerprint(projectDir);
@@ -636,6 +636,7 @@ async function stopIfRequested(projectDir: string, loopId: string, iteration?: n
     loopId,
     data: {
       reason: "gracefulStopRequested",
+      nextPhase,
       ...(iteration === undefined ? {} : { iteration }),
       specsFingerprint: authorizedSpecsFingerprint,
     },
@@ -757,8 +758,18 @@ function defaultKillProcess(pid: number): void {
   }
 }
 
-async function chooseResumePhase(projectDir: string): Promise<RunnerPhase> {
-  return (await Bun.file(join(projectDir, ".jri", "IMPLEMENTATION_PLAN.md")).exists()) ? "building" : "planning";
+async function chooseResumePhase(projectDir: string, loopId: string): Promise<RunnerPhase> {
+  const stoppedEvent = (await readLoopEvents(projectDir, loopId))
+    .filter((event) => event.type === "loopStopped")
+    .at(-1);
+  if (stoppedEvent?.type === "loopStopped") {
+    return stoppedEvent.data.nextPhase;
+  }
+  throw new JriError(
+    "Cannot resume because the next safe phase was not recorded.",
+    "resume-phase-missing",
+    "Return to bare jri, confirm the requirements, then say just ralph it so audit and planning authorize a fresh lifecycle.",
+  );
 }
 
 function phaseToOperation(phase: RunnerPhase): LockOperation {

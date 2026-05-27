@@ -209,7 +209,11 @@ export type CoreEvent =
     })
   | (BaseEvent & { type: "blockerResolved"; loopId: string; data: { reason: BlockerReason } })
   | (BaseEvent & { type: "stopRequested"; loopId: string; data: { requested: boolean } })
-  | (BaseEvent & { type: "loopStopped"; loopId: string; data: { reason: "gracefulStopRequested"; iteration?: number; specsFingerprint?: string } })
+  | (BaseEvent & {
+      type: "loopStopped";
+      loopId: string;
+      data: { reason: "gracefulStopRequested"; nextPhase: "planning" | "building"; iteration?: number; specsFingerprint?: string };
+    })
   | (BaseEvent & {
       type: "loopHalted";
       loopId: string;

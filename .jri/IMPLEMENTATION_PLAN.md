@@ -33,7 +33,11 @@
 
 - P0: Harden runtime state mutation, resume, and failure recovery.
   - `acquireLock` is read/mutate/write plus reread confirmation, not a real CAS; implement race-safe lock acquisition or a single-daemon mutation guarantee that satisfies the runtime spec, with contention tests.
-  - `chooseResumePhase` currently resumes stopped loops to `building` when `.jri/IMPLEMENTATION_PLAN.md` exists, otherwise `planning`; persist and resume the exact next safe phase from durable state/events instead.
+  - Completed/Tested: `chooseResumePhase` now resumes from durable loop state, not file presence.
+    - `loopStopped` now records `nextPhase`.
+    - `resume` now reads the latest durable `loopStopped.nextPhase` and uses that as the resume phase.
+    - Missing or invalid `nextPhase` evidence now fails safely instead of heuristically inferring resume phase from `.jri/IMPLEMENTATION_PLAN.md`.
+    - Validation passed with focused daemon-runtime tests, `bun run test`, `bun run typecheck`, and `bun run lint`.
   - Finding: malformed/missing handoff parser failures in `runLoopProcess` still need structured loop failure handling.
   - Keep existing stopped/human-task fingerprint checks and add coverage for stale lock ownership, dead runner repair, and resume after audit/planning/build boundaries.
 
