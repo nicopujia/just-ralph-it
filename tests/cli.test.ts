@@ -25,11 +25,27 @@ describe("CLI", () => {
   test("bare jri records a piped interrogation message", async () => {
     const dir = await tempProject();
     try {
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          "printf 'Which deployment environment should Ralph target?\\n'",
+          "printf 'JRI_HANDOFF_JSON: {\"agent\":\"interrogator\",\"action\":\"messageOnly\",\"summary\":\"Asked about deployment environment.\"}\\n'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
       const proc = Bun.spawn(["bun", cliPath], {
         cwd: dir,
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
+        env: {
+          ...process.env,
+          JRI_PI_COMMAND: fakePi,
+        },
       });
       proc.stdin.write("Need a deployment workflow.\n");
       proc.stdin.end();
@@ -38,7 +54,7 @@ describe("CLI", () => {
 
       expect(exitCode).toBe(0);
       expect(stderr).toContain(`Initialized JRI in ${dir}`);
-      expect(stdout).toContain("I recorded your note.");
+      expect(stdout).toContain("Which deployment environment should Ralph target?");
 
       const log = await readFile(join(dir, ".jri", "logs", "interrogation.jsonl"), "utf8");
       expect(log).toContain("Need a deployment workflow.");

@@ -206,6 +206,7 @@ export async function buildControlledPiCommand(
 ): Promise<PiHarnessCommand> {
   const env = request.env ?? process.env;
   await assertProviderAuth(env);
+  await mkdir(join(request.projectDir, ".jri", "logs", request.loopId, "pi-sessions"), { recursive: true });
 
   const prompt = await buildPiPrompt(request.projectDir, request.phase, {
     loopId: request.loopId,

@@ -5,6 +5,7 @@ import { sendChat } from "./chat";
 import { JriError } from "./errors";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
 import { daemonHaltLoop, daemonObserveLoop, daemonRequestStop, daemonResumeLoop, daemonStartLoop, daemonStatus } from "./daemon-ipc";
+import { invokeDefaultHarness } from "./harness";
 import { defaultConfig, defaultStatus, parseJsonObject, validateConfig, validateStatus } from "./schema";
 import type { AuthResult, AuthState, ChatInput, CoreEvent, HaltOptions, LoopObserveOptions, ProjectConfig, ProjectStatus } from "./types";
 
@@ -97,7 +98,7 @@ export class Project {
 
   private async *sendChat(input: ChatInput): AsyncIterable<CoreEvent> {
     await this.ensureInitialized();
-    yield* sendChat(this.projectDir, input, { startLoop: startLoopWithFallback });
+    yield* sendChat(this.projectDir, input, { startLoop: startLoopWithFallback, interrogatorHarness: invokeDefaultHarness });
   }
 
   private async ensureInitialized(): Promise<void> {

@@ -8,10 +8,9 @@
   - Spec updates completed during planning: `.jri/specs/sdk-runtime-contracts.md` now defines the SDK harness/fake contract, durable `.jri/interrogation-state.json`, daemon `loop.start`, capability process ownership, and stdout channel policy; `.jri/specs/runtime-state.md` now lists the lazy interrogation state file.
 
 - [ ] P0: Replace canned chat with the real Pi-backed interrogator.
-  - Current `src/core/chat.ts` returns fixed status copy, accepts direct triggers, and uses an injectable verifier; it does not run an interrogator agent, parse interrogator handoffs, update `.jri/specs/*`, update `.jri/scratchpad.md`, reconstruct selective context, or support observation/blocker modes.
-  - Current search confirmed `parseHandoff` already validates interrogator handoffs, but `chat.send` still never invokes any harness/interrogator boundary for ordinary messages and only uses fixed `responseForStatus` text.
+  - Completed/tested slice: public `Project.chat.send` now uses the default controlled interrogator harness for ordinary messages instead of the legacy canned path.
   - Completed/tested slice: added shared `HarnessInvocation`, `HarnessResult`, and `HarnessAdapter` types; interrogation phase prompt/model command support; injectable chat interrogator harness processing for `messageOnly`, `specsUpdated`, `humanTaskVerified`, `humanTaskStillBlocked`, and `startRequested` handoffs; and focused tests in `chat/harness`.
-  - Remaining: `Project.chat.send` still uses the legacy canned ordinary-message path until the default Pi SDK adapter is production-wired; spec/scratchpad file mutation plus topic sealing/reconciliation resolution are still incomplete.
+  - Remaining: spec/scratchpad file mutation plus topic sealing/reconciliation resolution are still incomplete.
   - Implement interrogator harness invocation using the new `HarnessInvocation` contract with `agent: "interrogator"` and `phase: "interrogation"`.
   - Add lazy `.jri/interrogation-state.json` support for topic sealing, spec fingerprints, and pending manual edit reconciliation.
   - Process `messageOnly`, `specsUpdated`, `scratchpadUpdated`, `startRequested`, `humanTaskVerified`, and `humanTaskStillBlocked` handoffs instead of inferring lifecycle changes from prose or fixed strings.
@@ -19,12 +18,14 @@
 
 - [ ] P0: Make bare `jri` the primary interactive interrogation surface.
   - Current TTY bare `jri` initializes, checks auth, prints status, and exits; it does not open the required long-lived Pi-backed TUI or fallback REPL.
+  - Completed/tested slice: focused chat/CLI coverage now fakes the same Pi command boundary used by the default interrogator harness.
   - Implement a usable bare `jri` chat loop with compact status footer/line, blocked guide presentation, inline auth recovery that can continue into interrogation, and observation mode while Ralph is running.
   - Keep public CLI surface limited to `jri`, `jri auth {status|login|logout}`, and `jri loop {attach|stop|halt|resume}`; internal `--run-*` commands remain hidden adapter entrypoints.
   - Add coverage for TTY and piped modes, blocked startup messages, auth continuation, and status rendering for active/stopped/halted/idle/completed states.
 
 - [ ] P0: Replace Pi CLI `--print` shellouts with the controlled SDK harness adapter.
   - Current `src/core/harness.ts` builds `pi --print` commands and relies on CLI flags for isolation.
+  - Completed/tested slice: focused harness tests fake the real Pi command boundary, and the harness creates chat/loop Pi session directories before launch.
   - Implement a JRI-owned adapter around the Pi TypeScript SDK using the contract in `.jri/specs/sdk-runtime-contracts.md`: explicit owner, agent, phase, model, context refs, capabilities, output sink, and cancellation signal.
   - Ensure fake harnesses use the same request/result contract and can script chunks, handoffs, capability results, artifacts, delays, failures, auth errors, and cancellation without fake-only code paths.
   - Keep Pi SDK/package details inside the adapter and preserve public core API/domain objects as JRI concepts.

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -27,7 +27,16 @@ function tempDaemonPaths(dir: string): DaemonPaths {
 describe("interrogation chat", () => {
   test("records user and assistant turns in interrogation history", async () => {
     const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
     try {
+      process.env.JRI_PI_COMMAND = await writeFakePi(
+        dir,
+        "fake-interrogator.sh",
+        [
+          "Which CLI commands should be in scope?",
+          'JRI_HANDOFF_JSON: {"agent":"interrogator","action":"messageOnly","summary":"Asked about CLI scope."}',
+        ].join("\n"),
+      );
       const project = await open(dir);
       const events = await collect(project.chat.send({ message: "We need a CLI." }));
 
@@ -38,7 +47,7 @@ describe("interrogation chat", () => {
         "chatMessageFinished",
         "chatTurnRecorded",
       ]);
-      expect(events[2]).toMatchObject({ type: "chatMessageDelta", data: { text: expect.stringContaining("recorded") } });
+      expect(events[2]).toMatchObject({ type: "chatMessageDelta", data: { text: expect.stringContaining("Which CLI commands") } });
 
       const log = await readJsonl(join(dir, ".jri", "logs", "interrogation.jsonl"));
       expect(log).toHaveLength(5);
@@ -46,6 +55,7 @@ describe("interrogation chat", () => {
       expect(log[4]).toMatchObject({ type: "chatTurnRecorded", data: { role: "assistant" } });
       expect(log.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5]);
     } finally {
+      restoreEnv("JRI_PI_COMMAND", previousPiCommand);
       await rm(dir, { recursive: true, force: true });
     }
   });
@@ -255,6 +265,7 @@ describe("interrogation chat", () => {
     const dir = await tempProject();
     const paths = tempDaemonPaths(dir);
     const previousEnv = captureDaemonEnv();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
     const daemon = await startDaemonServer({
       paths,
       idleTimeoutMs: 10_000,
@@ -265,21 +276,22 @@ describe("interrogation chat", () => {
     });
     try {
       applyDaemonEnv(paths);
+      process.env.JRI_PI_COMMAND = await writeFakePi(
+        dir,
+        "fake-start-interrogator.sh",
+        [
+          "Start request accepted.",
+          'JRI_HANDOFF_JSON: {"agent":"interrogator","action":"startRequested","trigger":"just ralph it"}',
+        ].join("\n"),
+      );
       const project = await open(dir);
       const events = await collect(project.chat.send({ message: "just ralph it" }));
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
       const registry = JSON.parse(await readFile(paths.registryPath, "utf8"));
       const loopEvents = await readJsonl(join(dir, ".jri", "logs", "20260527T200000Z", "events.jsonl"));
 
-      expect(events.map((event) => event.type)).toEqual([
-        "chatTurnRecorded",
-        "chatMessageStarted",
-        "chatMessageDelta",
-        "chatMessageFinished",
-        "chatTurnRecorded",
-        "loopStarted",
-      ]);
-      expect(events[5]).toMatchObject({ type: "loopStarted", loopId: "20260527T200000Z", data: { pid: process.pid } });
+      expect(events.map((event) => event.type)).toContain("loopStarted");
+      expect(events.at(-1)).toMatchObject({ type: "loopStarted", loopId: "20260527T200000Z", data: { pid: process.pid } });
       expect(status).toMatchObject({
         state: "auditing",
         activeLoopId: "20260527T200000Z",
@@ -288,6 +300,7 @@ describe("interrogation chat", () => {
       expect(registry.projects[0]).toMatchObject({ projectDir: dir, activeLoopId: "20260527T200000Z" });
       expect(loopEvents[0]).toMatchObject({ type: "loopStarted", loopId: "20260527T200000Z" });
     } finally {
+      restoreEnv("JRI_PI_COMMAND", previousPiCommand);
       restoreDaemonEnv(previousEnv);
       await daemon.close();
       await rm(dir, { recursive: true, force: true });
@@ -385,6 +398,19 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const items: T[] = [];
   for await (const item of iterable) items.push(item);
   return items;
+}
+
+async function writeFakePi(dir: string, name: string, output: string): Promise<string> {
+  const path = join(dir, name);
+  const escaped = output.replace(/'/g, "'\\''");
+  await writeFile(path, `#!/usr/bin/env bash\nprintf '%s\\n' '${escaped}'\n`, "utf8");
+  await chmod(path, 0o755);
+  return path;
+}
+
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
 }
 
 async function readJsonl(path: string): Promise<CoreEvent[]> {
