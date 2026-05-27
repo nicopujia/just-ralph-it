@@ -6,6 +6,7 @@ import { JriError } from "./errors";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
 import { daemonHaltLoop, daemonObserveLoop, daemonRequestStop, daemonResumeLoop, daemonStartLoop, daemonStatus } from "./daemon-ipc";
 import { invokeDefaultHarness } from "./harness";
+import { readInterrogationState } from "./interrogation-state";
 import { defaultConfig, defaultStatus, parseJsonObject, validateConfig, validateStatus } from "./schema";
 import type { AuthResult, AuthState, ChatInput, CoreEvent, HaltOptions, LoopObserveOptions, ProjectConfig, ProjectStatus } from "./types";
 
@@ -177,6 +178,8 @@ export async function validateExistingProject(projectDir: string): Promise<void>
   if (await Bun.file(statusPath).exists()) {
     validateStatus(parseJsonObject(await Bun.file(statusPath).text(), statusPath), statusPath);
   }
+
+  await readInterrogationState(projectDir);
 }
 
 async function writeIfMissing(path: string, contents: string): Promise<void> {

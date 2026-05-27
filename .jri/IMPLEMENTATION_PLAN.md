@@ -27,11 +27,10 @@
   - Cover loop owner mismatch, chat/loop ownership separation, stale owner metadata, explorer spawn-only mode, child cancellation, and capability artifact refs.
 
 - P0: Harden runtime recovery, durable-state validation, and failure evidence.
-  - Validate existing `.jri/interrogation-state.json` during `open()`/startup with actionable recovery, matching config/status validation.
   - Convert malformed/missing handoff parser failures, SDK errors, capability failures, and runner phase mismatches into structured loop failure/recovery events and status updates.
   - Reconcile event/status ordering with the spec where lifecycle transitions currently write status before milestone events.
   - Make halt precedence explicit when stop/natural exit races occur, including final halt/reset outcome.
-  - Add coverage for corrupt interrogation state, invalid runner phase at runtime, malformed handoff failure evidence, stop/halt races, forceful halt, dead runner repair, and status/event recovery.
+  - Add coverage for invalid runner phase at runtime, malformed handoff failure evidence, stop/halt races, forceful halt, dead runner repair, and status/event recovery.
 
 - P0: Finish validation and git-safety semantics.
   - Keep builder/Ralph responsible for discovering and running target-project validation from `AGENTS.md` or equivalent project guidance; core records handoff evidence and guards git/tag success.

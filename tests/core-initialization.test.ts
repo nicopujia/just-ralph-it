@@ -107,6 +107,18 @@ describe("project initialization", () => {
     }
   });
 
+  test("open rejects malformed existing interrogation state with recovery guidance", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri"), { recursive: true });
+      await writeFile(join(dir, ".jri", "interrogation-state.json"), "{ nope", "utf8");
+
+      await expect(open(dir)).rejects.toThrow(JriError);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("root resolution prefers nearest .jri ancestor before git root", async () => {
     const dir = await tempProject();
     try {
