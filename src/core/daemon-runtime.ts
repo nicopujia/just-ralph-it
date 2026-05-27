@@ -2101,10 +2101,14 @@ async function computeSpecsFingerprint(projectDir: string): Promise<string> {
     .sort();
 
   for (const name of entries) {
-    hash.update(name);
+    const relativePath = `.jri/specs/${name}`;
+    const bytes = await readFile(join(specsDir, name));
+    hash.update(relativePath);
     hash.update("\0");
-    hash.update(await readFile(join(specsDir, name)));
+    hash.update(String(bytes.byteLength));
     hash.update("\0");
+    hash.update(bytes);
+    hash.update("\n");
   }
   return hash.digest("hex");
 }

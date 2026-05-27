@@ -2064,6 +2064,44 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("auditing runner rejects legacy specs fingerprints without path and byte-length framing", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      const specContent = "# App\n\nBuild the app.\n";
+      await writeFile(join(dir, ".jri", "specs", "app.md"), specContent, "utf8");
+      const legacyFingerprint = legacySpecsFingerprintForFiles({ "app.md": specContent });
+      expect(legacyFingerprint).not.toBe(specsFingerprintForFiles({ "app.md": specContent }));
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "auditing",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("audit"),
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "auditing", {
+        harnessRunner: async ({ stdoutPath }) => {
+          await appendFile(
+            stdoutPath,
+            `JRI_HANDOFF_JSON: {"agent":"auditor","action":"passed","specFiles":[".jri/specs/app.md"],"specsFingerprint":"${legacyFingerprint}","summary":"Specs ready."}\n`,
+          );
+          return 0;
+        },
+      });
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+      expect(events.map((event) => event.type)).toEqual(["auditStarted", "loopFinished"]);
+      expect(status).toMatchObject({
+        state: "stopped",
+        lastResult: { outcome: "failed" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("auditing runner resolves an ambiguous-spec blocker only after audit passes", async () => {
     const dir = await tempProject();
     const previousPiCommand = process.env.JRI_PI_COMMAND;
@@ -3228,6 +3266,21 @@ function activeTestLock(operation: "audit" | "plan" | "build", pid = process.pid
 }
 
 function specsFingerprintForFiles(files: Record<string, string>): string {
+  const hash = createHash("sha256");
+  for (const name of Object.keys(files).sort()) {
+    const contents = files[name] ?? "";
+    const bytes = Buffer.from(contents, "utf8");
+    hash.update(`.jri/specs/${name}`);
+    hash.update("\0");
+    hash.update(String(bytes.byteLength));
+    hash.update("\0");
+    hash.update(bytes);
+    hash.update("\n");
+  }
+  return hash.digest("hex");
+}
+
+function legacySpecsFingerprintForFiles(files: Record<string, string>): string {
   const hash = createHash("sha256");
   for (const name of Object.keys(files).sort()) {
     hash.update(name);

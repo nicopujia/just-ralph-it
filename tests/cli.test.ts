@@ -709,7 +709,11 @@ describe("CLI", () => {
       await mkdir(join(dir, ".jri", "specs"), { recursive: true });
       await activateLoop(dir, "20260527T184210Z", "building");
       const fakePi = join(dir, "fake-pi.sh");
-      await writeFile(fakePi, "#!/usr/bin/env bash\nprintf 'CLI explorer result\\n'\n", "utf8");
+      await writeFile(
+        fakePi,
+        "#!/usr/bin/env bash\nprintf 'JRI_EXPLORER_SUMMARY_JSON: {\"summary\":\"CLI explorer result\"}\\n'\n",
+        "utf8",
+      );
       await chmod(fakePi, 0o755);
 
       const proc = Bun.spawn(["bun", cliPath, "--run-explorer", dir, "20260527T184210Z", "Inspect CLI dispatch."], {

@@ -60,6 +60,7 @@ const explorerTimeoutMs = explorerCapabilityDescriptor.limits.timeoutMs;
 const explorerConcurrencyLimit = explorerCapabilityDescriptor.limits.concurrency;
 const explorerQueues = new Map<string, { active: number; waiters: Array<() => void> }>();
 const internalInvocationEnv = "JRI_INTERNAL_INVOCATION";
+const explorerSummaryFramePrefix = "JRI_EXPLORER_SUMMARY_JSON:";
 
 export type HarnessSessionRequest = {
   projectDir: string;
@@ -355,7 +356,18 @@ export async function runExplorerTask(
         );
       }
 
-      const summary = summarizeExplorerOutput(output.text, request.handoffLimit ?? explorerHandoffLimit);
+      let summary: string;
+      try {
+        summary = extractExplorerSummary(output.text, request.handoffLimit ?? explorerHandoffLimit);
+      } catch (error) {
+        const failed = await appendLoopEvent(request.projectDir, {
+          type: "subagentFailed",
+          loopId: request.loopId,
+          data: { agent: "explorer", error: error instanceof Error ? error.message : String(error), artifactRef },
+        });
+        events.push(failed);
+        throw error;
+      }
       const finished = await appendLoopEvent(request.projectDir, {
         type: "subagentFinished",
         loopId: request.loopId,
@@ -462,11 +474,15 @@ async function buildControlledExplorerSubagentCommand(
     "",
     "JRI wrapper-provided context and capability instructions:",
     prompt,
+    "",
+    "Explorer summary contract:",
+    `Return exactly one physical line beginning ${explorerSummaryFramePrefix} followed by a JSON object with only a non-empty summary string.`,
+    `The summary must be at most ${explorerHandoffLimit} characters and should cite concrete file paths or state no relevant evidence was found.`,
   ].join("\n");
   const commandPrompt = [
     "Use the pi-subagent extension to run exactly one foreground JRI explorer delegation.",
     "Use agent name explorer with spawn/fresh context only. Do not run chains or parallel subtasks inside this wrapper.",
-    "Return only the explorer's final concise handoff.",
+    `Return only the explorer's final ${explorerSummaryFramePrefix} handoff line.`,
     "",
     `/run explorer ${JSON.stringify(delegatedTask)}`,
     "",
@@ -819,10 +835,62 @@ async function writeExplorerArtifact(projectDir: string, loopId: string, task: s
   return artifactRef;
 }
 
-function summarizeExplorerOutput(output: string, handoffLimit: number): string {
-  const normalized = output.trim() || "Explorer completed without textual output.";
-  if (normalized.length <= handoffLimit) return normalized;
-  return `${normalized.slice(0, Math.max(0, handoffLimit - 120)).trimEnd()}\n\n[Explorer output truncated; see artifactRef for the full result.]`;
+function extractExplorerSummary(output: string, handoffLimit: number): string {
+  const frames = output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith(explorerSummaryFramePrefix));
+  if (frames.length === 0) {
+    throw new JriError(
+      "Explorer did not return a JRI_EXPLORER_SUMMARY_JSON handoff.",
+      "missing-explorer-summary",
+      "Retry the explorer task through the JRI explorer capability so the parent receives a structured summary frame.",
+    );
+  }
+  if (frames.length > 1) {
+    throw new JriError(
+      "Explorer returned multiple JRI_EXPLORER_SUMMARY_JSON handoffs.",
+      "multiple-explorer-summaries",
+      "Retry with one final explorer summary frame.",
+    );
+  }
+
+  const payload = frames[0]!.slice(explorerSummaryFramePrefix.length).trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(payload);
+  } catch (error) {
+    throw new JriError(
+      "Explorer returned invalid summary JSON.",
+      "invalid-explorer-summary",
+      error instanceof Error ? error.message : "Return one JSON object after JRI_EXPLORER_SUMMARY_JSON.",
+    );
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw invalidExplorerSummary("summary handoff must be a JSON object.");
+  }
+  const record = parsed as Record<string, unknown>;
+  const keys = Object.keys(record);
+  const unsupported = keys.filter((key) => key !== "summary");
+  if (unsupported.length > 0) {
+    throw invalidExplorerSummary(`summary handoff has unsupported key(s): ${unsupported.join(", ")}.`);
+  }
+  if (typeof record.summary !== "string" || record.summary.trim().length === 0) {
+    throw invalidExplorerSummary("summary handoff needs a non-empty summary string.");
+  }
+  const summary = record.summary.trim();
+  if (summary.length > handoffLimit) {
+    throw invalidExplorerSummary(`summary exceeds ${handoffLimit} characters.`);
+  }
+  return summary;
+}
+
+function invalidExplorerSummary(detail: string): JriError {
+  return new JriError(
+    `Explorer returned an invalid summary handoff: ${detail}`,
+    "invalid-explorer-summary",
+    "Return exactly one JRI_EXPLORER_SUMMARY_JSON line with a bounded summary string.",
+  );
 }
 
 async function withExplorerSlot<T>(key: string, task: () => Promise<T>): Promise<T> {

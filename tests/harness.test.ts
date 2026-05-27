@@ -456,6 +456,7 @@ describe("controlled Pi harness", () => {
       expect(built.command.at(-1)).toContain('/run explorer "Find the CLI dispatch code.');
       expect(built.command.at(-1)).toContain("jri --run-web search");
       expect(built.command.at(-1)).toContain("jri --run-web fetch");
+      expect(built.command.at(-1)).toContain("JRI_EXPLORER_SUMMARY_JSON:");
       const descriptor = await readFile(join(dir, ".jri", "logs", "20260527T184210Z", "capabilities", "explorer", "agents", "explorer.md"), "utf8");
       expect(descriptor).toContain("name: explorer");
       expect(descriptor).toContain("JRI web capability instructions");
@@ -466,13 +467,18 @@ describe("controlled Pi harness", () => {
     }
   });
 
-  test("runExplorerTask records subagent events and caps handoff with an artifact", async () => {
+  test("runExplorerTask records subagent events from a structured summary frame with an artifact", async () => {
     const dir = await tempProject();
     try {
       const fakePi = join(dir, "fake-pi.sh");
       await writeFile(
         fakePi,
-        ["#!/usr/bin/env bash", "printf 'finding %.0s' {1..700}", "printf '\\nfinal line\\n'"].join("\n"),
+        [
+          "#!/usr/bin/env bash",
+          "printf 'finding %.0s' {1..700}",
+          "printf '\\nJRI_EXPLORER_SUMMARY_JSON: {\"summary\":\"Found CLI dispatch in src/cli/index.ts.\"}\\n'",
+          "printf 'final line\\n'",
+        ].join("\n"),
         "utf8",
       );
       await chmod(fakePi, 0o755);
@@ -487,16 +493,43 @@ describe("controlled Pi harness", () => {
         },
       });
 
-      expect(result.summary.length).toBeLessThanOrEqual(160);
-      expect(result.summary).toContain("Explorer output truncated");
+      expect(result.summary).toBe("Found CLI dispatch in src/cli/index.ts.");
       expect(result.artifactRef).toMatch(/^\.jri\/logs\/20260527T184210Z\/artifacts\/explorer-/);
       const artifact = await readFile(join(dir, result.artifactRef!), "utf8");
       expect(artifact).toContain("Task: Inspect CLI behavior.");
+      expect(artifact).toContain("finding finding");
       expect(artifact).toContain("final line");
 
       const events = await readFile(join(dir, ".jri", "logs", "20260527T184210Z", "events.jsonl"), "utf8");
       expect(events).toContain('"type":"subagentStarted"');
       expect(events).toContain('"type":"subagentFinished"');
+      expect(events).toContain('"artifactRef"');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runExplorerTask rejects missing structured summary frames with durable failure evidence", async () => {
+    const dir = await tempProject();
+    try {
+      const fakePi = join(dir, "fake-pi-missing-summary.sh");
+      await writeFile(fakePi, "#!/usr/bin/env bash\nprintf 'raw explorer text only\\n'\n", "utf8");
+      await chmod(fakePi, 0o755);
+
+      await expect(
+        runExplorerTask({
+          projectDir: dir,
+          loopId: "20260527T184210Z",
+          task: "Inspect CLI behavior.",
+          env: {
+            JRI_PI_COMMAND: fakePi,
+          },
+        }),
+      ).rejects.toThrow("Explorer did not return a JRI_EXPLORER_SUMMARY_JSON handoff");
+
+      const events = await readFile(join(dir, ".jri", "logs", "20260527T184210Z", "events.jsonl"), "utf8");
+      expect(events).toContain('"type":"subagentStarted"');
+      expect(events).toContain('"type":"subagentFailed"');
       expect(events).toContain('"artifactRef"');
     } finally {
       await rm(dir, { recursive: true, force: true });

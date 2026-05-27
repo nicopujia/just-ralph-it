@@ -13,13 +13,13 @@
 
 - P0: Make web and explorer first-class SDK/runtime capabilities.
   - Confirmed partial: capability descriptors, prompt instructions, web result validation, child registration, and explorer evidence events exist.
+  - Completed increment: explorer parent-context injection now requires a structured `JRI_EXPLORER_SUMMARY_JSON:` frame, records `subagentFailed` with an `artifactRef` when the summary is missing or invalid, and reduces the risk of truncating raw explorer output into parent context.
   - Confirmed gap: agent-facing use is still prompt/internal wrapper commands such as `jri --run-web` and `jri --run-explorer`; `src/core/web-capability.ts` invokes `pi-web-access` by name, `src/core/harness.ts` invokes `npm:pi-subagent` by extension name, and neither implementation is bundled or preflighted.
   - Wire web search/fetch and explorer delegation through declared SDK capabilities, including operation-level enforcement for search-only/fetch-only grants.
   - Make required web usable in no-bash phases without raw shell/browser/package workarounds.
   - Bundle or preflight web/explorer capability implementations; missing implementations must fail with actionable `capability-*` evidence before a loop depends on them.
   - Keep explorer JRI-owned, read-only, spawn/fresh by default, concurrency-limited, handoff-bounded, artifact-backed, and isolated from ambient Pi state.
   - Tighten explorer failure evidence so timeout, cancellation, queue failures, wrapper failures, and SDK failures all record `subagentFailed` or equivalent durable evidence when a loop-owned explorer attempt began.
-  - Replace raw-output truncation with a JRI-owned structured explorer summary contract before injecting explorer findings into parent context.
   - Use structured owner metadata for explorer capabilities consistently with web; reject missing, stale, wrong-project, wrong-loop, or wrong-owner metadata.
 
 - P0: Harden interrogation readiness and spec mutation safety.
@@ -72,6 +72,7 @@
 - P1: Resolve remaining implementation-blocking contract details as they arise.
   - Completed planning increment: clarified validation evidence so unavailable-validation explanations may support no-op/non-git-changing outcomes but are not passing validation for git-changing success.
   - Completed planning increment: formalized the canonical `.jri/specs/*.md` fingerprint algorithm in `.jri/specs/runtime-state.md`.
+  - Completed increment: canonical `.jri/specs/*.md` fingerprint framing now matches the spec by hashing the relative `.jri/specs` path, byte length, raw bytes, and final newline, and legacy fingerprints are rejected.
   - Remaining watchlist: whether repeated direct halt should append an additional `loopHalted` event or only render idempotent guidance; whether non-`needsReplan` plan regeneration should be orchestrator-detected or remain builder-requested for MVP; whether public core should export internal web capability helpers.
 
 - P2: Later contract and transport hardening after the MVP loop is usable.
@@ -97,6 +98,7 @@
   - Public event type coverage includes canonical `RuntimeStateEvent` export and `CoreEvent` compatibility alias.
   - Daemon-owned public lifecycle mutation baseline, read-only local fallback, status mutation locking, loop id generation, event sequencing baseline, start-trigger normalization, runtime recovery for dead/stale ownership, planner plan existence checks, and stopped-loop resume lineage checks are implemented.
   - Audit pass computes the canonical `.jri/specs/*.md` fingerprint in daemon/core, rejects auditor fingerprint mismatches as durable runtime failures, persists only the core-computed value, and covers non-empty specs directories by using directory `stat` instead of `Bun.file(directory).exists()`.
+  - Canonical `.jri/specs/*.md` fingerprint framing matches the spec: relative `.jri/specs` path, byte length, raw bytes, and final newline; legacy fingerprint framing is rejected.
   - Start-gate manual spec reconciliation detects edits to open topics as well as sealed topics, and auditor harness context sees interrogation state plus scratchpad refs before authorization.
   - Interactive bare `jri` reuses Pi-backed `jri auth login` recovery inline and continues into the fallback REPL when credentials become available; unsupported or non-interactive auth failures still return actionable recovery.
 
