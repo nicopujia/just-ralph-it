@@ -103,6 +103,7 @@ async function main(argv: string[]): Promise<number> {
       }
       return 0;
     }
+    const writeChatEvent = createChatEventWriter();
     for await (const event of project.chat.send({ message: input })) {
       writeChatEvent(event);
     }
@@ -330,6 +331,7 @@ async function runInteractiveChat(project: Project): Promise<void> {
   const prompt = new Text("You:");
   const input = new Input();
   const lines: string[] = [];
+  let activeAssistantIndex: number | null = null;
   let busy = false;
   let closeRequested = false;
   let closed = false;
@@ -353,6 +355,33 @@ async function runInteractiveChat(project: Project): Promise<void> {
     lines.push(text);
     transcript.setText(lines.join("\n"));
     tui.requestRender();
+  };
+  const replaceTranscript = (index: number, text: string): void => {
+    lines[index] = text;
+    transcript.setText(lines.join("\n"));
+    tui.requestRender();
+  };
+  const renderTranscriptEvent = (event: CoreEvent): void => {
+    const text = formatChatEvent(event);
+    if (!text) {
+      if (event.type === "chatMessageStarted") activeAssistantIndex = null;
+      if (event.type === "chatMessageFinished") activeAssistantIndex = null;
+      return;
+    }
+
+    if (event.type === "chatMessageDelta") {
+      const rendered = formatInteractiveEvent(event, text);
+      if (activeAssistantIndex === null) {
+        appendTranscript(rendered);
+        activeAssistantIndex = lines.length - 1;
+      } else {
+        replaceTranscript(activeAssistantIndex, rendered);
+      }
+      return;
+    }
+
+    activeAssistantIndex = null;
+    appendTranscript(formatInteractiveEvent(event, text));
   };
 
   const close = (): void => {
@@ -394,12 +423,12 @@ async function runInteractiveChat(project: Project): Promise<void> {
 
     busy = true;
     mode.setText("Assistant working");
+    activeAssistantIndex = null;
     appendTranscript(`You: ${message}`);
     await refreshStatus();
     try {
       for await (const event of project.chat.send({ message })) {
-        const text = formatChatEvent(event);
-        if (text) appendTranscript(formatInteractiveEvent(event, text));
+        renderTranscriptEvent(event);
         await refreshStatus();
       }
     } catch (error) {
@@ -614,11 +643,6 @@ function formatStatus(status: {
   return status.state;
 }
 
-function writeChatEvent(event: CoreEvent): void {
-  const text = formatChatEvent(event);
-  if (text) console.log(text);
-}
-
 function formatChatEvent(event: CoreEvent): string | null {
   if (event.type === "chatMessageDelta") return event.data.text;
   if (event.type === "chatMessageStarted" || event.type === "chatMessageFinished" || event.type === "chatTurnRecorded") return null;
@@ -629,6 +653,29 @@ function formatChatEvent(event: CoreEvent): string | null {
     return `Scratchpad updated: ${event.data.summary}`;
   }
   return formatLoopEvent(event);
+}
+
+function createChatEventWriter(): (event: CoreEvent) => void {
+  let lastAssistantText = "";
+  return (event: CoreEvent) => {
+    if (event.type === "chatMessageDelta") {
+      const nextText = event.data.text;
+      const suffix = nextText.startsWith(lastAssistantText) ? nextText.slice(lastAssistantText.length) : nextText;
+      lastAssistantText = nextText;
+      if (suffix) process.stdout.write(suffix);
+      return;
+    }
+    if (event.type === "chatMessageFinished") {
+      if (lastAssistantText && !lastAssistantText.endsWith("\n")) process.stdout.write("\n");
+      lastAssistantText = "";
+      return;
+    }
+    const text = formatChatEvent(event);
+    if (text) {
+      lastAssistantText = "";
+      console.log(text);
+    }
+  };
 }
 
 function formatLoopEvent(event: { type: string; sequence: number; timestamp: string; message?: string; data?: unknown }): string {

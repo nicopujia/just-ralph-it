@@ -135,18 +135,28 @@ export async function invokeDefaultHarness(invocation: HarnessInvocation, env: N
     ...(userMessage ? { userMessage } : {}),
     capabilities: invocation.capabilities,
   });
+  const visibleForwarder = invocation.owner.kind === "chat" ? createChatVisibleOutputForwarder(invocation.output.write) : null;
   const output = await runCommandCapture({
     command: built.command,
     cwd: invocation.projectDir,
     env: built.env,
     timeoutMs: 10 * 60 * 1000,
     signal: invocation.signal,
+    ...(visibleForwarder
+      ? {
+          onStdoutChunk: (chunk: string) => visibleForwarder.push(chunk),
+          onStderrChunk: (chunk: string) => visibleForwarder.push(chunk),
+        }
+      : {}),
     ...(invocation.owner.kind === "loop"
       ? { child: { projectDir: invocation.projectDir, loopId: invocation.owner.loopId, capability: "harness" as const } }
       : {}),
   });
-  const visibleOutput = invocation.owner.kind === "loop" ? output.text.trimEnd() : stripHandoffLines(output.text).trim();
-  if (visibleOutput) await invocation.output.write(visibleOutput);
+  await visibleForwarder?.finish();
+  if (invocation.owner.kind === "loop") {
+    const visibleOutput = output.text.trimEnd();
+    if (visibleOutput) await invocation.output.write(visibleOutput);
+  }
   if (output.exitCode !== 0) {
     throw new JriError(
       `${invocation.agent} harness exited with code ${output.exitCode}.`,
@@ -248,6 +258,8 @@ export async function invokePiSdkHarness(
   await resourceLoader.reload();
 
   const chunks: string[] = [];
+  const visibleForwarder = invocation.owner.kind === "chat" ? createChatVisibleOutputForwarder(invocation.output.write) : null;
+  let visibleWriteChain = Promise.resolve();
   let completed = false;
   const { session } = await createSession({
     cwd: invocation.projectDir,
@@ -269,10 +281,16 @@ export async function invokePiSdkHarness(
   try {
     const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
       if (event.type !== "message_update" || event.assistantMessageEvent.type !== "text_delta") return;
-      chunks.push(event.assistantMessageEvent.delta);
+      const delta = event.assistantMessageEvent.delta;
+      chunks.push(delta);
+      if (visibleForwarder) {
+        visibleWriteChain = visibleWriteChain.then(() => visibleForwarder.push(delta));
+      }
     });
     try {
       await session.prompt(prompt, { source: "rpc" });
+      await visibleWriteChain;
+      await visibleForwarder?.finish();
       completed = true;
     } finally {
       unsubscribe();
@@ -295,8 +313,10 @@ export async function invokePiSdkHarness(
   }
 
   const outputText = chunks.join("");
-  const visibleOutput = invocation.owner.kind === "loop" ? outputText.trimEnd() : stripHandoffLines(outputText).trim();
-  if (visibleOutput) await invocation.output.write(visibleOutput);
+  if (invocation.owner.kind === "loop") {
+    const visibleOutput = outputText.trimEnd();
+    if (visibleOutput) await invocation.output.write(visibleOutput);
+  }
   return {
     handoff: extractLatestHandoffFromText(invocation.agent, outputText, invocation.phase),
   };
@@ -598,13 +618,6 @@ function allowedToolsForPhase(phase: HarnessPhase): string[] {
   return ["read", "bash", "edit", "write", "grep", "find", "ls"];
 }
 
-function stripHandoffLines(text: string): string {
-  return text
-    .split("\n")
-    .filter((line) => !line.trimStart().startsWith("JRI_HANDOFF_JSON:"))
-    .join("\n");
-}
-
 function piAuthPath(env: NodeJS.ProcessEnv): string {
   return join(env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), "auth.json");
 }
@@ -662,6 +675,8 @@ type CapturedCommand = {
   env: NodeJS.ProcessEnv;
   timeoutMs: number;
   signal?: AbortSignal;
+  onStdoutChunk?: (chunk: string) => void | Promise<void>;
+  onStderrChunk?: (chunk: string) => void | Promise<void>;
   child?: {
     projectDir: string;
     loopId: string;
@@ -690,7 +705,11 @@ async function runCommandCapture(request: CapturedCommand): Promise<{ exitCode: 
     terminateProcess(proc);
   }, request.timeoutMs);
   try {
-    const [stdout, stderr, exitCode] = await Promise.all([streamText(proc.stdout), streamText(proc.stderr), proc.exited]);
+    const [stdout, stderr, exitCode] = await Promise.all([
+      streamText(proc.stdout, request.onStdoutChunk),
+      streamText(proc.stderr, request.onStderrChunk),
+      proc.exited,
+    ]);
     if (cancellation.cancelled) throw harnessCancelledError();
     if (timedOut) {
       throw new JriError(
@@ -819,16 +838,86 @@ function loopChildRegistryPath(projectDir: string, loopId: string): string {
   return join(projectDir, ".jri", "logs", loopId, "child-processes.jsonl");
 }
 
-async function streamText(stream: ReadableStream<Uint8Array>): Promise<string> {
+async function streamText(
+  stream: ReadableStream<Uint8Array>,
+  onChunk?: (chunk: string) => void | Promise<void>,
+): Promise<string> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   let text = "";
   for (;;) {
     const chunk = await reader.read();
     if (chunk.done) break;
-    text += decoder.decode(chunk.value, { stream: true });
+    const decoded = decoder.decode(chunk.value, { stream: true });
+    if (!decoded) continue;
+    text += decoded;
+    await onChunk?.(decoded);
   }
-  return text + decoder.decode();
+  const tail = decoder.decode();
+  if (tail) {
+    text += tail;
+    await onChunk?.(tail);
+  }
+  return text;
+}
+
+function createChatVisibleOutputForwarder(write: HarnessOutputSink["write"]): {
+  push: (chunk: string) => Promise<void>;
+  finish: () => Promise<void>;
+} {
+  const handoffPrefix = "JRI_HANDOFF_JSON:";
+  let atLineStart = true;
+  let candidatePrefix = "";
+  let suppressingLine = false;
+
+  const flushVisible = async (text: string): Promise<void> => {
+    if (!text) return;
+    await write(text);
+  };
+
+  return {
+    async push(chunk: string): Promise<void> {
+      if (!chunk) return;
+      let visible = "";
+      for (const char of chunk) {
+        if (suppressingLine) {
+          if (char === "\n") {
+            suppressingLine = false;
+            atLineStart = true;
+          }
+          continue;
+        }
+
+        if (atLineStart) {
+          candidatePrefix += char;
+          if (handoffPrefix.startsWith(candidatePrefix)) {
+            if (candidatePrefix === handoffPrefix) {
+              candidatePrefix = "";
+              suppressingLine = true;
+              atLineStart = false;
+            }
+            continue;
+          }
+
+          visible += candidatePrefix;
+          atLineStart = candidatePrefix.endsWith("\n");
+          candidatePrefix = "";
+          continue;
+        }
+
+        visible += char;
+        if (char === "\n") atLineStart = true;
+      }
+      await flushVisible(visible);
+    },
+    async finish(): Promise<void> {
+      if (suppressingLine || candidatePrefix.length === 0) return;
+      const visible = candidatePrefix;
+      candidatePrefix = "";
+      atLineStart = visible.endsWith("\n");
+      await flushVisible(visible);
+    },
+  };
 }
 
 async function writeExplorerArtifact(projectDir: string, loopId: string, task: string, output: string): Promise<string> {

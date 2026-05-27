@@ -98,38 +98,92 @@ async function* runInterrogator(
   yield started;
   const context = await buildInterrogatorContext(projectDir, message, observation);
 
-  const chunks: string[] = [];
-  const result = await harness({
-    owner: { kind: "chat", turnId: started.id },
-    projectDir,
-    agent: "interrogator",
-    phase: "interrogation",
-    model: modelForAgent(await readProjectConfig(projectDir), "interrogator"),
-    context,
-    capabilities: [{ name: "web", operation: "search" }, { name: "web", operation: "fetch" }],
-    output: {
-      write: (chunk) => {
-        if (chunk) chunks.push(chunk);
-      },
-    },
-    signal: options.signal ?? new AbortController().signal,
-  });
+  const queuedEvents: CoreEvent[] = [];
+  let assistantText = "";
+  let queueClosed = false;
+  let notifyQueue: (() => void) | undefined;
+  let writeChain = Promise.resolve();
+  const enqueueEvent = (event: CoreEvent): void => {
+    queuedEvents.push(event);
+    notifyQueue?.();
+    notifyQueue = undefined;
+  };
+  const closeQueue = (): void => {
+    queueClosed = true;
+    notifyQueue?.();
+    notifyQueue = undefined;
+  };
+  const nextQueuedEvent = async (): Promise<CoreEvent | null> => {
+    while (queuedEvents.length === 0) {
+      if (queueClosed) return null;
+      await new Promise<void>((resolve) => {
+        notifyQueue = resolve;
+      });
+    }
+    return queuedEvents.shift() ?? null;
+  };
+  const resultPromise = (async () => {
+    try {
+      return await harness({
+        owner: { kind: "chat", turnId: started.id },
+        projectDir,
+        agent: "interrogator",
+        phase: "interrogation",
+        model: modelForAgent(await readProjectConfig(projectDir), "interrogator"),
+        context,
+        capabilities: [{ name: "web", operation: "search" }, { name: "web", operation: "fetch" }],
+        output: {
+          write: (chunk) => {
+            if (!chunk) return;
+            writeChain = writeChain.then(async () => {
+              assistantText += chunk;
+              enqueueEvent(
+                await appendInterrogationEvent(projectDir, {
+                  type: "chatMessageDelta",
+                  data: { role: "assistant", text: assistantText },
+                  message: assistantText,
+                }),
+              );
+            });
+            return writeChain;
+          },
+        },
+        signal: options.signal ?? new AbortController().signal,
+      });
+    } finally {
+      try {
+        await writeChain;
+      } finally {
+        closeQueue();
+      }
+    }
+  })();
+
+  for (;;) {
+    const event = await nextQueuedEvent();
+    if (!event) break;
+    yield event;
+  }
+
+  const result = await resultPromise;
 
   const handoff = result.handoff;
   if (handoff.agent !== "interrogator") {
     throw new Error("Interrogation harness returned a non-interrogator handoff.");
   }
-  const assistantText = chunks.join("").trim() || assistantTextForInterrogatorHandoff(handoff);
-  yield await appendInterrogationEvent(projectDir, {
-    type: "chatMessageDelta",
-    data: { role: "assistant", text: assistantText },
-    message: assistantText,
-  });
+  const finalizedAssistantText = assistantText.trim() || assistantTextForInterrogatorHandoff(handoff);
+  if (!assistantText.trim()) {
+    yield await appendInterrogationEvent(projectDir, {
+      type: "chatMessageDelta",
+      data: { role: "assistant", text: finalizedAssistantText },
+      message: finalizedAssistantText,
+    });
+  }
   yield await appendInterrogationEvent(projectDir, {
     type: "chatMessageFinished",
     data: { role: "assistant" },
   });
-  yield await recordTurn(projectDir, "assistant", assistantText);
+  yield await recordTurn(projectDir, "assistant", finalizedAssistantText);
   if (observation) {
     yield* handleObservationHandoff(projectDir, handoff);
     return;

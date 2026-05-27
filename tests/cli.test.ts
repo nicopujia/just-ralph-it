@@ -974,6 +974,60 @@ describe("CLI", () => {
     }
   });
 
+  test("interactive bare jri streams assistant output before the harness finishes", async () => {
+    const dir = await tempProject();
+    try {
+      const fakePi = join(dir, "fake-pi-streaming.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          "printf 'First streamed answer chunk.\\n'",
+          "sleep 1",
+          "printf 'Second streamed answer chunk.\\n'",
+          "printf 'JRI_HANDOFF_JSON: {\"agent\":\"interrogator\",\"action\":\"messageOnly\",\"summary\":\"Streamed both chunks.\"}\\n'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      const packageJson = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as { bin?: { jri?: string } };
+      const jriBin = join(repoRoot, packageJson.bin?.jri ?? "");
+
+      const proc = Bun.spawn(["script", "-q", "-e", "-c", jriBin, "/dev/null"], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          OPENAI_API_KEY: "test-key",
+          JRI_PI_COMMAND: fakePi,
+        },
+      });
+      const stdoutCapture = captureStream(proc.stdout);
+      const stderrPromise = new Response(proc.stderr).text();
+
+      setTimeout(() => {
+        proc.stdin.write("Need a CLI.\n");
+      }, 200);
+
+      await stdoutCapture.waitFor("First streamed answer chunk.", 1_500);
+      expect(await Promise.race([proc.exited.then(() => "exited"), Bun.sleep(200).then(() => "pending")])).toBe("pending");
+
+      proc.stdin.write("/exit\n");
+      proc.stdin.end();
+
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, stdoutCapture.done, stderrPromise]);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toBe("");
+      expect(stdout).toContain("First streamed answer chunk.");
+      expect(stdout).toContain("Second streamed answer chunk.");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 10_000);
+
   test("hidden run-explorer command prints a bounded handoff and artifact ref", async () => {
     const dir = await tempProject();
     try {
@@ -1458,6 +1512,47 @@ function daemonPathsForEnv(env: Record<string, string | undefined>): DaemonPaths
     stateDir: env.JRI_DAEMON_STATE_DIR!,
     socketPath: env.JRI_DAEMON_SOCKET_PATH!,
     registryPath: env.JRI_DAEMON_REGISTRY_PATH!,
+  };
+}
+
+function captureStream(stream: ReadableStream<Uint8Array>) {
+  let text = "";
+  const waiters = new Set<() => void>();
+  const done = (async () => {
+    const reader = stream.getReader();
+    const decoder = new TextDecoder();
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      text += decoder.decode(chunk.value, { stream: true });
+      for (const notify of waiters) notify();
+    }
+    text += decoder.decode();
+    for (const notify of waiters) notify();
+    return text;
+  })();
+
+  return {
+    get text() {
+      return text;
+    },
+    done,
+    async waitFor(pattern: string, timeoutMs: number): Promise<string> {
+      if (text.includes(pattern)) return text;
+      return await new Promise<string>((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          waiters.delete(check);
+          reject(new Error(`Timed out waiting for ${JSON.stringify(pattern)} in stream output.`));
+        }, timeoutMs);
+        const check = () => {
+          if (!text.includes(pattern)) return;
+          clearTimeout(timeout);
+          waiters.delete(check);
+          resolve(text);
+        };
+        waiters.add(check);
+      });
+    },
   };
 }
 

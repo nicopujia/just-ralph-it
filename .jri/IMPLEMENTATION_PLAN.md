@@ -1,8 +1,8 @@
 # Implementation Plan
 
 - [ ] Ship the primary bare-`jri` Pi terminal chat UI as the MVP default.
-  - Current state: bare interactive `jri` now uses a CLI-owned Pi-backed terminal surface via `@earendil-works/pi-tui`, preserves inline auth, routes turns through `project.chat.send()`, and is smoke-tested through the installed `jri` bin.
-  - Progress note: the MVP default is now the CLI-owned Pi-backed terminal flow rather than the readline fallback; the remaining gap is that assistant output is still buffered per turn instead of streaming incrementally through the terminal surface.
+  - Current state: bare interactive `jri` now uses a CLI-owned Pi-backed terminal surface via `@earendil-works/pi-tui`, preserves inline auth, routes turns through `project.chat.send()`, streams assistant output incrementally, and is smoke-tested through the installed `jri` bin.
+  - Remaining: confirm whether the CLI-owned Pi terminal surface satisfies the spec's intended Pi-primitives requirement or record the fallback rationale as durable dogfood evidence.
 
 - [ ] Replace prompt-injected web/explorer shell escape hatches with harness-native, runtime-declared capabilities reachable by the intended agents.
   - Current state: SDK-native `jri_web_search` exists only for chat-owned interrogator SDK sessions; loop agents still rely on prompt text for `jri --run-web ...` and `jri --run-explorer ...`.

@@ -276,7 +276,7 @@ describe("controlled Pi harness", () => {
       );
 
       expect(result.handoff).toMatchObject({ agent: "interrogator", action: "messageOnly" });
-      expect(chunks.join("")).toBe("SDK answer.");
+      expect(chunks.join("").trim()).toBe("SDK answer.");
       expect(capturedPrompt).toContain("You are the JRI interrogator");
       expect(capturedPrompt).toContain("Current user message:\nCurrent trimmed message.");
       expect(capturedOptions?.cwd).toBe(dir);

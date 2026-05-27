@@ -115,6 +115,57 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("ordinary chat streams cumulative assistant deltas as harness output arrives", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+
+      const events = await collect(
+        sendChat(dir, { message: "Stream the answer." }, {
+          interrogatorHarness: async (invocation) => {
+            await invocation.output.write("First streamed answer chunk.");
+            await Bun.sleep(10);
+            await invocation.output.write(" Second streamed answer chunk.");
+            return {
+              handoff: {
+                agent: "interrogator",
+                action: "messageOnly",
+                summary: "Streamed both chunks.",
+              },
+            };
+          },
+        }),
+      );
+
+      expect(events.map((event) => event.type)).toEqual([
+        "chatTurnRecorded",
+        "chatMessageStarted",
+        "chatMessageDelta",
+        "chatMessageDelta",
+        "chatMessageFinished",
+        "chatTurnRecorded",
+      ]);
+      expect(events[2]).toMatchObject({
+        type: "chatMessageDelta",
+        data: { text: "First streamed answer chunk." },
+      });
+      expect(events[3]).toMatchObject({
+        type: "chatMessageDelta",
+        data: { text: "First streamed answer chunk. Second streamed answer chunk." },
+      });
+
+      const log = await readJsonl(join(dir, ".jri", "logs", "interrogation.jsonl"));
+      expect(log.at(-1)).toMatchObject({
+        type: "chatTurnRecorded",
+        data: { role: "assistant", content: "First streamed answer chunk. Second streamed answer chunk." },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("ordinary chat passes selected durable context refs to the interrogator", async () => {
     const dir = await tempProject();
     try {
@@ -1283,9 +1334,10 @@ describe("interrogation chat", () => {
       await Promise.allSettled(runnerPromises);
 
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const loopEvents = await readJsonl(join(dir, ".jri", "logs", "20260527T200000Z", "events.jsonl"));
 
       expect(events.map((event) => event.type)).toContain("loopStarted");
-      expect(events.at(-1)).toMatchObject({
+      expect(loopEvents.at(-1)).toMatchObject({
         type: "loopFinished",
         data: {
           outcome: "failed",
