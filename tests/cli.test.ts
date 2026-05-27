@@ -466,7 +466,53 @@ describe("CLI", () => {
     }
   });
 
-  test("interactive bare jri blocks with auth recovery guidance when auth is missing", async () => {
+  test("interactive bare jri runs inline auth and continues when credentials become available", async () => {
+    const dir = await tempProject();
+    try {
+      const piDir = join(dir, "pi-agent");
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          "mkdir -p \"$PI_CODING_AGENT_DIR\"",
+          "printf '{\"openai\":{\"access\":\"access-token\"}}\\n' > \"$PI_CODING_AGENT_DIR/auth.json\"",
+          "printf 'pi-login-ok\\n'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      const proc = Bun.spawn(["script", "-q", "-e", "-c", `bun ${cliPath}`, "/dev/null"], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          OPENAI_API_KEY: "",
+          PI_CODING_AGENT_DIR: piDir,
+          JRI_PI_COMMAND: fakePi,
+        },
+      });
+      setTimeout(() => {
+        proc.stdin.write("/exit\n");
+        proc.stdin.end();
+      }, 250);
+
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(`${stdout}\n${stderr}`).toContain("OpenAI authentication is required");
+      expect(stdout).toContain("pi-login-ok");
+      expect(stdout).toContain("Authenticated.");
+      expect(stdout).toContain("jri>");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("interactive bare jri exits with recovery guidance when inline auth cannot run", async () => {
     const dir = await tempProject();
     try {
       const proc = Bun.spawn(["script", "-q", "-e", "-c", `bun ${cliPath}`, "/dev/null"], {
@@ -477,6 +523,7 @@ describe("CLI", () => {
           ...process.env,
           OPENAI_API_KEY: "",
           PI_CODING_AGENT_DIR: join(dir, "pi-agent"),
+          JRI_PI_COMMAND: join(dir, "missing-pi"),
         },
       });
 
@@ -484,7 +531,8 @@ describe("CLI", () => {
 
       expect(exitCode).toBe(1);
       expect(`${stdout}\n${stderr}`).toContain("OpenAI authentication is required");
-      expect(`${stdout}\n${stderr}`).toContain("jri auth login");
+      expect(`${stdout}\n${stderr}`).toContain("Pi auth passthrough is unavailable");
+      expect(`${stdout}\n${stderr}`).toContain("jri auth --help");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

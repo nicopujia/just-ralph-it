@@ -31,10 +31,6 @@
   - Filter recent turns by relevant unsealed topics and enforce scratchpad cleanup proof before sealing.
   - Add observation-mode graceful stop handling and before/after `.jri/specs/*` mutation guards for observation, planning, and building.
 
-- P0: Fix remaining public CLI/auth lifecycle correctness.
-  - Confirmed gap: interactive bare `jri` exits with status 1 on `userActionRequired` instead of continuing an inline auth flow or returning to the REPL with direct recovery.
-  - Continue Pi-backed auth recovery inline where possible.
-
 - P1: Finish attach and fallback terminal experience.
   - Confirmed gap: attach readiness remains timing-sensitive instead of deterministic.
   - Confirmed gap: interactive bare `jri` uses the fallback readline REPL and prints status only between prompts, not as a live status line.
@@ -85,3 +81,4 @@
   - Daemon-owned public lifecycle mutation baseline, read-only local fallback, status mutation locking, loop id generation, event sequencing baseline, start-trigger normalization, runtime recovery for dead/stale ownership, planner plan existence checks, and stopped-loop resume lineage checks are implemented.
   - Audit pass now computes the canonical `.jri/specs/*.md` fingerprint in daemon/core, rejects auditor fingerprint mismatches as durable runtime failures, persists only the core-computed value, and covers non-empty specs directories by using directory `stat` instead of `Bun.file(directory).exists()`.
   - Start-gate manual spec reconciliation now detects edits to open topics as well as sealed topics, and auditor harness context sees interrogation state plus scratchpad refs before authorization.
+  - Interactive bare `jri` now reuses Pi-backed `jri auth login` recovery inline and continues into the fallback REPL when credentials become available; unsupported or non-interactive auth failures still return actionable recovery. This matters because the primary bare-`jri` path no longer exits before the user can recover and continue. Covered by `tests/cli.test.ts`.

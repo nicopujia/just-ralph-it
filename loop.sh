@@ -31,7 +31,7 @@ run_iteration() {
     echo "✅ Codex $mode iteration complete"
 }
 
-run_iteration "plan" "PROMPT_plan.md"
+# run_iteration "plan" "PROMPT_plan.md"
 
 while true; do
     run_iteration "build" "PROMPT_build.md"

@@ -77,11 +77,8 @@ async function main(argv: string[]): Promise<number> {
       console.error(`Initialized JRI in ${project.projectDir}`);
     }
     if (process.stdin.isTTY) {
-      const auth = await project.auth.login();
-      if (auth.status === "userActionRequired") {
-        console.error(auth.instructions);
-        return 1;
-      }
+      const authExitCode = await runStableAuthLogin(project);
+      if (authExitCode !== 0) return authExitCode;
     }
     if (process.stdin.isTTY) {
       await runInteractiveChat(project);
