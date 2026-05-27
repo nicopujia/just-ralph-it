@@ -112,14 +112,19 @@ export async function runControlledPiSession(request: HarnessSessionRequest): Pr
   }
 }
 
-export async function invokeDefaultHarness(invocation: HarnessInvocation, env: NodeJS.ProcessEnv = process.env): Promise<HarnessResult> {
+export async function invokeDefaultHarness(
+  invocation: HarnessInvocation,
+  env: NodeJS.ProcessEnv = process.env,
+  createSession: PiSdkSessionFactory = createAgentSession,
+): Promise<HarnessResult> {
   assertHarnessCapabilities(invocation);
   if (invocation.signal.aborted) {
     throw harnessCancelledError();
   }
 
-  if (!env.JRI_PI_COMMAND) {
-    return await invokePiSdkHarness(invocation, env);
+  const allowChatWrapperFallback = env.JRI_INTERNAL_ALLOW_CHAT_WRAPPER_FALLBACK === "1";
+  if ((invocation.owner.kind === "chat" && !allowChatWrapperFallback) || !env.JRI_PI_COMMAND) {
+    return await invokePiSdkHarness(invocation, env, createSession);
   }
 
   const loopId = invocation.owner.kind === "loop" ? invocation.owner.loopId : `chat-${invocation.owner.turnId}`;

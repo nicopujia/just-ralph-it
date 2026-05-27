@@ -250,6 +250,7 @@ describe("CLI", () => {
         env: {
           ...process.env,
           JRI_PI_COMMAND: fakePi,
+          JRI_INTERNAL_ALLOW_CHAT_WRAPPER_FALLBACK: "1",
         },
       });
       proc.stdin.write("Need a deployment workflow.\n");
@@ -344,6 +345,7 @@ describe("CLI", () => {
         env: {
           ...process.env,
           JRI_PI_COMMAND: fakePi,
+          JRI_INTERNAL_ALLOW_CHAT_WRAPPER_FALLBACK: "1",
         },
       });
       proc.stdin.write("Capture the CLI scope.\n");
@@ -438,6 +440,7 @@ describe("CLI", () => {
         env: {
           ...process.env,
           JRI_PI_COMMAND: fakePi,
+          JRI_INTERNAL_ALLOW_CHAT_WRAPPER_FALLBACK: "1",
         },
       });
       proc.stdin.write("done\n");
@@ -947,6 +950,7 @@ describe("CLI", () => {
           ...process.env,
           OPENAI_API_KEY: "test-key",
           JRI_PI_COMMAND: fakePi,
+          JRI_INTERNAL_ALLOW_CHAT_WRAPPER_FALLBACK: "1",
         },
       });
       setTimeout(() => {
@@ -1002,6 +1006,7 @@ describe("CLI", () => {
           ...process.env,
           OPENAI_API_KEY: "test-key",
           JRI_PI_COMMAND: fakePi,
+          JRI_INTERNAL_ALLOW_CHAT_WRAPPER_FALLBACK: "1",
         },
       });
       const stdoutCapture = captureStream(proc.stdout);

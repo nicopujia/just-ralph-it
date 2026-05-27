@@ -17,6 +17,39 @@ async function tempProject(): Promise<string> {
   return dir;
 }
 
+function createInterrogatorMessageSession(
+  delta: string,
+  summary: string,
+  onPrompt?: (prompt: string) => void | Promise<void>,
+): PiSdkSessionFactory {
+  return async () => {
+    const listeners: Array<(event: unknown) => void> = [];
+    return {
+      extensionsResult: { extensions: [], diagnostics: [], collisions: [] },
+      session: {
+        subscribe(listener: (event: unknown) => void) {
+          listeners.push(listener);
+          return () => {};
+        },
+        async prompt(prompt: string) {
+          await onPrompt?.(prompt);
+          for (const listener of listeners) {
+            listener({
+              type: "message_update",
+              assistantMessageEvent: {
+                type: "text_delta",
+                delta: `${delta}\nJRI_HANDOFF_JSON: {"agent":"interrogator","action":"messageOnly","summary":${JSON.stringify(summary)}}\n`,
+              },
+            });
+          }
+        },
+        async abort() {},
+        dispose() {},
+      },
+    } as unknown as Awaited<ReturnType<PiSdkSessionFactory>>;
+  };
+}
+
 describe("controlled Pi harness", () => {
   test("builds an isolated auditing command with read-only tools and session directory", async () => {
     const dir = await tempProject();
@@ -126,21 +159,7 @@ describe("controlled Pi harness", () => {
   test("default interrogator harness keeps the current message separate from recent context", async () => {
     const dir = await tempProject();
     try {
-      const capturedPromptPath = join(dir, "captured-prompt.txt");
-      const fakePi = join(dir, "fake-pi-capture.sh");
-      await writeFile(
-        fakePi,
-        [
-          "#!/usr/bin/env bash",
-          "prompt=\"${@: -1}\"",
-          `printf '%s' "$prompt" > ${JSON.stringify(capturedPromptPath)}`,
-          "printf 'Assistant answer.\\n'",
-          "printf 'JRI_HANDOFF_JSON: {\"agent\":\"interrogator\",\"action\":\"messageOnly\",\"summary\":\"Answered.\"}\\n'",
-        ].join("\n"),
-        "utf8",
-      );
-      await chmod(fakePi, 0o755);
-
+      let capturedPrompt = "";
       const chunks: string[] = [];
       await invokeDefaultHarness(
         {
@@ -162,14 +181,16 @@ describe("controlled Pi harness", () => {
           signal: new AbortController().signal,
         },
         {
-          JRI_PI_COMMAND: fakePi,
+          OPENAI_API_KEY: "test-key",
         },
+        createInterrogatorMessageSession("Assistant answer.", "Answered.", (prompt) => {
+          capturedPrompt = prompt;
+        }),
       );
 
-      const prompt = await readFile(capturedPromptPath, "utf8");
-      expect(prompt).toContain("Recent unsealed interrogation turns:\nuser: older context");
-      expect(prompt).toContain("Current user message:\nCurrent trimmed message.");
-      expect(prompt).not.toContain("Current user message:\nRecent unsealed interrogation turns");
+      expect(capturedPrompt).toContain("Recent unsealed interrogation turns:\nuser: older context");
+      expect(capturedPrompt).toContain("Current user message:\nCurrent trimmed message.");
+      expect(capturedPrompt).not.toContain("Current user message:\nRecent unsealed interrogation turns");
       expect(chunks.join("")).toContain("Assistant answer.");
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -569,21 +590,33 @@ describe("controlled Pi harness", () => {
   test("default harness cancels an in-flight Pi child process", async () => {
     const dir = await tempProject();
     try {
-      const fakePi = join(dir, "fake-pi-sleep.ts");
-      await writeFile(
-        fakePi,
-        [
-          `#!${process.execPath}`,
-          "process.on('SIGTERM', () => {});",
-          "await new Promise((resolve) => setTimeout(resolve, 5000));",
-          "process.stdout.write('JRI_HANDOFF_JSON: {\"agent\":\"interrogator\",\"action\":\"messageOnly\"}\\n');",
-        ].join("\n"),
-        "utf8",
-      );
-      await chmod(fakePi, 0o755);
-
       const controller = new AbortController();
       const startedAt = Date.now();
+      let releasePrompt: (() => void) | undefined;
+      const createSession: PiSdkSessionFactory = async () => {
+        let aborted = false;
+        const promptRelease = Promise.withResolvers<void>();
+        releasePrompt = () => promptRelease.resolve();
+        return {
+          extensionsResult: { extensions: [], diagnostics: [], collisions: [] },
+          session: {
+            subscribe() {
+              return () => {};
+            },
+            async prompt() {
+              await promptRelease.promise;
+              if (!aborted) {
+                throw new Error("prompt resumed without cancellation");
+              }
+            },
+            async abort() {
+              aborted = true;
+              promptRelease.resolve();
+            },
+            dispose() {},
+          },
+        } as unknown as Awaited<ReturnType<PiSdkSessionFactory>>;
+      };
       const promise = invokeDefaultHarness(
         {
           owner: { kind: "chat", turnId: "turn-1" },
@@ -597,14 +630,16 @@ describe("controlled Pi harness", () => {
           signal: controller.signal,
         },
         {
-          JRI_PI_COMMAND: fakePi,
+          OPENAI_API_KEY: "test-key",
         },
+        createSession,
       );
 
       setTimeout(() => controller.abort(), 50);
 
       await expect(promise).rejects.toThrow("JRI harness invocation was cancelled");
       expect(Date.now() - startedAt).toBeLessThan(1_500);
+      releasePrompt?.();
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

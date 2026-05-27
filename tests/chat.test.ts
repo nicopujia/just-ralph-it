@@ -11,7 +11,7 @@ import { defaultStatus } from "../src/core/schema";
 import { appendLoopEvent, updateStatus, writeStatusAtomic } from "../src/core/runtime-state";
 import { fingerprintSpecFile, recordInterrogatorSpecUpdate, writeInterrogationState } from "../src/core/interrogation-state";
 import type { CoreEvent } from "../src/core";
-import { invokePiSdkHarness, type HarnessAdapter, type PiSdkSessionFactory } from "../src/core/harness";
+import { invokeDefaultHarness, invokePiSdkHarness, type HarnessAdapter, type PiSdkSessionFactory } from "../src/core/harness";
 
 async function tempProject(): Promise<string> {
   return await mkdtemp(join(tmpdir(), "jri-chat-test-"));
@@ -26,21 +26,56 @@ function tempDaemonPaths(dir: string): DaemonPaths {
   };
 }
 
+function createInterrogatorMessageSession(
+  delta: string,
+  summary: string,
+  onPrompt?: (prompt: string) => void | Promise<void>,
+): PiSdkSessionFactory {
+  return async () => {
+    const listeners: Array<(event: unknown) => void> = [];
+    return {
+      extensionsResult: { extensions: [], diagnostics: [], collisions: [] },
+      session: {
+        subscribe(listener: (event: unknown) => void) {
+          listeners.push(listener);
+          return () => {};
+        },
+        async prompt(prompt: string) {
+          await onPrompt?.(prompt);
+          for (const listener of listeners) {
+            listener({
+              type: "message_update",
+              assistantMessageEvent: {
+                type: "text_delta",
+                delta: `${delta}\nJRI_HANDOFF_JSON: {"agent":"interrogator","action":"messageOnly","summary":${JSON.stringify(summary)}}\n`,
+              },
+            });
+          }
+        },
+        async abort() {},
+        dispose() {},
+      },
+    } as unknown as Awaited<ReturnType<PiSdkSessionFactory>>;
+  };
+}
+
 describe("interrogation chat", () => {
   test("records user and assistant turns in interrogation history", async () => {
     const dir = await tempProject();
-    const previousPiCommand = process.env.JRI_PI_COMMAND;
     try {
-      process.env.JRI_PI_COMMAND = await writeFakePi(
-        dir,
-        "fake-interrogator.sh",
-        [
-          "Which CLI commands should be in scope?",
-          'JRI_HANDOFF_JSON: {"agent":"interrogator","action":"messageOnly","summary":"Asked about CLI scope."}',
-        ].join("\n"),
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      const events = await collect(
+        sendChat(dir, { message: "We need a CLI." }, {
+          interrogatorHarness: (invocation) =>
+            invokeDefaultHarness(
+              invocation,
+              { OPENAI_API_KEY: "test-key" },
+              createInterrogatorMessageSession("Which CLI commands should be in scope?", "Asked about CLI scope."),
+            ),
+        }),
       );
-      const project = await open(dir);
-      const events = await collect(project.chat.send({ message: "We need a CLI." }));
 
       expect(events.map((event) => event.type)).toEqual([
         "chatTurnRecorded",
@@ -57,7 +92,6 @@ describe("interrogation chat", () => {
       expect(log[4]).toMatchObject({ type: "chatTurnRecorded", data: { role: "assistant" } });
       expect(log.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5]);
     } finally {
-      restoreEnv("JRI_PI_COMMAND", previousPiCommand);
       await rm(dir, { recursive: true, force: true });
     }
   });
@@ -260,6 +294,98 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("ordinary chat keeps interrogator runs on native SDK tools even when JRI_PI_COMMAND is configured", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nUse current docs when needed.\n", "utf8");
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await recordInterrogatorSpecUpdate(dir, [".jri/specs/app.md"]);
+
+      const wrapperEvidencePath = join(dir, "wrapper-invoked.txt");
+      const fakePi = join(dir, "fake-wrapper-only.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          `printf 'wrapper path used\\n' > ${JSON.stringify(wrapperEvidencePath)}`,
+          "printf 'wrapper should not run\\n' >&2",
+          "exit 91",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      const fakeWeb = join(dir, "fake-web-fetch.sh");
+      await writeFile(
+        fakeWeb,
+        [
+          "#!/usr/bin/env bash",
+          'printf \'{"url":"https://example.com/docs","title":"Docs","fetchedAt":"2026-05-27T20:00:00.000Z","markdown":"# Docs\\\\n\\\\nCurrent guidance."}\'',
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeWeb, 0o755);
+
+      let capturedOptions: Parameters<PiSdkSessionFactory>[0] | undefined;
+      let capturedPrompt = "";
+      const listeners: Array<(event: unknown) => void> = [];
+      const createSession: PiSdkSessionFactory = async (options) => {
+        capturedOptions = options;
+        return {
+          extensionsResult: { extensions: [], diagnostics: [], collisions: [] },
+          session: {
+            subscribe(listener: (event: unknown) => void) {
+              listeners.push(listener);
+              return () => {};
+            },
+            async prompt(prompt: string) {
+              capturedPrompt = prompt;
+              for (const listener of listeners) {
+                listener({
+                  type: "message_update",
+                  assistantMessageEvent: {
+                    type: "text_delta",
+                    delta:
+                      'Fetched the current docs.\nJRI_HANDOFF_JSON: {"agent":"interrogator","action":"messageOnly","summary":"Answered with native tools while JRI_PI_COMMAND was configured."}\n',
+                  },
+                });
+              }
+            },
+            async abort() {},
+            dispose() {},
+          },
+        } as unknown as Awaited<ReturnType<PiSdkSessionFactory>>;
+      };
+
+      const events = await collect(
+        sendChat(dir, { message: "Fetch the current docs." }, {
+          interrogatorHarness: (invocation) =>
+            invokeDefaultHarness(invocation, { OPENAI_API_KEY: "test-key", JRI_PI_COMMAND: fakePi, JRI_PI_WEB_COMMAND: fakeWeb }, createSession),
+        }),
+      );
+
+      expect(capturedOptions?.customTools?.map((tool) => tool.name)).toEqual(["jri_web_search", "jri_web_fetch"]);
+      expect(capturedOptions?.tools).toContain("jri_web_fetch");
+      expect(capturedPrompt).toContain("jri_web_fetch");
+      expect(capturedPrompt).not.toContain("jri --run-web");
+      expect(await Bun.file(wrapperEvidencePath).exists()).toBe(false);
+      expect(events.map((event) => event.type)).toEqual([
+        "chatTurnRecorded",
+        "chatMessageStarted",
+        "chatMessageDelta",
+        "chatMessageFinished",
+        "chatTurnRecorded",
+      ]);
+
+      const log = await readJsonl(join(dir, ".jri", "logs", "interrogation.jsonl"));
+      expect(log.at(-1)).toMatchObject({ type: "chatTurnRecorded", data: { role: "assistant", content: "Fetched the current docs." } });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("ordinary chat passes selected durable context refs to the interrogator", async () => {
     const dir = await tempProject();
     try {
@@ -380,7 +506,6 @@ describe("interrogation chat", () => {
 
   test("project chat selects recent turns for the active open topic instead of all open-topic transcript noise", async () => {
     const dir = await tempProject();
-    const previousPiCommand = process.env.JRI_PI_COMMAND;
     try {
       await mkdir(join(dir, ".jri", "logs"), { recursive: true });
       await mkdir(join(dir, ".jri", "specs"), { recursive: true });
@@ -462,24 +587,19 @@ describe("interrogation chat", () => {
           "",
         ].join("\n"),
       );
-      const promptPath = join(dir, "captured-prompt.txt");
-      const fakePi = join(dir, "fake-open-topic-pi.sh");
-      await writeFile(
-        fakePi,
-        [
-          "#!/usr/bin/env bash",
-          `printf '%s' \"\${@: -1}\" > ${JSON.stringify(promptPath)}`,
-          "printf 'Which billing defaults should Ralph capture?\\n'",
-          "printf 'JRI_HANDOFF_JSON: {\"agent\":\"interrogator\",\"action\":\"messageOnly\",\"summary\":\"Asked about billing defaults.\"}\\n'",
-        ].join("\n"),
-        "utf8",
+      let prompt = "";
+      const events = await collect(
+        sendChat(dir, { message: "Billing still needs a default team plan." }, {
+          interrogatorHarness: (invocation) =>
+            invokeDefaultHarness(
+              invocation,
+              { OPENAI_API_KEY: "test-key" },
+              createInterrogatorMessageSession("Which billing defaults should Ralph capture?", "Asked about billing defaults.", (value) => {
+                prompt = value;
+              }),
+            ),
+        }),
       );
-      await chmod(fakePi, 0o755);
-      process.env.JRI_PI_COMMAND = fakePi;
-
-      const project = await open(dir);
-      const events = await collect(project.chat.send({ message: "Billing still needs a default team plan." }));
-      const prompt = await readFile(promptPath, "utf8");
 
       expect(events.find((event) => event.type === "chatMessageDelta")).toMatchObject({
         data: { text: expect.stringContaining("Which billing defaults should Ralph capture?") },
@@ -492,14 +612,12 @@ describe("interrogation chat", () => {
       expect(prompt).not.toContain("Deployment should go through Cloudflare Pages.");
       expect(prompt).not.toContain("Deployment is sealed in the deployment spec.");
     } finally {
-      restoreEnv("JRI_PI_COMMAND", previousPiCommand);
       await rm(dir, { recursive: true, force: true });
     }
   });
 
   test("project chat can backfill older turns for the active open topic when recent transcript has no matching context", async () => {
     const dir = await tempProject();
-    const previousPiCommand = process.env.JRI_PI_COMMAND;
     try {
       await mkdir(join(dir, ".jri", "logs"), { recursive: true });
       await mkdir(join(dir, ".jri", "specs"), { recursive: true });
@@ -561,31 +679,25 @@ describe("interrogation chat", () => {
         ].join("\n"),
       );
 
-      const promptPath = join(dir, "captured-prompt.txt");
-      const fakePi = join(dir, "fake-backfill-topic-pi.sh");
-      await writeFile(
-        fakePi,
-        [
-          "#!/usr/bin/env bash",
-          `printf '%s' \"\${@: -1}\" > ${JSON.stringify(promptPath)}`,
-          "printf 'Should billing keep usage-based pricing?\\n'",
-          "printf 'JRI_HANDOFF_JSON: {\"agent\":\"interrogator\",\"action\":\"messageOnly\",\"summary\":\"Asked about billing pricing.\"}\\n'",
-        ].join("\n"),
-        "utf8",
+      let prompt = "";
+      await collect(
+        sendChat(dir, { message: "Please continue the billing pricing discussion." }, {
+          interrogatorHarness: (invocation) =>
+            invokeDefaultHarness(
+              invocation,
+              { OPENAI_API_KEY: "test-key" },
+              createInterrogatorMessageSession("Should billing keep usage-based pricing?", "Asked about billing pricing.", (value) => {
+                prompt = value;
+              }),
+            ),
+        }),
       );
-      await chmod(fakePi, 0o755);
-      process.env.JRI_PI_COMMAND = fakePi;
-
-      const project = await open(dir);
-      await collect(project.chat.send({ message: "Please continue the billing pricing discussion." }));
-      const prompt = await readFile(promptPath, "utf8");
 
       expect(prompt).toContain("Billing should keep usage-based pricing for teams.");
       expect(prompt).toContain("Billing is still open for pricing details.");
       expect(prompt).not.toContain("Analytics should launch with a dashboard summary card.");
       expect(prompt).not.toContain("Analytics is still open for dashboard metrics.");
     } finally {
-      restoreEnv("JRI_PI_COMMAND", previousPiCommand);
       await rm(dir, { recursive: true, force: true });
     }
   });

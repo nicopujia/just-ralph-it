@@ -1,21 +1,33 @@
 # Implementation Plan
 
-- [ ] Ship the primary bare-`jri` Pi terminal chat UI as the MVP default.
-  - Current state: bare interactive `jri` now uses a CLI-owned Pi-backed terminal surface via `@earendil-works/pi-tui`, preserves inline auth, routes turns through `project.chat.send()`, streams assistant output incrementally, and is smoke-tested through the installed `jri` bin.
-  - Remaining: confirm whether the CLI-owned Pi terminal surface satisfies the spec's intended Pi-primitives requirement or record the fallback rationale as durable dogfood evidence.
+- [ ] Remove the remaining wrapper-path guidance from native capability paths.
+  - `buildPiPrompt()` still defaults capability instructions to wrapper commands.
+  - `src/core/capabilities.ts` still renders `jri --run-web ...` / `jri --run-explorer ...` guidance.
+  - The explorer wrapper prompt still leaks `pi-subagent` / wrapper language.
 
-- [ ] Replace prompt-injected web/explorer shell escape hatches with harness-native, runtime-declared capabilities reachable by the intended agents.
-  - Current state: SDK-native `jri_web_search` and `jri_web_fetch` now exist, SDK tool registration enforces declared web search/fetch separation, the generated explorer compatibility descriptor no longer tells explorers to use `jri --run-web` wrapper commands directly, and SDK prompts for interrogator/planner/builder/auditor now reference native `jri_web_search`, `jri_web_fetch`, and `jri_explorer` tool names instead of leaking hidden wrapper commands. Loop-owned planner/builder explorer work still flows through `jri_explorer -> invokePiSdkHarness() -> runExplorerTask()`, which records durable `subagentStarted`/`subagentFinished` evidence.
-  - Remaining: retire any other legacy wrapper-command guidance and preserve regression coverage around native web/explorer routing so the harness-native contract stays durable.
+- [ ] Enforce capability policy consistently across prompt, runtime, and tool registration.
+  - Web operation declarations are not fully enforced when the capability operation is omitted.
+  - Explorer runs are over-granted both web operations regardless of task.
+  - The explorer internal entrypoint does not use the same owner-metadata contract as web.
 
-- [ ] Finish capability policy cleanup around native descriptors and grants.
-  - Current state: `capabilities.ts`, `web-capability.ts`, and `harness.ts` enforce many ownership/shape rules, but descriptor-like policy is still mixed with prompt-driven paths; user-visible web/explorer capability failures now use JRI-native actionable wording without leaking package names, and regression coverage was added.
-  - Remaining: consolidate runtime-declared policy, reduce over-granted web/explorer access, and keep chat-owned capability ownership validation/preflight actionable.
+- [ ] Close the remaining bare-`jri` dogfood readiness item.
+  - Current state: bare interactive `jri` uses a CLI-owned Pi-backed terminal surface via `@earendil-works/pi-tui`, preserves inline auth, routes turns through `project.chat.send()`, streams assistant output incrementally, and has installed-bin smoke coverage.
+  - Remaining: confirm whether the current `@earendil-works/pi-tui` surface is sufficient evidence for the spec's required Pi terminal chat primitives, or record the fallback rationale as durable dogfood evidence.
 
-- [x] Improve interrogation context reconstruction.
-  - Current state: reconstruction, start gating, manual spec edit detection, topic sealing, topic-aware active-topic transcript selection, and older relevant turn backfill are implemented; recent-turn pruning is no longer timestamp-cutoff based.
-  - Why it matters: topic-aware selection keeps the active conversation focused on the current interrogation thread, while older relevant backfill restores missing context without reintroducing sealed-topic transcript noise.
+- [ ] Fix blocked/interrogation lifecycle recovery gaps.
+  - Sealed topics do not automatically unseal when accepted changes update them.
+  - Opening a blocked project does not automatically show the blocker resolution guide.
+  - Blocked/stopped interrogation context omits recent loop events/stdout needed for blocker recovery.
+  - `done` / verified human-task resolution updates status but does not emit durable `blockerResolved` evidence.
+  - Blocked loop endings do not emit `loopFinished`.
+  - Plan-regeneration events are emitted for `needsReplan` but not for the `specsChanged` / `ambiguousSpecsResolved` paths named in the spec.
 
-- [ ] Backfill focused coverage for the remaining confirmed contract gaps.
-  - Current state: the suite already covers CLI, chat, harness, runtime state, daemon runtime, auth, handoffs, and capabilities broadly.
-  - Remaining: add coverage for the remaining native capability paths; a positive public-path chat acceptance now proves native builder explorer delegation can succeed through the `project.chat.send()`/accepted loop start with durable `subagentStarted` and `subagentFinished` evidence. Keep this open for chat-level native web search acceptance and a true plain-`jri` CLI smoke covering native capability paths.
+- [ ] Tighten public contracts and schema validation.
+  - `daemonStatus()` and streamed daemon events are not fully validated against the public `ProjectStatus` / `CoreEvent` contracts.
+  - Builder validation handoff parsing is looser than the published TypeScript contract.
+  - Runtime-state/public-type drift remains around `lastResult.explorer`.
+  - Reconcile the spec/implementation mismatch around recovery write ordering and read-path recovery exceptions during implementation.
+
+- [ ] Backfill focused regression coverage for the confirmed gaps.
+  - Native chat-level web search/fetch coverage has now been added in this turn; remaining: plain `jri` smoke coverage for native capability paths.
+  - Add regressions for capability grant mismatches, blocked-open guide behavior, `done` -> `blockerResolved`, blocked `loopFinished`, plan-regeneration reasons, and daemon payload validation.
