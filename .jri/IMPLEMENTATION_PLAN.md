@@ -24,7 +24,7 @@
 
 - P0: Harden runtime recovery and event/status consistency.
   - Confirmed gap: recovery checks process/lock liveness but does not yet consult latest loop events for stale or missing cross-file state repairs.
-  - Confirmed gap: audit failures write blocked status and emit `auditFailed`, but do not also emit the required `blockerReported` event for consistent blocker evidence.
+  - Confirmed resolved: audit failure `blockerReported` parity is covered alongside blocked status and `auditFailed` evidence.
   - Normalize malformed/missing handoff parser failures, SDK failures, capability failures, runner phase mismatches, and lock loss into structured `loopFinished` failure evidence plus status recovery.
   - Implement the spec's event/status ordering policy, including documented startup/runner ownership exceptions and recovery when ownership status exists without the matching milestone event.
   - Make halt precedence explicit when stop/natural exit races occur, including final halt/reset outcome.

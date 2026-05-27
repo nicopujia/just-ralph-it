@@ -1334,6 +1334,17 @@ async function finishAuditFailedRun(projectDir: string, loopId: string, handoff:
     ...(handoff.ambiguousSpecFiles ? { changedFiles: handoff.ambiguousSpecFiles } : {}),
     validationRan: false,
   };
+  await appendLoopEvent(projectDir, {
+    type: "blockerReported",
+    loopId,
+    data: {
+      reason: blocker.reason,
+      description: blocker.description,
+      resolutionGuide: blocker.resolutionGuide,
+      ...(blocker.changedFiles ? { changedFiles: blocker.changedFiles } : {}),
+      validationRan: blocker.validationRan,
+    },
+  });
   await transitionStatus(projectDir, "blocked", {
     loopId,
     update: {

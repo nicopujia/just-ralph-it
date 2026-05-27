@@ -1154,7 +1154,21 @@ describe("daemon/runtime scaffolding", () => {
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
       const events = await collect(observeLoop(dir));
 
-      expect(events.map((event) => event.type)).toEqual(["auditStarted", "auditFailed"]);
+      expect(events.map((event) => event.type)).toEqual(["auditStarted", "auditFailed", "blockerReported"]);
+      expect(events[2]).toMatchObject({
+        type: "blockerReported",
+        data: {
+          reason: "ambiguousSpecs",
+          description: "Deployment target is ambiguous.",
+          changedFiles: [".jri/specs/app.md"],
+          validationRan: false,
+          resolutionGuide: {
+            summary: "The current specs are not ready for Ralph to build safely.",
+            steps: ["Which host should receive the deployment?"],
+            resumeInstruction: "Answer the audit questions in bare jri, then say just ralph it.",
+          },
+        },
+      });
       expect(status).toMatchObject({
         state: "blocked",
         activeLoopId: "20260527T184210Z",
