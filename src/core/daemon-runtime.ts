@@ -482,8 +482,8 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
       });
   }, 10_000);
 
+  let currentPhase: RunnerPhase = phase;
   try {
-    let currentPhase: RunnerPhase = phase;
     for (;;) {
       throwIfRuntimeCancelled(options.signal);
       const statusAtPhaseStart = await readStatus(projectDir);
@@ -635,6 +635,10 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
     }
   } catch (error) {
     if (error instanceof LoopAlreadyFinished) return;
+    if (error instanceof JriError && isLoopFailureError(error)) {
+      await finishRuntimeFailureRun(projectDir, loopId, currentPhase, error);
+      return;
+    }
     throw error;
   } finally {
     clearInterval(heartbeat);
@@ -1215,6 +1219,55 @@ async function finishFailedRun(projectDir: string, loopId: string, phase: Runner
       },
     },
   });
+}
+
+async function finishRuntimeFailureRun(projectDir: string, loopId: string, phase: RunnerPhase, error: JriError): Promise<void> {
+  const summary = `${phaseFailureLabel(phase)} failed: ${error.message}`;
+  if (phase === "building") {
+    const status = await readStatus(projectDir);
+    const iteration = status.currentIteration?.iteration ?? status.iteration ?? 1;
+    await appendLoopEvent(projectDir, {
+      type: "iterationFinished",
+      loopId,
+      iteration,
+      data: { outcome: "validationFailed" },
+    });
+  }
+  await appendLoopEvent(projectDir, {
+    type: "loopFinished",
+    loopId,
+    data: { outcome: "failed", summary },
+    message: error.recovery,
+  });
+  await transitionStatus(projectDir, "stopped", {
+    loopId,
+    update: {
+      ...ownershipCleared(await readStatus(projectDir)),
+      stopRequested: false,
+      lastResult: {
+        outcome: "failed",
+        summary,
+      },
+    },
+  });
+}
+
+function isLoopFailureError(error: JriError): boolean {
+  return [
+    "auth-required",
+    "harness-failed",
+    "harness-timeout",
+    "invalid-agent-handoff",
+    "missing-agent-handoff",
+    "multiple-agent-handoffs",
+    "unsupported-harness-agent",
+  ].includes(error.code);
+}
+
+function phaseFailureLabel(phase: RunnerPhase): string {
+  if (phase === "auditing") return "Auditing";
+  if (phase === "planning") return "Planning";
+  return "Building";
 }
 
 async function finishAuditFailedRun(projectDir: string, loopId: string, handoff: Extract<AuditorHandoff, { action: "failed" }>): Promise<void> {

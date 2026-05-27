@@ -17,6 +17,7 @@
 - P0: Enforce daemon-owned lifecycle mutation and race-safe locking.
   - Implemented/covered: runtime status mutations now use a real local file lock around `updateStatus`/`acquireLock`; focused coverage was added in `tests/runtime-state.test.ts` for serialized read/write mutation.
   - Remove or constrain local mutation fallbacks for `loop.requestStop()`, `loop.halt()`, and `loop.resume()` so public lifecycle controls start/use the daemon instead of bypassing it.
+  - Resolve `startLoopWithFallback` drift: it rethrows `daemon-unavailable` rather than providing a true daemon-owned mutation path or explicit read-only/test-only fallback, so public lifecycle semantics remain confusing.
   - Keep local fallback behavior only for read-only status/log inspection and tests with explicit fakes.
   - Add contention tests for simultaneous start/resume/stop/halt, stale live locks, stale dead locks, lock loss during runner heartbeat, and daemon unavailable mutation attempts.
 
@@ -25,10 +26,12 @@
   - Ensure chat-owned capabilities cannot mutate loop status or append loop events.
   - Register loop-owned web/explorer child processes with the runner so halt cancels runner plus children and capability timeouts produce structured evidence.
   - Keep first-class web capability usability for auditor, explorer, and interrogator without relying on broad shell access.
+  - Fix explorer prompt/capability drift: explorer is allowed to use web, but current explorer prompts/descriptors do not expose web capability instructions, which risks agents ignoring the supported path.
   - Cover loop owner mismatch, chat/loop ownership separation, stale owner metadata, explorer spawn-only mode, child cancellation, and capability artifact refs.
 
 - P0: Harden runtime recovery, durable-state validation, and failure evidence.
   - Implemented/covered: output sink serialization is now handled with the runtime/capability cleanup path; the earlier concurrent stdout/stderr append concern is no longer active.
+  - Implemented/covered: malformed, missing, duplicate, and wrong-agent/phase handoff `JriError`s from loop phase execution now produce durable failed loop evidence and clear runtime ownership instead of escaping without status/event recovery; focused builder coverage was added in `tests/daemon-runtime.test.ts`.
   - Convert malformed/missing handoff parser failures, SDK errors, capability failures, and runner phase mismatches into structured loop failure/recovery events and status updates.
   - Reconcile event/status ordering with the spec where lifecycle transitions currently write status before milestone events.
   - Make halt precedence explicit when stop/natural exit races occur, including final halt/reset outcome.
@@ -63,6 +66,7 @@
 
 - P1: Clean up generated operational guidance.
   - Replace the scaffolded `AGENTS.md` placeholders with a better template that tells users how to fill build/run/validation sections without leaving literal `[test command]`-style values as if they were runnable.
+  - Current scaffold still emits placeholder operational text, which matters because Ralph relies on `AGENTS.md` as validation/run guidance and placeholders can be misread as commands.
   - Update this repository's root `AGENTS.md` Codebase Patterns section with actual patterns useful to Ralph.
   - Decide whether `bun run lint` intentionally aliases `tsc --noEmit` or whether a real lint command should be added before treating lint as distinct validation evidence.
 
