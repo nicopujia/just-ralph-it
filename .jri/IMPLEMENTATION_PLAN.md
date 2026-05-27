@@ -9,13 +9,13 @@
 
 - P0: Thread real cancellation through chat, loop phases, harness sessions, and capability processes.
   - Implemented/covered: harness command execution now honors `AbortSignal` for the default harness, legacy controlled Pi sessions, and explorer command capture; focused coverage was added in `tests/harness.test.ts`.
-  - Replace fresh disconnected `AbortController().signal` values with lifecycle-owned signals for chat turns and loop runner phases.
+  - Implemented/covered: lifecycle-owned `AbortSignal` plumbing now reaches chat interrogator and loop harness/legacy runner invocations via `RuntimeOptions`/`ChatRuntimeOptions`; focused coverage was added in `tests/chat.test.ts` and `tests/daemon-runtime.test.ts`.
   - Honor cancellation before start, during SDK/session execution, during web/explorer capability work, after timeout, and during halt.
   - Use one cancellation path with best-effort termination followed by forceful cleanup after a short grace period.
   - Add tests for pre-start abort, in-flight abort, timeout cleanup, halt while a capability child is active, and no new loop-owned capability work after graceful stop boundaries.
 
 - P0: Enforce daemon-owned lifecycle mutation and race-safe locking.
-  - Replace `acquireLock` read/write/reread with a true single-writer guarantee: file lock, real CAS, or daemon-only serialized mutation.
+  - Implemented/covered: runtime status mutations now use a real local file lock around `updateStatus`/`acquireLock`; focused coverage was added in `tests/runtime-state.test.ts` for serialized read/write mutation.
   - Remove or constrain local mutation fallbacks for `loop.requestStop()`, `loop.halt()`, and `loop.resume()` so public lifecycle controls start/use the daemon instead of bypassing it.
   - Keep local fallback behavior only for read-only status/log inspection and tests with explicit fakes.
   - Add contention tests for simultaneous start/resume/stop/halt, stale live locks, stale dead locks, lock loss during runner heartbeat, and daemon unavailable mutation attempts.

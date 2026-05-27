@@ -820,8 +820,38 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("runner rejects an already-cancelled runtime signal before starting phase work", async () => {
+    const dir = await tempProject();
+    const controller = new AbortController();
+    controller.abort();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: {
+          owner: "daemon",
+          pid: process.pid,
+          operation: "build",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+      });
+
+      await expect(runLoopProcess(dir, "20260527T184210Z", "building", { signal: controller.signal })).rejects.toThrow("cancelled");
+
+      const events = await collect(observeLoop(dir));
+      expect(events).toEqual([]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("runner invokes loop phases through the harness adapter contract", async () => {
     const dir = await tempProject();
+    const controller = new AbortController();
     const invocations: Array<{
       owner: unknown;
       agent: string;
@@ -829,6 +859,7 @@ describe("daemon/runtime scaffolding", () => {
       model: unknown;
       refs: string[];
       capabilities: string[];
+      signal: AbortSignal;
     }> = [];
     try {
       await mkdir(join(dir, ".jri", "specs"), { recursive: true });
@@ -849,6 +880,7 @@ describe("daemon/runtime scaffolding", () => {
       });
 
       await runLoopProcess(dir, "20260527T184210Z", "building", {
+        signal: controller.signal,
         harnessAdapter: async (invocation) => {
           invocations.push({
             owner: invocation.owner,
@@ -857,6 +889,7 @@ describe("daemon/runtime scaffolding", () => {
             model: invocation.model,
             refs: invocation.context.refs,
             capabilities: invocation.capabilities.map((capability) => capability.name),
+            signal: invocation.signal,
           });
           await invocation.output.write("builder display output");
           return {
@@ -881,6 +914,7 @@ describe("daemon/runtime scaffolding", () => {
           model: { model: "gpt-5.5", reasoning: "xhigh" },
           refs: expect.arrayContaining([".jri/status.json", ".jri/specs/app.md"]),
           capabilities: ["web", "web", "explorer"],
+          signal: controller.signal,
         },
       ]);
       expect(stdout).toBe("builder display output\n");

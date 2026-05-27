@@ -25,10 +25,12 @@ export async function writeStatusAtomic(projectDir: string, status: ProjectStatu
 }
 
 export async function updateStatus(projectDir: string, mutate: StatusMutator): Promise<ProjectStatus> {
-  const current = await readStatus(projectDir);
-  const next = await mutate(structuredClone(current));
-  await writeStatusAtomic(projectDir, next);
-  return next;
+  return await withStatusMutationLock(projectDir, async () => {
+    const current = await readStatus(projectDir);
+    const next = await mutate(structuredClone(current));
+    await writeStatusAtomic(projectDir, next);
+    return next;
+  });
 }
 
 export async function transitionStatus(
@@ -283,7 +285,22 @@ async function withEventAppendLock<T>(projectDir: string, operation: () => Promi
   }
 }
 
+async function withStatusMutationLock<T>(projectDir: string, operation: () => Promise<T>): Promise<T> {
+  const lockDir = join(projectDir, ".jri", ".status-mutation.lock");
+  await mkdir(dirname(lockDir), { recursive: true });
+  await acquireProjectFileLock(lockDir, "status mutation");
+  try {
+    return await operation();
+  } finally {
+    await rm(lockDir, { recursive: true, force: true });
+  }
+}
+
 async function acquireEventAppendLock(lockDir: string): Promise<void> {
+  await acquireProjectFileLock(lockDir, "event append");
+}
+
+async function acquireProjectFileLock(lockDir: string, description: string): Promise<void> {
   const startedAt = Date.now();
   for (;;) {
     try {
@@ -292,12 +309,12 @@ async function acquireEventAppendLock(lockDir: string): Promise<void> {
       return;
     } catch (error) {
       if (!isNodeError(error, "EEXIST")) throw error;
-      if (await removeStaleEventAppendLock(lockDir)) continue;
+      if (await removeStaleProjectFileLock(lockDir)) continue;
       if (Date.now() - startedAt > 10_000) {
         throw new JriError(
-          "Timed out waiting to append a JRI event.",
-          "event-append-lock-timeout",
-          "Retry the command; another JRI process held the event append lock for too long.",
+          `Timed out waiting for the JRI ${description} lock.`,
+          `${description.replaceAll(" ", "-")}-lock-timeout`,
+          `Retry the command; another JRI process held the ${description} lock for too long.`,
         );
       }
       await sleep(10);
@@ -305,7 +322,7 @@ async function acquireEventAppendLock(lockDir: string): Promise<void> {
   }
 }
 
-async function removeStaleEventAppendLock(lockDir: string): Promise<boolean> {
+async function removeStaleProjectFileLock(lockDir: string): Promise<boolean> {
   try {
     const info = await stat(lockDir);
     if (Date.now() - info.mtimeMs < 30_000) return false;

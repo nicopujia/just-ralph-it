@@ -100,7 +100,7 @@ async function* runInterrogator(
         if (chunk) chunks.push(chunk);
       },
     },
-    signal: new AbortController().signal,
+    signal: options.signal ?? new AbortController().signal,
   });
 
   const handoff = result.handoff;

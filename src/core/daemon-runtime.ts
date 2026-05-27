@@ -52,6 +52,7 @@ export type GitResetResult = {
 
 export type RuntimeOptions = {
   now?: Date;
+  signal?: AbortSignal;
   isProcessAlive?: ProcessAliveCheck;
   killProcess?: ProcessKiller;
   resetGit?: boolean;
@@ -463,6 +464,7 @@ export async function* resumeLoop(projectDir: string, options: RuntimeOptions = 
 }
 
 export async function runLoopProcess(projectDir: string, loopId: string, phase: RunnerPhase, options: RuntimeOptions = {}): Promise<void> {
+  throwIfRuntimeCancelled(options.signal);
   const status = await getRecoveredStatus(projectDir, options);
   const lock = await waitForRunnerLock(projectDir, loopId, phase, status, options);
   if (!lock || lock.pid !== process.pid || lock.operation !== phaseToOperation(phase)) {
@@ -483,6 +485,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
   try {
     let currentPhase: RunnerPhase = phase;
     for (;;) {
+      throwIfRuntimeCancelled(options.signal);
       const statusAtPhaseStart = await readStatus(projectDir);
       if (currentPhase === "auditing") {
         await appendLoopEvent(projectDir, { type: "auditStarted", loopId, data: {} });
@@ -933,9 +936,10 @@ async function runBuilder(projectDir: string, loopId: string, options: RuntimeOp
 }
 
 async function runAgentPhase(projectDir: string, loopId: string, phase: RunnerPhase, options: RuntimeOptions): Promise<AgentHandoff> {
+  throwIfRuntimeCancelled(options.signal);
   if (options.harnessRunner) {
     const stdoutOffset = await stdoutLogSize(projectDir, loopId);
-    const exitCode = await runLegacyHarnessSession(projectDir, loopId, phase, options.harnessRunner);
+    const exitCode = await runLegacyHarnessSession(projectDir, loopId, phase, options);
     if (exitCode !== 0) {
       await finishFailedRun(projectDir, loopId, phase, exitCode);
       throw new LoopAlreadyFinished();
@@ -955,7 +959,7 @@ async function runAgentPhase(projectDir: string, loopId: string, phase: RunnerPh
     context: await buildLoopHarnessContext(projectDir, loopId, phase),
     capabilities: capabilitiesForRunnerPhase(phase),
     output: stdoutOutputSink(projectDir, loopId),
-    signal: new AbortController().signal,
+    signal: options.signal ?? new AbortController().signal,
   });
   return result.handoff;
 }
@@ -966,14 +970,20 @@ async function runLegacyHarnessSession(
   projectDir: string,
   loopId: string,
   phase: RunnerPhase,
-  runner: HarnessSessionRunner = runControlledPiSession,
+  options: RuntimeOptions,
 ): Promise<number> {
-  return await runner({
+  return await (options.harnessRunner ?? runControlledPiSession)({
     projectDir,
     loopId,
     phase,
     stdoutPath: join(projectDir, ".jri", "logs", loopId, "stdout.log"),
+    ...(options.signal ? { signal: options.signal } : {}),
   });
+}
+
+function throwIfRuntimeCancelled(signal: AbortSignal | undefined): void {
+  if (!signal?.aborted) return;
+  throw new JriError("JRI runtime execution was cancelled.", "runtime-cancelled", "Retry the operation if it is still needed.");
 }
 
 async function buildLoopHarnessContext(

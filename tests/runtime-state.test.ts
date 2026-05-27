@@ -12,6 +12,7 @@ import {
   nextEventSequence,
   releaseLock,
   transitionStatus,
+  updateStatus,
   writeStatusAtomic,
 } from "../src/core/runtime-state";
 
@@ -142,6 +143,35 @@ describe("runtime state primitives", () => {
     }
   });
 
+  test("status mutations are serialized before reading and writing status", async () => {
+    const dir = await tempInitializedProject();
+    try {
+      let firstMutationStarted!: () => void;
+      const firstMutationEntered = new Promise<void>((resolve) => {
+        firstMutationStarted = resolve;
+      });
+
+      const first = updateStatus(dir, async (status) => {
+        firstMutationStarted();
+        await sleep(30);
+        return { ...status, iteration: 1 };
+      });
+      await firstMutationEntered;
+
+      const second = updateStatus(dir, (status) => ({
+        ...status,
+        iteration: (status.iteration ?? 0) + 10,
+      }));
+
+      await Promise.all([first, second]);
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(status.iteration).toBe(11);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("loop ids use UTC timestamp slugs and avoid existing log directories", async () => {
     const dir = await tempInitializedProject();
     try {
@@ -209,3 +239,7 @@ describe("runtime state primitives", () => {
     }
   });
 });
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
