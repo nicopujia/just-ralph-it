@@ -22,6 +22,13 @@ async function main(argv: string[]): Promise<number> {
 
   if (!command) {
     await project.lifecycle.ensureInitialized();
+    if (process.stdin.isTTY) {
+      const auth = await project.auth.login();
+      if (auth.status === "userActionRequired") {
+        console.error(auth.instructions);
+        return 1;
+      }
+    }
     const input = process.stdin.isTTY ? "" : await new Response(Bun.stdin.stream()).text();
     if (!input.trim()) {
       const status = await project.status.get();

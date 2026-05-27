@@ -36,4 +36,28 @@ describe("CLI", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("interactive bare jri blocks with auth recovery guidance when auth is missing", async () => {
+    const dir = await tempProject();
+    try {
+      const proc = Bun.spawn(["script", "-q", "-e", "-c", `bun ${cliPath}`, "/dev/null"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          OPENAI_API_KEY: "",
+          PI_CODING_AGENT_DIR: join(dir, "pi-agent"),
+        },
+      });
+
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(1);
+      expect(`${stdout}\n${stderr}`).toContain("OpenAI authentication is required");
+      expect(`${stdout}\n${stderr}`).toContain("jri auth login");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

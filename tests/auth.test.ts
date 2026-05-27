@@ -68,6 +68,36 @@ describe("project auth", () => {
     });
   });
 
+  test("login guidance calls out stale Pi auth entries", async () => {
+    const dir = await tempProject();
+    const piDir = join(dir, "pi-agent");
+    await mkdir(piDir, { recursive: true });
+    await writeFile(
+      join(piDir, "auth.json"),
+      `${JSON.stringify({
+        openai: {
+          type: "oauth",
+          access: "expired-access-token",
+          refresh: "",
+          expires: Date.now() - 60_000,
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    await withAuthEnv({ OPENAI_API_KEY: undefined, PI_CODING_AGENT_DIR: piDir }, async () => {
+      try {
+        const project = await open(dir);
+        expect(await project.auth.login()).toMatchObject({
+          status: "userActionRequired",
+          instructions: expect.stringContaining("expired or empty"),
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   test("logout removes OpenAI entries from Pi auth storage but refuses environment auth", async () => {
     const dir = await tempProject();
     const piDir = join(dir, "pi-agent");

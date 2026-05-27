@@ -21,12 +21,16 @@ export async function getAuthStatus(env: NodeJS.ProcessEnv = process.env): Promi
 export async function login(env: NodeJS.ProcessEnv = process.env): Promise<AuthResult> {
   const state = await getAuthStatus(env);
   if (state.authenticated) return { status: "authenticated", state };
+  const diagnostics = await inspectPiOpenAiAuth(env);
+  const staleAuthNote = diagnostics.hasStaleOpenAiAuth
+    ? ` Existing Pi OpenAI credentials in ${diagnostics.authPath} are expired or empty; refresh them with Pi auth or remove that entry.`
+    : "";
 
   return {
     status: "userActionRequired",
     instructions: [
       "OpenAI authentication is required before JRI can start controlled Pi sessions.",
-      "Set OPENAI_API_KEY in this shell, or complete OpenAI auth in Pi so credentials are available in ~/.pi/agent/auth.json, then rerun jri auth status.",
+      `Set OPENAI_API_KEY in this shell, or run jri auth login after completing OpenAI auth in Pi so credentials are available in ${diagnostics.authPath}, then rerun jri auth status.${staleAuthNote}`,
     ].join(" "),
   };
 }
@@ -60,11 +64,21 @@ function hasOpenAiApiKey(env: NodeJS.ProcessEnv): boolean {
 }
 
 async function hasUsablePiOpenAiAuth(env: NodeJS.ProcessEnv): Promise<boolean> {
+  return (await inspectPiOpenAiAuth(env)).hasUsableOpenAiAuth;
+}
+
+async function inspectPiOpenAiAuth(env: NodeJS.ProcessEnv): Promise<{ authPath: string; hasUsableOpenAiAuth: boolean; hasStaleOpenAiAuth: boolean }> {
   const authPath = piAuthPath(env);
-  if (!(await Bun.file(authPath).exists())) return false;
+  if (!(await Bun.file(authPath).exists())) return { authPath, hasUsableOpenAiAuth: false, hasStaleOpenAiAuth: false };
 
   const parsed = parsePiAuthFile(await Bun.file(authPath).text(), authPath);
-  return Object.entries(parsed).some(([key, value]) => isOpenAiAuthKey(key) && isUsableAuthEntry(value));
+  let hasStaleOpenAiAuth = false;
+  for (const [key, value] of Object.entries(parsed)) {
+    if (!isOpenAiAuthKey(key)) continue;
+    if (isUsableAuthEntry(value)) return { authPath, hasUsableOpenAiAuth: true, hasStaleOpenAiAuth: false };
+    hasStaleOpenAiAuth = true;
+  }
+  return { authPath, hasUsableOpenAiAuth: false, hasStaleOpenAiAuth };
 }
 
 function piAuthPath(env: NodeJS.ProcessEnv): string {
