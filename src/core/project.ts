@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { getAuthStatus, login, logout } from "./auth";
 import { sendChat } from "./chat";
 import { JriError } from "./errors";
-import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
+import { getRecoveredStatus, observeLoop } from "./daemon-runtime";
 import { daemonHaltLoop, daemonObserveLoop, daemonRequestStop, daemonResumeLoop, daemonStartLoop, daemonStatus } from "./daemon-ipc";
 import { invokeDefaultHarness } from "./harness";
 import { readInterrogationState } from "./interrogation-state";
@@ -68,18 +68,13 @@ export class Project {
       return observeWithFallback(this.projectDir, options);
     },
     requestStop: async (): Promise<void> => {
-      try {
-        await daemonRequestStop(this.projectDir);
-      } catch (error) {
-        if (!isDaemonUnavailable(error)) throw error;
-        await requestGracefulStop(this.projectDir);
-      }
+      await daemonRequestStop(this.projectDir);
     },
     halt: (options: HaltOptions = {}): AsyncIterable<CoreEvent> => {
-      return haltWithFallback(this.projectDir, options);
+      return daemonHaltLoop(this.projectDir, options);
     },
     resume: (): AsyncIterable<CoreEvent> => {
-      return resumeWithFallback(this.projectDir);
+      return daemonResumeLoop(this.projectDir);
     },
   };
 
@@ -131,24 +126,6 @@ async function* observeWithFallback(projectDir: string, options: LoopObserveOpti
   } catch (error) {
     if (!isDaemonUnavailable(error)) throw error;
     yield* observeLoop(projectDir, options);
-  }
-}
-
-async function* haltWithFallback(projectDir: string, options: HaltOptions): AsyncIterable<CoreEvent> {
-  try {
-    yield* daemonHaltLoop(projectDir, options);
-  } catch (error) {
-    if (!isDaemonUnavailable(error)) throw error;
-    yield* haltLoop(projectDir, options);
-  }
-}
-
-async function* resumeWithFallback(projectDir: string): AsyncIterable<CoreEvent> {
-  try {
-    yield* daemonResumeLoop(projectDir);
-  } catch (error) {
-    if (!isDaemonUnavailable(error)) throw error;
-    yield* resumeLoop(projectDir);
   }
 }
 

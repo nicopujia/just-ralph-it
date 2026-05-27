@@ -16,10 +16,10 @@
 
 - P0: Enforce daemon-owned lifecycle mutation and race-safe locking.
   - Implemented/covered: runtime status mutations now use a real local file lock around `updateStatus`/`acquireLock`; focused coverage was added in `tests/runtime-state.test.ts` for serialized read/write mutation.
-  - Remove or constrain local mutation fallbacks for `loop.requestStop()`, `loop.halt()`, and `loop.resume()` so public lifecycle controls start/use the daemon instead of bypassing it.
+  - Implemented/covered: public `Project.loop.requestStop()`, `Project.loop.halt()`, and `Project.loop.resume()` now use daemon IPC only; read-only status/observe fallback remains local, and daemon-unavailable mutation attempts are covered in `tests/project-lifecycle.test.ts`.
   - Resolve `startLoopWithFallback` drift: it rethrows `daemon-unavailable` rather than providing a true daemon-owned mutation path or explicit read-only/test-only fallback, so public lifecycle semantics remain confusing.
   - Keep local fallback behavior only for read-only status/log inspection and tests with explicit fakes.
-  - Add contention tests for simultaneous start/resume/stop/halt, stale live locks, stale dead locks, lock loss during runner heartbeat, and daemon unavailable mutation attempts.
+  - Add contention tests for simultaneous start/resume/stop/halt, stale live locks, stale dead locks, and lock loss during runner heartbeat.
 
 - P0: Finish capability ownership, chat-owned capability support, and child registration.
   - Implemented/covered: explicit internal owner metadata as `{ owner: { kind: "loop", loopId } | { kind: "chat", turnId }, projectDir, capability }` and chat-owned web artifacts under `.jri/logs/interrogation-artifacts/`.
