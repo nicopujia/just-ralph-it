@@ -1593,6 +1593,114 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("project chat rejects builder completion when explorer proof lacks subagentStarted evidence", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const previousEnv = captureDaemonEnv();
+    const specContent = "# App\n\nBuild a CLI.\n";
+    const runnerPromises: Array<Promise<void>> = [];
+    const runtimeOptions: RuntimeOptions = {
+      now: new Date("2026-05-27T20:00:00.000Z"),
+      observePollIntervalMs: 10,
+      harnessAdapter: async (invocation) => {
+        if (invocation.phase === "auditing") {
+          return {
+            handoff: {
+              agent: "auditor",
+              action: "passed",
+              specFiles: [".jri/specs/app.md"],
+              specsFingerprint: specsFingerprintForFiles({ "app.md": specContent }),
+              summary: "Specs ready.",
+            },
+          };
+        }
+        if (invocation.phase === "planning") {
+          await writeFile(join(dir, ".jri", "IMPLEMENTATION_PLAN.md"), "- [ ] Build the CLI.\n", "utf8");
+          return {
+            handoff: {
+              agent: "planner",
+              action: "planned",
+              planPath: ".jri/IMPLEMENTATION_PLAN.md",
+              summary: "Plan ready.",
+            },
+          };
+        }
+
+        await appendLoopEvent(dir, {
+          type: "subagentFinished",
+          loopId: "20260527T200000Z",
+          data: {
+            agent: "explorer",
+            summary: "Explorer found the relevant code path.",
+            artifactRef: ".jri/logs/20260527T200000Z/artifacts/explorer-proof.txt",
+          },
+        });
+        return {
+          handoff: {
+            agent: "builder",
+            action: "complete",
+            summary: "Build complete.",
+            validation: [{ command: "bun run test --filter chat", exitCode: 0, passed: true, summary: "Focused chat coverage passed." }],
+          },
+        };
+      },
+    };
+    runtimeOptions.spawnRunner = ({ loopId, phase }) => {
+      const promise = runLoopProcess(dir, loopId, phase, runtimeOptions);
+      runnerPromises.push(promise);
+      void promise.catch(() => {});
+      return { pid: process.pid, command: `runner ${phase}` };
+    };
+    const daemon = await startDaemonServer({
+      paths,
+      idleTimeoutMs: 10_000,
+      runtimeOptions,
+    });
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), specContent, "utf8");
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await recordInterrogatorSpecUpdate(dir, [".jri/specs/app.md"], {
+        sealedSpecFiles: [".jri/specs/app.md"],
+        now: new Date("2026-05-27T20:00:00.000Z"),
+      });
+      applyDaemonEnv(paths);
+
+      const project = await open(dir);
+      const events = await collect(project.chat.send({ message: "just ralph it" }));
+      await Promise.allSettled(runnerPromises);
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const loopEvents = await readJsonl(join(dir, ".jri", "logs", "20260527T200000Z", "events.jsonl"));
+
+      expect(events.map((event) => event.type)).toContain("loopFinished");
+      expect(loopEvents.map((event: { type: string }) => event.type)).toContain("subagentFinished");
+      expect(loopEvents).not.toContainEqual(expect.objectContaining({ type: "subagentStarted" }));
+      expect(loopEvents.at(-1)).toMatchObject({
+        type: "loopFinished",
+        data: {
+          outcome: "failed",
+          summary: expect.stringContaining("durable successful explorer delegation evidence"),
+        },
+        message: expect.stringContaining("subagentStarted and subagentFinished"),
+      });
+      expect(status).toMatchObject({
+        state: "stopped",
+        activeLoopId: "20260527T200000Z",
+        lastLoopId: "20260527T200000Z",
+        lastResult: {
+          outcome: "failed",
+          summary: expect.stringContaining("durable successful explorer delegation evidence"),
+        },
+      });
+    } finally {
+      restoreDaemonEnv(previousEnv);
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("done verifies an existing needs-human-task blocker only after verifier approval", async () => {
     const dir = await tempProject();
     try {

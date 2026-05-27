@@ -1296,7 +1296,7 @@ describe("daemon/runtime scaffolding", () => {
       const events = await collect(observeLoop(dir));
 
       expect(stdout).toContain("fake-pi-ran");
-      expect(events.map((event) => event.type)).toEqual(["subagentFinished", "iterationStarted", "iterationFinished", "loopFinished"]);
+      expect(events.map((event) => event.type)).toEqual(["subagentStarted", "subagentFinished", "iterationStarted", "iterationFinished", "loopFinished"]);
       expect(status).toMatchObject({
         state: "idle",
         activeLoopId: null,
@@ -1690,7 +1690,7 @@ describe("daemon/runtime scaffolding", () => {
         },
       ]);
       expect(stdout).toBe("builder display output\n");
-      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "subagentFinished", "iterationFinished", "loopFinished"]);
+      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "subagentStarted", "subagentFinished", "iterationFinished", "loopFinished"]);
       expect(status).toMatchObject({
         state: "idle",
         activeLoopId: null,
@@ -1962,6 +1962,7 @@ describe("daemon/runtime scaffolding", () => {
       const events = await collect(observeLoop(dir));
 
       expect(events.map((event) => event.type)).toEqual([
+        "subagentStarted",
         "subagentFinished",
         "auditStarted",
         "auditPassed",
@@ -2173,6 +2174,7 @@ describe("daemon/runtime scaffolding", () => {
       const events = await collect(observeLoop(dir));
 
       expect(events.map((event) => event.type)).toEqual([
+        "subagentStarted",
         "subagentFinished",
         "auditStarted",
         "auditPassed",
@@ -2183,7 +2185,7 @@ describe("daemon/runtime scaffolding", () => {
         "iterationFinished",
         "loopFinished",
       ]);
-      expect(events[3]).toMatchObject({
+      expect(events[4]).toMatchObject({
         type: "blockerResolved",
         data: { reason: "ambiguousSpecs" },
       });
@@ -2486,6 +2488,7 @@ describe("daemon/runtime scaffolding", () => {
       const iterationFinished = events.find((event) => event.type === "iterationFinished");
 
       expect(events.map((event) => event.type)).toEqual([
+        "subagentStarted",
         "subagentFinished",
         "iterationStarted",
         "validationStarted",
@@ -2495,7 +2498,7 @@ describe("daemon/runtime scaffolding", () => {
         "iterationFinished",
         "loopFinished",
       ]);
-      expect(events[1]).toMatchObject({ type: "iterationStarted", data: { trackedTreeCleanAtStart: true } });
+      expect(events[2]).toMatchObject({ type: "iterationStarted", data: { trackedTreeCleanAtStart: true } });
       expect(commit).toMatchObject({ type: "commitCreated", iteration: 1, data: { subject: "build iteration" } });
       expect(tag).toMatchObject({ type: "tagCreated", iteration: 1, data: { tag: "0.0.1" } });
       expect(iterationFinished).toMatchObject({
@@ -3224,6 +3227,7 @@ describe("daemon/runtime scaffolding", () => {
       const events = await collect(observeLoop(dir));
 
       expect(events.map((event) => event.type)).toEqual([
+        "subagentStarted",
         "subagentFinished",
         "iterationStarted",
         "iterationFinished",
@@ -3255,6 +3259,15 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
 }
 
 async function recordExplorerProof(dir: string): Promise<void> {
+  await appendLoopEvent(dir, {
+    type: "subagentStarted",
+    loopId: "20260527T184210Z",
+    data: {
+      agent: "explorer",
+      task: "Inspect the relevant code path.",
+      mode: "spawn",
+    },
+  });
   await appendLoopEvent(dir, {
     type: "subagentFinished",
     loopId: "20260527T184210Z",

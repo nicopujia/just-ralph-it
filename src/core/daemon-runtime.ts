@@ -1726,9 +1726,18 @@ function isCancellationFanoutError(error: JriError): boolean {
 
 async function successfulExplorerProof(projectDir: string, loopId: string): Promise<{ used: boolean; summary?: string; artifactRef?: string } | undefined> {
   const events = await readLoopEvents(projectDir, loopId);
-  const latestFinished = events
-    .filter((event): event is Extract<CoreEvent, { type: "subagentFinished" }> => event.type === "subagentFinished" && event.data.agent === "explorer")
-    .at(-1);
+  let openExplorerDelegations = 0;
+  let latestFinished: Extract<CoreEvent, { type: "subagentFinished" }> | undefined;
+  for (const event of events) {
+    if (event.type === "subagentStarted" && event.data.agent === "explorer") {
+      openExplorerDelegations += 1;
+      continue;
+    }
+    if (event.type !== "subagentFinished" || event.data.agent !== "explorer") continue;
+    if (openExplorerDelegations <= 0) continue;
+    openExplorerDelegations -= 1;
+    latestFinished = event;
+  }
   if (!latestFinished) return undefined;
   return {
     used: true,
