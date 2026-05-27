@@ -45,7 +45,7 @@ async function main(argv: string[]): Promise<number> {
         return usage("Invalid internal web search invocation.");
       }
       const metadata = parseCapabilityMetadata(metadataJson);
-      await assertCapabilityOwnership(metadata, "web");
+      await assertCapabilityOwnership(metadata, "web", "search");
       console.log(JSON.stringify(await runWebSearch({ projectDir: metadata.projectDir, owner: metadata.owner, query }), null, 2));
       return 0;
     }
@@ -55,7 +55,7 @@ async function main(argv: string[]): Promise<number> {
         return usage("Invalid internal web fetch invocation.");
       }
       const metadata = parseCapabilityMetadata(metadataJson);
-      await assertCapabilityOwnership(metadata, "web");
+      await assertCapabilityOwnership(metadata, "web", "fetch");
       console.log(JSON.stringify(await runWebFetch({ projectDir: metadata.projectDir, owner: metadata.owner, url }), null, 2));
       return 0;
     }
@@ -64,7 +64,7 @@ async function main(argv: string[]): Promise<number> {
   if (command === "--web-search" || command === "--web-fetch") {
     const [projectDir, loopId, ...rest] = argv.slice(1);
     const operation = command === "--web-search" ? "search" : "fetch";
-    const metadata = JSON.stringify({ projectDir, owner: { kind: "loop", loopId }, capability: "web" });
+    const metadata = JSON.stringify({ projectDir, owner: { kind: "loop", loopId }, capability: "web", operation });
     return await main(["--run-web", operation, metadata, ...rest]);
   }
 

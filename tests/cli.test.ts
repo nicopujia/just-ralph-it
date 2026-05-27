@@ -463,6 +463,7 @@ describe("CLI", () => {
         projectDir: dir,
         owner: { kind: "loop", loopId: "20260527T184210Z" },
         capability: "web",
+        operation: "search",
       });
 
       const search = Bun.spawn(["bun", cliPath, "--run-web", "search", metadata, "docs"], {
@@ -475,7 +476,13 @@ describe("CLI", () => {
       expect(await search.exited).toBe(0);
       expect(JSON.parse(searchStdout)[0].title).toBe("Docs");
 
-      const fetch = Bun.spawn(["bun", cliPath, "--run-web", "fetch", metadata, "https://example.com/docs"], {
+      const fetchMetadata = JSON.stringify({
+        projectDir: dir,
+        owner: { kind: "loop", loopId: "20260527T184210Z" },
+        capability: "web",
+        operation: "fetch",
+      });
+      const fetch = Bun.spawn(["bun", cliPath, "--run-web", "fetch", fetchMetadata, "https://example.com/docs"], {
         cwd: dir,
         stdout: "pipe",
         stderr: "pipe",
@@ -489,6 +496,35 @@ describe("CLI", () => {
     }
   });
 
+  test("hidden web commands reject mismatched operation metadata", async () => {
+    const dir = await tempProject();
+    try {
+      await activateLoop(dir, "20260527T184210Z", "planning");
+      const metadata = JSON.stringify({
+        projectDir: dir,
+        owner: { kind: "loop", loopId: "20260527T184210Z" },
+        capability: "web",
+        operation: "search",
+      });
+
+      const proc = Bun.spawn(["bun", cliPath, "--run-web", "fetch", metadata, "https://example.com/docs"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, JRI_PI_WEB_COMMAND: "/bin/false" },
+      });
+
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("mismatched operation metadata");
+      expect(stderr).toContain("specific operation");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("hidden capability commands reject stale loop ownership", async () => {
     const dir = await tempProject();
     try {
@@ -497,6 +533,7 @@ describe("CLI", () => {
         projectDir: dir,
         owner: { kind: "loop", loopId: "stale-loop" },
         capability: "web",
+        operation: "search",
       });
       const proc = Bun.spawn(["bun", cliPath, "--run-web", "search", metadata, "docs"], {
         cwd: dir,
@@ -535,6 +572,7 @@ describe("CLI", () => {
         projectDir: dir,
         owner: { kind: "chat", turnId: "turn-1" },
         capability: "web",
+        operation: "fetch",
       });
 
       const proc = Bun.spawn(["bun", cliPath, "--run-web", "fetch", metadata, "https://example.com/docs"], {

@@ -11,10 +11,11 @@
 - P0: Make capabilities first-class SDK/runtime features.
   - Confirmed implemented: web/explorer headline limits, wrapper entrypoints, owner metadata validation for web, chat-owned web artifact isolation, and planner/builder capability declarations exist.
   - Confirmed gap: web/explorer are still exposed mainly as prompt-level `jri --run-web` / `jri --run-explorer` wrapper commands instead of SDK capabilities, so no-bash phases cannot reliably use required web.
-  - Confirmed gap: `CapabilityDescriptor.operation` is mostly ignored, undeclared capabilities are not enforced at the adapter boundary, and capability policy still leaks through wrapper behavior.
+  - Confirmed implemented: web operation declarations are now enforced for prompt-rendered `--run-web` metadata and CLI dispatch, with tests covering search-only/fetch-only prompt rendering and mismatched operation rejection.
+  - Confirmed gap: adapter/runtime boundary still needs enforcement of `allowedAgents` and runtime-scoped capability policy.
   - Confirmed gap: `pi-web-access` and `pi-subagent` are not bundled or preflighted, while the specs require no manual user package setup for MVP capability use.
   - Confirmed gap: explorer use is mandatory for the dogfood MVP, but runtime can complete without any explorer event or availability proof.
-  - Wire web and explorer through declared SDK capabilities, enforce operation declarations, and fail undeclared capability use.
+  - Wire web and explorer through declared SDK capabilities and fail undeclared capability use beyond the web wrapper operation checks already in place.
   - Make web usable by no-bash phases, with strict fetch/search result validation and actionable degraded/error outcomes.
   - Make explorer delegation JRI-owned, bundled or preflighted, read-only, spawn/fresh by default, concurrency-limited, handoff-bounded, artifact-backed, and isolated from ambient Pi state.
   - Standardize chat/loop owner metadata for all internal capability entrypoints; `--run-explorer` still accepts positional `projectDir loopId`.

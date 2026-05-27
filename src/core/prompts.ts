@@ -1,7 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { renderExplorerCapabilityInstructions, renderWebCapabilityInstructions } from "./capabilities";
-import type { CapabilityOwner } from "./capability-ownership";
+import type { CapabilityOwner, WebCapabilityOperation } from "./capability-ownership";
 import type { AgentConfig, AgentName, ProjectConfig, ReasoningLevel } from "./types";
 
 type PromptCapabilityDescriptor = {
@@ -148,7 +148,7 @@ function renderDeclaredCapabilityInstructions(
   const owner = options.owner ?? (options.loopId ? { kind: "loop" as const, loopId: options.loopId } : undefined);
   const sections: string[] = [];
   if (capabilities.some((capability) => capability.name === "web")) {
-    const instructions = renderWebCapabilityInstructions(projectDir, owner);
+    const instructions = renderWebCapabilityInstructions(projectDir, owner, declaredWebOperations(capabilities));
     if (instructions) sections.push(instructions);
   }
   if (capabilities.some((capability) => capability.name === "explorer")) {
@@ -156,6 +156,14 @@ function renderDeclaredCapabilityInstructions(
     if (instructions) sections.push(instructions);
   }
   return sections.join("\n\n");
+}
+
+function declaredWebOperations(capabilities: PromptCapabilityDescriptor[]): WebCapabilityOperation[] {
+  const operations = capabilities
+    .filter((capability) => capability.name === "web")
+    .map((capability) => capability.operation)
+    .filter((operation): operation is WebCapabilityOperation => operation === "search" || operation === "fetch");
+  return operations.length ? operations : ["search", "fetch"];
 }
 
 function defaultCapabilitiesForPhase(phase: "interrogation" | "auditing" | "planning" | "building" | "explorer"): PromptCapabilityDescriptor[] {

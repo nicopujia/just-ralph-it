@@ -2,11 +2,13 @@ import { JriError } from "./errors";
 import { isActiveState, readStatus } from "./runtime-state";
 
 export type LoopCapabilityName = "web" | "explorer";
+export type WebCapabilityOperation = "search" | "fetch";
 export type CapabilityOwner = { kind: "loop"; loopId: string } | { kind: "chat"; turnId: string };
 export type CapabilityInvocationMetadata = {
   owner: CapabilityOwner;
   projectDir: string;
   capability: LoopCapabilityName;
+  operation?: WebCapabilityOperation;
 };
 
 export async function assertLoopCapabilityOwnership(
@@ -20,12 +22,20 @@ export async function assertLoopCapabilityOwnership(
 export async function assertCapabilityOwnership(
   metadata: CapabilityInvocationMetadata,
   capability: LoopCapabilityName,
+  operation?: WebCapabilityOperation,
 ): Promise<void> {
   if (metadata.capability !== capability) {
     throw new JriError(
       `JRI ${capability} capability received mismatched owner metadata.`,
       "capability-owner-mismatch",
       "Retry through the JRI-managed capability command emitted for this capability.",
+    );
+  }
+  if (capability === "web" && operation && metadata.operation !== operation) {
+    throw new JriError(
+      `JRI web capability was invoked for ${operation} with mismatched operation metadata.`,
+      "capability-operation-mismatch",
+      "Retry through the JRI-managed web command emitted for this specific operation.",
     );
   }
   if (metadata.owner.kind === "chat") {
@@ -76,13 +86,24 @@ export function parseCapabilityMetadata(value: string): CapabilityInvocationMeta
   const record = parsed as Partial<CapabilityInvocationMetadata>;
   if (typeof record.projectDir !== "string" || !record.projectDir.trim()) return invalidMetadata();
   if (record.capability !== "web" && record.capability !== "explorer") return invalidMetadata();
+  if (record.operation !== undefined && record.operation !== "search" && record.operation !== "fetch") return invalidMetadata();
   if (!record.owner || typeof record.owner !== "object") return invalidMetadata();
   const owner = record.owner as Partial<CapabilityOwner>;
   if (owner.kind === "loop" && typeof owner.loopId === "string" && owner.loopId.trim()) {
-    return { projectDir: record.projectDir, capability: record.capability, owner: { kind: "loop", loopId: owner.loopId } };
+    return {
+      projectDir: record.projectDir,
+      capability: record.capability,
+      ...(record.operation ? { operation: record.operation } : {}),
+      owner: { kind: "loop", loopId: owner.loopId },
+    };
   }
   if (owner.kind === "chat" && typeof owner.turnId === "string" && owner.turnId.trim()) {
-    return { projectDir: record.projectDir, capability: record.capability, owner: { kind: "chat", turnId: owner.turnId } };
+    return {
+      projectDir: record.projectDir,
+      capability: record.capability,
+      ...(record.operation ? { operation: record.operation } : {}),
+      owner: { kind: "chat", turnId: owner.turnId },
+    };
   }
   return invalidMetadata();
 }

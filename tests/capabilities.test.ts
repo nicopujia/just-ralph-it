@@ -26,7 +26,21 @@ describe("capability descriptors", () => {
     expect(instructions).toContain("jri --run-web fetch");
     expect(instructions).toContain(String(webCapabilityDescriptor.limits.searchResults));
     expect(instructions).toContain(String(webCapabilityDescriptor.limits.fetchMarkdownChars));
+    expect(instructions).toContain('\\"operation\\":\\"search\\"');
+    expect(instructions).toContain('\\"operation\\":\\"fetch\\"');
     expect(instructions).toContain('\\"owner\\":{\\"kind\\":\\"loop\\",\\"loopId\\":\\"20260527T184210Z\\"}');
+  });
+
+  test("web descriptor renders only declared operations", () => {
+    const searchOnly = renderWebCapabilityInstructions("/tmp/project", { kind: "loop", loopId: "20260527T184210Z" }, ["search"]);
+    const fetchOnly = renderWebCapabilityInstructions("/tmp/project", { kind: "loop", loopId: "20260527T184210Z" }, ["fetch"]);
+
+    expect(searchOnly).toContain("jri --run-web search");
+    expect(searchOnly).not.toContain("jri --run-web fetch");
+    expect(searchOnly).toContain('\\"operation\\":\\"search\\"');
+    expect(fetchOnly).toContain("jri --run-web fetch");
+    expect(fetchOnly).not.toContain("jri --run-web search");
+    expect(fetchOnly).toContain('\\"operation\\":\\"fetch\\"');
   });
 
   test("web descriptor supports chat-owned interrogation artifacts", () => {
@@ -115,6 +129,7 @@ describe("capability descriptors", () => {
       expect(none).not.toContain("jri --run-web");
       expect(none).not.toContain("jri --run-explorer");
       expect(webOnly).toContain("jri --run-web search");
+      expect(webOnly).not.toContain("jri --run-web fetch");
       expect(webOnly).not.toContain("jri --run-explorer");
       expect(explorerOnly).toContain("jri --run-explorer");
       expect(explorerOnly).not.toContain("jri --run-web");

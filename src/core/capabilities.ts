@@ -1,5 +1,5 @@
 import type { AgentConfig } from "./types";
-import { encodeCapabilityMetadata, type CapabilityOwner } from "./capability-ownership";
+import { encodeCapabilityMetadata, type CapabilityOwner, type WebCapabilityOperation } from "./capability-ownership";
 
 export type WebCapabilityDescriptor = {
   name: "web";
@@ -51,20 +51,34 @@ export const explorerCapabilityDescriptor: ExplorerCapabilityDescriptor = {
   tools: ["read", "grep", "find", "ls"],
 };
 
-export function renderWebCapabilityInstructions(projectDir: string, owner: CapabilityOwner | undefined): string {
+export function renderWebCapabilityInstructions(
+  projectDir: string,
+  owner: CapabilityOwner | undefined,
+  operations: readonly WebCapabilityOperation[] = ["search", "fetch"],
+): string {
   if (!owner) return "";
   const limits = webCapabilityDescriptor.limits;
-  const metadata = encodeCapabilityMetadata({ projectDir, owner, capability: "web" });
   const artifactDir =
     owner.kind === "chat" ? ".jri/logs/interrogation-artifacts/" : `.jri/logs/${owner.loopId}/artifacts/`;
+  const declaredOperations = normalizeWebOperations(operations);
+  const commands = declaredOperations.map((operation) => {
+    const metadata = encodeCapabilityMetadata({ projectDir, owner, capability: "web", operation });
+    const operand = operation === "search" ? '"<query>"' : '"<url>"';
+    return `jri --run-web ${operation} ${JSON.stringify(metadata)} ${operand}`;
+  });
   return [
     "JRI web capability:",
-    `- For current external facts, use the JRI-owned web wrapper commands: jri --run-web search ${JSON.stringify(metadata)} "<query>" and jri --run-web fetch ${JSON.stringify(metadata)} "<url>".`,
+    `- For current external facts, use only the declared JRI-owned web wrapper command${commands.length === 1 ? "" : "s"}: ${commands.join(" and ")}.`,
     `- Search results are capped at ${limits.searchResults} and include retrieval timestamps; fetched markdown is capped at ${limits.fetchMarkdownChars} characters with artifact refs under ${artifactDir} for omitted content.`,
     "- Cite sources in user-visible summaries when web facts affect a decision.",
     "- If required web access is unavailable, return an actionable capability blocker or a clearly labeled degraded answer; do not guess current facts.",
     "- Do not use ad hoc shell curl, browser automation, package CLIs, or raw HTML dumps for facts the JRI web capability can retrieve.",
   ].join("\n");
+}
+
+function normalizeWebOperations(operations: readonly WebCapabilityOperation[]): WebCapabilityOperation[] {
+  const unique = operations.filter((operation, index) => operations.indexOf(operation) === index);
+  return unique.length ? unique : ["search", "fetch"];
 }
 
 export function renderExplorerCapabilityInstructions(projectDir: string, loopId: string | undefined): string {
