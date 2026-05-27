@@ -1,6 +1,7 @@
 import { mkdir, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { JriError } from "./errors";
+import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
 import { defaultConfig, defaultStatus, parseJsonObject, validateConfig, validateStatus } from "./schema";
 import type { AuthResult, AuthState, ChatInput, CoreEvent, ProjectConfig, ProjectStatus } from "./types";
 
@@ -37,7 +38,7 @@ export class Project {
   };
 
   readonly status = {
-    get: async (): Promise<ProjectStatus> => this.getStatus(),
+    get: async (): Promise<ProjectStatus> => getRecoveredStatus(this.projectDir),
   };
 
   readonly auth = {
@@ -57,17 +58,17 @@ export class Project {
   };
 
   readonly loop = {
-    observe: async function* (): AsyncIterable<CoreEvent> {
-      throw new JriError("Loop observation is not implemented yet.", "not-implemented", "Use .jri/status.json and .jri/logs until loop observation is implemented.");
+    observe: (): AsyncIterable<CoreEvent> => {
+      return observeLoop(this.projectDir);
     },
     requestStop: async (): Promise<void> => {
-      throw new JriError("Loop stop is not implemented yet.", "not-implemented", "Loop controls require the daemon/runtime P0.");
+      await requestGracefulStop(this.projectDir);
     },
-    halt: async function* (): AsyncIterable<CoreEvent> {
-      throw new JriError("Loop halt is not implemented yet.", "not-implemented", "Loop controls require the daemon/runtime P0.");
+    halt: (): AsyncIterable<CoreEvent> => {
+      return haltLoop(this.projectDir);
     },
-    resume: async function* (): AsyncIterable<CoreEvent> {
-      throw new JriError("Loop resume is not implemented yet.", "not-implemented", "Loop controls require the daemon/runtime P0.");
+    resume: (): AsyncIterable<CoreEvent> => {
+      return resumeLoop(this.projectDir);
     },
   };
 

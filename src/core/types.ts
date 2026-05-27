@@ -158,7 +158,7 @@ export type CoreEvent =
       data: { killedPid?: number; resetOffered: boolean; resetAccepted: boolean; resetSucceeded?: boolean; rollbackCommit?: string };
     })
   | (BaseEvent & { type: "loopFinished"; loopId: string; data: { outcome: "completed" | "failed"; summary?: string; url?: string; commit?: string; tag?: string } })
-  | (BaseEvent & { type: "statusRepaired"; data: { repairedFrom: string; repairedTo: string; reason: string } })
+  | (BaseEvent & { type: "statusRepaired"; loopId?: string; data: { repairedFrom: string; repairedTo: string; reason: string } })
   | (BaseEvent & { type: "chatMessageStarted"; data: { role: "assistant" } })
   | (BaseEvent & { type: "chatMessageDelta"; data: { role: "assistant"; text: string } })
   | (BaseEvent & { type: "chatMessageFinished"; data: { role: "assistant" } })

@@ -32,9 +32,33 @@ async function main(argv: string[]): Promise<number> {
   }
 
   if (command === "loop") {
-    if (subcommand === "attach" || subcommand === "stop" || subcommand === "halt" || subcommand === "resume") {
-      console.error(`jri loop ${subcommand} is not implemented yet. Loop controls require the daemon/runtime P0.`);
-      return 1;
+    if (subcommand === "attach") {
+      for await (const event of project.loop.observe()) {
+        console.log(formatLoopEvent(event));
+      }
+      return 0;
+    }
+    if (subcommand === "stop") {
+      await project.loop.requestStop();
+      const status = await project.status.get();
+      console.log(status.stopRequested ? "Graceful stop requested." : "Graceful stop request cleared.");
+      return 0;
+    }
+    if (subcommand === "halt") {
+      if (!(await confirm("Force halt the active JRI loop?"))) {
+        console.log("Halt canceled.");
+        return 0;
+      }
+      for await (const event of project.loop.halt()) {
+        console.log(formatLoopEvent(event));
+      }
+      return 0;
+    }
+    if (subcommand === "resume") {
+      for await (const event of project.loop.resume()) {
+        console.log(formatLoopEvent(event));
+      }
+      return 0;
     }
     return usage(`Unsupported loop command: ${subcommand ?? ""}`.trim());
   }
@@ -46,6 +70,16 @@ function usage(error?: string): number {
   if (error) console.error(error);
   console.error("Usage: jri | jri auth {status|login|logout} | jri loop {attach|stop|halt|resume}");
   return 1;
+}
+
+function formatLoopEvent(event: { type: string; sequence: number; timestamp: string; message?: string; data?: unknown }): string {
+  return event.message ?? `[${event.sequence}] ${event.timestamp} ${event.type} ${JSON.stringify(event.data ?? {})}`;
+}
+
+async function confirm(question: string): Promise<boolean> {
+  process.stderr.write(`${question} y/N `);
+  const answer = await new Response(Bun.stdin.stream()).text();
+  return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
 }
 
 main(Bun.argv.slice(2))

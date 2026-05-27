@@ -28,9 +28,12 @@ Next work:
   legal lifecycle transition enforcement, lock acquire/heartbeat/release with
   stale-lock checks, UTC loop-id collision handling, canonical `CoreEvent`
   union expansion, and monotonic JSONL event sequence allocation.
-- [ ] P0: Implement daemon/runtime scaffolding (IPC, process/ownership tracking,
-  recovery, idle shutdown).
-- [ ] P0: Implement Pi-bounded interrogation/auth/loop paths needed to replace
-  placeholder errors in core and CLI.
+- [x] P0 (selected): Add daemon/runtime scaffolding to core loop controls without Pi
+  SDK execution yet: recovery-aware status reads, loop event replay observation,
+  graceful stop toggle, and halt scaffolding are implemented and tested.
+- [ ] P0: Implement actual IPC + daemon runner.
+- [ ] P0: Implement Pi-backed execution/session startup.
+- [ ] P0: Implement idle shutdown.
+- [ ] P0: Implement full resume runner.
 - [ ] P1: Expand test coverage into status transitions, planner/loop command
   behavior, and daemon recovery paths.
