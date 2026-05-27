@@ -556,6 +556,74 @@ describe("daemon IPC", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("rejects daemon requests with missing or invalid projectDir", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const daemon = await startDaemonServer({ paths, idleTimeoutMs: 10_000 });
+    const socket = await connectRawSocket(paths.socketPath);
+    try {
+      socket.write(`${JSON.stringify({ id: "missing-project", method: "status.get", params: {} })}\n`);
+      const missing = JSON.parse(await readRawSocketLine(socket));
+      expect(missing).toMatchObject({
+        id: "missing-project",
+        ok: false,
+        error: {
+          code: "invalid-daemon-request",
+          message: "Daemon request is missing projectDir.",
+        },
+      });
+
+      socket.write(`${JSON.stringify({ id: "relative-project", method: "status.get", params: { projectDir: "relative-project" } })}\n`);
+      const relative = JSON.parse(await readRawSocketLine(socket));
+      expect(relative).toMatchObject({
+        id: "relative-project",
+        ok: false,
+        error: {
+          code: "invalid-daemon-request",
+          message: "Daemon request projectDir must be an absolute path.",
+        },
+      });
+    } finally {
+      socket.destroy();
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects malformed loop halt payloads", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const daemon = await startDaemonServer({ paths, idleTimeoutMs: 10_000 });
+    const socket = await connectRawSocket(paths.socketPath);
+    try {
+      socket.write(`${JSON.stringify({ id: "halt-missing-options", method: "loop.halt", params: { projectDir: dir } })}\n`);
+      const missing = JSON.parse(await readRawSocketLine(socket));
+      expect(missing).toMatchObject({
+        id: "halt-missing-options",
+        ok: false,
+        error: {
+          code: "invalid-daemon-request",
+          message: "Daemon loop.halt is missing halt options.",
+        },
+      });
+
+      socket.write(`${JSON.stringify({ id: "halt-bad-reset", method: "loop.halt", params: { projectDir: dir, halt: { resetGit: "yes" } } })}\n`);
+      const badReset = JSON.parse(await readRawSocketLine(socket));
+      expect(badReset).toMatchObject({
+        id: "halt-bad-reset",
+        ok: false,
+        error: {
+          code: "invalid-daemon-request",
+          message: "Daemon loop.halt resetGit option must be a boolean.",
+        },
+      });
+    } finally {
+      socket.destroy();
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {

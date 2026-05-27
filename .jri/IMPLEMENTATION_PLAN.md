@@ -98,3 +98,4 @@
   - Single-line handoff parsing baseline, malformed/duplicate/missing/wrong-agent/wrong-phase rejection, chat trigger daemon start, accepted-trigger gating, manual added/deleted/sealed spec reconciliation baseline, corrupt auth cache recovery, validation-gated git-changing iterations, commit/tag observation, blocker basics, and human-task resume basics.
   - Planner planned handoffs now require `.jri/IMPLEMENTATION_PLAN.md` to exist for initial planning and plan regeneration; missing files produce durable failure evidence instead of `planned` completion.
   - Runtime recovery now prefers the latest durable terminal loop event for active status with missing, dead, or stale runtime ownership, with daemon-runtime regression coverage for stale process ownership.
+  - Daemon IPC now rejects missing/non-absolute `projectDir` and malformed `loop.halt` option payloads, with regression coverage.

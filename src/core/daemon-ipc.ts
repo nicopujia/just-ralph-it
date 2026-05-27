@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { homedir, tmpdir, userInfo } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JriError, isJriError } from "./errors";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop, startRalphLoop, type RuntimeOptions } from "./daemon-runtime";
@@ -677,8 +677,11 @@ function parseDaemonMessage(line: string): DaemonStreamMessage {
 }
 
 function projectDirParam(params: unknown): string {
-  if (!params || typeof params !== "object" || !("projectDir" in params) || typeof params.projectDir !== "string") {
+  if (!params || typeof params !== "object" || !("projectDir" in params) || typeof params.projectDir !== "string" || params.projectDir.trim().length === 0) {
     throw new JriError("Daemon request is missing projectDir.", "invalid-daemon-request", "Retry with a compatible JRI client.");
+  }
+  if (!isAbsolute(params.projectDir)) {
+    throw new JriError("Daemon request projectDir must be an absolute path.", "invalid-daemon-request", "Retry with a compatible JRI client.");
   }
   return resolve(params.projectDir);
 }
@@ -727,10 +730,18 @@ function haltOptionsParam(options: HaltOptions): HaltOptions {
 }
 
 function haltOptionsFromParams(params: unknown): HaltOptions {
-  if (!params || typeof params !== "object" || !("halt" in params) || !params.halt || typeof params.halt !== "object") return {};
+  if (!params || typeof params !== "object" || !("halt" in params)) {
+    throw new JriError("Daemon loop.halt is missing halt options.", "invalid-daemon-request", "Retry with a compatible JRI client.");
+  }
+  if (!params.halt || typeof params.halt !== "object" || Array.isArray(params.halt)) {
+    throw new JriError("Daemon loop.halt options are malformed.", "invalid-daemon-request", "Retry with a compatible JRI client.");
+  }
   const halt = params.halt as Record<string, unknown>;
+  if ("resetGit" in halt && typeof halt.resetGit !== "boolean") {
+    throw new JriError("Daemon loop.halt resetGit option must be a boolean.", "invalid-daemon-request", "Retry with a compatible JRI client.");
+  }
   return {
-    ...(typeof halt.resetGit === "boolean" ? { resetGit: halt.resetGit } : {}),
+    ...("resetGit" in halt ? { resetGit: halt.resetGit as boolean } : {}),
   };
 }
 
