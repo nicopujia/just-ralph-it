@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import { defaultStatus } from "../src/core/schema";
-import { writeStatusAtomic } from "../src/core/runtime-state";
+import { appendLoopEvent, writeStatusAtomic } from "../src/core/runtime-state";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const cliPath = join(repoRoot, "src", "cli", "index.ts");
@@ -173,6 +173,54 @@ describe("CLI", () => {
       expect(stderr).toContain("jri loop attach is not available while JRI is blocked");
       expect(stderr).toContain("Clarify the target in bare jri");
       expect(stderr).toContain(".jri/logs/20260527T184210Z/stdout.log");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("loop attach renders recent output and milestone events with detach and stop controls outside stdout log", async () => {
+    const dir = await tempInitializedProject();
+    const loopId = "20260527T184210Z";
+    try {
+      await mkdir(join(dir, ".jri", "logs", loopId), { recursive: true });
+      await writeFile(join(dir, ".jri", "logs", loopId, "stdout.log"), "first line\nsecond line\n", "utf8");
+      await appendLoopEvent(dir, {
+        type: "iterationStarted",
+        loopId,
+        iteration: 1,
+        data: { trackedTreeCleanAtStart: true },
+      });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: loopId,
+        lastLoopId: loopId,
+        iteration: 1,
+      });
+
+      const proc = Bun.spawn(["bun", cliPath, "loop", "attach"], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      setTimeout(() => {
+        proc.stdin.write("sd");
+        proc.stdin.end();
+      }, 150);
+
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("first line");
+      expect(stdout).toContain("second line");
+      expect(stdout).toContain("iterationStarted");
+      expect(stderr).toContain("[d]etach [s]top");
+      expect(stderr).toContain("ralphing | iteration: 1 | stop: yes");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(status.stopRequested).toBe(true);
+      expect(await readFile(join(dir, ".jri", "logs", loopId, "stdout.log"), "utf8")).toBe("first line\nsecond line\n");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

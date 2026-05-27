@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { open, isJriError, JriError } from "../core";
-import type { ProjectStatus, ProjectState } from "../core";
+import type { CoreEvent, Project, ProjectStatus, ProjectState } from "../core";
 import { runDaemon } from "../core/daemon-ipc";
 import { runLoopProcess, type RunnerPhase } from "../core/daemon-runtime";
 import { runExplorerTask } from "../core/harness";
@@ -107,9 +107,7 @@ async function main(argv: string[]): Promise<number> {
       if (!isActiveLoopState(status.state)) {
         throw loopStateError("attach", status);
       }
-      for await (const event of project.loop.observe({ includeStdout: true, recentStdoutLines: 100, follow: true })) {
-        console.log(formatLoopEvent(event));
-      }
+      await attachLoop(project, status);
       return 0;
     }
     if (subcommand === "stop") {
@@ -255,6 +253,115 @@ function formatStatus(status: { state: string; blocker?: { reason: string; descr
 function formatLoopEvent(event: { type: string; sequence: number; timestamp: string; message?: string; data?: unknown }): string {
   if (event.type === "loopOutput" && event.message) return event.message.endsWith("\n") ? event.message.slice(0, -1) : event.message;
   return event.message ?? `[${event.sequence}] ${event.timestamp} ${event.type} ${JSON.stringify(event.data ?? {})}`;
+}
+
+async function attachLoop(project: Project, initialStatus: ProjectStatus): Promise<void> {
+  const input = attachInput(process.stdin);
+  const events = project.loop.observe({ includeStdout: true, recentStdoutLines: 100, follow: true })[Symbol.asyncIterator]();
+  let status = initialStatus;
+  let stop = false;
+  let nextEvent = events.next();
+  let nextInput = input.next();
+
+  renderAttachFooter(status);
+  try {
+    while (!stop) {
+      const result = await Promise.race([
+        nextEvent.then((value) => ({ source: "event" as const, value })),
+        nextInput.then((value) => ({ source: "input" as const, value })),
+      ]);
+
+      if (result.source === "input") {
+        const key = result.value;
+        nextInput = input.next();
+        if (key === "d") {
+          stop = true;
+          break;
+        }
+        if (key === "s") {
+          await project.loop.requestStop();
+          status = await project.status.get();
+          renderAttachFooter(status);
+        }
+        continue;
+      }
+
+      if (result.value.done) break;
+      writeAttachEvent(result.value.value);
+      nextEvent = events.next();
+    }
+  } finally {
+    input.close();
+    await events.return?.();
+    clearAttachFooter();
+  }
+}
+
+type AttachInput = {
+  next: () => Promise<"d" | "s" | undefined>;
+  close: () => void;
+};
+
+function attachInput(stdin: NodeJS.ReadStream): AttachInput {
+  const queue: Array<"d" | "s"> = [];
+  let pending: ((key: "d" | "s" | undefined) => void) | undefined;
+  const wasRaw = Boolean(stdin.isRaw);
+  const wasPaused = stdin.isPaused();
+
+  const push = (chunk: Buffer | string): void => {
+    for (const char of chunk.toString("utf8")) {
+      if (char !== "d" && char !== "s") continue;
+      if (pending) {
+        const resolve = pending;
+        pending = undefined;
+        resolve(char);
+      } else {
+        queue.push(char);
+      }
+    }
+  };
+
+  stdin.on("data", push);
+  if (stdin.isTTY) {
+    stdin.setRawMode?.(true);
+  }
+  stdin.resume();
+
+  return {
+    next: async (): Promise<"d" | "s" | undefined> => {
+      const queued = queue.shift();
+      if (queued) return queued;
+      return await new Promise((resolve) => {
+        pending = resolve;
+      });
+    },
+    close: (): void => {
+      stdin.off("data", push);
+      if (stdin.isTTY) {
+        stdin.setRawMode?.(wasRaw);
+      }
+      if (wasPaused) stdin.pause();
+      if (pending) {
+        const resolve = pending;
+        pending = undefined;
+        resolve(undefined);
+      }
+    },
+  };
+}
+
+function writeAttachEvent(event: CoreEvent): void {
+  clearAttachFooter();
+  const text = formatLoopEvent(event);
+  process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+}
+
+function renderAttachFooter(status: ProjectStatus): void {
+  process.stderr.write(`\r[d]etach [s]top | ${formatStatus(status)}`);
+}
+
+function clearAttachFooter(): void {
+  process.stderr.write("\r\x1b[2K");
 }
 
 async function confirm(question: string): Promise<boolean> {
