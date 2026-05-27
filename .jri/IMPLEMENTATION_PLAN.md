@@ -7,13 +7,17 @@
     - In active `auditing`, `planning`, and `building` states, chat returns `attach`/`stop` guidance without invoking the interrogator/start path.
     - Focused chat tests covering this path now pass; final validation also passed with `bun test tests/chat.test.ts`, full `bun run test` (103 tests), `bun run typecheck`, and `bun run lint`.
     - Note: an initial parallel validation run timed out one CLI attach test while two TypeScript checks were also running; the attach test and full suite passed serially, so no product change was needed for that test.
-  - Remaining: Run interrogation-state reconciliation when bare `jri` opens chat, not only after an accepted start; unresolved manual spec edits should be shown before user input and should block lifecycle start until resolved or explicitly deferred out of scope.
+  - Completed/Tested: interrogation-state reconciliation now runs on empty/open checks and ordinary non-trigger chat.
+    - Core `chat` empty/open checks now invoke interrogation start-gate reconciliation before user input.
+    - Non-trigger chat now runs start-gate reconciliation, and CLI bare `jri` with empty stdin displays and persists pending spec reconciliation.
+    - Validation passed with focused checks plus full `bun test`, `bun run typecheck`, and `bun run lint`.
   - Remaining: Make the accepted-trigger `chat.send()` stream include daemon lifecycle events beyond `loopStarted` by keeping `loop.start` streaming or chaining observation for the newly authorized loop.
 
 - P0: Finish durable interrogator context reconstruction and capabilities.
   - Current harness invocation passes broad refs (`.jri/specs`, `.jri/scratchpad.md`, `.jri/status.json`, full `.jri/logs/interrogation.jsonl`), and the default Pi CLI adapter only uses the last inline user message; implement selected context refs from `.jri/interrogation-state.json`: open topics, pending reconciliation, recent unsealed turns, status, relevant loop summaries, specs, and scratchpad.
   - Add topic/open-turn selection so sealed topics omit old chat logs while their spec files remain requirements truth; cover reopen after manual edit, deleted spec, added spec, and context passed to fakes.
   - Add interrogator web capability support with chat-owned owner metadata and artifacts under `.jri/logs/interrogation-artifacts/`, separate from loop events/status.
+  - Remaining: `checkInterrogationStartGate` does not yet detect newly added/untracked spec files.
 
 - P0: Replace Pi CLI shellout harness with the controlled SDK adapter contract.
   - Current `invokeDefaultHarness` and `runControlledPiSession` build `pi --print` commands; loop phases still use `HarnessSessionRunner` with `{ projectDir, loopId, phase, stdoutPath }`, bypassing `HarnessInvocation` fields for owner, context refs, capabilities, and cancellation.

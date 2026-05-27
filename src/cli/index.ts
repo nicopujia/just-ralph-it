@@ -7,6 +7,7 @@ import type { CoreEvent, Project, ProjectStatus, ProjectState } from "../core";
 import { runDaemon } from "../core/daemon-ipc";
 import { runLoopProcess, type RunnerPhase } from "../core/daemon-runtime";
 import { runExplorerTask } from "../core/harness";
+import { checkInterrogationStartGate } from "../core/interrogation-state";
 import { runWebFetch, runWebSearch } from "../core/web-capability";
 
 async function main(argv: string[]): Promise<number> {
@@ -82,8 +83,13 @@ async function main(argv: string[]): Promise<number> {
 
     const input = await new Response(Bun.stdin.stream()).text();
     if (!input.trim()) {
-      const status = await project.status.get();
-      console.log(formatStatus(status));
+      const reconciliation = await pendingReconciliationMessage(project.projectDir);
+      if (reconciliation) {
+        console.log(reconciliation);
+      } else {
+        const status = await project.status.get();
+        console.log(formatStatus(status));
+      }
       return 0;
     }
     for await (const event of project.chat.send({ message: input })) {
@@ -217,6 +223,8 @@ async function runInteractiveChat(project: Project): Promise<void> {
   });
 
   try {
+    const reconciliation = await pendingReconciliationMessage(project.projectDir);
+    if (reconciliation) console.log(reconciliation);
     for (;;) {
       console.log(formatStatus(await project.status.get()));
       const input = await rl.question("jri> ");
@@ -240,6 +248,18 @@ async function runInteractiveChat(project: Project): Promise<void> {
 
 function isReadlineClosed(error: unknown): boolean {
   return error instanceof Error && error.message === "readline was closed";
+}
+
+async function pendingReconciliationMessage(projectDir: string): Promise<string | null> {
+  const startGate = await checkInterrogationStartGate(projectDir);
+  if (startGate.ok) return null;
+  const pending = startGate.pending[0];
+  const summary = pending?.topic.pendingReconciliation?.summary ?? "A pending spec reconciliation must be resolved before Ralph can start.";
+  return [
+    "Ralph cannot start until pending spec reconciliation is resolved.",
+    summary,
+    "Clarify the changed requirement in bare jri, then say just ralph it again when the specs are ready.",
+  ].join("\n");
 }
 
 function formatAuthHelp(): string {

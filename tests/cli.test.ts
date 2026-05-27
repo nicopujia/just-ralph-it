@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
 import { defaultStatus } from "../src/core/schema";
 import { appendLoopEvent, writeStatusAtomic } from "../src/core/runtime-state";
+import { fingerprintSpecFile, writeInterrogationState } from "../src/core/interrogation-state";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const cliPath = join(repoRoot, "src", "cli", "index.ts");
@@ -98,6 +99,43 @@ describe("CLI", () => {
       expect(stdout).toContain("2. Enable billing on the target account.");
       expect(stdout).toContain("Success criteria:");
       expect(stdout).toContain("Resume: Say done in bare jri after billing is enabled.");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("bare jri with no input detects pending spec reconciliation instead of only printing status", async () => {
+    const dir = await tempInitializedProject();
+    try {
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
+      const fingerprint = await fingerprintSpecFile(dir, ".jri/specs/app.md");
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          app: {
+            specFile: ".jri/specs/app.md",
+            status: "sealed",
+            lastReconciledSpecFingerprint: fingerprint,
+          },
+        },
+      });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI and web UI.\n");
+
+      const proc = Bun.spawn(["bun", cliPath], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      proc.stdin.end();
+      const [exitCode, stdout] = await Promise.all([proc.exited, new Response(proc.stdout).text()]);
+      const state = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("pending spec reconciliation");
+      expect(stdout).toContain(".jri/specs/app.md changed after this topic was sealed");
+      expect(state.topics.app.pendingReconciliation).toMatchObject({ reason: "manualSpecEdit" });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

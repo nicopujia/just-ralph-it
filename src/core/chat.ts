@@ -27,7 +27,13 @@ export type ChatRuntimeOptions = RuntimeOptions & {
 export async function* sendChat(projectDir: string, input: ChatInput, options: ChatRuntimeOptions = {}): AsyncIterable<CoreEvent> {
   const message = input.message.trim();
   if (!message) {
-    yield* emitAssistant(projectDir, "Send a message, clarify the specs, say done after a human-task blocker is resolved, or say just ralph it when the specs are ready.");
+    const startGate = await checkInterrogationStartGate(projectDir, options.now ? { now: options.now } : {});
+    yield* emitAssistant(
+      projectDir,
+      startGate.ok
+        ? "Send a message, clarify the specs, say done after a human-task blocker is resolved, or say just ralph it when the specs are ready."
+        : reconciliationPrompt(startGate),
+    );
     return;
   }
 
@@ -44,20 +50,11 @@ export async function* sendChat(projectDir: string, input: ChatInput, options: C
     return;
   }
 
+  const startGate = await checkInterrogationStartGate(projectDir, options.now ? { now: options.now } : {});
   const trigger = normalizeStartTrigger(message);
   if (trigger) {
-    const startGate = await checkInterrogationStartGate(projectDir, options.now ? { now: options.now } : {});
     if (!startGate.ok) {
-      const pending = startGate.pending[0];
-      const summary = pending?.topic.pendingReconciliation?.summary ?? "A pending spec reconciliation must be resolved before Ralph can start.";
-      yield* emitAssistant(
-        projectDir,
-        [
-          "Ralph cannot start until pending spec reconciliation is resolved.",
-          summary,
-          "Clarify the changed requirement in bare jri, then say just ralph it again when the specs are ready.",
-        ].join("\n"),
-      );
+      yield* emitAssistant(projectDir, reconciliationPrompt(startGate));
       return;
     }
     yield* emitAssistant(projectDir, `Start request accepted (${trigger}). Running the specs auditor now.`);
@@ -66,6 +63,7 @@ export async function* sendChat(projectDir: string, input: ChatInput, options: C
   }
 
   if (options.interrogatorHarness) {
+    if (!startGate.ok) yield* emitAssistant(projectDir, reconciliationPrompt(startGate));
     yield* runInterrogator(projectDir, message, options);
     return;
   }
@@ -170,16 +168,7 @@ async function* handleInterrogatorHandoff(
 
   const startGate = await checkInterrogationStartGate(projectDir, options.now ? { now: options.now } : {});
   if (!startGate.ok) {
-    const pending = startGate.pending[0];
-    const summary = pending?.topic.pendingReconciliation?.summary ?? "A pending spec reconciliation must be resolved before Ralph can start.";
-    yield* emitAssistant(
-      projectDir,
-      [
-        "Ralph cannot start until pending spec reconciliation is resolved.",
-        summary,
-        "Clarify the changed requirement in bare jri, then say just ralph it again when the specs are ready.",
-      ].join("\n"),
-    );
+    yield* emitAssistant(projectDir, reconciliationPrompt(startGate));
     return;
   }
 
@@ -286,6 +275,16 @@ function defaultHumanTaskVerifier(request: { blocker: Blocker }): HumanTaskVerif
       },
     },
   };
+}
+
+function reconciliationPrompt(startGate: Extract<Awaited<ReturnType<typeof checkInterrogationStartGate>>, { ok: false }>): string {
+  const pending = startGate.pending[0];
+  const summary = pending?.topic.pendingReconciliation?.summary ?? "A pending spec reconciliation must be resolved before Ralph can start.";
+  return [
+    "Ralph cannot start until pending spec reconciliation is resolved.",
+    summary,
+    "Clarify the changed requirement in bare jri, then say just ralph it again when the specs are ready.",
+  ].join("\n");
 }
 
 async function assertScratchpadExists(projectDir: string): Promise<void> {

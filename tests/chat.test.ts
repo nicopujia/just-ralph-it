@@ -477,6 +477,91 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("empty chat open reports pending manual reconciliation before user input", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
+      const fingerprint = await fingerprintSpecFile(dir, ".jri/specs/app.md");
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          app: {
+            specFile: ".jri/specs/app.md",
+            status: "sealed",
+            lastReconciledSpecFingerprint: fingerprint,
+          },
+        },
+      });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI and web UI.\n");
+
+      const events = await collect(sendChat(dir, { message: "" }, { now: new Date("2026-05-27T20:00:00.000Z") }));
+      const state = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+
+      expect(events.map((event) => event.type)).toEqual(["chatMessageStarted", "chatMessageDelta", "chatMessageFinished", "chatTurnRecorded"]);
+      expect(events[1]).toMatchObject({
+        type: "chatMessageDelta",
+        data: { text: expect.stringContaining("pending spec reconciliation") },
+      });
+      expect(state.topics.app.pendingReconciliation).toMatchObject({ reason: "manualSpecEdit" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("ordinary chat surfaces pending reconciliation before invoking interrogator", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
+      const fingerprint = await fingerprintSpecFile(dir, ".jri/specs/app.md");
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          app: {
+            specFile: ".jri/specs/app.md",
+            status: "sealed",
+            lastReconciledSpecFingerprint: fingerprint,
+          },
+        },
+      });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI and web UI.\n");
+
+      let harnessCalled = false;
+      const events = await collect(
+        sendChat(dir, { message: "The web UI edit is intentional." }, {
+          now: new Date("2026-05-27T20:00:00.000Z"),
+          interrogatorHarness: async () => {
+            harnessCalled = true;
+            return {
+              handoff: {
+                agent: "interrogator",
+                action: "messageOnly",
+                summary: "Recorded reconciliation answer.",
+              },
+            };
+          },
+        }),
+      );
+
+      expect(harnessCalled).toBe(true);
+      expect(events.filter((event) => event.type === "chatMessageDelta")[0]).toMatchObject({
+        type: "chatMessageDelta",
+        data: { text: expect.stringContaining("pending spec reconciliation") },
+      });
+      expect(events.filter((event) => event.type === "chatMessageDelta")[1]).toMatchObject({
+        type: "chatMessageDelta",
+        data: { text: "Recorded reconciliation answer." },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("project chat starts accepted triggers through daemon IPC and updates the registry", async () => {
     const dir = await tempProject();
     const paths = tempDaemonPaths(dir);
