@@ -58,6 +58,7 @@ export type HarnessSessionRequest = {
   contextInline?: string[];
   explorerTask?: string;
   userMessage?: string;
+  capabilities?: CapabilityDescriptor[];
   timeoutMs?: number;
 };
 
@@ -107,6 +108,7 @@ export async function invokeDefaultHarness(invocation: HarnessInvocation, env: N
     contextRefs: invocation.context.refs,
     contextInline: invocation.context.inline,
     ...(userMessage ? { userMessage } : {}),
+    capabilities: invocation.capabilities,
   });
   const output = await runCommandCapture({
     command: built.command,
@@ -177,6 +179,7 @@ export async function runExplorerTask(
         phase: "explorer",
         ...(request.env ? { env: request.env } : {}),
         explorerTask: task,
+        capabilities: [{ name: "web", operation: "search" }, { name: "web", operation: "fetch" }],
       });
       const output = await runCommandCapture({
         command: built.command,
@@ -236,6 +239,7 @@ export async function buildControlledPiCommand(
     ...(request.contextInline ? { contextInline: request.contextInline } : {}),
     ...(request.explorerTask ? { explorerTask: request.explorerTask } : {}),
     ...(request.userMessage ? { userMessage: request.userMessage } : {}),
+    ...(request.capabilities ? { capabilities: request.capabilities } : {}),
   });
   const agent = agentForPhase(request.phase);
   const model = modelForAgent(await readProjectConfig(request.projectDir), agent);

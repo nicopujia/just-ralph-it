@@ -94,7 +94,7 @@ async function* runInterrogator(
     phase: "interrogation",
     model: modelForAgent(await readProjectConfig(projectDir), "interrogator"),
     context,
-    capabilities: [],
+    capabilities: [{ name: "web", operation: "search" }, { name: "web", operation: "fetch" }],
     output: {
       write: (chunk) => {
         if (chunk) chunks.push(chunk);

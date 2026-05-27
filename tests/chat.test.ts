@@ -67,12 +67,13 @@ describe("interrogation chat", () => {
       await mkdir(join(dir, ".jri", "logs"), { recursive: true });
       await mkdir(join(dir, ".jri", "specs"), { recursive: true });
       await writeStatusAtomic(dir, defaultStatus(dir));
-      const requests: Array<{ agent: string; phase: string; message: string; signal: AbortSignal }> = [];
+      const requests: Array<{ agent: string; phase: string; message: string; capabilities: string[]; signal: AbortSignal }> = [];
       const harness: HarnessAdapter = async (invocation) => {
         requests.push({
           agent: invocation.agent,
           phase: invocation.phase,
           message: invocation.context.inline[0] ?? "",
+          capabilities: invocation.capabilities.map((capability) => `${capability.name}:${capability.operation ?? "*"}`),
           signal: invocation.signal,
         });
         await invocation.output.write("Which deployment target should Ralph use?");
@@ -87,7 +88,15 @@ describe("interrogation chat", () => {
 
       const events = await collect(sendChat(dir, { message: "Build a deployment flow." }, { signal: controller.signal, interrogatorHarness: harness }));
 
-      expect(requests).toEqual([{ agent: "interrogator", phase: "interrogation", message: "Build a deployment flow.", signal: controller.signal }]);
+      expect(requests).toEqual([
+        {
+          agent: "interrogator",
+          phase: "interrogation",
+          message: "Build a deployment flow.",
+          capabilities: ["web:search", "web:fetch"],
+          signal: controller.signal,
+        },
+      ]);
       expect(events.map((event) => event.type)).toEqual([
         "chatTurnRecorded",
         "chatMessageStarted",

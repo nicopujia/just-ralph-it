@@ -4,6 +4,11 @@ import { renderExplorerCapabilityInstructions, renderWebCapabilityInstructions }
 import type { CapabilityOwner } from "./capability-ownership";
 import type { AgentConfig, AgentName, ProjectConfig, ReasoningLevel } from "./types";
 
+type PromptCapabilityDescriptor = {
+  name: "web" | "explorer";
+  operation?: string;
+};
+
 const openAiPreset: Record<AgentName, Required<AgentConfig>> = {
   interrogator: { model: "gpt-5.5", reasoning: "xhigh" },
   explorer: { model: "gpt-5.3-codex-spark", reasoning: "xhigh" },
@@ -23,7 +28,15 @@ export function modelForAgent(config: unknown, agent: AgentName): Required<Agent
 export async function buildPiPrompt(
   projectDir: string,
   phase: "interrogation" | "auditing" | "planning" | "building" | "explorer",
-  options: { owner?: CapabilityOwner; loopId?: string; contextRefs?: string[]; contextInline?: string[]; explorerTask?: string; userMessage?: string } = {},
+  options: {
+    owner?: CapabilityOwner;
+    loopId?: string;
+    contextRefs?: string[];
+    contextInline?: string[];
+    explorerTask?: string;
+    userMessage?: string;
+    capabilities?: PromptCapabilityDescriptor[];
+  } = {},
 ): Promise<string> {
   const specFiles = await listSpecFiles(projectDir);
   const specs = await Promise.all(
@@ -47,7 +60,7 @@ export async function buildPiPrompt(
       'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by an interrogator contract JSON with action "messageOnly", "specsUpdated", "scratchpadUpdated", "humanTaskVerified", "humanTaskStillBlocked", or "startRequested".',
       'Use "specsUpdated" when you changed .jri/specs/* and include changed specFiles plus a user-facing summary. Use "scratchpadUpdated" when only scratchpad changed.',
       'Use "messageOnly" when no durable file changed. Never include secrets in handoffs.',
-      renderWebCapabilityInstructions(projectDir, options.owner),
+      renderDeclaredCapabilityInstructions(projectDir, phase, options),
       agents ? `Operational guide:\n${agents}` : "",
       selectedContext ||
         [
@@ -70,6 +83,7 @@ export async function buildPiPrompt(
       "Use only .jri/specs/* as requirements truth. Do not edit files, do not plan, and do not build.",
       "Pass only when the current build scope is sufficiently unambiguous for the planner and builder.",
       'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by JSON: {"agent":"auditor","action":"passed","specFiles":[".jri/specs/example.md"],"specsFingerprint":"...","summary":"..."} or {"agent":"auditor","action":"failed","feedback":"...","ambiguousSpecFiles":[".jri/specs/example.md"],"questions":["..."]}.',
+      renderDeclaredCapabilityInstructions(projectDir, phase, options),
       agents ? `Operational guide:\n${agents}` : "",
       specs.join("\n\n"),
     ]
@@ -82,8 +96,7 @@ export async function buildPiPrompt(
       "You are the JRI planner. Create or regenerate .jri/IMPLEMENTATION_PLAN.md from the durable specs and current code.",
       "Keep the plan concise, prioritized, and focused on remaining work. Capture why implementation and tests matter.",
       "Do not commit. Do not edit requirements specs unless you find a direct contradiction that blocks implementation.",
-    renderWebCapabilityInstructions(projectDir, options.owner ?? (options.loopId ? { kind: "loop", loopId: options.loopId } : undefined)),
-      renderExplorerCapabilityInstructions(projectDir, options.loopId),
+      renderDeclaredCapabilityInstructions(projectDir, phase, options),
       'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by JSON: {"agent":"planner","action":"planned","planPath":".jri/IMPLEMENTATION_PLAN.md","summary":"..."} or {"agent":"planner","action":"blocked","blocker":{...}}.',
       agents ? `Operational guide:\n${agents}` : "",
       specs.join("\n\n"),
@@ -94,11 +107,12 @@ export async function buildPiPrompt(
 
   if (phase === "explorer") {
     const owner = options.owner ?? (options.loopId ? { kind: "loop" as const, loopId: options.loopId } : undefined);
+    const capabilityOptions = owner ? { ...options, owner } : options;
     return [
       "You are the JRI explorer. Perform one focused, read-only codebase investigation for Ralph.",
       "Use only read-only tools. Do not edit files, run builds, mutate git state, install packages, or change project state.",
       "Return a concise handoff with concrete file references and findings. Prefer exact paths and line numbers when useful.",
-      renderWebCapabilityInstructions(projectDir, owner),
+      renderDeclaredCapabilityInstructions(projectDir, phase, capabilityOptions),
       `Task: ${options.explorerTask ?? "Inspect the codebase and report concise findings."}`,
       agents ? `Operational guide:\n${agents}` : "",
       plan ? `Current implementation plan:\n${plan}` : "",
@@ -113,8 +127,7 @@ export async function buildPiPrompt(
     "Use .jri/specs/* as requirements truth and ignore .jri/scratchpad.md. Choose the most important remaining plan item.",
     "Implement completely, run relevant validation, update .jri/IMPLEMENTATION_PLAN.md with findings/resolution, update AGENTS.md only for operational learnings, then commit if tracked files changed and validation passes.",
     "If build/test validation has no errors after a successful change commit, create or increment a patch semver git tag.",
-      renderWebCapabilityInstructions(projectDir, options.owner ?? (options.loopId ? { kind: "loop", loopId: options.loopId } : undefined)),
-    renderExplorerCapabilityInstructions(projectDir, options.loopId),
+    renderDeclaredCapabilityInstructions(projectDir, phase, options),
     'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by a builder contract JSON with agent "builder" and action "continue", "complete", "blocked", "needsReplan", or "failedValidation".',
     'Use "blocked" with blocker.reason "ambiguousSpecs" or "needsHumanTask" when specs are ambiguous or a human task is required; for needsHumanTask include blocker.resumePhase "building"; do not include secrets.',
     'Use "needsReplan" when the current plan is stale or confusing but specs are not blocked. Use "failedValidation" with validation evidence when validation ran and failed.',
@@ -124,6 +137,32 @@ export async function buildPiPrompt(
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+function renderDeclaredCapabilityInstructions(
+  projectDir: string,
+  phase: "interrogation" | "auditing" | "planning" | "building" | "explorer",
+  options: { owner?: CapabilityOwner; loopId?: string; capabilities?: PromptCapabilityDescriptor[] },
+): string {
+  const capabilities = options.capabilities ?? defaultCapabilitiesForPhase(phase);
+  const owner = options.owner ?? (options.loopId ? { kind: "loop" as const, loopId: options.loopId } : undefined);
+  const sections: string[] = [];
+  if (capabilities.some((capability) => capability.name === "web")) {
+    const instructions = renderWebCapabilityInstructions(projectDir, owner);
+    if (instructions) sections.push(instructions);
+  }
+  if (capabilities.some((capability) => capability.name === "explorer")) {
+    const instructions = renderExplorerCapabilityInstructions(projectDir, options.loopId);
+    if (instructions) sections.push(instructions);
+  }
+  return sections.join("\n\n");
+}
+
+function defaultCapabilitiesForPhase(phase: "interrogation" | "auditing" | "planning" | "building" | "explorer"): PromptCapabilityDescriptor[] {
+  if (phase === "interrogation" || phase === "auditing" || phase === "explorer") {
+    return [{ name: "web" }];
+  }
+  return [{ name: "web" }, { name: "explorer" }];
 }
 
 async function listSpecFiles(projectDir: string): Promise<string[]> {

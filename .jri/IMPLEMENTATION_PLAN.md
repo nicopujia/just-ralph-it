@@ -9,7 +9,9 @@
   - Extend fake harness coverage for assistant chunks, artifacts, auth errors, capability errors, delays, cancellation, malformed/missing handoffs, wrong-agent/wrong-phase handoffs, and SDK failure normalization.
 
 - P0: Make capabilities first-class adapter/runtime features instead of prompt-only wrapper commands.
-  - Confirmed gap: `sendChat()` passes `capabilities: []` for the interrogator, `allowedToolsForPhase()` hardcodes tool availability, and web/explorer usage is currently exposed to agents as shell commands.
+  - Confirmed implemented: chat interrogator harness invocations now declare web search/fetch capabilities, and `buildPiPrompt()` can render capability instructions from explicit declared descriptors.
+  - Confirmed implemented: tests cover descriptor-driven prompt omission/inclusion, so the prompt path now reflects declared capabilities instead of implicit hardcoded assumptions.
+  - Confirmed gap: `allowedToolsForPhase()` still hardcodes tool availability, and web/explorer usage is still exposed to agents as shell commands in the broader runtime path.
   - Feed explicit JRI capability descriptors through the harness adapter for interrogator, auditor, planner, builder, and explorer.
   - Ensure web capability is usable by agents that lack broad shell access, and ensure required web failures become actionable capability errors or labeled degraded responses without inventing new `ProjectStatus.blocker.reason` values.
   - Keep explorer delegation JRI-owned, spawn/fresh by default, read-only, concurrency-limited, handoff-bounded, and isolated from ambient Pi packages/settings.

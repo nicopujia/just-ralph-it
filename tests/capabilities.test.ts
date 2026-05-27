@@ -85,11 +85,39 @@ describe("capability descriptors", () => {
       const prompt = await buildPiPrompt(dir, "interrogation", {
         owner: { kind: "chat", turnId: "turn-1" },
         userMessage: "Which docs are current?",
+        capabilities: [{ name: "web", operation: "search" }, { name: "web", operation: "fetch" }],
       });
 
       expect(prompt).toContain("jri --run-web search");
       expect(prompt).toContain('\\"owner\\":{\\"kind\\":\\"chat\\",\\"turnId\\":\\"turn-1\\"}');
       expect(prompt).toContain(".jri/logs/interrogation-artifacts/");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("prompt capability instructions are driven by declared descriptors", async () => {
+    const dir = await tempProject();
+    try {
+      const none = await buildPiPrompt(dir, "building", {
+        loopId: "20260527T184210Z",
+        capabilities: [],
+      });
+      const webOnly = await buildPiPrompt(dir, "building", {
+        loopId: "20260527T184210Z",
+        capabilities: [{ name: "web", operation: "search" }],
+      });
+      const explorerOnly = await buildPiPrompt(dir, "building", {
+        loopId: "20260527T184210Z",
+        capabilities: [{ name: "explorer" }],
+      });
+
+      expect(none).not.toContain("jri --run-web");
+      expect(none).not.toContain("jri --run-explorer");
+      expect(webOnly).toContain("jri --run-web search");
+      expect(webOnly).not.toContain("jri --run-explorer");
+      expect(explorerOnly).toContain("jri --run-explorer");
+      expect(explorerOnly).not.toContain("jri --run-web");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
