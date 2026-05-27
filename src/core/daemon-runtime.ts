@@ -546,10 +546,11 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
           await finishAuditFailedRun(projectDir, loopId, auditorHandoff);
           return;
         }
+        const authorizedSpecsFingerprint = await computeAuthorizedSpecsFingerprint(projectDir, auditorHandoff);
         await appendLoopEvent(projectDir, {
           type: "auditPassed",
           loopId,
-          data: { specFiles: auditorHandoff.specFiles, specsFingerprint: auditorHandoff.specsFingerprint },
+          data: { specFiles: auditorHandoff.specFiles, specsFingerprint: authorizedSpecsFingerprint },
         });
         if (statusAtPhaseStart.blocker?.reason === "ambiguousSpecs" && !(await hasBlockerResolvedEvent(projectDir, loopId, "ambiguousSpecs"))) {
           await appendLoopEvent(projectDir, {
@@ -562,14 +563,14 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
           if (current.blocker?.reason !== "ambiguousSpecs") {
             return {
               ...current,
-              authorizedSpecsFingerprint: auditorHandoff.specsFingerprint,
+              authorizedSpecsFingerprint,
             };
           }
           const { blocker, ...withoutBlocker } = current;
           void blocker;
           return {
             ...withoutBlocker,
-            authorizedSpecsFingerprint: auditorHandoff.specsFingerprint,
+            authorizedSpecsFingerprint,
           };
         });
         if (await stopIfRequested(projectDir, loopId, "planning")) return;
@@ -1916,10 +1917,28 @@ function validationEvidenceFromBuilder(handoff: BuilderHandoff): ValidationHando
   return handoff.validation ?? [];
 }
 
+async function computeAuthorizedSpecsFingerprint(projectDir: string, handoff: Extract<AuditorHandoff, { action: "passed" }>): Promise<string> {
+  const authorizedSpecsFingerprint = await computeSpecsFingerprint(projectDir);
+  if (handoff.specsFingerprint !== authorizedSpecsFingerprint) {
+    throw new JriError(
+      "The auditor reported a specs fingerprint that does not match the current specs.",
+      "invalid-agent-handoff",
+      "Rerun auditing against the current .jri/specs/*.md contents; JRI authorizes only its core-computed specs fingerprint.",
+    );
+  }
+  return authorizedSpecsFingerprint;
+}
+
 async function computeSpecsFingerprint(projectDir: string): Promise<string> {
   const specsDir = join(projectDir, ".jri", "specs");
   const hash = createHash("sha256");
-  if (!(await Bun.file(specsDir).exists())) return hash.digest("hex");
+  try {
+    const specsStats = await stat(specsDir);
+    if (!specsStats.isDirectory()) return hash.digest("hex");
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return hash.digest("hex");
+    throw error;
+  }
 
   const entries = (await readdir(specsDir, { withFileTypes: true }))
     .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))

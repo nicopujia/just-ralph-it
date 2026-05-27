@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1654,6 +1655,97 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("auditing runner persists the core-computed specs fingerprint", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      const specContent = "# App\n\nBuild the app.\n";
+      await writeFile(join(dir, ".jri", "specs", "app.md"), specContent, "utf8");
+      const specsFingerprint = specsFingerprintForFiles({ "app.md": specContent });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "auditing",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("audit"),
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "auditing", {
+        harnessRunner: async ({ phase, stdoutPath }) => {
+          if (phase === "auditing") {
+            await appendFile(
+              stdoutPath,
+              `JRI_HANDOFF_JSON: {"agent":"auditor","action":"passed","specFiles":[".jri/specs/app.md"],"specsFingerprint":"${specsFingerprint}","summary":"Specs ready."}\n`,
+            );
+            return 0;
+          }
+          if (phase === "planning") {
+            await writeFile(join(dir, ".jri", "IMPLEMENTATION_PLAN.md"), "# Plan\n", "utf8");
+            await appendFile(
+              stdoutPath,
+              'JRI_HANDOFF_JSON: {"agent":"planner","action":"planned","planPath":".jri/IMPLEMENTATION_PLAN.md","summary":"Plan ready."}\n',
+            );
+            return 0;
+          }
+          await appendFile(stdoutPath, 'JRI_HANDOFF_JSON: {"agent":"builder","action":"complete","summary":"Build complete."}\n');
+          return 0;
+        },
+      });
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+      expect(events.find((event) => event.type === "auditPassed")).toMatchObject({
+        type: "auditPassed",
+        data: { specsFingerprint },
+      });
+      expect(status.authorizedSpecsFingerprint).toBe(specsFingerprint);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("auditing runner fails when the auditor fingerprint does not match current specs", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild the app.\n", "utf8");
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "auditing",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("audit"),
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "auditing", {
+        harnessRunner: async ({ stdoutPath }) => {
+          await appendFile(
+            stdoutPath,
+            'JRI_HANDOFF_JSON: {"agent":"auditor","action":"passed","specFiles":[".jri/specs/app.md"],"specsFingerprint":"not-current","summary":"Specs ready."}\n',
+          );
+          return 0;
+        },
+      });
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+      expect(events.map((event) => event.type)).toEqual(["auditStarted", "loopFinished"]);
+      expect(events[1]).toMatchObject({
+        type: "loopFinished",
+        data: { outcome: "failed", summary: expect.stringContaining("Auditing failed") },
+        message: expect.stringContaining("core-computed specs fingerprint"),
+      });
+      expect(status).toMatchObject({
+        state: "stopped",
+        lastResult: { outcome: "failed" },
+      });
+      expect(status.authorizedSpecsFingerprint).toBeUndefined();
+      expect(status.lastResult.summary).toContain("does not match the current specs");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("auditing runner resolves an ambiguous-spec blocker only after audit passes", async () => {
     const dir = await tempProject();
     const previousPiCommand = process.env.JRI_PI_COMMAND;
@@ -2799,6 +2891,17 @@ function activeTestLock(operation: "audit" | "plan" | "build", pid = process.pid
     heartbeatAt: "2026-05-27T18:42:10.000Z",
     expiresAt: "2999-01-01T00:00:00.000Z",
   };
+}
+
+function specsFingerprintForFiles(files: Record<string, string>): string {
+  const hash = createHash("sha256");
+  for (const name of Object.keys(files).sort()) {
+    hash.update(name);
+    hash.update("\0");
+    hash.update(files[name] ?? "");
+    hash.update("\0");
+  }
+  return hash.digest("hex");
 }
 
 async function git(cwd: string, args: string[]): Promise<void> {
