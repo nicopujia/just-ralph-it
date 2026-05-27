@@ -1,7 +1,9 @@
 import { startRalphLoop, type RuntimeOptions } from "./daemon-runtime";
+import { invokeDefaultHarness, readProjectConfig, type HarnessAdapter } from "./harness";
 import { checkInterrogationStartGate } from "./interrogation-state";
+import { modelForAgent } from "./prompts";
 import { appendInterrogationEvent, appendLoopEvent, readStatus, updateStatus } from "./runtime-state";
-import type { Blocker, ChatInput, CoreEvent, HumanTaskVerificationHandoff, ProjectStatus } from "./types";
+import type { Blocker, ChatInput, CoreEvent, HumanTaskVerificationHandoff, InterrogatorHandoff, ProjectStatus } from "./types";
 
 const interrogationLogPath = ".jri/logs/interrogation.jsonl" as const;
 export type StartTrigger = "just ralph it" | "ralfealo";
@@ -16,6 +18,7 @@ export type HumanTaskVerifier = (request: {
 export type ChatRuntimeOptions = RuntimeOptions & {
   verifyHumanTask?: HumanTaskVerifier;
   startLoop?: (projectDir: string, trigger: StartTrigger, options: RuntimeOptions) => AsyncIterable<CoreEvent>;
+  interrogatorHarness?: HarnessAdapter;
 };
 
 export async function* sendChat(projectDir: string, input: ChatInput, options: ChatRuntimeOptions = {}): AsyncIterable<CoreEvent> {
@@ -30,6 +33,11 @@ export async function* sendChat(projectDir: string, input: ChatInput, options: C
   const status = await readStatus(projectDir);
   if (isDoneMessage(message)) {
     yield* handleDone(projectDir, status, message, options);
+    return;
+  }
+
+  if (options.interrogatorHarness) {
+    yield* runInterrogator(projectDir, message, options);
     return;
   }
 
@@ -55,6 +63,100 @@ export async function* sendChat(projectDir: string, input: ChatInput, options: C
   }
 
   yield* emitAssistant(projectDir, responseForStatus(status));
+}
+
+async function* runInterrogator(projectDir: string, message: string, options: ChatRuntimeOptions): AsyncIterable<CoreEvent> {
+  const harness = options.interrogatorHarness ?? invokeDefaultHarness;
+  const started = await appendInterrogationEvent(projectDir, {
+    type: "chatMessageStarted",
+    data: { role: "assistant" },
+  });
+  yield started;
+
+  const chunks: string[] = [];
+  const result = await harness({
+    owner: { kind: "chat", turnId: started.id },
+    projectDir,
+    agent: "interrogator",
+    phase: "interrogation",
+    model: modelForAgent(await readProjectConfig(projectDir), "interrogator"),
+    context: {
+      refs: [".jri/specs", ".jri/scratchpad.md", ".jri/status.json", ".jri/logs/interrogation.jsonl"],
+      inline: [message],
+    },
+    capabilities: [],
+    output: {
+      write: (chunk) => {
+        if (chunk) chunks.push(chunk);
+      },
+    },
+    signal: new AbortController().signal,
+  });
+
+  const handoff = result.handoff;
+  if (handoff.agent !== "interrogator") {
+    throw new Error("Interrogation harness returned a non-interrogator handoff.");
+  }
+  const assistantText = chunks.join("").trim() || assistantTextForInterrogatorHandoff(handoff);
+  yield await appendInterrogationEvent(projectDir, {
+    type: "chatMessageDelta",
+    data: { role: "assistant", text: assistantText },
+    message: assistantText,
+  });
+  yield await appendInterrogationEvent(projectDir, {
+    type: "chatMessageFinished",
+    data: { role: "assistant" },
+  });
+  yield await recordTurn(projectDir, "assistant", assistantText);
+  yield* handleInterrogatorHandoff(projectDir, handoff, options);
+}
+
+async function* handleInterrogatorHandoff(
+  projectDir: string,
+  handoff: InterrogatorHandoff,
+  options: ChatRuntimeOptions,
+): AsyncIterable<CoreEvent> {
+  if (handoff.action === "specsUpdated") {
+    yield await appendInterrogationEvent(projectDir, {
+      type: "specsUpdated",
+      data: { specFiles: handoff.specFiles, summary: handoff.summary },
+    });
+    return;
+  }
+
+  if (handoff.action === "humanTaskVerified") {
+    const status = await readStatus(projectDir);
+    await markHumanTaskVerified(projectDir, status, handoff.verificationSummary);
+    return;
+  }
+
+  if (handoff.action === "humanTaskStillBlocked") {
+    await updateStatus(projectDir, (current) => {
+      if (current.state !== "blocked" || current.blocker?.reason !== "needsHumanTask") return current;
+      return { ...current, blocker: handoff.blocker };
+    });
+    return;
+  }
+
+  if (handoff.action !== "startRequested") return;
+
+  const startGate = await checkInterrogationStartGate(projectDir, options.now ? { now: options.now } : {});
+  if (!startGate.ok) {
+    const pending = startGate.pending[0];
+    const summary = pending?.topic.pendingReconciliation?.summary ?? "A pending spec reconciliation must be resolved before Ralph can start.";
+    yield* emitAssistant(
+      projectDir,
+      [
+        "Ralph cannot start until pending spec reconciliation is resolved.",
+        summary,
+        "Clarify the changed requirement in bare jri, then say just ralph it again when the specs are ready.",
+      ].join("\n"),
+    );
+    return;
+  }
+
+  yield* emitAssistant(projectDir, `Start request accepted (${handoff.trigger}). Running the specs auditor now.`);
+  yield* (options.startLoop ?? startLoopLocally)(projectDir, handoff.trigger, options);
 }
 
 async function* startLoopLocally(projectDir: string, _trigger: StartTrigger, options: RuntimeOptions): AsyncIterable<CoreEvent> {
@@ -97,34 +199,46 @@ async function* handleDone(projectDir: string, status: ProjectStatus, userMessag
       return;
     }
 
-    const verifiedAt = new Date().toISOString();
-    await updateStatus(projectDir, (current) => {
-      if (current.state !== "blocked" || current.blocker?.reason !== "needsHumanTask") return current;
-      return {
-        ...current,
-        blocker: {
-          ...current.blocker,
-          resolution: {
-            status: "verified",
-            verifiedAt,
-            verificationSummary: verification.verificationSummary ?? "JRI verified the required human task after the user said done.",
-          },
-        },
-      };
-    });
-
-    if (status.activeLoopId) {
-      yield await appendLoopEvent(projectDir, {
-        type: "blockerResolved",
-        loopId: status.activeLoopId,
-        data: { reason: "needsHumanTask" },
-      });
-    }
+    const resolved = await markHumanTaskVerified(projectDir, status, verification.verificationSummary);
+    if (resolved) yield resolved;
     yield* emitAssistant(projectDir, "Marked the human task as verified. Run jri loop resume to continue the existing lifecycle.");
     return;
   }
 
   yield* emitAssistant(projectDir, "There is no unresolved human-task blocker to verify. I recorded your message.");
+}
+
+async function markHumanTaskVerified(projectDir: string, status: ProjectStatus, verificationSummary?: string): Promise<CoreEvent | undefined> {
+  const verifiedAt = new Date().toISOString();
+  await updateStatus(projectDir, (current) => {
+    if (current.state !== "blocked" || current.blocker?.reason !== "needsHumanTask") return current;
+    return {
+      ...current,
+      blocker: {
+        ...current.blocker,
+        resolution: {
+          status: "verified",
+          verifiedAt,
+          verificationSummary: verificationSummary ?? "JRI verified the required human task after the user said done.",
+        },
+      },
+    };
+  });
+
+  if (!status.activeLoopId) return undefined;
+  return await appendLoopEvent(projectDir, {
+    type: "blockerResolved",
+    loopId: status.activeLoopId,
+    data: { reason: "needsHumanTask" },
+  });
+}
+
+function assistantTextForInterrogatorHandoff(handoff: InterrogatorHandoff): string {
+  if (handoff.action === "specsUpdated" || handoff.action === "scratchpadUpdated") return handoff.summary;
+  if (handoff.action === "humanTaskVerified") return handoff.verificationSummary ?? "The human task is verified.";
+  if (handoff.action === "humanTaskStillBlocked") return handoff.blocker.resolutionGuide.summary;
+  if (handoff.action === "startRequested") return `Start request accepted (${handoff.trigger}).`;
+  return handoff.summary ?? "I recorded your note.";
 }
 
 function defaultHumanTaskVerifier(request: { blocker: Blocker }): HumanTaskVerificationHandoff {

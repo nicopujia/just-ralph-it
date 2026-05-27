@@ -3,13 +3,42 @@ import { join } from "node:path";
 import { getAuthStatus } from "./auth";
 import { explorerCapabilityDescriptor, renderExplorerAgentDescriptor } from "./capabilities";
 import { JriError } from "./errors";
+import { extractLatestHandoffFromText } from "./handoffs";
 import { buildPiPrompt, modelForAgent } from "./prompts";
 import { appendLoopEvent } from "./runtime-state";
 import { parseJsonObject, validateConfig } from "./schema";
 import type { CoreEvent } from "./types";
-import type { AgentConfig, AgentName } from "./types";
+import type { AgentConfig, AgentHandoff, AgentName, ArtifactRef } from "./types";
 
-export type HarnessPhase = "auditing" | "planning" | "building" | "explorer";
+export type HarnessPhase = "interrogation" | "auditing" | "planning" | "building" | "explorer";
+
+export type CapabilityDescriptor = {
+  name: "web" | "explorer";
+  operation?: string;
+};
+
+export type HarnessOutputSink = {
+  write: (chunk: string) => void | Promise<void>;
+};
+
+export type HarnessInvocation = {
+  owner: { kind: "chat"; turnId: string } | { kind: "loop"; loopId: string };
+  projectDir: string;
+  agent: AgentName;
+  phase: HarnessPhase;
+  model: Required<AgentConfig>;
+  context: { refs: string[]; inline: string[] };
+  capabilities: CapabilityDescriptor[];
+  output: HarnessOutputSink;
+  signal: AbortSignal;
+};
+
+export type HarnessResult = {
+  handoff: AgentHandoff;
+  artifacts?: ArtifactRef[];
+};
+
+export type HarnessAdapter = (invocation: HarnessInvocation) => Promise<HarnessResult>;
 
 const explorerHandoffLimit = explorerCapabilityDescriptor.limits.handoffChars;
 const explorerTimeoutMs = explorerCapabilityDescriptor.limits.timeoutMs;
@@ -23,6 +52,7 @@ export type HarnessSessionRequest = {
   stdoutPath: string;
   env?: NodeJS.ProcessEnv;
   explorerTask?: string;
+  userMessage?: string;
   timeoutMs?: number;
 };
 
@@ -44,6 +74,48 @@ export async function runControlledPiSession(request: HarnessSessionRequest): Pr
   });
   await Promise.all([appendStream(request.stdoutPath, proc.stdout), appendStream(request.stdoutPath, proc.stderr)]);
   return await proc.exited;
+}
+
+export async function invokeDefaultHarness(invocation: HarnessInvocation, env: NodeJS.ProcessEnv = process.env): Promise<HarnessResult> {
+  if (invocation.signal.aborted) {
+    throw new JriError("Harness invocation was cancelled before it started.", "harness-cancelled", "Retry the operation if it is still needed.");
+  }
+
+  const loopId = invocation.owner.kind === "loop" ? invocation.owner.loopId : `chat-${invocation.owner.turnId}`;
+  const userMessage = invocation.context.inline.at(-1);
+  const built = await buildControlledPiCommand({
+    projectDir: invocation.projectDir,
+    loopId,
+    phase: invocation.phase,
+    env,
+    ...(userMessage ? { userMessage } : {}),
+  });
+  const output = await runCommandCapture({
+    command: built.command,
+    cwd: invocation.projectDir,
+    env: built.env,
+    timeoutMs: 10 * 60 * 1000,
+  });
+  const assistantText = stripHandoffLines(output.text).trim();
+  if (assistantText) await invocation.output.write(assistantText);
+  if (output.exitCode !== 0) {
+    throw new JriError(
+      `${invocation.agent} harness exited with code ${output.exitCode}.`,
+      "harness-failed",
+      "Inspect the captured output and retry after resolving the harness error.",
+    );
+  }
+  if (invocation.agent === "explorer") {
+    throw new JriError(
+      "Explorer invocations use the explorer capability wrapper, not the generic handoff harness.",
+      "unsupported-harness-agent",
+      "Run explorer tasks through the JRI explorer capability.",
+    );
+  }
+
+  return {
+    handoff: extractLatestHandoffFromText(invocation.agent, output.text, invocation.phase),
+  };
 }
 
 export type ExplorerRunResult = {
@@ -138,6 +210,7 @@ export async function buildControlledPiCommand(
   const prompt = await buildPiPrompt(request.projectDir, request.phase, {
     loopId: request.loopId,
     ...(request.explorerTask ? { explorerTask: request.explorerTask } : {}),
+    ...(request.userMessage ? { userMessage: request.userMessage } : {}),
   });
   const agent = agentForPhase(request.phase);
   const model = modelForAgent(await readProjectConfig(request.projectDir), agent);
@@ -231,14 +304,23 @@ async function buildControlledExplorerSubagentCommand(
 }
 
 function agentForPhase(phase: HarnessPhase): AgentName {
+  if (phase === "interrogation") return "interrogator";
   if (phase === "explorer") return "explorer";
   if (phase === "auditing") return "auditor";
   return phase === "planning" ? "planner" : "builder";
 }
 
 function allowedToolsForPhase(phase: HarnessPhase): string[] {
+  if (phase === "interrogation") return ["read", "write", "edit", "grep", "find", "ls"];
   if (phase === "auditing" || phase === "explorer") return ["read", "grep", "find", "ls"];
   return ["read", "bash", "edit", "write", "grep", "find", "ls"];
+}
+
+function stripHandoffLines(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("JRI_HANDOFF_JSON:"))
+    .join("\n");
 }
 
 async function assertProviderAuth(env: NodeJS.ProcessEnv): Promise<void> {
@@ -252,7 +334,7 @@ async function assertProviderAuth(env: NodeJS.ProcessEnv): Promise<void> {
   );
 }
 
-async function readProjectConfig(projectDir: string): Promise<unknown> {
+export async function readProjectConfig(projectDir: string): Promise<unknown> {
   const path = join(projectDir, ".jri", "config.json");
   if (!(await Bun.file(path).exists())) return undefined;
   return validateConfig(parseJsonObject(await Bun.file(path).text(), path), path);

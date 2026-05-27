@@ -91,6 +91,30 @@ describe("controlled Pi harness", () => {
     }
   });
 
+  test("builds an isolated interrogation command with the interrogator model and prompt", async () => {
+    const dir = await tempProject();
+    try {
+      const built = await buildControlledPiCommand({
+        projectDir: dir,
+        loopId: "chat-turn-1",
+        phase: "interrogation",
+        userMessage: "We need a deployment workflow.",
+        env: {
+          JRI_PI_COMMAND: "/tmp/fake-pi",
+        },
+      });
+
+      expect(built.command[built.command.indexOf("--model") + 1]).toBe("gpt-5.5");
+      expect(built.command[built.command.indexOf("--thinking") + 1]).toBe("xhigh");
+      expect(built.command[built.command.indexOf("--tools") + 1]).toBe("read,write,edit,grep,find,ls");
+      expect(built.command.at(-1)).toContain("You are the JRI interrogator");
+      expect(built.command.at(-1)).toContain("Current user message:\nWe need a deployment workflow.");
+      expect(built.env.PI_CODING_AGENT_SESSION_DIR).toBe(join(dir, ".jri", "logs", "chat-turn-1", "pi-sessions"));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("requires provider auth for the real Pi command", async () => {
     const dir = await tempProject();
     try {

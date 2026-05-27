@@ -9,6 +9,7 @@ import { defaultStatus } from "../src/core/schema";
 import { writeStatusAtomic } from "../src/core/runtime-state";
 import { fingerprintSpecFile, writeInterrogationState } from "../src/core/interrogation-state";
 import type { CoreEvent } from "../src/core";
+import type { HarnessAdapter } from "../src/core/harness";
 
 async function tempProject(): Promise<string> {
   return await mkdtemp(join(tmpdir(), "jri-chat-test-"));
@@ -44,6 +45,79 @@ describe("interrogation chat", () => {
       expect(log[0]).toMatchObject({ type: "chatTurnRecorded", data: { role: "user", content: "We need a CLI." } });
       expect(log[4]).toMatchObject({ type: "chatTurnRecorded", data: { role: "assistant" } });
       expect(log.map((event) => event.sequence)).toEqual([1, 2, 3, 4, 5]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("ordinary chat can run an interrogator harness and persist its handoff-backed response", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      const requests: Array<{ agent: string; phase: string; message: string }> = [];
+      const harness: HarnessAdapter = async (invocation) => {
+        requests.push({
+          agent: invocation.agent,
+          phase: invocation.phase,
+          message: invocation.context.inline[0] ?? "",
+        });
+        await invocation.output.write("Which deployment target should Ralph use?");
+        return {
+          handoff: {
+            agent: "interrogator",
+            action: "messageOnly",
+            summary: "Asked about deployment target.",
+          },
+        };
+      };
+
+      const events = await collect(sendChat(dir, { message: "Build a deployment flow." }, { interrogatorHarness: harness }));
+
+      expect(requests).toEqual([{ agent: "interrogator", phase: "interrogation", message: "Build a deployment flow." }]);
+      expect(events.map((event) => event.type)).toEqual([
+        "chatTurnRecorded",
+        "chatMessageStarted",
+        "chatMessageDelta",
+        "chatMessageFinished",
+        "chatTurnRecorded",
+      ]);
+      expect(events[2]).toMatchObject({ data: { text: "Which deployment target should Ralph use?" } });
+
+      const log = await readJsonl(join(dir, ".jri", "logs", "interrogation.jsonl"));
+      expect(log.at(-1)).toMatchObject({ type: "chatTurnRecorded", data: { role: "assistant", content: "Which deployment target should Ralph use?" } });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("interrogator specsUpdated handoff emits a durable specsUpdated event", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+
+      const events = await collect(
+        sendChat(dir, { message: "The app should deploy to Cloudflare." }, {
+          interrogatorHarness: async (invocation) => {
+            await invocation.output.write("I updated the deployment spec.");
+            return {
+              handoff: {
+                agent: "interrogator",
+                action: "specsUpdated",
+                specFiles: [".jri/specs/deployment.md"],
+                summary: "Deployment target clarified.",
+              },
+            };
+          },
+        }),
+      );
+
+      expect(events.at(-1)).toMatchObject({
+        type: "specsUpdated",
+        data: { specFiles: [".jri/specs/deployment.md"], summary: "Deployment target clarified." },
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

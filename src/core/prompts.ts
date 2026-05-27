@@ -21,8 +21,8 @@ export function modelForAgent(config: unknown, agent: AgentName): Required<Agent
 
 export async function buildPiPrompt(
   projectDir: string,
-  phase: "auditing" | "planning" | "building" | "explorer",
-  options: { loopId?: string; explorerTask?: string } = {},
+  phase: "interrogation" | "auditing" | "planning" | "building" | "explorer",
+  options: { loopId?: string; explorerTask?: string; userMessage?: string } = {},
 ): Promise<string> {
   const specFiles = await listSpecFiles(projectDir);
   const specs = await Promise.all(
@@ -33,6 +33,27 @@ export async function buildPiPrompt(
   );
   const agents = await readIfExists(join(projectDir, "AGENTS.md"));
   const plan = await readIfExists(join(projectDir, ".jri", "IMPLEMENTATION_PLAN.md"));
+  const scratchpad = await readIfExists(join(projectDir, ".jri", "scratchpad.md"));
+  const status = await readIfExists(join(projectDir, ".jri", "status.json"));
+
+  if (phase === "interrogation") {
+    return [
+      "You are the JRI interrogator. Help the user turn their idea into durable, unambiguous requirements before Ralph builds.",
+      "Use .jri/specs/* as requirements truth. Use .jri/scratchpad.md only for working notes and unresolved questions.",
+      "Update specs continuously when decisions become stable. Preserve manual user edits and ask targeted reconciliation questions when needed.",
+      "Do not start Ralph from prose. A start is valid only when the user's current message is exactly standalone \"just ralph it\" or \"ralfealo\" after normalization.",
+      'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by an interrogator contract JSON with action "messageOnly", "specsUpdated", "scratchpadUpdated", "humanTaskVerified", "humanTaskStillBlocked", or "startRequested".',
+      'Use "specsUpdated" when you changed .jri/specs/* and include changed specFiles plus a user-facing summary. Use "scratchpadUpdated" when only scratchpad changed.',
+      'Use "messageOnly" when no durable file changed. Never include secrets in handoffs.',
+      agents ? `Operational guide:\n${agents}` : "",
+      status ? `Current project status JSON:\n${status}` : "",
+      scratchpad ? `Current scratchpad:\n${scratchpad}` : "Current scratchpad is empty.",
+      specs.length ? specs.join("\n\n") : "No spec files exist yet.",
+      `Current user message:\n${options.userMessage ?? ""}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
 
   if (phase === "auditing") {
     return [
