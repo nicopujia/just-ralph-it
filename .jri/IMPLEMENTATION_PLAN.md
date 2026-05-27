@@ -25,7 +25,7 @@
   - Confirmed gap: timeout, cancellation, connected-but-silent daemon IPC, capability failures, and malformed handoffs still need consistent durable failure evidence.
   - Confirmed gap: remaining event/status ordering issues include status updates before `iterationStarted` and startup/phase transitions whose exceptions need to be explicit.
   - Confirmed gap: auditor-reported `specsFingerprint` is trusted without daemon recomputation.
-  - Confirmed gap: planner success does not verify that `.jri/IMPLEMENTATION_PLAN.md` was actually created or regenerated.
+  - Confirmed follow-up gap: recovery should prefer the latest durable terminal loop event even when active status still has dead process/stale lock partial ownership, not only when both lock and process are absent.
   - Register loop-owned capability children with the runner and cancel runner plus children on halt or timeout with SIGTERM-then-SIGKILL escalation.
   - Route pre-start aborts, in-flight aborts, timeouts, halt, and graceful-stop boundaries through one cancellation path with structured evidence.
   - Make recovery use the normal single-writer/lock mutation paths where lifecycle state changes.
@@ -47,11 +47,13 @@
   - Confirmed implemented: artifact refs are now strict/stable under `.jri/logs/<loopId>/artifacts/*`, and validation artifact refs are preserved on `validationFinished`.
   - Confirmed implemented: auditor handoff failures report `affectedTopics`, `findings`, and follow-up `questions` structurally instead of free-form-only.
   - Confirmed implemented: obvious credential-shaped handoff fields are rejected in parser/runtime validation, with documented detection limits.
+  - Confirmed follow-up gap: resume should validate persisted `loopStopped` `nextPhase` and event lineage before trusting resume state.
 
 - P0: Finish minimum CLI/auth control correctness.
   - Confirmed gap: `jri auth login` currently inspects `OPENAI_API_KEY` / Pi auth cache and prints instructions rather than completing or delegating to a real Pi-backed flow.
   - Confirmed gap: interactive bare `jri` exits on `userActionRequired`, while non-interactive mode can proceed until harness auth failure.
   - Confirmed gap: halt reset ineligibility and active-state `loop resume` errors are less actionable than the specs require.
+  - Confirmed follow-up gap: CLI auth help advertises advanced passthrough, but unsupported auth subcommands are not actually forwarded.
   - Implement real Pi-backed `jri auth login|logout|status` or normalized passthroughs without requiring raw Pi commands in normal JRI use.
   - Make interactive bare `jri` handle missing auth inline where possible and provide direct recovery in non-interactive mode.
   - Fix reset ineligibility messaging, active-resume guidance, and regression coverage for forbidden public commands/internal entrypoints.
@@ -60,7 +62,7 @@
   - Confirmed gap: interactive bare `jri` always uses the fallback readline REPL; the project has not decided whether Pi terminal chat primitives can be used with controlled SDK sessions.
   - Confirmed gap: current harness waits for full subprocess output before emitting assistant text.
   - Confirmed gaps: attach lacks compact header/latest milestone view, byte-safe event/stdout cursors, efficient live observe, nonzero synthetic event sequences, and deterministic attach-test readiness.
-  - Confirmed gap: human-task verification has no immediate chat/interrogation event until resume.
+  - Confirmed follow-up gap: human-task verification through bare `jri` lacks immediate chat/interrogation event visibility until resume.
   - Decide whether Pi terminal chat primitives can be used; otherwise bring fallback readline up to the required status line, blocked guidance, final result display, observation behavior, and streaming expectations.
 
 - P1: Validate public packaging and command surface.
@@ -94,3 +96,4 @@
   - Project root resolution, idempotent initialization, root `AGENTS.md` scaffold cleanup, config/status validation baseline, public omission of documented-forbidden `jri init`, `jri status`, and `jri loop start`.
   - Daemon-owned public lifecycle mutation baseline, read-only local fallback, status mutation locking, loop id generation, basic event sequencing, start-trigger normalization, and runtime recovery for dead processes/stale locks/orphaned active states.
   - Single-line handoff parsing baseline, malformed/duplicate/missing/wrong-agent/wrong-phase rejection, chat trigger daemon start, accepted-trigger gating, manual added/deleted/sealed spec reconciliation baseline, corrupt auth cache recovery, validation-gated git-changing iterations, commit/tag observation, blocker basics, and human-task resume basics.
+  - Planner planned handoffs now require `.jri/IMPLEMENTATION_PLAN.md` to exist for initial planning and plan regeneration; missing files produce durable failure evidence instead of `planned` completion.

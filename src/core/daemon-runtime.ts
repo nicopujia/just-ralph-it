@@ -579,6 +579,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
           await finishPlanningBlockedRun(projectDir, loopId, plannerHandoff.blocker);
           return;
         }
+        await assertPlannerPlanPersisted(projectDir, plannerHandoff);
         await appendLoopEvent(projectDir, {
           type: "planningFinished",
           loopId,
@@ -662,12 +663,14 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
           data: { reason: "needsReplan" },
         });
         currentLock = await switchRunnerPhase(projectDir, currentLock, "planning");
+        currentPhase = "planning";
         await appendLoopEvent(projectDir, { type: "planRegenerationStarted", loopId, data: {} });
         const plannerHandoff = await runPlanner(projectDir, loopId, options);
         if (plannerHandoff.action === "blocked") {
           await finishPlanningBlockedRun(projectDir, loopId, plannerHandoff.blocker);
           return;
         }
+        await assertPlannerPlanPersisted(projectDir, plannerHandoff);
         await appendLoopEvent(projectDir, { type: "planRegenerationFinished", loopId, data: {} });
         if (await stopIfRequested(projectDir, loopId, "building")) return;
         currentLock = await switchRunnerPhase(projectDir, currentLock, "building");
@@ -1106,6 +1109,21 @@ async function runPlanner(projectDir: string, loopId: string, options: RuntimeOp
   return handoff;
 }
 
+async function assertPlannerPlanPersisted(projectDir: string, handoff: Extract<PlannerHandoff, { action: "planned" }>): Promise<void> {
+  const planPath = join(projectDir, handoff.planPath);
+  try {
+    const planStats = await stat(planPath);
+    if (planStats.isFile()) return;
+  } catch (error) {
+    if (!error || typeof error !== "object" || !("code" in error) || error.code !== "ENOENT") throw error;
+  }
+  throw new JriError(
+    `The planner reported success but did not create ${handoff.planPath}.`,
+    "planner-plan-missing",
+    "Rerun planning so the implementation plan is written before building starts.",
+  );
+}
+
 async function runBuilder(projectDir: string, loopId: string, options: RuntimeOptions): Promise<BuilderHandoff> {
   const handoff = await runAgentPhase(projectDir, loopId, "building", options);
   if (handoff.agent !== "builder") {
@@ -1493,6 +1511,7 @@ function isLoopFailureError(error: JriError): boolean {
     "invalid-agent-handoff",
     "missing-agent-handoff",
     "multiple-agent-handoffs",
+    "planner-plan-missing",
     "unsupported-harness-agent",
   ].includes(error.code);
 }

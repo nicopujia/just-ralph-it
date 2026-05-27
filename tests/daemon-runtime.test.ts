@@ -1333,6 +1333,119 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("planning fails durably when the planner handoff omits the implementation plan file", async () => {
+    const dir = await tempProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "planning",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("plan"),
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "planning", {
+        harnessAdapter: async () => ({
+          handoff: {
+            agent: "planner",
+            action: "planned",
+            planPath: ".jri/IMPLEMENTATION_PLAN.md",
+            summary: "Plan ready.",
+          },
+        }),
+      });
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+
+      expect(events.map((event) => event.type)).toEqual(["planningStarted", "loopFinished"]);
+      expect(events[1]).toMatchObject({
+        type: "loopFinished",
+        data: {
+          outcome: "failed",
+          summary: expect.stringContaining("did not create .jri/IMPLEMENTATION_PLAN.md"),
+        },
+      });
+      expect(status).toMatchObject({
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastResult: {
+          outcome: "failed",
+          summary: expect.stringContaining("Planning failed: The planner reported success"),
+        },
+      });
+      expect(status.lock).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("plan regeneration fails durably when the regenerated plan file is missing", async () => {
+    const dir = await tempProject();
+    let invocation = 0;
+    try {
+      await writeFile(join(dir, ".jri", "IMPLEMENTATION_PLAN.md"), "# Existing plan\n", "utf8");
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build"),
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "building", {
+        harnessAdapter: async () => {
+          invocation += 1;
+          if (invocation === 1) {
+            await rm(join(dir, ".jri", "IMPLEMENTATION_PLAN.md"), { force: true });
+            return {
+              handoff: {
+                agent: "builder",
+                action: "needsReplan",
+                reason: "plan is stale",
+              },
+            };
+          }
+          return {
+            handoff: {
+              agent: "planner",
+              action: "planned",
+              planPath: ".jri/IMPLEMENTATION_PLAN.md",
+              summary: "Plan regenerated.",
+            },
+          };
+        },
+      });
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+
+      expect(events.map((event) => event.type)).toEqual([
+        "iterationStarted",
+        "iterationFinished",
+        "planRegenerationRequested",
+        "planRegenerationStarted",
+        "loopFinished",
+      ]);
+      expect(events[4]).toMatchObject({
+        type: "loopFinished",
+        data: {
+          outcome: "failed",
+          summary: expect.stringContaining("did not create .jri/IMPLEMENTATION_PLAN.md"),
+        },
+      });
+      expect(status).toMatchObject({
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastResult: { outcome: "failed" },
+      });
+      expect(status.lastResult.summary).toContain("Planning failed: The planner reported success");
+      expect(status.lock).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("auditing runner passes specs before planning and building", async () => {
     const dir = await tempProject();
     const previousPiCommand = process.env.JRI_PI_COMMAND;
@@ -1350,6 +1463,7 @@ describe("daemon/runtime scaffolding", () => {
           "if [ \"$count\" = 1 ]; then",
           `  echo 'JRI_HANDOFF_JSON: {"agent":"auditor","action":"passed","specFiles":[".jri/specs/app.md"],"specsFingerprint":"${emptySpecsFingerprint}","summary":"Specs ready."}'`,
           "elif [ \"$count\" = 2 ]; then",
+          "  echo '# Plan' > .jri/IMPLEMENTATION_PLAN.md",
           "  echo 'JRI_HANDOFF_JSON: {\"agent\":\"planner\",\"action\":\"planned\",\"planPath\":\".jri/IMPLEMENTATION_PLAN.md\",\"summary\":\"Plan ready.\"}'",
           "else",
           "  echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"Build complete.\"}'",
@@ -1420,6 +1534,7 @@ describe("daemon/runtime scaffolding", () => {
           "if [ \"$count\" = 1 ]; then",
           `  echo 'JRI_HANDOFF_JSON: {"agent":"auditor","action":"passed","specFiles":[".jri/specs/app.md"],"specsFingerprint":"${emptySpecsFingerprint}","summary":"Specs ready."}'`,
           "elif [ \"$count\" = 2 ]; then",
+          "  echo '# Plan' > .jri/IMPLEMENTATION_PLAN.md",
           "  echo 'JRI_HANDOFF_JSON: {\"agent\":\"planner\",\"action\":\"planned\",\"planPath\":\".jri/IMPLEMENTATION_PLAN.md\",\"summary\":\"Plan ready.\"}'",
           "else",
           "  echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"Build complete.\"}'",
@@ -1571,6 +1686,7 @@ describe("daemon/runtime scaffolding", () => {
         [
           "#!/bin/sh",
           "echo planning-done",
+          "echo '# Plan' > .jri/IMPLEMENTATION_PLAN.md",
           "echo 'JRI_HANDOFF_JSON: {\"agent\":\"planner\",\"action\":\"planned\",\"planPath\":\".jri/IMPLEMENTATION_PLAN.md\",\"summary\":\"Plan ready.\"}'",
           "bun -e 'const fs = require(\"node:fs\"); const path = \".jri/status.json\"; const status = JSON.parse(fs.readFileSync(path, \"utf8\")); status.stopRequested = true; fs.writeFileSync(path, `${JSON.stringify(status, null, 2)}\\n`);'",
           "",
@@ -2475,6 +2591,7 @@ describe("daemon/runtime scaffolding", () => {
           "  echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"needsReplan\",\"reason\":\"plan is stale\"}'",
           "elif [ \"$count\" = 2 ]; then",
           "  echo 'planner-regenerated'",
+          "  echo '# Plan regenerated' > .jri/IMPLEMENTATION_PLAN.md",
           "  echo 'JRI_HANDOFF_JSON: {\"agent\":\"planner\",\"action\":\"planned\",\"planPath\":\".jri/IMPLEMENTATION_PLAN.md\",\"summary\":\"Plan regenerated.\"}'",
           "else",
           "  echo 'builder-finished'",
