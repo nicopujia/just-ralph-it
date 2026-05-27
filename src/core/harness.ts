@@ -1,12 +1,19 @@
-import { appendFile } from "node:fs/promises";
+import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAuthStatus } from "./auth";
 import { JriError } from "./errors";
 import { buildPiPrompt, modelForAgent } from "./prompts";
+import { appendLoopEvent } from "./runtime-state";
 import { parseJsonObject, validateConfig } from "./schema";
+import type { CoreEvent } from "./types";
 import type { AgentName } from "./types";
 
-export type HarnessPhase = "auditing" | "planning" | "building";
+export type HarnessPhase = "auditing" | "planning" | "building" | "explorer";
+
+const explorerHandoffLimit = 4_000;
+const explorerTimeoutMs = 10 * 60 * 1_000;
+const explorerConcurrencyLimit = 6;
+const explorerQueues = new Map<string, { active: number; waiters: Array<() => void> }>();
 
 export type HarnessSessionRequest = {
   projectDir: string;
@@ -14,6 +21,8 @@ export type HarnessSessionRequest = {
   phase: HarnessPhase;
   stdoutPath: string;
   env?: NodeJS.ProcessEnv;
+  explorerTask?: string;
+  timeoutMs?: number;
 };
 
 export type HarnessSessionRunner = (request: HarnessSessionRequest) => Promise<number>;
@@ -36,11 +45,99 @@ export async function runControlledPiSession(request: HarnessSessionRequest): Pr
   return await proc.exited;
 }
 
-export async function buildControlledPiCommand(request: Omit<HarnessSessionRequest, "stdoutPath">): Promise<PiHarnessCommand> {
+export type ExplorerRunResult = {
+  task: string;
+  summary: string;
+  artifactRef?: string;
+  events: CoreEvent[];
+};
+
+export async function runExplorerTask(
+  request: Omit<HarnessSessionRequest, "phase" | "stdoutPath"> & {
+    task: string;
+    mode?: "spawn" | "fork";
+    handoffLimit?: number;
+  },
+): Promise<ExplorerRunResult> {
+  const mode = request.mode ?? "spawn";
+  if (mode !== "spawn") {
+    throw new JriError("Explorer only supports spawn mode in the MVP.", "unsupported-explorer-mode", "Run explorer tasks with spawn/fresh context.");
+  }
+  const task = request.task.trim();
+  if (!task) {
+    throw new JriError("Explorer task must not be empty.", "invalid-explorer-task", "Pass a focused read-only investigation task.");
+  }
+
+  return await withExplorerSlot(`${request.projectDir}:${request.loopId}`, async () => {
+    const events: CoreEvent[] = [];
+    events.push(
+      await appendLoopEvent(request.projectDir, {
+        type: "subagentStarted",
+        loopId: request.loopId,
+        data: { agent: "explorer", task, mode },
+      }),
+    );
+
+    try {
+      const built = await buildControlledPiCommand({
+        projectDir: request.projectDir,
+        loopId: request.loopId,
+        phase: "explorer",
+        ...(request.env ? { env: request.env } : {}),
+        explorerTask: task,
+      });
+      const output = await runCommandCapture({
+        command: built.command,
+        cwd: request.projectDir,
+        env: built.env,
+        timeoutMs: request.timeoutMs ?? explorerTimeoutMs,
+      });
+      const artifactRef = await writeExplorerArtifact(request.projectDir, request.loopId, task, output.text);
+      if (output.exitCode !== 0) {
+        const failed = await appendLoopEvent(request.projectDir, {
+          type: "subagentFailed",
+          loopId: request.loopId,
+          data: { agent: "explorer", error: `Explorer exited with code ${output.exitCode}.`, artifactRef },
+        });
+        events.push(failed);
+        throw new JriError(
+          `Explorer exited with code ${output.exitCode}.`,
+          "explorer-failed",
+          `Inspect ${artifactRef} for the captured explorer output, then retry with a narrower task if needed.`,
+        );
+      }
+
+      const summary = summarizeExplorerOutput(output.text, request.handoffLimit ?? explorerHandoffLimit);
+      const finished = await appendLoopEvent(request.projectDir, {
+        type: "subagentFinished",
+        loopId: request.loopId,
+        data: { agent: "explorer", summary, artifactRef },
+      });
+      events.push(finished);
+      return { task, summary, artifactRef, events };
+    } catch (error) {
+      if (error instanceof JriError) throw error;
+      const failed = await appendLoopEvent(request.projectDir, {
+        type: "subagentFailed",
+        loopId: request.loopId,
+        data: { agent: "explorer", error: error instanceof Error ? error.message : String(error) },
+      });
+      events.push(failed);
+      throw error;
+    }
+  });
+}
+
+export async function buildControlledPiCommand(
+  request: Omit<HarnessSessionRequest, "stdoutPath">,
+): Promise<PiHarnessCommand> {
   const env = request.env ?? process.env;
   await assertProviderAuth(env);
 
-  const prompt = await buildPiPrompt(request.projectDir, request.phase);
+  const prompt = await buildPiPrompt(request.projectDir, request.phase, {
+    loopId: request.loopId,
+    ...(request.explorerTask ? { explorerTask: request.explorerTask } : {}),
+  });
   const agent = agentForPhase(request.phase);
   const model = modelForAgent(await readProjectConfig(request.projectDir), agent);
   const piPath = env.JRI_PI_COMMAND ?? "pi";
@@ -61,6 +158,8 @@ export async function buildControlledPiCommand(request: Omit<HarnessSessionReque
       "--no-context-files",
       "--tools",
       allowedToolsForPhase(request.phase).join(","),
+      "--session-dir",
+      join(request.projectDir, ".jri", "logs", request.loopId, "pi-sessions"),
       "--print",
       prompt,
     ],
@@ -72,12 +171,13 @@ export async function buildControlledPiCommand(request: Omit<HarnessSessionReque
 }
 
 function agentForPhase(phase: HarnessPhase): AgentName {
+  if (phase === "explorer") return "explorer";
   if (phase === "auditing") return "auditor";
   return phase === "planning" ? "planner" : "builder";
 }
 
 function allowedToolsForPhase(phase: HarnessPhase): string[] {
-  if (phase === "auditing") return ["read", "grep", "find", "ls"];
+  if (phase === "auditing" || phase === "explorer") return ["read", "grep", "find", "ls"];
   return ["read", "bash", "edit", "write", "grep", "find", "ls"];
 }
 
@@ -108,4 +208,76 @@ async function appendStream(path: string, stream: ReadableStream<Uint8Array>): P
   }
   const tail = decoder.decode();
   if (tail) await appendFile(path, tail, "utf8");
+}
+
+type CapturedCommand = {
+  command: string[];
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  timeoutMs: number;
+};
+
+async function runCommandCapture(request: CapturedCommand): Promise<{ exitCode: number; text: string }> {
+  const proc = Bun.spawn(request.command, {
+    cwd: request.cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: "ignore",
+    env: request.env,
+  });
+  const timeout = setTimeout(() => proc.kill("SIGTERM"), request.timeoutMs);
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([streamText(proc.stdout), streamText(proc.stderr), proc.exited]);
+    return { exitCode, text: `${stdout}${stderr ? `${stdout ? "\n" : ""}${stderr}` : ""}` };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function streamText(stream: ReadableStream<Uint8Array>): Promise<string> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  for (;;) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    text += decoder.decode(chunk.value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
+async function writeExplorerArtifact(projectDir: string, loopId: string, task: string, output: string): Promise<string> {
+  const safeId = crypto.randomUUID();
+  const artifactDir = join(projectDir, ".jri", "logs", loopId, "artifacts");
+  await mkdir(artifactDir, { recursive: true });
+  const artifactRef = `.jri/logs/${loopId}/artifacts/explorer-${safeId}.txt`;
+  await writeFile(
+    join(projectDir, artifactRef),
+    [`Task: ${task}`, "", output.trimEnd(), ""].join("\n"),
+    "utf8",
+  );
+  return artifactRef;
+}
+
+function summarizeExplorerOutput(output: string, handoffLimit: number): string {
+  const normalized = output.trim() || "Explorer completed without textual output.";
+  if (normalized.length <= handoffLimit) return normalized;
+  return `${normalized.slice(0, Math.max(0, handoffLimit - 120)).trimEnd()}\n\n[Explorer output truncated; see artifactRef for the full result.]`;
+}
+
+async function withExplorerSlot<T>(key: string, task: () => Promise<T>): Promise<T> {
+  const state = explorerQueues.get(key) ?? { active: 0, waiters: [] };
+  explorerQueues.set(key, state);
+  if (state.active >= explorerConcurrencyLimit) {
+    await new Promise<void>((resolve) => state.waiters.push(resolve));
+  }
+  state.active += 1;
+  try {
+    return await task();
+  } finally {
+    state.active -= 1;
+    const next = state.waiters.shift();
+    if (next) next();
+    else if (state.active === 0) explorerQueues.delete(key);
+  }
 }

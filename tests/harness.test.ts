@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { buildControlledPiCommand } from "../src/core/harness";
+import { buildControlledPiCommand, runExplorerTask } from "../src/core/harness";
 import { writeStatusAtomic } from "../src/core/runtime-state";
 import { defaultConfig, defaultStatus } from "../src/core/schema";
 
@@ -103,6 +103,68 @@ describe("controlled Pi harness", () => {
           },
         }),
       ).rejects.toThrow("OpenAI authentication is required");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("builds an isolated read-only explorer command with the explorer model", async () => {
+    const dir = await tempProject();
+    try {
+      const built = await buildControlledPiCommand({
+        projectDir: dir,
+        loopId: "20260527T184210Z",
+        phase: "explorer",
+        explorerTask: "Find the CLI dispatch code.",
+        env: {
+          JRI_PI_COMMAND: "/tmp/fake-pi",
+        },
+      });
+
+      expect(built.command[built.command.indexOf("--model") + 1]).toBe("gpt-5.3-codex-spark");
+      expect(built.command[built.command.indexOf("--thinking") + 1]).toBe("xhigh");
+      expect(built.command[built.command.indexOf("--tools") + 1]).toBe("read,grep,find,ls");
+      expect(built.command[built.command.indexOf("--session-dir") + 1]).toBe(
+        join(dir, ".jri", "logs", "20260527T184210Z", "pi-sessions"),
+      );
+      expect(built.command.at(-1)).toContain("Task: Find the CLI dispatch code.");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runExplorerTask records subagent events and caps handoff with an artifact", async () => {
+    const dir = await tempProject();
+    try {
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        ["#!/usr/bin/env bash", "printf 'finding %.0s' {1..700}", "printf '\\nfinal line\\n'"].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      const result = await runExplorerTask({
+        projectDir: dir,
+        loopId: "20260527T184210Z",
+        task: "Inspect CLI behavior.",
+        handoffLimit: 120,
+        env: {
+          JRI_PI_COMMAND: fakePi,
+        },
+      });
+
+      expect(result.summary.length).toBeLessThanOrEqual(160);
+      expect(result.summary).toContain("Explorer output truncated");
+      expect(result.artifactRef).toMatch(/^\.jri\/logs\/20260527T184210Z\/artifacts\/explorer-/);
+      const artifact = await readFile(join(dir, result.artifactRef!), "utf8");
+      expect(artifact).toContain("Task: Inspect CLI behavior.");
+      expect(artifact).toContain("final line");
+
+      const events = await readFile(join(dir, ".jri", "logs", "20260527T184210Z", "events.jsonl"), "utf8");
+      expect(events).toContain('"type":"subagentStarted"');
+      expect(events).toContain('"type":"subagentFinished"');
+      expect(events).toContain('"artifactRef"');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

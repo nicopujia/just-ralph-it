@@ -2,6 +2,7 @@
 import { open, isJriError } from "../core";
 import { runDaemon } from "../core/daemon-ipc";
 import { runLoopProcess, type RunnerPhase } from "../core/daemon-runtime";
+import { runExplorerTask } from "../core/harness";
 
 async function main(argv: string[]): Promise<number> {
   const [command, subcommand] = argv;
@@ -15,6 +16,17 @@ async function main(argv: string[]): Promise<number> {
       return usage("Invalid internal runner invocation.");
     }
     await runLoopProcess(projectDir, loopId, phase);
+    return 0;
+  }
+  if (command === "--run-explorer") {
+    const [projectDir, loopId, ...taskParts] = argv.slice(1);
+    const task = taskParts.join(" ").trim();
+    if (!projectDir || !loopId || !task) {
+      return usage("Invalid internal explorer invocation.");
+    }
+    const result = await runExplorerTask({ projectDir, loopId, task });
+    console.log(result.summary);
+    if (result.artifactRef) console.log(`artifactRef: ${result.artifactRef}`);
     return 0;
   }
 

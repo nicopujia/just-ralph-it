@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,6 +56,36 @@ describe("CLI", () => {
       expect(exitCode).toBe(1);
       expect(`${stdout}\n${stderr}`).toContain("OpenAI authentication is required");
       expect(`${stdout}\n${stderr}`).toContain("jri auth login");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("hidden run-explorer command prints a bounded handoff and artifact ref", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(fakePi, "#!/usr/bin/env bash\nprintf 'CLI explorer result\\n'\n", "utf8");
+      await chmod(fakePi, 0o755);
+
+      const proc = Bun.spawn(["bun", cliPath, "--run-explorer", dir, "20260527T184210Z", "Inspect CLI dispatch."], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          JRI_PI_COMMAND: fakePi,
+        },
+      });
+
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toBe("");
+      expect(stdout).toContain("CLI explorer result");
+      expect(stdout).toContain("artifactRef: .jri/logs/20260527T184210Z/artifacts/explorer-");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
