@@ -27,7 +27,7 @@
 - P0: Finish lifecycle cancellation, timeout handling, and loop-owned child process registration.
   - Confirmed gap: halt currently kills only `status.process.pid`, and the default killer sends only `SIGTERM`; web and explorer wrappers spawn child processes without a runner-owned child registry or halt fanout.
   - Confirmed gaps: mid-phase cancellation still needs durable evidence for silent stops/timeouts, connected-but-silent daemon IPC needs a timeout path, and loop failure normalization omits capability/cancellation error codes.
-  - Confirmed gap: `daemon.shutdown` still answers unconditionally and should refuse while any loop is active instead of shutting the daemon down under load.
+  - Confirmed implemented: direct `daemon.shutdown` now rejects while any registered recovered loop is active, with daemon IPC regression coverage.
   - Register loop-owned web/explorer/capability children with the runner so halt cancels runner plus children, timeout uses the same cancellation path, and captured output/artifacts produce structured evidence.
   - Preserve chat-owned capability isolation under `.jri/logs/interrogation-artifacts/`; chat-owned capabilities must not mutate loop status or append loop events.
   - Honor cancellation before start, during SDK/session execution, during web/explorer capability work, after timeout, during graceful stop boundaries, and during halt.

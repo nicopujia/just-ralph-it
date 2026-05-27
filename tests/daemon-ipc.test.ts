@@ -421,6 +421,53 @@ describe("daemon IPC", () => {
     }
   });
 
+  test("refuses direct daemon shutdown while a registered loop is active", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const daemon = await startDaemonServer({ paths, idleTimeoutMs: 10_000 });
+    const socket = await connectRawSocket(paths.socketPath);
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build"),
+      });
+      await writeFile(
+        paths.registryPath,
+        `${JSON.stringify(
+          {
+            protocolVersion: 1,
+            projects: [{ projectDir: dir, lastSeenAt: new Date().toISOString(), activeLoopId: "20260527T184210Z" }],
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
+
+      socket.write(`${JSON.stringify({ id: "shutdown", method: "daemon.shutdown" })}\n`);
+      const response = JSON.parse(await readRawSocketLine(socket));
+
+      expect(response).toMatchObject({
+        id: "shutdown",
+        ok: false,
+        error: {
+          code: "daemon-active-loop",
+          message: "Cannot shut down the JRI daemon while a loop is active.",
+        },
+      });
+
+      const activeStatus = await daemonStatus(dir, { paths });
+      expect(activeStatus.state).toBe("building");
+    } finally {
+      socket.destroy();
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("maps malformed daemon unary responses to protocol errors", async () => {
     const dir = await tempProject();
     const paths = tempDaemonPaths(dir);

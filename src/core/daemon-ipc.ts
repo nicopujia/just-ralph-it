@@ -453,6 +453,13 @@ async function handleRequestLine(socket: Socket, paths: DaemonPaths, runtimeOpti
       return;
     }
     if (request.method === "daemon.shutdown") {
+      if (await hasActiveRegisteredLoop(paths)) {
+        throw new JriError(
+          "Cannot shut down the JRI daemon while a loop is active.",
+          "daemon-active-loop",
+          "Use jri loop attach to observe the active loop, jri loop stop for a graceful stop, or jri loop halt if force-kill is required.",
+        );
+      }
       writeResponse(socket, { id: request.id, ok: true, result: { exiting: true } });
       requestShutdown();
       return;
