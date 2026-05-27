@@ -1501,6 +1501,59 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("runner timeout aborts phase work and fans out to registered loop children", async () => {
+    const dir = await tempProject();
+    const killed: Array<{ pid: number; signal: string | undefined; state: string }> = [];
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build", process.pid),
+      });
+      await registerLoopChild(dir, "20260527T184210Z", { pid: 11111, capability: "web" });
+      await registerLoopChild(dir, "20260527T184210Z", { pid: 22222, capability: "explorer" });
+
+      await runLoopProcess(dir, "20260527T184210Z", "building", {
+        runnerTimeoutMs: 1,
+        childKillGraceMs: 1,
+        killProcess: (pid, signal) => {
+          const status = JSON.parse(readFileSync(join(dir, ".jri", "status.json"), "utf8"));
+          killed.push({ pid, signal, state: status.state });
+        },
+        harnessAdapter: async (invocation) => {
+          await new Promise<void>((resolve) => invocation.signal.addEventListener("abort", () => resolve(), { once: true }));
+          return {
+            handoff: {
+              agent: "builder",
+              action: "continue",
+              summary: "Timed out after adapter return.",
+              validation: [{ command: "bun run test", exitCode: 0, passed: true, summary: "Tests passed." }],
+            },
+          };
+        },
+      });
+
+      const events = await collect(observeLoop(dir));
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(killed).toEqual([
+        { pid: 11111, signal: "SIGTERM", state: "building" },
+        { pid: 22222, signal: "SIGTERM", state: "building" },
+        { pid: 11111, signal: "SIGKILL", state: "building" },
+        { pid: 22222, signal: "SIGKILL", state: "building" },
+      ]);
+      expect(events.at(-1)).toMatchObject({ type: "loopFinished", data: { outcome: "failed" } });
+      expect(status).toMatchObject({
+        state: "stopped",
+        lastResult: { outcome: "failed", summary: expect.stringContaining("cancelled") },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("runner invokes loop phases through the harness adapter contract", async () => {
     const dir = await tempProject();
     const controller = new AbortController();

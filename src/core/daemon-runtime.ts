@@ -66,6 +66,7 @@ export type RuntimeOptions = {
   harnessRunner?: HarnessSessionRunner;
   observePollIntervalMs?: number;
   childKillGraceMs?: number;
+  runnerTimeoutMs?: number;
 };
 
 export type RunnerPhase = "auditing" | "planning" | "building";
@@ -527,6 +528,8 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
     throw new JriError("The JRI runner does not own the project lock.", "lock-lost", "Resume the loop again so the daemon can start a fresh runner.");
   }
 
+  const runtimeCancellation = bindRunnerTimeout(options.signal, options.runnerTimeoutMs);
+  const runnerOptions: RuntimeOptions = runtimeCancellation.signal ? { ...options, signal: runtimeCancellation.signal } : options;
   let currentLock = lock;
   const heartbeat = setInterval(() => {
     heartbeatLock(projectDir, currentLock)
@@ -541,11 +544,11 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
   let currentPhase: RunnerPhase = phase;
   try {
     for (;;) {
-      throwIfRuntimeCancelled(options.signal);
+      throwIfRuntimeCancelled(runnerOptions.signal);
       const statusAtPhaseStart = await readStatus(projectDir);
       if (currentPhase === "auditing") {
         await appendLoopEvent(projectDir, { type: "auditStarted", loopId, data: {} });
-        const auditorHandoff = await runAuditor(projectDir, loopId, options);
+        const auditorHandoff = await runAuditor(projectDir, loopId, runnerOptions);
         if (auditorHandoff.action === "failed") {
           await finishAuditFailedRun(projectDir, loopId, auditorHandoff);
           return;
@@ -585,7 +588,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
 
       if (currentPhase === "planning") {
         await appendLoopEvent(projectDir, { type: "planningStarted", loopId, data: {} });
-        const plannerHandoff = await runPlanner(projectDir, loopId, options);
+        const plannerHandoff = await runPlanner(projectDir, loopId, runnerOptions);
         if (plannerHandoff.action === "blocked") {
           await finishPlanningBlockedRun(projectDir, loopId, plannerHandoff.blocker);
           return;
@@ -625,7 +628,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         },
       });
 
-      const builderHandoff = await runBuilder(projectDir, loopId, options);
+      const builderHandoff = await runBuilder(projectDir, loopId, runnerOptions);
       const validationEvidence = validationEvidenceFromBuilder(builderHandoff);
       await recordValidationEvidence(projectDir, loopId, iteration, validationEvidence);
       if (builderHandoff.action === "blocked") {
@@ -681,7 +684,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         currentLock = await switchRunnerPhase(projectDir, currentLock, "planning");
         currentPhase = "planning";
         await appendLoopEvent(projectDir, { type: "planRegenerationStarted", loopId, data: {} });
-        const plannerHandoff = await runPlanner(projectDir, loopId, options);
+        const plannerHandoff = await runPlanner(projectDir, loopId, runnerOptions);
         if (plannerHandoff.action === "blocked") {
           await finishPlanningBlockedRun(projectDir, loopId, plannerHandoff.blocker);
           return;
@@ -737,6 +740,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
     }
     throw error;
   } finally {
+    runtimeCancellation.cleanup();
     clearInterval(heartbeat);
     const latest = await readStatus(projectDir);
     if (latest.lock && latest.lock.pid === currentLock.pid && latest.lock.acquiredAt === currentLock.acquiredAt) {
@@ -1301,6 +1305,30 @@ async function runLegacyHarnessSession(
 function throwIfRuntimeCancelled(signal: AbortSignal | undefined): void {
   if (!signal?.aborted) return;
   throw new JriError("JRI runtime execution was cancelled.", "runtime-cancelled", "Retry the operation if it is still needed.");
+}
+
+function bindRunnerTimeout(
+  parentSignal: AbortSignal | undefined,
+  timeoutMs: number | undefined,
+): { signal: AbortSignal | undefined; cleanup: () => void } {
+  if (timeoutMs === undefined) {
+    return { signal: parentSignal, cleanup: () => undefined };
+  }
+
+  const boundedTimeoutMs = Math.max(1, Math.trunc(timeoutMs));
+  const controller = new AbortController();
+  const abort = (): void => controller.abort();
+  if (parentSignal?.aborted) abort();
+  else parentSignal?.addEventListener("abort", abort, { once: true });
+  const timeout = setTimeout(abort, boundedTimeoutMs);
+
+  return {
+    signal: controller.signal,
+    cleanup: (): void => {
+      clearTimeout(timeout);
+      parentSignal?.removeEventListener("abort", abort);
+    },
+  };
 }
 
 async function buildLoopHarnessContext(

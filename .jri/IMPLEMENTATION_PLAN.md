@@ -19,8 +19,8 @@
 - P0: Finish cancellation, timeout, halt fanout, and runtime failure normalization.
   - Completed increment: loop-owned harness, explorer, and web subprocesses now append start/finish records to `.jri/logs/<loopId>/child-processes.jsonl`, and `jri loop halt` reads that registry to kill registered children before clearing runner ownership. This matters because halt must not strand capability work after the runner process is terminated. Covered by `tests/daemon-runtime.test.ts` and `tests/harness.test.ts`.
   - Completed increment: shared SIGTERM-then-SIGKILL fanout now covers halt for the runner and registered children, plus cancellation-driven runtime failure for registered children. Covered by `tests/daemon-runtime.test.ts`.
-  - Remaining gap: timeout-driven whole-runner cancellation still relies on per-process harness/web cancellation and does not yet route through a single runner-owned child fanout path with SIGTERM-then-SIGKILL escalation for every registered child.
-  - Route pre-start aborts, in-flight aborts, timeouts, halt, graceful-stop boundaries, connected-but-silent daemon IPC, parser failures, lock loss, and capability failures through one structured failure path.
+  - Completed increment: runner-owned timeouts now use a single runner cancellation signal for phase work, abort the active harness invocation, fan out SIGTERM-then-SIGKILL to registered loop children, and record durable failed `loopFinished` plus stopped status evidence. This matters because a whole-runner timeout must not depend on individual capability wrappers to clean up child work. Covered by `tests/daemon-runtime.test.ts`.
+  - Remaining gap: connected-but-silent daemon IPC, parser failures, lock loss, and capability failures still need a consolidated structured failure audit across every path.
   - Normalize failures into durable `loopFinished` failure events plus stopped status/`lastResult` evidence that recovery can trust.
 
 - P0: Harden interrogation readiness and spec mutation safety.
