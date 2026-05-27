@@ -344,7 +344,7 @@ function parseRawJson(rawJson: string, phaseLabel: string): unknown {
 function parseSpecFiles(value: unknown, agent: HandoffAgent): string[] {
   const files = requiredStringArray(value, "specFiles", agent);
   for (const file of files) {
-    if (!file.startsWith(".jri/specs/") || file.includes("..")) {
+    if (!isStableRelativePathUnder(file, ".jri/specs/")) {
       throw invalidHandoff(agent, "Spec files must be stable .jri/specs/* paths.");
     }
   }
@@ -379,7 +379,7 @@ function parseArtifact(value: unknown, agent: HandoffAgent): ArtifactRef {
   }
   assertKnownKeys(value, `${agent} artifact`, ["path", "summary"], agent);
   const path = requiredString(value.path, "artifact.path", agent);
-  if (!path.startsWith(".jri/logs/") || path.includes("..")) {
+  if (!isStableRelativePathUnder(path, ".jri/logs/")) {
     throw invalidHandoff(agent, "Artifact paths must be stable .jri/logs/* paths.");
   }
   return {
@@ -442,4 +442,15 @@ function assertKnownKeys(value: Record<string, unknown>, label: string, allowed:
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isStableRelativePathUnder(path: string, requiredPrefix: string): boolean {
+  if (!path.startsWith(requiredPrefix)) return false;
+  if (path.includes("\\") || path.includes("\0")) return false;
+
+  const suffix = path.slice(requiredPrefix.length);
+  if (suffix.length === 0) return false;
+
+  const segments = suffix.split("/");
+  return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
 }

@@ -202,6 +202,30 @@ describe("agent handoff contracts", () => {
     ).toThrow("Unknown builder blocker.resolutionGuide key: hint");
   });
 
+  test("rejects unstable spec and artifact handoff paths", () => {
+    for (const specFile of [".jri/specs/.", ".jri/specs//app.md", ".jri/specs/app/../other.md", ".jri/specs/app\\other.md"]) {
+      expect(() =>
+        parseHandoff("auditor", {
+          agent: "auditor",
+          action: "passed",
+          specFiles: [specFile],
+          specsFingerprint: "abc123",
+        }),
+      ).toThrow("Spec files must be stable .jri/specs/* paths");
+    }
+
+    for (const path of [".jri/logs/.", ".jri/logs//artifact.md", ".jri/logs/20260527T184210Z/artifacts/.", ".jri/logs/loop\\artifact.md"]) {
+      expect(() =>
+        parseHandoff("builder", {
+          agent: "builder",
+          action: "complete",
+          summary: "Done.",
+          artifacts: [{ path }],
+        }),
+      ).toThrow("Artifact paths must be stable .jri/logs/* paths");
+    }
+  });
+
   test("rejects legacy builder blocker and replan lines", () => {
     expect(() => extractLatestBuilderHandoffFromText(`JRI_BLOCKER_JSON: ${JSON.stringify(blocker)}`)).toThrow("did not emit");
     expect(() => extractLatestBuilderHandoffFromText("JRI_NEEDS_REPLAN: plan drifted")).toThrow("did not emit");
