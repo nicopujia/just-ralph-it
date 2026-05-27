@@ -1,4 +1,5 @@
 import { startRalphLoop, type RuntimeOptions } from "./daemon-runtime";
+import { checkInterrogationStartGate } from "./interrogation-state";
 import { appendInterrogationEvent, appendLoopEvent, readStatus, updateStatus } from "./runtime-state";
 import type { Blocker, ChatInput, CoreEvent, HumanTaskVerificationHandoff, ProjectStatus } from "./types";
 
@@ -34,6 +35,20 @@ export async function* sendChat(projectDir: string, input: ChatInput, options: C
 
   const trigger = normalizeStartTrigger(message);
   if (trigger) {
+    const startGate = await checkInterrogationStartGate(projectDir, options.now ? { now: options.now } : {});
+    if (!startGate.ok) {
+      const pending = startGate.pending[0];
+      const summary = pending?.topic.pendingReconciliation?.summary ?? "A pending spec reconciliation must be resolved before Ralph can start.";
+      yield* emitAssistant(
+        projectDir,
+        [
+          "Ralph cannot start until pending spec reconciliation is resolved.",
+          summary,
+          "Clarify the changed requirement in bare jri, then say just ralph it again when the specs are ready.",
+        ].join("\n"),
+      );
+      return;
+    }
     yield* emitAssistant(projectDir, `Start request accepted (${trigger}). Running the specs auditor now.`);
     yield* (options.startLoop ?? startLoopLocally)(projectDir, trigger, options);
     return;

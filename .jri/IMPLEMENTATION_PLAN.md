@@ -3,13 +3,14 @@
 - Current confirmed state from specs/source search:
   - Completed baseline: TypeScript/Bun scaffold, project root resolution, idempotent initialization, config/status validation, public core `Project` API shape, auth status/login/logout stubs, runtime status/event primitives, daemon IPC for status/observe/stop/halt/resume, event sequence locking, live loop observation, runner phase orchestration, handoff parsing/validation, validation events, commit/tag observation, blocker parsing, resume fingerprint checks for stopped loops, replan signaling, web/explorer wrapper descriptors, attach controls, halt reset prompt, and state-specific loop control errors are present.
   - Confirmed partial implementations: bare piped `jri` routes through `Project.chat.send()`; accepted triggers start audit runner scaffolding; `chat.send()` records turns and handles `done`; hidden web/explorer commands provide bounded wrapper behavior; loop attach follows stdout/events and keeps footer bytes out of `stdout.log`.
+  - Completed slice: lazy interrogation-state primitives now exist, sealed spec topics detect manual edits/deleted files, and chat start-gates block pending reconciliation before daemon loop start.
   - Confirmed blockers: the primary interactive interrogator, Pi SDK harness boundary, daemon-owned start, durable interrogator state, capability ownership/cancellation, lock/CAS hardening, Pi-backed auth flow, and dogfood documentation/tests remain incomplete.
   - Spec updates completed during planning: `.jri/specs/sdk-runtime-contracts.md` now defines the SDK harness/fake contract, durable `.jri/interrogation-state.json`, daemon `loop.start`, capability process ownership, and stdout channel policy; `.jri/specs/runtime-state.md` now lists the lazy interrogation state file.
 
 - [ ] P0: Replace canned chat with the real Pi-backed interrogator.
-  - Current `src/core/chat.ts` returns fixed status copy, accepts direct triggers, and uses an injectable verifier; it does not run an interrogator agent, parse interrogator handoffs, update `.jri/specs/*`, update `.jri/scratchpad.md`, reconstruct selective context, reconcile manual spec edits, seal/unseal topics, or support observation/blocker modes.
+  - Current `src/core/chat.ts` returns fixed status copy, accepts direct triggers, and uses an injectable verifier; it does not run an interrogator agent, parse interrogator handoffs, update `.jri/specs/*`, update `.jri/scratchpad.md`, reconstruct selective context, or support observation/blocker modes.
   - Implement interrogator harness invocation using the new `HarnessInvocation` contract with `agent: "interrogator"` and `phase: "interrogation"`.
-  - Add lazy `.jri/interrogation-state.json` support for topic sealing, spec fingerprints, pending manual edit reconciliation, and start-gate blocking.
+  - Add lazy `.jri/interrogation-state.json` support for topic sealing, spec fingerprints, and pending manual edit reconciliation.
   - Process `messageOnly`, `specsUpdated`, `scratchpadUpdated`, `startRequested`, `humanTaskVerified`, and `humanTaskStillBlocked` handoffs instead of inferring lifecycle changes from prose or fixed strings.
   - Reconcile chat persistence with the runtime contract: stream `chatMessageStarted`/`chatMessageDelta`/`chatMessageFinished` to callers, but persist durable completed turns/history material in `interrogation.jsonl`.
 
@@ -28,11 +29,12 @@
 - [ ] P0: Route accepted chat triggers through daemon-owned `loop.start`.
   - Completed/tested slice: daemon IPC now exposes streaming `loop.start`; `Project.chat.send` injects daemon start; chat can stream the returned `loopStarted` event.
   - Completed/tested slice: daemon `loop.start` now carries and validates the accepted trigger; `Project.chat.send` no longer falls back to local start when the daemon is unavailable.
+  - Completed/tested slice: chat start-gates now block while pending reconciliation is unresolved before daemon loop start.
   - Completed/tested slice: runner start/resume ordering was hardened so start/resume acquire a daemon-held startup lock and enter the active state before spawning, then transfer process/lock ownership to the runner PID; spawn failures restore the prior durable status.
   - Focused tests passed for chat, daemon IPC, and daemon runtime coverage.
-  - Final validation for this increment: `bun run test` passed with 84 tests, `bun run typecheck` passed, and `bun run lint` passed.
+  - Final validation for this increment: `bun run test` passed with 87 tests, `bun run typecheck` passed, and `bun run lint` passed.
   - Remaining: direct test-only `sendChat()` still has a local injected/default start path; production `Project.chat.send()` now requires daemon start.
-  - Remaining: reject active loops, human-task blockers, pending interrogation reconciliation, and invalid trigger text with concise state-specific errors; keep interrogation-state gating narrow and actionable.
+  - Remaining: reject active loops, human-task blockers, and invalid trigger text with concise state-specific errors; keep interrogation-state gating narrow and actionable.
 
 - [ ] P0: Harden runtime ownership, locking, and resume safety.
   - Replace read-mutator-write lock acquisition with a real compare-and-swap or document/enforce a single-daemon mutation guarantee that satisfies `runtime-state.md`.
@@ -63,6 +65,7 @@
 
 - [ ] P1: Polish CLI status/control edge cases.
   - Completed/tested slice: piped `jri loop attach` now treats stdin EOF as detach so attach does not hang after scripted detach/stop controls.
+  - Completed/tested slice: attach subprocess env is isolated from inherited `JRI_DAEMON_*` values so parallel tests no longer hit the CLI attach flake.
   - Expand fallback bare status output for active, stopped, halted, completed, failed, URL/deployment, validation, and next-action hints.
   - Explain why halt rollback reset is unavailable when there is no rollback commit or the tracked tree was dirty at iteration start.
   - Make blocked `jri loop stop` messaging match the explicit "already blocked" recovery path.

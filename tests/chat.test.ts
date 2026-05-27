@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -7,6 +7,7 @@ import { open } from "../src/core";
 import { startDaemonServer, type DaemonPaths } from "../src/core/daemon-ipc";
 import { defaultStatus } from "../src/core/schema";
 import { writeStatusAtomic } from "../src/core/runtime-state";
+import { fingerprintSpecFile, writeInterrogationState } from "../src/core/interrogation-state";
 import type { CoreEvent } from "../src/core";
 
 async function tempProject(): Promise<string> {
@@ -125,6 +126,52 @@ describe("interrogation chat", () => {
         "loopStarted",
       ]);
       expect(events[5]).toMatchObject({ type: "loopStarted", data: { pid: 44444 } });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("standalone start trigger blocks when sealed specs need manual reconciliation", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
+      const fingerprint = await fingerprintSpecFile(dir, ".jri/specs/app.md");
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          app: {
+            specFile: ".jri/specs/app.md",
+            status: "sealed",
+            lastReconciledSpecFingerprint: fingerprint,
+          },
+        },
+      });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI and web UI.\n");
+
+      let startCalled = false;
+      const events = await collect(
+        sendChat(dir, { message: "just ralph it" }, {
+          now: new Date("2026-05-27T20:00:00.000Z"),
+          startLoop: async function* () {
+            startCalled = true;
+          },
+        }),
+      );
+      const state = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+
+      expect(startCalled).toBe(false);
+      expect(events.map((event) => event.type)).toEqual([
+        "chatTurnRecorded",
+        "chatMessageStarted",
+        "chatMessageDelta",
+        "chatMessageFinished",
+        "chatTurnRecorded",
+      ]);
+      expect(events[2]).toMatchObject({ type: "chatMessageDelta", data: { text: expect.stringContaining("pending spec reconciliation") } });
+      expect(state.topics.app.pendingReconciliation).toMatchObject({ reason: "manualSpecEdit" });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

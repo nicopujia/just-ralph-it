@@ -8,6 +8,7 @@ import { appendLoopEvent, writeStatusAtomic } from "../src/core/runtime-state";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const cliPath = join(repoRoot, "src", "cli", "index.ts");
+const daemonEnvKeys = ["JRI_DAEMON_RUNTIME_DIR", "JRI_DAEMON_STATE_DIR", "JRI_DAEMON_SOCKET_PATH", "JRI_DAEMON_REGISTRY_PATH"];
 
 async function tempProject(): Promise<string> {
   return await mkdtemp(join(tmpdir(), "jri-cli-test-"));
@@ -263,6 +264,7 @@ describe("CLI", () => {
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
+        env: withoutDaemonEnv(),
       });
       setTimeout(() => {
         proc.stdin.write("sd");
@@ -359,3 +361,9 @@ describe("CLI", () => {
     }
   });
 });
+
+function withoutDaemonEnv(overrides: Record<string, string | undefined> = {}): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = { ...process.env, ...overrides };
+  for (const key of daemonEnvKeys) delete env[key];
+  return env;
+}
