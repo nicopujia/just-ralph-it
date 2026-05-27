@@ -1,84 +1,58 @@
 # Implementation Plan
 
-- Current confirmed state from specs/source search:
-  - Completed baseline: TypeScript/Bun scaffold, project root resolution, idempotent initialization, config/status validation, public core `Project` API shape, auth status/login/logout stubs, runtime status/event primitives, daemon IPC for status/observe/stop/halt/resume, event sequence locking, live loop observation, runner phase orchestration, handoff parsing/validation, validation events, commit/tag observation, blocker parsing, resume fingerprint checks for stopped loops, replan signaling, web/explorer wrapper descriptors, attach controls, halt reset prompt, and state-specific loop control errors are present.
-  - Confirmed partial implementations: bare piped `jri` routes through `Project.chat.send()`; accepted triggers start audit runner scaffolding; `chat.send()` records turns and handles `done`; hidden web/explorer commands provide bounded wrapper behavior; loop attach follows stdout/events and keeps footer bytes out of `stdout.log`.
-  - Completed slice: lazy interrogation-state primitives now exist, sealed spec topics detect manual edits/deleted files, and chat start-gates block pending reconciliation before daemon loop start.
-  - Confirmed blockers: the primary interactive interrogator, Pi SDK harness boundary, daemon-owned start, durable interrogator state, capability ownership/cancellation, lock/CAS hardening, Pi-backed auth flow, and dogfood documentation/tests remain incomplete.
-  - Spec updates completed during planning: `.jri/specs/sdk-runtime-contracts.md` now defines the SDK harness/fake contract, durable `.jri/interrogation-state.json`, daemon `loop.start`, capability process ownership, and stdout channel policy; `.jri/specs/runtime-state.md` now lists the lazy interrogation state file.
+- P0: Repair accepted-trigger and active-loop chat semantics.
+  - Completed/Tested: accepted-trigger and active-loop ordering slice.
+    - Deterministic trigger handling now runs before interrogator harness execution.
+    - `startRequested` handoffs are revalidated against the current normalized user message.
+    - In active `auditing`, `planning`, and `building` states, chat returns `attach`/`stop` guidance without invoking the interrogator/start path.
+    - Focused chat tests covering this path now pass; final validation also passed with `bun test tests/chat.test.ts`, full `bun run test` (103 tests), `bun run typecheck`, and `bun run lint`.
+    - Note: an initial parallel validation run timed out one CLI attach test while two TypeScript checks were also running; the attach test and full suite passed serially, so no product change was needed for that test.
+  - Remaining: Run interrogation-state reconciliation when bare `jri` opens chat, not only after an accepted start; unresolved manual spec edits should be shown before user input and should block lifecycle start until resolved or explicitly deferred out of scope.
+  - Remaining: Make the accepted-trigger `chat.send()` stream include daemon lifecycle events beyond `loopStarted` by keeping `loop.start` streaming or chaining observation for the newly authorized loop.
 
-- [ ] P0: Replace canned chat with the real Pi-backed interrogator.
-  - Completed/tested slice: public `Project.chat.send` now uses the default controlled interrogator harness for ordinary messages instead of the legacy canned path.
-  - Completed/tested slice: added shared `HarnessInvocation`, `HarnessResult`, and `HarnessAdapter` types; interrogation phase prompt/model command support; injectable chat interrogator harness processing for `messageOnly`, `specsUpdated`, `humanTaskVerified`, `humanTaskStillBlocked`, and `startRequested` handoffs; and focused tests in `chat/harness`.
-  - Completed/tested slice: `specsUpdated` now records updated spec fingerprints in `.jri/interrogation-state.json` and clears pending manual reconciliation for accepted spec edits; focused chat/interrogation-state tests passed, plus full validation passed (`bun run test` 96 tests, `bun run typecheck`, `bun run lint`).
-  - Completed/tested slice: `specsUpdated` can now seal completed topics through `sealedSpecFiles`, topic fingerprints are reconciled at seal time, later manual edits to sealed specs reopen reconciliation, and `scratchpadUpdated` now validates `.jri/scratchpad.md` evidence and emits a durable event. This matters because sealed topics reduce future interrogator context only when JRI can still detect drift before Ralph starts, and scratchpad updates must be observable without becoming requirements truth. Focused chat/interrogation-state/handoff tests passed, plus full validation passed (`bun run test` 99 tests, `bun run typecheck`, `bun run lint`).
-  - Implement interrogator harness invocation using the new `HarnessInvocation` contract with `agent: "interrogator"` and `phase: "interrogation"`.
-  - Add lazy `.jri/interrogation-state.json` support for topic sealing, spec fingerprints, and pending manual edit reconciliation.
-  - Process `messageOnly`, `specsUpdated`, `scratchpadUpdated`, `startRequested`, `humanTaskVerified`, and `humanTaskStillBlocked` handoffs instead of inferring lifecycle changes from prose or fixed strings.
-  - Reconcile chat persistence with the runtime contract: stream `chatMessageStarted`/`chatMessageDelta`/`chatMessageFinished` to callers, but persist durable completed turns/history material in `interrogation.jsonl`.
+- P0: Finish durable interrogator context reconstruction and capabilities.
+  - Current harness invocation passes broad refs (`.jri/specs`, `.jri/scratchpad.md`, `.jri/status.json`, full `.jri/logs/interrogation.jsonl`), and the default Pi CLI adapter only uses the last inline user message; implement selected context refs from `.jri/interrogation-state.json`: open topics, pending reconciliation, recent unsealed turns, status, relevant loop summaries, specs, and scratchpad.
+  - Add topic/open-turn selection so sealed topics omit old chat logs while their spec files remain requirements truth; cover reopen after manual edit, deleted spec, added spec, and context passed to fakes.
+  - Add interrogator web capability support with chat-owned owner metadata and artifacts under `.jri/logs/interrogation-artifacts/`, separate from loop events/status.
 
-- [ ] P0: Make bare `jri` the primary interactive interrogation surface.
-  - Current TTY bare `jri` now opens the fallback interrogator REPL with status, typed-message input, streamed assistant deltas, and `/exit` or `/quit` termination; focused CLI coverage exists for that path.
-  - Completed/tested slice: focused chat/CLI coverage now fakes the same Pi command boundary used by the default interrogator harness.
-  - Implement a usable bare `jri` chat loop with compact status footer/line, blocked guide presentation, inline auth recovery that can continue into interrogation, and observation mode while Ralph is running.
-  - Keep public CLI surface limited to `jri`, `jri auth {status|login|logout}`, and `jri loop {attach|stop|halt|resume}`; internal `--run-*` commands remain hidden adapter entrypoints.
-  - Add coverage for TTY and piped modes, blocked startup messages, auth continuation, and status rendering for active/stopped/halted/idle/completed states.
+- P0: Replace Pi CLI shellout harness with the controlled SDK adapter contract.
+  - Current `invokeDefaultHarness` and `runControlledPiSession` build `pi --print` commands; loop phases still use `HarnessSessionRunner` with `{ projectDir, loopId, phase, stdoutPath }`, bypassing `HarnessInvocation` fields for owner, context refs, capabilities, and cancellation.
+  - Implement the JRI-owned Pi TypeScript SDK adapter for interrogator, auditor, planner, builder, and explorer using `HarnessInvocation` and `HarnessResult`; keep Pi package details inside the adapter and make tests/fakes use the same contract.
+  - Wire loop phases through `HarnessInvocation` instead of the older session runner shape, including agent, phase, model, capabilities, context, output, signal, and invalid-handoff result mapping.
+  - Honor cancellation before and after session start, including timeout and halt signals, and normalize auth, model, capability, and SDK failures into JRI errors.
 
-- [ ] P0: Replace Pi CLI `--print` shellouts with the controlled SDK harness adapter.
-  - Current `src/core/harness.ts` builds `pi --print` commands and relies on CLI flags for isolation.
-  - Completed/tested slice: focused harness tests fake the real Pi command boundary, and the harness creates chat/loop Pi session directories before launch.
-  - Implement a JRI-owned adapter around the Pi TypeScript SDK using the contract in `.jri/specs/sdk-runtime-contracts.md`: explicit owner, agent, phase, model, context refs, capabilities, output sink, and cancellation signal.
-  - Ensure fake harnesses use the same request/result contract and can script chunks, handoffs, capability results, artifacts, delays, failures, auth errors, and cancellation without fake-only code paths.
-  - Keep Pi SDK/package details inside the adapter and preserve public core API/domain objects as JRI concepts.
+- P0: Fix output, capability ownership, and cancellation invariants.
+  - `runControlledPiSession` currently appends stdout and stderr concurrently to the same `stdout.log`; replace this with one ordered merged writer per loop and move channel-specific evidence into structured events, handoffs, or artifacts when needed.
+  - Internal `--run-web` and `--run-explorer` currently accept projectDir/loopId/task arguments without validating current owner metadata; add owner metadata validation for current loop/chat invocation and reject missing, stale, or mismatched ownership.
+  - Register loop-owned web/explorer child processes with the runner so halt cancels the runner plus children, capability timeouts share the same cancellation path, and graceful stop prevents new loop-owned capability work only at safe boundaries.
+  - Ensure chat-owned capability work cannot mutate loop status or write loop events.
 
-- [ ] P0: Route accepted chat triggers through daemon-owned `loop.start`.
-  - Completed/tested slice: daemon IPC now exposes streaming `loop.start`; `Project.chat.send` injects daemon start; chat can stream the returned `loopStarted` event.
-  - Completed/tested slice: daemon `loop.start` now carries and validates the accepted trigger; `Project.chat.send` no longer falls back to local start when the daemon is unavailable.
-  - Completed/tested slice: chat start-gates now block while pending reconciliation is unresolved before daemon loop start.
-  - Completed/tested slice: direct daemon `loop.start` now runs the interrogation-state start gate, so pending manual spec reconciliation cannot bypass `Project.chat.send`.
-  - Completed/tested slice: daemon `loop.start` now has focused IPC coverage for active-loop rejection, unresolved `needsHumanTask` blockers, verified `needsHumanTask` resume guidance, pending reconciliation, and invalid trigger text.
-  - Completed/tested slice: runner start/resume ordering was hardened so start/resume acquire a daemon-held startup lock and enter the active state before spawning, then transfer process/lock ownership to the runner PID; spawn failures restore the prior durable status.
-  - Focused tests passed for chat, daemon IPC, and daemon runtime coverage.
-  - Final validation for this increment: `bun run test` passed with 91 tests, `bun run typecheck` passed, and `bun run lint` passed.
-  - Remaining: direct test-only `sendChat()` still has a local injected/default start path; production `Project.chat.send()` now requires daemon start.
-  - Remaining: keep interrogation-state gating narrow and actionable.
+- P0: Harden runtime state mutation, resume, and failure recovery.
+  - `acquireLock` is read/mutate/write plus reread confirmation, not a real CAS; implement race-safe lock acquisition or a single-daemon mutation guarantee that satisfies the runtime spec, with contention tests.
+  - `chooseResumePhase` currently resumes stopped loops to `building` when `.jri/IMPLEMENTATION_PLAN.md` exists, otherwise `planning`; persist and resume the exact next safe phase from durable state/events instead.
+  - Convert invalid or missing handoff parser failures inside `runLoopProcess` into structured loop failure events and status transitions instead of letting the runner throw out of band with only later recovery.
+  - Keep existing stopped/human-task fingerprint checks and add coverage for stale lock ownership, dead runner repair, and resume after audit/planning/build boundaries.
 
-- [ ] P0: Harden runtime ownership, locking, and resume safety.
-  - Replace read-mutator-write lock acquisition with a real compare-and-swap or document/enforce a single-daemon mutation guarantee that satisfies `runtime-state.md`.
-  - Completed/tested slice: verified `needsHumanTask` resume now enforces the authorized specs fingerprint and rejects changed specs.
-  - Tighten crash recovery across audit/planning/build, process death, daemon fallback, repaired states, stdout replay offsets, and event cursors.
-  - Preserve the existing legal state machine and add concurrency/race tests for lock contention and stale ownership.
+- P0: Make handoff contracts strict and enforce validation/commit safety.
+  - `parseHandoff` currently validates required fields but does not reject unknown keys; add strict unknown-key rejection for every handoff, blocker, validation record, and artifact ref, with transition coverage for legacy builder blocker/replan prefixes.
+  - Core already records `failedValidation`, but commit/tag observation only runs after successful builder handoffs; add git-state guards for `failedValidation` and `blocked` outcomes so unexpected commits/tags become structured loop failure/recovery evidence and never emit success commit/tag events.
+  - Implement validation evidence expectations from `AGENTS.md`/project operational guidance, including minimum behavior when commands are absent or unsafe, and ensure commit/tag success requires clean validation evidence.
 
-- [ ] P0: Finish capability ownership and cancellation.
-  - Web/explorer wrappers exist, but hidden capability commands currently operate as process wrappers rather than registered owner-aware children.
-  - Register loop-owned explorer/web capability children with the runner so halt cancels them, timeouts use the same cancellation path, and graceful stop prevents new capability work only at safe boundaries.
-  - Validate internal `--run-web`/`--run-explorer` owner metadata and refuse missing, stale, or mismatched project/loop ownership.
-  - Write loop output through one ordered merged writer per loop; keep stdout/stderr channel-specific evidence in structured events, handoffs, or artifacts when needed.
-  - Include web instructions for all agents allowed by `harness-capabilities.md`, including auditor/explorer when task-relevant.
+- P0: Complete human-task verification and blocker recovery.
+  - The default verifier in `chat.ts` always returns `stillBlocked`; replace it with a safe verifier path that can inspect allowed evidence/capabilities and produce `verified` or `stillBlocked` without asking users to paste secrets.
+  - Add end-to-end tests for `done` from bare `jri`, `humanTaskVerified`, `humanTaskStillBlocked`, blocked status updates, verified resume, inconclusive verification, changed-spec rejection, and no-op behavior outside `blocked[needsHumanTask]`.
 
-- [ ] P0: Complete safe human-task verification and auth UX.
-  - Source-search finding: interrogator `humanTaskVerified` / `humanTaskStillBlocked` handoff branches are implemented but lack direct end-to-end coverage; `humanTaskStillBlocked` currently no-ops unless status is already `blocked` with `needsHumanTask`, so add explicit behavior coverage before relying on this flow.
-  - Current default human-task verifier always returns `stillBlocked`; product code needs a real safe verification agent/capability path that can produce `verified` or `stillBlocked`.
-  - Ensure `done` never substitutes for resolving ambiguous specs and never asks users to paste secrets unless a future narrow spec allows it.
-  - Replace guidance-only auth login with Pi-backed auth operations where available; bare `jri` should launch or guide the same flow inline and continue into interrogation after success.
-  - Validate that authenticated state can create a controlled SDK session with the configured provider/model preset.
+- P1: Replace fallback CLI chat with the intended terminal experience and richer status.
+  - Bare `jri` currently uses a readline fallback; integrate Pi terminal chat UI primitives only if they work with JRI-controlled SDK sessions, otherwise harden the fallback to the same status/footer requirements.
+  - Surface final idle/completed status from `lastResult`, including URL/deployment, validation result, commit, tag, artifact/log hints, and next action.
+  - Keep the public CLI surface to bare `jri`, `jri auth {status|login|logout}`, and `jri loop {attach|stop|halt|resume}`; keep `--run-*` as internal adapter entrypoints.
+  - Test the installed/public `jri` bin path and packaging, not only `bun src/cli/index.ts`.
 
-- [ ] P0: Fill MVP-critical tests before dogfood.
-  - Add focused tests for SDK harness fakes, interrogator handoffs/spec updates/scratchpad updates/context reconstruction/manual edit reconciliation/topic sealing, daemon-managed start, chat stream-vs-persistence semantics, verified vs still-blocked human-task flow, auth continuation, capability ownership/cancellation, lock races, changed-spec human-task resume rejection, crash repair, and repeated builder `continue` iterations.
-  - Keep existing validation command set as the feedback loop: `bun run test`, `bun run typecheck`, and `bun run lint`.
+- P1: Finish Pi-backed auth and auth-only passthrough.
+  - `auth.login` currently returns guidance based on `OPENAI_API_KEY` or Pi auth storage; implement real Pi-backed auth operations where available, normalize unsupported passthrough errors, and keep auth behavior UI-neutral in core.
+  - Interactive bare `jri` should launch or guide inline auth and continue into interrogation on success; non-interactive mode should exit with a direct recovery command.
 
-- [ ] P0: Dogfood only through the allowed JRI interface.
-  - Validate against `/home/nico/just-ralph-it-dogfood/gupta-to-web` using only bare `jri`, `jri auth ...`, loop controls, terminal automation, and JRI-visible logs/specs/status/output.
-  - Success requires deployment at `gupta-to-web.mpujia.justralph.it` plus durable artifacts explaining interrogation, planning, iterations, blockers, validation, deployment, commits, and tags.
-
-- [ ] P1: Polish CLI status/control edge cases.
-  - Completed/tested slice: piped `jri loop attach` now treats stdin EOF as detach so attach does not hang after scripted detach/stop controls.
-  - Completed/tested slice: full-suite validation exposed the CLI attach test using the shared default daemon env; it now isolates `JRI_DAEMON_*` under the temp project to avoid parallel daemon collisions.
-  - Expand fallback bare status output for active, stopped, halted, completed, failed, URL/deployment, validation, and next-action hints.
-  - Explain why halt rollback reset is unavailable when there is no rollback commit or the tracked tree was dirty at iteration start.
-  - Make blocked `jri loop stop` messaging match the explicit "already blocked" recovery path.
-  - Test the installed/public `jri` bin path and executable packaging instead of only invoking `bun src/cli/index.ts`.
-
-- [ ] P1: Documentation after core dogfood loop works.
-  - Expand `README.md` with install/run basics, auth setup, primary bare `jri` workflow, loop controls, recovery paths, validation commands, and the dogfood workflow.
-  - Document transitional Pi CLI fallback behavior only if it remains available after the SDK adapter lands.
+- P1: Dogfood and document after P0 behavior is in place.
+  - Validate against `/home/nico/just-ralph-it-dogfood/gupta-to-web` only through public JRI interfaces: bare `jri`, `jri auth ...`, loop controls, terminal automation, and JRI-visible logs/specs/status/output.
+  - Dogfood success requires deployment at `gupta-to-web.mpujia.justralph.it` plus durable artifacts for interrogation, planning, iterations, blockers, validation, deployment, commits, and tags.
+  - Update `README.md` after the flow works: install/run basics, auth setup, bare `jri` workflow, loop controls, recovery paths, validation commands, and dogfood workflow.

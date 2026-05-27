@@ -267,6 +267,134 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("standalone start trigger bypasses the interrogator harness", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+
+      let harnessCalled = false;
+      let startCalled = false;
+      const events = await collect(
+        sendChat(dir, { message: "Just Ralph It!" }, {
+          interrogatorHarness: async () => {
+            harnessCalled = true;
+            return {
+              handoff: {
+                agent: "interrogator",
+                action: "messageOnly",
+                summary: "Should not run.",
+              },
+            };
+          },
+          startLoop: async function* (_projectDir, trigger) {
+            startCalled = true;
+            expect(trigger).toBe("just ralph it");
+            yield {
+              id: "event-1",
+              sequence: 1,
+              timestamp: "2026-05-27T20:00:00.000Z",
+              type: "loopStarted",
+              loopId: "20260527T200000Z",
+              data: { projectDir: dir, pid: 44444 },
+            };
+          },
+        }),
+      );
+
+      expect(harnessCalled).toBe(false);
+      expect(startCalled).toBe(true);
+      expect(events.map((event) => event.type)).toContain("loopStarted");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("interrogator startRequested handoff from non-trigger prose cannot start a loop", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+
+      let startCalled = false;
+      const events = await collect(
+        sendChat(dir, { message: "please start when the specs look ready" }, {
+          interrogatorHarness: async () => ({
+            handoff: {
+              agent: "interrogator",
+              action: "startRequested",
+              trigger: "just ralph it",
+            },
+          }),
+          startLoop: async function* () {
+            startCalled = true;
+          },
+        }),
+      );
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(startCalled).toBe(false);
+      expect(status.state).toBe("idle");
+      expect(events.map((event) => event.type)).not.toContain("loopStarted");
+      expect(events.filter((event) => event.type === "chatMessageDelta").at(-1)).toMatchObject({
+        type: "chatMessageDelta",
+        data: { text: expect.stringContaining("standalone just ralph it or ralfealo") },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("active loop chat reports observation guidance without invoking interrogator", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        startedAt: "2026-05-27T18:42:10.000Z",
+        process: {
+          pid: 12345,
+          command: "runner building",
+          startedAt: "2026-05-27T18:42:10.000Z",
+        },
+      });
+
+      let harnessCalled = false;
+      let startCalled = false;
+      const events = await collect(
+        sendChat(dir, { message: "just ralph it" }, {
+          interrogatorHarness: async () => {
+            harnessCalled = true;
+            return {
+              handoff: {
+                agent: "interrogator",
+                action: "startRequested",
+                trigger: "just ralph it",
+              },
+            };
+          },
+          startLoop: async function* () {
+            startCalled = true;
+          },
+        }),
+      );
+
+      expect(harnessCalled).toBe(false);
+      expect(startCalled).toBe(false);
+      expect(events.map((event) => event.type)).not.toContain("loopStarted");
+      expect(events[2]).toMatchObject({
+        type: "chatMessageDelta",
+        data: { text: expect.stringContaining("jri loop attach") },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("standalone start trigger can stream an injected daemon-owned start event", async () => {
     const dir = await tempProject();
     try {

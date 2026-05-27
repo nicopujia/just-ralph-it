@@ -44,7 +44,12 @@ The interrogator may report these actions:
 
 `startRequested` is valid only when trigger matching passes the rules from
 `interrogation-readiness.md`. Product text that merely contains the trigger
-phrase is not a start request.
+phrase is not a start request. Core must independently normalize the current
+user message and verify that it exactly matches the reported trigger before
+honoring a `startRequested` handoff or sending daemon `loop.start`. An
+implementation may short-circuit exact triggers before invoking the
+interrogator, or verify the handoff after the interrogator returns, but the
+deterministic trigger check must happen before lifecycle authorization.
 
 ## Auditor Handoffs
 

@@ -115,8 +115,15 @@ type LoopStartRequest = {
   applies the same incompatible-daemon safety rules as loop controls.
 - The daemon owns loop id selection, registry updates, lock acquisition, status
   transition, runner process spawn, and initial `loopStarted` event emission.
-- `chat.send()` streams the daemon's lifecycle events back to the caller. It
-  must not spawn an invisible local runner when the daemon is required.
+- `chat.send()` streams the daemon's lifecycle events back to the caller. The
+  accepted-trigger stream must bridge into the newly authorized loop's audit,
+  planning, build, blocker, stop, halt, failure, and completion events; callers
+  must not need a separate `loop.observe()` call just to receive lifecycle events
+  from the start they requested. The implementation may satisfy this by keeping
+  `loop.start` open or by chaining observation after daemon startup, but it must
+  not finish after only `loopStarted` while later lifecycle events are available
+  solely through observation. It must not spawn an invisible local runner when
+  the daemon is required.
 - `loop.start` rejects active loops, unresolved human-task blockers, pending
   reconciliation, and invalid trigger text with state-specific actionable
   errors.

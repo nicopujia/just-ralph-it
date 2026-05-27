@@ -28,6 +28,18 @@ stop the loop.
 - If validation fails, the iteration is not committed and no `commitCreated` event
   is emitted. If the iteration is a no-op (no tracked-file changes), no commit
   occurs.
+- Validation commands come from the target project's operational guide when
+  present, especially the root `AGENTS.md` Validation section. If no concrete
+  validation command is available or safe for the current project, Ralph records
+  validation evidence explaining what was checked and why stronger validation was
+  unavailable.
+- Core guards validation failure and blocker outcomes by comparing git state from
+  iteration start with git state after the builder handoff. If a
+  `failedValidation` or `blocked` handoff is accompanied by a new commit or tag,
+  JRI treats that as a loop failure/recovery issue, records the unexpected git
+  state for inspection, and does not emit successful `commitCreated` or
+  `tagCreated` events for that iteration. Destructive rollback still requires the
+  explicit halt/reset policy or a future spec.
 - JRI observes and records commit hashes; it does not create commits itself in
   the MVP.
 - Tag policy follows original Ralph: when there are no build or test errors,

@@ -34,13 +34,13 @@ export async function* sendChat(projectDir: string, input: ChatInput, options: C
   yield await recordTurn(projectDir, "user", input.message);
 
   const status = await readStatus(projectDir);
-  if (isDoneMessage(message)) {
-    yield* handleDone(projectDir, status, message, options);
+  if (isActiveLoopState(status)) {
+    yield* emitAssistant(projectDir, responseForStatus(status));
     return;
   }
 
-  if (options.interrogatorHarness) {
-    yield* runInterrogator(projectDir, message, options);
+  if (isDoneMessage(message)) {
+    yield* handleDone(projectDir, status, message, options);
     return;
   }
 
@@ -62,6 +62,11 @@ export async function* sendChat(projectDir: string, input: ChatInput, options: C
     }
     yield* emitAssistant(projectDir, `Start request accepted (${trigger}). Running the specs auditor now.`);
     yield* (options.startLoop ?? startLoopLocally)(projectDir, trigger, options);
+    return;
+  }
+
+  if (options.interrogatorHarness) {
+    yield* runInterrogator(projectDir, message, options);
     return;
   }
 
@@ -111,11 +116,12 @@ async function* runInterrogator(projectDir: string, message: string, options: Ch
     data: { role: "assistant" },
   });
   yield await recordTurn(projectDir, "assistant", assistantText);
-  yield* handleInterrogatorHandoff(projectDir, handoff, options);
+  yield* handleInterrogatorHandoff(projectDir, message, handoff, options);
 }
 
 async function* handleInterrogatorHandoff(
   projectDir: string,
+  message: string,
   handoff: InterrogatorHandoff,
   options: ChatRuntimeOptions,
 ): AsyncIterable<CoreEvent> {
@@ -153,6 +159,15 @@ async function* handleInterrogatorHandoff(
 
   if (handoff.action !== "startRequested") return;
 
+  const trigger = normalizeStartTrigger(message);
+  if (trigger !== handoff.trigger) {
+    yield* emitAssistant(
+      projectDir,
+      "I recorded your note. Ralph only starts after a standalone just ralph it or ralfealo message, so this start request was ignored.",
+    );
+    return;
+  }
+
   const startGate = await checkInterrogationStartGate(projectDir, options.now ? { now: options.now } : {});
   if (!startGate.ok) {
     const pending = startGate.pending[0];
@@ -168,8 +183,8 @@ async function* handleInterrogatorHandoff(
     return;
   }
 
-  yield* emitAssistant(projectDir, `Start request accepted (${handoff.trigger}). Running the specs auditor now.`);
-  yield* (options.startLoop ?? startLoopLocally)(projectDir, handoff.trigger, options);
+  yield* emitAssistant(projectDir, `Start request accepted (${trigger}). Running the specs auditor now.`);
+  yield* (options.startLoop ?? startLoopLocally)(projectDir, trigger, options);
 }
 
 async function* startLoopLocally(projectDir: string, _trigger: StartTrigger, options: RuntimeOptions): AsyncIterable<CoreEvent> {
@@ -312,6 +327,10 @@ function responseForStatus(status: ProjectStatus): string {
   }
 
   return "I recorded your note. Keep clarifying the specs here, then say just ralph it when the current scope is unambiguous.";
+}
+
+function isActiveLoopState(status: ProjectStatus): boolean {
+  return status.state === "auditing" || status.state === "planning" || status.state === "building";
 }
 
 async function* emitAssistant(projectDir: string, text: string): AsyncIterable<CoreEvent> {
