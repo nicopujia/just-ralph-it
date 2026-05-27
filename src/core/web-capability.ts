@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { assertWebCapabilityAvailable } from "./capability-preflight";
 import { webCapabilityDescriptor } from "./capabilities";
 import type { CapabilityInvocationMetadata } from "./capability-ownership";
 import { JriError } from "./errors";
@@ -122,18 +123,40 @@ async function runWebJsonCommand(
 ): Promise<Record<string, unknown>> {
   const env = options.env ?? process.env;
   const command = env.JRI_PI_WEB_COMMAND ?? "pi-web-access";
+  await assertWebCapabilityAvailable(options.projectDir, env);
   if (options.signal?.aborted) {
     throw webCancelledError();
   }
-  const proc = Bun.spawn([command, ...args, "--json"], {
-    cwd: options.projectDir,
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-    env,
-  });
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn([command, ...args, "--json"], {
+      cwd: options.projectDir,
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+      env,
+    });
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      throw new JriError(
+        `JRI web capability is not available: ${JSON.stringify(command)} was not found.`,
+        "capability-web-unavailable",
+        "Install or configure pi-web-access, or set JRI_PI_WEB_COMMAND to a working wrapper before retrying.",
+      );
+    }
+    throw error;
+  }
   const ownerLoopId = options.owner.kind === "loop" ? options.owner.loopId : undefined;
   const registeredChild = ownerLoopId && proc.pid ? await registerLoopChild(options.projectDir, ownerLoopId, { pid: proc.pid, capability: "web" }) : undefined;
+  if (!proc.stdout || !proc.stderr) {
+    throw new JriError(
+      "JRI web capability did not expose stdout/stderr pipes.",
+      "web-capability-failed",
+      "Retry after fixing the JRI web access wrapper process configuration.",
+    );
+  }
+  const stdoutStream = proc.stdout as ReadableStream<Uint8Array>;
+  const stderrStream = proc.stderr as ReadableStream<Uint8Array>;
   let timedOut = false;
   let cancelled = false;
   let forceKill: Timer | undefined;
@@ -150,7 +173,7 @@ async function runWebJsonCommand(
   let stderr = "";
   let exitCode = 0;
   try {
-    [stdout, stderr, exitCode] = await Promise.all([streamText(proc.stdout), streamText(proc.stderr), proc.exited]);
+    [stdout, stderr, exitCode] = await Promise.all([streamText(stdoutStream), streamText(stderrStream), proc.exited]);
   } finally {
     clearTimeout(timeout);
     if (forceKill) clearTimeout(forceKill);

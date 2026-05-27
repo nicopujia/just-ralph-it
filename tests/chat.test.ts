@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -5,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { normalizeStartTrigger, sendChat } from "../src/core/chat";
 import { open } from "../src/core";
 import { startDaemonServer, type DaemonPaths } from "../src/core/daemon-ipc";
+import { runLoopProcess, type RuntimeOptions } from "../src/core/daemon-runtime";
 import { defaultStatus } from "../src/core/schema";
 import { appendLoopEvent, updateStatus, writeStatusAtomic } from "../src/core/runtime-state";
 import { fingerprintSpecFile, recordInterrogatorSpecUpdate, writeInterrogationState } from "../src/core/interrogation-state";
@@ -1132,6 +1134,80 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("project chat surfaces actionable explorer capability preflight failures on accepted starts", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const previousEnv = captureDaemonEnv();
+    const previousOpenAiApiKey = process.env.OPENAI_API_KEY;
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    const previousWebCommand = process.env.JRI_PI_WEB_COMMAND;
+    const previousSubagentExtension = process.env.JRI_PI_SUBAGENT_EXTENSION;
+    const specContent = "# App\n\nBuild a CLI.\n";
+    const runnerPromises: Array<Promise<void>> = [];
+    const runtimeOptions: RuntimeOptions = {
+      now: new Date("2026-05-27T20:00:00.000Z"),
+      observePollIntervalMs: 10,
+    };
+    runtimeOptions.spawnRunner = ({ loopId, phase }) => {
+      const promise = runLoopProcess(dir, loopId, phase, runtimeOptions);
+      runnerPromises.push(promise);
+      void promise.catch(() => {});
+      return { pid: process.pid, command: `runner ${phase}` };
+    };
+    const daemon = await startDaemonServer({
+      paths,
+      idleTimeoutMs: 10_000,
+      runtimeOptions,
+    });
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), specContent, "utf8");
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await recordInterrogatorSpecUpdate(dir, [".jri/specs/app.md"], {
+        sealedSpecFiles: [".jri/specs/app.md"],
+        now: new Date("2026-05-27T20:00:00.000Z"),
+      });
+      applyDaemonEnv(paths);
+      process.env.OPENAI_API_KEY = "test-openai-key";
+      process.env.JRI_PI_COMMAND = await writePhaseAwareLoopPi(dir, specsFingerprintForFiles({ "app.md": specContent }));
+      process.env.JRI_PI_WEB_COMMAND = await writeFakeWebCommand(dir);
+      process.env.JRI_PI_SUBAGENT_EXTENSION = join(dir, "missing-pi-subagent.js");
+
+      const project = await open(dir);
+      const events = await collect(project.chat.send({ message: "just ralph it" }));
+      await Promise.allSettled(runnerPromises);
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(events.map((event) => event.type)).toContain("loopStarted");
+      expect(events.at(-1)).toMatchObject({
+        type: "loopFinished",
+        data: {
+          outcome: "failed",
+          summary: expect.stringContaining("pi-subagent"),
+        },
+      });
+      expect(status).toMatchObject({
+        state: "stopped",
+        activeLoopId: "20260527T200000Z",
+        lastLoopId: "20260527T200000Z",
+        lastResult: {
+          outcome: "failed",
+          summary: expect.stringContaining("pi-subagent"),
+        },
+      });
+    } finally {
+      restoreEnv("OPENAI_API_KEY", previousOpenAiApiKey);
+      restoreEnv("JRI_PI_COMMAND", previousPiCommand);
+      restoreEnv("JRI_PI_WEB_COMMAND", previousWebCommand);
+      restoreEnv("JRI_PI_SUBAGENT_EXTENSION", previousSubagentExtension);
+      restoreDaemonEnv(previousEnv);
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("done verifies an existing needs-human-task blocker only after verifier approval", async () => {
     const dir = await tempProject();
     try {
@@ -1534,4 +1610,57 @@ function scheduleLoopCompletion(projectDir: string, loopId: string): void {
       });
     })();
   }, 25);
+}
+
+function specsFingerprintForFiles(files: Record<string, string>): string {
+  const hash = createHash("sha256");
+  for (const name of Object.keys(files).sort()) {
+    const contents = files[name] ?? "";
+    const bytes = Buffer.from(contents, "utf8");
+    hash.update(`.jri/specs/${name}`);
+    hash.update("\0");
+    hash.update(String(bytes.byteLength));
+    hash.update("\0");
+    hash.update(bytes);
+    hash.update("\n");
+  }
+  return hash.digest("hex");
+}
+
+async function writePhaseAwareLoopPi(dir: string, specsFingerprint: string): Promise<string> {
+  const path = join(dir, "fake-loop-pi.sh");
+  await writeFile(
+    path,
+    [
+      "#!/usr/bin/env bash",
+      "prompt=\"${@: -1}\"",
+      "if [[ \"$prompt\" == *\"You are the JRI auditor.\"* ]]; then",
+      `  printf 'JRI_HANDOFF_JSON: {\"agent\":\"auditor\",\"action\":\"passed\",\"specFiles\":[\".jri/specs/app.md\"],\"specsFingerprint\":\"${specsFingerprint}\",\"summary\":\"Specs ready.\"}\\n'`,
+      "  exit 0",
+      "fi",
+      "if [[ \"$prompt\" == *\"You are the JRI planner.\"* ]]; then",
+      "  printf '%s\\n' '- [ ] Build the CLI.' > .jri/IMPLEMENTATION_PLAN.md",
+      "  printf 'JRI_HANDOFF_JSON: {\"agent\":\"planner\",\"action\":\"planned\",\"planPath\":\".jri/IMPLEMENTATION_PLAN.md\",\"summary\":\"Plan ready.\"}\\n'",
+      "  exit 0",
+      "fi",
+      "printf 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"Build complete.\"}\\n'",
+    ].join("\n"),
+    "utf8",
+  );
+  await chmod(path, 0o755);
+  return path;
+}
+
+async function writeFakeWebCommand(dir: string): Promise<string> {
+  const path = join(dir, "fake-web.sh");
+  await writeFile(
+    path,
+    [
+      "#!/usr/bin/env bash",
+      "printf '{\"retrievedAt\":\"2026-05-27T00:00:00.000Z\",\"results\":[]}'",
+    ].join("\n"),
+    "utf8",
+  );
+  await chmod(path, 0o755);
+  return path;
 }

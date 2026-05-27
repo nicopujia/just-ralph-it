@@ -536,6 +536,36 @@ describe("controlled Pi harness", () => {
     }
   });
 
+  test("runExplorerTask fails early when the configured subagent extension is unavailable", async () => {
+    const dir = await tempProject();
+    try {
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          "printf 'JRI_EXPLORER_SUMMARY_JSON: {\"summary\":\"Explorer summary.\"}\\n'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      await expect(
+        runExplorerTask({
+          projectDir: dir,
+          loopId: "20260527T184210Z",
+          task: "Inspect CLI behavior.",
+          env: {
+            JRI_PI_COMMAND: fakePi,
+            JRI_PI_SUBAGENT_EXTENSION: join(dir, "missing-pi-subagent.js"),
+          },
+        }),
+      ).rejects.toThrow("JRI explorer capability is not available");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("runWebSearch wraps pi-web-access with bounded timestamped results", async () => {
     const dir = await tempProject();
     try {
@@ -861,6 +891,24 @@ describe("controlled Pi harness", () => {
           },
         }),
       ).rejects.toThrow("JRI web capability failed with exit code 9");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runWebFetch fails early when pi-web-access is unavailable", async () => {
+    const dir = await tempProject();
+    try {
+      await expect(
+        runWebFetch({
+          projectDir: dir,
+          owner: { kind: "loop", loopId: "20260527T184210Z" },
+          url: "https://example.com/docs",
+          env: {
+            JRI_PI_WEB_COMMAND: join(dir, "missing-pi-web-access"),
+          },
+        }),
+      ).rejects.toThrow("JRI web capability is not available");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

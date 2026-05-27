@@ -13,6 +13,7 @@ import {
   type CreateAgentSessionResult,
 } from "@earendil-works/pi-coding-agent";
 import { getAuthStatus } from "./auth";
+import { assertExplorerCapabilityAvailable } from "./capability-preflight";
 import { explorerCapabilityDescriptor, renderExplorerAgentDescriptor, webCapabilityDescriptor } from "./capabilities";
 import type { CapabilityOwner } from "./capability-ownership";
 import { JriError } from "./errors";
@@ -313,6 +314,7 @@ export async function runExplorerTask(
   if (!task) {
     throw new JriError("Explorer task must not be empty.", "invalid-explorer-task", "Pass a focused read-only investigation task.");
   }
+  await assertExplorerCapabilityAvailable(request.projectDir, request.env ?? process.env);
 
   return await withExplorerSlot(`${request.projectDir}:${request.loopId}`, async () => {
     const events: CoreEvent[] = [];

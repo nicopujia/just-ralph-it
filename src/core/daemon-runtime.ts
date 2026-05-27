@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JriError } from "./errors";
+import { assertCapabilityImplementationsAvailable } from "./capability-preflight";
 import {
   invokeDefaultHarness,
   assertHarnessCapabilities,
@@ -1270,6 +1271,9 @@ async function runBuilder(projectDir: string, loopId: string, options: RuntimeOp
 
 async function runAgentPhase(projectDir: string, loopId: string, phase: RunnerPhase, options: RuntimeOptions): Promise<AgentHandoff> {
   throwIfRuntimeCancelled(options.signal);
+  if (!options.harnessAdapter && !options.harnessRunner) {
+    await assertCapabilityImplementationsAvailable(projectDir, capabilitiesForRunnerPhase(phase));
+  }
   if (options.harnessRunner) {
     const stdoutOffset = await stdoutLogSize(projectDir, loopId);
     const exitCode = await runLegacyHarnessSession(projectDir, loopId, phase, options);
