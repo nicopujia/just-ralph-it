@@ -103,11 +103,12 @@ Succinct rules for how to BUILD the project:
 
 ## Validation
 
-Run these after implementing to get immediate feedback:
+Project-specific validation commands are not known yet. Replace each item with
+the exact command after it has been verified for this project.
 
-- Tests: `[test command]`
-- Typecheck: `[typecheck command]`
-- Lint: `[lint command]`
+- Tests: not documented yet
+- Typecheck: not documented yet
+- Lint: not documented yet
 
 ## Operational Notes
 

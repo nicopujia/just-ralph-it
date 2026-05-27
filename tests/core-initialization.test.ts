@@ -69,6 +69,13 @@ describe("project initialization", () => {
       expect(await pathExists(join(dir, "AGENTS.md"))).toBe(true);
       expect(await Bun.file(join(dir, ".jri", "IMPLEMENTATION_PLAN.md")).exists()).toBe(false);
 
+      const agents = await readFile(join(dir, "AGENTS.md"), "utf8");
+      expect(agents).toContain("Project-specific validation commands are not known yet.");
+      expect(agents).toContain("- Tests: not documented yet");
+      expect(agents).not.toContain("[test command]");
+      expect(agents).not.toContain("[typecheck command]");
+      expect(agents).not.toContain("[lint command]");
+
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
       expect(status.projectDir).toBe(dir);
       expect(status.state).toBe("idle");

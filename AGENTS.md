@@ -18,4 +18,6 @@ Use Bun for project scripts and execution.
 
 ### Codebase Patterns
 
-...
+- Core product logic lives under `src/core`; CLI rendering and argument handling live under `src/cli`.
+- Public lifecycle mutation goes through daemon-owned APIs; local fallbacks are for read-only recovery/observation.
+- Handoff contracts are parsed from single-line `JRI_HANDOFF_JSON:` frames and should stay JRI-owned.
