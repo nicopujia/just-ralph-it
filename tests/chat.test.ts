@@ -1045,6 +1045,85 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("done verifies project-relative path-exists human-task success criteria", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, "deploy"), { recursive: true });
+      await writeFile(join(dir, "deploy", "token-ready.txt"), "ready\n", "utf8");
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Deployment proof file is missing.",
+          resolutionGuide: {
+            summary: "Create the deployment proof file.",
+            steps: ["Create deploy/token-ready.txt after configuring deployment access."],
+            successCriteria: ["path exists: deploy/token-ready.txt"],
+            resumeInstruction: "Say done in bare jri after the proof file exists.",
+          },
+        },
+      });
+
+      const events = await collect(sendChat(dir, { message: "done" }));
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(events.some((event) => event.type === "blockerResolved")).toBe(false);
+      expect(status.blocker.resolution).toMatchObject({
+        status: "verified",
+        verificationSummary: "Verified 1 machine-checkable success criterion.",
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("done keeps a human-task blocker for unsupported machine-checkable criteria", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Cloudflare account setup needs confirmation.",
+          resolutionGuide: {
+            summary: "Confirm the Cloudflare account manually.",
+            steps: ["Finish account setup outside chat."],
+            successCriteria: ["Cloudflare dashboard shows account active"],
+            resumeInstruction: "Say done in bare jri after the account is active.",
+          },
+        },
+      });
+
+      const events = await collect(sendChat(dir, { message: "done" }));
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const assistantText = events.find((event) => event.type === "chatMessageDelta")?.data.text;
+
+      expect(events.some((event) => event.type === "blockerResolved")).toBe(false);
+      expect(status).toMatchObject({
+        state: "blocked",
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Cloudflare account setup needs confirmation.",
+        },
+      });
+      expect(status.blocker.resolution).toBeUndefined();
+      expect(status.blocker.resolutionGuide.summary).toContain("could not verify");
+      expect(status.blocker.resolutionGuide.steps.at(-1)).toContain("does not know how to verify");
+      expect(assistantText).toContain("remains blocked");
+      expect(assistantText).toContain("does not know how to verify");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("done for ambiguous-spec blockers gives spec-resolution guidance instead of human-task verification", async () => {
     const dir = await tempProject();
     try {

@@ -300,7 +300,7 @@ async function* handleDone(projectDir: string, status: ProjectStatus, userMessag
         [
           "I could not verify the human task is complete yet, so JRI remains blocked.",
           verification.blocker.resolutionGuide.summary,
-          `Next step: ${verification.blocker.resolutionGuide.steps[0] ?? verification.blocker.resolutionGuide.resumeInstruction}`,
+          `Next step: ${verification.blocker.resolutionGuide.steps.at(-1) ?? verification.blocker.resolutionGuide.resumeInstruction}`,
           `Resume: ${verification.blocker.resolutionGuide.resumeInstruction}`,
         ].join("\n"),
       );
