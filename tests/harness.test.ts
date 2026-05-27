@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { buildControlledPiCommand, invokeDefaultHarness, runExplorerTask } from "../src/core/harness";
+import { buildControlledPiCommand, invokeDefaultHarness, runControlledPiSession, runExplorerTask } from "../src/core/harness";
 import { writeStatusAtomic } from "../src/core/runtime-state";
 import { defaultConfig, defaultStatus } from "../src/core/schema";
 import { runWebFetch, runWebSearch } from "../src/core/web-capability";
@@ -170,6 +170,45 @@ describe("controlled Pi harness", () => {
       expect(prompt).toContain("Current user message:\nCurrent trimmed message.");
       expect(prompt).not.toContain("Current user message:\nRecent unsealed interrogation turns");
       expect(chunks.join("")).toContain("Assistant answer.");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("controlled Pi session writes stdout and stderr through one merged log sink", async () => {
+    const dir = await tempProject();
+    try {
+      const fakePi = join(dir, "fake-pi-streams.ts");
+      await writeFile(
+        fakePi,
+        [
+          `#!${process.execPath}`,
+          "for (let i = 0; i < 20; i += 1) {",
+          "  process.stdout.write(`out-${i}\\n`);",
+          "  process.stderr.write(`err-${i}\\n`);",
+          "}",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      const stdoutPath = join(dir, ".jri", "logs", "20260527T184210Z", "stdout.log");
+      const exitCode = await runControlledPiSession({
+        projectDir: dir,
+        loopId: "20260527T184210Z",
+        phase: "building",
+        stdoutPath,
+        env: {
+          JRI_PI_COMMAND: fakePi,
+        },
+      });
+
+      expect(exitCode).toBe(0);
+      const log = await readFile(stdoutPath, "utf8");
+      for (let i = 0; i < 20; i += 1) {
+        expect(log).toContain(`out-${i}\n`);
+        expect(log).toContain(`err-${i}\n`);
+      }
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

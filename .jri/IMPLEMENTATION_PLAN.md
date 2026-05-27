@@ -27,7 +27,7 @@
   - Cover loop owner mismatch, chat/loop ownership separation, stale owner metadata, explorer spawn-only mode, child cancellation, and capability artifact refs.
 
 - P0: Harden runtime recovery, durable-state validation, and failure evidence.
-  - Finding from explorer review: `runControlledPiSession` still appends stdout/stderr concurrently when writing stdout, so output sink serialization belongs with runtime/capability cleanup.
+  - Implemented/covered: output sink serialization is now handled with the runtime/capability cleanup path; the earlier concurrent stdout/stderr append concern is no longer active.
   - Convert malformed/missing handoff parser failures, SDK errors, capability failures, and runner phase mismatches into structured loop failure/recovery events and status updates.
   - Reconcile event/status ordering with the spec where lifecycle transitions currently write status before milestone events.
   - Make halt precedence explicit when stop/natural exit races occur, including final halt/reset outcome.

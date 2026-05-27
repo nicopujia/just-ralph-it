@@ -76,7 +76,7 @@ export async function runControlledPiSession(request: HarnessSessionRequest): Pr
     stdin: "ignore",
     env: built.env,
   });
-  await Promise.all([appendStream(request.stdoutPath, proc.stdout), appendStream(request.stdoutPath, proc.stderr)]);
+  await appendMergedStreams(request.stdoutPath, [proc.stdout, proc.stderr]);
   return await proc.exited;
 }
 
@@ -352,16 +352,27 @@ export async function readProjectConfig(projectDir: string): Promise<unknown> {
   return validateConfig(parseJsonObject(await Bun.file(path).text(), path), path);
 }
 
-async function appendStream(path: string, stream: ReadableStream<Uint8Array>): Promise<void> {
+async function appendMergedStreams(path: string, streams: ReadableStream<Uint8Array>[]): Promise<void> {
+  let writeChain = Promise.resolve();
+  const enqueueWrite = (text: string) => {
+    if (!text) return;
+    writeChain = writeChain.then(() => appendFile(path, text, "utf8"));
+  };
+
+  await Promise.all(streams.map((stream) => readStreamIntoWriter(stream, enqueueWrite)));
+  await writeChain;
+}
+
+async function readStreamIntoWriter(stream: ReadableStream<Uint8Array>, write: (text: string) => void): Promise<void> {
   const reader = stream.getReader();
   const decoder = new TextDecoder();
   for (;;) {
     const chunk = await reader.read();
     if (chunk.done) break;
-    await appendFile(path, decoder.decode(chunk.value, { stream: true }), "utf8");
+    write(decoder.decode(chunk.value, { stream: true }));
   }
   const tail = decoder.decode();
-  if (tail) await appendFile(path, tail, "utf8");
+  if (tail) write(tail);
 }
 
 type CapturedCommand = {
