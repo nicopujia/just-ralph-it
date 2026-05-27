@@ -688,6 +688,81 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("runner invokes loop phases through the harness adapter contract", async () => {
+    const dir = await tempProject();
+    const invocations: Array<{
+      owner: unknown;
+      agent: string;
+      phase: string;
+      model: unknown;
+      refs: string[];
+      capabilities: string[];
+    }> = [];
+    try {
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild the app.\n", "utf8");
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: {
+          owner: "daemon",
+          pid: process.pid,
+          operation: "build",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "building", {
+        harnessAdapter: async (invocation) => {
+          invocations.push({
+            owner: invocation.owner,
+            agent: invocation.agent,
+            phase: invocation.phase,
+            model: invocation.model,
+            refs: invocation.context.refs,
+            capabilities: invocation.capabilities.map((capability) => capability.name),
+          });
+          await invocation.output.write("builder display output");
+          return {
+            handoff: {
+              agent: "builder",
+              action: "complete",
+              summary: "Adapter build complete.",
+            },
+          };
+        },
+      });
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const stdout = await readFile(join(dir, ".jri", "logs", "20260527T184210Z", "stdout.log"), "utf8");
+      const events = await collect(observeLoop(dir));
+
+      expect(invocations).toEqual([
+        {
+          owner: { kind: "loop", loopId: "20260527T184210Z" },
+          agent: "builder",
+          phase: "building",
+          model: { model: "gpt-5.5", reasoning: "xhigh" },
+          refs: expect.arrayContaining([".jri/status.json", ".jri/specs/app.md"]),
+          capabilities: ["web", "web", "explorer"],
+        },
+      ]);
+      expect(stdout).toBe("builder display output\n");
+      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "iterationFinished", "loopFinished"]);
+      expect(status).toMatchObject({
+        state: "idle",
+        activeLoopId: null,
+        lastResult: { outcome: "completed", summary: "Adapter build complete." },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("auditing runner passes specs before planning and building", async () => {
     const dir = await tempProject();
     const previousPiCommand = process.env.JRI_PI_COMMAND;

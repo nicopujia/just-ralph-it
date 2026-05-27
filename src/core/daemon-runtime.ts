@@ -1,9 +1,17 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { appendFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JriError } from "./errors";
-import { runControlledPiSession, type HarnessSessionRunner } from "./harness";
+import {
+  invokeDefaultHarness,
+  readProjectConfig,
+  runControlledPiSession,
+  type CapabilityDescriptor,
+  type HarnessAdapter,
+  type HarnessOutputSink,
+  type HarnessSessionRunner,
+} from "./harness";
 import { checkInterrogationStartGate } from "./interrogation-state";
 import {
   acquireLock,
@@ -18,7 +26,10 @@ import {
   writeStatusAtomic,
 } from "./runtime-state";
 import { extractLatestBuilderHandoffFromText, extractLatestHandoffFromText } from "./handoffs";
+import { modelForAgent } from "./prompts";
 import type {
+  AgentName,
+  AgentHandoff,
   AuditorHandoff,
   Blocker,
   BuilderHandoff,
@@ -46,6 +57,7 @@ export type RuntimeOptions = {
   resetGit?: boolean;
   gitResetRunner?: GitResetRunner;
   spawnRunner?: RunnerSpawner;
+  harnessAdapter?: HarnessAdapter;
   harnessRunner?: HarnessSessionRunner;
   observePollIntervalMs?: number;
 };
@@ -474,13 +486,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
       const statusAtPhaseStart = await readStatus(projectDir);
       if (currentPhase === "auditing") {
         await appendLoopEvent(projectDir, { type: "auditStarted", loopId, data: {} });
-        const stdoutOffset = await stdoutLogSize(projectDir, loopId);
-        const exitCode = await runHarnessSession(projectDir, loopId, "auditing", options);
-        if (exitCode !== 0) {
-          await finishFailedRun(projectDir, loopId, "auditing", exitCode);
-          return;
-        }
-        const auditorHandoff = await readLatestAuditorHandoff(projectDir, loopId, stdoutOffset);
+        const auditorHandoff = await runAuditor(projectDir, loopId, options);
         if (auditorHandoff.action === "failed") {
           await finishAuditFailedRun(projectDir, loopId, auditorHandoff);
           return;
@@ -502,13 +508,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
 
       if (currentPhase === "planning") {
         await appendLoopEvent(projectDir, { type: "planningStarted", loopId, data: {} });
-        const stdoutOffset = await stdoutLogSize(projectDir, loopId);
-        const exitCode = await runHarnessSession(projectDir, loopId, "planning", options);
-        if (exitCode !== 0) {
-          await finishFailedRun(projectDir, loopId, "planning", exitCode);
-          return;
-        }
-        const plannerHandoff = await readLatestPlannerHandoff(projectDir, loopId, stdoutOffset);
+        const plannerHandoff = await runPlanner(projectDir, loopId, options);
         if (plannerHandoff.action === "blocked") {
           await finishPlanningBlockedRun(projectDir, loopId, plannerHandoff.blocker);
           return;
@@ -547,13 +547,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         },
       });
 
-      const stdoutOffset = await stdoutLogSize(projectDir, loopId);
-      const exitCode = await runHarnessSession(projectDir, loopId, "building", options);
-      if (exitCode !== 0) {
-        await finishFailedRun(projectDir, loopId, "building", exitCode);
-        return;
-      }
-      const builderHandoff = await readLatestBuilderHandoff(projectDir, loopId, stdoutOffset);
+      const builderHandoff = await runBuilder(projectDir, loopId, options);
       const validationEvidence = validationEvidenceFromBuilder(builderHandoff);
       await recordValidationEvidence(projectDir, loopId, iteration, validationEvidence);
       if (builderHandoff.action === "blocked") {
@@ -595,13 +589,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         });
         currentLock = await switchRunnerPhase(projectDir, currentLock, "planning");
         await appendLoopEvent(projectDir, { type: "planRegenerationStarted", loopId, data: {} });
-        const planningStdoutOffset = await stdoutLogSize(projectDir, loopId);
-        const planningExitCode = await runHarnessSession(projectDir, loopId, "planning", options);
-        if (planningExitCode !== 0) {
-          await finishFailedRun(projectDir, loopId, "planning", planningExitCode);
-          return;
-        }
-        const plannerHandoff = await readLatestPlannerHandoff(projectDir, loopId, planningStdoutOffset);
+        const plannerHandoff = await runPlanner(projectDir, loopId, options);
         if (plannerHandoff.action === "blocked") {
           await finishPlanningBlockedRun(projectDir, loopId, plannerHandoff.blocker);
           return;
@@ -642,6 +630,9 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
       });
       return;
     }
+  } catch (error) {
+    if (error instanceof LoopAlreadyFinished) return;
+    throw error;
   } finally {
     clearInterval(heartbeat);
     const latest = await readStatus(projectDir);
@@ -904,14 +895,124 @@ function locksMatch(left: ProjectStatus["lock"], right: ProjectStatus["lock"]): 
   );
 }
 
-async function runHarnessSession(projectDir: string, loopId: string, phase: RunnerPhase, options: RuntimeOptions): Promise<number> {
-  const runner = options.harnessRunner ?? runControlledPiSession;
+async function runAuditor(projectDir: string, loopId: string, options: RuntimeOptions): Promise<AuditorHandoff> {
+  const handoff = await runAgentPhase(projectDir, loopId, "auditing", options);
+  if (handoff.agent !== "auditor") {
+    throw new JriError("The auditing harness returned a non-auditor handoff.", "invalid-agent-handoff", "Emit an auditor handoff for the auditing phase.");
+  }
+  return handoff;
+}
+
+async function runPlanner(projectDir: string, loopId: string, options: RuntimeOptions): Promise<PlannerHandoff> {
+  const handoff = await runAgentPhase(projectDir, loopId, "planning", options);
+  if (handoff.agent !== "planner") {
+    throw new JriError("The planning harness returned a non-planner handoff.", "invalid-agent-handoff", "Emit a planner handoff for the planning phase.");
+  }
+  return handoff;
+}
+
+async function runBuilder(projectDir: string, loopId: string, options: RuntimeOptions): Promise<BuilderHandoff> {
+  const handoff = await runAgentPhase(projectDir, loopId, "building", options);
+  if (handoff.agent !== "builder") {
+    throw new JriError("The building harness returned a non-builder handoff.", "invalid-agent-handoff", "Emit a builder handoff for the building phase.");
+  }
+  return handoff;
+}
+
+async function runAgentPhase(projectDir: string, loopId: string, phase: RunnerPhase, options: RuntimeOptions): Promise<AgentHandoff> {
+  if (options.harnessRunner) {
+    const stdoutOffset = await stdoutLogSize(projectDir, loopId);
+    const exitCode = await runLegacyHarnessSession(projectDir, loopId, phase, options.harnessRunner);
+    if (exitCode !== 0) {
+      await finishFailedRun(projectDir, loopId, phase, exitCode);
+      throw new LoopAlreadyFinished();
+    }
+    if (phase === "auditing") return await readLatestAuditorHandoff(projectDir, loopId, stdoutOffset);
+    if (phase === "planning") return await readLatestPlannerHandoff(projectDir, loopId, stdoutOffset);
+    return await readLatestBuilderHandoff(projectDir, loopId, stdoutOffset);
+  }
+
+  const agent = agentForRunnerPhase(phase);
+  const result = await (options.harnessAdapter ?? invokeDefaultHarness)({
+    owner: { kind: "loop", loopId },
+    projectDir,
+    agent,
+    phase,
+    model: modelForAgent(await readProjectConfig(projectDir), agent),
+    context: await buildLoopHarnessContext(projectDir, loopId, phase),
+    capabilities: capabilitiesForRunnerPhase(phase),
+    output: stdoutOutputSink(projectDir, loopId),
+    signal: new AbortController().signal,
+  });
+  return result.handoff;
+}
+
+class LoopAlreadyFinished extends Error {}
+
+async function runLegacyHarnessSession(
+  projectDir: string,
+  loopId: string,
+  phase: RunnerPhase,
+  runner: HarnessSessionRunner = runControlledPiSession,
+): Promise<number> {
   return await runner({
     projectDir,
     loopId,
     phase,
     stdoutPath: join(projectDir, ".jri", "logs", loopId, "stdout.log"),
   });
+}
+
+async function buildLoopHarnessContext(
+  projectDir: string,
+  loopId: string,
+  phase: RunnerPhase,
+): Promise<{ refs: string[]; inline: string[] }> {
+  const refs = new Set<string>([".jri/status.json"]);
+  if (await relativePathExists(projectDir, ".jri/IMPLEMENTATION_PLAN.md")) refs.add(".jri/IMPLEMENTATION_PLAN.md");
+  for (const specFile of await listSpecFiles(projectDir)) refs.add(specFile);
+  return {
+    refs: [...refs],
+    inline: [`Loop ${loopId} phase ${phase}.`],
+  };
+}
+
+async function listSpecFiles(projectDir: string): Promise<string[]> {
+  const specsDir = join(projectDir, ".jri", "specs");
+  try {
+    return (await readdir(specsDir, { withFileTypes: true }))
+      .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+      .map((entry) => `.jri/specs/${entry.name}`)
+      .sort();
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return [];
+    throw error;
+  }
+}
+
+async function relativePathExists(projectDir: string, path: string): Promise<boolean> {
+  return await Bun.file(join(projectDir, path)).exists();
+}
+
+function agentForRunnerPhase(phase: RunnerPhase): AgentName {
+  if (phase === "auditing") return "auditor";
+  return phase === "planning" ? "planner" : "builder";
+}
+
+function capabilitiesForRunnerPhase(phase: RunnerPhase): CapabilityDescriptor[] {
+  if (phase === "auditing") return [{ name: "web", operation: "search" }, { name: "web", operation: "fetch" }];
+  return [{ name: "web", operation: "search" }, { name: "web", operation: "fetch" }, { name: "explorer" }];
+}
+
+function stdoutOutputSink(projectDir: string, loopId: string): HarnessOutputSink {
+  const path = join(projectDir, ".jri", "logs", loopId, "stdout.log");
+  return {
+    write: async (chunk) => {
+      if (!chunk) return;
+      await mkdir(dirname(path), { recursive: true });
+      await appendFile(path, chunk.endsWith("\n") ? chunk : `${chunk}\n`, "utf8");
+    },
+  };
 }
 
 type GitSnapshot = {

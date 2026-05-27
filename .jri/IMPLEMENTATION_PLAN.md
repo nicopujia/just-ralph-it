@@ -1,17 +1,15 @@
 # Implementation Plan
 
-- P0: Replace shellout harness paths with the real `HarnessInvocation` adapter for every agent.
-  - Implement the JRI-owned Pi TypeScript SDK adapter for `interrogator`, `auditor`, `planner`, `builder`, and `explorer`; Pi package flags/session details stay inside the adapter.
-  - Remove loop-phase dependence on `HarnessSessionRunner`/`runControlledPiSession`; `runLoopProcess` must invoke the adapter with `owner`, `projectDir`, `agent`, `phase`, `model`, `context`, declared `capabilities`, ordered `output`, and `signal`.
-  - Make production and fake harnesses share the same `HarnessInvocation`/`HarnessResult` contract, including scripted chunks, handoffs, artifacts, capability errors, auth errors, delays, and cancellation.
-  - Map auth, model, capability, invalid-handoff, timeout, cancellation, and SDK failures into structured JRI errors/status events.
+- P0: Finish replacing shellout harness paths with the `HarnessInvocation` adapter.
+  - `runLoopProcess` now invokes `auditor`, `planner`, and `builder` through the adapter with `owner`, `projectDir`, `agent`, `phase`, `model`, `context`, declared `capabilities`, ordered `output`, and `signal`; legacy `HarnessSessionRunner` remains only as a compatibility/test path.
+  - Handoffs are captured directly from adapter results, and display output writes to `stdout.log` through the output sink.
+  - Remaining: complete the real Pi TypeScript SDK adapter and finish fake coverage for artifacts, capability errors, auth errors, delays, and cancellation.
+  - Completed/Tested: focused daemon-runtime coverage passed, and `bun run typecheck` passed.
 
 - P0: Enforce harness invocation fields, current-message correctness, and cancellation.
-  - Fix interrogator prompt construction so `Current user message:` is always the current trimmed user message, not the last inline context item when recent turns are appended.
   - Thread `AbortSignal`/timeout through chat, loop phases, Pi SDK sessions, and capability processes; honor cancellation before start, during execution, and after timeout with best-effort then forceful cleanup.
-  - Stop parsing handoffs from shared `stdout.log`; capture each adapter result directly and persist raw display output separately.
-  - Add assertions/tests for `owner`, `agent`, `phase`, `model`, selected context refs, capabilities, output sink ordering, and cancelled invocations.
-  - Completed/Tested: Default interrogator harness now uses the first inline context entry as the current user message rather than recent-turn context; focused `tests/harness.test.ts` harness tests passed. Final serial validation passed with `bun run test` (119 tests), `bun run typecheck`, and `bun run lint`.
+  - Add assertions/tests for cancelled invocations and deeper timeout cleanup.
+  - Completed/Tested: default interrogator harness uses the first inline context entry as the current user message, and loop phases assert `owner`, `agent`, `phase`, `model`, selected context refs, capabilities, and output sink behavior.
 
 - P0: Restore daemon-owned chat start semantics.
   - Completed/Tested: `sendChat` accepted triggers now default to `daemonStartLoop` streaming instead of the local `startRalphLoop` fallback, while injected `startLoop` remains the explicit test fake path. Focused validation passed with `bun test tests/chat.test.ts` (20 tests). Final serial validation passed with `bun run test` (120 tests), `bun run typecheck`, and `bun run lint`.
