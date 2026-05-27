@@ -1,6 +1,6 @@
 import { startRalphLoop, type RuntimeOptions } from "./daemon-runtime";
 import { invokeDefaultHarness, readProjectConfig, type HarnessAdapter } from "./harness";
-import { checkInterrogationStartGate } from "./interrogation-state";
+import { checkInterrogationStartGate, recordInterrogatorSpecUpdate } from "./interrogation-state";
 import { modelForAgent } from "./prompts";
 import { appendInterrogationEvent, appendLoopEvent, readStatus, updateStatus } from "./runtime-state";
 import type { Blocker, ChatInput, CoreEvent, HumanTaskVerificationHandoff, InterrogatorHandoff, ProjectStatus } from "./types";
@@ -117,6 +117,7 @@ async function* handleInterrogatorHandoff(
   options: ChatRuntimeOptions,
 ): AsyncIterable<CoreEvent> {
   if (handoff.action === "specsUpdated") {
+    await recordInterrogatorSpecUpdate(projectDir, handoff.specFiles);
     yield await appendInterrogationEvent(projectDir, {
       type: "specsUpdated",
       data: { specFiles: handoff.specFiles, summary: handoff.summary },

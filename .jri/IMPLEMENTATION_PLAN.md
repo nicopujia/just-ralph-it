@@ -10,7 +10,8 @@
 - [ ] P0: Replace canned chat with the real Pi-backed interrogator.
   - Completed/tested slice: public `Project.chat.send` now uses the default controlled interrogator harness for ordinary messages instead of the legacy canned path.
   - Completed/tested slice: added shared `HarnessInvocation`, `HarnessResult`, and `HarnessAdapter` types; interrogation phase prompt/model command support; injectable chat interrogator harness processing for `messageOnly`, `specsUpdated`, `humanTaskVerified`, `humanTaskStillBlocked`, and `startRequested` handoffs; and focused tests in `chat/harness`.
-  - Remaining: spec/scratchpad file mutation plus topic sealing/reconciliation resolution are still incomplete.
+  - Completed/tested slice: `specsUpdated` now records updated spec fingerprints in `.jri/interrogation-state.json` and clears pending manual reconciliation for accepted spec edits; focused chat/interrogation-state tests passed, plus full validation passed (`bun run test` 96 tests, `bun run typecheck`, `bun run lint`).
+  - Remaining: spec/scratchpad file mutation plus topic sealing are still incomplete.
   - Implement interrogator harness invocation using the new `HarnessInvocation` contract with `agent: "interrogator"` and `phase: "interrogation"`.
   - Add lazy `.jri/interrogation-state.json` support for topic sealing, spec fingerprints, and pending manual edit reconciliation.
   - Process `messageOnly`, `specsUpdated`, `scratchpadUpdated`, `startRequested`, `humanTaskVerified`, and `humanTaskStillBlocked` handoffs instead of inferring lifecycle changes from prose or fixed strings.

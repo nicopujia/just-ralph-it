@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { basename, dirname, extname, join } from "node:path";
 import { JriError } from "./errors";
 import { parseJsonObject } from "./schema";
 
@@ -82,6 +82,38 @@ export async function checkInterrogationStartGate(projectDir: string, options: {
     .map(([topicId, topic]) => ({ topicId, topic }));
 
   return pending.length > 0 ? { ok: false, state: next, pending } : { ok: true, state: next };
+}
+
+export async function recordInterrogatorSpecUpdate(projectDir: string, specFiles: string[]): Promise<InterrogationState> {
+  const existing = await readInterrogationState(projectDir);
+  const next: InterrogationState = structuredClone(existing ?? { schemaVersion: 1, topics: {} });
+
+  for (const specFile of specFiles) {
+    const stableSpecFile = validateSpecFilePath(specFile);
+    const absoluteSpecPath = join(projectDir, stableSpecFile);
+    if (!(await pathExists(absoluteSpecPath))) {
+      throw new JriError(
+        `The interrogator reported ${stableSpecFile} as updated, but the file does not exist.`,
+        "missing-updated-spec",
+        "Write the spec file before emitting a specsUpdated handoff.",
+      );
+    }
+
+    const topicId = topicIdForSpecFile(stableSpecFile);
+    const current = findTopicEntry(next, stableSpecFile);
+    const fingerprint = await fingerprintSpecFile(projectDir, stableSpecFile);
+    const prior = current ? current.topic : next.topics[topicId];
+    const targetTopicId = current?.topicId ?? uniqueTopicId(next, topicId);
+
+    next.topics[targetTopicId] = {
+      specFile: stableSpecFile,
+      status: prior?.status === "sealed" ? "sealed" : "open",
+      lastReconciledSpecFingerprint: fingerprint,
+    };
+  }
+
+  await writeInterrogationState(projectDir, next);
+  return next;
 }
 
 function validateInterrogationState(value: Record<string, unknown>, filePath: string): InterrogationState {
@@ -174,6 +206,41 @@ function rejectUnknownKeys(value: Record<string, unknown>, allowed: Set<string>,
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object");
+}
+
+function validateSpecFilePath(specFile: string): `.jri/specs/${string}` {
+  if (!specFile.startsWith(".jri/specs/") || specFile.includes("..") || specFile.endsWith("/") || specFile.slice(".jri/specs/".length).includes("/")) {
+    throw new JriError(
+      `Invalid interrogator spec path: ${specFile}`,
+      "invalid-spec-path",
+      "Use a stable .jri/specs/<file> relative path.",
+    );
+  }
+  return specFile as `.jri/specs/${string}`;
+}
+
+function topicIdForSpecFile(specFile: `.jri/specs/${string}`): string {
+  const filename = basename(specFile, extname(specFile));
+  const normalized = filename
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || "topic";
+}
+
+function findTopicEntry(state: InterrogationState, specFile: `.jri/specs/${string}`): { topicId: string; topic: InterrogationTopicState } | undefined {
+  for (const [topicId, topic] of Object.entries(state.topics)) {
+    if (topic.specFile === specFile) return { topicId, topic };
+  }
+  return undefined;
+}
+
+function uniqueTopicId(state: InterrogationState, topicId: string): string {
+  if (!state.topics[topicId]) return topicId;
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${topicId}-${suffix}`;
+    if (!state.topics[candidate]) return candidate;
+  }
 }
 
 function interrogationStatePath(projectDir: string): string {

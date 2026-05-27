@@ -106,11 +106,13 @@ describe("interrogation chat", () => {
     const dir = await tempProject();
     try {
       await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
       await writeStatusAtomic(dir, defaultStatus(dir));
 
       const events = await collect(
         sendChat(dir, { message: "The app should deploy to Cloudflare." }, {
           interrogatorHarness: async (invocation) => {
+            await writeFile(join(invocation.projectDir, ".jri", "specs", "deployment.md"), "# Deployment\n\nDeploy to Cloudflare.\n");
             await invocation.output.write("I updated the deployment spec.");
             return {
               handoff: {
@@ -128,6 +130,12 @@ describe("interrogation chat", () => {
         type: "specsUpdated",
         data: { specFiles: [".jri/specs/deployment.md"], summary: "Deployment target clarified." },
       });
+      const state = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+      expect(state.topics.deployment).toMatchObject({
+        specFile: ".jri/specs/deployment.md",
+        status: "open",
+      });
+      expect(typeof state.topics.deployment.lastReconciledSpecFingerprint).toBe("string");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

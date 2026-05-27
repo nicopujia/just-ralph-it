@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import {
   checkInterrogationStartGate,
   fingerprintSpecFile,
+  recordInterrogatorSpecUpdate,
   readInterrogationState,
   writeInterrogationState,
 } from "../src/core/interrogation-state";
@@ -64,6 +65,60 @@ describe("interrogation state", () => {
       expect(persisted.topics.app).toMatchObject({
         status: "open",
         pendingReconciliation: { reason: "manualSpecEdit" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("records interrogator spec updates as reconciled topic fingerprints", async () => {
+    const dir = await tempProject();
+    try {
+      await writeFile(join(dir, ".jri", "specs", "deployment.md"), "# Deployment\n\nDeploy with Wrangler.\n");
+
+      const state = await recordInterrogatorSpecUpdate(dir, [".jri/specs/deployment.md"]);
+      const fingerprint = await fingerprintSpecFile(dir, ".jri/specs/deployment.md");
+      const persisted = await readInterrogationState(dir);
+
+      expect(state.topics.deployment).toMatchObject({
+        specFile: ".jri/specs/deployment.md",
+        status: "open",
+        lastReconciledSpecFingerprint: fingerprint,
+      });
+      expect(persisted?.topics.deployment).toEqual(state.topics.deployment);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("clears pending manual reconciliation when the interrogator accepts the updated spec", async () => {
+    const dir = await tempProject();
+    try {
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
+      const originalFingerprint = await fingerprintSpecFile(dir, ".jri/specs/app.md");
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          app: {
+            specFile: ".jri/specs/app.md",
+            status: "sealed",
+            lastReconciledSpecFingerprint: originalFingerprint,
+          },
+        },
+      });
+
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI and a TUI.\n");
+      await checkInterrogationStartGate(dir, { now: new Date("2026-05-27T20:00:00.000Z") });
+      await recordInterrogatorSpecUpdate(dir, [".jri/specs/app.md"]);
+      const result = await checkInterrogationStartGate(dir, { now: new Date("2026-05-27T20:01:00.000Z") });
+      const persisted = await readInterrogationState(dir);
+
+      expect(result).toMatchObject({ ok: true });
+      expect(persisted?.topics.app).toBeDefined();
+      expect(persisted!.topics.app!.pendingReconciliation).toBeUndefined();
+      expect(persisted?.topics.app).toMatchObject({
+        status: "open",
+        lastReconciledSpecFingerprint: await fingerprintSpecFile(dir, ".jri/specs/app.md"),
       });
     } finally {
       await rm(dir, { recursive: true, force: true });
