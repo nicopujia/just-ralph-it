@@ -29,7 +29,9 @@
   - Implement the JRI-owned Pi TypeScript SDK adapter for interrogator, auditor, planner, builder, and explorer using `HarnessInvocation` and `HarnessResult`; keep Pi package details inside the adapter and make tests/fakes use the same contract.
   - Wire loop phases through `HarnessInvocation` instead of the older session runner shape, including agent, phase, model, capabilities, context, output, signal, and invalid-handoff result mapping.
   - Honor cancellation before and after session start, including timeout and halt signals, and normalize auth, model, capability, and SDK failures into JRI errors.
-  - Finding: malformed daemon IPC payloads currently can bubble as raw `SyntaxError`; IPC parsing should map malformed JSON to `daemon-protocol-error` for predictable failure behavior.
+  - Completed/Tested: daemon IPC malformed request/response parsing now maps invalid JSON and malformed daemon protocol responses to `daemon-protocol-error`.
+    - Validation: focused daemon IPC tests passed (15 tests), full `bun run test` passed (114 tests), `bun run typecheck` passed, and `bun run lint` passed.
+  - Remaining explorer hardening items: enforce oversized IPC frame/payload limits and registry entry validation before explorer launch.
 
 - P0: Fix output, capability ownership, and cancellation invariants.
   - `runControlledPiSession` currently appends stdout and stderr concurrently to the same `stdout.log`; replace this with one ordered merged writer per loop and move channel-specific evidence into structured events, handoffs, or artifacts when needed.

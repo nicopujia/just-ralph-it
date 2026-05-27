@@ -231,7 +231,7 @@ async function daemonRequest(method: string, params: Record<string, unknown>, op
     const request: DaemonRequest = { id: crypto.randomUUID(), method, params };
     socket.write(`${JSON.stringify(request)}\n`);
     for await (const line of readSocketLines(socket)) {
-      const message = JSON.parse(line) as DaemonStreamMessage;
+      const message = parseDaemonMessage(line);
       if (message.id !== request.id) continue;
       if (!("ok" in message) || !message.ok) throw daemonError(message);
       if ("event" in message || "done" in message) {
@@ -251,7 +251,7 @@ async function* daemonStream(method: string, params: Record<string, unknown>, op
   socket.write(`${JSON.stringify(request)}\n`);
   try {
     for await (const line of readSocketLines(socket)) {
-      const message = JSON.parse(line) as DaemonStreamMessage;
+      const message = parseDaemonMessage(line);
       if (message.id !== request.id) continue;
       if (!("ok" in message) || !message.ok) throw daemonError(message);
       if ("event" in message) {
@@ -367,7 +367,7 @@ async function sendUnaryRequest(socket: Socket, method: string, params?: Record<
   socket.write(`${JSON.stringify(request)}\n`);
   for (;;) {
     const line = await readOneSocketLine(socket);
-    const message = JSON.parse(line) as DaemonStreamMessage;
+    const message = parseDaemonMessage(line);
     if (message.id !== request.id) continue;
     if (!("ok" in message) || !message.ok) throw daemonError(message);
     if ("event" in message || "done" in message) {
@@ -591,11 +591,46 @@ function readOneSocketLine(socket: Socket): Promise<string> {
 }
 
 function parseRequest(line: string): DaemonRequest {
-  const parsed = JSON.parse(line) as Partial<DaemonRequest>;
-  if (!parsed || typeof parsed !== "object" || typeof parsed.id !== "string" || typeof parsed.method !== "string") {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    throw new JriError("Daemon request is not valid JSON.", "daemon-protocol-error", "Retry with a compatible JRI client.");
+  }
+  const request = parsed as Partial<DaemonRequest>;
+  if (!request || typeof request !== "object" || typeof request.id !== "string" || typeof request.method !== "string") {
     throw new JriError("Daemon request is malformed.", "invalid-daemon-request", "Retry with a compatible JRI client.");
   }
-  return { id: parsed.id, method: parsed.method, params: parsed.params };
+  return { id: request.id, method: request.method, params: request.params };
+}
+
+function parseDaemonMessage(line: string): DaemonStreamMessage {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    throw new JriError("Daemon response is not valid JSON.", "daemon-protocol-error", "Retry the command with a compatible JRI daemon.");
+  }
+
+  if (!parsed || typeof parsed !== "object" || typeof (parsed as { id?: unknown }).id !== "string") {
+    throw new JriError("Daemon returned an invalid response.", "daemon-protocol-error", "Retry the command with a compatible JRI daemon.");
+  }
+
+  const message = parsed as Record<string, unknown>;
+  if (message.ok === true) {
+    if ("event" in message || message.done === true || "result" in message) return message as DaemonStreamMessage;
+  }
+  if (
+    message.ok === false &&
+    message.error &&
+    typeof message.error === "object" &&
+    typeof (message.error as { code?: unknown }).code === "string" &&
+    typeof (message.error as { message?: unknown }).message === "string"
+  ) {
+    return message as DaemonStreamMessage;
+  }
+
+  throw new JriError("Daemon returned an invalid response.", "daemon-protocol-error", "Retry the command with a compatible JRI daemon.");
 }
 
 function projectDirParam(params: unknown): string {

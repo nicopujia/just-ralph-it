@@ -370,6 +370,54 @@ describe("daemon IPC", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("maps malformed daemon unary responses to protocol errors", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const fakeDaemon = await startBadResponseDaemon(paths, "status.get", "{malformed daemon response\n");
+    try {
+      await expect(daemonStatus(dir, { paths })).rejects.toMatchObject({
+        code: "daemon-protocol-error",
+        message: "Daemon response is not valid JSON.",
+      });
+      expect(fakeDaemon.requests).toEqual(["handshake", "status.get"]);
+    } finally {
+      await fakeDaemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("maps malformed daemon stream responses to protocol errors", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const fakeDaemon = await startBadResponseDaemon(paths, "loop.observe", "{malformed daemon response\n");
+    try {
+      await expect(collect(daemonObserveLoop(dir, { paths }))).rejects.toMatchObject({
+        code: "daemon-protocol-error",
+        message: "Daemon response is not valid JSON.",
+      });
+      expect(fakeDaemon.requests).toEqual(["handshake", "loop.observe"]);
+    } finally {
+      await fakeDaemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("maps structurally invalid daemon responses to protocol errors", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const fakeDaemon = await startBadResponseDaemon(paths, "status.get", (id) => `${JSON.stringify({ id, ok: true, unexpected: true })}\n`);
+    try {
+      await expect(daemonStatus(dir, { paths })).rejects.toMatchObject({
+        code: "daemon-protocol-error",
+        message: "Daemon returned an invalid response.",
+      });
+      expect(fakeDaemon.requests).toEqual(["handshake", "status.get"]);
+    } finally {
+      await fakeDaemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
@@ -431,6 +479,57 @@ async function startFakeDaemon(paths: DaemonPaths, protocolVersion: number): Pro
         if (request.method === "daemon.shutdown") {
           socket.write(`${JSON.stringify({ id: request.id, ok: true, result: { exiting: true } })}\n`);
           void closeServer(server, sockets);
+          continue;
+        }
+        socket.write(`${JSON.stringify({ id: request.id, ok: false, error: { code: "unsupported-daemon-method", message: "unsupported" } })}\n`);
+      }
+    });
+    socket.on("close", () => sockets.delete(socket));
+  });
+  await new Promise<void>((resolveListen, rejectListen) => {
+    server.once("error", rejectListen);
+    server.once("listening", resolveListen);
+    server.listen(paths.socketPath);
+  });
+  return {
+    requests,
+    close: async () => {
+      await closeServer(server, sockets);
+      if (process.platform !== "win32") await rm(paths.socketPath, { force: true });
+    },
+  };
+}
+
+async function startBadResponseDaemon(
+  paths: DaemonPaths,
+  malformedMethod: string,
+  badResponse: string | ((id: string) => string),
+): Promise<{ requests: string[]; close(): Promise<void> }> {
+  await mkdir(paths.runtimeDir, { recursive: true });
+  await mkdir(paths.stateDir, { recursive: true });
+  if (process.platform !== "win32") await rm(paths.socketPath, { force: true });
+  const requests: string[] = [];
+  const sockets = new Set<Socket>();
+  const server = createServer((socket) => {
+    sockets.add(socket);
+    socket.setEncoding("utf8");
+    let buffer = "";
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      for (;;) {
+        const newline = buffer.indexOf("\n");
+        if (newline === -1) break;
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (!line) continue;
+        const request = JSON.parse(line) as { id: string; method: string };
+        requests.push(request.method);
+        if (request.method === "handshake") {
+          socket.write(`${JSON.stringify({ id: request.id, ok: true, result: { protocolVersion: 1 } })}\n`);
+          continue;
+        }
+        if (request.method === malformedMethod) {
+          socket.write(typeof badResponse === "function" ? badResponse(request.id) : badResponse);
           continue;
         }
         socket.write(`${JSON.stringify({ id: request.id, ok: false, error: { code: "unsupported-daemon-method", message: "unsupported" } })}\n`);
