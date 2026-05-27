@@ -26,12 +26,16 @@
 - [ ] P0: Finish CLI loop controls and state-specific UX.
   - `jri loop attach` must become the live TUI surface: merged recent/live stdout plus milestone events, stable footer, `[d]etach`, `[s]top`, no footer redraws in `stdout.log`, and concise state-specific errors for blocked/stopped/halted/idle.
   - Completed/tested slice: `jri loop halt` now supports the second rollback reset decision through CLI/runtime/daemon IPC. Reset is offered only when `currentIteration.rollbackCommit` exists and `trackedTreeCleanAtStart` is true; accepted resets run `git reset --hard`, and skipped/succeeded/failed outcomes are recorded in `loopHalted` data and halted status summaries. This matters because halt must leave durable evidence about whether JRI killed only the process or also restored tracked files.
+  - Completed/tested slice: loop controls now preflight state before `attach`/`stop`/`halt`/`resume`; `attach`/`stop`/`resume` return concise state-specific recovery errors with log hints when a loop id exists; `halt` is idempotent for already halted loops and no longer prompts in that state. This matters because control commands should fail fast with the right recovery path instead of making users guess what state the daemon is in. Validation: `bun test tests/cli.test.ts`.
   - Bare `jri` needs the initialization notice, Pi-backed or fallback interactive status line, blocked auto-guide display, inline auth recovery that can continue on success, and `jri auth --help` text that lists stable commands before passthrough behavior.
 
 - [ ] P0: Harden daemon/runtime protocol behavior for long-running dogfood.
   - Completed/tested slice: clients now negotiate daemon protocol on connect; incompatible active daemons are blocked with safe guidance, and incompatible idle daemons are shut down so a compatible daemon can be started/retried; daemon IPC tests cover these cases.
-  - Tighten state-specific actionable errors for stop/halt/resume/attach, status repair messages, runner crash recovery across audit/planning/build, and the runtime lock/CAS story or a documented single-daemon mutation guarantee.
+  - Completed/tested slice: stdout replay offset coverage now includes multibyte UTF-8 output so attach replay/follow cursors cannot regress back to ASCII-only assumptions. This matters because event/stdout merge correctness depends on byte offsets. Validation: `bun test tests/daemon-runtime.test.ts`.
+  - Tighten status repair messages, runner crash recovery across audit/planning/build, and the runtime lock/CAS story or a documented single-daemon mutation guarantee.
   - Preserve and test stdout offsets/event cursors across replay/live attach, daemon fallback, repaired states, and process death.
+  - Follow-up bug from source search: controlled harness logging appends stdout and stderr concurrently into one `stdout.log`, losing channel provenance and making ordering hard to reason about; decide whether the MVP contract needs ordered merged output only or separate channel metadata/artifacts.
+  - Follow-up gap from source search: hidden web/explorer capability commands bypass daemon IPC/registry today; if unified daemon observability is required, route or record those capability executions through the daemon-owned lifecycle.
 
 - [ ] P0: Harden durable contracts and schema exports.
   - Completed/tested slice: canonical `.jri/config.json` JSON Schema is exported from core, and handoff array validators reject whitespace-only values for `specFiles`, `questions`, blocker `steps`, `successCriteria`, and related fields.
@@ -42,6 +46,7 @@
   - Web search/fetch capability errors, artifact refs, result caps, fetch bounds, timestamped results, hidden CLI bridge, descriptor-rendered prompt instructions, and validation coverage are now covered.
   - Canonical schema export and handoff trim-edge tests are now covered.
   - Halt reset handling is now covered at runtime and daemon IPC boundaries, including eligible reset execution, ineligible rollback refusal, and failed reset reporting.
+  - Source-search follow-up: add end-to-end coverage for repeated builder iterations when the builder handoff returns `continue`, and for runtime consumption of broader interrogator/verifier handoffs beyond parser-only tests.
   - Keep existing validation command set as the feedback loop: `bun run test`, `bun run typecheck`, and `bun run lint`.
 
 - [ ] P0: Dogfood only through the allowed JRI interface.

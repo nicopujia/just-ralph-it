@@ -3,12 +3,21 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
+import { defaultStatus } from "../src/core/schema";
+import { writeStatusAtomic } from "../src/core/runtime-state";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const cliPath = join(repoRoot, "src", "cli", "index.ts");
 
 async function tempProject(): Promise<string> {
   return await mkdtemp(join(tmpdir(), "jri-cli-test-"));
+}
+
+async function tempInitializedProject(): Promise<string> {
+  const dir = await tempProject();
+  await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+  await writeStatusAtomic(dir, defaultStatus(dir));
+  return dir;
 }
 
 describe("CLI", () => {
@@ -128,6 +137,115 @@ describe("CLI", () => {
       const fetchStdout = await new Response(fetch.stdout).text();
       expect(await fetch.exited).toBe(0);
       expect(JSON.parse(fetchStdout).markdown).toBe("# Docs");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("loop attach rejects non-active states with next action and log path", async () => {
+    const dir = await tempInitializedProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "ambiguousSpecs",
+          description: "Deployment target is unclear.",
+          resolutionGuide: {
+            summary: "Clarify deployment.",
+            steps: ["Choose the deployment target."],
+            resumeInstruction: "Clarify the target in bare jri, then say just ralph it.",
+          },
+        },
+      });
+
+      const proc = Bun.spawn(["bun", cliPath, "loop", "attach"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toContain("jri loop attach is not available while JRI is blocked");
+      expect(stderr).toContain("Clarify the target in bare jri");
+      expect(stderr).toContain(".jri/logs/20260527T184210Z/stdout.log");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("loop stop rejects stopped state before mutating stop request", async () => {
+    const dir = await tempInitializedProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+      });
+
+      const proc = Bun.spawn(["bun", cliPath, "loop", "stop"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exitCode, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("jri loop stop is not available because the loop is stopped");
+      expect(stderr).toContain("jri loop resume");
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(status.stopRequested).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("loop halt is idempotent for halted state and does not prompt", async () => {
+    const dir = await tempInitializedProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "halted",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+      });
+
+      const proc = Bun.spawn(["bun", cliPath, "loop", "halt"], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      proc.stdin.end();
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("JRI is already halted.");
+      expect(stdout).toContain(".jri/logs/20260527T184210Z/stdout.log");
+      expect(stderr).not.toContain("Force halt");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("loop resume rejects idle state with bare jri recovery", async () => {
+    const dir = await tempInitializedProject();
+    try {
+      const proc = Bun.spawn(["bun", cliPath, "loop", "resume"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exitCode, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(1);
+      expect(stderr).toContain("jri loop resume is not available because no Ralph loop is running");
+      expect(stderr).toContain("Use bare jri");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -88,7 +88,7 @@ describe("daemon/runtime scaffolding", () => {
         lastLoopId: "20260527T184210Z",
       });
       await mkdir(join(dir, ".jri", "logs", "20260527T184210Z"), { recursive: true });
-      await writeFile(join(dir, ".jri", "logs", "20260527T184210Z", "stdout.log"), "first line\nsecond line\nthird line\n", "utf8");
+      await writeFile(join(dir, ".jri", "logs", "20260527T184210Z", "stdout.log"), "préface café\nsecond line\nthird line\n", "utf8");
       await appendLoopEvent(dir, {
         type: "iterationStarted",
         loopId: "20260527T184210Z",
@@ -102,7 +102,7 @@ describe("daemon/runtime scaffolding", () => {
       const output = events[0];
       if (output?.type !== "loopOutput") throw new Error("Expected loopOutput event.");
       expect(output.data).toEqual({ text: "second line\nthird line\n", replayed: true });
-      expect(output.stdoutOffset).toBe(Buffer.byteLength("first line\n", "utf8"));
+      expect(output.stdoutOffset).toBe(Buffer.byteLength("préface café\n", "utf8"));
       expect(events[1]).toMatchObject({ type: "iterationStarted", sequence: 1 });
     } finally {
       await rm(dir, { recursive: true, force: true });

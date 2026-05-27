@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
-import { open, isJriError } from "../core";
+import { open, isJriError, JriError } from "../core";
+import type { ProjectStatus, ProjectState } from "../core";
 import { runDaemon } from "../core/daemon-ipc";
 import { runLoopProcess, type RunnerPhase } from "../core/daemon-runtime";
 import { runExplorerTask } from "../core/harness";
@@ -102,23 +103,38 @@ async function main(argv: string[]): Promise<number> {
 
   if (command === "loop") {
     if (subcommand === "attach") {
+      const status = await project.status.get();
+      if (!isActiveLoopState(status.state)) {
+        throw loopStateError("attach", status);
+      }
       for await (const event of project.loop.observe({ includeStdout: true, recentStdoutLines: 100, follow: true })) {
         console.log(formatLoopEvent(event));
       }
       return 0;
     }
     if (subcommand === "stop") {
+      const before = await project.status.get();
+      if (!isActiveLoopState(before.state)) {
+        throw loopStateError("stop", before);
+      }
       await project.loop.requestStop();
       const status = await project.status.get();
       console.log(status.stopRequested ? "Graceful stop requested." : "Graceful stop request cleared.");
       return 0;
     }
     if (subcommand === "halt") {
+      const status = await project.status.get();
+      if (status.state === "halted") {
+        console.log(formatAlreadyHalted(status));
+        return 0;
+      }
+      if (!isActiveLoopState(status.state)) {
+        throw loopStateError("halt", status);
+      }
       if (!(await confirm("Force halt the active JRI loop?"))) {
         console.log("Halt canceled.");
         return 0;
       }
-      const status = await project.status.get();
       const rollbackCommit = status.currentIteration?.rollbackCommit;
       const resetGit =
         Boolean(rollbackCommit && status.currentIteration?.trackedTreeCleanAtStart) &&
@@ -129,6 +145,10 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     if (subcommand === "resume") {
+      const status = await project.status.get();
+      if (!isResumeEligible(status)) {
+        throw loopStateError("resume", status);
+      }
       for await (const event of project.loop.resume()) {
         console.log(formatLoopEvent(event));
       }
@@ -148,6 +168,75 @@ function usage(error?: string): number {
   if (error) console.error(error);
   console.error("Usage: jri | jri auth {status|login|logout} | jri loop {attach|stop|halt|resume}");
   return 1;
+}
+
+function isActiveLoopState(state: ProjectState): boolean {
+  return state === "auditing" || state === "planning" || state === "building";
+}
+
+function isResumeEligible(status: ProjectStatus): boolean {
+  return (
+    status.state === "stopped" ||
+    (status.state === "blocked" && status.blocker?.reason === "needsHumanTask" && status.blocker.resolution?.status === "verified")
+  );
+}
+
+function loopStateError(action: "attach" | "stop" | "halt" | "resume", status: ProjectStatus): Error {
+  const actionLabel = `jri loop ${action}`;
+  const logHint = formatLogHint(status);
+
+  if (status.state === "blocked" && status.blocker) {
+    const recovery =
+      status.blocker.reason === "ambiguousSpecs"
+        ? `${status.blocker.resolutionGuide.resumeInstruction}${logHint}`
+        : status.blocker.resolution?.status === "verified"
+          ? `Run jri loop resume to continue the verified human-task lifecycle.${logHint}`
+          : `${status.blocker.resolutionGuide.resumeInstruction}${logHint}`;
+    return new JriError(
+      `${actionLabel} is not available while JRI is blocked: ${status.blocker.description}`,
+      `loop-${action}-blocked`,
+      recovery,
+    );
+  }
+
+  if (status.state === "stopped") {
+    return new JriError(
+      `${actionLabel} is not available because the loop is stopped.`,
+      `loop-${action}-stopped`,
+      `Run jri loop resume to continue if specs have not changed, or use bare jri to reconcile requirements.${logHint}`,
+    );
+  }
+
+  if (status.state === "halted") {
+    return new JriError(
+      `${actionLabel} is not available because the loop is halted.`,
+      `loop-${action}-halted`,
+      `Use bare jri to clarify or confirm requirements, then say just ralph it to authorize a new lifecycle.${logHint}`,
+    );
+  }
+
+  if (status.state === "idle") {
+    return new JriError(
+      `${actionLabel} is not available because no Ralph loop is running.`,
+      `loop-${action}-idle`,
+      `Use bare jri to discuss requirements, then say just ralph it when specs are ready.${logHint}`,
+    );
+  }
+
+  return new JriError(
+    `${actionLabel} is not available while JRI is ${status.state}.`,
+    `loop-${action}-state`,
+    "Reload status and retry the command when the lifecycle reaches an eligible state.",
+  );
+}
+
+function formatLogHint(status: ProjectStatus): string {
+  const loopId = status.activeLoopId ?? status.lastLoopId;
+  return loopId ? ` Inspect .jri/logs/${loopId}/stdout.log for prior loop output.` : "";
+}
+
+function formatAlreadyHalted(status: ProjectStatus): string {
+  return `JRI is already halted.${formatLogHint(status)}`;
 }
 
 function formatStatus(status: { state: string; blocker?: { reason: string; description: string; resolutionGuide: { resumeInstruction: string } }; iteration?: number; iterations?: number; stopRequested: boolean }): string {
