@@ -1229,6 +1229,18 @@ async function observeIterationGitResult(
     return { outcome: "noChanges" };
   }
 
+  const commitCount = await countIterationCommits(projectDir, before.head, afterHead);
+  if (commitCount === undefined) {
+    return { outcome: "committed", commit: afterHead, tagIssue: "Builder changed git history in a way JRI could not validate against the iteration rollback commit." };
+  }
+  if (commitCount !== 1) {
+    return {
+      outcome: "committed",
+      commit: afterHead,
+      tagIssue: `Builder created ${commitCount} commits during one iteration; expected exactly one coherent iteration commit.`,
+    };
+  }
+
   const subject = (await gitOutput(projectDir, ["log", "-1", "--pretty=%s", afterHead]))?.trim();
   await appendLoopEvent(projectDir, {
     type: "commitCreated",
@@ -1256,6 +1268,13 @@ async function observeIterationGitResult(
     ...(tagResult.tag ? { tag: tagResult.tag } : {}),
     ...(tagResult.issue ? { tagIssue: tagResult.issue } : {}),
   };
+}
+
+async function countIterationCommits(projectDir: string, beforeHead: string | undefined, afterHead: string): Promise<number | undefined> {
+  const range = beforeHead ? `${beforeHead}..${afterHead}` : afterHead;
+  const output = await gitOutput(projectDir, ["rev-list", "--count", range]);
+  const count = output === undefined ? Number.NaN : Number(output.trim());
+  return Number.isInteger(count) && count >= 0 ? count : undefined;
 }
 
 async function validateIterationTag(
