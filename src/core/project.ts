@@ -1,5 +1,6 @@
 import { mkdir, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { getAuthStatus, login, logout } from "./auth";
 import { JriError } from "./errors";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
 import { daemonHaltLoop, daemonObserveLoop, daemonRequestStop, daemonResumeLoop, daemonStatus } from "./daemon-ipc";
@@ -50,12 +51,9 @@ export class Project {
   };
 
   readonly auth = {
-    status: async (): Promise<AuthState> => ({ provider: "openai", authenticated: false }),
-    login: async (): Promise<AuthResult> => ({
-      status: "userActionRequired",
-      instructions: "Pi-backed authentication is not implemented yet. Use the future JRI auth provider flow when available.",
-    }),
-    logout: async (): Promise<void> => {},
+    status: async (): Promise<AuthState> => getAuthStatus(),
+    login: async (): Promise<AuthResult> => login(),
+    logout: async (): Promise<void> => logout(),
   };
 
   readonly chat = {
