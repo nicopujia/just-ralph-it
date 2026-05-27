@@ -1,0 +1,548 @@
+# Runtime State
+
+## Topic
+
+JRI stores enough local state to resume chat, observe Ralph, and prevent
+conflicting operations without making users manage runtime files.
+
+## Job To Be Done
+
+When I use JRI over time, I want the tool to remember the project state and
+running loop status, so that I can close terminals, reopen JRI, attach to
+Ralph, stop it, or inspect history without understanding JRI internals.
+
+## Required Files
+
+```text
+.jri/
+  config.json
+  status.json
+  IMPLEMENTATION_PLAN.md
+  scratchpad.md
+  specs/
+  logs/
+    interrogation.jsonl
+    <loopId>/
+      events.jsonl
+      stdout.log
+      artifacts/
+```
+
+## State Rules
+
+- Use JSON for human-edited configuration and machine-written runtime status.
+- `.jri/config.json` is validated against JRI's bundled JSON Schema before use.
+- If `.jri/config.json` is invalid JSON, fails schema validation, or declares an
+  unsupported `schemaVersion`, startup stops with a clear recovery path instead
+  of guessing values.
+- `.jri/status.json` records current project status, active loop id, process
+  metadata, stop requests, blocker state, and lock information.
+- `.jri/status.json` is updated with write-temp-then-rename atomic replacement.
+- Event appends and status replacement are not treated as a single cross-file
+  transaction. For state transitions, JRI emits the event, then writes status.
+  If a crash leaves one side missing or stale, recovery uses process checks,
+  status, and latest events to repair the inconsistency.
+- Status is not derived from events on the normal path, but JRI may use logs and
+  process checks to recover or repair status when needed.
+- A loop id is generated when an authorized Ralph lifecycle starts.
+- Loop ids are internal timestamp slugs in UTC, formatted like
+  `20260527T184210Z`.
+- If a loop id collision occurs, append `-2`, `-3`, and so on.
+- `status.json` stores the current controllable loop lifecycle id as
+  `activeLoopId`.
+- `activeLoopId` is set for `auditing`, `planning`, `building`, `blocked`,
+  `stopped`, and `halted`. It is null for `idle`.
+- `lastLoopId` records the most recent loop for history even when status is
+  `idle`.
+- Status states are limited to `idle`, `auditing`, `planning`, `building`,
+  `blocked`, `stopped`, and `halted`.
+- `building` is the machine state for an active Ralph loop. `ralphing` is only a
+  user-facing TUI label for `building` and is not a machine state.
+- `stopped` means a graceful stop completed after the current outer-loop
+  iteration finished.
+- `halted` means the loop was force-killed after explicit confirmation.
+- Blocked status includes a reason, initially `ambiguousSpecs` or
+  `needsHumanTask`, plus a detailed description.
+- Blocked status also includes a resolution guide so the user can tell exactly
+  what happened, what to do, how to know it is done, and how JRI will resume.
+- Lock information is part of `.jri/status.json`; there is no separate `.jri/lock`
+  file in the MVP.
+- `.jri/scratchpad.md` is flexible interrogator working memory for open
+  questions, discussion branches, unresolved scope, and notes that are not yet
+  durable spec truth.
+- `.jri/scratchpad.md` has no enforced template.
+- Ralph ignores `.jri/scratchpad.md` entirely.
+- `.jri/logs/interrogation.jsonl` stores every interrogation chat turn as
+  audit/history material.
+- `.jri/logs/<loopId>/events.jsonl` is the append-only structured history for a
+  loop lifecycle. When using Pi JSON/RPC/SDK events, JRI may store selected
+  normalized Pi events here.
+- `.jri/logs/<loopId>/stdout.log` stores raw agent/process output for attach and
+  later inspection.
+- Generated run summaries are not an MVP requirement.
+- If history/status becomes hard to understand from events and stdout, summaries
+  may be added later.
+
+Initial `status.json` shape:
+
+```ts
+type ProjectStatus = {
+  schemaVersion: 1;
+  projectDir: string;
+  state:
+    | "idle"
+    | "auditing"
+    | "planning"
+    | "building"
+    | "blocked"
+    | "stopped"
+    | "halted";
+  activeLoopId: string | null;
+  lastLoopId?: string;
+  iteration?: number;
+  iterations?: number;
+  startedAt?: string;
+  finishedAt?: string;
+  stopRequested: boolean;
+  process?: {
+    pid: number;
+    command?: string;
+    startedAt: string;
+  };
+  blocker?: Blocker;
+  lastResult?: {
+    outcome: "completed" | "stopped" | "halted" | "blocked" | "failed";
+    summary?: string;
+    url?: string;
+    validationPassed?: boolean;
+    commit?: string;
+    tag?: string;
+  };
+  recoveryNote?: {
+    timestamp: string;
+    message: string;
+    repairedFrom?: string;
+  };
+  lock?: {
+    owner: "daemon";
+    pid: number;
+    operation: "audit" | "plan" | "build" | "halt" | "resume";
+    acquiredAt: string;
+    heartbeatAt: string;
+    expiresAt: string;
+  };
+};
+
+type Blocker = {
+  reason: "ambiguousSpecs" | "needsHumanTask";
+  description: string;
+  resolutionGuide: {
+    summary: string;
+    steps: string[];
+    successCriteria?: string[];
+    resumeInstruction: string;
+    sensitive?: boolean;
+  };
+  changedFiles?: string[];
+  validationRan?: boolean;
+};
+```
+
+Lock ownership rules:
+
+- Lock acquisition is compare-and-swap on `status.json`: the writer reads the
+  latest status, verifies no live non-stale lock exists, writes a new lock with
+  a heartbeat, then rereads status to confirm ownership.
+- A lock is stale only when its `expiresAt` has passed and process check cannot
+  find the owning process.
+- If a live lock exists, conflicting commands fail with the active operation and
+  next safe command.
+- `blocked` and `stopped` keep `activeLoopId` but do not keep a live builder
+  process. The daemon or core still owns lifecycle mutation through the lock
+  when resolving, resuming, halting, or repairing state.
+
+Legal status transitions:
+
+```text
+idle -> auditing
+auditing -> planning | blocked | stopped | halted
+planning -> building | blocked | stopped | halted
+building -> planning | blocked | stopped | halted | idle
+blocked[ambiguousSpecs] -> auditing
+blocked[needsHumanTask] -> building | planning
+stopped -> building | planning
+halted -> halted
+```
+
+- `idle -> auditing` only happens after the interrogator accepts an explicit
+  `just ralph it` or `ralfealo` trigger.
+- `blocked[ambiguousSpecs] -> auditing` only happens after the user resolves
+  the questions and reissues `just ralph it` or `ralfealo`.
+- `blocked[needsHumanTask] -> building | planning` only happens after the user
+  says `done` in bare `jri` and JRI verifies enough to mark the blocker
+  resolved. If verification is inconclusive, status remains `blocked` and the
+  guide is updated.
+- `stopped -> building | planning` resumes the same authorized lifecycle from
+  durable state. It starts a fresh Pi session and never resumes a prior Pi
+  session.
+- `halted` is terminal for that lifecycle. A new loop after halt requires the
+  interrogator to authorize a new lifecycle.
+
+## Event Rules
+
+- `.jri/logs/<loopId>/events.jsonl` stores normalized milestone events, not
+  token-by-token model output.
+- Raw agent/process output stays in `stdout.log`.
+- Core events use a discriminated TypeScript union from day one.
+- Each event has a shared envelope with at least `id`, `type`, `timestamp`,
+  optional `loopId`, optional `iteration`, optional `message`, and
+  event-specific `data`.
+- The `type` field is the discriminator. Event consumers should be able to use
+  exhaustive `switch` handling in TypeScript.
+- Event-specific payloads are explicit typed shapes, not arbitrary loose JSON
+  blobs.
+- Events are stored as JSONL using the same camelCase field names as the
+  TypeScript event types.
+- MVP event names:
+  - `loopStarted`
+  - `auditStarted`
+  - `auditPassed`
+  - `auditFailed`
+  - `planningStarted`
+  - `planningFinished`
+  - `planRegenerationRequested`
+  - `planRegenerationStarted`
+  - `planRegenerationFinished`
+  - `iterationStarted`
+  - `iterationFinished`
+  - `subagentStarted`
+  - `subagentFinished`
+  - `subagentFailed`
+  - `validationStarted`
+  - `validationFinished`
+  - `commitCreated`
+  - `tagCreated`
+  - `blockerReported`
+  - `blockerResolved`
+  - `stopRequested`
+  - `loopStopped`
+  - `loopHalted`
+  - `loopFinished`
+  - `statusRepaired`
+- JRI may add selected normalized Pi SDK events later if they improve
+  observability without making history noisy.
+
+MVP event payload requirements:
+
+```ts
+type BaseEvent = {
+  id: string;
+  sequence: number;
+  timestamp: string;
+  loopId?: string;
+  iteration?: number;
+  stdoutOffset?: number;
+  message?: string;
+};
+
+type LoopStarted = BaseEvent & {
+  type: "loopStarted";
+  loopId: string;
+  data: { projectDir: string; pid?: number };
+};
+
+type AuditFailed = BaseEvent & {
+  type: "auditFailed";
+  loopId: string;
+  data: { feedback: string; ambiguousSpecFiles?: string[] };
+};
+
+type AuditPassed = BaseEvent & {
+  type: "auditPassed";
+  loopId: string;
+  data: { specFiles: string[] };
+};
+
+type PlanningFinished = BaseEvent & {
+  type: "planningFinished";
+  loopId: string;
+  data: { planPath: ".jri/IMPLEMENTATION_PLAN.md" };
+};
+
+type IterationStarted = BaseEvent & {
+  type: "iterationStarted";
+  loopId: string;
+  iteration: number;
+  data: { cleanCommit: string };
+};
+
+type ValidationFinished = BaseEvent & {
+  type: "validationFinished";
+  loopId: string;
+  iteration: number;
+  data: { command: string; exitCode: number; passed: boolean };
+};
+
+type IterationFinished = BaseEvent & {
+  type: "iterationFinished";
+  loopId: string;
+  iteration: number;
+  data: {
+    outcome: "committed" | "noChanges" | "validationFailed" | "blocked";
+    commit?: string;
+    tag?: string;
+    changedFiles?: string[];
+  };
+};
+
+type CommitCreated = BaseEvent & {
+  type: "commitCreated";
+  loopId: string;
+  iteration: number;
+  data: { sha: string; subject?: string };
+};
+
+type TagCreated = BaseEvent & {
+  type: "tagCreated";
+  loopId: string;
+  iteration: number;
+  data: { tag: string; sha?: string };
+};
+
+type SubagentStarted = BaseEvent & {
+  type: "subagentStarted";
+  loopId: string;
+  iteration?: number;
+  data: { agent: "explorer"; task: string; mode: "spawn" | "fork" };
+};
+
+type SubagentFinished = BaseEvent & {
+  type: "subagentFinished";
+  loopId: string;
+  iteration?: number;
+  data: { agent: "explorer"; summary: string; artifactRef?: string };
+};
+
+type SubagentFailed = BaseEvent & {
+  type: "subagentFailed";
+  loopId: string;
+  iteration?: number;
+  data: { agent: "explorer"; error: string; artifactRef?: string };
+};
+
+type ValidationStarted = BaseEvent & {
+  type: "validationStarted";
+  loopId: string;
+  iteration: number;
+  data: { command: string };
+};
+
+type BlockerReported = BaseEvent & {
+  type: "blockerReported";
+  loopId: string;
+  data: {
+    reason: "ambiguousSpecs" | "needsHumanTask";
+    description: string;
+    resolutionGuide: {
+      summary: string;
+      steps: string[];
+      successCriteria?: string[];
+      resumeInstruction: string;
+      sensitive?: boolean;
+    };
+    changedFiles?: string[];
+    validationRan?: boolean;
+  };
+};
+
+type BlockerResolved = BaseEvent & {
+  type: "blockerResolved";
+  loopId: string;
+  data: { reason: "ambiguousSpecs" | "needsHumanTask" };
+};
+
+type LoopStopped = BaseEvent & {
+  type: "loopStopped";
+  loopId: string;
+  data: { reason: "gracefulStopRequested"; iteration?: number };
+};
+
+type LoopHalted = BaseEvent & {
+  type: "loopHalted";
+  loopId: string;
+  data: {
+    killedPid?: number;
+    resetOffered: boolean;
+    resetAccepted: boolean;
+    resetSucceeded?: boolean;
+    rollbackCommit?: string;
+  };
+};
+
+type LoopFinished = BaseEvent & {
+  type: "loopFinished";
+  loopId: string;
+  data: {
+    outcome: "completed" | "failed";
+    summary?: string;
+    url?: string;
+    commit?: string;
+    tag?: string;
+  };
+};
+
+type StatusRepaired = BaseEvent & {
+  type: "statusRepaired";
+  data: { repairedFrom: string; repairedTo: string; reason: string };
+};
+```
+
+Simple milestone events such as `auditStarted`, `planningStarted`,
+`planRegenerationStarted`, and
+`planRegenerationFinished` use `data: Record<string, never>` unless a concrete
+consumer needs more fields.
+
+`stopRequested` carries the new stop-request state:
+
+```ts
+type StopRequested = BaseEvent & {
+  type: "stopRequested";
+  loopId: string;
+  data: { requested: boolean };
+};
+```
+
+`planRegenerationRequested` records why the internal planner must run again:
+
+```ts
+type PlanRegenerationRequested = BaseEvent & {
+  type: "planRegenerationRequested";
+  loopId: string;
+  data: { reason: "needsReplan" | "specsChanged" | "ambiguousSpecsResolved" };
+};
+```
+
+- Canonical recovery order for status truthfulness is process check, then
+  `.jri/status.json`, then latest loop event history.
+- When an active state (`auditing`, `planning`, or `building`) remains in status
+  but the process is dead, JRI repairs status to `stopped` and emits a recovery
+  note and `statusRepaired` event so the UI can show why status changed.
+- `loopId` is required on every event emitted after a loop lifecycle exists.
+  Events before loop authorization may omit it.
+- `sequence` is monotonically increasing per project event stream. When an event
+  corresponds to the output stream, `stdoutOffset` records the byte offset in
+  `stdout.log` at the time the event was emitted.
+- `stdout.log` stores the combined stdout/stderr text stream from the harness
+  and child processes. JRI-owned attach footer redraws are not written to this
+  log.
+
+## Process Rules
+
+- One active Ralph loop may exist per project.
+- The MVP uses a per-user local JRI daemon to manage authorized Ralph loop
+  lifecycles.
+- The daemon is an internal runtime component, not a public CLI command.
+- When the interrogator authorizes Ralph, core requests the daemon to start or
+  resume the loop for the project.
+- The daemon records status updates, process metadata, events, and raw output as
+  it runs.
+- `jri loop attach`, `jri loop stop`, `jri loop halt`, and `jri loop resume`
+  communicate with the daemon when it is available.
+- `jri loop stop` is a toggle: stop request state is set when off, and cleared by
+  repeating the same action before it takes effect.
+- Toggling stop is valid only for `auditing`, `planning`, and `building`.
+- Clearing a pending stop emits `stopRequested` with
+  `{ requested: false }`.
+- If halt races with stop or natural process exit, halt wins while the process
+  is live. If the process has already exited and status has become `stopped`,
+  halt returns the stopped-state error instead of rewriting history.
+- Halt is definitive for the current lifecycle: once a halt is confirmed, status
+  moves to `halted` and remains so regardless of earlier stop state. Repeating halt
+  for an already halted loop is idempotent.
+- The Pi-backed `jri` TUI reads status through core and displays it directly.
+- Runtime files under `.jri` remain the durable source for recovery and
+  inspection; the daemon is not the source of truth by itself.
+- If the daemon is unavailable, CLI commands should either start it lazily or
+  fall back to reading `.jri/status.json` and logs when the operation is
+  read-only.
+- The daemon IPC transport is a Unix socket on Unix-like systems and the
+  platform-appropriate named pipe equivalent on Windows.
+- The daemon starts lazily when a JRI operation needs daemon behavior.
+- The daemon maintains a small user-state registry of known project directories
+  so it can manage active loops across CLI invocations.
+- Daemon socket/pipe files live in the platform user runtime directory.
+- Daemon registry/state files live in the platform user state directory.
+- Project truth remains under each project's `.jri` directory; daemon user-state
+  files only coordinate per-user runtime behavior.
+- The daemon registry is a small JSON file in the user state directory. Initial
+  schema:
+
+```json
+{
+  "protocolVersion": 1,
+  "projects": [
+    {
+      "projectDir": "/abs/path",
+      "lastSeenAt": "2026-05-27T18:42:10Z",
+      "activeLoopId": "20260527T184210Z"
+    }
+  ]
+}
+```
+
+- `projectDir` values are absolute paths.
+- `activeLoopId` is omitted or null when the daemon knows the project but
+  project status is `idle`. Stopped, blocked, and halted lifecycles keep their
+  loop id in project `status.json` until a new lifecycle supersedes them.
+- Daemon IPC uses JSON messages over the socket or named pipe.
+- Request shape:
+
+```ts
+type DaemonRequest = {
+  id: string;
+  method: string;
+  params?: unknown;
+};
+```
+
+- Response shape:
+
+```ts
+type DaemonResponse =
+  | { id: string; ok: true; result?: unknown }
+  | { id: string; ok: false; error: { code: string; message: string } };
+```
+
+- Streaming operations return core events until the client closes the stream or
+  the operation completes.
+- The daemon recovers project state from `.jri/status.json`, process checks, and
+  loop logs. Daemon memory is never the durable source of truth.
+- Recovery precedence after crashes or disagreement is:
+  - Process check first.
+  - Then `.jri/status.json`.
+  - Then latest loop event log.
+- If process checks show no active loop but `.jri/status.json` says
+  `auditing`, `planning`, or `building`, JRI repairs status to `stopped` with a
+  recovery note rather than pretending the loop is still active.
+- If core event-derived status and status-file refresh disagree, the verified
+  status (from process check or status file) wins; the UI shows the latest
+  recovery note before continuing.
+- The daemon exits after an idle timeout when there are no active loops and no
+  connected clients.
+- Daemon IPC includes a `protocolVersion` handshake separate from the JRI package
+  version.
+- If CLI and daemon protocol versions differ and no loops are active, the CLI
+  asks the daemon to exit and starts a new compatible daemon.
+- If loops are active and the protocol is compatible, CLI and daemon may
+  continue operating across package-version differences.
+- If loops are active and the protocol is incompatible, the CLI must not
+  silently kill the daemon. It should explain that an older active daemon is
+  running and offer safe user actions such as wait, graceful stop, or halt.
+
+## Acceptance Criteria
+
+- Closing the terminal does not lose track of an authorized Ralph loop.
+- JRI can report whether a loop is running, stopped, halted, blocked, or idle.
+- JRI can prevent conflicting writers using status-recorded lock state.
+- Users do not need to edit runtime files manually.
+- Logs are useful without requiring a generated summary.
