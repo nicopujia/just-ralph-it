@@ -260,7 +260,6 @@ describe("agent handoff contracts", () => {
       ".jri/logs/20260527T184210Z/artifact.md",
       ".jri/logs/20260527T184210Z/artifacts/.",
       ".jri/logs/loop/artifacts/report.md",
-      ".jri/logs/interrogation-artifacts/web-result.md",
       ".jri/logs/loop\\artifact.md",
     ]) {
       expect(() =>
@@ -270,8 +269,22 @@ describe("agent handoff contracts", () => {
           summary: "Done.",
           artifacts: [{ path }],
         }),
-      ).toThrow("Artifact paths must be stable .jri/logs/<loopId>/artifacts/* paths");
+      ).toThrow("Artifact paths must be stable .jri/logs/<loopId>/artifacts/* or .jri/logs/interrogation-artifacts/* paths");
     }
+  });
+
+  test("accepts stable chat-owned interrogation artifact paths", () => {
+    expect(
+      parseHandoff("builder", {
+        agent: "builder",
+        action: "complete",
+        summary: "Done.",
+        artifacts: [{ path: ".jri/logs/interrogation-artifacts/web-result.md", summary: "Verification transcript." }],
+      }),
+    ).toMatchObject({
+      action: "complete",
+      artifacts: [{ path: ".jri/logs/interrogation-artifacts/web-result.md", summary: "Verification transcript." }],
+    });
   });
 
   test("rejects obvious credential-bearing handoff fields and values", () => {

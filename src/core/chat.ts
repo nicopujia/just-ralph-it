@@ -299,12 +299,7 @@ export function normalizeStartTrigger(message: string): StartTrigger | null {
 
 async function* handleDone(projectDir: string, status: ProjectStatus, userMessage: string, options: ChatRuntimeOptions): AsyncIterable<CoreEvent> {
   if (status.state === "blocked" && status.blocker?.reason === "needsHumanTask") {
-    const verification = await (options.verifyHumanTask ?? defaultHumanTaskVerifier)({
-      projectDir,
-      blocker: status.blocker,
-      userMessage,
-      status,
-    });
+    const verification = await verifyHumanTask(projectDir, status.blocker, userMessage, status, options);
 
     if (verification.action === "stillBlocked") {
       await updateStatus(projectDir, (current) => {
@@ -342,6 +337,88 @@ async function* handleDone(projectDir: string, status: ProjectStatus, userMessag
   }
 
   yield* emitAssistant(projectDir, "There is no unresolved human-task blocker to verify. I recorded your message.");
+}
+
+async function verifyHumanTask(
+  projectDir: string,
+  blocker: Blocker,
+  userMessage: string,
+  status: ProjectStatus,
+  options: ChatRuntimeOptions,
+): Promise<HumanTaskVerificationHandoff> {
+  if (options.verifyHumanTask) {
+    return await options.verifyHumanTask({
+      projectDir,
+      blocker,
+      userMessage,
+      status,
+    });
+  }
+
+  const defaultVerification = await defaultHumanTaskVerifier({ projectDir, blocker });
+  if (defaultVerification.action === "verified") {
+    return defaultVerification;
+  }
+  if (!options.interrogatorHarness) {
+    return defaultVerification;
+  }
+
+  const harnessVerification = await verifyHumanTaskWithInterrogatorHarness(projectDir, blocker, userMessage, options);
+  return harnessVerification ?? defaultVerification;
+}
+
+async function verifyHumanTaskWithInterrogatorHarness(
+  projectDir: string,
+  blocker: Blocker,
+  userMessage: string,
+  options: ChatRuntimeOptions,
+): Promise<HumanTaskVerificationHandoff | undefined> {
+  const harness = options.interrogatorHarness;
+  if (!harness) return undefined;
+
+  try {
+    const context = await buildInterrogatorContext(projectDir, userMessage);
+    context.inline.push(
+      [
+        "Human-task verification mode:",
+        "The user said done for an active needsHumanTask blocker.",
+        `Current blocker: ${blocker.description}`,
+        "Verify the blocker from durable project state and approved JRI capabilities.",
+        "Emit humanTaskVerified only if the blocker is actually resolved; otherwise emit humanTaskStillBlocked with an updated blocker.",
+      ].join("\n"),
+    );
+    const result = await harness({
+      owner: { kind: "chat", turnId: `verification-${crypto.randomUUID()}` },
+      projectDir,
+      agent: "interrogator",
+      phase: "interrogation",
+      model: modelForAgent(await readProjectConfig(projectDir), "interrogator"),
+      context,
+      capabilities: [{ name: "web", operation: "search" }, { name: "web", operation: "fetch" }],
+      output: { write: () => {} },
+      signal: options.signal ?? new AbortController().signal,
+    });
+    if (result.handoff.agent !== "interrogator") {
+      throw new Error("Interrogation harness returned a non-interrogator handoff.");
+    }
+    if (result.handoff.action === "humanTaskVerified") {
+      return {
+        agent: "verifier",
+        action: "verified",
+        ...(result.handoff.verificationSummary ? { verificationSummary: result.handoff.verificationSummary } : {}),
+      };
+    }
+    if (result.handoff.action === "humanTaskStillBlocked") {
+      return {
+        agent: "verifier",
+        action: "stillBlocked",
+        blocker: result.handoff.blocker,
+      };
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 async function markHumanTaskVerified(projectDir: string, verificationSummary: string | undefined, options: ChatRuntimeOptions): Promise<CoreEvent | undefined> {

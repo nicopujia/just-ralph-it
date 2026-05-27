@@ -382,11 +382,11 @@ function parseArtifact(value: unknown, agent: HandoffAgent): ArtifactRef {
   }
   assertKnownKeys(value, `${agent} artifact`, ["path", "summary"], agent);
   const path = requiredString(value.path, "artifact.path", agent);
-  if (!isStableLoopArtifactPath(path)) {
-    throw invalidHandoff(agent, "Artifact paths must be stable .jri/logs/<loopId>/artifacts/* paths.");
+  if (!isStableArtifactPath(path)) {
+    throw invalidHandoff(agent, "Artifact paths must be stable .jri/logs/<loopId>/artifacts/* or .jri/logs/interrogation-artifacts/* paths.");
   }
   return {
-    path: path as `.jri/logs/${string}/artifacts/${string}`,
+    path: path as ArtifactRef["path"],
     ...(value.summary === undefined ? {} : { summary: requiredString(value.summary, "artifact.summary", agent) }),
   };
 }
@@ -458,6 +458,10 @@ function isStableRelativePathUnder(path: string, requiredPrefix: string): boolea
   return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
 }
 
+function isStableArtifactPath(path: string): boolean {
+  return isStableLoopArtifactPath(path) || isStableInterrogationArtifactPath(path);
+}
+
 function isStableLoopArtifactPath(path: string): boolean {
   if (path.includes("\\") || path.includes("\0")) return false;
   const match = /^\.jri\/logs\/(\d{8}T\d{6}Z(?:-\d+)?)\/artifacts\/(.+)$/.exec(path);
@@ -465,6 +469,10 @@ function isStableLoopArtifactPath(path: string): boolean {
   const artifactPath = match[2];
   if (!artifactPath) return false;
   return artifactPath.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}
+
+function isStableInterrogationArtifactPath(path: string): boolean {
+  return isStableRelativePathUnder(path, ".jri/logs/interrogation-artifacts/");
 }
 
 function assertNoSecrets(value: unknown, agent: HandoffAgent, path = "handoff"): void {

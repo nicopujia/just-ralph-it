@@ -128,7 +128,7 @@ export type HaltOptions = {
 };
 
 export type ArtifactRef = {
-  path: `.jri/logs/${string}/artifacts/${string}`;
+  path: `.jri/logs/${string}/artifacts/${string}` | `.jri/logs/interrogation-artifacts/${string}`;
   summary?: string;
 };
 

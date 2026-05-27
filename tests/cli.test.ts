@@ -322,6 +322,73 @@ describe("CLI", () => {
     }
   });
 
+  test("bare jri done accepts an interrogator humanTaskVerified handoff and records blocker resolution", async () => {
+    const dir = await tempInitializedProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Deployment credentials are missing.",
+          resolutionGuide: {
+            summary: "Credentials are required.",
+            steps: ["Set the deployment token outside chat."],
+            resumeInstruction: "Say done in bare jri after the token is available.",
+          },
+          resumePhase: "building",
+        },
+      });
+      const fakePi = join(dir, "fake-verify-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          "printf 'Verified the deployment token without exposing it.\\n'",
+          "printf 'JRI_HANDOFF_JSON: {\"agent\":\"interrogator\",\"action\":\"humanTaskVerified\",\"verificationSummary\":\"Deployment token is present.\"}\\n'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      const proc = Bun.spawn(["bun", cliPath], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          JRI_PI_COMMAND: fakePi,
+        },
+      });
+      proc.stdin.write("done\n");
+      proc.stdin.end();
+
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain(`Initialized JRI in ${dir}`);
+      expect(stdout).toContain("Run jri loop resume");
+      expect(status).toMatchObject({
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "needsHumanTask",
+          resumePhase: "building",
+          resolution: {
+            status: "verified",
+            verificationSummary: "Deployment token is present.",
+          },
+        },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("bare jri with no input surfaces idle last result details", async () => {
     const dir = await tempInitializedProject();
     try {
