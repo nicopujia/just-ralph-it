@@ -1,4 +1,4 @@
-# Just Ralph It (JRI)
+# JRI (i.e. [Just Ralph It](https://justralph.it), a.k.a. [Ralfealo](https://ralfealo.com))
 
 ## Related resources
 
