@@ -78,6 +78,37 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("observe can include recent stdout context with byte offset before milestone events", async () => {
+    const dir = await tempProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+      });
+      await mkdir(join(dir, ".jri", "logs", "20260527T184210Z"), { recursive: true });
+      await writeFile(join(dir, ".jri", "logs", "20260527T184210Z", "stdout.log"), "first line\nsecond line\nthird line\n", "utf8");
+      await appendLoopEvent(dir, {
+        type: "iterationStarted",
+        loopId: "20260527T184210Z",
+        iteration: 1,
+        data: { trackedTreeCleanAtStart: true },
+      });
+
+      const events = await collect(observeLoop(dir, { includeStdout: true, recentStdoutLines: 2 }));
+
+      expect(events.map((event) => event.type)).toEqual(["loopOutput", "iterationStarted"]);
+      const output = events[0];
+      if (output?.type !== "loopOutput") throw new Error("Expected loopOutput event.");
+      expect(output.data).toEqual({ text: "second line\nthird line\n", replayed: true });
+      expect(output.stdoutOffset).toBe(Buffer.byteLength("first line\n", "utf8"));
+      expect(events[1]).toMatchObject({ type: "iterationStarted", sequence: 1 });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("requestGracefulStop toggles active loop stop state and logs each request", async () => {
     const dir = await tempProject();
     try {

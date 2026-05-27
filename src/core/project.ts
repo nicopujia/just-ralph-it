@@ -6,7 +6,7 @@ import { JriError } from "./errors";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
 import { daemonHaltLoop, daemonObserveLoop, daemonRequestStop, daemonResumeLoop, daemonStatus } from "./daemon-ipc";
 import { defaultConfig, defaultStatus, parseJsonObject, validateConfig, validateStatus } from "./schema";
-import type { AuthResult, AuthState, ChatInput, CoreEvent, ProjectConfig, ProjectStatus } from "./types";
+import type { AuthResult, AuthState, ChatInput, CoreEvent, LoopObserveOptions, ProjectConfig, ProjectStatus } from "./types";
 
 const agentsTemplate = `## Build & Run
 
@@ -62,8 +62,8 @@ export class Project {
   };
 
   readonly loop = {
-    observe: (): AsyncIterable<CoreEvent> => {
-      return observeWithFallback(this.projectDir);
+    observe: (options: LoopObserveOptions = {}): AsyncIterable<CoreEvent> => {
+      return observeWithFallback(this.projectDir, options);
     },
     requestStop: async (): Promise<void> => {
       try {
@@ -123,12 +123,12 @@ export class Project {
   }
 }
 
-async function* observeWithFallback(projectDir: string): AsyncIterable<CoreEvent> {
+async function* observeWithFallback(projectDir: string, options: LoopObserveOptions): AsyncIterable<CoreEvent> {
   try {
-    yield* daemonObserveLoop(projectDir);
+    yield* daemonObserveLoop(projectDir, options);
   } catch (error) {
     if (!isDaemonUnavailable(error)) throw error;
-    yield* observeLoop(projectDir);
+    yield* observeLoop(projectDir, options);
   }
 }
 

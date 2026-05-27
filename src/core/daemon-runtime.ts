@@ -17,7 +17,17 @@ import {
   writeStatusAtomic,
 } from "./runtime-state";
 import { extractLatestBuilderHandoffFromText, extractLatestHandoffFromText } from "./handoffs";
-import type { AuditorHandoff, Blocker, BuilderHandoff, CoreEvent, LockOperation, PlannerHandoff, ProjectStatus, ValidationHandoff } from "./types";
+import type {
+  AuditorHandoff,
+  Blocker,
+  BuilderHandoff,
+  CoreEvent,
+  LockOperation,
+  LoopObserveOptions,
+  PlannerHandoff,
+  ProjectStatus,
+  ValidationHandoff,
+} from "./types";
 
 export type ProcessAliveCheck = (pid: number) => boolean;
 export type ProcessKiller = (pid: number) => void;
@@ -96,13 +106,20 @@ export async function recoverRuntimeStatus(
   return repairedEvent ? { status: repaired, repairedEvent } : { status: repaired };
 }
 
-export async function* observeLoop(projectDir: string, options: RuntimeOptions = {}): AsyncIterable<CoreEvent> {
+export async function* observeLoop(projectDir: string, options: RuntimeOptions & LoopObserveOptions = {}): AsyncIterable<CoreEvent> {
   const { status, repairedEvent } = await recoverRuntimeStatus(projectDir, options);
   if (repairedEvent) yield repairedEvent;
 
   const loopId = status.activeLoopId ?? status.lastLoopId;
   if (!loopId) {
     throw new JriError("There is no JRI loop to observe.", "no-loop", "Start Ralph from bare jri after specs are ready.");
+  }
+
+  if (options.includeStdout) {
+    const output = await readRecentStdout(projectDir, loopId, options.recentStdoutLines ?? 100);
+    if (output) {
+      yield syntheticLoopOutputEvent(loopId, output.text, output.stdoutOffset);
+    }
   }
 
   for (const event of await readLoopEvents(projectDir, loopId)) {
@@ -571,6 +588,33 @@ async function readLoopEvents(projectDir: string, loopId: string): Promise<CoreE
     events.push(JSON.parse(line) as CoreEvent);
   }
   return events;
+}
+
+async function readRecentStdout(projectDir: string, loopId: string, maxLines: number): Promise<{ text: string; stdoutOffset: number } | undefined> {
+  const path = join(projectDir, ".jri", "logs", loopId, "stdout.log");
+  if (!(await Bun.file(path).exists())) return undefined;
+  const text = await readFile(path, "utf8");
+  if (!text) return undefined;
+  const lines = text.endsWith("\n") ? text.slice(0, -1).split("\n") : text.split("\n");
+  const selected = lines.slice(-Math.max(1, maxLines));
+  const selectedText = `${selected.join("\n")}${text.endsWith("\n") ? "\n" : ""}`;
+  return {
+    text: selectedText,
+    stdoutOffset: Buffer.byteLength(text.slice(0, text.length - selectedText.length), "utf8"),
+  };
+}
+
+function syntheticLoopOutputEvent(loopId: string, text: string, stdoutOffset: number): CoreEvent {
+  return {
+    id: crypto.randomUUID(),
+    sequence: 0,
+    timestamp: new Date().toISOString(),
+    type: "loopOutput",
+    loopId,
+    stdoutOffset,
+    message: text,
+    data: { text, replayed: true },
+  };
 }
 
 async function appendRecoveryEvent(projectDir: string, repairedFrom: string, repairedTo: string, reason: string): Promise<CoreEvent | undefined> {

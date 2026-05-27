@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -64,13 +64,15 @@ describe("daemon IPC", () => {
         loopId: "20260527T184210Z",
         data: { projectDir: dir },
       });
+      await writeFile(join(dir, ".jri", "logs", "20260527T184210Z", "stdout.log"), "agent output\n", "utf8");
 
       await daemonRequestStop(dir, { paths });
       const stopped = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
       expect(stopped.stopRequested).toBe(true);
 
-      const events = await collect(daemonObserveLoop(dir, { paths }));
-      expect(events.map((event) => event.type)).toEqual(["loopStarted", "stopRequested"]);
+      const events = await collect(daemonObserveLoop(dir, { paths, includeStdout: true }));
+      expect(events.map((event) => event.type)).toEqual(["loopOutput", "loopStarted", "stopRequested"]);
+      expect(events[0]).toMatchObject({ type: "loopOutput", data: { text: "agent output\n", replayed: true } });
     } finally {
       await daemon.close();
       await rm(dir, { recursive: true, force: true });

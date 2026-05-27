@@ -57,7 +57,7 @@ async function main(argv: string[]): Promise<number> {
 
   if (command === "loop") {
     if (subcommand === "attach") {
-      for await (const event of project.loop.observe()) {
+      for await (const event of project.loop.observe({ includeStdout: true, recentStdoutLines: 100 })) {
         console.log(formatLoopEvent(event));
       }
       return 0;
@@ -114,6 +114,7 @@ function formatStatus(status: { state: string; blocker?: { reason: string; descr
 }
 
 function formatLoopEvent(event: { type: string; sequence: number; timestamp: string; message?: string; data?: unknown }): string {
+  if (event.type === "loopOutput" && event.message) return event.message.endsWith("\n") ? event.message.slice(0, -1) : event.message;
   return event.message ?? `[${event.sequence}] ${event.timestamp} ${event.type} ${JSON.stringify(event.data ?? {})}`;
 }
 

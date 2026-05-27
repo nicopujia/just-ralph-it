@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { JriError, isJriError } from "./errors";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
 import { isActiveState } from "./runtime-state";
-import type { CoreEvent, ProjectStatus } from "./types";
+import type { CoreEvent, LoopObserveOptions, ProjectStatus } from "./types";
 
 export const DAEMON_PROTOCOL_VERSION = 1;
 
@@ -51,7 +51,7 @@ type DaemonServerOptions = {
   idleTimeoutMs?: number;
 };
 
-type DaemonClientOptions = {
+type DaemonClientOptions = LoopObserveOptions & {
   paths?: DaemonPaths;
   startIfUnavailable?: boolean;
   startupTimeoutMs?: number;
@@ -77,7 +77,7 @@ export async function daemonStatus(projectDir: string, options: DaemonClientOpti
 }
 
 export async function* daemonObserveLoop(projectDir: string, options: DaemonClientOptions = {}): AsyncIterable<CoreEvent> {
-  yield* daemonStream("loop.observe", { projectDir }, { ...options, startIfUnavailable: false });
+  yield* daemonStream("loop.observe", { projectDir, observe: observeOptionsParam(options) }, { ...options, startIfUnavailable: false });
 }
 
 export async function daemonRequestStop(projectDir: string, options: DaemonClientOptions = {}): Promise<void> {
@@ -374,7 +374,7 @@ async function handleRequestLine(socket: Socket, paths: DaemonPaths, line: strin
       return;
     }
     if (request.method === "loop.observe") {
-      for await (const event of observeLoop(projectDir)) {
+      for await (const event of observeLoop(projectDir, observeOptionsFromParams(request.params))) {
         writeStreamEvent(socket, request.id, event);
       }
       writeStreamDone(socket, request.id);
@@ -467,6 +467,24 @@ function projectDirParam(params: unknown): string {
     throw new JriError("Daemon request is missing projectDir.", "invalid-daemon-request", "Retry with a compatible JRI client.");
   }
   return resolve(params.projectDir);
+}
+
+function observeOptionsParam(options: LoopObserveOptions): LoopObserveOptions {
+  return {
+    ...(options.includeStdout === undefined ? {} : { includeStdout: options.includeStdout }),
+    ...(options.recentStdoutLines === undefined ? {} : { recentStdoutLines: options.recentStdoutLines }),
+  };
+}
+
+function observeOptionsFromParams(params: unknown): LoopObserveOptions {
+  if (!params || typeof params !== "object" || !("observe" in params) || !params.observe || typeof params.observe !== "object") return {};
+  const observe = params.observe as Record<string, unknown>;
+  return {
+    ...(typeof observe.includeStdout === "boolean" ? { includeStdout: observe.includeStdout } : {}),
+    ...(typeof observe.recentStdoutLines === "number" && Number.isInteger(observe.recentStdoutLines) && observe.recentStdoutLines > 0
+      ? { recentStdoutLines: observe.recentStdoutLines }
+      : {}),
+  };
 }
 
 function writeResponse(socket: Socket, response: DaemonResponse): void {
