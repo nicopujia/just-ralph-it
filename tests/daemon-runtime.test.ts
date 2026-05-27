@@ -1220,6 +1220,7 @@ describe("daemon/runtime scaffolding", () => {
           expiresAt: "2026-05-27T19:01:00.000Z",
         },
       });
+      await recordExplorerProof(dir);
       await runLoopProcess(dir, "20260527T184210Z", "building");
 
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
@@ -1227,12 +1228,12 @@ describe("daemon/runtime scaffolding", () => {
       const events = await collect(observeLoop(dir));
 
       expect(stdout).toContain("fake-pi-ran");
-      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "iterationFinished", "loopFinished"]);
+      expect(events.map((event) => event.type)).toEqual(["subagentFinished", "iterationStarted", "iterationFinished", "loopFinished"]);
       expect(status).toMatchObject({
         state: "idle",
         activeLoopId: null,
         iterations: 1,
-        lastResult: { outcome: "completed" },
+        lastResult: { outcome: "completed", explorer: { used: true, summary: "Explorer found the relevant code path." } },
       });
       expect(status.process).toBeUndefined();
       expect(status.lock).toBeUndefined();
@@ -1274,7 +1275,6 @@ describe("daemon/runtime scaffolding", () => {
           expiresAt: "2026-05-27T19:01:00.000Z",
         },
       });
-
       await runLoopProcess(dir, "20260527T184210Z", "building");
 
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
@@ -1334,7 +1334,6 @@ describe("daemon/runtime scaffolding", () => {
           expiresAt: "2026-05-27T19:01:00.000Z",
         },
       });
-
       await runLoopProcess(dir, "20260527T184210Z", "building");
 
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
@@ -1434,6 +1433,7 @@ describe("daemon/runtime scaffolding", () => {
             signal: invocation.signal,
           });
           await invocation.output.write("builder display output");
+          await recordExplorerProof(dir);
           return {
             handoff: {
               agent: "builder",
@@ -1460,11 +1460,63 @@ describe("daemon/runtime scaffolding", () => {
         },
       ]);
       expect(stdout).toBe("builder display output\n");
-      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "iterationFinished", "loopFinished"]);
+      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "subagentFinished", "iterationFinished", "loopFinished"]);
       expect(status).toMatchObject({
         state: "idle",
         activeLoopId: null,
-        lastResult: { outcome: "completed", summary: "Adapter build complete." },
+        lastResult: {
+          outcome: "completed",
+          summary: "Adapter build complete.",
+          explorer: { used: true, summary: "Explorer found the relevant code path." },
+        },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runner rejects completion without durable explorer proof", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild the app.\n", "utf8");
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build"),
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "building", {
+        harnessAdapter: async () => ({
+          handoff: {
+            agent: "builder",
+            action: "complete",
+            summary: "Adapter build complete.",
+          },
+        }),
+      });
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+
+      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "iterationFinished", "loopFinished"]);
+      expect(events[2]).toMatchObject({
+        type: "loopFinished",
+        data: {
+          outcome: "failed",
+          summary: expect.stringContaining("durable successful explorer delegation evidence"),
+        },
+      });
+      expect(events[2]?.message).toContain("subagentStarted and subagentFinished");
+      expect(status).toMatchObject({
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastResult: {
+          outcome: "failed",
+          summary: expect.stringContaining("durable successful explorer delegation evidence"),
+        },
       });
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -1626,6 +1678,7 @@ describe("daemon/runtime scaffolding", () => {
           expiresAt: "2026-05-27T19:01:00.000Z",
         },
       });
+      await recordExplorerProof(dir);
 
       await runLoopProcess(dir, "20260527T184210Z", "auditing");
 
@@ -1633,6 +1686,7 @@ describe("daemon/runtime scaffolding", () => {
       const events = await collect(observeLoop(dir));
 
       expect(events.map((event) => event.type)).toEqual([
+        "subagentFinished",
         "auditStarted",
         "auditPassed",
         "planningStarted",
@@ -1646,7 +1700,7 @@ describe("daemon/runtime scaffolding", () => {
         activeLoopId: null,
         authorizedSpecsFingerprint: emptySpecsFingerprint,
         iterations: 1,
-        lastResult: { outcome: "completed" },
+        lastResult: { outcome: "completed", explorer: { used: true, summary: "Explorer found the relevant code path." } },
       });
     } finally {
       if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
@@ -1797,6 +1851,7 @@ describe("daemon/runtime scaffolding", () => {
           expiresAt: "2026-05-27T19:01:00.000Z",
         },
       });
+      await recordExplorerProof(dir);
 
       await runLoopProcess(dir, "20260527T184210Z", "auditing");
 
@@ -1804,6 +1859,7 @@ describe("daemon/runtime scaffolding", () => {
       const events = await collect(observeLoop(dir));
 
       expect(events.map((event) => event.type)).toEqual([
+        "subagentFinished",
         "auditStarted",
         "auditPassed",
         "blockerResolved",
@@ -1813,7 +1869,7 @@ describe("daemon/runtime scaffolding", () => {
         "iterationFinished",
         "loopFinished",
       ]);
-      expect(events[2]).toMatchObject({
+      expect(events[3]).toMatchObject({
         type: "blockerResolved",
         data: { reason: "ambiguousSpecs" },
       });
@@ -1993,7 +2049,6 @@ describe("daemon/runtime scaffolding", () => {
           expiresAt: "2026-05-27T19:01:00.000Z",
         },
       });
-
       await runLoopProcess(dir, "20260527T184210Z", "building");
 
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
@@ -2106,6 +2161,7 @@ describe("daemon/runtime scaffolding", () => {
           expiresAt: "2026-05-27T19:01:00.000Z",
         },
       });
+      await recordExplorerProof(dir);
 
       await runLoopProcess(dir, "20260527T184210Z", "building");
 
@@ -2116,6 +2172,7 @@ describe("daemon/runtime scaffolding", () => {
       const iterationFinished = events.find((event) => event.type === "iterationFinished");
 
       expect(events.map((event) => event.type)).toEqual([
+        "subagentFinished",
         "iterationStarted",
         "validationStarted",
         "validationFinished",
@@ -2124,7 +2181,7 @@ describe("daemon/runtime scaffolding", () => {
         "iterationFinished",
         "loopFinished",
       ]);
-      expect(events[0]).toMatchObject({ type: "iterationStarted", data: { trackedTreeCleanAtStart: true } });
+      expect(events[1]).toMatchObject({ type: "iterationStarted", data: { trackedTreeCleanAtStart: true } });
       expect(commit).toMatchObject({ type: "commitCreated", iteration: 1, data: { subject: "build iteration" } });
       expect(tag).toMatchObject({ type: "tagCreated", iteration: 1, data: { tag: "0.0.1" } });
       expect(iterationFinished).toMatchObject({
@@ -2135,7 +2192,7 @@ describe("daemon/runtime scaffolding", () => {
         state: "idle",
         activeLoopId: null,
         iterations: 1,
-        lastResult: { outcome: "completed", validationPassed: true, tag: "0.0.1" },
+        lastResult: { outcome: "completed", validationPassed: true, tag: "0.0.1", explorer: { used: true } },
       });
       expect(status.lastResult.commit).toBe(commit?.data.sha);
     } finally {
@@ -2189,7 +2246,6 @@ describe("daemon/runtime scaffolding", () => {
           expiresAt: "2026-05-27T19:01:00.000Z",
         },
       });
-
       await runLoopProcess(dir, "20260527T184210Z", "building");
 
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
@@ -2846,6 +2902,7 @@ describe("daemon/runtime scaffolding", () => {
           expiresAt: "2026-05-27T19:01:00.000Z",
         },
       });
+      await recordExplorerProof(dir);
 
       await runLoopProcess(dir, "20260527T184210Z", "building");
 
@@ -2853,6 +2910,7 @@ describe("daemon/runtime scaffolding", () => {
       const events = await collect(observeLoop(dir));
 
       expect(events.map((event) => event.type)).toEqual([
+        "subagentFinished",
         "iterationStarted",
         "iterationFinished",
         "planRegenerationRequested",
@@ -2866,7 +2924,7 @@ describe("daemon/runtime scaffolding", () => {
         state: "idle",
         activeLoopId: null,
         iterations: 2,
-        lastResult: { outcome: "completed" },
+        lastResult: { outcome: "completed", explorer: { used: true } },
       });
     } finally {
       if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
@@ -2880,6 +2938,18 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const items: T[] = [];
   for await (const item of iterable) items.push(item);
   return items;
+}
+
+async function recordExplorerProof(dir: string): Promise<void> {
+  await appendLoopEvent(dir, {
+    type: "subagentFinished",
+    loopId: "20260527T184210Z",
+    data: {
+      agent: "explorer",
+      summary: "Explorer found the relevant code path.",
+      artifactRef: ".jri/logs/20260527T184210Z/artifacts/explorer-proof.txt",
+    },
+  });
 }
 
 function activeTestLock(operation: "audit" | "plan" | "build", pid = process.pid) {

@@ -78,6 +78,11 @@ export type ProjectStatus = {
     validationPassed?: boolean;
     commit?: string;
     tag?: string;
+    explorer?: {
+      used: boolean;
+      summary?: string;
+      artifactRef?: string;
+    };
   };
   recoveryNote?: {
     timestamp: string;
@@ -225,7 +230,22 @@ export type CoreEvent =
       loopId: string;
       data: { killedPid?: number; resetOffered: boolean; resetAccepted: boolean; resetSucceeded?: boolean; resetError?: string; rollbackCommit?: string };
     })
-  | (BaseEvent & { type: "loopFinished"; loopId: string; data: { outcome: "completed" | "failed"; summary?: string; url?: string; commit?: string; tag?: string } })
+  | (BaseEvent & {
+      type: "loopFinished";
+      loopId: string;
+      data: {
+        outcome: "completed" | "failed";
+        summary?: string;
+        url?: string;
+        commit?: string;
+        tag?: string;
+        explorer?: {
+          used: boolean;
+          summary?: string;
+          artifactRef?: string;
+        };
+      };
+    })
   | (BaseEvent & { type: "statusRepaired"; loopId?: string; data: { repairedFrom: string; repairedTo: string; reason: string } })
   | (BaseEvent & { type: "loopOutput"; loopId: string; stdoutOffset: number; data: { text: string; replayed: boolean } })
   | (BaseEvent & { type: "chatMessageStarted"; data: { role: "assistant" } })

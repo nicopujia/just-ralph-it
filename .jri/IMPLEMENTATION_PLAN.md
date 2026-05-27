@@ -16,14 +16,8 @@
   - Bundle or preflight `pi-web-access` and `pi-subagent`; missing implementations must fail with actionable `capability-*` evidence before a loop depends on them.
   - Keep explorer JRI-owned, read-only, spawn/fresh by default, concurrency-limited, handoff-bounded, artifact-backed, and isolated from ambient Pi state.
 
-- P0: Enforce required dogfood explorer proof before successful completion.
-  - Confirmed gap: `.jri/specs/mvp-dogfood-success.md` requires at least one explorer delegation, but the completion path in `runLoopProcess` can emit `loopFinished` with `outcome: "completed"` without checking `subagentStarted`/`subagentFinished` evidence.
-  - Require durable successful explorer evidence before the dogfood MVP loop can complete; if explorer is unavailable or unused, fail with an actionable capability error instead of reporting success.
-  - Include explorer availability/use evidence in final status and loop events so attach/recovery can prove the requirement was satisfied.
-
 - P0: Finish cancellation, timeout, halt fanout, and runtime failure normalization.
   - Confirmed gap: `haltProcess` kills only `status.process.pid`; there is no loop-owned child process registry or fanout for web, explorer, or other capability children.
-  - Confirmed gap: `isLoopFailureError` does not include `harness-cancelled`, `runtime-cancelled`, `web-capability-*`, `capability-*`, or `explorer-failed`, so those paths may skip durable `loopFinished` failure/status evidence.
   - Register loop-owned capability children with the runner and cancel the runner plus all registered children on halt or timeout, with SIGTERM-then-SIGKILL escalation.
   - Route pre-start aborts, in-flight aborts, timeouts, halt, graceful-stop boundaries, connected-but-silent daemon IPC, parser failures, lock loss, and capability failures through one structured failure path.
   - Normalize failures into durable `loopFinished` failure events plus stopped status/`lastResult` evidence that recovery can trust.
@@ -92,6 +86,8 @@
   - Attach stdout cursors are byte-safe for multibyte output.
   - Bare blocked status formatting includes the full resolution guide; only automatic chat/interrogation blocked guidance remains active above.
   - Public omission of documented-forbidden `jri init`, `jri status`, and `jri loop start` remains complete; internal entrypoint guarding remains active above.
+  - Dogfood MVP successful completion now requires durable `subagentFinished` explorer evidence; completion fails without proof, and `loopFinished` plus status `lastResult` success evidence include the explorer proof. Broader first-class SDK/runtime capability work for explorer and web remains active above.
+  - Runtime failure normalization now treats `harness-cancelled`, `runtime-cancelled`, `explorer-failed`, `capability-*`, and `web-capability-*` errors as durable loop failures; child-process cancellation fanout remains active above.
   - Single-line handoff parsing, duplicate/missing/wrong-agent/wrong-phase rejection, strict known-key parsing, validation artifact refs, affected auditor topics, and obvious secret-shaped handoff rejection are implemented.
   - Daemon-owned public lifecycle mutation baseline, read-only local fallback, status mutation locking, loop id generation, event sequencing baseline, start-trigger normalization, runtime recovery for dead/stale ownership, planner plan existence checks, and stopped-loop resume lineage checks are implemented.
   - Audit pass now computes the canonical `.jri/specs/*.md` fingerprint in daemon/core, rejects auditor fingerprint mismatches as durable runtime failures, persists only the core-computed value, and covers non-empty specs directories by using directory `stat` instead of `Bun.file(directory).exists()`.

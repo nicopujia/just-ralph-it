@@ -663,6 +663,11 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         data: iterationResult,
       });
       if (await stopIfRequested(projectDir, loopId, "building", finishedIteration)) return;
+      const explorerProof = await successfulExplorerProof(projectDir, loopId);
+      if (builderHandoff.action === "complete" && !explorerProof) {
+        await finishMissingExplorerProofRun(projectDir, loopId);
+        return;
+      }
       if (builderHandoff.action === "needsReplan") {
         await appendLoopEvent(projectDir, {
           type: "planRegenerationRequested",
@@ -696,6 +701,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
           ...(builderHandoff.url ? { url: builderHandoff.url } : {}),
           ...(iterationResult.commit ? { commit: iterationResult.commit } : {}),
           ...(iterationResult.tag ? { tag: iterationResult.tag } : {}),
+          ...(explorerProof ? { explorer: explorerProof } : {}),
         },
       });
       await transitionStatus(projectDir, "idle", {
@@ -710,6 +716,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
             ...(builderHandoff.url ? { url: builderHandoff.url } : {}),
             ...(iterationResult.commit ? { commit: iterationResult.commit } : {}),
             ...(iterationResult.tag ? { tag: iterationResult.tag } : {}),
+            ...(explorerProof ? { explorer: explorerProof } : {}),
           },
         },
       });
@@ -1557,17 +1564,58 @@ async function finishRuntimeFailureRun(projectDir: string, loopId: string, phase
   });
 }
 
+async function finishMissingExplorerProofRun(projectDir: string, loopId: string): Promise<void> {
+  const summary = "Building failed: Ralph cannot complete without durable successful explorer delegation evidence.";
+  const recovery =
+    "Run at least one JRI explorer delegation during planning or building so the loop records subagentStarted and subagentFinished evidence before reporting completion.";
+  await appendLoopEvent(projectDir, {
+    type: "loopFinished",
+    loopId,
+    data: { outcome: "failed", summary },
+    message: recovery,
+  });
+  await transitionStatus(projectDir, "stopped", {
+    loopId,
+    update: {
+      ...ownershipCleared(await readStatus(projectDir)),
+      stopRequested: false,
+      lastResult: {
+        outcome: "failed",
+        summary,
+        validationPassed: false,
+      },
+    },
+  });
+}
+
 function isLoopFailureError(error: JriError): boolean {
+  if (error.code.startsWith("capability-") || error.code.startsWith("web-capability-")) return true;
   return [
     "auth-required",
+    "explorer-failed",
     "harness-failed",
+    "harness-cancelled",
     "harness-timeout",
     "invalid-agent-handoff",
     "missing-agent-handoff",
     "multiple-agent-handoffs",
     "planner-plan-missing",
+    "runtime-cancelled",
     "unsupported-harness-agent",
   ].includes(error.code);
+}
+
+async function successfulExplorerProof(projectDir: string, loopId: string): Promise<{ used: boolean; summary?: string; artifactRef?: string } | undefined> {
+  const events = await readLoopEvents(projectDir, loopId);
+  const latestFinished = events
+    .filter((event): event is Extract<CoreEvent, { type: "subagentFinished" }> => event.type === "subagentFinished" && event.data.agent === "explorer")
+    .at(-1);
+  if (!latestFinished) return undefined;
+  return {
+    used: true,
+    summary: latestFinished.data.summary,
+    ...(latestFinished.data.artifactRef ? { artifactRef: latestFinished.data.artifactRef } : {}),
+  };
 }
 
 function phaseFailureLabel(phase: RunnerPhase): string {

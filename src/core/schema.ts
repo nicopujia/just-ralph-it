@@ -259,7 +259,7 @@ function validateLastResult(value: unknown, filePath: string): void {
   if (!isRecord(value) || Array.isArray(value)) {
     throw new JriError(`${filePath} lastResult must be an object.`, "invalid-status", "Set lastResult to a valid result object.");
   }
-  rejectUnknownKeys(value, new Set(["outcome", "summary", "url", "validationPassed", "commit", "tag"]), filePath);
+  rejectUnknownKeys(value, new Set(["outcome", "summary", "url", "validationPassed", "commit", "tag", "explorer"]), filePath);
   if (typeof value.outcome !== "string" || !new Set(["completed", "stopped", "halted", "blocked", "failed"]).has(value.outcome)) {
     throw new JriError(`${filePath} lastResult has an invalid outcome.`, "invalid-status", "Use a supported lastResult outcome.");
   }
@@ -270,6 +270,20 @@ function validateLastResult(value: unknown, filePath: string): void {
   }
   validateOptionalString(value.commit, "lastResult.commit", filePath);
   validateOptionalString(value.tag, "lastResult.tag", filePath);
+  validateExplorerEvidence(value.explorer, filePath);
+}
+
+function validateExplorerEvidence(value: unknown, filePath: string): void {
+  if (value === undefined) return;
+  if (!isRecord(value) || Array.isArray(value)) {
+    throw new JriError(`${filePath} lastResult.explorer must be an object.`, "invalid-status", "Set lastResult.explorer to valid explorer evidence.");
+  }
+  rejectUnknownKeys(value, new Set(["used", "summary", "artifactRef"]), filePath);
+  if (value.used !== true) {
+    throw new JriError(`${filePath} lastResult.explorer.used must be true.`, "invalid-status", "Record successful explorer evidence with used set to true.");
+  }
+  validateOptionalString(value.summary, "lastResult.explorer.summary", filePath);
+  validateOptionalString(value.artifactRef, "lastResult.explorer.artifactRef", filePath);
 }
 
 function validateRecoveryNote(value: unknown, filePath: string): void {
