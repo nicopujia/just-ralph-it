@@ -8,6 +8,7 @@ import {
   renderWebCapabilityInstructions,
   webCapabilityDescriptor,
 } from "../src/core/capabilities";
+import { assertHarnessCapabilities } from "../src/core/harness";
 import { buildPiPrompt } from "../src/core/prompts";
 
 async function tempProject(): Promise<string> {
@@ -136,5 +137,34 @@ describe("capability descriptors", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  test("harness capability policy rejects capabilities outside their allowed agents", () => {
+    expect(() =>
+      assertHarnessCapabilities({
+        owner: { kind: "loop", loopId: "20260527T184210Z" },
+        agent: "auditor",
+        phase: "auditing",
+        capabilities: [{ name: "explorer" }],
+      }),
+    ).toThrow("explorer capability is not allowed for auditor");
+
+    expect(() =>
+      assertHarnessCapabilities({
+        owner: { kind: "chat", turnId: "turn-1" },
+        agent: "planner",
+        phase: "planning",
+        capabilities: [{ name: "web", operation: "search" }],
+      }),
+    ).toThrow("Chat-owned web capability is only available to the interrogator");
+
+    expect(() =>
+      assertHarnessCapabilities({
+        owner: { kind: "loop", loopId: "20260527T184210Z" },
+        agent: "builder",
+        phase: "building",
+        capabilities: [{ name: "web", operation: "archive" }],
+      }),
+    ).toThrow("unsupported operation");
   });
 });

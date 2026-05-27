@@ -5,10 +5,12 @@ import { fileURLToPath } from "node:url";
 import { JriError } from "./errors";
 import {
   invokeDefaultHarness,
+  assertHarnessCapabilities,
   readProjectConfig,
   runControlledPiSession,
   type CapabilityDescriptor,
   type HarnessAdapter,
+  type HarnessInvocation,
   type HarnessOutputSink,
   type HarnessSessionRunner,
 } from "./harness";
@@ -1147,7 +1149,7 @@ async function runAgentPhase(projectDir: string, loopId: string, phase: RunnerPh
   }
 
   const agent = agentForRunnerPhase(phase);
-  const result = await (options.harnessAdapter ?? invokeDefaultHarness)({
+  const invocation: HarnessInvocation = {
     owner: { kind: "loop", loopId },
     projectDir,
     agent,
@@ -1157,7 +1159,9 @@ async function runAgentPhase(projectDir: string, loopId: string, phase: RunnerPh
     capabilities: capabilitiesForRunnerPhase(phase),
     output: stdoutOutputSink(projectDir, loopId),
     signal: options.signal ?? new AbortController().signal,
-  });
+  };
+  assertHarnessCapabilities(invocation);
+  const result = await (options.harnessAdapter ?? invokeDefaultHarness)(invocation);
   return result.handoff;
 }
 

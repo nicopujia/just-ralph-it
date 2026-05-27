@@ -12,7 +12,8 @@
   - Confirmed implemented: web/explorer headline limits, wrapper entrypoints, owner metadata validation for web, chat-owned web artifact isolation, and planner/builder capability declarations exist.
   - Confirmed gap: web/explorer are still exposed mainly as prompt-level `jri --run-web` / `jri --run-explorer` wrapper commands instead of SDK capabilities, so no-bash phases cannot reliably use required web.
   - Confirmed implemented: web operation declarations are now enforced for prompt-rendered `--run-web` metadata and CLI dispatch, with tests covering search-only/fetch-only prompt rendering and mismatched operation rejection.
-  - Confirmed gap: adapter/runtime boundary still needs enforcement of `allowedAgents` and runtime-scoped capability policy.
+  - Confirmed implemented: runtime boundary now validates declared capabilities against descriptor `allowedAgents`, chat-vs-loop ownership, phase suitability, and web operation names before default Pi invocation or injected daemon harness adapters.
+  - Why this matters: it is now verified at harness invocation, so tests and implementation can assert that undeclared/wrong-owner/wrong-phase operations fail fast instead of silently running through trusted capabilities.
   - Confirmed gap: `pi-web-access` and `pi-subagent` are not bundled or preflighted, while the specs require no manual user package setup for MVP capability use.
   - Confirmed gap: explorer use is mandatory for the dogfood MVP, but runtime can complete without any explorer event or availability proof.
   - Wire web and explorer through declared SDK capabilities and fail undeclared capability use beyond the web wrapper operation checks already in place.

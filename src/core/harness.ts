@@ -1,7 +1,7 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAuthStatus } from "./auth";
-import { explorerCapabilityDescriptor, renderExplorerAgentDescriptor } from "./capabilities";
+import { explorerCapabilityDescriptor, renderExplorerAgentDescriptor, webCapabilityDescriptor } from "./capabilities";
 import type { CapabilityOwner } from "./capability-ownership";
 import { JriError } from "./errors";
 import { extractLatestHandoffFromText } from "./handoffs";
@@ -93,6 +93,7 @@ export async function runControlledPiSession(request: HarnessSessionRequest): Pr
 }
 
 export async function invokeDefaultHarness(invocation: HarnessInvocation, env: NodeJS.ProcessEnv = process.env): Promise<HarnessResult> {
+  assertHarnessCapabilities(invocation);
   if (invocation.signal.aborted) {
     throw harnessCancelledError();
   }
@@ -276,6 +277,20 @@ export async function buildControlledPiCommand(
   };
 }
 
+export function assertHarnessCapabilities(invocation: Pick<HarnessInvocation, "owner" | "agent" | "phase" | "capabilities">): void {
+  for (const capability of invocation.capabilities) {
+    if (capability.name === "web") {
+      assertWebCapabilityAllowed(invocation, capability.operation);
+      continue;
+    }
+    if (capability.name === "explorer") {
+      assertExplorerCapabilityAllowed(invocation);
+      continue;
+    }
+    invalidCapability(String((capability as { name?: unknown }).name ?? "unknown"), invocation.agent);
+  }
+}
+
 async function buildControlledExplorerSubagentCommand(
   request: Omit<HarnessSessionRequest, "stdoutPath">,
   env: NodeJS.ProcessEnv,
@@ -343,6 +358,57 @@ function agentForPhase(phase: HarnessPhase): AgentName {
   if (phase === "explorer") return "explorer";
   if (phase === "auditing") return "auditor";
   return phase === "planning" ? "planner" : "builder";
+}
+
+function assertWebCapabilityAllowed(
+  invocation: Pick<HarnessInvocation, "owner" | "agent" | "phase">,
+  operation: string | undefined,
+): void {
+  if (operation !== undefined && operation !== "search" && operation !== "fetch") {
+    throw new JriError(
+      `JRI web capability received unsupported operation ${JSON.stringify(operation)}.`,
+      "capability-declaration-invalid",
+      "Declare web capability operations as search or fetch before invoking the harness.",
+    );
+  }
+  if (!webCapabilityDescriptor.allowedAgents.includes(invocation.agent as (typeof webCapabilityDescriptor.allowedAgents)[number])) {
+    invalidCapability("web", invocation.agent);
+  }
+  if (invocation.owner.kind === "chat" && invocation.agent !== "interrogator") {
+    throw new JriError(
+      "Chat-owned web capability is only available to the interrogator.",
+      "capability-owner-unsupported",
+      "Use loop-owned capability metadata for Ralph loop agents.",
+    );
+  }
+}
+
+function assertExplorerCapabilityAllowed(invocation: Pick<HarnessInvocation, "owner" | "agent" | "phase">): void {
+  if (!explorerCapabilityDescriptor.allowedAgents.includes(invocation.agent as (typeof explorerCapabilityDescriptor.allowedAgents)[number])) {
+    invalidCapability("explorer", invocation.agent);
+  }
+  if (invocation.owner.kind !== "loop") {
+    throw new JriError(
+      "Explorer capability requires loop ownership.",
+      "capability-owner-unsupported",
+      "Run explorer tasks from a daemon-managed Ralph loop so artifacts and events attach to the lifecycle.",
+    );
+  }
+  if (invocation.phase !== "planning" && invocation.phase !== "building") {
+    throw new JriError(
+      `Explorer capability is not available during ${invocation.phase}.`,
+      "capability-declaration-invalid",
+      "Declare explorer only for planning or building phases.",
+    );
+  }
+}
+
+function invalidCapability(capability: string, agent: AgentName): never {
+  throw new JriError(
+    `JRI ${capability} capability is not allowed for ${agent}.`,
+    "capability-agent-not-allowed",
+    "Use the phase's declared JRI capability policy before invoking the harness.",
+  );
 }
 
 function allowedToolsForPhase(phase: HarnessPhase): string[] {
