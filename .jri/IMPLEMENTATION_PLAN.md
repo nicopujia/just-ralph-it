@@ -47,7 +47,6 @@
   - Confirmed implemented: artifact refs are now strict/stable under `.jri/logs/<loopId>/artifacts/*`, and validation artifact refs are preserved on `validationFinished`.
   - Confirmed implemented: auditor handoff failures report `affectedTopics`, `findings`, and follow-up `questions` structurally instead of free-form-only.
   - Confirmed implemented: obvious credential-shaped handoff fields are rejected in parser/runtime validation, with documented detection limits.
-  - Confirmed follow-up gap: resume should validate persisted `loopStopped` `nextPhase` and event lineage before trusting resume state.
 
 - P0: Finish minimum CLI/auth control correctness.
   - Confirmed gap: `jri auth login` currently inspects `OPENAI_API_KEY` / Pi auth cache and prints instructions rather than completing or delegating to a real Pi-backed flow.
@@ -99,3 +98,4 @@
   - Planner planned handoffs now require `.jri/IMPLEMENTATION_PLAN.md` to exist for initial planning and plan regeneration; missing files produce durable failure evidence instead of `planned` completion.
   - Runtime recovery now prefers the latest durable terminal loop event for active status with missing, dead, or stale runtime ownership, with daemon-runtime regression coverage for stale process ownership.
   - Daemon IPC now rejects missing/non-absolute `projectDir` and malformed `loop.halt` option payloads, with regression coverage.
+  - Resume now trusts persisted `loopStopped` `nextPhase` only when that event is the latest loop event and has a valid prior phase milestone.

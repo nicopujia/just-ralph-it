@@ -756,6 +756,11 @@ describe("daemon/runtime scaffolding", () => {
         authorizedSpecsFingerprint: emptySpecsFingerprint,
       });
       await appendLoopEvent(dir, {
+        type: "auditPassed",
+        loopId: "20260527T184210Z",
+        data: { specFiles: [], specsFingerprint: emptySpecsFingerprint },
+      });
+      await appendLoopEvent(dir, {
         type: "loopStopped",
         loopId: "20260527T184210Z",
         data: { reason: "gracefulStopRequested", nextPhase: "planning", specsFingerprint: emptySpecsFingerprint },
@@ -798,6 +803,11 @@ describe("daemon/runtime scaffolding", () => {
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
         authorizedSpecsFingerprint: emptySpecsFingerprint,
+      });
+      await appendLoopEvent(dir, {
+        type: "auditPassed",
+        loopId: "20260527T184210Z",
+        data: { specFiles: [], specsFingerprint: emptySpecsFingerprint },
       });
       await appendLoopEvent(dir, {
         type: "loopStopped",
@@ -844,6 +854,84 @@ describe("daemon/runtime scaffolding", () => {
           }),
         ),
       ).rejects.toThrow("next safe phase was not recorded");
+
+      expect(spawnCalled).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resume rejects stopped loops when the stop event has no valid prior phase milestone", async () => {
+    const dir = await tempProject();
+    let spawnCalled = false;
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        authorizedSpecsFingerprint: emptySpecsFingerprint,
+      });
+      await appendLoopEvent(dir, {
+        type: "loopStopped",
+        loopId: "20260527T184210Z",
+        data: { reason: "gracefulStopRequested", nextPhase: "planning", specsFingerprint: emptySpecsFingerprint },
+      });
+
+      await expect(
+        collect(
+          resumeLoop(dir, {
+            spawnRunner: ({ phase }) => {
+              spawnCalled = true;
+              return { pid: 13579, command: `runner ${phase}` };
+            },
+          }),
+        ),
+      ).rejects.toThrow("stop event is missing its prior phase milestone");
+
+      expect(spawnCalled).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resume rejects stopped loops when later lifecycle events supersede the stop event", async () => {
+    const dir = await tempProject();
+    let spawnCalled = false;
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        authorizedSpecsFingerprint: emptySpecsFingerprint,
+      });
+      await appendLoopEvent(dir, {
+        type: "auditPassed",
+        loopId: "20260527T184210Z",
+        data: { specFiles: [], specsFingerprint: emptySpecsFingerprint },
+      });
+      await appendLoopEvent(dir, {
+        type: "loopStopped",
+        loopId: "20260527T184210Z",
+        data: { reason: "gracefulStopRequested", nextPhase: "planning", specsFingerprint: emptySpecsFingerprint },
+      });
+      await appendLoopEvent(dir, {
+        type: "planningStarted",
+        loopId: "20260527T184210Z",
+        data: {},
+      });
+
+      await expect(
+        collect(
+          resumeLoop(dir, {
+            spawnRunner: ({ phase }) => {
+              spawnCalled = true;
+              return { pid: 13580, command: `runner ${phase}` };
+            },
+          }),
+        ),
+      ).rejects.toThrow("recorded stop is not the latest loop event");
 
       expect(spawnCalled).toBe(false);
     } finally {

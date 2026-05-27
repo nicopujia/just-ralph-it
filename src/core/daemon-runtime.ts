@@ -974,16 +974,57 @@ function defaultKillProcess(pid: number): void {
 }
 
 async function chooseResumePhase(projectDir: string, loopId: string): Promise<RunnerPhase> {
-  const stoppedEvent = (await readLoopEvents(projectDir, loopId))
-    .filter((event) => event.type === "loopStopped")
-    .at(-1);
-  if (stoppedEvent?.type === "loopStopped") {
+  const events = await readLoopEvents(projectDir, loopId);
+  let stoppedIndex = -1;
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    if (events[index]?.type === "loopStopped") {
+      stoppedIndex = index;
+      break;
+    }
+  }
+  if (stoppedIndex >= 0) {
+    if (stoppedIndex !== events.length - 1) {
+      throw new JriError(
+        "Cannot resume because the recorded stop is not the latest loop event.",
+        "resume-lineage-invalid",
+        "Return to bare jri, confirm the requirements, then say just ralph it so audit and planning authorize a fresh lifecycle.",
+      );
+    }
+    const stoppedEvent = events[stoppedIndex];
+    if (stoppedEvent?.type !== "loopStopped") {
+      throw new JriError(
+        "Cannot resume because the next safe phase was not recorded.",
+        "resume-phase-missing",
+        "Return to bare jri, confirm the requirements, then say just ralph it so audit and planning authorize a fresh lifecycle.",
+      );
+    }
+    const priorEvent = events[stoppedIndex - 1];
+    if (!priorEvent || !isValidStopPredecessor(priorEvent, stoppedEvent)) {
+      throw new JriError(
+        "Cannot resume because the stop event is missing its prior phase milestone.",
+        "resume-lineage-invalid",
+        "Return to bare jri, confirm the requirements, then say just ralph it so audit and planning authorize a fresh lifecycle.",
+      );
+    }
     return stoppedEvent.data.nextPhase;
   }
   throw new JriError(
     "Cannot resume because the next safe phase was not recorded.",
     "resume-phase-missing",
     "Return to bare jri, confirm the requirements, then say just ralph it so audit and planning authorize a fresh lifecycle.",
+  );
+}
+
+function isValidStopPredecessor(priorEvent: CoreEvent, stoppedEvent: Extract<CoreEvent, { type: "loopStopped" }>): boolean {
+  if (stoppedEvent.data.nextPhase === "planning") {
+    return priorEvent.type === "auditPassed" && priorEvent.loopId === stoppedEvent.loopId;
+  }
+  if (stoppedEvent.data.iteration !== undefined) {
+    return priorEvent.type === "iterationFinished" && priorEvent.loopId === stoppedEvent.loopId && priorEvent.iteration === stoppedEvent.data.iteration;
+  }
+  return (
+    priorEvent.loopId === stoppedEvent.loopId &&
+    (priorEvent.type === "planningFinished" || priorEvent.type === "planRegenerationFinished")
   );
 }
 
