@@ -1119,6 +1119,42 @@ describe("interrogation chat", () => {
       expect(status.blocker.resolutionGuide.steps.at(-1)).toContain("does not know how to verify");
       expect(assistantText).toContain("remains blocked");
       expect(assistantText).toContain("does not know how to verify");
+      expect(assistantText).toContain("Resume: Say done in bare jri after the account is active.");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("blocked project chat emits the full resolution guide", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Cloudflare billing access is missing.",
+          resolutionGuide: {
+            summary: "A billing-capable account must be connected before deployment.",
+            steps: ["Sign in to Cloudflare.", "Enable billing on the target account."],
+            successCriteria: ["JRI can deploy without an account setup error."],
+            resumeInstruction: "Say done in bare jri after billing is enabled.",
+          },
+        },
+      });
+
+      const events = await collect(sendChat(dir, { message: "what is blocked?" }));
+      const assistantText = events.find((event) => event.type === "chatMessageDelta")?.message;
+
+      expect(assistantText).toContain("JRI is blocked: Cloudflare billing access is missing.");
+      expect(assistantText).toContain("1. Sign in to Cloudflare.");
+      expect(assistantText).toContain("2. Enable billing on the target account.");
+      expect(assistantText).toContain("Success criteria:");
+      expect(assistantText).toContain("- JRI can deploy without an account setup error.");
+      expect(assistantText).toContain("Resume: Say done in bare jri after billing is enabled.");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1138,7 +1174,8 @@ describe("interrogation chat", () => {
           description: "The deployment target is unclear.",
           resolutionGuide: {
             summary: "Clarify the deployment target.",
-            steps: ["Choose Cloudflare or another deployment target."],
+            steps: ["Choose Cloudflare or another deployment target.", "Confirm the production hostname."],
+            successCriteria: ["The target and hostname are both explicit in specs."],
             resumeInstruction: "Clarify the target in bare jri, then say just ralph it.",
           },
         },
@@ -1152,7 +1189,11 @@ describe("interrogation chat", () => {
       expect(events.find((event) => event.type === "chatMessageDelta")).toMatchObject({
         data: { text: expect.stringContaining("ambiguous specs") },
       });
-      expect(events.find((event) => event.type === "chatMessageDelta")?.message).toContain("Clarify the target in bare jri");
+      const assistantText = events.find((event) => event.type === "chatMessageDelta")?.message;
+      expect(assistantText).toContain("1. Choose Cloudflare or another deployment target.");
+      expect(assistantText).toContain("2. Confirm the production hostname.");
+      expect(assistantText).toContain("- The target and hostname are both explicit in specs.");
+      expect(assistantText).toContain("Resume: Clarify the target in bare jri, then say just ralph it.");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

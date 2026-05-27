@@ -299,9 +299,7 @@ async function* handleDone(projectDir: string, status: ProjectStatus, userMessag
         projectDir,
         [
           "I could not verify the human task is complete yet, so JRI remains blocked.",
-          verification.blocker.resolutionGuide.summary,
-          `Next step: ${verification.blocker.resolutionGuide.steps.at(-1) ?? verification.blocker.resolutionGuide.resumeInstruction}`,
-          `Resume: ${verification.blocker.resolutionGuide.resumeInstruction}`,
+          formatBlockerResolutionGuide(verification.blocker),
         ].join("\n"),
       );
       return;
@@ -318,9 +316,7 @@ async function* handleDone(projectDir: string, status: ProjectStatus, userMessag
       projectDir,
       [
         "The current blocker is ambiguous specs, not a human task, so done cannot resume Ralph.",
-        status.blocker.resolutionGuide.summary,
-        `Next step: ${status.blocker.resolutionGuide.steps[0] ?? status.blocker.resolutionGuide.resumeInstruction}`,
-        `Resume: ${status.blocker.resolutionGuide.resumeInstruction}`,
+        formatBlockerResolutionGuide(status.blocker),
       ].join("\n"),
     );
     return;
@@ -485,12 +481,9 @@ async function assertScratchpadExists(projectDir: string): Promise<void> {
 
 function responseForStatus(status: ProjectStatus): string {
   if (status.state === "blocked" && status.blocker) {
-    const guide = status.blocker.resolutionGuide;
     return [
       `JRI is blocked: ${status.blocker.description}`,
-      guide.summary,
-      `Next step: ${guide.steps[0] ?? guide.resumeInstruction}`,
-      `Resume: ${guide.resumeInstruction}`,
+      formatBlockerResolutionGuide(status.blocker),
     ].join("\n");
   }
 
@@ -507,6 +500,16 @@ function responseForStatus(status: ProjectStatus): string {
   }
 
   return "I recorded your note. Keep clarifying the specs here, then say just ralph it when the current scope is unambiguous.";
+}
+
+function formatBlockerResolutionGuide(blocker: Blocker): string {
+  const guide = blocker.resolutionGuide;
+  return [
+    guide.summary,
+    ...guide.steps.map((step, index) => `${index + 1}. ${step}`),
+    ...(guide.successCriteria?.length ? ["Success criteria:", ...guide.successCriteria.map((criterion) => `- ${criterion}`)] : []),
+    `Resume: ${guide.resumeInstruction}`,
+  ].join("\n");
 }
 
 function isActiveLoopState(status: ProjectStatus): boolean {

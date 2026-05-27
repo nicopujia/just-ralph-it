@@ -33,8 +33,7 @@
 
 - P0: Fix remaining public CLI/auth lifecycle correctness.
   - Confirmed gap: interactive bare `jri` exits with status 1 on `userActionRequired` instead of continuing an inline auth flow or returning to the REPL with direct recovery.
-  - Confirmed partial: fallback status output shows the full blocked resolution guide, but automatic chat/interrogation messages still summarize only the first step.
-  - Continue Pi-backed auth recovery inline where possible and emit the full blocked-project resolution guide as an automatic chat/interrogation message.
+  - Continue Pi-backed auth recovery inline where possible.
 
 - P1: Finish attach and fallback terminal experience.
   - Confirmed gap: attach readiness remains timing-sensitive instead of deterministic.
@@ -76,7 +75,7 @@
   - Raw stopped/halted/final status rendering has been replaced with user-facing next-action guidance.
   - Attach now renders a compact header with latest context/milestones.
   - Synthetic `loopOutput` events now use nonzero deterministic sequence values.
-  - Bare blocked status formatting includes the full resolution guide; only automatic chat/interrogation blocked guidance remains active above.
+  - Bare blocked status, automatic blocked chat responses, failed human-task verification messages, and ambiguous-spec `done` messages include the full blocked resolution guide, so recovery evidence is complete instead of preserving only the first step.
   - Public omission of documented-forbidden `jri init`, `jri status`, and `jri loop start` remains complete; internal entrypoint guarding remains active above.
   - Dogfood MVP successful completion now requires durable `subagentFinished` explorer evidence; completion fails without proof, and `loopFinished` plus status `lastResult` success evidence include the explorer proof. Broader first-class SDK/runtime capability work for explorer and web remains active above.
   - Runtime failure normalization now treats `harness-cancelled`, `runtime-cancelled`, `explorer-failed`, `capability-*`, and `web-capability-*` errors as durable loop failures; child-process cancellation fanout remains active above.
