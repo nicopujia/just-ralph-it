@@ -1,60 +1,15 @@
 # Implementation Plan
 
-Completed work:
+- [ ] P0: Implement Pi-backed auth behind the public `project.auth` API and `jri auth {status|login|logout}`. Current code has command routing but `Project.auth` is stubbed, so real use cannot open controlled Pi sessions or continue into inline auth from bare `jri`.
+- [ ] P0: Build the internal harness boundary for controlled Pi sessions. Replace or wrap the current direct `pi --print` shellout with a JRI-owned adapter that handles model resolution, provider auth, isolated capabilities, prompt/session construction, stdout/event capture, and actionable capability errors while keeping Pi-specific details out of public core APIs.
+- [ ] P0: Implement bare `jri` interrogation as the primary user experience. `Project.chat.send()` and the CLI/REPL or Pi TUI must append chat turns to `.jri/logs/interrogation.jsonl`, reconstruct context from specs/scratchpad/status/events, stream `chatMessage*`/`chatTurnRecorded`/`specsUpdated`, reconcile manual spec edits, show blocked guidance, support observation mode during active loops, and handle `done` for verified human-task blockers.
+- [ ] P0: Implement the start gate and specs auditor path inside `chat.send()` only. Detect standalone `just ralph it` / `ralfealo`, generate a loop id, transition into `auditing`, emit audit events, run the auditor, route audit failures back into interrogation, and on pass persist `authorizedSpecsFingerprint` before planning/building.
+- [ ] P0: Complete planning and build orchestration semantics. Planning must create/regenerate `.jri/IMPLEMENTATION_PLAN.md` from current specs/code, start-audit transitions and orchestration around planning regeneration must be fully correct, and the outer loop must keep iterating until the builder reports completion rather than treating every successful build session as final.
+- [ ] P0: Implement required JRI capabilities for dogfood: bounded web search/fetch with citations/artifact refs/degraded-or-blocked behavior, and the mandatory read-only `explorer` subagent wrapper with spawn-by-default context, concurrency and timeout limits, bounded handoffs, artifact refs, and `subagentStarted`/`subagentFinished`/`subagentFailed` events.
+- [ ] P0: Finish loop observability and CLI controls. `jri loop attach` must be a live merged view of recent and streaming `stdout.log` plus milestone events with `[d]etach` and `[s]top`; attach/stop/halt/resume need state-specific actionable errors; halt needs the second `git reset --hard` confirmation, eligibility checks, reset execution, and event/status recording.
+- [ ] P0: Harden runtime behavior required for dogfood. Add daemon protocol handshake/version checks, true live cursored observation streams, stdout offsets, validation events, runner crash recovery across audit/planning/build, status repair that surfaces useful bare-`jri` guidance, and a stronger lock strategy or documented single-daemon mutation guarantee that satisfies the runtime-state CAS requirement.
+- [ ] P0: Add tests for the missing MVP-critical public paths as they are implemented: auth, chat logging/context reconstruction, trigger normalization, auditor pass/fail, start-loop transitions, blocker resolution through `done`, builder handoff outcomes, live attach behavior, halt reset handling, capability errors, and dogfood-like end-to-end flow using fake harnesses.
+- [ ] P0: Validate dogfood readiness against `/home/nico/just-ralph-it-dogfood/gupta-to-web` using only the allowed JRI interface: bare `jri`, `jri auth ...`, loop controls, terminal automation, and JRI-visible logs/specs/status/output. Success requires deployment at `gupta-to-web.mpujia.justralph.it` and artifacts explaining interrogation, planning, iterations, blockers, validation, deployment, commits, and tags.
+- [ ] P1: Expand non-blocking coverage and polish after the MVP flow works: broader daemon recovery/race tests, CLI help text including `jri auth --help`, README usage docs, validation/lint tooling beyond duplicate `tsc --noEmit` if desired, and cleanup of any transitional Pi CLI fallback code that is no longer needed.
 
-- [x] P0: TypeScript/Bun package baseline with CLI entrypoint, scripts, and
-  repository layout.
-- [x] P0: Implement public core project API entrypoint (`open`) and
-  scaffold initialization path.
-- [x] P0: Implement core lifecycle/state primitives (runtime-state transitions,
-  locking, stale-lock handling, event sequencing, and replay-safe loop control).
-- [x] P0: Add daemon/runtime scaffolding and loop observation/halt scaffolding.
-- [x] P0: Implement daemon IPC + runner (`status/observe/stop/halt/resume`) and
-  readonly fallback behavior.
-- [x] P0: Implement Pi-backed execution/session startup with runner process
-  ownership and status updates.
-- [x] P0: Implement idle shutdown hardening. Daemon idle shutdown now checks
-  registered project statuses from `.jri/status.json` and only exits when there are
-  no connected clients and no active loops, preventing active Ralph loops from
-  losing daemon management.
-- [x] P0: Honor `status.stopRequested` in `runLoopProcess` at safe planning and build
-  iteration boundaries for graceful stopping, with coverage for both boundary cases.
-- [x] P0: Observe git commits and tags produced by successful build iterations.
-  `runLoopProcess` now records rollback metadata at `iterationStarted`, emits
-  `commitCreated`/`tagCreated`, marks `iterationFinished` as `committed`, and
-  stores commit/tag details in `lastResult`. This matters because JRI owns loop
-  observability while Ralph owns committing/tagging, so the runtime must record
-  what Ralph actually did instead of assuming `noChanges`.
-- [x] P0: Record builder-reported blockers from runner output. Ralph now has a
-  machine-readable `JRI_BLOCKER_JSON:` handoff in the builder prompt, and the
-  runtime parses it after a build session, emits `blockerReported` plus blocked
-  `iterationFinished`, preserves changed files, clears runtime ownership, and
-  moves status to `blocked` without committing. This matters because blockers
-  are durable loop state, not prose buried in stdout.
-- [x] P0: Add durable `authorizedSpecsFingerprint` resume gating for resume
-  safety. The resume runner now checks a persisted fingerprint before resuming so
-  stale or mismatched spec sets cannot silently resume into invalid state.
-- [x] P0: Add verified `needsHumanTask` blocker cleanup with explicit
-  `blockerResolved` transitions. This ensures resumptions and subsequent
-  iterations only proceed after a blocker is explicitly confirmed as resolved.
-- [x] P0: Add builder `JRI_NEEDS_REPLAN` signaling to trigger plan
-  regeneration. This avoids continuing from stale planning output when the resume
-  path detects conditions that require replanning.
-- [x] P0: Improve prompt spec traversal portability. Spec path resolution in
-  prompt construction is now consistent across contexts, reducing environment or
-  cwd-dependent failures in resume/build execution.
-
-Next work:
-
-- [ ] P0: Finish full resume-runner hardening only where still true: add fallback
-  to chat/audit for audit/spec-change mismatches, and complete SDK-native
-  session wiring if gaps remain.
-- [ ] P1: Expand test coverage into status transitions, planner/loop command
-  behavior, and daemon recovery paths.
-
-Validation:
-
-- `bun run test`, `bun run typecheck`, and `bun run lint` pass after resume
-  runner durability and portability changes were added. This verification is
-  important because these flows control loop state transitions that can silently
-  lose progress or resume from incorrect work.
+Confirmed completed baseline: TypeScript/Bun package scaffolding, root resolution, idempotent local initialization, config/status validation, core project API shape, runtime status/event primitives, daemon IPC scaffolding, stop/halt/resume scaffolding, idle shutdown hardening, stop boundaries, commit/tag observation, blocker parsing, resume fingerprint checks, replan signaling, and prompt spec traversal are present and covered by existing tests. Agent handoff contract validators, planner/builder handoff consumption, validation evidence events, and builder `continue`/`complete`/`blocked`/`needsReplan`/`failedValidation` loop semantics are now covered by tests. These are not enough for the MVP because auth, interrogation, audit/start authorization, required capabilities, live attach, and dogfood readiness remain incomplete.

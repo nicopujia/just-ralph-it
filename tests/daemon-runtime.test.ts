@@ -286,7 +286,11 @@ describe("daemon/runtime scaffolding", () => {
     const previousPiCommand = process.env.JRI_PI_COMMAND;
     try {
       const fakePi = join(dir, "fake-pi.sh");
-      await writeFile(fakePi, "#!/bin/sh\necho fake-pi-ran\n", "utf8");
+      await writeFile(
+        fakePi,
+        "#!/bin/sh\necho fake-pi-ran\necho 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"Fake build completed.\"}'\n",
+        "utf8",
+      );
       await chmod(fakePi, 0o755);
       process.env.JRI_PI_COMMAND = fakePi;
       await writeStatusAtomic(dir, {
@@ -336,6 +340,7 @@ describe("daemon/runtime scaffolding", () => {
         [
           "#!/bin/sh",
           "echo planning-done",
+          "echo 'JRI_HANDOFF_JSON: {\"agent\":\"planner\",\"action\":\"planned\",\"planPath\":\".jri/IMPLEMENTATION_PLAN.md\",\"summary\":\"Plan ready.\"}'",
           "bun -e 'const fs = require(\"node:fs\"); const path = \".jri/status.json\"; const status = JSON.parse(fs.readFileSync(path, \"utf8\")); status.stopRequested = true; fs.writeFileSync(path, `${JSON.stringify(status, null, 2)}\\n`);'",
           "",
         ].join("\n"),
@@ -389,6 +394,7 @@ describe("daemon/runtime scaffolding", () => {
         [
           "#!/bin/sh",
           "echo build-done",
+          "echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"Build done.\"}'",
           "bun -e 'const fs = require(\"node:fs\"); const path = \".jri/status.json\"; const status = JSON.parse(fs.readFileSync(path, \"utf8\")); status.stopRequested = true; fs.writeFileSync(path, `${JSON.stringify(status, null, 2)}\\n`);'",
           "",
         ].join("\n"),
@@ -455,6 +461,7 @@ describe("daemon/runtime scaffolding", () => {
           "git commit -m 'build iteration'",
           "git tag 0.0.99",
           "echo build-committed",
+          "echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"Build iteration committed.\"}'",
           "",
         ].join("\n"),
         "utf8",
@@ -519,6 +526,9 @@ describe("daemon/runtime scaffolding", () => {
 
       const fakePi = join(dir, "fake-pi.sh");
       const blocker = JSON.stringify({
+        agent: "builder",
+        action: "blocked",
+        blocker: {
         reason: "ambiguousSpecs",
         description: "The deployment target is unclear.",
         resolutionGuide: {
@@ -528,10 +538,11 @@ describe("daemon/runtime scaffolding", () => {
         },
         changedFiles: ["partial.txt"],
         validationRan: false,
+        },
       });
       await writeFile(
         fakePi,
-        ["#!/bin/sh", "printf 'partial\\n' > partial.txt", `echo 'JRI_BLOCKER_JSON: ${blocker}'`, ""].join("\n"),
+        ["#!/bin/sh", "printf 'partial\\n' > partial.txt", `echo 'JRI_HANDOFF_JSON: ${blocker}'`, ""].join("\n"),
         "utf8",
       );
       await chmod(fakePi, 0o755);
@@ -618,11 +629,13 @@ describe("daemon/runtime scaffolding", () => {
           "count=$((count + 1))",
           "printf '%s' \"$count\" > \"$count_file\"",
           "if [ \"$count\" = 1 ]; then",
-          "  echo 'JRI_NEEDS_REPLAN: plan is stale'",
+          "  echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"needsReplan\",\"reason\":\"plan is stale\"}'",
           "elif [ \"$count\" = 2 ]; then",
           "  echo 'planner-regenerated'",
+          "  echo 'JRI_HANDOFF_JSON: {\"agent\":\"planner\",\"action\":\"planned\",\"planPath\":\".jri/IMPLEMENTATION_PLAN.md\",\"summary\":\"Plan regenerated.\"}'",
           "else",
           "  echo 'builder-finished'",
+          "  echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"Builder finished.\"}'",
           "fi",
           "",
         ].join("\n"),

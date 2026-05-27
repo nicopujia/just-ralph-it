@@ -15,7 +15,8 @@ import {
   writeStatusAtomic,
 } from "./runtime-state";
 import { buildPiPrompt, modelForAgent } from "./prompts";
-import type { Blocker, BlockerReason, CoreEvent, LockOperation, ProjectStatus } from "./types";
+import { extractLatestBuilderHandoffFromText, extractLatestHandoffFromText } from "./handoffs";
+import type { Blocker, BuilderHandoff, CoreEvent, LockOperation, PlannerHandoff, ProjectStatus, ValidationHandoff } from "./types";
 
 export type ProcessAliveCheck = (pid: number) => boolean;
 export type ProcessKiller = (pid: number) => void;
@@ -295,9 +296,15 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
       const statusAtPhaseStart = await readStatus(projectDir);
       if (currentPhase === "planning") {
         await appendLoopEvent(projectDir, { type: "planningStarted", loopId, data: {} });
+        const stdoutOffset = await stdoutLogSize(projectDir, loopId);
         const exitCode = await runPiSession(projectDir, loopId, "planning");
         if (exitCode !== 0) {
           await finishFailedRun(projectDir, loopId, "planning", exitCode);
+          return;
+        }
+        const plannerHandoff = await readLatestPlannerHandoff(projectDir, loopId, stdoutOffset);
+        if (plannerHandoff.action === "blocked") {
+          await finishPlanningBlockedRun(projectDir, loopId, plannerHandoff.blocker);
           return;
         }
         await appendLoopEvent(projectDir, {
@@ -336,16 +343,20 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
 
       const stdoutOffset = await stdoutLogSize(projectDir, loopId);
       const exitCode = await runPiSession(projectDir, loopId, "building");
-      const blocker = await readLatestBlockerReport(projectDir, loopId, stdoutOffset);
-      if (blocker) {
-        await finishBlockedRun(projectDir, loopId, blocker);
-        return;
-      }
       if (exitCode !== 0) {
         await finishFailedRun(projectDir, loopId, "building", exitCode);
         return;
       }
-      const replanRequested = await readLatestReplanRequest(projectDir, loopId, stdoutOffset);
+      const builderHandoff = await readLatestBuilderHandoff(projectDir, loopId, stdoutOffset);
+      await recordValidationEvidence(projectDir, loopId, iteration, validationEvidenceFromBuilder(builderHandoff));
+      if (builderHandoff.action === "blocked") {
+        await finishBlockedRun(projectDir, loopId, builderHandoff.blocker);
+        return;
+      }
+      if (builderHandoff.action === "failedValidation") {
+        await finishValidationFailedRun(projectDir, loopId, builderHandoff);
+        return;
+      }
 
       const latest = await readStatus(projectDir);
       const finishedIteration = latest.currentIteration?.iteration ?? latest.iteration ?? 1;
@@ -357,7 +368,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         data: iterationResult,
       });
       if (await stopIfRequested(projectDir, loopId, finishedIteration)) return;
-      if (replanRequested) {
+      if (builderHandoff.action === "needsReplan") {
         await appendLoopEvent(projectDir, {
           type: "planRegenerationRequested",
           loopId,
@@ -365,9 +376,15 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         });
         currentLock = await switchRunnerPhase(projectDir, currentLock, "planning");
         await appendLoopEvent(projectDir, { type: "planRegenerationStarted", loopId, data: {} });
+        const planningStdoutOffset = await stdoutLogSize(projectDir, loopId);
         const planningExitCode = await runPiSession(projectDir, loopId, "planning");
         if (planningExitCode !== 0) {
           await finishFailedRun(projectDir, loopId, "planning", planningExitCode);
+          return;
+        }
+        const plannerHandoff = await readLatestPlannerHandoff(projectDir, loopId, planningStdoutOffset);
+        if (plannerHandoff.action === "blocked") {
+          await finishPlanningBlockedRun(projectDir, loopId, plannerHandoff.blocker);
           return;
         }
         await appendLoopEvent(projectDir, { type: "planRegenerationFinished", loopId, data: {} });
@@ -376,12 +393,16 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         currentPhase = "building";
         continue;
       }
+      if (builderHandoff.action === "continue") {
+        continue;
+      }
       await appendLoopEvent(projectDir, {
         type: "loopFinished",
         loopId,
         data: {
           outcome: "completed",
-          summary: "Pi runner exited successfully.",
+          summary: builderHandoff.summary,
+          ...(builderHandoff.url ? { url: builderHandoff.url } : {}),
           ...(iterationResult.commit ? { commit: iterationResult.commit } : {}),
           ...(iterationResult.tag ? { tag: iterationResult.tag } : {}),
         },
@@ -393,7 +414,8 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
           iterations: finishedIteration,
           lastResult: {
             outcome: "completed",
-            summary: "Pi runner exited successfully.",
+            summary: builderHandoff.summary,
+            ...(builderHandoff.url ? { url: builderHandoff.url } : {}),
             ...(iterationResult.commit ? { commit: iterationResult.commit } : {}),
             ...(iterationResult.tag ? { tag: iterationResult.tag } : {}),
           },
@@ -758,41 +780,95 @@ async function finishBlockedRun(projectDir: string, loopId: string, blocker: Blo
   });
 }
 
-const blockerPrefix = "JRI_BLOCKER_JSON:";
-
-async function readLatestBlockerReport(projectDir: string, loopId: string, offset: number): Promise<Blocker | undefined> {
-  const path = join(projectDir, ".jri", "logs", loopId, "stdout.log");
-  if (!(await Bun.file(path).exists())) return undefined;
-
-  const currentSessionOutput = (await readFile(path, "utf8")).slice(offset);
-  const lines = currentSessionOutput.split("\n").reverse();
-  const line = lines.find((candidate) => candidate.trimStart().startsWith(blockerPrefix));
-  if (!line) return undefined;
-
-  const rawJson = line.slice(line.indexOf(blockerPrefix) + blockerPrefix.length).trim();
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(rawJson);
-  } catch (error) {
-    throw new JriError(
-      "Ralph emitted an invalid JRI blocker report.",
-      "invalid-blocker-report",
-      `Fix the ${blockerPrefix} JSON and rerun the loop. ${error instanceof Error ? error.message : ""}`.trim(),
-    );
-  }
-  return parseBlockerReport(parsed);
+async function finishPlanningBlockedRun(projectDir: string, loopId: string, blocker: Blocker): Promise<void> {
+  await appendLoopEvent(projectDir, {
+    type: "blockerReported",
+    loopId,
+    data: {
+      reason: blocker.reason,
+      description: blocker.description,
+      resolutionGuide: blocker.resolutionGuide,
+      ...(blocker.changedFiles ? { changedFiles: blocker.changedFiles } : {}),
+      ...(blocker.validationRan === undefined ? {} : { validationRan: blocker.validationRan }),
+    },
+  });
+  await transitionStatus(projectDir, "blocked", {
+    loopId,
+    update: {
+      ...ownershipCleared(await readStatus(projectDir)),
+      stopRequested: false,
+      blocker,
+      lastResult: {
+        outcome: "blocked",
+        summary: blocker.description,
+      },
+    },
+  });
 }
 
-const replanPrefix = "JRI_NEEDS_REPLAN:";
+async function finishValidationFailedRun(projectDir: string, loopId: string, handoff: Extract<BuilderHandoff, { action: "failedValidation" }>): Promise<void> {
+  const status = await readStatus(projectDir);
+  const iteration = status.currentIteration?.iteration ?? status.iteration ?? 1;
+  await appendLoopEvent(projectDir, {
+    type: "iterationFinished",
+    loopId,
+    iteration,
+    data: { outcome: "validationFailed" },
+  });
+  const summary = handoff.summary ?? handoff.validation.summary;
+  await appendLoopEvent(projectDir, {
+    type: "loopFinished",
+    loopId,
+    data: { outcome: "failed", summary },
+  });
+  await transitionStatus(projectDir, "stopped", {
+    loopId,
+    update: {
+      ...ownershipCleared(status),
+      stopRequested: false,
+      lastResult: {
+        outcome: "failed",
+        summary,
+        validationPassed: false,
+      },
+    },
+  });
+}
 
-async function readLatestReplanRequest(projectDir: string, loopId: string, offset: number): Promise<boolean> {
+async function readLatestPlannerHandoff(projectDir: string, loopId: string, offset: number): Promise<PlannerHandoff> {
   const path = join(projectDir, ".jri", "logs", loopId, "stdout.log");
-  if (!(await Bun.file(path).exists())) return false;
-
   const currentSessionOutput = (await readFile(path, "utf8")).slice(offset);
-  return currentSessionOutput
-    .split("\n")
-    .some((candidate) => candidate.trimStart().startsWith(replanPrefix));
+  const handoff = extractLatestHandoffFromText("planner", currentSessionOutput, "planning");
+  return handoff as PlannerHandoff;
+}
+
+async function readLatestBuilderHandoff(projectDir: string, loopId: string, offset: number): Promise<BuilderHandoff> {
+  const path = join(projectDir, ".jri", "logs", loopId, "stdout.log");
+  const currentSessionOutput = (await readFile(path, "utf8")).slice(offset);
+  return extractLatestBuilderHandoffFromText(currentSessionOutput, "building");
+}
+
+async function recordValidationEvidence(projectDir: string, loopId: string, iteration: number, validations: ValidationHandoff[]): Promise<void> {
+  for (const validation of validations) {
+    await appendLoopEvent(projectDir, {
+      type: "validationStarted",
+      loopId,
+      iteration,
+      data: { command: validation.command },
+    });
+    await appendLoopEvent(projectDir, {
+      type: "validationFinished",
+      loopId,
+      iteration,
+      data: { command: validation.command, exitCode: validation.exitCode, passed: validation.passed },
+      message: validation.summary,
+    });
+  }
+}
+
+function validationEvidenceFromBuilder(handoff: BuilderHandoff): ValidationHandoff[] {
+  if (handoff.action === "failedValidation") return [handoff.validation];
+  return handoff.validation ?? [];
 }
 
 async function computeSpecsFingerprint(projectDir: string): Promise<string> {
@@ -812,70 +888,6 @@ async function computeSpecsFingerprint(projectDir: string): Promise<string> {
     hash.update("\0");
   }
   return hash.digest("hex");
-}
-
-function parseBlockerReport(value: unknown): Blocker {
-  if (!isRecord(value)) {
-    throw invalidBlockerReport("The blocker report must be a JSON object.");
-  }
-  const reason = value.reason;
-  if (reason !== "ambiguousSpecs" && reason !== "needsHumanTask") {
-    throw invalidBlockerReport("The blocker reason must be ambiguousSpecs or needsHumanTask.");
-  }
-  if (typeof value.description !== "string" || value.description.trim().length === 0) {
-    throw invalidBlockerReport("The blocker report needs a non-empty description.");
-  }
-  if (!isRecord(value.resolutionGuide)) {
-    throw invalidBlockerReport("The blocker report needs a resolutionGuide object.");
-  }
-  const guide = value.resolutionGuide;
-  if (typeof guide.summary !== "string" || guide.summary.trim().length === 0) {
-    throw invalidBlockerReport("The blocker resolutionGuide needs a non-empty summary.");
-  }
-  if (!isStringArray(guide.steps) || guide.steps.length === 0) {
-    throw invalidBlockerReport("The blocker resolutionGuide needs at least one step.");
-  }
-  if (typeof guide.resumeInstruction !== "string" || guide.resumeInstruction.trim().length === 0) {
-    throw invalidBlockerReport("The blocker resolutionGuide needs a non-empty resumeInstruction.");
-  }
-  if (guide.successCriteria !== undefined && !isStringArray(guide.successCriteria)) {
-    throw invalidBlockerReport("The blocker resolutionGuide successCriteria must be an array of strings.");
-  }
-  if (guide.sensitive !== undefined && typeof guide.sensitive !== "boolean") {
-    throw invalidBlockerReport("The blocker resolutionGuide sensitive flag must be boolean.");
-  }
-  if (value.changedFiles !== undefined && !isStringArray(value.changedFiles)) {
-    throw invalidBlockerReport("The blocker changedFiles field must be an array of strings.");
-  }
-  if (value.validationRan !== undefined && typeof value.validationRan !== "boolean") {
-    throw invalidBlockerReport("The blocker validationRan field must be boolean.");
-  }
-
-  return {
-    reason: reason as BlockerReason,
-    description: value.description.trim(),
-    resolutionGuide: {
-      summary: guide.summary.trim(),
-      steps: guide.steps.map((step) => step.trim()).filter(Boolean),
-      ...(guide.successCriteria ? { successCriteria: guide.successCriteria.map((item) => item.trim()).filter(Boolean) } : {}),
-      resumeInstruction: guide.resumeInstruction.trim(),
-      ...(guide.sensitive === undefined ? {} : { sensitive: guide.sensitive }),
-    },
-    ...(value.changedFiles ? { changedFiles: value.changedFiles } : {}),
-    ...(value.validationRan === undefined ? {} : { validationRan: value.validationRan }),
-  };
-}
-
-function invalidBlockerReport(message: string): JriError {
-  return new JriError(message, "invalid-blocker-report", `Emit ${blockerPrefix} followed by a JSON blocker with reason, description, and resolutionGuide.`);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
 async function readChangedFiles(projectDir: string): Promise<string[]> {

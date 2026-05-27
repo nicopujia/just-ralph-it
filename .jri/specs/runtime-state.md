@@ -210,11 +210,12 @@ halted -> auditing | halted
   lifecycle only when the current specs still match
   `authorizedSpecsFingerprint` in status. It starts a fresh Pi session and
   never resumes a prior Pi session. If the fingerprint is missing or does not
-  match, resume falls back to `stopped -> auditing`.
-- `stopped -> auditing` happens when specs changed after the stop. The user
-  must return to bare `jri`, resolve or confirm the changed requirements, and
-  reissue `just ralph it` or `ralfealo`; the auditor and planner rerun before
-  building continues.
+  match, `jri loop resume` is rejected with an actionable recovery path.
+- `stopped -> auditing` happens only through bare `jri` after a stopped loop's
+  specs changed or its authorized specs fingerprint is missing. The user must
+  resolve or confirm the changed requirements in interrogation and reissue
+  `just ralph it` or `ralfealo`; the auditor and planner rerun before building
+  continues.
 - `halted` is terminal for that lifecycle. `halted -> auditing` is a new
   lifecycle authorization only: core generates a new loop id, replaces
   `activeLoopId`, and leaves the old halted loop immutable in history.

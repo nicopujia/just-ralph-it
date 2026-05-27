@@ -106,6 +106,53 @@ export type ChatInput = {
   message: string;
 };
 
+export type ArtifactRef = {
+  path: `.jri/logs/${string}`;
+  summary?: string;
+};
+
+export type InterrogatorHandoff =
+  | { agent: "interrogator"; action: "messageOnly"; summary?: string }
+  | { agent: "interrogator"; action: "specsUpdated"; specFiles: string[]; summary: string }
+  | { agent: "interrogator"; action: "scratchpadUpdated"; summary: string }
+  | { agent: "interrogator"; action: "humanTaskVerified"; verificationSummary?: string }
+  | { agent: "interrogator"; action: "humanTaskStillBlocked"; blocker: Blocker }
+  | { agent: "interrogator"; action: "startRequested"; trigger: "just ralph it" | "ralfealo" };
+
+export type AuditorHandoff =
+  | { agent: "auditor"; action: "passed"; specFiles: string[]; specsFingerprint: string; summary?: string }
+  | { agent: "auditor"; action: "failed"; feedback: string; ambiguousSpecFiles?: string[]; questions: string[] };
+
+export type PlannerHandoff =
+  | { agent: "planner"; action: "planned"; planPath: ".jri/IMPLEMENTATION_PLAN.md"; summary: string }
+  | { agent: "planner"; action: "blocked"; blocker: Blocker };
+
+export type ValidationHandoff = {
+  command: string;
+  exitCode: number;
+  passed: boolean;
+  summary: string;
+  artifacts?: ArtifactRef[];
+};
+
+export type BuilderHandoff =
+  | { agent: "builder"; action: "continue"; summary: string; url?: string; artifacts?: ArtifactRef[]; validation?: ValidationHandoff[] }
+  | { agent: "builder"; action: "complete"; summary: string; url?: string; artifacts?: ArtifactRef[]; validation?: ValidationHandoff[] }
+  | { agent: "builder"; action: "blocked"; blocker: Blocker; validation?: ValidationHandoff[] }
+  | { agent: "builder"; action: "needsReplan"; reason: string; summary?: string; validation?: ValidationHandoff[] }
+  | { agent: "builder"; action: "failedValidation"; validation: ValidationHandoff; summary?: string };
+
+export type HumanTaskVerificationHandoff =
+  | { agent: "verifier"; action: "verified"; verificationSummary?: string }
+  | { agent: "verifier"; action: "stillBlocked"; blocker: Blocker };
+
+export type AgentHandoff =
+  | InterrogatorHandoff
+  | AuditorHandoff
+  | PlannerHandoff
+  | BuilderHandoff
+  | HumanTaskVerificationHandoff;
+
 export type BaseEvent = {
   id: string;
   sequence: number;

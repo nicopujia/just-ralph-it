@@ -104,10 +104,11 @@ type Project = {
 ```
 
 `chat.send()` is the only public API path that can move from interrogation into
-audit/planning/build. When the user message contains an accepted trigger, the
-interrogator invokes an internal core start-loop capability, and the returned
-event stream includes audit, planning, and loop lifecycle events. Core does not
-expose a public `loop.start()` method.
+audit/planning/build. When the user message is exactly an accepted trigger after
+the start-gate normalization rules from the interrogation spec, the interrogator
+invokes an internal core start-loop capability, and the returned event stream
+includes audit, planning, and loop lifecycle events. Core does not expose a
+public `loop.start()` method.
 
 `loop.resume()` is a continuation control for an already-authorized lifecycle,
 not a second start path. It never creates a loop id, never authorizes new or
