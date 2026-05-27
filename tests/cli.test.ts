@@ -81,6 +81,74 @@ describe("CLI", () => {
     expect(stderr).toContain("Use the public MVP commands");
   });
 
+  test("bare jri creates the required scaffold commit in a brand-new repository", async () => {
+    const dir = await tempProject();
+    try {
+      const proc = Bun.spawn(["bun", cliPath], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "JRI",
+          GIT_AUTHOR_EMAIL: "jri@example.com",
+          GIT_COMMITTER_NAME: "JRI",
+          GIT_COMMITTER_EMAIL: "jri@example.com",
+        },
+      });
+      proc.stdin.end();
+
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain(`Initialized JRI in ${dir}`);
+      expect(stdout).toContain("idle");
+      expect(await gitOutput(dir, ["log", "-1", "--pretty=%s"])).toBe("Initialize JRI project\n");
+      expect((await gitOutput(dir, ["status", "--short"])).trim()).toBe("");
+      expect((await gitOutput(dir, ["ls-tree", "--name-only", "-r", "HEAD"])).trim().split("\n").sort()).toEqual([
+        ".jri/config.json",
+        ".jri/logs/interrogation.jsonl",
+        ".jri/scratchpad.md",
+        ".jri/status.json",
+        "AGENTS.md",
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("bare jri does not auto-commit scaffold files inside an existing repository", async () => {
+    const dir = await tempProject();
+    try {
+      await git(dir, ["init"]);
+      await writeFile(join(dir, "README.md"), "# Existing repo\n", "utf8");
+      await git(dir, ["add", "README.md"]);
+      await git(dir, ["commit", "-m", "Initial repo commit"]);
+      const headBefore = await gitOutput(dir, ["rev-parse", "--verify", "HEAD"]);
+
+      const proc = Bun.spawn(["bun", cliPath], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      proc.stdin.end();
+
+      const [exitCode, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain(`Initialized JRI in ${dir}`);
+      expect(await gitOutput(dir, ["rev-parse", "--verify", "HEAD"])).toBe(headBefore);
+      expect((await gitOutput(dir, ["status", "--short"])).trim().split("\n").sort()).toEqual([
+        "?? .jri/",
+        "?? AGENTS.md",
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("bare jri records a piped interrogation message", async () => {
     const dir = await tempProject();
     try {
@@ -1137,4 +1205,41 @@ function isolatedDaemonEnv(dir: string, overrides: Record<string, string | undef
     process.platform === "win32" ? `\\\\.\\pipe\\jri-cli-test-${crypto.randomUUID()}` : join(dir, "daemon-runtime", "daemon.sock");
   env.JRI_DAEMON_REGISTRY_PATH = join(dir, "daemon-state", "daemon-registry.json");
   return env;
+}
+
+async function gitOutput(cwd: string, args: string[]): Promise<string> {
+  const proc = Bun.spawn(["git", ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: "ignore",
+    env: gitTestEnv(),
+  });
+  const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${stderr}`);
+  return stdout;
+}
+
+async function git(cwd: string, args: string[]): Promise<void> {
+  const proc = Bun.spawn(["git", ...args], {
+    cwd,
+    stdout: "ignore",
+    stderr: "pipe",
+    stdin: "ignore",
+    env: gitTestEnv(),
+  });
+  const stderr = await new Response(proc.stderr).text();
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${stderr}`);
+}
+
+function gitTestEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME ?? "JRI Test",
+    GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL ?? "jri-test@example.com",
+    GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? process.env.GIT_AUTHOR_NAME ?? "JRI Test",
+    GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? process.env.GIT_AUTHOR_EMAIL ?? "jri-test@example.com",
+  };
 }
