@@ -53,7 +53,7 @@
   - Confirmed gap: `jri auth login` currently inspects `OPENAI_API_KEY` / Pi auth cache and prints instructions rather than completing or delegating to a real Pi-backed flow.
   - Confirmed gap: interactive bare `jri` exits on `userActionRequired`, while non-interactive mode can proceed until harness auth failure.
   - Confirmed gap: halt reset ineligibility and active-state `loop resume` errors are less actionable than the specs require.
-  - Confirmed follow-up gap: CLI auth help advertises advanced passthrough, but unsupported auth subcommands are not actually forwarded.
+  - Confirmed implemented: CLI auth help's advertised advanced passthrough is resolved by forwarding unsupported auth-only subcommands to Pi, normalizing passthrough failures, and covering help ordering/success/failure paths in CLI tests.
   - Implement real Pi-backed `jri auth login|logout|status` or normalized passthroughs without requiring raw Pi commands in normal JRI use.
   - Make interactive bare `jri` handle missing auth inline where possible and provide direct recovery in non-interactive mode.
   - Fix reset ineligibility messaging, active-resume guidance, and regression coverage for forbidden public commands/internal entrypoints.

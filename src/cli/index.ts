@@ -126,7 +126,7 @@ async function main(argv: string[]): Promise<number> {
       console.log("Logged out.");
       return 0;
     }
-    return usage(`Unsupported auth command: ${subcommand ?? ""}`.trim());
+    return await runAuthPassthrough(argv.slice(1));
   }
 
   if (command === "loop") {
@@ -224,6 +224,54 @@ function usage(error?: string): number {
   if (error) console.error(error);
   console.error("Usage: jri | jri auth {status|login|logout} | jri loop {attach|stop|halt|resume}");
   return 1;
+}
+
+async function runAuthPassthrough(args: string[]): Promise<number> {
+  if (args.length === 0) return usage("Unsupported auth command.");
+
+  const piCommand = process.env.JRI_PI_COMMAND ?? "pi";
+  let proc: ReturnType<typeof Bun.spawn>;
+  try {
+    proc = Bun.spawn([piCommand, "auth", ...args], {
+      cwd: process.cwd(),
+      stdout: "pipe",
+      stderr: "pipe",
+      stdin: "inherit",
+      env: process.env,
+    });
+  } catch (error) {
+    throw new JriError(
+      "Pi auth passthrough is unavailable.",
+      "auth-passthrough-unavailable",
+      `Install or configure the Pi CLI, then retry. Run jri auth --help for stable JRI auth commands.${formatSpawnError(error)}`,
+    );
+  }
+
+  const [exitCode, stdout, stderr] = await Promise.all([
+    proc.exited,
+    subprocessStreamText(proc.stdout),
+    subprocessStreamText(proc.stderr),
+  ]);
+  if (exitCode === 0) {
+    if (stdout) process.stdout.write(stdout);
+    if (stderr) process.stderr.write(stderr);
+    return 0;
+  }
+
+  throw new JriError(
+    `Pi auth passthrough failed for ${JSON.stringify(args.join(" "))}.`,
+    "auth-passthrough-failed",
+    [`Pi exited with code ${exitCode}.`, stderr.trim(), "Run jri auth --help for stable JRI auth commands."].filter(Boolean).join(" "),
+  );
+}
+
+function formatSpawnError(error: unknown): string {
+  return error instanceof Error && error.message ? ` ${error.message}` : "";
+}
+
+async function subprocessStreamText(stream: number | ReadableStream<Uint8Array> | undefined): Promise<string> {
+  if (!stream || typeof stream === "number") return "";
+  return await new Response(stream).text();
 }
 
 async function runInteractiveChat(project: Project): Promise<void> {

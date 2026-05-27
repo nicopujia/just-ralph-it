@@ -258,6 +258,78 @@ describe("CLI", () => {
     }
   });
 
+  test("auth forwards advanced auth-only passthrough commands to Pi", async () => {
+    const dir = await tempProject();
+    try {
+      const fakePi = join(dir, "fake-pi.sh");
+      const argvPath = join(dir, "pi-argv.txt");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          `printf '%s\\n' "$@" > ${JSON.stringify(argvPath)}`,
+          "printf 'pi-auth-ok\\n'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      const proc = Bun.spawn(["bun", cliPath, "auth", "providers", "list"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          JRI_PI_COMMAND: fakePi,
+        },
+      });
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("pi-auth-ok");
+      expect(stderr).toBe("");
+      expect(await readFile(argvPath, "utf8")).toBe("auth\nproviders\nlist\n");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("auth normalizes failed advanced passthrough commands", async () => {
+    const dir = await tempProject();
+    try {
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          "printf 'unknown auth operation\\n' >&2",
+          "exit 12",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      const proc = Bun.spawn(["bun", cliPath, "auth", "made-up"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          JRI_PI_COMMAND: fakePi,
+        },
+      });
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(1);
+      expect(stdout).toBe("");
+      expect(stderr).toContain('Pi auth passthrough failed for "made-up".');
+      expect(stderr).toContain("unknown auth operation");
+      expect(stderr).toContain("jri auth --help");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("interactive bare jri blocks with auth recovery guidance when auth is missing", async () => {
     const dir = await tempProject();
     try {
