@@ -264,7 +264,15 @@ export async function startRalphLoop(projectDir: string, options: RuntimeOptions
       status.blocker.resolutionGuide.resumeInstruction,
     );
   }
-  if (status.state === "stopped" && status.authorizedSpecsFingerprint) {
+  if (status.state === "stopped") {
+    if (!status.authorizedSpecsFingerprint) {
+      throw new JriError(
+        "Cannot start because the stopped loop is missing its authorized specs fingerprint.",
+        "specs-fingerprint-missing",
+        "Return to bare jri, confirm the requirements, then say just ralph it so audit and planning authorize a fresh lifecycle.",
+      );
+    }
+
     const currentSpecsFingerprint = await computeSpecsFingerprint(projectDir);
     if (status.authorizedSpecsFingerprint === currentSpecsFingerprint) {
       throw new JriError(

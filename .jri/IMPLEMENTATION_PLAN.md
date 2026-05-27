@@ -1,4 +1,3 @@
-- [ ] Treat stopped loops with missing `authorizedSpecsFingerprint` as invalid durable authorization state instead of silently allowing reauthorization.
 - [ ] Make chat-owned runtime artifacts first-class by accepting `.jri/logs/interrogation-artifacts/*` in the executable schema and wiring `humanTaskVerified` into durable blocker/resume handling instead of ignoring it.
 - [ ] Replace prompt-level web/explorer shell escape hatches with harness-native capabilities that are actually reachable for interrogator, auditor, and explorer under the intended tool grants.
 - [ ] Consolidate capability policy into descriptors, reduce over-granted explorer/web access, strongly validate chat-owned capability ownership, and add preflight plus actionable recovery for missing `pi-web-access` / `pi-subagent`.

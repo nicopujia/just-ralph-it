@@ -752,6 +752,51 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("standalone start trigger rejects stopped loops missing the authorized specs fingerprint", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const previousEnv = captureDaemonEnv();
+    let spawnCalled = false;
+    const daemon = await startDaemonServer({
+      paths,
+      idleTimeoutMs: 10_000,
+      runtimeOptions: {
+        spawnRunner: ({ loopId }) => {
+          spawnCalled = true;
+          scheduleLoopCompletion(dir, loopId);
+          return { pid: process.pid, command: "runner auditing" };
+        },
+      },
+    });
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "stopped",
+        activeLoopId: "20260527T200000Z",
+        lastLoopId: "20260527T200000Z",
+      });
+      applyDaemonEnv(paths);
+
+      await expect(collect(sendChat(dir, { message: "just ralph it" }))).rejects.toMatchObject({
+        code: "specs-fingerprint-missing",
+      });
+
+      expect(spawnCalled).toBe(false);
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(status).toMatchObject({
+        state: "stopped",
+        activeLoopId: "20260527T200000Z",
+        lastLoopId: "20260527T200000Z",
+      });
+      expect(status.authorizedSpecsFingerprint).toBeUndefined();
+    } finally {
+      restoreDaemonEnv(previousEnv);
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("standalone start trigger bootstraps missing interrogation state from existing specs before starting", async () => {
     const dir = await tempProject();
     try {

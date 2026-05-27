@@ -3,8 +3,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "bun:test";
+import { startDaemonServer, type DaemonPaths } from "../src/core/daemon-ipc";
 import { defaultStatus } from "../src/core/schema";
-import { appendLoopEvent, writeStatusAtomic } from "../src/core/runtime-state";
+import { appendLoopEvent, updateStatus, writeStatusAtomic } from "../src/core/runtime-state";
 import { fingerprintSpecFile, writeInterrogationState } from "../src/core/interrogation-state";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -186,6 +187,57 @@ describe("CLI", () => {
       const log = await readFile(join(dir, ".jri", "logs", "interrogation.jsonl"), "utf8");
       expect(log).toContain("Need a deployment workflow.");
     } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("bare jri rejects restarting a stopped loop when the authorized specs fingerprint is missing", async () => {
+    const dir = await tempInitializedProject();
+    const env = isolatedDaemonEnv(dir);
+    const daemon = await startDaemonServer({
+      paths: daemonPathsForEnv(env),
+      idleTimeoutMs: 10_000,
+      runtimeOptions: {
+        spawnRunner: ({ loopId }) => {
+          scheduleLoopCompletion(dir, loopId);
+          return { pid: process.pid, command: "runner auditing" };
+        },
+      },
+    });
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "stopped",
+        activeLoopId: "20260527T200000Z",
+        lastLoopId: "20260527T200000Z",
+      });
+
+      const proc = Bun.spawn(["bun", cliPath], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        env,
+      });
+      proc.stdin.write("just ralph it\n");
+      proc.stdin.end();
+
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(1);
+      expect(stdout).toContain("Start request accepted (just ralph it). Running the specs auditor now.");
+      expect(stderr).toContain("Cannot start because the stopped loop is missing its authorized specs fingerprint.");
+      expect(stderr).toContain("Return to bare jri, confirm the requirements, then say just ralph it so audit and planning authorize a fresh lifecycle.");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(status).toMatchObject({
+        state: "stopped",
+        activeLoopId: "20260527T200000Z",
+        lastLoopId: "20260527T200000Z",
+      });
+      expect(status.authorizedSpecsFingerprint).toBeUndefined();
+    } finally {
+      await daemon.close();
       await rm(dir, { recursive: true, force: true });
     }
   });
@@ -1205,6 +1257,41 @@ function isolatedDaemonEnv(dir: string, overrides: Record<string, string | undef
     process.platform === "win32" ? `\\\\.\\pipe\\jri-cli-test-${crypto.randomUUID()}` : join(dir, "daemon-runtime", "daemon.sock");
   env.JRI_DAEMON_REGISTRY_PATH = join(dir, "daemon-state", "daemon-registry.json");
   return env;
+}
+
+function daemonPathsForEnv(env: Record<string, string | undefined>): DaemonPaths {
+  return {
+    runtimeDir: env.JRI_DAEMON_RUNTIME_DIR!,
+    stateDir: env.JRI_DAEMON_STATE_DIR!,
+    socketPath: env.JRI_DAEMON_SOCKET_PATH!,
+    registryPath: env.JRI_DAEMON_REGISTRY_PATH!,
+  };
+}
+
+function scheduleLoopCompletion(projectDir: string, loopId: string): void {
+  setTimeout(() => {
+    void (async () => {
+      await appendLoopEvent(projectDir, {
+        type: "loopFinished",
+        loopId,
+        data: { outcome: "completed", summary: "Fake loop completed." },
+      });
+      await updateStatus(projectDir, (current) => {
+        const { process, lock, ...withoutOwnership } = current;
+        void process;
+        void lock;
+        return {
+          ...withoutOwnership,
+          state: "idle",
+          activeLoopId: null,
+          lastLoopId: loopId,
+          finishedAt: "2026-05-27T20:00:01.000Z",
+          stopRequested: false,
+          lastResult: { outcome: "completed", summary: "Fake loop completed." },
+        };
+      });
+    })();
+  }, 25);
 }
 
 async function gitOutput(cwd: string, args: string[]): Promise<string> {

@@ -722,8 +722,9 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
-  test("start reauthorizes stopped loops when authorized fingerprint is missing", async () => {
+  test("start rejects stopped loops when authorized fingerprint is missing", async () => {
     const dir = await tempProject();
+    let spawnCalled = false;
     try {
       await writeStatusAtomic(dir, {
         ...defaultStatus(dir),
@@ -732,23 +733,24 @@ describe("daemon/runtime scaffolding", () => {
         lastLoopId: "20260527T184210Z",
       });
 
-      const event = await startRalphLoop(dir, {
-        isProcessAlive: () => false,
-        spawnRunner: ({ phase }) => ({ pid: 24682, command: `runner ${phase}` }),
-      });
-      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      await expect(
+        startRalphLoop(dir, {
+          isProcessAlive: () => false,
+          spawnRunner: ({ phase }) => {
+            spawnCalled = true;
+            return { pid: 24682, command: `runner ${phase}` };
+          },
+        }),
+      ).rejects.toMatchObject({ code: "specs-fingerprint-missing" });
 
-      expect(event).toMatchObject({
-        type: "loopStarted",
-        loopId: "20260527T184210Z",
-        data: { projectDir: dir, pid: 24682 },
-      });
+      expect(spawnCalled).toBe(false);
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
       expect(status).toMatchObject({
-        state: "auditing",
+        state: "stopped",
         activeLoopId: "20260527T184210Z",
-        process: { pid: 24682, command: "runner auditing" },
-        lock: { operation: "audit" },
+        lastLoopId: "20260527T184210Z",
       });
+      expect(status.authorizedSpecsFingerprint).toBeUndefined();
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
