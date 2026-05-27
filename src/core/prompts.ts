@@ -45,7 +45,7 @@ export async function buildPiPrompt(projectDir: string, phase: "planning" | "bui
     "Use .jri/specs/* as requirements truth and ignore .jri/scratchpad.md. Choose the most important remaining plan item.",
     "Implement completely, run relevant validation, update .jri/IMPLEMENTATION_PLAN.md with findings/resolution, update AGENTS.md only for operational learnings, then commit if tracked files changed and validation passes.",
     "If build/test validation has no errors after a successful change commit, create or increment a patch semver git tag.",
-    "If specs are ambiguous or a human task is required, record that clearly in .jri/IMPLEMENTATION_PLAN.md and leave work uncommitted.",
+    "If specs are ambiguous or a human task is required, leave work uncommitted, update .jri/IMPLEMENTATION_PLAN.md, and emit one line that starts with JRI_BLOCKER_JSON: followed by JSON with reason, description, resolutionGuide, optional changedFiles, and optional validationRan.",
     agents ? `Operational guide:\n${agents}` : "",
     plan ? `Current implementation plan:\n${plan}` : "No implementation plan exists yet; inspect specs and code before choosing work.",
     specs.join("\n\n"),

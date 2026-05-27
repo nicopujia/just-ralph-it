@@ -1,4 +1,4 @@
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JriError } from "./errors";
@@ -14,7 +14,7 @@ import {
   writeStatusAtomic,
 } from "./runtime-state";
 import { buildPiPrompt, modelForAgent } from "./prompts";
-import type { CoreEvent, LockOperation, ProjectStatus } from "./types";
+import type { Blocker, BlockerReason, CoreEvent, LockOperation, ProjectStatus } from "./types";
 
 export type ProcessAliveCheck = (pid: number) => boolean;
 export type ProcessKiller = (pid: number) => void;
@@ -313,7 +313,13 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         },
       });
 
+      const stdoutOffset = await stdoutLogSize(projectDir, loopId);
       const exitCode = await runPiSession(projectDir, loopId, "building");
+      const blocker = await readLatestBlockerReport(projectDir, loopId, stdoutOffset);
+      if (blocker) {
+        await finishBlockedRun(projectDir, loopId, blocker);
+        return;
+      }
       if (exitCode !== 0) {
         await finishFailedRun(projectDir, loopId, "building", exitCode);
         return;
@@ -663,6 +669,162 @@ async function finishFailedRun(projectDir: string, loopId: string, phase: Runner
       },
     },
   });
+}
+
+async function finishBlockedRun(projectDir: string, loopId: string, blocker: Blocker): Promise<void> {
+  const status = await readStatus(projectDir);
+  const iteration = status.currentIteration?.iteration ?? status.iteration ?? 1;
+  const changedFiles = mergeChangedFiles(blocker.changedFiles, await readChangedFiles(projectDir));
+  const recordedBlocker = {
+    ...blocker,
+    ...(changedFiles.length > 0 ? { changedFiles } : {}),
+  };
+
+  await appendLoopEvent(projectDir, {
+    type: "blockerReported",
+    loopId,
+    data: {
+      reason: recordedBlocker.reason,
+      description: recordedBlocker.description,
+      resolutionGuide: recordedBlocker.resolutionGuide,
+      ...(recordedBlocker.changedFiles ? { changedFiles: recordedBlocker.changedFiles } : {}),
+      ...(recordedBlocker.validationRan === undefined ? {} : { validationRan: recordedBlocker.validationRan }),
+    },
+  });
+  await appendLoopEvent(projectDir, {
+    type: "iterationFinished",
+    loopId,
+    iteration,
+    data: {
+      outcome: "blocked",
+      ...(recordedBlocker.changedFiles ? { changedFiles: recordedBlocker.changedFiles } : {}),
+    },
+  });
+  await transitionStatus(projectDir, "blocked", {
+    loopId,
+    update: {
+      ...ownershipCleared(status),
+      stopRequested: false,
+      blocker: recordedBlocker,
+      lastResult: {
+        outcome: "blocked",
+        summary: recordedBlocker.description,
+      },
+    },
+  });
+}
+
+const blockerPrefix = "JRI_BLOCKER_JSON:";
+
+async function readLatestBlockerReport(projectDir: string, loopId: string, offset: number): Promise<Blocker | undefined> {
+  const path = join(projectDir, ".jri", "logs", loopId, "stdout.log");
+  if (!(await Bun.file(path).exists())) return undefined;
+
+  const currentSessionOutput = (await readFile(path, "utf8")).slice(offset);
+  const lines = currentSessionOutput.split("\n").reverse();
+  const line = lines.find((candidate) => candidate.trimStart().startsWith(blockerPrefix));
+  if (!line) return undefined;
+
+  const rawJson = line.slice(line.indexOf(blockerPrefix) + blockerPrefix.length).trim();
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch (error) {
+    throw new JriError(
+      "Ralph emitted an invalid JRI blocker report.",
+      "invalid-blocker-report",
+      `Fix the ${blockerPrefix} JSON and rerun the loop. ${error instanceof Error ? error.message : ""}`.trim(),
+    );
+  }
+  return parseBlockerReport(parsed);
+}
+
+function parseBlockerReport(value: unknown): Blocker {
+  if (!isRecord(value)) {
+    throw invalidBlockerReport("The blocker report must be a JSON object.");
+  }
+  const reason = value.reason;
+  if (reason !== "ambiguousSpecs" && reason !== "needsHumanTask") {
+    throw invalidBlockerReport("The blocker reason must be ambiguousSpecs or needsHumanTask.");
+  }
+  if (typeof value.description !== "string" || value.description.trim().length === 0) {
+    throw invalidBlockerReport("The blocker report needs a non-empty description.");
+  }
+  if (!isRecord(value.resolutionGuide)) {
+    throw invalidBlockerReport("The blocker report needs a resolutionGuide object.");
+  }
+  const guide = value.resolutionGuide;
+  if (typeof guide.summary !== "string" || guide.summary.trim().length === 0) {
+    throw invalidBlockerReport("The blocker resolutionGuide needs a non-empty summary.");
+  }
+  if (!isStringArray(guide.steps) || guide.steps.length === 0) {
+    throw invalidBlockerReport("The blocker resolutionGuide needs at least one step.");
+  }
+  if (typeof guide.resumeInstruction !== "string" || guide.resumeInstruction.trim().length === 0) {
+    throw invalidBlockerReport("The blocker resolutionGuide needs a non-empty resumeInstruction.");
+  }
+  if (guide.successCriteria !== undefined && !isStringArray(guide.successCriteria)) {
+    throw invalidBlockerReport("The blocker resolutionGuide successCriteria must be an array of strings.");
+  }
+  if (guide.sensitive !== undefined && typeof guide.sensitive !== "boolean") {
+    throw invalidBlockerReport("The blocker resolutionGuide sensitive flag must be boolean.");
+  }
+  if (value.changedFiles !== undefined && !isStringArray(value.changedFiles)) {
+    throw invalidBlockerReport("The blocker changedFiles field must be an array of strings.");
+  }
+  if (value.validationRan !== undefined && typeof value.validationRan !== "boolean") {
+    throw invalidBlockerReport("The blocker validationRan field must be boolean.");
+  }
+
+  return {
+    reason: reason as BlockerReason,
+    description: value.description.trim(),
+    resolutionGuide: {
+      summary: guide.summary.trim(),
+      steps: guide.steps.map((step) => step.trim()).filter(Boolean),
+      ...(guide.successCriteria ? { successCriteria: guide.successCriteria.map((item) => item.trim()).filter(Boolean) } : {}),
+      resumeInstruction: guide.resumeInstruction.trim(),
+      ...(guide.sensitive === undefined ? {} : { sensitive: guide.sensitive }),
+    },
+    ...(value.changedFiles ? { changedFiles: value.changedFiles } : {}),
+    ...(value.validationRan === undefined ? {} : { validationRan: value.validationRan }),
+  };
+}
+
+function invalidBlockerReport(message: string): JriError {
+  return new JriError(message, "invalid-blocker-report", `Emit ${blockerPrefix} followed by a JSON blocker with reason, description, and resolutionGuide.`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+async function readChangedFiles(projectDir: string): Promise<string[]> {
+  const status = await gitOutput(projectDir, ["status", "--porcelain"]);
+  if (!status) return [];
+  return status
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.slice(3).trim())
+    .filter(Boolean);
+}
+
+async function stdoutLogSize(projectDir: string, loopId: string): Promise<number> {
+  try {
+    return (await stat(join(projectDir, ".jri", "logs", loopId, "stdout.log"))).size;
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return 0;
+    throw error;
+  }
+}
+
+function mergeChangedFiles(reported: string[] | undefined, observed: string[]): string[] {
+  return [...new Set([...(reported ?? []), ...observed])].sort();
 }
 
 function ownershipCleared(status: ProjectStatus): { [K in keyof ProjectStatus]?: ProjectStatus[K] | undefined } {

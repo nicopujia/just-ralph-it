@@ -231,7 +231,6 @@ describe("daemon/runtime scaffolding", () => {
           expiresAt: "2026-05-27T19:01:00.000Z",
         },
       });
-
       await runLoopProcess(dir, "20260527T184210Z", "building");
 
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
@@ -434,6 +433,103 @@ describe("daemon/runtime scaffolding", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("runner records a builder blocker and leaves changed files uncommitted", async () => {
+    const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    try {
+      await git(dir, ["init"]);
+      await git(dir, ["config", "user.email", "ralph@example.test"]);
+      await git(dir, ["config", "user.name", "Ralph"]);
+      await writeFile(join(dir, "README.md"), "initial\n", "utf8");
+      await git(dir, ["add", "README.md"]);
+      await git(dir, ["commit", "-m", "initial"]);
+
+      const fakePi = join(dir, "fake-pi.sh");
+      const blocker = JSON.stringify({
+        reason: "ambiguousSpecs",
+        description: "The deployment target is unclear.",
+        resolutionGuide: {
+          summary: "Clarify the deployment target.",
+          steps: ["Ask which host should receive the app."],
+          resumeInstruction: "Answer the question in bare jri, then say just ralph it.",
+        },
+        changedFiles: ["partial.txt"],
+        validationRan: false,
+      });
+      await writeFile(
+        fakePi,
+        ["#!/bin/sh", "printf 'partial\\n' > partial.txt", `echo 'JRI_BLOCKER_JSON: ${blocker}'`, ""].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: {
+          owner: "daemon",
+          pid: process.pid,
+          operation: "build",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+      });
+      await mkdir(join(dir, ".jri", "logs", "20260527T184210Z"), { recursive: true });
+      await writeFile(
+        join(dir, ".jri", "logs", "20260527T184210Z", "stdout.log"),
+        [
+          'JRI_BLOCKER_JSON: {"reason":"needsHumanTask","description":"old blocker","resolutionGuide":{"summary":"old","steps":["old"],"resumeInstruction":"old"}}',
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      const headBefore = await gitOutput(dir, ["rev-parse", "--verify", "HEAD"]);
+
+      await runLoopProcess(dir, "20260527T184210Z", "building");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+      const head = await gitOutput(dir, ["rev-parse", "--verify", "HEAD"]);
+
+      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "blockerReported", "iterationFinished"]);
+      const blockerEvent = events[1];
+      if (blockerEvent?.type !== "blockerReported") throw new Error("Expected blockerReported event.");
+      expect(blockerEvent).toMatchObject({
+        type: "blockerReported",
+        data: {
+          reason: "ambiguousSpecs",
+          description: "The deployment target is unclear.",
+          validationRan: false,
+        },
+      });
+      expect(blockerEvent.data.changedFiles).toContain("partial.txt");
+      const iterationFinished = events[2];
+      if (iterationFinished?.type !== "iterationFinished") throw new Error("Expected iterationFinished event.");
+      expect(iterationFinished).toMatchObject({ type: "iterationFinished", data: { outcome: "blocked" } });
+      expect(iterationFinished.data.changedFiles).toContain("partial.txt");
+      expect(status).toMatchObject({
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "ambiguousSpecs",
+          description: "The deployment target is unclear.",
+        },
+        lastResult: { outcome: "blocked", summary: "The deployment target is unclear." },
+      });
+      expect(status.blocker.changedFiles).toContain("partial.txt");
+      expect(status.process).toBeUndefined();
+      expect(status.lock).toBeUndefined();
+      expect(head.trim()).toBe(headBefore.trim());
+    } finally {
+      if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
+      else process.env.JRI_PI_COMMAND = previousPiCommand;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
@@ -452,4 +548,17 @@ async function git(cwd: string, args: string[]): Promise<void> {
   const stderr = await new Response(proc.stderr).text();
   const exitCode = await proc.exited;
   if (exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${stderr}`);
+}
+
+async function gitOutput(cwd: string, args: string[]): Promise<string> {
+  const proc = Bun.spawn(["git", ...args], {
+    cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: "ignore",
+  });
+  const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${stderr}`);
+  return stdout;
 }

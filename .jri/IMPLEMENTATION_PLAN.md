@@ -25,17 +25,24 @@ Completed work:
   stores commit/tag details in `lastResult`. This matters because JRI owns loop
   observability while Ralph owns committing/tagging, so the runtime must record
   what Ralph actually did instead of assuming `noChanges`.
+- [x] P0: Record builder-reported blockers from runner output. Ralph now has a
+  machine-readable `JRI_BLOCKER_JSON:` handoff in the builder prompt, and the
+  runtime parses it after a build session, emits `blockerReported` plus blocked
+  `iterationFinished`, preserves changed files, clears runtime ownership, and
+  moves status to `blocked` without committing. This matters because blockers
+  are durable loop state, not prose buried in stdout.
 
 Next work:
 
 - [ ] P0: Implement full resume runner.
-  Remaining work: richer orchestration decisions after Pi returns, blocker
-  parsing/recording from builder output, plan-regeneration decisions, verified
-  needs-human-task resume cleanup, and eventual SDK-native session wiring.
+  Remaining work: richer orchestration decisions after Pi returns,
+  plan-regeneration decisions, verified needs-human-task resume cleanup, spec
+  fingerprint checks before stopped-loop resume, and eventual SDK-native session
+  wiring.
 - [ ] P1: Expand test coverage into status transitions, planner/loop command
   behavior, and daemon recovery paths.
 
 Validation:
 
-- `bun run test`, `bun run typecheck`, and `bun run lint` all pass after commit/tag
-  observation coverage was added.
+- `bun run test`, `bun run typecheck`, and `bun run lint` pass after blocker
+  reporting coverage was added.
