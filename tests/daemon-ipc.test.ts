@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createServer, type Server, type Socket } from "node:net";
+import { createConnection, createServer, type Server, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -9,6 +9,7 @@ import {
   daemonRequestStop,
   daemonStartLoop,
   daemonStatus,
+  MAX_DAEMON_FRAME_BYTES,
   startDaemonServer,
   type DaemonPaths,
 } from "../src/core/daemon-ipc";
@@ -46,6 +47,39 @@ describe("daemon IPC", () => {
         protocolVersion: 1,
         projects: [{ projectDir: dir, activeLoopId: null }],
       });
+    } finally {
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("drops malformed registry entries before recording projects", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    await mkdir(paths.stateDir, { recursive: true });
+    await writeFile(
+      paths.registryPath,
+      `${JSON.stringify(
+        {
+          protocolVersion: 1,
+          projects: [
+            { projectDir: "relative-project", lastSeenAt: new Date().toISOString(), activeLoopId: null },
+            { projectDir: dir, lastSeenAt: "not a date", activeLoopId: null },
+            { projectDir: dir, lastSeenAt: new Date().toISOString(), activeLoopId: 42 },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    const daemon = await startDaemonServer({ paths, idleTimeoutMs: 10_000 });
+    try {
+      await daemonStatus(dir, { paths });
+
+      const registry = JSON.parse(await readFile(paths.registryPath, "utf8"));
+      expect(registry.projects).toHaveLength(1);
+      expect(registry.projects[0]).toMatchObject({ projectDir: dir, activeLoopId: null });
     } finally {
       await daemon.close();
       await rm(dir, { recursive: true, force: true });
@@ -418,12 +452,102 @@ describe("daemon IPC", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("rejects oversized daemon responses before parsing payloads", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const hugeResponse = `${"x".repeat(MAX_DAEMON_FRAME_BYTES + 1)}\n`;
+    const fakeDaemon = await startBadResponseDaemon(paths, "status.get", hugeResponse);
+    try {
+      await expect(daemonStatus(dir, { paths })).rejects.toMatchObject({
+        code: "daemon-frame-too-large",
+        message: "Daemon response exceeded the maximum IPC frame size.",
+      });
+      expect(fakeDaemon.requests).toEqual(["handshake", "status.get"]);
+    } finally {
+      await fakeDaemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects oversized daemon requests before parsing payloads", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const daemon = await startDaemonServer({ paths, idleTimeoutMs: 10_000 });
+    const socket = await connectRawSocket(paths.socketPath);
+    try {
+      socket.write(`${JSON.stringify({ id: "oversized", method: "status.get", params: { projectDir: dir, padding: "x".repeat(MAX_DAEMON_FRAME_BYTES) } })}\n`);
+      const response = JSON.parse(await readRawSocketLine(socket));
+
+      expect(response).toMatchObject({
+        id: "unknown",
+        ok: false,
+        error: {
+          code: "daemon-frame-too-large",
+          message: "Daemon request exceeded the maximum IPC frame size.",
+        },
+      });
+    } finally {
+      socket.destroy();
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const items: T[] = [];
   for await (const item of iterable) items.push(item);
   return items;
+}
+
+async function connectRawSocket(socketPath: string): Promise<Socket> {
+  return await new Promise<Socket>((resolveConnect, rejectConnect) => {
+    const socket = createConnection(socketPath);
+    const onError = (error: Error) => {
+      socket.destroy();
+      rejectConnect(error);
+    };
+    socket.once("error", onError);
+    socket.once("connect", () => {
+      socket.off("error", onError);
+      resolveConnect(socket);
+    });
+  });
+}
+
+async function readRawSocketLine(socket: Socket): Promise<string> {
+  return await new Promise<string>((resolveLine, rejectLine) => {
+    let buffer = "";
+    socket.setEncoding("utf8");
+    socket.on("data", onData);
+    socket.once("error", onError);
+    socket.once("close", onClose);
+
+    function cleanup(): void {
+      socket.off("data", onData);
+      socket.off("error", onError);
+      socket.off("close", onClose);
+    }
+
+    function onData(chunk: string): void {
+      buffer += chunk;
+      const newline = buffer.indexOf("\n");
+      if (newline === -1) return;
+      cleanup();
+      resolveLine(buffer.slice(0, newline));
+    }
+
+    function onError(error: Error): void {
+      cleanup();
+      rejectLine(error);
+    }
+
+    function onClose(): void {
+      cleanup();
+      rejectLine(new Error("Socket closed before a response line was received."));
+    }
+  });
 }
 
 function scheduleLoopCompletion(projectDir: string, loopId: string): void {

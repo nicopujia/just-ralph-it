@@ -31,12 +31,18 @@
   - Honor cancellation before and after session start, including timeout and halt signals, and normalize auth, model, capability, and SDK failures into JRI errors.
   - Completed/Tested: daemon IPC malformed request/response parsing now maps invalid JSON and malformed daemon protocol responses to `daemon-protocol-error`.
     - Validation: focused daemon IPC tests passed (15 tests), full `bun run test` passed (114 tests), `bun run typecheck` passed, and `bun run lint` passed.
-  - Remaining explorer hardening items: enforce oversized IPC frame/payload limits and registry entry validation before explorer launch.
+  - Completed/Tested: oversized IPC frame/payload limits and daemon registry entry validation before explorer launch.
+    - Bounded daemon payloads avoid unbounded memory/parse work on malformed or adversarial frames.
+    - Registry validation prevents corrupt or stale entries from driving daemon compatibility and idle decisions.
+    - Validation: `bun test tests/daemon-ipc.test.ts` passed (18 tests) and `bun run typecheck` passed.
 
 - P0: Fix output, capability ownership, and cancellation invariants.
   - `runControlledPiSession` currently appends stdout and stderr concurrently to the same `stdout.log`; replace this with one ordered merged writer per loop and move channel-specific evidence into structured events, handoffs, or artifacts when needed.
   - Internal `--run-web` and `--run-explorer` currently accept projectDir/loopId/task arguments without validating current owner metadata; add owner metadata validation for current loop/chat invocation and reject missing, stale, or mismatched ownership.
+  - Finding: internal `--run-web`/`--run-explorer` ownership validation remains unresolved.
+  - Finding: web fetch truncation still needs Unicode boundary coverage.
   - Register loop-owned web/explorer child processes with the runner so halt cancels the runner plus children, capability timeouts share the same cancellation path, and graceful stop prevents new loop-owned capability work only at safe boundaries.
+  - Finding: explorer fork-mode rejection still needs an explicit harness test.
   - Ensure chat-owned capability work cannot mutate loop status or write loop events.
 
 - P0: Harden runtime state mutation, resume, and failure recovery.
@@ -47,7 +53,9 @@
     - Missing or invalid `nextPhase` evidence now fails safely instead of heuristically inferring resume phase from `.jri/IMPLEMENTATION_PLAN.md`.
     - Validation passed with focused daemon-runtime tests, `bun run test`, `bun run typecheck`, and `bun run lint`.
   - Finding: malformed/missing handoff parser failures in `runLoopProcess` still need structured loop failure handling.
+  - Finding: `runLoopProcess` should reject invalid phase values if it is called outside CLI validation.
   - Keep existing stopped/human-task fingerprint checks and add coverage for stale lock ownership, dead runner repair, and resume after audit/planning/build boundaries.
+  - Finding: the runtime lock-loss path still needs ownership mismatch tests.
 
 - P0: Make handoff contracts strict and enforce validation/commit safety.
   - Completed/Tested: root handoffs plus nested blocker, resolutionGuide, validation, and artifact records now reject unknown keys; legacy builder blocker/replan prefixes still work. Validation passed with `bun test tests/handoffs.test.ts`, `bun run test` (104 tests), `bun run typecheck`, and `bun run lint`.

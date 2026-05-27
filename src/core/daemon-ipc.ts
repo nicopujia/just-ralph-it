@@ -11,6 +11,7 @@ import type { StartTrigger } from "./chat";
 import type { CoreEvent, HaltOptions, LoopObserveOptions, ProjectStatus } from "./types";
 
 export const DAEMON_PROTOCOL_VERSION = 1;
+export const MAX_DAEMON_FRAME_BYTES = 1024 * 1024;
 
 export type DaemonRequest = {
   id: string;
@@ -401,12 +402,30 @@ async function handleConnection(socket: Socket, paths: DaemonPaths, runtimeOptio
   socket.setEncoding("utf8");
   for await (const chunk of socket) {
     buffer += chunk;
+    if (!buffer.includes("\n") && frameByteLength(buffer) > MAX_DAEMON_FRAME_BYTES) {
+      writeResponse(socket, {
+        id: "unknown",
+        ok: false,
+        error: serializeError(frameTooLargeError("Daemon request exceeded the maximum IPC frame size.")),
+      });
+      socket.destroy();
+      return;
+    }
     for (;;) {
       const newline = buffer.indexOf("\n");
       if (newline === -1) break;
       const line = buffer.slice(0, newline).trim();
       buffer = buffer.slice(newline + 1);
       if (!line) continue;
+      if (frameByteLength(line) > MAX_DAEMON_FRAME_BYTES) {
+        writeResponse(socket, {
+          id: "unknown",
+          ok: false,
+          error: serializeError(frameTooLargeError("Daemon request exceeded the maximum IPC frame size.")),
+        });
+        socket.destroy();
+        return;
+      }
       await handleRequestLine(socket, paths, runtimeOptions, line, requestShutdown);
     }
   }
@@ -523,11 +542,21 @@ async function updateRegistry(paths: DaemonPaths, projectDir: string, status?: P
 
 async function readRegistry(path: string): Promise<DaemonRegistry> {
   if (!(await pathExists(path))) return { protocolVersion: DAEMON_PROTOCOL_VERSION, projects: [] };
-  const parsed = JSON.parse(await readFile(path, "utf8")) as DaemonRegistry;
-  if (parsed.protocolVersion !== DAEMON_PROTOCOL_VERSION || !Array.isArray(parsed.projects)) {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(await readFile(path, "utf8"));
+  } catch {
     return { protocolVersion: DAEMON_PROTOCOL_VERSION, projects: [] };
   }
-  return parsed;
+  if (!parsed || typeof parsed !== "object") return { protocolVersion: DAEMON_PROTOCOL_VERSION, projects: [] };
+  const registry = parsed as Partial<DaemonRegistry>;
+  if (registry.protocolVersion !== DAEMON_PROTOCOL_VERSION || !Array.isArray(registry.projects)) {
+    return { protocolVersion: DAEMON_PROTOCOL_VERSION, projects: [] };
+  }
+  return {
+    protocolVersion: DAEMON_PROTOCOL_VERSION,
+    projects: registry.projects.filter(isValidRegistryProject),
+  };
 }
 
 async function writeRegistry(path: string, registry: DaemonRegistry): Promise<void> {
@@ -542,12 +571,14 @@ async function* readSocketLines(socket: Socket): AsyncIterable<string> {
   socket.setEncoding("utf8");
   for await (const chunk of socket) {
     buffer += chunk;
+    if (!buffer.includes("\n")) assertFrameWithinLimit(buffer, "Daemon response exceeded the maximum IPC frame size.");
     for (;;) {
       const newline = buffer.indexOf("\n");
       if (newline === -1) break;
       const line = buffer.slice(0, newline).trim();
       buffer = buffer.slice(newline + 1);
       if (!line) continue;
+      assertFrameWithinLimit(line, "Daemon response exceeded the maximum IPC frame size.");
       yield line;
     }
   }
@@ -563,6 +594,13 @@ function readOneSocketLine(socket: Socket): Promise<string> {
     };
     const onData = (chunk: string | Buffer) => {
       buffer += chunk.toString();
+      try {
+        if (!buffer.includes("\n")) assertFrameWithinLimit(buffer, "Daemon response exceeded the maximum IPC frame size.");
+      } catch (error) {
+        cleanup();
+        rejectLine(error);
+        return;
+      }
       const newline = buffer.indexOf("\n");
       if (newline === -1) return;
       const line = buffer.slice(0, newline).trim();
@@ -726,6 +764,29 @@ function daemonError(message: DaemonStreamMessage): JriError {
     return new JriError(message.error.message, message.error.code, message.error.recovery ?? "Retry the command or inspect the durable .jri files.");
   }
   return new JriError("Daemon returned an invalid response.", "daemon-protocol-error", "Retry the command with a compatible JRI daemon.");
+}
+
+function isValidRegistryProject(value: unknown): value is DaemonRegistry["projects"][number] {
+  if (!value || typeof value !== "object") return false;
+  const project = value as Partial<DaemonRegistry["projects"][number]>;
+  if (typeof project.projectDir !== "string" || project.projectDir.length === 0) return false;
+  if (resolve(project.projectDir) !== project.projectDir) return false;
+  if (typeof project.lastSeenAt !== "string" || Number.isNaN(Date.parse(project.lastSeenAt))) return false;
+  if (project.activeLoopId !== undefined && project.activeLoopId !== null && typeof project.activeLoopId !== "string") return false;
+  return true;
+}
+
+function assertFrameWithinLimit(frame: string, message: string): void {
+  if (frameByteLength(frame) <= MAX_DAEMON_FRAME_BYTES) return;
+  throw frameTooLargeError(message);
+}
+
+function frameTooLargeError(message: string): JriError {
+  return new JriError(message, "daemon-frame-too-large", "Retry with a compatible JRI client and bounded daemon payloads.");
+}
+
+function frameByteLength(frame: string): number {
+  return Buffer.byteLength(frame, "utf8");
 }
 
 function connectionError(error: unknown): JriError {
