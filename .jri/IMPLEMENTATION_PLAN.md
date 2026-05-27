@@ -26,7 +26,6 @@
   - Confirmed gap: timeout, cancellation, connected-but-silent daemon IPC, capability failures, and malformed handoffs still need consistent durable failure evidence.
   - Confirmed gap: remaining event/status ordering issues include status updates before `iterationStarted` and startup/phase transitions whose exceptions need to be explicit.
   - Confirmed gap: auditor-reported `specsFingerprint` is trusted without daemon recomputation.
-  - Confirmed follow-up gap: recovery should prefer the latest durable terminal loop event even when active status still has dead process/stale lock partial ownership, not only when both lock and process are absent.
   - Register loop-owned capability children with the runner and cancel runner plus children on halt or timeout with SIGTERM-then-SIGKILL escalation.
   - Route pre-start aborts, in-flight aborts, timeouts, halt, and graceful-stop boundaries through one cancellation path with structured evidence.
   - Make recovery use the normal single-writer/lock mutation paths where lifecycle state changes.
@@ -98,3 +97,4 @@
   - Daemon-owned public lifecycle mutation baseline, read-only local fallback, status mutation locking, loop id generation, basic event sequencing, start-trigger normalization, and runtime recovery for dead processes/stale locks/orphaned active states.
   - Single-line handoff parsing baseline, malformed/duplicate/missing/wrong-agent/wrong-phase rejection, chat trigger daemon start, accepted-trigger gating, manual added/deleted/sealed spec reconciliation baseline, corrupt auth cache recovery, validation-gated git-changing iterations, commit/tag observation, blocker basics, and human-task resume basics.
   - Planner planned handoffs now require `.jri/IMPLEMENTATION_PLAN.md` to exist for initial planning and plan regeneration; missing files produce durable failure evidence instead of `planned` completion.
+  - Runtime recovery now prefers the latest durable terminal loop event for active status with missing, dead, or stale runtime ownership, with daemon-runtime regression coverage for stale process ownership.

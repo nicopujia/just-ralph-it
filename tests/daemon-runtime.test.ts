@@ -96,6 +96,55 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("recovery prefers terminal loop event over stale process ownership", async () => {
+    const dir = await tempProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        stopRequested: true,
+        process: {
+          pid: 12345,
+          command: "runner building",
+          startedAt: "2026-05-27T18:42:10.000Z",
+        },
+        lock: activeTestLock("build", 12345),
+      });
+      await appendLoopEvent(dir, {
+        type: "loopFinished",
+        loopId: "20260527T184210Z",
+        data: { outcome: "completed", summary: "Build complete.", commit: "abc123", tag: "0.0.1" },
+      });
+
+      const status = await getRecoveredStatus(dir, {
+        now: new Date("2026-05-27T18:45:00.000Z"),
+        isProcessAlive: () => false,
+      });
+
+      expect(status).toMatchObject({
+        state: "idle",
+        activeLoopId: null,
+        stopRequested: false,
+        lastResult: {
+          outcome: "completed",
+          summary: "Build complete.",
+          commit: "abc123",
+          tag: "0.0.1",
+        },
+        recoveryNote: {
+          repairedFrom: "building",
+          message: expect.stringContaining("Latest durable loop event completed the loop."),
+        },
+      });
+      expect(status.process).toBeUndefined();
+      expect(status.lock).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("recovery stops orphaned active status when no terminal event exists", async () => {
     const dir = await tempProject();
     try {
