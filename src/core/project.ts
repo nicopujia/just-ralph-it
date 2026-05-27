@@ -1,6 +1,7 @@
 import { mkdir, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { getAuthStatus, login, logout } from "./auth";
+import { sendChat } from "./chat";
 import { JriError } from "./errors";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
 import { daemonHaltLoop, daemonObserveLoop, daemonRequestStop, daemonResumeLoop, daemonStatus } from "./daemon-ipc";
@@ -57,10 +58,7 @@ export class Project {
   };
 
   readonly chat = {
-    send: async function* (input: ChatInput): AsyncIterable<CoreEvent> {
-      void input;
-      throw new JriError("The JRI interrogator is not implemented yet.", "not-implemented", "Run this command again after the interrogator P0 is implemented.");
-    },
+    send: (input: ChatInput): AsyncIterable<CoreEvent> => this.sendChat(input),
   };
 
   readonly loop = {
@@ -95,6 +93,11 @@ export class Project {
       throw new JriError("JRI status does not exist yet.", "uninitialized", "Run bare jri or call ensureInitialized() to create the scaffold.");
     }
     return validateStatus(parseJsonObject(await Bun.file(path).text(), path), path);
+  }
+
+  private async *sendChat(input: ChatInput): AsyncIterable<CoreEvent> {
+    await this.ensureInitialized();
+    yield* sendChat(this.projectDir, input);
   }
 
   private async ensureInitialized(): Promise<void> {

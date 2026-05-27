@@ -177,6 +177,22 @@ export async function appendLoopEvent(projectDir: string, event: Omit<CoreEvent,
   return persisted;
 }
 
+export async function appendInterrogationEvent(
+  projectDir: string,
+  event: Omit<CoreEvent, "id" | "sequence" | "timestamp"> & Partial<Pick<CoreEvent, "id" | "timestamp">>,
+): Promise<CoreEvent> {
+  const persisted = {
+    ...event,
+    id: event.id ?? crypto.randomUUID(),
+    sequence: await nextEventSequence(projectDir),
+    timestamp: event.timestamp ?? new Date().toISOString(),
+  } as CoreEvent;
+  const path = join(projectDir, ".jri", "logs", "interrogation.jsonl");
+  await mkdir(dirname(path), { recursive: true });
+  await appendFile(path, `${JSON.stringify(persisted)}\n`, "utf8");
+  return persisted;
+}
+
 export async function nextEventSequence(projectDir: string): Promise<number> {
   let max = 0;
   const logsDir = join(projectDir, ".jri", "logs");

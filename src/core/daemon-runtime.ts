@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JriError } from "./errors";
+import { parseJsonObject, validateConfig } from "./schema";
 import {
   acquireLock,
   appendLoopEvent,
@@ -921,5 +922,5 @@ function ownershipCleared(status: ProjectStatus): { [K in keyof ProjectStatus]?:
 async function readProjectConfig(projectDir: string) {
   const path = join(projectDir, ".jri", "config.json");
   if (!(await Bun.file(path).exists())) return undefined;
-  return JSON.parse(await Bun.file(path).text()) as unknown;
+  return validateConfig(parseJsonObject(await Bun.file(path).text(), path), path);
 }

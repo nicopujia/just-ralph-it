@@ -210,5 +210,5 @@ export type CoreEvent =
   | (BaseEvent & { type: "chatMessageStarted"; data: { role: "assistant" } })
   | (BaseEvent & { type: "chatMessageDelta"; data: { role: "assistant"; text: string } })
   | (BaseEvent & { type: "chatMessageFinished"; data: { role: "assistant" } })
-  | (BaseEvent & { type: "chatTurnRecorded"; data: { role: "user" | "assistant"; logPath: ".jri/logs/interrogation.jsonl" } })
+  | (BaseEvent & { type: "chatTurnRecorded"; data: { role: "user" | "assistant"; logPath: ".jri/logs/interrogation.jsonl"; content?: string } })
   | (BaseEvent & { type: "specsUpdated"; data: { specFiles: string[]; summary: string } });

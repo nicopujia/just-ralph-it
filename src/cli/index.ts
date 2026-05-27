@@ -22,8 +22,17 @@ async function main(argv: string[]): Promise<number> {
 
   if (!command) {
     await project.lifecycle.ensureInitialized();
-    console.log(`Initialized JRI in ${project.projectDir}`);
-    console.log("The interrogator chat is not implemented yet.");
+    const input = process.stdin.isTTY ? "" : await new Response(Bun.stdin.stream()).text();
+    if (!input.trim()) {
+      const status = await project.status.get();
+      console.log(formatStatus(status));
+      return 0;
+    }
+    for await (const event of project.chat.send({ message: input })) {
+      if (event.type === "chatMessageDelta") {
+        console.log(event.data.text);
+      }
+    }
     return 0;
   }
 
@@ -89,6 +98,19 @@ function usage(error?: string): number {
   if (error) console.error(error);
   console.error("Usage: jri | jri auth {status|login|logout} | jri loop {attach|stop|halt|resume}");
   return 1;
+}
+
+function formatStatus(status: { state: string; blocker?: { reason: string; description: string; resolutionGuide: { resumeInstruction: string } }; iteration?: number; iterations?: number; stopRequested: boolean }): string {
+  if (status.state === "building") {
+    return `ralphing${status.iteration ? ` | iteration: ${status.iteration}` : ""} | stop: ${status.stopRequested ? "yes" : "no"}`;
+  }
+  if (status.state === "blocked" && status.blocker) {
+    return `blocked | reason: ${status.blocker.reason} | ${status.blocker.description} | ${status.blocker.resolutionGuide.resumeInstruction}`;
+  }
+  if (status.state === "idle" && status.iterations !== undefined) {
+    return `idle | iterations: ${status.iterations}`;
+  }
+  return status.state;
 }
 
 function formatLoopEvent(event: { type: string; sequence: number; timestamp: string; message?: string; data?: unknown }): string {
