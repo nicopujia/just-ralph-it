@@ -734,6 +734,8 @@ describe("controlled Pi harness", () => {
       const descriptor = await readFile(join(dir, ".jri", "logs", "20260527T184210Z", "capabilities", "explorer", "agents", "explorer.md"), "utf8");
       expect(descriptor).toContain("name: explorer");
       expect(descriptor).toContain("JRI web capability instructions");
+      expect(descriptor).not.toContain("jri --run-web");
+      expect(descriptor).not.toContain("use those exact wrapper commands");
       expect(descriptor).toContain("inheritProjectContext: false");
       expect(descriptor).toContain("tools:\n  - read\n  - grep\n  - find\n  - ls");
     } finally {
