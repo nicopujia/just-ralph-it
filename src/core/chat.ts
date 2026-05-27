@@ -226,7 +226,7 @@ async function buildInterrogatorContext(
   const needsRecentTurns =
     !state ||
     Object.values(state.topics).some((topic) => topic.status === "open" || Boolean(topic.pendingReconciliation));
-  const recentTurns = needsRecentTurns ? await recentInterrogationTurns(projectDir, state) : "";
+  const recentTurns = needsRecentTurns ? await recentInterrogationTurns(projectDir, state, message) : "";
   if (recentTurns) {
     refs.add(".jri/logs/interrogation.jsonl#recent-unsealed-turns");
     inline.push(recentTurns);
@@ -254,31 +254,26 @@ async function* handleObservationHandoff(projectDir: string, handoff: Interrogat
   );
 }
 
-async function recentInterrogationTurns(projectDir: string, state: InterrogationState | null): Promise<string> {
+type TranscriptTurn = {
+  role: string;
+  content: string;
+  text: string;
+  timestamp?: string;
+};
+
+type TopicTurnContext = {
+  topicId: string;
+  cutoff: number | null;
+  terms: Set<string>;
+};
+
+async function recentInterrogationTurns(projectDir: string, state: InterrogationState | null, currentMessage: string): Promise<string> {
   const path = join(projectDir, interrogationLogPath);
   if (!(await pathExists(path))) return "";
-  const cutoff = recentTurnCutoff(state);
-  const parsedTurns = (await Bun.file(path).text())
-    .split("\n")
-    .filter(Boolean)
-    .flatMap((line) => {
-      try {
-        const event = JSON.parse(line) as { type?: string; timestamp?: string; data?: { role?: string; content?: string } };
-        if (event.type !== "chatTurnRecorded" || !event.data?.content) return [];
-        return [
-          {
-            text: `${event.data.role ?? "unknown"}: ${event.data.content}`,
-            timestamp: event.timestamp,
-          },
-        ];
-      } catch {
-        return [];
-      }
-    });
-  const turns = parsedTurns
-    .filter((turn) => includeRecentTurn(turn.timestamp, cutoff))
-    .map((turn) => turn.text)
-    .slice(-8);
+  const parsedTurns = excludeCurrentMessageTurn(parseTranscriptTurns(await Bun.file(path).text()), currentMessage);
+  const turns = state
+    ? await selectTopicAwareTurns(projectDir, state, parsedTurns, currentMessage)
+    : parsedTurns.map((turn) => turn.text).slice(-8);
   if (turns.length === 0) return "";
   return ["Recent unsealed interrogation turns:", ...turns].join("\n");
 }
@@ -304,6 +299,153 @@ function includeRecentTurn(timestamp: string | undefined, cutoff: number | null)
   if (Number.isNaN(parsed)) return false;
   return parsed >= cutoff;
 }
+
+function parseTranscriptTurns(text: string): TranscriptTurn[] {
+  return text
+    .split("\n")
+    .filter(Boolean)
+    .flatMap((line) => {
+      try {
+        const event = JSON.parse(line) as { type?: string; timestamp?: string; data?: { role?: string; content?: string } };
+        if (event.type !== "chatTurnRecorded" || !event.data?.content) return [];
+        const role = event.data.role ?? "unknown";
+        return [
+          {
+            role,
+            content: event.data.content,
+            text: `${role}: ${event.data.content}`,
+            ...(event.timestamp ? { timestamp: event.timestamp } : {}),
+          },
+        ];
+      } catch {
+        return [];
+      }
+    });
+}
+
+function excludeCurrentMessageTurn(turns: TranscriptTurn[], currentMessage: string): TranscriptTurn[] {
+  const latest = turns.at(-1);
+  if (!latest || latest.role !== "user") return turns;
+  return latest.content.trim() === currentMessage.trim() ? turns.slice(0, -1) : turns;
+}
+
+async function selectTopicAwareTurns(
+  projectDir: string,
+  state: InterrogationState,
+  turns: TranscriptTurn[],
+  currentMessage: string,
+): Promise<string[]> {
+  if (turns.length === 0) return [];
+  const topicContexts = await loadOpenTopicTurnContexts(projectDir, state);
+  if (topicContexts.length === 0) return [];
+
+  const selectedTopics = selectRelevantTopics(topicContexts, currentMessage);
+  const recentMatches: TranscriptTurn[] = [];
+  const olderMatches: TranscriptTurn[] = [];
+  for (const turn of turns) {
+    const matchingTopics = selectedTopics.filter((topic) => matchesTopicTerms(turn.content, topic.terms));
+    if (matchingTopics.length === 0) continue;
+    if (matchingTopics.some((topic) => includeRecentTurn(turn.timestamp, topic.cutoff))) {
+      recentMatches.push(turn);
+      continue;
+    }
+    olderMatches.push(turn);
+  }
+
+  const selectedTurns = recentMatches.length > 0 ? recentMatches : olderMatches;
+  return selectedTurns.map((turn) => turn.text).slice(-8);
+}
+
+async function loadOpenTopicTurnContexts(projectDir: string, state: InterrogationState): Promise<TopicTurnContext[]> {
+  const contexts = await Promise.all(
+    Object.entries(state.topics)
+      .filter(([, topic]) => topic.status === "open" || Boolean(topic.pendingReconciliation))
+      .map(async ([topicId, topic]) => {
+        const terms = new Set<string>(tokenizeTopicText(topicId));
+        termsForText(topic.specFile).forEach((term) => terms.add(term));
+        if (topic.scratchpadClearance?.summary) termsForText(topic.scratchpadClearance.summary).forEach((term) => terms.add(term));
+        if (topic.pendingReconciliation?.summary) termsForText(topic.pendingReconciliation.summary).forEach((term) => terms.add(term));
+
+        const specPath = join(projectDir, topic.specFile);
+        if (await pathExists(specPath)) {
+          termsForText((await Bun.file(specPath).text()).slice(0, 2_000)).forEach((term) => terms.add(term));
+        }
+
+        return {
+          topicId,
+          cutoff: recentTurnCutoff({ schemaVersion: 1, topics: { [topicId]: topic } }),
+          terms,
+        } satisfies TopicTurnContext;
+      }),
+  );
+  return contexts.filter((context) => context.terms.size > 0);
+}
+
+function selectRelevantTopics(topicContexts: TopicTurnContext[], currentMessage: string): TopicTurnContext[] {
+  if (topicContexts.length <= 1) return topicContexts;
+
+  const messageTerms = termsForText(currentMessage);
+  const scored = topicContexts
+    .map((topic) => ({
+      topic,
+      score: overlapCount(messageTerms, topic.terms),
+    }))
+    .sort((left, right) => right.score - left.score);
+  const topScore = scored[0]?.score ?? 0;
+  if (topScore <= 0) return topicContexts;
+  return scored.filter((entry) => entry.score === topScore).map((entry) => entry.topic);
+}
+
+function matchesTopicTerms(content: string, topicTerms: Set<string>): boolean {
+  return overlapCount(termsForText(content), topicTerms) > 0;
+}
+
+function overlapCount(terms: string[], topicTerms: Set<string>): number {
+  return terms.reduce((count, term) => count + (topicTerms.has(term) ? 1 : 0), 0);
+}
+
+function tokenizeTopicText(text: string): string[] {
+  return termsForText(text.replace(/[/_.-]/g, " "));
+}
+
+function termsForText(text: string): string[] {
+  return text
+    .toLowerCase()
+    .match(/[a-z0-9]+/g)
+    ?.filter((term) => term.length >= 4 && !topicStopWords.has(term)) ?? [];
+}
+
+const topicStopWords = new Set([
+  "that",
+  "this",
+  "with",
+  "from",
+  "have",
+  "will",
+  "into",
+  "when",
+  "then",
+  "than",
+  "only",
+  "still",
+  "open",
+  "topic",
+  "topics",
+  "spec",
+  "specs",
+  "summary",
+  "notes",
+  "scope",
+  "current",
+  "needs",
+  "need",
+  "discussion",
+  "details",
+  "should",
+  "keep",
+  "continue",
+  "pricing",
+]);
 
 async function* handleInterrogatorHandoff(
   projectDir: string,

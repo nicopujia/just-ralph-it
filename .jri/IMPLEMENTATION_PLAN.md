@@ -12,9 +12,9 @@
   - Current state: `capabilities.ts`, `web-capability.ts`, and `harness.ts` enforce many ownership/shape rules, but descriptor-like policy is still mixed with prompt-driven paths.
   - Remaining: consolidate runtime-declared policy, reduce over-granted web/explorer access, and keep chat-owned capability ownership validation/preflight actionable.
 
-- [ ] Improve interrogation context reconstruction beyond timestamp cutoffs.
-  - Current state: reconstruction, start gating, manual spec edit detection, and topic sealing are implemented; recent-turn pruning is still timestamp-cutoff based.
-  - Remaining: implement topic-aware excerpt selection and older relevant excerpt retrieval without reintroducing sealed-topic transcript noise.
+- [x] Improve interrogation context reconstruction.
+  - Current state: reconstruction, start gating, manual spec edit detection, topic sealing, topic-aware active-topic transcript selection, and older relevant turn backfill are implemented; recent-turn pruning is no longer timestamp-cutoff based.
+  - Why it matters: topic-aware selection keeps the active conversation focused on the current interrogation thread, while older relevant backfill restores missing context without reintroducing sealed-topic transcript noise.
 
 - [ ] Backfill focused coverage for the remaining confirmed contract gaps.
   - Current state: the suite already covers CLI, chat, harness, runtime state, daemon runtime, auth, handoffs, and capabilities broadly.

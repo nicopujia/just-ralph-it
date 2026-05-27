@@ -378,7 +378,7 @@ describe("interrogation chat", () => {
     }
   });
 
-  test("project chat keeps only turns after the current open-topic cutoff", async () => {
+  test("project chat selects recent turns for the active open topic instead of all open-topic transcript noise", async () => {
     const dir = await tempProject();
     const previousPiCommand = process.env.JRI_PI_COMMAND;
     try {
@@ -389,6 +389,7 @@ describe("interrogation chat", () => {
       await writeFile(join(dir, ".jri", "scratchpad.md"), scratchpad);
       await writeFile(join(dir, ".jri", "specs", "billing.md"), "# Billing\n\nUsage-based pricing.\n");
       await writeFile(join(dir, ".jri", "specs", "deployment.md"), "# Deployment\n\nDeploy to Cloudflare.\n");
+      await writeFile(join(dir, ".jri", "specs", "analytics.md"), "# Analytics\n\nShip an analytics dashboard.\n");
       await writeStatusAtomic(dir, defaultStatus(dir));
       await writeInterrogationState(dir, {
         schemaVersion: 1,
@@ -411,6 +412,16 @@ describe("interrogation chat", () => {
               scratchpadFingerprint,
               recordedAt: "2026-05-27T20:00:00.000Z",
               summary: "Deployment scratchpad notes were reconciled.",
+            },
+          },
+          analytics: {
+            specFile: ".jri/specs/analytics.md",
+            status: "open",
+            lastReconciledSpecFingerprint: await fingerprintSpecFile(dir, ".jri/specs/analytics.md"),
+            scratchpadClearance: {
+              scratchpadFingerprint,
+              recordedAt: "2026-05-27T20:11:00.000Z",
+              summary: "Analytics dashboard scope is still open.",
             },
           },
         },
@@ -437,6 +448,16 @@ describe("interrogation chat", () => {
             type: "chatTurnRecorded",
             timestamp: "2026-05-27T20:13:00.000Z",
             data: { role: "assistant", content: "Billing is still open for pricing details." },
+          }),
+          JSON.stringify({
+            type: "chatTurnRecorded",
+            timestamp: "2026-05-27T20:14:00.000Z",
+            data: { role: "user", content: "Analytics should show weekly active users on the dashboard." },
+          }),
+          JSON.stringify({
+            type: "chatTurnRecorded",
+            timestamp: "2026-05-27T20:15:00.000Z",
+            data: { role: "assistant", content: "Analytics is still open for dashboard metrics." },
           }),
           "",
         ].join("\n"),
@@ -466,8 +487,103 @@ describe("interrogation chat", () => {
       expect(prompt).toContain("Current user message:\nBilling still needs a default team plan.");
       expect(prompt).toContain("Billing should stay usage-based for teams.");
       expect(prompt).toContain("Billing is still open for pricing details.");
+      expect(prompt).not.toContain("Analytics should show weekly active users on the dashboard.");
+      expect(prompt).not.toContain("Analytics is still open for dashboard metrics.");
       expect(prompt).not.toContain("Deployment should go through Cloudflare Pages.");
       expect(prompt).not.toContain("Deployment is sealed in the deployment spec.");
+    } finally {
+      restoreEnv("JRI_PI_COMMAND", previousPiCommand);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("project chat can backfill older turns for the active open topic when recent transcript has no matching context", async () => {
+    const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      const scratchpad = "Billing scope is still open.\n";
+      const scratchpadFingerprint = createHash("sha256").update(scratchpad).digest("hex");
+      await writeFile(join(dir, ".jri", "scratchpad.md"), scratchpad);
+      await writeFile(join(dir, ".jri", "specs", "billing.md"), "# Billing\n\nUsage-based pricing for teams.\n");
+      await writeFile(join(dir, ".jri", "specs", "analytics.md"), "# Analytics\n\nShip an analytics dashboard.\n");
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          billing: {
+            specFile: ".jri/specs/billing.md",
+            status: "open",
+            lastReconciledSpecFingerprint: await fingerprintSpecFile(dir, ".jri/specs/billing.md"),
+            scratchpadClearance: {
+              scratchpadFingerprint,
+              recordedAt: "2026-05-27T20:10:00.000Z",
+              summary: "Billing scope is still open.",
+            },
+          },
+          analytics: {
+            specFile: ".jri/specs/analytics.md",
+            status: "open",
+            lastReconciledSpecFingerprint: await fingerprintSpecFile(dir, ".jri/specs/analytics.md"),
+            scratchpadClearance: {
+              scratchpadFingerprint,
+              recordedAt: "2026-05-27T20:30:00.000Z",
+              summary: "Analytics dashboard scope is still open.",
+            },
+          },
+        },
+      });
+      await writeFile(
+        join(dir, ".jri", "logs", "interrogation.jsonl"),
+        [
+          JSON.stringify({
+            type: "chatTurnRecorded",
+            timestamp: "2026-05-27T20:08:00.000Z",
+            data: { role: "user", content: "Billing should keep usage-based pricing for teams." },
+          }),
+          JSON.stringify({
+            type: "chatTurnRecorded",
+            timestamp: "2026-05-27T20:09:00.000Z",
+            data: { role: "assistant", content: "Billing is still open for pricing details." },
+          }),
+          JSON.stringify({
+            type: "chatTurnRecorded",
+            timestamp: "2026-05-27T20:31:00.000Z",
+            data: { role: "user", content: "Analytics should launch with a dashboard summary card." },
+          }),
+          JSON.stringify({
+            type: "chatTurnRecorded",
+            timestamp: "2026-05-27T20:32:00.000Z",
+            data: { role: "assistant", content: "Analytics is still open for dashboard metrics." },
+          }),
+          "",
+        ].join("\n"),
+      );
+
+      const promptPath = join(dir, "captured-prompt.txt");
+      const fakePi = join(dir, "fake-backfill-topic-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          `printf '%s' \"\${@: -1}\" > ${JSON.stringify(promptPath)}`,
+          "printf 'Should billing keep usage-based pricing?\\n'",
+          "printf 'JRI_HANDOFF_JSON: {\"agent\":\"interrogator\",\"action\":\"messageOnly\",\"summary\":\"Asked about billing pricing.\"}\\n'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+
+      const project = await open(dir);
+      await collect(project.chat.send({ message: "Please continue the billing pricing discussion." }));
+      const prompt = await readFile(promptPath, "utf8");
+
+      expect(prompt).toContain("Billing should keep usage-based pricing for teams.");
+      expect(prompt).toContain("Billing is still open for pricing details.");
+      expect(prompt).not.toContain("Analytics should launch with a dashboard summary card.");
+      expect(prompt).not.toContain("Analytics is still open for dashboard metrics.");
     } finally {
       restoreEnv("JRI_PI_COMMAND", previousPiCommand);
       await rm(dir, { recursive: true, force: true });
