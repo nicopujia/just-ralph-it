@@ -6,6 +6,7 @@ import { describe, expect, test } from "bun:test";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop, runLoopProcess, startRalphLoop } from "../src/core/daemon-runtime";
 import { appendLoopEvent, writeStatusAtomic } from "../src/core/runtime-state";
 import { defaultStatus } from "../src/core/schema";
+import { fingerprintSpecFile, writeInterrogationState } from "../src/core/interrogation-state";
 
 const emptySpecsFingerprint = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
@@ -342,6 +343,47 @@ describe("daemon/runtime scaffolding", () => {
         state: "auditing",
         process: { pid: 24680, command: "runner auditing" },
         lock: { owner: "daemon", pid: 24680, operation: "audit" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("start rejects pending spec reconciliation before acquiring a lock", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          app: {
+            specFile: ".jri/specs/app.md",
+            status: "sealed",
+            lastReconciledSpecFingerprint: await fingerprintSpecFile(dir, ".jri/specs/app.md"),
+          },
+        },
+      });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI and TUI.\n");
+
+      await expect(
+        startRalphLoop(dir, {
+          now: new Date("2026-05-27T20:00:00.000Z"),
+          spawnRunner: () => {
+            throw new Error("runner should not start");
+          },
+        }),
+      ).rejects.toThrow("Cannot start while spec reconciliation is pending.");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(status).toEqual(defaultStatus(dir));
+      const state = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+      expect(state.topics.app).toMatchObject({
+        status: "open",
+        pendingReconciliation: {
+          reason: "manualSpecEdit",
+          detectedAt: "2026-05-27T20:00:00.000Z",
+        },
       });
     } finally {
       await rm(dir, { recursive: true, force: true });

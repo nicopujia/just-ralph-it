@@ -22,7 +22,8 @@
   - Add interrogator web capability support with chat-owned owner metadata and artifacts under `.jri/logs/interrogation-artifacts/`, separate from loop events/status.
   - Completed/Tested: added spec files under `.jri/specs` are now detected as pending `specFileAdded` reconciliation in `checkInterrogationStartGate`.
     - Verified with `bun test tests/interrogation-state.test.ts`, full `bun run test` (108 tests), `bun run typecheck`, and `bun run lint`.
-  - Finding: `startRalphLoop` can bypass pending reconciliation unless the flow reaches daemon IPC; direct entry paths should still execute start-gate reconciliation consistently.
+  - Completed/Tested: start-gate reconciliation now runs inside `startRalphLoop`, and the daemon IPC duplicate was removed so direct entry paths reconcile pending work consistently.
+    - Validation: `bun test tests/daemon-runtime.test.ts` passed.
 
 - P0: Replace Pi CLI shellout harness with the controlled SDK adapter contract.
   - Current `invokeDefaultHarness` and `runControlledPiSession` build `pi --print` commands; loop phases still use `HarnessSessionRunner` with `{ projectDir, loopId, phase, stdoutPath }`, bypassing `HarnessInvocation` fields for owner, context refs, capabilities, and cancellation.

@@ -5,7 +5,6 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JriError, isJriError } from "./errors";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop, startRalphLoop, type RuntimeOptions } from "./daemon-runtime";
-import { checkInterrogationStartGate } from "./interrogation-state";
 import { isActiveState } from "./runtime-state";
 import type { StartTrigger } from "./chat";
 import type { CoreEvent, HaltOptions, LoopObserveOptions, ProjectStatus } from "./types";
@@ -476,7 +475,6 @@ async function handleRequestLine(socket: Socket, paths: DaemonPaths, runtimeOpti
     }
     if (request.method === "loop.start") {
       startTriggerParam(request.params);
-      await assertLoopStartGateClear(projectDir, runtimeOptions);
       const event = await startRalphLoop(projectDir, runtimeOptions);
       await updateRegistry(paths, projectDir);
       writeStreamEvent(socket, request.id, event);
@@ -692,19 +690,6 @@ function startTriggerParam(params: unknown): StartTrigger {
     "Daemon loop.start received an invalid start trigger.",
     "invalid-start-trigger",
     "Retry from bare jri with exactly \"just ralph it\" or \"ralfealo\" after the specs are ready.",
-  );
-}
-
-async function assertLoopStartGateClear(projectDir: string, runtimeOptions: RuntimeOptions): Promise<void> {
-  const startGate = await checkInterrogationStartGate(projectDir, runtimeOptions.now ? { now: runtimeOptions.now } : {});
-  if (startGate.ok) return;
-
-  const pending = startGate.pending[0];
-  const summary = pending?.topic.pendingReconciliation?.summary ?? "A pending spec reconciliation must be resolved before Ralph can start.";
-  throw new JriError(
-    "Cannot start while spec reconciliation is pending.",
-    "pending-spec-reconciliation",
-    `${summary} Resolve or defer the changed requirement in bare jri, then say just ralph it again.`,
   );
 }
 

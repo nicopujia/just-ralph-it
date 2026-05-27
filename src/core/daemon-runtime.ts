@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JriError } from "./errors";
 import { runControlledPiSession, type HarnessSessionRunner } from "./harness";
+import { checkInterrogationStartGate } from "./interrogation-state";
 import {
   acquireLock,
   appendLoopEvent,
@@ -208,6 +209,8 @@ export async function requestGracefulStop(projectDir: string, options: RuntimeOp
 }
 
 export async function startRalphLoop(projectDir: string, options: RuntimeOptions = {}): Promise<CoreEvent> {
+  await assertInterrogationStartGateClear(projectDir, options);
+
   const status = await getRecoveredStatus(projectDir, options);
   if (isActiveState(status.state)) {
     throw new JriError(
@@ -281,6 +284,19 @@ export async function startRalphLoop(projectDir: string, options: RuntimeOptions
     }
     throw error;
   }
+}
+
+async function assertInterrogationStartGateClear(projectDir: string, options: RuntimeOptions): Promise<void> {
+  const startGate = await checkInterrogationStartGate(projectDir, options.now ? { now: options.now } : {});
+  if (startGate.ok) return;
+
+  const pending = startGate.pending[0];
+  const summary = pending?.topic.pendingReconciliation?.summary ?? "A pending spec reconciliation must be resolved before Ralph can start.";
+  throw new JriError(
+    "Cannot start while spec reconciliation is pending.",
+    "pending-spec-reconciliation",
+    `${summary} Resolve or defer the changed requirement in bare jri, then say just ralph it again.`,
+  );
 }
 
 export async function* haltLoop(projectDir: string, options: RuntimeOptions = {}): AsyncIterable<CoreEvent> {
