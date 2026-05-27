@@ -120,7 +120,9 @@ describe("interrogation chat", () => {
     try {
       await mkdir(join(dir, ".jri", "logs"), { recursive: true });
       await mkdir(join(dir, ".jri", "specs"), { recursive: true });
-      await writeFile(join(dir, ".jri", "scratchpad.md"), "Open question: billing tier.\n");
+      const scratchpad = "Open question: billing tier.\n";
+      const scratchpadFingerprint = createHash("sha256").update(scratchpad).digest("hex");
+      await writeFile(join(dir, ".jri", "scratchpad.md"), scratchpad);
       await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
       await writeStatusAtomic(dir, defaultStatus(dir));
       await writeInterrogationState(dir, {
@@ -130,6 +132,11 @@ describe("interrogation chat", () => {
             specFile: ".jri/specs/app.md",
             status: "open",
             lastReconciledSpecFingerprint: await fingerprintSpecFile(dir, ".jri/specs/app.md"),
+            scratchpadClearance: {
+              scratchpadFingerprint,
+              recordedAt: "2026-05-27T20:00:00.000Z",
+              summary: "Billing notes are still in the active app topic.",
+            },
           },
         },
       });
@@ -138,6 +145,7 @@ describe("interrogation chat", () => {
         [
           JSON.stringify({
             type: "chatTurnRecorded",
+            timestamp: "2026-05-27T20:05:00.000Z",
             data: { role: "user", content: "The CLI needs a billing command." },
           }),
           "",
@@ -221,6 +229,102 @@ describe("interrogation chat", () => {
       expect(refs).not.toContain(".jri/logs/interrogation.jsonl#recent-unsealed-turns");
       expect(inline).toEqual(["Can we discuss another topic?"]);
     } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("project chat keeps only turns after the current open-topic cutoff", async () => {
+    const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      const scratchpad = "Billing scope is still open.\n";
+      const scratchpadFingerprint = createHash("sha256").update(scratchpad).digest("hex");
+      await writeFile(join(dir, ".jri", "scratchpad.md"), scratchpad);
+      await writeFile(join(dir, ".jri", "specs", "billing.md"), "# Billing\n\nUsage-based pricing.\n");
+      await writeFile(join(dir, ".jri", "specs", "deployment.md"), "# Deployment\n\nDeploy to Cloudflare.\n");
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          billing: {
+            specFile: ".jri/specs/billing.md",
+            status: "open",
+            lastReconciledSpecFingerprint: await fingerprintSpecFile(dir, ".jri/specs/billing.md"),
+            scratchpadClearance: {
+              scratchpadFingerprint,
+              recordedAt: "2026-05-27T20:10:00.000Z",
+              summary: "Billing scratchpad notes were reconciled.",
+            },
+          },
+          deployment: {
+            specFile: ".jri/specs/deployment.md",
+            status: "sealed",
+            lastReconciledSpecFingerprint: await fingerprintSpecFile(dir, ".jri/specs/deployment.md"),
+            scratchpadClearance: {
+              scratchpadFingerprint,
+              recordedAt: "2026-05-27T20:00:00.000Z",
+              summary: "Deployment scratchpad notes were reconciled.",
+            },
+          },
+        },
+      });
+      await writeFile(
+        join(dir, ".jri", "logs", "interrogation.jsonl"),
+        [
+          JSON.stringify({
+            type: "chatTurnRecorded",
+            timestamp: "2026-05-27T20:05:00.000Z",
+            data: { role: "user", content: "Deployment should go through Cloudflare Pages." },
+          }),
+          JSON.stringify({
+            type: "chatTurnRecorded",
+            timestamp: "2026-05-27T20:06:00.000Z",
+            data: { role: "assistant", content: "Deployment is sealed in the deployment spec." },
+          }),
+          JSON.stringify({
+            type: "chatTurnRecorded",
+            timestamp: "2026-05-27T20:12:00.000Z",
+            data: { role: "user", content: "Billing should stay usage-based for teams." },
+          }),
+          JSON.stringify({
+            type: "chatTurnRecorded",
+            timestamp: "2026-05-27T20:13:00.000Z",
+            data: { role: "assistant", content: "Billing is still open for pricing details." },
+          }),
+          "",
+        ].join("\n"),
+      );
+      const promptPath = join(dir, "captured-prompt.txt");
+      const fakePi = join(dir, "fake-open-topic-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          `printf '%s' \"\${@: -1}\" > ${JSON.stringify(promptPath)}`,
+          "printf 'Which billing defaults should Ralph capture?\\n'",
+          "printf 'JRI_HANDOFF_JSON: {\"agent\":\"interrogator\",\"action\":\"messageOnly\",\"summary\":\"Asked about billing defaults.\"}\\n'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+
+      const project = await open(dir);
+      const events = await collect(project.chat.send({ message: "Billing still needs a default team plan." }));
+      const prompt = await readFile(promptPath, "utf8");
+
+      expect(events.find((event) => event.type === "chatMessageDelta")).toMatchObject({
+        data: { text: expect.stringContaining("Which billing defaults should Ralph capture?") },
+      });
+      expect(prompt).toContain("Current user message:\nBilling still needs a default team plan.");
+      expect(prompt).toContain("Billing should stay usage-based for teams.");
+      expect(prompt).toContain("Billing is still open for pricing details.");
+      expect(prompt).not.toContain("Deployment should go through Cloudflare Pages.");
+      expect(prompt).not.toContain("Deployment is sealed in the deployment spec.");
+    } finally {
+      restoreEnv("JRI_PI_COMMAND", previousPiCommand);
       await rm(dir, { recursive: true, force: true });
     }
   });

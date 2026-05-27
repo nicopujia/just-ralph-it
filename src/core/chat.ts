@@ -4,7 +4,13 @@ import { daemonRequestStop, daemonStartLoop } from "./daemon-ipc";
 import type { RuntimeOptions } from "./daemon-runtime";
 import { JriError } from "./errors";
 import { invokeDefaultHarness, readProjectConfig, type HarnessAdapter } from "./harness";
-import { checkInterrogationStartGate, listSpecFiles, readInterrogationState, recordInterrogatorSpecUpdate } from "./interrogation-state";
+import {
+  checkInterrogationStartGate,
+  listSpecFiles,
+  readInterrogationState,
+  recordInterrogatorSpecUpdate,
+  type InterrogationState,
+} from "./interrogation-state";
 import { modelForAgent } from "./prompts";
 import { acquireLock, appendInterrogationEvent, appendLoopEvent, readStatus, releaseLock, updateStatus } from "./runtime-state";
 import type { Blocker, ChatInput, CoreEvent, HumanTaskVerificationHandoff, InterrogatorHandoff, ProjectStatus } from "./types";
@@ -165,7 +171,7 @@ async function buildInterrogatorContext(
   const needsRecentTurns =
     !state ||
     Object.values(state.topics).some((topic) => topic.status === "open" || Boolean(topic.pendingReconciliation));
-  const recentTurns = needsRecentTurns ? await recentInterrogationTurns(projectDir) : "";
+  const recentTurns = needsRecentTurns ? await recentInterrogationTurns(projectDir, state) : "";
   if (recentTurns) {
     refs.add(".jri/logs/interrogation.jsonl#recent-unsealed-turns");
     inline.push(recentTurns);
@@ -193,24 +199,55 @@ async function* handleObservationHandoff(projectDir: string, handoff: Interrogat
   );
 }
 
-async function recentInterrogationTurns(projectDir: string): Promise<string> {
+async function recentInterrogationTurns(projectDir: string, state: InterrogationState | null): Promise<string> {
   const path = join(projectDir, interrogationLogPath);
   if (!(await pathExists(path))) return "";
-  const turns = (await Bun.file(path).text())
+  const cutoff = recentTurnCutoff(state);
+  const parsedTurns = (await Bun.file(path).text())
     .split("\n")
     .filter(Boolean)
     .flatMap((line) => {
       try {
-        const event = JSON.parse(line) as { type?: string; data?: { role?: string; content?: string } };
+        const event = JSON.parse(line) as { type?: string; timestamp?: string; data?: { role?: string; content?: string } };
         if (event.type !== "chatTurnRecorded" || !event.data?.content) return [];
-        return [`${event.data.role ?? "unknown"}: ${event.data.content}`];
+        return [
+          {
+            text: `${event.data.role ?? "unknown"}: ${event.data.content}`,
+            timestamp: event.timestamp,
+          },
+        ];
       } catch {
         return [];
       }
-    })
+    });
+  const turns = parsedTurns
+    .filter((turn) => includeRecentTurn(turn.timestamp, cutoff))
+    .map((turn) => turn.text)
     .slice(-8);
   if (turns.length === 0) return "";
   return ["Recent unsealed interrogation turns:", ...turns].join("\n");
+}
+
+function recentTurnCutoff(state: InterrogationState | null): number | null {
+  if (!state) return null;
+  const timestamps = Object.values(state.topics)
+    .filter((topic) => topic.status === "open" || Boolean(topic.pendingReconciliation))
+    .map((topic) => topic.pendingReconciliation?.detectedAt ?? topic.scratchpadClearance?.recordedAt)
+    .flatMap((timestamp) => {
+      if (!timestamp) return [];
+      const parsed = Date.parse(timestamp);
+      return Number.isNaN(parsed) ? [] : [parsed];
+    });
+  if (timestamps.length === 0) return null;
+  return Math.min(...timestamps);
+}
+
+function includeRecentTurn(timestamp: string | undefined, cutoff: number | null): boolean {
+  if (cutoff === null) return true;
+  if (!timestamp) return false;
+  const parsed = Date.parse(timestamp);
+  if (Number.isNaN(parsed)) return false;
+  return parsed >= cutoff;
 }
 
 async function* handleInterrogatorHandoff(

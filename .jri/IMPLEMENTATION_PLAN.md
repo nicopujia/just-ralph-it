@@ -5,4 +5,6 @@
 - [ ] Implement the primary bare-`jri` Pi terminal chat UI path; if the readline fallback must remain temporarily, record verified evidence and rationale for that degraded path in durable project notes.
 - [x] Keep the `jri loop attach` `[d]etach [s]top` footer stable while live output streams so detach/stop controls remain visible after the first event.
 - [ ] Refine interrogation context reconstruction so open or pending topics receive only relevant recent turns and sealed-topic transcript turns stay pruned.
+  - Note: a timestamp-based cutoff is now implemented in `src/core/chat.ts`, so new interrogator sessions include only turns at or after the earliest currently open/pending topic timestamp; this prevents older sealed-topic discussion from leaking back into context. The broader item stays open because true topic-aware excerpt selection and older-excerpt retrieval are still not implemented.
 - [ ] Backfill focused coverage for the remaining contract gaps, especially the primary public chat smoke path.
+  - Note: focused public `project.chat.send` smoke coverage now exercises the timestamp cutoff, but broader contract-gap coverage is still outstanding.
