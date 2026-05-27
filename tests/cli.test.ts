@@ -330,6 +330,78 @@ describe("CLI", () => {
     }
   });
 
+  test("auth login runs Pi-backed login and verifies JRI auth state", async () => {
+    const dir = await tempProject();
+    try {
+      const piDir = join(dir, "pi-agent");
+      const fakePi = join(dir, "fake-pi.sh");
+      const argvPath = join(dir, "pi-argv.txt");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          "mkdir -p \"$PI_CODING_AGENT_DIR\"",
+          `printf '%s\\n' "$@" > ${JSON.stringify(argvPath)}`,
+          "printf '{\"openai\":{\"access\":\"access-token\"}}\\n' > \"$PI_CODING_AGENT_DIR/auth.json\"",
+          "printf 'pi-login-ok\\n'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      const proc = Bun.spawn(["bun", cliPath, "auth", "login"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          OPENAI_API_KEY: "",
+          PI_CODING_AGENT_DIR: piDir,
+          JRI_PI_COMMAND: fakePi,
+        },
+      });
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("pi-login-ok");
+      expect(stdout).toContain("Authenticated.");
+      expect(stderr).toContain("OpenAI authentication is required");
+      expect(await readFile(argvPath, "utf8")).toBe("auth\nlogin\n");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("auth login reports incomplete Pi-backed login when no usable credentials appear", async () => {
+    const dir = await tempProject();
+    try {
+      const piDir = join(dir, "pi-agent");
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(fakePi, "#!/usr/bin/env bash\nprintf 'login finished without credentials\\n'\n", "utf8");
+      await chmod(fakePi, 0o755);
+
+      const proc = Bun.spawn(["bun", cliPath, "auth", "login"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          OPENAI_API_KEY: "",
+          PI_CODING_AGENT_DIR: piDir,
+          JRI_PI_COMMAND: fakePi,
+        },
+      });
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(1);
+      expect(stdout).toContain("login finished without credentials");
+      expect(stderr).toContain("auth login completed but JRI still cannot find usable OpenAI credentials");
+      expect(stderr).toContain("jri auth login");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("interactive bare jri blocks with auth recovery guidance when auth is missing", async () => {
     const dir = await tempProject();
     try {

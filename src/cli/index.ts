@@ -117,9 +117,7 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     if (subcommand === "login") {
-      const result = await project.auth.login();
-      console.log(result.status === "authenticated" ? "Authenticated." : result.instructions);
-      return result.status === "authenticated" ? 0 : 1;
+      return await runStableAuthLogin(project);
     }
     if (subcommand === "logout") {
       await project.auth.logout();
@@ -262,6 +260,30 @@ async function runAuthPassthrough(args: string[]): Promise<number> {
     `Pi auth passthrough failed for ${JSON.stringify(args.join(" "))}.`,
     "auth-passthrough-failed",
     [`Pi exited with code ${exitCode}.`, stderr.trim(), "Run jri auth --help for stable JRI auth commands."].filter(Boolean).join(" "),
+  );
+}
+
+async function runStableAuthLogin(project: Project): Promise<number> {
+  const before = await project.auth.login();
+  if (before.status === "authenticated") {
+    console.log("Authenticated.");
+    return 0;
+  }
+
+  console.error(before.instructions);
+  await runAuthPassthrough(["login"]);
+
+  const after = await project.auth.status();
+  if (after.authenticated) {
+    console.log("Authenticated.");
+    return 0;
+  }
+
+  const recovery = after.recovery?.instructions ?? before.instructions;
+  throw new JriError(
+    "Pi auth login completed but JRI still cannot find usable OpenAI credentials.",
+    "auth-login-incomplete",
+    recovery,
   );
 }
 

@@ -41,7 +41,7 @@ export async function login(env: NodeJS.ProcessEnv = process.env): Promise<AuthR
     status: "userActionRequired",
     instructions: [
       "OpenAI authentication is required before JRI can start controlled Pi sessions.",
-      `Set OPENAI_API_KEY in this shell, or run jri auth login after completing OpenAI auth in Pi so credentials are available in ${diagnostics.authPath}, then rerun jri auth status.${invalidAuthNote}${staleAuthNote}`,
+      `Set OPENAI_API_KEY in this shell, or run jri auth login to launch the Pi-backed OpenAI auth flow and store credentials in ${diagnostics.authPath}, then rerun jri auth status.${invalidAuthNote}${staleAuthNote}`,
     ].join(" "),
   };
 }
