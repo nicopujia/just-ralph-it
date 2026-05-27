@@ -22,7 +22,7 @@ export function modelForAgent(config: unknown, agent: AgentName): Required<Agent
 export async function buildPiPrompt(
   projectDir: string,
   phase: "interrogation" | "auditing" | "planning" | "building" | "explorer",
-  options: { loopId?: string; explorerTask?: string; userMessage?: string } = {},
+  options: { loopId?: string; contextRefs?: string[]; contextInline?: string[]; explorerTask?: string; userMessage?: string } = {},
 ): Promise<string> {
   const specFiles = await listSpecFiles(projectDir);
   const specs = await Promise.all(
@@ -37,6 +37,7 @@ export async function buildPiPrompt(
   const status = await readIfExists(join(projectDir, ".jri", "status.json"));
 
   if (phase === "interrogation") {
+    const selectedContext = await renderSelectedContext(projectDir, options.contextRefs);
     return [
       "You are the JRI interrogator. Help the user turn their idea into durable, unambiguous requirements before Ralph builds.",
       "Use .jri/specs/* as requirements truth. Use .jri/scratchpad.md only for working notes and unresolved questions.",
@@ -46,9 +47,15 @@ export async function buildPiPrompt(
       'Use "specsUpdated" when you changed .jri/specs/* and include changed specFiles plus a user-facing summary. Use "scratchpadUpdated" when only scratchpad changed.',
       'Use "messageOnly" when no durable file changed. Never include secrets in handoffs.',
       agents ? `Operational guide:\n${agents}` : "",
-      status ? `Current project status JSON:\n${status}` : "",
-      scratchpad ? `Current scratchpad:\n${scratchpad}` : "Current scratchpad is empty.",
-      specs.length ? specs.join("\n\n") : "No spec files exist yet.",
+      selectedContext ||
+        [
+          status ? `Current project status JSON:\n${status}` : "",
+          scratchpad ? `Current scratchpad:\n${scratchpad}` : "Current scratchpad is empty.",
+          specs.length ? specs.join("\n\n") : "No spec files exist yet.",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      ...(options.contextInline?.slice(1) ?? []),
       `Current user message:\n${options.userMessage ?? ""}`,
     ]
       .filter(Boolean)
@@ -127,6 +134,25 @@ async function listSpecFiles(projectDir: string): Promise<string[]> {
 async function readIfExists(path: string): Promise<string | undefined> {
   if (!(await Bun.file(path).exists())) return undefined;
   return (await Bun.file(path).text()).trim();
+}
+
+async function renderSelectedContext(projectDir: string, refs: string[] | undefined): Promise<string> {
+  if (!refs) return "";
+  const sections = await Promise.all(
+    refs.flatMap((ref) => {
+      if (ref === ".jri/logs/interrogation.jsonl#recent-unsealed-turns") return [];
+      return [renderContextRef(projectDir, ref)];
+    }),
+  );
+  return sections.filter(Boolean).join("\n\n");
+}
+
+async function renderContextRef(projectDir: string, ref: string): Promise<string> {
+  const path = join(projectDir, ref);
+  if (!(await Bun.file(path).exists())) return "";
+  const text = (await Bun.file(path).text()).trim();
+  if (!text) return `# ${ref}\n\n(empty)`;
+  return `# ${ref}\n\n${text}`;
 }
 
 function isProjectConfig(value: unknown): value is ProjectConfig {

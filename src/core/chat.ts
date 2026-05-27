@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { startRalphLoop, type RuntimeOptions } from "./daemon-runtime";
 import { JriError } from "./errors";
 import { invokeDefaultHarness, readProjectConfig, type HarnessAdapter } from "./harness";
-import { checkInterrogationStartGate, recordInterrogatorSpecUpdate } from "./interrogation-state";
+import { checkInterrogationStartGate, listSpecFiles, readInterrogationState, recordInterrogatorSpecUpdate } from "./interrogation-state";
 import { modelForAgent } from "./prompts";
 import { appendInterrogationEvent, appendLoopEvent, readStatus, updateStatus } from "./runtime-state";
 import type { Blocker, ChatInput, CoreEvent, HumanTaskVerificationHandoff, InterrogatorHandoff, ProjectStatus } from "./types";
@@ -78,6 +78,7 @@ async function* runInterrogator(projectDir: string, message: string, options: Ch
     data: { role: "assistant" },
   });
   yield started;
+  const context = await buildInterrogatorContext(projectDir, message);
 
   const chunks: string[] = [];
   const result = await harness({
@@ -86,10 +87,7 @@ async function* runInterrogator(projectDir: string, message: string, options: Ch
     agent: "interrogator",
     phase: "interrogation",
     model: modelForAgent(await readProjectConfig(projectDir), "interrogator"),
-    context: {
-      refs: [".jri/specs", ".jri/scratchpad.md", ".jri/status.json", ".jri/logs/interrogation.jsonl"],
-      inline: [message],
-    },
+    context,
     capabilities: [],
     output: {
       write: (chunk) => {
@@ -115,6 +113,49 @@ async function* runInterrogator(projectDir: string, message: string, options: Ch
   });
   yield await recordTurn(projectDir, "assistant", assistantText);
   yield* handleInterrogatorHandoff(projectDir, message, handoff, options);
+}
+
+async function buildInterrogatorContext(projectDir: string, message: string): Promise<{ refs: string[]; inline: string[] }> {
+  const refs = new Set<string>();
+  if (await relativePathExists(projectDir, ".jri/status.json")) refs.add(".jri/status.json");
+
+  const state = await readInterrogationState(projectDir);
+  if (state) refs.add(".jri/interrogation-state.json");
+
+  for (const specFile of await listSpecFiles(projectDir)) refs.add(specFile);
+  if (await relativePathExists(projectDir, ".jri/scratchpad.md")) refs.add(".jri/scratchpad.md");
+
+  const inline = [message];
+  const needsRecentTurns =
+    !state ||
+    Object.values(state.topics).some((topic) => topic.status === "open" || Boolean(topic.pendingReconciliation));
+  const recentTurns = needsRecentTurns ? await recentInterrogationTurns(projectDir) : "";
+  if (recentTurns) {
+    refs.add(".jri/logs/interrogation.jsonl#recent-unsealed-turns");
+    inline.push(recentTurns);
+  }
+
+  return { refs: [...refs], inline };
+}
+
+async function recentInterrogationTurns(projectDir: string): Promise<string> {
+  const path = join(projectDir, interrogationLogPath);
+  if (!(await pathExists(path))) return "";
+  const turns = (await Bun.file(path).text())
+    .split("\n")
+    .filter(Boolean)
+    .flatMap((line) => {
+      try {
+        const event = JSON.parse(line) as { type?: string; data?: { role?: string; content?: string } };
+        if (event.type !== "chatTurnRecorded" || !event.data?.content) return [];
+        return [`${event.data.role ?? "unknown"}: ${event.data.content}`];
+      } catch {
+        return [];
+      }
+    })
+    .slice(-8);
+  if (turns.length === 0) return "";
+  return ["Recent unsealed interrogation turns:", ...turns].join("\n");
 }
 
 async function* handleInterrogatorHandoff(
@@ -358,4 +399,17 @@ async function recordTurn(projectDir: string, role: "user" | "assistant", conten
 
 function isDoneMessage(message: string): boolean {
   return message.trim().replace(/[.!?]+$/u, "").trim().toLowerCase() === "done";
+}
+
+async function relativePathExists(projectDir: string, relativePath: string): Promise<boolean> {
+  return await pathExists(join(projectDir, relativePath));
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
 }

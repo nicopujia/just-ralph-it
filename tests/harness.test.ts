@@ -94,10 +94,14 @@ describe("controlled Pi harness", () => {
   test("builds an isolated interrogation command with the interrogator model and prompt", async () => {
     const dir = await tempProject();
     try {
+      await writeFile(join(dir, ".jri", "scratchpad.md"), "Selected scratchpad note.\n", "utf8");
+      await writeFile(join(dir, ".jri", "logs", "interrogation.jsonl"), "old full transcript\n", "utf8");
       const built = await buildControlledPiCommand({
         projectDir: dir,
         loopId: "chat-turn-1",
         phase: "interrogation",
+        contextRefs: [".jri/scratchpad.md"],
+        contextInline: ["We need a deployment workflow.", "Recent unsealed interrogation turns:\nuser: selected recent turn"],
         userMessage: "We need a deployment workflow.",
         env: {
           JRI_PI_COMMAND: "/tmp/fake-pi",
@@ -108,7 +112,10 @@ describe("controlled Pi harness", () => {
       expect(built.command[built.command.indexOf("--thinking") + 1]).toBe("xhigh");
       expect(built.command[built.command.indexOf("--tools") + 1]).toBe("read,write,edit,grep,find,ls");
       expect(built.command.at(-1)).toContain("You are the JRI interrogator");
+      expect(built.command.at(-1)).toContain("# .jri/scratchpad.md\n\nSelected scratchpad note.");
+      expect(built.command.at(-1)).toContain("Recent unsealed interrogation turns:\nuser: selected recent turn");
       expect(built.command.at(-1)).toContain("Current user message:\nWe need a deployment workflow.");
+      expect(built.command.at(-1)).not.toContain("old full transcript");
       expect(built.env.PI_CODING_AGENT_SESSION_DIR).toBe(join(dir, ".jri", "logs", "chat-turn-1", "pi-sessions"));
     } finally {
       await rm(dir, { recursive: true, force: true });

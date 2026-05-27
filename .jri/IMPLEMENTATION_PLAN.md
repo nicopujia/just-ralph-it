@@ -13,17 +13,23 @@
     - Non-trigger chat now runs start-gate reconciliation, and CLI bare `jri` with empty stdin displays and persists pending spec reconciliation.
     - Validation passed with focused checks plus full `bun test`, `bun run typecheck`, and `bun run lint`.
 - P0: Finish durable interrogator context reconstruction and capabilities.
-  - Current harness invocation passes broad refs (`.jri/specs`, `.jri/scratchpad.md`, `.jri/status.json`, full `.jri/logs/interrogation.jsonl`), and the default Pi CLI adapter only uses the last inline user message; implement selected context refs from `.jri/interrogation-state.json`: open topics, pending reconciliation, recent unsealed turns, status, relevant loop summaries, specs, and scratchpad.
-  - Add topic/open-turn selection so sealed topics omit old chat logs while their spec files remain requirements truth; cover reopen after manual edit, deleted spec, added spec, and context passed to fakes.
+  - Completed/Tested: ordinary chat now builds selected interrogator context instead of passing broad refs.
+    - Harness invocations now receive selected refs for `.jri/status.json`, `.jri/interrogation-state.json`, individual spec files, scratchpad, and a bounded recent-turn pseudo-ref only when topics are open or pending reconciliation.
+    - Sealed topics omit old interrogation turns while their spec files remain requirements truth; the default Pi prompt path now renders the selected `HarnessInvocation.context` instead of reconstructing the full interrogation log.
+    - Verified with `bun test tests/chat.test.ts tests/harness.test.ts`, full `bun run test` (111 tests), `bun run typecheck`, and `bun run lint`.
+    - Note: the first full validation run was executed in parallel with typecheck/lint and hit the known timing-sensitive CLI attach timeout; the focused attach test and the full suite passed serially afterward.
+  - Continue improving topic/open-turn selection with relevant loop summaries and finer-grained reopened/deleted-spec context coverage.
   - Add interrogator web capability support with chat-owned owner metadata and artifacts under `.jri/logs/interrogation-artifacts/`, separate from loop events/status.
   - Completed/Tested: added spec files under `.jri/specs` are now detected as pending `specFileAdded` reconciliation in `checkInterrogationStartGate`.
     - Verified with `bun test tests/interrogation-state.test.ts`, full `bun run test` (108 tests), `bun run typecheck`, and `bun run lint`.
+  - Finding: `startRalphLoop` can bypass pending reconciliation unless the flow reaches daemon IPC; direct entry paths should still execute start-gate reconciliation consistently.
 
 - P0: Replace Pi CLI shellout harness with the controlled SDK adapter contract.
   - Current `invokeDefaultHarness` and `runControlledPiSession` build `pi --print` commands; loop phases still use `HarnessSessionRunner` with `{ projectDir, loopId, phase, stdoutPath }`, bypassing `HarnessInvocation` fields for owner, context refs, capabilities, and cancellation.
   - Implement the JRI-owned Pi TypeScript SDK adapter for interrogator, auditor, planner, builder, and explorer using `HarnessInvocation` and `HarnessResult`; keep Pi package details inside the adapter and make tests/fakes use the same contract.
   - Wire loop phases through `HarnessInvocation` instead of the older session runner shape, including agent, phase, model, capabilities, context, output, signal, and invalid-handoff result mapping.
   - Honor cancellation before and after session start, including timeout and halt signals, and normalize auth, model, capability, and SDK failures into JRI errors.
+  - Finding: malformed daemon IPC payloads currently can bubble as raw `SyntaxError`; IPC parsing should map malformed JSON to `daemon-protocol-error` for predictable failure behavior.
 
 - P0: Fix output, capability ownership, and cancellation invariants.
   - `runControlledPiSession` currently appends stdout and stderr concurrently to the same `stdout.log`; replace this with one ordered merged writer per loop and move channel-specific evidence into structured events, handoffs, or artifacts when needed.
@@ -49,6 +55,7 @@
 - P0: Complete human-task verification and blocker recovery.
   - The default verifier in `chat.ts` always returns `stillBlocked`; replace it with a safe verifier path that can inspect allowed evidence/capabilities and produce `verified` or `stillBlocked` without asking users to paste secrets.
   - Add end-to-end tests for `done` from bare `jri`, `humanTaskVerified`, `humanTaskStillBlocked`, blocked status updates, verified resume, inconclusive verification, changed-spec rejection, and no-op behavior outside `blocked[needsHumanTask]`.
+  - Finding: `ambiguousSpecs` with `done` currently returns a generic blocker message; return explicit guidance for the user about how to resolve ambiguous specification state instead of `no human-task blocker` text.
 
 - P1: Replace fallback CLI chat with the intended terminal experience and richer status.
   - Bare `jri` currently uses a readline fallback; integrate Pi terminal chat UI primitives only if they work with JRI-controlled SDK sessions, otherwise harden the fallback to the same status/footer requirements.
@@ -59,6 +66,7 @@
 - P1: Finish Pi-backed auth and auth-only passthrough.
   - `auth.login` currently returns guidance based on `OPENAI_API_KEY` or Pi auth storage; implement real Pi-backed auth operations where available, normalize unsupported passthrough errors, and keep auth behavior UI-neutral in core.
   - Interactive bare `jri` should launch or guide inline auth and continue into interrogation on success; non-interactive mode should exit with a direct recovery command.
+  - Finding: invalid Pi auth JSON can hard-fail `auth status`; invalid/corrupt auth cache payloads should be treated as recoverable state and handled with status guidance.
 
 - P1: Dogfood and document after P0 behavior is in place.
   - Validate against `/home/nico/just-ralph-it-dogfood/gupta-to-web` only through public JRI interfaces: bare `jri`, `jri auth ...`, loop controls, terminal automation, and JRI-visible logs/specs/status/output.

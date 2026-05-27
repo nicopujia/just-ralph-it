@@ -51,6 +51,8 @@ export type HarnessSessionRequest = {
   phase: HarnessPhase;
   stdoutPath: string;
   env?: NodeJS.ProcessEnv;
+  contextRefs?: string[];
+  contextInline?: string[];
   explorerTask?: string;
   userMessage?: string;
   timeoutMs?: number;
@@ -88,6 +90,8 @@ export async function invokeDefaultHarness(invocation: HarnessInvocation, env: N
     loopId,
     phase: invocation.phase,
     env,
+    contextRefs: invocation.context.refs,
+    contextInline: invocation.context.inline,
     ...(userMessage ? { userMessage } : {}),
   });
   const output = await runCommandCapture({
@@ -210,6 +214,8 @@ export async function buildControlledPiCommand(
 
   const prompt = await buildPiPrompt(request.projectDir, request.phase, {
     loopId: request.loopId,
+    ...(request.contextRefs ? { contextRefs: request.contextRefs } : {}),
+    ...(request.contextInline ? { contextInline: request.contextInline } : {}),
     ...(request.explorerTask ? { explorerTask: request.explorerTask } : {}),
     ...(request.userMessage ? { userMessage: request.userMessage } : {}),
   });

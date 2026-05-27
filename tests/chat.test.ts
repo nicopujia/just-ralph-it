@@ -102,6 +102,125 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("ordinary chat passes selected durable context refs to the interrogator", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "scratchpad.md"), "Open question: billing tier.\n");
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          app: {
+            specFile: ".jri/specs/app.md",
+            status: "open",
+            lastReconciledSpecFingerprint: await fingerprintSpecFile(dir, ".jri/specs/app.md"),
+          },
+        },
+      });
+      await writeFile(
+        join(dir, ".jri", "logs", "interrogation.jsonl"),
+        [
+          JSON.stringify({
+            type: "chatTurnRecorded",
+            data: { role: "user", content: "The CLI needs a billing command." },
+          }),
+          "",
+        ].join("\n"),
+      );
+
+      let refs: string[] = [];
+      let inline: string[] = [];
+      await collect(
+        sendChat(dir, { message: "Billing is still open." }, {
+          interrogatorHarness: async (invocation) => {
+            refs = invocation.context.refs;
+            inline = invocation.context.inline;
+            return {
+              handoff: {
+                agent: "interrogator",
+                action: "messageOnly",
+                summary: "Asked about billing.",
+              },
+            };
+          },
+        }),
+      );
+
+      expect(refs).toEqual([
+        ".jri/status.json",
+        ".jri/interrogation-state.json",
+        ".jri/specs/app.md",
+        ".jri/scratchpad.md",
+        ".jri/logs/interrogation.jsonl#recent-unsealed-turns",
+      ]);
+      expect(refs).not.toContain(".jri/specs");
+      expect(refs).not.toContain(".jri/logs/interrogation.jsonl");
+      expect(inline[0]).toBe("Billing is still open.");
+      expect(inline[1]).toContain("The CLI needs a billing command.");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("sealed topics omit old interrogation turns from selected context", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "scratchpad.md"), "Old scratchpad note.\n");
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          app: {
+            specFile: ".jri/specs/app.md",
+            status: "sealed",
+            lastReconciledSpecFingerprint: await fingerprintSpecFile(dir, ".jri/specs/app.md"),
+          },
+        },
+      });
+      await writeFile(
+        join(dir, ".jri", "logs", "interrogation.jsonl"),
+        [
+          JSON.stringify({
+            type: "chatTurnRecorded",
+            data: { role: "user", content: "Old sealed-topic discussion." },
+          }),
+          "",
+        ].join("\n"),
+      );
+
+      let refs: string[] = [];
+      let inline: string[] = [];
+      await collect(
+        sendChat(dir, { message: "Can we discuss another topic?" }, {
+          interrogatorHarness: async (invocation) => {
+            refs = invocation.context.refs;
+            inline = invocation.context.inline;
+            return {
+              handoff: {
+                agent: "interrogator",
+                action: "messageOnly",
+                summary: "Asked for the next topic.",
+              },
+            };
+          },
+        }),
+      );
+
+      expect(refs).toContain(".jri/specs/app.md");
+      expect(refs).not.toContain(".jri/logs/interrogation.jsonl");
+      expect(refs).not.toContain(".jri/logs/interrogation.jsonl#recent-unsealed-turns");
+      expect(inline).toEqual(["Can we discuss another topic?"]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("interrogator specsUpdated handoff emits a durable specsUpdated event", async () => {
     const dir = await tempProject();
     try {
