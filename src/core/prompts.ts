@@ -82,7 +82,7 @@ export async function buildPiPrompt(
       "You are the JRI auditor. Decide whether the durable specs are ready for Ralph to plan and build safely.",
       "Use only .jri/specs/* as requirements truth. Do not edit files, do not plan, and do not build.",
       "Pass only when the current build scope is sufficiently unambiguous for the planner and builder.",
-      'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by JSON: {"agent":"auditor","action":"passed","specFiles":[".jri/specs/example.md"],"specsFingerprint":"...","summary":"..."} or {"agent":"auditor","action":"failed","feedback":"...","ambiguousSpecFiles":[".jri/specs/example.md"],"questions":["..."]}.',
+      'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by JSON: {"agent":"auditor","action":"passed","specFiles":[".jri/specs/example.md"],"specsFingerprint":"...","summary":"..."} or {"agent":"auditor","action":"failed","feedback":"...","ambiguousSpecFiles":[".jri/specs/example.md"],"affectedTopics":["..."],"findings":["..."],"questions":["..."]}.',
       renderDeclaredCapabilityInstructions(projectDir, phase, options),
       agents ? `Operational guide:\n${agents}` : "",
       specs.join("\n\n"),

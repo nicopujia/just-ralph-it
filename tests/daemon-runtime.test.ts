@@ -1519,6 +1519,14 @@ describe("daemon/runtime scaffolding", () => {
       const events = await collect(observeLoop(dir));
 
       expect(events.map((event) => event.type)).toEqual(["auditStarted", "auditFailed", "blockerReported"]);
+      expect(events[1]).toMatchObject({
+        type: "auditFailed",
+        data: {
+          feedback: "Deployment target is ambiguous.",
+          ambiguousSpecFiles: [".jri/specs/app.md"],
+          questions: ["Which host should receive the deployment?"],
+        },
+      });
       expect(events[2]).toMatchObject({
         type: "blockerReported",
         data: {
@@ -1657,6 +1665,53 @@ describe("daemon/runtime scaffolding", () => {
       });
       expect(status.process).toBeUndefined();
       expect(status.lock).toBeUndefined();
+    } finally {
+      if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
+      else process.env.JRI_PI_COMMAND = previousPiCommand;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runner preserves validation artifact refs in durable events", async () => {
+    const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    try {
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/bin/sh",
+          "echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"No changes needed.\",\"validation\":[{\"command\":\"bun run test\",\"exitCode\":0,\"passed\":true,\"summary\":\"Tests passed.\",\"artifacts\":[{\"path\":\".jri/logs/20260527T184210Z/artifacts/test-output.txt\",\"summary\":\"Full test output.\"}]}]}'",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: {
+          owner: "daemon",
+          pid: process.pid,
+          operation: "build",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "building");
+
+      const events = await collect(observeLoop(dir));
+      expect(events.find((event) => event.type === "validationFinished")).toMatchObject({
+        type: "validationFinished",
+        data: {
+          artifacts: [{ path: ".jri/logs/20260527T184210Z/artifacts/test-output.txt", summary: "Full test output." }],
+        },
+      });
     } finally {
       if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
       else process.env.JRI_PI_COMMAND = previousPiCommand;

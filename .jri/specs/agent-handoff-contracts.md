@@ -34,8 +34,14 @@ and follow-up actions are durable and reliable.
 - Handoffs must not include secrets. For human tasks involving credentials,
   identity, billing, or account setup, the handoff records instructions and
   verification criteria, not secret values.
-- Large artifacts are referenced by stable `.jri/logs/<loopId>/artifacts/*`
-  paths instead of being embedded in handoff JSON.
+- Runtime validates obvious credential-bearing handoff fields and rejects
+  handoffs that include secret-like keys or values. This does not make automated
+  secret detection perfect; prompts still instruct agents not to include secrets,
+  and users should rotate anything accidentally exposed.
+- Large artifacts are referenced by stable artifact paths instead of being
+  embedded in handoff JSON. Loop-owned artifact refs must live under
+  `.jri/logs/<loopId>/artifacts/*`; chat-owned artifact refs must live under
+  `.jri/logs/interrogation-artifacts/*`.
 - The TypeScript union in `src/core/types.ts` is the MVP executable schema for
   handoff JSON shapes until a separate generated JSON Schema is added. Spec work
   that adds a handoff action or field must update that union and its parser tests
@@ -74,6 +80,11 @@ The auditor returns exactly one of:
 - `failed`: specs are not ready, with concrete affected spec files or topics,
   concrete ambiguity/contradiction findings, and follow-up questions for the
   interrogator.
+
+Auditor failed handoffs should structure affected requirements as
+`ambiguousSpecFiles` and/or `affectedTopics` rather than relying only on
+free-form prose. `feedback` remains the concise user-facing summary, and
+`questions` are the exact follow-up questions the interrogator should resolve.
 
 Auditor failures do not start planning or building. They are injected into the
 interrogator response, recorded as `auditFailed`, and leave the lifecycle in
@@ -122,7 +133,9 @@ Validation evidence records:
 - optional artifact references for logs.
 
 Each validation command produces `validationStarted` and `validationFinished`
-events. Validation failures prevent commit/tag creation for that iteration.
+events. Validation artifact refs are preserved in structured evidence so a
+reviewer can locate logs without parsing free-form summaries. Validation
+failures prevent commit/tag creation for that iteration.
 
 For the MVP, Ralph/the builder is responsible for discovering and running the
 target project's relevant validation commands from `AGENTS.md` or equivalent

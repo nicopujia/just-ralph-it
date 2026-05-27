@@ -25,6 +25,7 @@ export function parseHandoff(agent: HandoffAgent, value: unknown): AgentHandoff 
   if (!isRecord(value)) {
     throw invalidHandoff(agent, "The handoff must be a JSON object.");
   }
+  assertNoSecrets(value, agent);
   if (value.agent !== agent) {
     throw invalidHandoff(agent, `The handoff agent must be "${agent}".`);
   }
@@ -172,12 +173,14 @@ function parseAuditor(value: Record<string, unknown>): AuditorHandoff {
         ...optionalSummary(value, "auditor"),
       };
     case "failed":
-      assertKnownKeys(value, "auditor handoff", ["agent", "action", "feedback", "ambiguousSpecFiles", "questions"], "auditor");
+      assertKnownKeys(value, "auditor handoff", ["agent", "action", "feedback", "ambiguousSpecFiles", "affectedTopics", "findings", "questions"], "auditor");
       return {
         agent: "auditor",
         action: "failed",
         feedback: requiredString(value.feedback, "feedback", "auditor"),
         ...(value.ambiguousSpecFiles === undefined ? {} : { ambiguousSpecFiles: parseSpecFiles(value.ambiguousSpecFiles, "auditor") }),
+        ...(value.affectedTopics === undefined ? {} : { affectedTopics: requiredStringArray(value.affectedTopics, "affectedTopics", "auditor") }),
+        ...(value.findings === undefined ? {} : { findings: requiredStringArray(value.findings, "findings", "auditor") }),
         questions: requiredStringArray(value.questions, "questions", "auditor"),
       };
     default:
@@ -379,11 +382,11 @@ function parseArtifact(value: unknown, agent: HandoffAgent): ArtifactRef {
   }
   assertKnownKeys(value, `${agent} artifact`, ["path", "summary"], agent);
   const path = requiredString(value.path, "artifact.path", agent);
-  if (!isStableRelativePathUnder(path, ".jri/logs/")) {
-    throw invalidHandoff(agent, "Artifact paths must be stable .jri/logs/* paths.");
+  if (!isStableLoopArtifactPath(path)) {
+    throw invalidHandoff(agent, "Artifact paths must be stable .jri/logs/<loopId>/artifacts/* paths.");
   }
   return {
-    path: path as `.jri/logs/${string}`,
+    path: path as `.jri/logs/${string}/artifacts/${string}`,
     ...(value.summary === undefined ? {} : { summary: requiredString(value.summary, "artifact.summary", agent) }),
   };
 }
@@ -453,4 +456,47 @@ function isStableRelativePathUnder(path: string, requiredPrefix: string): boolea
 
   const segments = suffix.split("/");
   return segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}
+
+function isStableLoopArtifactPath(path: string): boolean {
+  if (path.includes("\\") || path.includes("\0")) return false;
+  const match = /^\.jri\/logs\/(\d{8}T\d{6}Z(?:-\d+)?)\/artifacts\/(.+)$/.exec(path);
+  if (!match) return false;
+  const artifactPath = match[2];
+  if (!artifactPath) return false;
+  return artifactPath.split("/").every((segment) => segment.length > 0 && segment !== "." && segment !== "..");
+}
+
+function assertNoSecrets(value: unknown, agent: HandoffAgent, path = "handoff"): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => assertNoSecrets(item, agent, `${path}[${index}]`));
+    return;
+  }
+  if (!isRecord(value)) {
+    if (typeof value === "string" && containsSecretLikeValue(value)) {
+      throw invalidHandoff(agent, `Handoff field ${path} appears to contain a secret value.`);
+    }
+    return;
+  }
+  for (const [key, item] of Object.entries(value)) {
+    const childPath = `${path}.${key}`;
+    if (isSecretLikeKey(key)) {
+      throw invalidHandoff(agent, `Handoff field ${childPath} appears to be credential-bearing.`);
+    }
+    assertNoSecrets(item, agent, childPath);
+  }
+}
+
+function isSecretLikeKey(key: string): boolean {
+  return /(?:^|[_-])(?:api[_-]?key|secret|password|passwd|token|access[_-]?key|private[_-]?key|credential|client[_-]?secret)(?:$|[_-])/i.test(key);
+}
+
+function containsSecretLikeValue(value: string): boolean {
+  return (
+    /\bsk-[A-Za-z0-9_-]{20,}\b/.test(value) ||
+    /\bgh[pousr]_[A-Za-z0-9_]{20,}\b/.test(value) ||
+    /\bAKIA[0-9A-Z]{16}\b/.test(value) ||
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(value) ||
+    /\bBearer\s+[A-Za-z0-9._~+/=-]{20,}\b/i.test(value)
+  );
 }

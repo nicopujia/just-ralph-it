@@ -46,6 +46,22 @@ describe("agent handoff contracts", () => {
     ).toMatchObject({ action: "passed", specsFingerprint: "abc123" });
 
     expect(
+      parseHandoff("auditor", {
+        agent: "auditor",
+        action: "failed",
+        feedback: "Deployment target is ambiguous.",
+        ambiguousSpecFiles: [".jri/specs/app.md"],
+        affectedTopics: ["deployment"],
+        findings: ["Two different deployment hosts are named."],
+        questions: ["Which host should receive the deployment?"],
+      }),
+    ).toMatchObject({
+      action: "failed",
+      affectedTopics: ["deployment"],
+      findings: ["Two different deployment hosts are named."],
+    });
+
+    expect(
       parseHandoff("planner", {
         agent: "planner",
         action: "planned",
@@ -238,7 +254,15 @@ describe("agent handoff contracts", () => {
       ).toThrow("Spec files must be stable .jri/specs/* paths");
     }
 
-    for (const path of [".jri/logs/.", ".jri/logs//artifact.md", ".jri/logs/20260527T184210Z/artifacts/.", ".jri/logs/loop\\artifact.md"]) {
+    for (const path of [
+      ".jri/logs/.",
+      ".jri/logs//artifact.md",
+      ".jri/logs/20260527T184210Z/artifact.md",
+      ".jri/logs/20260527T184210Z/artifacts/.",
+      ".jri/logs/loop/artifacts/report.md",
+      ".jri/logs/interrogation-artifacts/web-result.md",
+      ".jri/logs/loop\\artifact.md",
+    ]) {
       expect(() =>
         parseHandoff("builder", {
           agent: "builder",
@@ -246,8 +270,32 @@ describe("agent handoff contracts", () => {
           summary: "Done.",
           artifacts: [{ path }],
         }),
-      ).toThrow("Artifact paths must be stable .jri/logs/* paths");
+      ).toThrow("Artifact paths must be stable .jri/logs/<loopId>/artifacts/* paths");
     }
+  });
+
+  test("rejects obvious credential-bearing handoff fields and values", () => {
+    expect(() =>
+      parseHandoff("builder", {
+        agent: "builder",
+        action: "complete",
+        summary: "Done.",
+        artifacts: [
+          {
+            path: ".jri/logs/20260527T184210Z/artifacts/report.md",
+            apiKey: "metadata should not carry credentials",
+          },
+        ],
+      }),
+    ).toThrow("appears to be credential-bearing");
+
+    expect(() =>
+      parseHandoff("builder", {
+        agent: "builder",
+        action: "complete",
+        summary: "The token was sk-abcdefghijklmnopqrstuvwxyz123456.",
+      }),
+    ).toThrow("appears to contain a secret value");
   });
 
   test("rejects legacy builder blocker and replan lines", () => {

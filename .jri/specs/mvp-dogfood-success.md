@@ -48,6 +48,22 @@ built. JRI should discover and use those details through the normal
 interrogation/specification workflow rather than through out-of-band
 implementation by the supervising agent.
 
+For MVP acceptance, "JRI exclusively" is proven by durable JRI artifacts, not by
+trusting operator memory. The reviewable evidence must include:
+
+- interrogation turns and specs that show how target requirements were
+  discovered and accepted;
+- loop events showing audit, planning, at least one explorer delegation, build
+  iterations, validation, deployment-related work, commits, and tags;
+- stdout/artifact logs sufficient to understand any blockers, validation
+  failures, and deployment commands;
+- git history in the target repository created by Ralph/JRI, not direct
+  supervising-agent edits.
+
+Terminal automation may drive public JRI commands and may observe JRI-visible
+files. It must not directly edit, test, commit, tag, or deploy the target
+repository outside the active JRI loop.
+
 The machine has access to the `wrangler` CLI. Deployment through `wrangler` is
 allowed when required by the target project.
 
@@ -55,11 +71,19 @@ allowed when required by the target project.
 
 - The target project is completed according to its own repository instructions
   and requirements.
-- The deployed result is available at `gupta-to-web.mpujia.justralph.it`.
+- The deployed result is available at `gupta-to-web.mpujia.justralph.it` over
+  HTTPS, returns a successful HTTP response, and serves the target application's
+  expected user-visible behavior as discovered from the target repository.
 - JRI produces durable specs, logs, status, and local commits that explain what
   happened.
 - A reviewer can inspect JRI artifacts to understand the interrogation,
   planning, build iterations, blockers if any, validation, and deployment.
+
+Target-scope discovery precedence is: target `AGENTS.md` or equivalent agent
+instructions first; then target README/docs; then package/build scripts and
+deployment configuration; then existing target tests. If these sources conflict
+materially, JRI must resolve the conflict through interrogation/specs before
+Ralph builds.
 
 ## Non-Goals
 

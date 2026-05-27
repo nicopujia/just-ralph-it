@@ -29,6 +29,13 @@ concepts into the public JRI model.
 - The daemon implementation belongs to core runtime behavior, not to the public
   CLI surface. Packaging may require an internal process entrypoint, but it must
   stay hidden from help and normal user documentation.
+- The public TypeScript API for external clients is the package-level core
+  entrypoint (`src/core/index.ts` in the MVP source layout, and the equivalent
+  package export once packaging is added). Other files under `src/core` are
+  internal modules even when TypeScript can import them inside this repository.
+- Internal daemon, runner, and capability entrypoints may exist for packaging and
+  tests, but they are not public product APIs and must not appear in user-facing
+  help.
 
 Illustrative repository shape:
 
@@ -58,8 +65,9 @@ src/
   observation stream and adds terminal controls.
 - Core exposes loop observation/streaming primitives that CLI and future web
   clients can consume.
-- Core uses a canonical runtime event contract (a discriminated TypeScript union
-  from runtime-state) as the `CoreEvent` shape for all streamed outputs.
+- Core uses a canonical runtime event contract as the `CoreEvent` shape for all
+  streamed outputs. The canonical type name is `RuntimeStateEvent`; `CoreEvent`
+  may be an exported alias for client ergonomics.
 - `open(projectDir)` binds and validates a project context only; it does not
   create or mutate files. A missing `.jri` directory means the project is
   uninitialized, not invalid. If `.jri` files already exist, `open()` validates

@@ -123,7 +123,7 @@ export type HaltOptions = {
 };
 
 export type ArtifactRef = {
-  path: `.jri/logs/${string}`;
+  path: `.jri/logs/${string}/artifacts/${string}`;
   summary?: string;
 };
 
@@ -137,7 +137,7 @@ export type InterrogatorHandoff =
 
 export type AuditorHandoff =
   | { agent: "auditor"; action: "passed"; specFiles: string[]; specsFingerprint: string; summary?: string }
-  | { agent: "auditor"; action: "failed"; feedback: string; ambiguousSpecFiles?: string[]; questions: string[] };
+  | { agent: "auditor"; action: "failed"; feedback: string; ambiguousSpecFiles?: string[]; affectedTopics?: string[]; findings?: string[]; questions: string[] };
 
 export type PlannerHandoff =
   | { agent: "planner"; action: "planned"; planPath: ".jri/IMPLEMENTATION_PLAN.md"; summary: string }
@@ -183,7 +183,7 @@ export type CoreEvent =
   | (BaseEvent & { type: "loopStarted"; loopId: string; data: { projectDir: string; pid?: number } })
   | (BaseEvent & { type: "auditStarted"; loopId: string; data: Record<string, never> })
   | (BaseEvent & { type: "auditPassed"; loopId: string; data: { specFiles: string[]; specsFingerprint: string } })
-  | (BaseEvent & { type: "auditFailed"; loopId: string; data: { feedback: string; ambiguousSpecFiles?: string[] } })
+  | (BaseEvent & { type: "auditFailed"; loopId: string; data: { feedback: string; ambiguousSpecFiles?: string[]; affectedTopics?: string[]; findings?: string[]; questions: string[] } })
   | (BaseEvent & { type: "planningStarted"; loopId: string; data: Record<string, never> })
   | (BaseEvent & { type: "planningFinished"; loopId: string; data: { planPath: ".jri/IMPLEMENTATION_PLAN.md" } })
   | (BaseEvent & { type: "planRegenerationRequested"; loopId: string; data: { reason: "needsReplan" | "specsChanged" | "ambiguousSpecsResolved" } })
@@ -205,7 +205,7 @@ export type CoreEvent =
   | (BaseEvent & { type: "subagentFinished"; loopId: string; data: { agent: "explorer"; summary: string; artifactRef?: string } })
   | (BaseEvent & { type: "subagentFailed"; loopId: string; data: { agent: "explorer"; error: string; artifactRef?: string } })
   | (BaseEvent & { type: "validationStarted"; loopId: string; iteration: number; data: { command: string } })
-  | (BaseEvent & { type: "validationFinished"; loopId: string; iteration: number; data: { command: string; exitCode: number; passed: boolean } })
+  | (BaseEvent & { type: "validationFinished"; loopId: string; iteration: number; data: { command: string; exitCode: number; passed: boolean; artifacts?: ArtifactRef[] } })
   | (BaseEvent & { type: "commitCreated"; loopId: string; iteration: number; data: { sha: string; subject?: string } })
   | (BaseEvent & { type: "tagCreated"; loopId: string; iteration: number; data: { tag: string; sha?: string } })
   | (BaseEvent & {

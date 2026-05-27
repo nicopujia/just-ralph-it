@@ -1510,6 +1510,9 @@ async function finishAuditFailedRun(projectDir: string, loopId: string, handoff:
     data: {
       feedback: handoff.feedback,
       ...(handoff.ambiguousSpecFiles ? { ambiguousSpecFiles: handoff.ambiguousSpecFiles } : {}),
+      ...(handoff.affectedTopics ? { affectedTopics: handoff.affectedTopics } : {}),
+      ...(handoff.findings ? { findings: handoff.findings } : {}),
+      questions: handoff.questions,
     },
   });
   const blocker: Blocker = {
@@ -1825,7 +1828,12 @@ async function recordValidationEvidence(projectDir: string, loopId: string, iter
       type: "validationFinished",
       loopId,
       iteration,
-      data: { command: validation.command, exitCode: validation.exitCode, passed: validation.passed },
+      data: {
+        command: validation.command,
+        exitCode: validation.exitCode,
+        passed: validation.passed,
+        ...(validation.artifacts ? { artifacts: validation.artifacts } : {}),
+      },
       message: validation.summary,
     });
   }

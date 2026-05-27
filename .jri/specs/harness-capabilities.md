@@ -42,6 +42,16 @@ its deployment target `gupta-to-web.mpujia.justralph.it`.
   commands.
 - Users should not need to manually install or configure arbitrary web/MCP
   packages for MVP web access.
+- The production harness exposes web as a declared SDK/runtime capability. Any
+  CLI wrapper is an internal compatibility entrypoint only; agents should not
+  need shell access to use web.
+- Web operation declarations are enforced. A session granted only `search` may
+  not fetch, and a session granted only `fetch` may not search.
+- Web fetch results must validate the typed result shape before entering agent
+  context: source URL and fetched timestamp are required, returned content must
+  be markdown/plain text for the declared markdown operation, and raw HTML is a
+  capability error unless it is stored only as an artifact outside model
+  context.
 - If web is required and unavailable, the interrogator must return a clear
   actionable capability error or a labeled degraded response (never
   guess/fabricate current facts).
@@ -99,6 +109,10 @@ its deployment target `gupta-to-web.mpujia.justralph.it`.
   and summarized for handoff.
 - Explorer handoffs injected into parent context are capped at 4,000 characters.
   Larger results are summarized and linked through `.jri/logs/<loopId>/artifacts/`.
+- Explorer output injected into the parent is a JRI-owned concise result, not a
+  truncated raw transcript. If the underlying subagent does not produce a
+  bounded structured result, JRI stores the raw output as an artifact and
+  creates or requests a concise summary before continuing.
 - JRI should normalize subagent starts, progress, completions, failures, and
   result handoffs into `subagentStarted`, `subagentFinished`, and
   `subagentFailed` events.
@@ -107,6 +121,12 @@ its deployment target `gupta-to-web.mpujia.justralph.it`.
 
 - Harness capabilities are explicit JRI-selected capabilities.
 - The default clean runtime includes only capabilities JRI intentionally enables.
+- Capability descriptors are the source of truth for runtime wiring, not prompt
+  text alone. Prompt instructions may describe a capability, but enforcement
+  happens at the adapter/runtime boundary.
+- MVP JRI must either bundle the required capability implementations or preflight
+  them before a loop can depend on them. Missing `pi-web-access` or `pi-subagent`
+  is a capability failure with an actionable recovery path.
 - The MVP does not expose a broad flag for including the user's Pi/provider
   configuration.
 - The only inherited Pi/provider state allowed by default is provider auth and

@@ -55,6 +55,12 @@ and is not required after initialization.
   transaction. For state transitions, JRI emits the event, then writes status.
   If a crash leaves one side missing or stale, recovery uses process checks,
   status, and latest events to repair the inconsistency.
+- Startup ownership transfer is the narrow exception: the daemon may write
+  active status, lock, and runner process metadata before `loopStarted` so halt
+  and recovery can find the runner. Recovery must append a missing startup
+  milestone if this exception is interrupted. Other lifecycle milestones should
+  follow event-before-status ordering unless a spec names a comparable ownership
+  exception.
 - Status is not derived from events on the normal path, but JRI may use logs and
   process checks to recover or repair status when needed.
 - A loop id is generated when an authorized Ralph lifecycle starts.
@@ -81,8 +87,10 @@ and is not required after initialization.
   `blocked` reasons.
 - Blocked status also includes a resolution guide so the user can tell exactly
   what happened, what to do, how to know it is done, and how JRI will resume.
-- Lock information is part of `.jri/status.json`; there is no separate `.jri/lock`
-  file in the MVP.
+- Lock information is part of `.jri/status.json`; there is no separate durable
+  `.jri/lock` lifecycle file in the MVP. Transient filesystem locks used only to
+  serialize atomic status/event file mutation are allowed and are not lifecycle
+  authority.
 - `.jri/scratchpad.md` is flexible interrogator working memory for open
   questions, discussion branches, unresolved scope, and notes that are not yet
   durable spec truth.
@@ -249,7 +257,8 @@ halted -> auditing | halted
 - Core events use a discriminated TypeScript union from day one.
 - `RuntimeStateEvent` is the canonical core event union. It includes persisted
   loop milestone events and stream/project interaction events used by
-  `chat.send()`.
+  `chat.send()`. `CoreEvent` may be exported as an alias, but the executable
+  schema should have a single source of truth.
 - Auth methods return typed `AuthState`/`AuthResult` values in the MVP rather
   than streaming auth events. Auth events should not be added to
   `RuntimeStateEvent` unless a future auth API becomes streamed.
