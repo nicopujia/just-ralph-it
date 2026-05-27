@@ -1,18 +1,34 @@
 #!/bin/bash
 # Usage: ./loop.sh
-# Runs one planning iteration, then one more after every 10 build iterations.
+# Configure it with env vars below
+
+MODEL=${MODEL:-gpt-5.4}
+REASONING_EFFORT=${REASONING_EFFORT:-high}
+PLAN_EVERY_N_ITERATIONS=${PLAN_EVERY_N_ITERATIONS:-10}
+PLAN_FIRST=${PLAN_FIRST:-0}
 
 BUILD_ITERATION=0
 CURRENT_BRANCH=$(git branch --show-current)
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+STOP_FILE="$SCRIPT_DIR/.jri/stop"
 
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "Branch: $CURRENT_BRANCH"
-echo "Flow:   plan, then build indefinitely; re-plan every 10 builds"
+if [ "$PLAN_FIRST" = "1" ] || [ "$PLAN_FIRST" = "true" ]; then
+    echo "Flow: plan once, then build indefinitely; re-plan every $PLAN_EVERY_N_ITERATIONS builds"
+else
+    echo "Flow: build indefinitely; re-plan every $PLAN_EVERY_N_ITERATIONS builds"
+fi
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 run_iteration() {
     local mode="$1"
     local prompt_file="$2"
+
+    if [ -f "$STOP_FILE" ]; then
+        echo "Stop file found at $STOP_FILE; exiting before $mode prompt."
+        exit 0
+    fi
 
     if [ ! -f "$prompt_file" ]; then
         echo "Error: $prompt_file not found"
@@ -25,20 +41,24 @@ run_iteration() {
     codex exec \
         --dangerously-bypass-approvals-and-sandbox \
         --ignore-user-config \
+        -m "$MODEL" \
+        -c "model_reasoning_effort=\"$REASONING_EFFORT\"" \
         "$(cat "$prompt_file")"
 
     echo ""
     echo "✅ Codex $mode iteration complete"
 }
 
-# run_iteration "plan" "PROMPT_plan.md"
+if [ "$PLAN_FIRST" = "1" ] || [ "$PLAN_FIRST" = "true" ]; then
+    run_iteration "plan" "PROMPT_plan.md"
+fi
 
 while true; do
     run_iteration "build" "PROMPT_build.md"
 
     BUILD_ITERATION=$((BUILD_ITERATION + 1))
 
-    if [ $((BUILD_ITERATION % 10)) -eq 0 ]; then
+    if [ $((BUILD_ITERATION % $PLAN_EVERY_N_ITERATIONS)) -eq 0 ]; then
         echo -e "\n\n======================== PLAN AFTER BUILD $BUILD_ITERATION ========================\n"
         run_iteration "plan" "PROMPT_plan.md"
     fi
