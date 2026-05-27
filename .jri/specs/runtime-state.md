@@ -178,9 +178,13 @@ type Blocker = {
 
 Lock ownership rules:
 
-- Lock acquisition is compare-and-swap on `status.json`: the writer reads the
-  latest status, verifies no live non-stale lock exists, writes a new lock with
-  a heartbeat, then rereads status to confirm ownership.
+- Lock acquisition must provide a true single-writer guarantee for lifecycle
+  mutation. The implementation may satisfy this with a real compare-and-swap on
+  `status.json`, a file lock around status mutation, or a daemon-only mutation
+  path that serializes lock acquisition. A plain read/mutate/write plus reread
+  is not sufficient unless it is protected by one of those mechanisms, because a
+  stale contender must not be able to overwrite a lock after another contender
+  has returned success.
 - A lock is stale only when its `expiresAt` has passed and process check cannot
   find the owning process.
 - If a live lock exists, conflicting commands fail with the active operation and
@@ -423,6 +427,7 @@ type LoopStopped = BaseEvent & {
   loopId: string;
   data: {
     reason: "gracefulStopRequested";
+    nextPhase: "planning" | "building";
     iteration?: number;
     specsFingerprint?: string;
   };

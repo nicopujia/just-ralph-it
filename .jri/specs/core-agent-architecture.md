@@ -389,9 +389,13 @@ authority are execution permissions, not user-visible Pi packages.
   model auth flow.
 - Core exposes Pi-backed authentication operations and `jri` consumes them from the
   public core auth API, which future clients can consume unchanged.
-- `jri auth` should mirror or forward Pi auth operations, including login,
-  logout, and any other provider-auth operations Pi exposes, so users do not
-  need to run Pi directly for auth management.
+- The stable MVP auth surface is `jri auth status`, `jri auth login`, and
+  `jri auth logout`. Those commands should use Pi-backed provider auth where
+  available so users do not need to run Pi directly for normal JRI auth setup.
+- Additional Pi provider-auth operations may be forwarded later as auth-only
+  passthrough commands, but they are not required for the MVP. Unsupported or
+  unknown auth operations must return normalized actionable JRI errors rather
+  than exposing raw Pi behavior.
 - Bare `jri` may also launch or guide the same Pi-backed auth flow inline when
   auth is missing, then continue into interrogation after auth succeeds.
 - Users should not need to know or run Pi directly for normal JRI auth setup.

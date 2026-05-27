@@ -84,7 +84,7 @@ export async function invokeDefaultHarness(invocation: HarnessInvocation, env: N
   }
 
   const loopId = invocation.owner.kind === "loop" ? invocation.owner.loopId : `chat-${invocation.owner.turnId}`;
-  const userMessage = invocation.context.inline.at(-1);
+  const userMessage = invocation.phase === "interrogation" ? invocation.context.inline[0] : undefined;
   const built = await buildControlledPiCommand({
     projectDir: invocation.projectDir,
     loopId,

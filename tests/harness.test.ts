@@ -2,7 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { buildControlledPiCommand, runExplorerTask } from "../src/core/harness";
+import { buildControlledPiCommand, invokeDefaultHarness, runExplorerTask } from "../src/core/harness";
 import { writeStatusAtomic } from "../src/core/runtime-state";
 import { defaultConfig, defaultStatus } from "../src/core/schema";
 import { runWebFetch, runWebSearch } from "../src/core/web-capability";
@@ -117,6 +117,59 @@ describe("controlled Pi harness", () => {
       expect(built.command.at(-1)).toContain("Current user message:\nWe need a deployment workflow.");
       expect(built.command.at(-1)).not.toContain("old full transcript");
       expect(built.env.PI_CODING_AGENT_SESSION_DIR).toBe(join(dir, ".jri", "logs", "chat-turn-1", "pi-sessions"));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("default interrogator harness keeps the current message separate from recent context", async () => {
+    const dir = await tempProject();
+    try {
+      const capturedPromptPath = join(dir, "captured-prompt.txt");
+      const fakePi = join(dir, "fake-pi-capture.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          "prompt=\"${@: -1}\"",
+          `printf '%s' "$prompt" > ${JSON.stringify(capturedPromptPath)}`,
+          "printf 'Assistant answer.\\n'",
+          "printf 'JRI_HANDOFF_JSON: {\"agent\":\"interrogator\",\"action\":\"messageOnly\",\"summary\":\"Answered.\"}\\n'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      const chunks: string[] = [];
+      await invokeDefaultHarness(
+        {
+          owner: { kind: "chat", turnId: "turn-1" },
+          projectDir: dir,
+          agent: "interrogator",
+          phase: "interrogation",
+          model: { model: "gpt-5.5", reasoning: "xhigh" },
+          context: {
+            refs: [],
+            inline: ["Current trimmed message.", "Recent unsealed interrogation turns:\nuser: older context"],
+          },
+          capabilities: [],
+          output: {
+            write: (chunk) => {
+              chunks.push(chunk);
+            },
+          },
+          signal: new AbortController().signal,
+        },
+        {
+          JRI_PI_COMMAND: fakePi,
+        },
+      );
+
+      const prompt = await readFile(capturedPromptPath, "utf8");
+      expect(prompt).toContain("Recent unsealed interrogation turns:\nuser: older context");
+      expect(prompt).toContain("Current user message:\nCurrent trimmed message.");
+      expect(prompt).not.toContain("Current user message:\nRecent unsealed interrogation turns");
+      expect(chunks.join("")).toContain("Assistant answer.");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

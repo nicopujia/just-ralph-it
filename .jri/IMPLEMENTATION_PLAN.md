@@ -1,85 +1,79 @@
 # Implementation Plan
 
-- P0: Repair accepted-trigger and active-loop chat semantics.
-  - Completed/Tested: accepted-trigger and active-loop ordering slice.
-    - Deterministic trigger handling now runs before interrogator harness execution.
-    - `daemon loop.start` now streams follow-up lifecycle events after `loopStarted` by observing from the loopStarted sequence; focused `daemon-ipc`/`chat` tests pass, followed by full `bun run test` (107 tests), `bun run typecheck`, and `bun run lint`.
-    - `startRequested` handoffs are revalidated against the current normalized user message.
-    - In active `auditing`, `planning`, and `building` states, chat returns `attach`/`stop` guidance without invoking the interrogator/start path.
-    - Focused chat tests covering this path now pass; final validation also passed with `bun test tests/chat.test.ts`, full `bun run test` (103 tests), `bun run typecheck`, and `bun run lint`.
-    - Note: an initial parallel validation run timed out one CLI attach test while two TypeScript checks were also running; the attach test and full suite passed serially, so no product change was needed for that test.
-  - Completed/Tested: interrogation-state reconciliation now runs on empty/open checks and ordinary non-trigger chat.
-    - Core `chat` empty/open checks now invoke interrogation start-gate reconciliation before user input.
-    - Non-trigger chat now runs start-gate reconciliation, and CLI bare `jri` with empty stdin displays and persists pending spec reconciliation.
-    - Validation passed with focused checks plus full `bun test`, `bun run typecheck`, and `bun run lint`.
-- P0: Finish durable interrogator context reconstruction and capabilities.
-  - Completed/Tested: ordinary chat now builds selected interrogator context instead of passing broad refs.
-    - Harness invocations now receive selected refs for `.jri/status.json`, `.jri/interrogation-state.json`, individual spec files, scratchpad, and a bounded recent-turn pseudo-ref only when topics are open or pending reconciliation.
-    - Sealed topics omit old interrogation turns while their spec files remain requirements truth; the default Pi prompt path now renders the selected `HarnessInvocation.context` instead of reconstructing the full interrogation log.
-    - Verified with `bun test tests/chat.test.ts tests/harness.test.ts`, full `bun run test` (111 tests), `bun run typecheck`, and `bun run lint`.
-    - Note: the first full validation run was executed in parallel with typecheck/lint and hit the known timing-sensitive CLI attach timeout; the focused attach test and the full suite passed serially afterward.
-  - Continue improving topic/open-turn selection with relevant loop summaries and finer-grained reopened/deleted-spec context coverage.
-  - Add interrogator web capability support with chat-owned owner metadata and artifacts under `.jri/logs/interrogation-artifacts/`, separate from loop events/status.
-  - Completed/Tested: added spec files under `.jri/specs` are now detected as pending `specFileAdded` reconciliation in `checkInterrogationStartGate`.
-    - Verified with `bun test tests/interrogation-state.test.ts`, full `bun run test` (108 tests), `bun run typecheck`, and `bun run lint`.
-  - Completed/Tested: start-gate reconciliation now runs inside `startRalphLoop`, and the daemon IPC duplicate was removed so direct entry paths reconcile pending work consistently.
-    - Validation: `bun test tests/daemon-runtime.test.ts` passed.
+- P0: Replace shellout harness paths with the real `HarnessInvocation` adapter for every agent.
+  - Implement the JRI-owned Pi TypeScript SDK adapter for `interrogator`, `auditor`, `planner`, `builder`, and `explorer`; Pi package flags/session details stay inside the adapter.
+  - Remove loop-phase dependence on `HarnessSessionRunner`/`runControlledPiSession`; `runLoopProcess` must invoke the adapter with `owner`, `projectDir`, `agent`, `phase`, `model`, `context`, declared `capabilities`, ordered `output`, and `signal`.
+  - Make production and fake harnesses share the same `HarnessInvocation`/`HarnessResult` contract, including scripted chunks, handoffs, artifacts, capability errors, auth errors, delays, and cancellation.
+  - Map auth, model, capability, invalid-handoff, timeout, cancellation, and SDK failures into structured JRI errors/status events.
 
-- P0: Replace Pi CLI shellout harness with the controlled SDK adapter contract.
-  - Current `invokeDefaultHarness` and `runControlledPiSession` build `pi --print` commands; loop phases still use `HarnessSessionRunner` with `{ projectDir, loopId, phase, stdoutPath }`, bypassing `HarnessInvocation` fields for owner, context refs, capabilities, and cancellation.
-  - Implement the JRI-owned Pi TypeScript SDK adapter for interrogator, auditor, planner, builder, and explorer using `HarnessInvocation` and `HarnessResult`; keep Pi package details inside the adapter and make tests/fakes use the same contract.
-  - Wire loop phases through `HarnessInvocation` instead of the older session runner shape, including agent, phase, model, capabilities, context, output, signal, and invalid-handoff result mapping.
-  - Honor cancellation before and after session start, including timeout and halt signals, and normalize auth, model, capability, and SDK failures into JRI errors.
-  - Completed/Tested: daemon IPC malformed request/response parsing now maps invalid JSON and malformed daemon protocol responses to `daemon-protocol-error`.
-    - Validation: focused daemon IPC tests passed (15 tests), full `bun run test` passed (114 tests), `bun run typecheck` passed, and `bun run lint` passed.
-  - Completed/Tested: oversized IPC frame/payload limits and daemon registry entry validation before explorer launch.
-    - Bounded daemon payloads avoid unbounded memory/parse work on malformed or adversarial frames.
-    - Registry validation prevents corrupt or stale entries from driving daemon compatibility and idle decisions.
-    - Validation: `bun test tests/daemon-ipc.test.ts` passed (18 tests) and `bun run typecheck` passed.
+- P0: Enforce harness invocation fields, current-message correctness, and cancellation.
+  - Fix interrogator prompt construction so `Current user message:` is always the current trimmed user message, not the last inline context item when recent turns are appended.
+  - Thread `AbortSignal`/timeout through chat, loop phases, Pi SDK sessions, and capability processes; honor cancellation before start, during execution, and after timeout with best-effort then forceful cleanup.
+  - Stop parsing handoffs from shared `stdout.log`; capture each adapter result directly and persist raw display output separately.
+  - Add assertions/tests for `owner`, `agent`, `phase`, `model`, selected context refs, capabilities, output sink ordering, and cancelled invocations.
+  - Completed/Tested: Default interrogator harness now uses the first inline context entry as the current user message rather than recent-turn context; focused `tests/harness.test.ts` harness tests passed. Final serial validation passed with `bun run test` (119 tests), `bun run typecheck`, and `bun run lint`.
 
-- P0: Fix output, capability ownership, and cancellation invariants.
-  - `runControlledPiSession` currently appends stdout and stderr concurrently to the same `stdout.log`; replace this with one ordered merged writer per loop and move channel-specific evidence into structured events, handoffs, or artifacts when needed.
-  - Internal `--run-web` and `--run-explorer` currently accept projectDir/loopId/task arguments without validating current owner metadata; add owner metadata validation for current loop/chat invocation and reject missing, stale, or mismatched ownership.
-  - Finding: internal `--run-web`/`--run-explorer` ownership validation remains unresolved.
-  - Finding: web fetch truncation still needs Unicode boundary coverage.
-  - Register loop-owned web/explorer child processes with the runner so halt cancels the runner plus children, capability timeouts share the same cancellation path, and graceful stop prevents new loop-owned capability work only at safe boundaries.
-  - Finding: explorer fork-mode rejection still needs an explicit harness test.
-  - Ensure chat-owned capability work cannot mutate loop status or write loop events.
+- P0: Restore daemon-owned chat start semantics.
+  - Remove the exported `sendChat` local `startRalphLoop` fallback for accepted triggers; the default production path must start via daemon IPC and stream the daemon lifecycle events.
+  - Keep in-process start only as an explicit test fake matching `loop.start` stream semantics.
+  - On accepted trigger, stream `loopStarted` plus subsequent audit/planning/build/blocker/stop/halt/failure/completion events without requiring the caller to separately attach.
+  - Reject active loops, unresolved human-task blockers, pending reconciliation, and invalid triggers with state-specific actionable errors.
 
-- P0: Harden runtime state mutation, resume, and failure recovery.
-  - `acquireLock` is read/mutate/write plus reread confirmation, not a real CAS; implement race-safe lock acquisition or a single-daemon mutation guarantee that satisfies the runtime spec, with contention tests.
-  - Completed/Tested: `chooseResumePhase` now resumes from durable loop state, not file presence.
-    - `loopStopped` now records `nextPhase`.
-    - `resume` now reads the latest durable `loopStopped.nextPhase` and uses that as the resume phase.
-    - Missing or invalid `nextPhase` evidence now fails safely instead of heuristically inferring resume phase from `.jri/IMPLEMENTATION_PLAN.md`.
-    - Validation passed with focused daemon-runtime tests, `bun run test`, `bun run typecheck`, and `bun run lint`.
-  - Finding: malformed/missing handoff parser failures in `runLoopProcess` still need structured loop failure handling.
-  - Finding: `runLoopProcess` should reject invalid phase values if it is called outside CLI validation.
-  - Keep existing stopped/human-task fingerprint checks and add coverage for stale lock ownership, dead runner repair, and resume after audit/planning/build boundaries.
-  - Finding: the runtime lock-loss path still needs ownership mismatch tests.
+- P0: Implement active-loop observation-mode interrogator.
+  - Bare `jri`/`chat.send()` must still invoke the Pi-backed interrogator when status is `auditing`, `planning`, or `building`, but with observation-mode context and restrictions.
+  - Observation mode may explain status/logs/specs/plan, record thoughts to `.jri/scratchpad.md`, and offer/request graceful stop.
+  - Observation mode must not mutate `.jri/specs/*`, trigger replanning, authorize a new lifecycle, or change active requirements.
+  - If the user wants requirement changes during an active loop, record the thought in scratchpad and guide them through graceful stop before normal interrogation resumes.
 
-- P0: Make handoff contracts strict and enforce validation/commit safety.
-  - Completed/Tested: root handoffs plus nested blocker, resolutionGuide, validation, and artifact records now reject unknown keys; legacy builder blocker/replan prefixes still work. Validation passed with `bun test tests/handoffs.test.ts`, `bun run test` (104 tests), `bun run typecheck`, and `bun run lint`.
-  - Core already records `failedValidation`, but commit/tag observation only runs after successful builder handoffs; add git-state guards for `failedValidation` and `blocked` outcomes so unexpected commits/tags become structured loop failure/recovery evidence and never emit success commit/tag events.
-  - Implement validation evidence expectations from `AGENTS.md`/project operational guidance, including minimum behavior when commands are absent or unsafe, and ensure commit/tag success requires clean validation evidence.
+- P0: Finish CLI chat/event rendering for the MVP terminal workflow.
+  - Replace or harden the readline fallback so bare `jri` renders all `chat.send()` events, not only `chatMessageDelta` and `loopStarted`.
+  - Render normalized loop lifecycle events from accepted-trigger streams: audit, planning, iteration, validation, commit/tag, blocker, stop, halt, failure, completion, and loop output.
+  - Keep stable status/footer behavior with attach/stop guidance; surface final `lastResult` details including URL/deployment, validation result, commit, tag, artifact/log hints, and next action.
+  - Validate the installed/public `jri` bin path and packaging, not only `bun src/cli/index.ts`.
 
-- P0: Complete human-task verification and blocker recovery.
-  - The default verifier in `chat.ts` always returns `stillBlocked`; replace it with a safe verifier path that can inspect allowed evidence/capabilities and produce `verified` or `stillBlocked` without asking users to paste secrets.
-  - Add end-to-end tests for `done` from bare `jri`, `humanTaskVerified`, `humanTaskStillBlocked`, blocked status updates, verified resume, inconclusive verification, changed-spec rejection, and no-op behavior outside `blocked[needsHumanTask]`.
-  - Finding: `ambiguousSpecs` with `done` currently returns a generic blocker message; return explicit guidance for the user about how to resolve ambiguous specification state instead of `no human-task blocker` text.
+- P0: Enforce capability ownership, cancellation, and stdout policy.
+  - Add owner metadata validation to internal `--run-web`, `--run-explorer`, and any adapter-only capability entrypoints; reject missing, stale, or mismatched `{ projectDir, loopId, owner }`.
+  - Ensure chat-owned capability artifacts go under `.jri/logs/interrogation-artifacts/` and cannot mutate loop status or append loop events.
+  - Register loop-owned web/explorer children with the runner so halt cancels the runner and children; graceful stop prevents new loop-owned capability work only at safe phase/iteration boundaries.
+  - Replace concurrent stdout/stderr appends with one ordered merged `stdout.log` writer per loop; record channel-specific evidence in structured events, handoffs, or artifacts when needed.
+  - Add explicit tests for explorer spawn-only mode, ownership mismatch, child cancellation, timeout cancellation, and chat/loop ownership separation.
 
-- P1: Replace fallback CLI chat with the intended terminal experience and richer status.
-  - Bare `jri` currently uses a readline fallback; integrate Pi terminal chat UI primitives only if they work with JRI-controlled SDK sessions, otherwise harden the fallback to the same status/footer requirements.
-  - Surface final idle/completed status from `lastResult`, including URL/deployment, validation result, commit, tag, artifact/log hints, and next action.
-  - Keep the public CLI surface to bare `jri`, `jri auth {status|login|logout}`, and `jri loop {attach|stop|halt|resume}`; keep `--run-*` as internal adapter entrypoints.
-  - Test the installed/public `jri` bin path and packaging, not only `bun src/cli/index.ts`.
+- P0: Finish web capability surfacing and robustness.
+  - Surface the JRI web capability through `HarnessInvocation.capabilities` and prompts for every allowed agent, including the interrogator; required web access must fail with an actionable capability blocker or labeled degraded answer, never guessed facts.
+  - Implement real process timeouts for `pi-web-access` and route timeout cleanup through the same cancellation path as halt.
+  - Fix fetch excerpt/artifact truncation to respect Unicode boundaries and report accurate omitted byte/character counts.
+  - Preserve source metadata and artifact refs in capability results without injecting raw oversized HTML/markdown into agent context.
+  - Cover search/fetch success, unavailable command, invalid JSON, timeout, redirects/limits, Unicode truncation, and artifact creation.
 
-- P1: Finish Pi-backed auth and auth-only passthrough.
-  - `auth.login` currently returns guidance based on `OPENAI_API_KEY` or Pi auth storage; implement real Pi-backed auth operations where available, normalize unsupported passthrough errors, and keep auth behavior UI-neutral in core.
-  - Interactive bare `jri` should launch or guide inline auth and continue into interrogation on success; non-interactive mode should exit with a direct recovery command.
-  - Finding: invalid Pi auth JSON can hard-fail `auth status`; invalid/corrupt auth cache payloads should be treated as recoverable state and handled with status guidance.
+- P0: Harden runtime mutation, locking, halt, and stopped-start policy.
+  - Replace `acquireLock` read/write/reread with a race-safe CAS/status mutation strategy, file lock, or daemon-only single-writer guarantee; add contention tests.
+  - Make resolving, resuming, halting, repairing, and starting acquire/check lifecycle ownership consistently, including stale lock ownership and lock-loss paths.
+  - Make halt take precedence while the process is live, cancel registered children, escalate from graceful termination to forceful kill after a short grace period, and record the final halt/reset outcome.
+  - Enforce stopped policy: direct `jri loop resume` only when specs match the authorized fingerprint; bare `jri` start from stopped reruns audit/planning only after changed or missing specs are reconciled and reauthorized.
+  - Reject invalid runner phase values inside `runLoopProcess` as well as at CLI parsing, and convert malformed/missing handoff parser failures into structured loop failure/recovery evidence.
+  - Add coverage for stale lock ownership, dead runner repair, halt/stop races, forceful halt, lock mismatch, stopped start/resume boundaries, and resume after audit/planning/build.
 
-- P1: Dogfood and document after P0 behavior is in place.
-  - Validate against `/home/nico/just-ralph-it-dogfood/gupta-to-web` only through public JRI interfaces: bare `jri`, `jri auth ...`, loop controls, terminal automation, and JRI-visible logs/specs/status/output.
+- P0: Enforce git commit/tag and validation safety.
+  - Guard `failedValidation` and `blocked` handoffs by comparing git state from iteration start to handoff completion; unexpected commits/tags become structured loop failure/recovery evidence and must not emit successful `commitCreated`/`tagCreated` events.
+  - Require minimum validation evidence before commit/tag success: read commands from `AGENTS.md`/project guidance, record what ran, and record why stronger validation was unavailable when commands are absent or unsafe.
+  - Treat tag success as valid only after a clean validation outcome and a successful change commit; validate tag format/increment rules and ensure no tag is recorded for no-op, blocked, or failed-validation iterations.
+  - Preserve changed files for inspection on validation failure/blockers and keep destructive rollback behind explicit halt/reset policy.
+  - Cover successful commit/tag, no-op, failed validation, blocked with unexpected git changes, absent validation commands, unsafe validation commands, and invalid/missing tag evidence.
+
+- P0: Complete human-task verifier and blocked recovery.
+  - Replace the default verifier that always returns `stillBlocked` with a safe verifier path that inspects allowed evidence/capabilities and returns `verified` or `stillBlocked` without asking users to paste secrets.
+  - `done` in bare `jri` should verify only `blocked[needsHumanTask]`, update status/events with `humanTaskVerified` or `humanTaskStillBlocked`, and guide `jri loop resume` only after verified.
+  - For `blocked[ambiguousSpecs]`, `done` must return explicit spec-resolution guidance instead of generic "no human-task blocker" text.
+  - Reject resume when specs changed after the blocker, verification is inconclusive, the blocker is not human-task, or no active loop id/fingerprint is available.
+  - Add end-to-end tests for bare `jri` `done`, verified resume, still-blocked updates, ambiguous-spec guidance, changed-spec rejection, inconclusive verification, and no-op behavior outside eligible blocked state.
+
+- P0: Make auth recoverable and UI-neutral.
+  - Treat invalid/corrupt Pi auth cache payloads as recoverable auth state with actionable status/login guidance; `jri auth status` must not hard-fail on bad auth JSON.
+  - Implement or passthrough real Pi-backed login/logout/status operations where available, and normalize unsupported passthrough errors through JRI auth result types.
+  - Bare interactive `jri` should launch or guide inline auth and continue into interrogation after success; non-interactive mode should print direct recovery commands and exit cleanly.
+  - Keep auth behavior in core UI-neutral, with CLI responsible for display.
+
+- P0: Dogfood the public MVP path and update docs.
+  - After the P0 runtime/CLI behavior above is in place, validate `/home/nico/just-ralph-it-dogfood/gupta-to-web` only through public JRI interfaces: bare `jri`, `jri auth ...`, `jri loop attach|stop|halt|resume`, terminal automation, and JRI-visible logs/specs/status/output.
   - Dogfood success requires deployment at `gupta-to-web.mpujia.justralph.it` plus durable artifacts for interrogation, planning, iterations, blockers, validation, deployment, commits, and tags.
-  - Update `README.md` after the flow works: install/run basics, auth setup, bare `jri` workflow, loop controls, recovery paths, validation commands, and dogfood workflow.
+  - Update `README.md` after the dogfood flow works: install/run basics, auth setup, bare `jri` workflow, loop controls, recovery paths, validation commands, and dogfood workflow.
