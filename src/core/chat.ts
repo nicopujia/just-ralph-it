@@ -6,7 +6,7 @@ import { JriError } from "./errors";
 import { invokeDefaultHarness, readProjectConfig, type HarnessAdapter } from "./harness";
 import { checkInterrogationStartGate, listSpecFiles, readInterrogationState, recordInterrogatorSpecUpdate } from "./interrogation-state";
 import { modelForAgent } from "./prompts";
-import { appendInterrogationEvent, appendLoopEvent, readStatus, updateStatus } from "./runtime-state";
+import { acquireLock, appendInterrogationEvent, appendLoopEvent, readStatus, releaseLock, updateStatus } from "./runtime-state";
 import type { Blocker, ChatInput, CoreEvent, HumanTaskVerificationHandoff, InterrogatorHandoff, ProjectStatus } from "./types";
 
 const interrogationLogPath = ".jri/logs/interrogation.jsonl" as const;
@@ -238,8 +238,6 @@ async function* handleInterrogatorHandoff(
   }
 
   if (handoff.action === "humanTaskVerified") {
-    const status = await readStatus(projectDir);
-    await markHumanTaskVerified(projectDir, status, handoff.verificationSummary);
     return;
   }
 
@@ -326,7 +324,7 @@ async function* handleDone(projectDir: string, status: ProjectStatus, userMessag
       return;
     }
 
-    const resolved = await markHumanTaskVerified(projectDir, status, verification.verificationSummary);
+    const resolved = await markHumanTaskVerified(projectDir, verification.verificationSummary, options);
     if (resolved) yield resolved;
     yield* emitAssistant(projectDir, "Marked the human task as verified. Run jri loop resume to continue the existing lifecycle.");
     return;
@@ -346,29 +344,45 @@ async function* handleDone(projectDir: string, status: ProjectStatus, userMessag
   yield* emitAssistant(projectDir, "There is no unresolved human-task blocker to verify. I recorded your message.");
 }
 
-async function markHumanTaskVerified(projectDir: string, _status: ProjectStatus, verificationSummary?: string): Promise<CoreEvent | undefined> {
-  const verifiedAt = new Date().toISOString();
-  await updateStatus(projectDir, (current) => {
-    if (current.state !== "blocked" || current.blocker?.reason !== "needsHumanTask") return current;
-    return {
-      ...current,
-      blocker: {
-        ...current.blocker,
-        resolution: {
-          status: "verified",
-          verifiedAt,
-          verificationSummary: verificationSummary ?? "JRI verified the required human task after the user said done.",
+async function markHumanTaskVerified(projectDir: string, verificationSummary: string | undefined, options: ChatRuntimeOptions): Promise<CoreEvent | undefined> {
+  const lock = await acquireLock(projectDir, "resume", options.now ? { now: options.now } : {});
+  const verifiedAt = (options.now ?? new Date()).toISOString();
+  try {
+    let updated = false;
+    await updateStatus(projectDir, (current) => {
+      if (current.state !== "blocked" || current.blocker?.reason !== "needsHumanTask") return current;
+      updated = true;
+      return {
+        ...current,
+        blocker: {
+          ...current.blocker,
+          resolution: {
+            status: "verified",
+            verifiedAt,
+            verificationSummary: verificationSummary ?? "JRI verified the required human task after the user said done.",
+          },
         },
-      },
-    };
-  });
+      };
+    });
+    if (!updated) {
+      throw new JriError(
+        "Cannot verify the human task because the current blocker changed.",
+        "human-task-verification-race",
+        "Reload the project status and say done again if the human task is still blocked.",
+      );
+    }
+  } finally {
+    await releaseLock(projectDir, lock);
+  }
 
   return undefined;
 }
 
 function assistantTextForInterrogatorHandoff(handoff: InterrogatorHandoff): string {
   if (handoff.action === "specsUpdated" || handoff.action === "scratchpadUpdated") return handoff.summary;
-  if (handoff.action === "humanTaskVerified") return handoff.verificationSummary ?? "The human task is verified.";
+  if (handoff.action === "humanTaskVerified") {
+    return "Human-task verification is only recorded after you say done in bare jri and JRI verifies the blocker criteria.";
+  }
   if (handoff.action === "humanTaskStillBlocked") return handoff.blocker.resolutionGuide.summary;
   if (handoff.action === "startRequested") return `Start request accepted (${handoff.trigger}).`;
   return handoff.summary ?? "I recorded your note.";

@@ -136,6 +136,12 @@ type LoopStartRequest = {
 - `loop.start` rejects active loops, unresolved human-task blockers, pending
   reconciliation, and invalid trigger text with state-specific actionable
   errors.
+- Daemon stream clients must treat a connected socket that stops producing
+  handshake, response, event, or done frames as a bounded runtime failure.
+  Silence timeouts must preserve lifecycle safety: read-only observe/status may
+  retry or fall back to recovered durable state, but start/stop/halt/resume must
+  not be reissued after an ambiguous partial request unless core can prove the
+  prior request was not accepted.
 - Unit tests may inject an in-process fake daemon/start transport, but the fake
   must expose the same `loop.start` stream semantics.
 

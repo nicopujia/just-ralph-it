@@ -147,10 +147,13 @@ has `passed: true`. `failedValidation.validation.passed` must be `false`.
 If no concrete validation command exists, a git-changing successful iteration is
 not accepted in the MVP; the builder must either add concrete project validation
 guidance, report a blocker, or complete a no-op/non-git-changing step with clear
-evidence. A successful git-changing iteration that creates a commit but omits the
-expected semantic-version tag, creates more than one plausible tag, or creates a
-tag that cannot be associated with the iteration commit is a loop failure with
-recovery evidence rather than a successful committed iteration.
+evidence. Explanatory evidence that stronger validation was unavailable may
+support a no-op/non-git-changing outcome, but it is not passing validation for a
+git-changing success. A successful git-changing iteration that creates a commit
+but omits the expected semantic-version tag, creates more than one plausible
+tag, or creates a tag that cannot be associated with the iteration commit is a
+loop failure with recovery evidence rather than a successful committed
+iteration.
 
 ## Human-Task Verification
 

@@ -50,6 +50,15 @@ and is not required after initialization.
   controllable lifecycle as `authorizedSpecsFingerprint`. Runtime treats this as
   an opaque deterministic equality token for the accepted specs, not as a
   user-facing summary.
+- The canonical specs fingerprint is computed by listing all regular markdown
+  files directly under `.jri/specs/` in bytewise sorted relative-path order,
+  reading each file as UTF-8 bytes without modifying line endings, and hashing a
+  framed stream with SHA-256. Each file contributes its relative path, a NUL
+  byte, its byte length as decimal ASCII, a NUL byte, its raw bytes, and a final
+  newline byte. The empty specs directory has a stable hash of the same framing
+  with no file entries. Core computes this value for audit authorization,
+  stopped-loop resume checks, and manual reconciliation equality; auditor
+  handoff values are accepted only when they match the core-computed value.
 - `.jri/status.json` is updated with write-temp-then-rename atomic replacement.
 - Event appends and status replacement are not treated as a single cross-file
   transaction. For state transitions, JRI emits the event, then writes status.
@@ -79,6 +88,11 @@ and is not required after initialization.
   user-facing TUI label for `building` and is not a machine state.
 - `stopped` means a graceful stop completed after the current outer-loop
   iteration finished.
+- `stopped` is also the recoverable terminal state for failed runtime outcomes
+  in the MVP. A failed stopped loop must set `lastResult.outcome: "failed"` and
+  include actionable recovery evidence. The user-facing status must distinguish
+  graceful `lastResult.outcome: "stopped"` from failed
+  `lastResult.outcome: "failed"` instead of relying on the machine state alone.
 - `halted` means the loop was force-killed after explicit confirmation.
 - Blocked status includes a reason, initially `ambiguousSpecs` or
   `needsHumanTask`, plus a detailed description. Missing required capabilities,
@@ -660,9 +674,19 @@ type DaemonResponse =
 - If process checks show no active loop but `.jri/status.json` says
   `auditing`, `planning`, or `building`, JRI repairs status to `stopped` with a
   recovery note rather than pretending the loop is still active.
+- Runtime failures such as auth errors, SDK errors, invalid handoffs, capability
+  failures, parser failures, connected-but-silent daemon IPC, and lock loss
+  finish the loop with a durable `loopFinished` event whose outcome is `failed`,
+  then move status to `stopped` with `lastResult.outcome: "failed"`.
 - If core event-derived status and status-file refresh disagree, the verified
   status (from process check or status file) wins; the UI shows the latest
   recovery note before continuing.
+- Daemon clients must bound silence after connection. Unary requests and stream
+  requests need an inactivity timeout that produces an actionable daemon error
+  rather than waiting forever. A client may reconnect only when the requested
+  operation is read-only observation/status or when the protocol documents a
+  safe idempotent retry; lifecycle-mutating requests must not be duplicated
+  after an ambiguous silent connection.
 - The daemon exits after an idle timeout when there are no active loops and no
   connected clients.
 - Daemon IPC includes a `protocolVersion` handshake separate from the JRI package

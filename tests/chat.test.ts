@@ -1049,6 +1049,49 @@ describe("interrogation chat", () => {
 
       expect(events.some((event) => event.type === "blockerResolved")).toBe(false);
       expect(status.blocker.resolution).toMatchObject({ status: "verified", verificationSummary: "Deployment token is present." });
+      expect(status.lock).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("ordinary interrogator humanTaskVerified handoff does not verify a blocker", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Deployment credentials are missing.",
+          resolutionGuide: {
+            summary: "Credentials are required.",
+            steps: ["Set the deployment token."],
+            resumeInstruction: "Say done in bare jri after the token is available.",
+          },
+        },
+      });
+
+      const events = await collect(
+        sendChat(dir, { message: "I think the token is probably ready." }, {
+          interrogatorHarness: async () => ({
+            handoff: {
+              agent: "interrogator",
+              action: "humanTaskVerified",
+              verificationSummary: "Deployment token is present.",
+            },
+          }),
+        }),
+      );
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const assistantText = events.find((event) => event.type === "chatMessageDelta")?.data.text;
+
+      expect(status.blocker.resolution).toBeUndefined();
+      expect(status.lock).toBeUndefined();
+      expect(assistantText).toContain("only recorded after you say done");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

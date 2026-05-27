@@ -36,6 +36,13 @@ audit.
   entirely.
 - Before an auditor pass, unresolved scratchpad scope/questions must either be
   resolved into specs or explicitly deferred out of the current build scope.
+- Scratchpad clearance is a deterministic start-gate concern, not only auditor
+  judgment. The MVP may keep the scratchpad free-form, but JRI must still record
+  machine-readable evidence when a topic is sealed or explicitly deferred so
+  core can prove that related scratchpad notes no longer block the current
+  build scope. Until that evidence exists for each open/sealed topic in scope,
+  `just ralph it`/`ralfealo` must remain in interrogation instead of starting
+  audit.
 - The interrogator updates specs continuously as decisions become stable during
   chat.
 - Specs are not generated only as a final batch.
@@ -208,6 +215,10 @@ that are fully specced. When sealing a topic, the interrogator should:
 - Move or resolve any related notes in `.jri/scratchpad.md`.
 - Mark the topic as specced in JRI-managed state.
 - Ensure no unresolved questions for that topic remain in scratchpad.
+- Record the scratchpad clearance evidence in JRI-managed state. The evidence
+  may be a concise summary and current scratchpad fingerprint; it must be
+  enough for core to detect later scratchpad edits that reopen or defer the
+  topic before Ralph starts.
 - Exclude that topic's old chat turns from future context reconstruction.
 - Continue interrogating remaining topics with less context pressure.
 
@@ -279,8 +290,9 @@ blocker instead of observation mode.
 
 ## Specs Auditor
 
-The specs auditor is an agent. JRI should not add a separate deterministic
-pre-audit checklist unless a later concrete need appears.
+The specs auditor is an agent for behavioral readiness. JRI also has
+deterministic pre-audit gates for machine-owned safety conditions such as
+pending spec reconciliation and unresolved scratchpad clearance evidence.
 
 The specs auditor checks that:
 
