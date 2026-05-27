@@ -7,7 +7,7 @@ import { open } from "../src/core";
 import { startDaemonServer, type DaemonPaths } from "../src/core/daemon-ipc";
 import { defaultStatus } from "../src/core/schema";
 import { appendLoopEvent, updateStatus, writeStatusAtomic } from "../src/core/runtime-state";
-import { fingerprintSpecFile, writeInterrogationState } from "../src/core/interrogation-state";
+import { fingerprintSpecFile, recordInterrogatorSpecUpdate, writeInterrogationState } from "../src/core/interrogation-state";
 import type { CoreEvent } from "../src/core";
 import type { HarnessAdapter } from "../src/core/harness";
 
@@ -184,16 +184,7 @@ describe("interrogation chat", () => {
       await writeFile(join(dir, ".jri", "scratchpad.md"), "Old scratchpad note.\n");
       await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
       await writeStatusAtomic(dir, defaultStatus(dir));
-      await writeInterrogationState(dir, {
-        schemaVersion: 1,
-        topics: {
-          app: {
-            specFile: ".jri/specs/app.md",
-            status: "sealed",
-            lastReconciledSpecFingerprint: await fingerprintSpecFile(dir, ".jri/specs/app.md"),
-          },
-        },
-      });
+      await recordInterrogatorSpecUpdate(dir, [".jri/specs/app.md"], { sealedSpecFiles: [".jri/specs/app.md"] });
       await writeFile(
         join(dir, ".jri", "logs", "interrogation.jsonl"),
         [

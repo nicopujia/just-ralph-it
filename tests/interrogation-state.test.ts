@@ -221,9 +221,10 @@ describe("interrogation state", () => {
   test("records interrogator spec updates as reconciled topic fingerprints", async () => {
     const dir = await tempProject();
     try {
+      await writeFile(join(dir, ".jri", "scratchpad.md"), "Deferred: billing plans.\n");
       await writeFile(join(dir, ".jri", "specs", "deployment.md"), "# Deployment\n\nDeploy with Wrangler.\n");
 
-      const state = await recordInterrogatorSpecUpdate(dir, [".jri/specs/deployment.md"]);
+      const state = await recordInterrogatorSpecUpdate(dir, [".jri/specs/deployment.md"], { now: new Date("2026-05-27T20:00:00.000Z") });
       const fingerprint = await fingerprintSpecFile(dir, ".jri/specs/deployment.md");
       const persisted = await readInterrogationState(dir);
 
@@ -231,7 +232,12 @@ describe("interrogation state", () => {
         specFile: ".jri/specs/deployment.md",
         status: "open",
         lastReconciledSpecFingerprint: fingerprint,
+        scratchpadClearance: {
+          recordedAt: "2026-05-27T20:00:00.000Z",
+          summary: "The interrogator reconciled .jri/specs/deployment.md with current scratchpad notes accounted for.",
+        },
       });
+      expect(state.topics.deployment!.scratchpadClearance?.scratchpadFingerprint).toHaveLength(64);
       expect(persisted?.topics.deployment).toEqual(state.topics.deployment);
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -245,18 +251,94 @@ describe("interrogation state", () => {
 
       const state = await recordInterrogatorSpecUpdate(dir, [".jri/specs/deployment.md"], {
         sealedSpecFiles: [".jri/specs/deployment.md"],
+        now: new Date("2026-05-27T20:00:00.000Z"),
       });
 
       expect(state.topics.deployment).toMatchObject({
         specFile: ".jri/specs/deployment.md",
         status: "sealed",
         lastReconciledSpecFingerprint: await fingerprintSpecFile(dir, ".jri/specs/deployment.md"),
+        scratchpadClearance: {
+          recordedAt: "2026-05-27T20:00:00.000Z",
+          summary: "The interrogator sealed .jri/specs/deployment.md with scratchpad notes resolved or deferred out of current build scope.",
+        },
       });
 
       await writeFile(join(dir, ".jri", "specs", "deployment.md"), "# Deployment\n\nDeploy with Wrangler and preview URLs.\n");
       await expect(checkInterrogationStartGate(dir, { now: new Date("2026-05-27T20:00:00.000Z") })).resolves.toMatchObject({
         ok: false,
         pending: [{ topicId: "deployment", topic: { pendingReconciliation: { reason: "manualSpecEdit" } } }],
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("blocks start when tracked topics have no scratchpad clearance evidence", async () => {
+    const dir = await tempProject();
+    try {
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
+      const fingerprint = await fingerprintSpecFile(dir, ".jri/specs/app.md");
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          app: {
+            specFile: ".jri/specs/app.md",
+            status: "sealed",
+            lastReconciledSpecFingerprint: fingerprint,
+          },
+        },
+      });
+
+      const result = await checkInterrogationStartGate(dir, { now: new Date("2026-05-27T20:00:00.000Z") });
+
+      expect(result).toMatchObject({
+        ok: false,
+        pending: [
+          {
+            topicId: "app",
+            topic: {
+              status: "open",
+              pendingReconciliation: {
+                reason: "scratchpadClearanceMissing",
+                detectedAt: "2026-05-27T20:00:00.000Z",
+              },
+            },
+          },
+        ],
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("blocks start when scratchpad changes after topic reconciliation", async () => {
+    const dir = await tempProject();
+    try {
+      await writeFile(join(dir, ".jri", "scratchpad.md"), "Deferred: billing plans.\n");
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
+      await recordInterrogatorSpecUpdate(dir, [".jri/specs/app.md"], {
+        sealedSpecFiles: [".jri/specs/app.md"],
+        now: new Date("2026-05-27T20:00:00.000Z"),
+      });
+
+      await writeFile(join(dir, ".jri", "scratchpad.md"), "Open question: should there be a TUI?\n");
+      const result = await checkInterrogationStartGate(dir, { now: new Date("2026-05-27T20:05:00.000Z") });
+
+      expect(result).toMatchObject({
+        ok: false,
+        pending: [
+          {
+            topicId: "app",
+            topic: {
+              status: "open",
+              pendingReconciliation: {
+                reason: "scratchpadChanged",
+                detectedAt: "2026-05-27T20:05:00.000Z",
+              },
+            },
+          },
+        ],
       });
     } finally {
       await rm(dir, { recursive: true, force: true });

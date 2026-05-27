@@ -24,10 +24,9 @@
 - P0: Harden interrogation readiness and spec mutation safety.
   - Completed planning increment: clarified `.jri/specs/interrogation-readiness.md` so scratchpad clearance is a deterministic start-gate concern with machine-readable evidence, not only auditor judgment.
   - Completed increment: start-gate manual spec reconciliation checks both open and sealed topics against the last interrogator-reconciled fingerprint, and auditing harness context includes `.jri/interrogation-state.json` plus `.jri/scratchpad.md` when present.
-  - Confirmed gap: sealing records `sealedSpecFiles` without proof that related scratchpad notes were cleaned up or moved into specs/deferred scope.
+  - Completed increment: scratchpad clearance evidence is now recorded on interrogation topics, and start-gate blocks missing or stale scratchpad clearance before audit proceeds.
   - Confirmed gap: recent-turn reconstruction is coarse and includes the last eight turns whenever any topic is open.
   - Confirmed gap: observation, planner, and builder phases rely on prompts/handoffs rather than deterministic before/after `.jri/specs/*` mutation guards.
-  - Add scratchpad clearance fields to interrogation state and block audit until in-scope unresolved scratchpad notes are resolved into specs or explicitly deferred.
   - Filter recent turns by relevant unsealed topics instead of injecting the last eight turns globally.
   - Add before/after `.jri/specs/*` mutation guards for observation, planning, and building. Observation must reject any spec filesystem mutation; planning/building may only mutate specs when a spec-blocking contradiction path explicitly allows it and records durable evidence.
 

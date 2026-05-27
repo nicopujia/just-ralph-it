@@ -8,11 +8,18 @@ export type InterrogationTopicState = {
   specFile: `.jri/specs/${string}`;
   status: "open" | "sealed";
   lastReconciledSpecFingerprint?: string;
+  scratchpadClearance?: ScratchpadClearance;
   pendingReconciliation?: PendingSpecReconciliation;
 };
 
+export type ScratchpadClearance = {
+  scratchpadFingerprint: string;
+  recordedAt: string;
+  summary: string;
+};
+
 export type PendingSpecReconciliation = {
-  reason: "manualSpecEdit" | "specFileDeleted" | "specFileAdded";
+  reason: "manualSpecEdit" | "specFileDeleted" | "specFileAdded" | "scratchpadClearanceMissing" | "scratchpadChanged";
   detectedAt: string;
   summary: string;
 };
@@ -44,6 +51,7 @@ export async function checkInterrogationStartGate(projectDir: string, options: {
   if (!state) return { ok: true, state };
 
   const now = (options.now ?? new Date()).toISOString();
+  const scratchpadFingerprint = await fingerprintScratchpad(projectDir);
   let changed = false;
   const next: InterrogationState = structuredClone(state);
 
@@ -85,6 +93,28 @@ export async function checkInterrogationStartGate(projectDir: string, options: {
           : `${topic.specFile} changed after the last interrogator reconciliation. Reconcile the edit in chat before starting Ralph.`,
       };
       changed = true;
+      continue;
+    }
+
+    if (!topic.scratchpadClearance) {
+      topic.status = "open";
+      topic.pendingReconciliation = {
+        reason: "scratchpadClearanceMissing",
+        detectedAt: now,
+        summary: `${topic.specFile} has no scratchpad clearance evidence. Reconcile or defer related scratchpad notes in chat before starting Ralph.`,
+      };
+      changed = true;
+      continue;
+    }
+
+    if (topic.scratchpadClearance.scratchpadFingerprint !== scratchpadFingerprint) {
+      topic.status = "open";
+      topic.pendingReconciliation = {
+        reason: "scratchpadChanged",
+        detectedAt: now,
+        summary: `.jri/scratchpad.md changed after ${topic.specFile} was last reconciled. Resolve the note into specs or explicitly defer it before starting Ralph.`,
+      };
+      changed = true;
     }
   }
 
@@ -119,12 +149,14 @@ export async function checkInterrogationStartGate(projectDir: string, options: {
 export async function recordInterrogatorSpecUpdate(
   projectDir: string,
   specFiles: string[],
-  options: { sealedSpecFiles?: string[] } = {},
+  options: { sealedSpecFiles?: string[]; now?: Date } = {},
 ): Promise<InterrogationState> {
   const existing = await readInterrogationState(projectDir);
   const next: InterrogationState = structuredClone(existing ?? { schemaVersion: 1, topics: {} });
   const sealedSpecFiles = new Set((options.sealedSpecFiles ?? []).map(validateSpecFilePath));
   const filesToRecord = new Set([...specFiles.map(validateSpecFilePath), ...sealedSpecFiles]);
+  const scratchpadFingerprint = await fingerprintScratchpad(projectDir);
+  const recordedAt = (options.now ?? new Date()).toISOString();
 
   for (const stableSpecFile of filesToRecord) {
     const absoluteSpecPath = join(projectDir, stableSpecFile);
@@ -152,6 +184,13 @@ export async function recordInterrogatorSpecUpdate(
       specFile: stableSpecFile,
       status: sealedSpecFiles.has(stableSpecFile) || (prior?.status === "sealed" && !prior.pendingReconciliation) ? "sealed" : "open",
       lastReconciledSpecFingerprint: fingerprint,
+      scratchpadClearance: {
+        scratchpadFingerprint,
+        recordedAt,
+        summary: sealedSpecFiles.has(stableSpecFile)
+          ? `The interrogator sealed ${stableSpecFile} with scratchpad notes resolved or deferred out of current build scope.`
+          : `The interrogator reconciled ${stableSpecFile} with current scratchpad notes accounted for.`,
+      },
     };
   }
 
@@ -173,7 +212,7 @@ function validateInterrogationState(value: Record<string, unknown>, filePath: st
     if (!isRecord(topic) || Array.isArray(topic)) {
       throw new JriError(`${filePath} topic ${topicId} must be an object.`, "invalid-interrogation-state", "Set each topic to a valid topic object.");
     }
-    rejectUnknownKeys(topic, new Set(["specFile", "status", "lastReconciledSpecFingerprint", "pendingReconciliation"]), filePath);
+    rejectUnknownKeys(topic, new Set(["specFile", "status", "lastReconciledSpecFingerprint", "scratchpadClearance", "pendingReconciliation"]), filePath);
     if (typeof topic.specFile !== "string" || !isStableSpecFilePath(topic.specFile)) {
       throw new JriError(`${filePath} topic ${topicId} has an invalid specFile.`, "invalid-interrogation-state", "Use a .jri/specs/* relative path.");
     }
@@ -191,6 +230,7 @@ function validateInterrogationState(value: Record<string, unknown>, filePath: st
       specFile: topic.specFile as `.jri/specs/${string}`,
       status: topic.status,
       ...(topic.lastReconciledSpecFingerprint ? { lastReconciledSpecFingerprint: topic.lastReconciledSpecFingerprint } : {}),
+      ...(topic.scratchpadClearance ? { scratchpadClearance: validateScratchpadClearance(topic.scratchpadClearance, filePath, topicId) } : {}),
       ...(topic.pendingReconciliation ? { pendingReconciliation: validatePending(topic.pendingReconciliation, filePath, topicId) } : {}),
     };
   }
@@ -203,8 +243,18 @@ function validatePending(value: unknown, filePath: string, topicId: string): Pen
     throw new JriError(`${filePath} topic ${topicId} pendingReconciliation must be an object.`, "invalid-interrogation-state", "Set a valid reconciliation object.");
   }
   rejectUnknownKeys(value, new Set(["reason", "detectedAt", "summary"]), filePath);
-  if (value.reason !== "manualSpecEdit" && value.reason !== "specFileDeleted" && value.reason !== "specFileAdded") {
-    throw new JriError(`${filePath} topic ${topicId} has an invalid reconciliation reason.`, "invalid-interrogation-state", "Use manualSpecEdit, specFileDeleted, or specFileAdded.");
+  if (
+    value.reason !== "manualSpecEdit" &&
+    value.reason !== "specFileDeleted" &&
+    value.reason !== "specFileAdded" &&
+    value.reason !== "scratchpadClearanceMissing" &&
+    value.reason !== "scratchpadChanged"
+  ) {
+    throw new JriError(
+      `${filePath} topic ${topicId} has an invalid reconciliation reason.`,
+      "invalid-interrogation-state",
+      "Use manualSpecEdit, specFileDeleted, specFileAdded, scratchpadClearanceMissing, or scratchpadChanged.",
+    );
   }
   if (typeof value.detectedAt !== "string" || value.detectedAt.length === 0) {
     throw new JriError(`${filePath} topic ${topicId} reconciliation needs detectedAt.`, "invalid-interrogation-state", "Set detectedAt to an ISO timestamp.");
@@ -215,6 +265,31 @@ function validatePending(value: unknown, filePath: string, topicId: string): Pen
   return {
     reason: value.reason,
     detectedAt: value.detectedAt,
+    summary: value.summary,
+  };
+}
+
+function validateScratchpadClearance(value: unknown, filePath: string, topicId: string): ScratchpadClearance {
+  if (!isRecord(value) || Array.isArray(value)) {
+    throw new JriError(`${filePath} topic ${topicId} scratchpadClearance must be an object.`, "invalid-interrogation-state", "Set a valid scratchpad clearance object.");
+  }
+  rejectUnknownKeys(value, new Set(["scratchpadFingerprint", "recordedAt", "summary"]), filePath);
+  if (typeof value.scratchpadFingerprint !== "string" || value.scratchpadFingerprint.length === 0) {
+    throw new JriError(
+      `${filePath} topic ${topicId} scratchpadClearance needs scratchpadFingerprint.`,
+      "invalid-interrogation-state",
+      "Record the scratchpad fingerprint that was cleared or deferred.",
+    );
+  }
+  if (typeof value.recordedAt !== "string" || value.recordedAt.length === 0) {
+    throw new JriError(`${filePath} topic ${topicId} scratchpadClearance needs recordedAt.`, "invalid-interrogation-state", "Set recordedAt to an ISO timestamp.");
+  }
+  if (typeof value.summary !== "string" || value.summary.length === 0) {
+    throw new JriError(`${filePath} topic ${topicId} scratchpadClearance needs summary.`, "invalid-interrogation-state", "Set a concise summary.");
+  }
+  return {
+    scratchpadFingerprint: value.scratchpadFingerprint,
+    recordedAt: value.recordedAt,
     summary: value.summary,
   };
 }
@@ -237,6 +312,12 @@ function fingerprintFile(path: string): Promise<string> {
   return Bun.file(path)
     .arrayBuffer()
     .then((buffer) => createHash("sha256").update(Buffer.from(buffer)).digest("hex"));
+}
+
+async function fingerprintScratchpad(projectDir: string): Promise<string> {
+  const path = join(projectDir, ".jri", "scratchpad.md");
+  if (!(await pathExists(path))) return createHash("sha256").update("").digest("hex");
+  return await fingerprintFile(path);
 }
 
 function rejectUnknownKeys(value: Record<string, unknown>, allowed: Set<string>, filePath: string): void {
