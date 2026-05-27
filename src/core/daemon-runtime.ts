@@ -92,13 +92,15 @@ export async function recoverRuntimeStatus(
   const status = await readStatus(projectDir);
   const processDead = status.process ? !isProcessAlive(status.process.pid) : false;
   const staleLock = status.lock ? Date.parse(status.lock.expiresAt) <= now.getTime() && !isProcessAlive(status.lock.pid) : false;
+  const missingRuntimeOwnership = isActiveState(status.state) && !status.process && !status.lock;
 
-  if (!processDead && !staleLock) {
+  if (!processDead && !staleLock && !missingRuntimeOwnership) {
     return { status };
   }
 
   const repairedFrom = status.state;
-  const reason = repairReason(status, processDead, staleLock);
+  const terminalRepair = missingRuntimeOwnership ? await statusRepairFromLatestTerminalEvent(projectDir, status) : undefined;
+  const reason = terminalRepair?.reason ?? repairReason(status, processDead, staleLock, missingRuntimeOwnership);
   const timestamp = now.toISOString();
   const { process, lock, ...withoutRuntimeOwnership } = status;
   void process;
@@ -106,17 +108,18 @@ export async function recoverRuntimeStatus(
 
   const repaired: ProjectStatus = {
     ...withoutRuntimeOwnership,
-    ...(isActiveState(status.state)
-      ? {
-          state: "stopped",
-          finishedAt: timestamp,
-          stopRequested: false,
-          lastResult: {
-            outcome: "failed",
-            summary: reason,
-          },
-        }
-      : {}),
+    ...(terminalRepair?.patch ??
+      (isActiveState(status.state)
+        ? {
+            state: "stopped",
+            finishedAt: timestamp,
+            stopRequested: false,
+            lastResult: {
+              outcome: "failed",
+              summary: reason,
+            },
+          }
+        : {})),
     recoveryNote: {
       timestamp,
       message: reason,
@@ -785,10 +788,95 @@ async function appendRecoveryEvent(projectDir: string, repairedFrom: string, rep
   });
 }
 
-function repairReason(status: ProjectStatus, processDead: boolean, staleLock: boolean): string {
+type TerminalStatusRepair = {
+  reason: string;
+  patch: Partial<ProjectStatus>;
+};
+
+async function statusRepairFromLatestTerminalEvent(projectDir: string, status: ProjectStatus): Promise<TerminalStatusRepair | undefined> {
+  const loopId = status.activeLoopId ?? status.lastLoopId;
+  if (!loopId) return undefined;
+  const latestEvent = (await readLoopEvents(projectDir, loopId)).at(-1);
+  if (!latestEvent) return undefined;
+
+  if (latestEvent.type === "loopFinished") {
+    if (latestEvent.data.outcome === "completed") {
+      return {
+        reason: "Recovered runtime ownership because active status had no recorded process or lock and the latest loop event completed the loop.",
+        patch: {
+          state: "idle",
+          activeLoopId: null,
+          stopRequested: false,
+          finishedAt: latestEvent.timestamp,
+          lastResult: {
+            outcome: "completed",
+            ...(latestEvent.data.summary ? { summary: latestEvent.data.summary } : {}),
+            ...(latestEvent.data.url ? { url: latestEvent.data.url } : {}),
+            ...(latestEvent.data.commit ? { commit: latestEvent.data.commit } : {}),
+            ...(latestEvent.data.tag ? { tag: latestEvent.data.tag } : {}),
+          },
+        },
+      };
+    }
+    return {
+      reason: "Recovered runtime ownership because active status had no recorded process or lock and the latest loop event failed the loop.",
+      patch: {
+        state: "stopped",
+        stopRequested: false,
+        finishedAt: latestEvent.timestamp,
+        lastResult: {
+          outcome: "failed",
+          ...(latestEvent.data.summary ? { summary: latestEvent.data.summary } : {}),
+        },
+      },
+    };
+  }
+
+  if (latestEvent.type === "loopStopped") {
+    return {
+      reason: "Recovered runtime ownership because active status had no recorded process or lock and the latest loop event stopped the loop.",
+      patch: {
+        state: "stopped",
+        stopRequested: false,
+        finishedAt: latestEvent.timestamp,
+        ...(latestEvent.data.specsFingerprint ? { authorizedSpecsFingerprint: latestEvent.data.specsFingerprint } : {}),
+        lastResult: {
+          outcome: "stopped",
+          summary:
+            latestEvent.data.iteration === undefined
+              ? "Graceful stop completed after planning finished."
+              : `Graceful stop completed after iteration ${latestEvent.data.iteration}.`,
+        },
+      },
+    };
+  }
+
+  if (latestEvent.type === "loopHalted") {
+    return {
+      reason: "Recovered runtime ownership because active status had no recorded process or lock and the latest loop event halted the loop.",
+      patch: {
+        state: "halted",
+        stopRequested: false,
+        finishedAt: latestEvent.timestamp,
+        lastResult: {
+          outcome: "halted",
+          summary: haltSummary(latestEvent.data.killedPid, latestEvent.data.resetOffered, latestEvent.data.resetAccepted, {
+            succeeded: Boolean(latestEvent.data.resetSucceeded),
+            ...(latestEvent.data.resetError ? { error: latestEvent.data.resetError } : {}),
+          }),
+        },
+      },
+    };
+  }
+
+  return undefined;
+}
+
+function repairReason(status: ProjectStatus, processDead: boolean, staleLock: boolean, missingRuntimeOwnership: boolean): string {
   const reasons = [];
   if (processDead && status.process) reasons.push(`recorded process ${status.process.pid} is no longer running`);
   if (staleLock && status.lock) reasons.push(`lock for ${status.lock.operation} expired and owner process ${status.lock.pid} is not running`);
+  if (missingRuntimeOwnership) reasons.push(`active ${status.state} status has no recorded process or lock`);
   return `Recovered runtime ownership because ${reasons.join(" and ")}.`;
 }
 

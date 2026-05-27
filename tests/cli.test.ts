@@ -29,7 +29,19 @@ async function activateLoop(dir: string, loopId: string, state: "auditing" | "pl
     state,
     activeLoopId: loopId,
     lastLoopId: loopId,
+    lock: activeTestLock(state === "auditing" ? "audit" : state === "planning" ? "plan" : "build"),
   });
+}
+
+function activeTestLock(operation: "audit" | "plan" | "build") {
+  return {
+    owner: "daemon" as const,
+    pid: process.pid,
+    operation,
+    acquiredAt: "2026-05-27T18:42:10.000Z",
+    heartbeatAt: "2026-05-27T18:42:10.000Z",
+    expiresAt: "2999-01-01T00:00:00.000Z",
+  };
 }
 
 describe("CLI", () => {
@@ -624,6 +636,7 @@ describe("CLI", () => {
         activeLoopId: loopId,
         lastLoopId: loopId,
         iteration: 1,
+        lock: activeTestLock("build"),
       });
 
       const proc = Bun.spawn(["bun", cliPath, "loop", "attach"], {

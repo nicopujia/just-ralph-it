@@ -51,6 +51,92 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("recovery repairs active status with no process or lock from terminal loop events", async () => {
+    const dir = await tempProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        stopRequested: true,
+      });
+      await appendLoopEvent(dir, {
+        type: "loopFinished",
+        loopId: "20260527T184210Z",
+        data: { outcome: "completed", summary: "Build complete.", url: "https://example.test", commit: "abc123", tag: "0.0.1" },
+      });
+
+      const status = await getRecoveredStatus(dir, {
+        now: new Date("2026-05-27T18:45:00.000Z"),
+      });
+
+      expect(status).toMatchObject({
+        state: "idle",
+        activeLoopId: null,
+        lastLoopId: "20260527T184210Z",
+        stopRequested: false,
+        lastResult: {
+          outcome: "completed",
+          summary: "Build complete.",
+          url: "https://example.test",
+          commit: "abc123",
+          tag: "0.0.1",
+        },
+        recoveryNote: {
+          repairedFrom: "building",
+        },
+      });
+
+      const events = await collect(observeLoop(dir));
+      expect(events.map((event) => event.type)).toEqual(["loopFinished", "statusRepaired"]);
+      expect(events[1]).toMatchObject({ type: "statusRepaired", data: { repairedFrom: "building", repairedTo: "idle" } });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("recovery stops orphaned active status when no terminal event exists", async () => {
+    const dir = await tempProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "planning",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        stopRequested: true,
+      });
+      await appendLoopEvent(dir, {
+        type: "planningStarted",
+        loopId: "20260527T184210Z",
+        data: {},
+      });
+
+      const status = await getRecoveredStatus(dir, {
+        now: new Date("2026-05-27T18:45:00.000Z"),
+      });
+
+      expect(status).toMatchObject({
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        stopRequested: false,
+        lastResult: {
+          outcome: "failed",
+          summary: expect.stringContaining("no recorded process or lock"),
+        },
+        recoveryNote: {
+          repairedFrom: "planning",
+        },
+      });
+
+      const events = await collect(observeLoop(dir));
+      expect(events.map((event) => event.type)).toEqual(["planningStarted", "statusRepaired"]);
+      expect(events[1]).toMatchObject({ type: "statusRepaired", data: { repairedFrom: "planning", repairedTo: "stopped" } });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("observe replays persisted loop events in sequence", async () => {
     const dir = await tempProject();
     try {
@@ -59,6 +145,7 @@ describe("daemon/runtime scaffolding", () => {
         state: "building",
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build"),
       });
       await appendLoopEvent(dir, {
         type: "loopStarted",
@@ -88,6 +175,7 @@ describe("daemon/runtime scaffolding", () => {
         state: "building",
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build"),
       });
       await mkdir(join(dir, ".jri", "logs", "20260527T184210Z"), { recursive: true });
       await writeFile(join(dir, ".jri", "logs", "20260527T184210Z", "stdout.log"), "préface café\nsecond line\nthird line\n", "utf8");
@@ -119,6 +207,7 @@ describe("daemon/runtime scaffolding", () => {
         state: "building",
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build"),
       });
       await mkdir(join(dir, ".jri", "logs", "20260527T184210Z"), { recursive: true });
       await writeFile(join(dir, ".jri", "logs", "20260527T184210Z", "stdout.log"), "before\n", "utf8");
@@ -180,6 +269,7 @@ describe("daemon/runtime scaffolding", () => {
         state: "planning",
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("plan"),
       });
 
       const requested = await requestGracefulStop(dir);
@@ -248,6 +338,7 @@ describe("daemon/runtime scaffolding", () => {
         state: "building",
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build"),
         currentIteration: {
           iteration: 1,
           rollbackCommit: "abc123",
@@ -286,6 +377,7 @@ describe("daemon/runtime scaffolding", () => {
         state: "building",
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build"),
         currentIteration: {
           iteration: 1,
           rollbackCommit: "abc123",
@@ -2223,6 +2315,17 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const items: T[] = [];
   for await (const item of iterable) items.push(item);
   return items;
+}
+
+function activeTestLock(operation: "audit" | "plan" | "build") {
+  return {
+    owner: "daemon" as const,
+    pid: process.pid,
+    operation,
+    acquiredAt: "2026-05-27T18:42:10.000Z",
+    heartbeatAt: "2026-05-27T18:42:10.000Z",
+    expiresAt: "2999-01-01T00:00:00.000Z",
+  };
 }
 
 async function git(cwd: string, args: string[]): Promise<void> {

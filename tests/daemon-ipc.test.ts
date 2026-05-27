@@ -24,6 +24,17 @@ async function tempProject(): Promise<string> {
   return dir;
 }
 
+function activeTestLock(operation: "audit" | "plan" | "build") {
+  return {
+    owner: "daemon" as const,
+    pid: process.pid,
+    operation,
+    acquiredAt: "2026-05-27T18:42:10.000Z",
+    heartbeatAt: "2026-05-27T18:42:10.000Z",
+    expiresAt: "2999-01-01T00:00:00.000Z",
+  };
+}
+
 function tempDaemonPaths(dir: string): DaemonPaths {
   return {
     runtimeDir: join(dir, "runtime"),
@@ -96,6 +107,7 @@ describe("daemon IPC", () => {
         state: "planning",
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("plan"),
       });
       await appendLoopEvent(dir, {
         type: "loopStarted",
@@ -216,6 +228,7 @@ describe("daemon IPC", () => {
         state: "building",
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build"),
       });
 
       await expect(collect(daemonStartLoop(dir, "just ralph it", { paths }))).rejects.toThrow("while JRI is building");
@@ -305,6 +318,7 @@ describe("daemon IPC", () => {
         state: "building",
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build"),
         currentIteration: {
           iteration: 1,
           rollbackCommit: "not-a-real-commit",
@@ -337,6 +351,7 @@ describe("daemon IPC", () => {
         state: "building",
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build"),
       });
 
       await daemonStatus(dir, { paths });
@@ -368,6 +383,7 @@ describe("daemon IPC", () => {
         state: "building",
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build"),
       });
       await writeFile(
         paths.registryPath,
