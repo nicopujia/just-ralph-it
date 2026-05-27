@@ -30,11 +30,13 @@
   - Completed/tested slice: daemon IPC now exposes streaming `loop.start`; `Project.chat.send` injects daemon start; chat can stream the returned `loopStarted` event.
   - Completed/tested slice: daemon `loop.start` now carries and validates the accepted trigger; `Project.chat.send` no longer falls back to local start when the daemon is unavailable.
   - Completed/tested slice: chat start-gates now block while pending reconciliation is unresolved before daemon loop start.
+  - Completed/tested slice: direct daemon `loop.start` now runs the interrogation-state start gate, so pending manual spec reconciliation cannot bypass `Project.chat.send`.
+  - Completed/tested slice: daemon `loop.start` now has focused IPC coverage for active-loop rejection, unresolved `needsHumanTask` blockers, verified `needsHumanTask` resume guidance, pending reconciliation, and invalid trigger text.
   - Completed/tested slice: runner start/resume ordering was hardened so start/resume acquire a daemon-held startup lock and enter the active state before spawning, then transfer process/lock ownership to the runner PID; spawn failures restore the prior durable status.
   - Focused tests passed for chat, daemon IPC, and daemon runtime coverage.
-  - Final validation for this increment: `bun run test` passed with 87 tests, `bun run typecheck` passed, and `bun run lint` passed.
+  - Final validation for this increment: `bun run test` passed with 91 tests, `bun run typecheck` passed, and `bun run lint` passed.
   - Remaining: direct test-only `sendChat()` still has a local injected/default start path; production `Project.chat.send()` now requires daemon start.
-  - Remaining: reject active loops, human-task blockers, and invalid trigger text with concise state-specific errors; keep interrogation-state gating narrow and actionable.
+  - Remaining: keep interrogation-state gating narrow and actionable.
 
 - [ ] P0: Harden runtime ownership, locking, and resume safety.
   - Replace read-mutator-write lock acquisition with a real compare-and-swap or document/enforce a single-daemon mutation guarantee that satisfies `runtime-state.md`.
@@ -65,7 +67,7 @@
 
 - [ ] P1: Polish CLI status/control edge cases.
   - Completed/tested slice: piped `jri loop attach` now treats stdin EOF as detach so attach does not hang after scripted detach/stop controls.
-  - Completed/tested slice: attach subprocess env is isolated from inherited `JRI_DAEMON_*` values so parallel tests no longer hit the CLI attach flake.
+  - Completed/tested slice: full-suite validation exposed the CLI attach test using the shared default daemon env; it now isolates `JRI_DAEMON_*` under the temp project to avoid parallel daemon collisions.
   - Expand fallback bare status output for active, stopped, halted, completed, failed, URL/deployment, validation, and next-action hints.
   - Explain why halt rollback reset is unavailable when there is no rollback commit or the tracked tree was dirty at iteration start.
   - Make blocked `jri loop stop` messaging match the explicit "already blocked" recovery path.

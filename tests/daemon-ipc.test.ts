@@ -14,6 +14,7 @@ import {
 } from "../src/core/daemon-ipc";
 import { appendLoopEvent, writeStatusAtomic } from "../src/core/runtime-state";
 import { defaultStatus } from "../src/core/schema";
+import { fingerprintSpecFile, writeInterrogationState } from "../src/core/interrogation-state";
 
 async function tempProject(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "jri-daemon-ipc-test-"));
@@ -129,6 +130,127 @@ describe("daemon IPC", () => {
 
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
       expect(status).toMatchObject({ state: "idle", activeLoopId: null });
+    } finally {
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects loop start while sealed specs need reconciliation", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const daemon = await startDaemonServer({ paths, idleTimeoutMs: 10_000 });
+    try {
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n", "utf8");
+      const fingerprint = await fingerprintSpecFile(dir, ".jri/specs/app.md");
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          app: {
+            specFile: ".jri/specs/app.md",
+            status: "sealed",
+            lastReconciledSpecFingerprint: fingerprint,
+          },
+        },
+      });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI and web UI.\n", "utf8");
+
+      await expect(collect(daemonStartLoop(dir, "just ralph it", { paths }))).rejects.toThrow("spec reconciliation is pending");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const interrogationState = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+      expect(status).toMatchObject({ state: "idle", activeLoopId: null });
+      expect(interrogationState.topics.app.pendingReconciliation).toMatchObject({ reason: "manualSpecEdit" });
+    } finally {
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects loop start while a loop is already active", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const daemon = await startDaemonServer({ paths, idleTimeoutMs: 10_000 });
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+      });
+
+      await expect(collect(daemonStartLoop(dir, "just ralph it", { paths }))).rejects.toThrow("while JRI is building");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(status).toMatchObject({ state: "building", activeLoopId: "20260527T184210Z" });
+    } finally {
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects loop start while a human-task blocker is unresolved", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const daemon = await startDaemonServer({ paths, idleTimeoutMs: 10_000 });
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Deployment credentials are missing.",
+          resolutionGuide: {
+            summary: "Credentials are required.",
+            steps: ["Set the deployment token."],
+            resumeInstruction: "Say done in bare jri after the token is available.",
+          },
+        },
+      });
+
+      await expect(collect(daemonStartLoop(dir, "just ralph it", { paths }))).rejects.toThrow("human-task blocker is unresolved");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(status).toMatchObject({ state: "blocked", activeLoopId: "20260527T184210Z" });
+    } finally {
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects loop start for verified human-task blockers with resume guidance", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const daemon = await startDaemonServer({ paths, idleTimeoutMs: 10_000 });
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Deployment credentials were verified.",
+          resolutionGuide: {
+            summary: "Credentials are available.",
+            steps: ["Resume the loop."],
+            resumeInstruction: "Run jri loop resume.",
+          },
+          resolution: {
+            status: "verified",
+            verifiedAt: "2026-05-27T19:10:00.000Z",
+            verificationSummary: "Deployment token is present.",
+          },
+        },
+      });
+
+      await expect(collect(daemonStartLoop(dir, "just ralph it", { paths }))).rejects.toThrow("waiting to resume");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(status).toMatchObject({ state: "blocked", activeLoopId: "20260527T184210Z" });
     } finally {
       await daemon.close();
       await rm(dir, { recursive: true, force: true });

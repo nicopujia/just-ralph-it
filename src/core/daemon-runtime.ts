@@ -211,7 +211,14 @@ export async function startRalphLoop(projectDir: string, options: RuntimeOptions
       "Use jri loop attach to observe the current loop, or jri loop stop to request a graceful stop.",
     );
   }
-  if (status.state === "blocked" && status.blocker?.reason === "needsHumanTask" && status.blocker.resolution?.status !== "verified") {
+  if (status.state === "blocked" && status.blocker?.reason === "needsHumanTask") {
+    if (status.blocker.resolution?.status === "verified") {
+      throw new JriError(
+        "Cannot start a new Ralph lifecycle while a verified human-task blocker is waiting to resume.",
+        "human-task-resume-required",
+        "Run jri loop resume to continue the existing verified human-task lifecycle.",
+      );
+    }
     throw new JriError(
       "Cannot start while a human-task blocker is unresolved.",
       "human-task-blocked",

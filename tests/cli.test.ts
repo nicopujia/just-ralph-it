@@ -264,7 +264,7 @@ describe("CLI", () => {
         stdin: "pipe",
         stdout: "pipe",
         stderr: "pipe",
-        env: withoutDaemonEnv(),
+        env: isolatedDaemonEnv(dir),
       });
       setTimeout(() => {
         proc.stdin.write("sd");
@@ -362,8 +362,13 @@ describe("CLI", () => {
   });
 });
 
-function withoutDaemonEnv(overrides: Record<string, string | undefined> = {}): Record<string, string | undefined> {
+function isolatedDaemonEnv(dir: string, overrides: Record<string, string | undefined> = {}): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = { ...process.env, ...overrides };
   for (const key of daemonEnvKeys) delete env[key];
+  env.JRI_DAEMON_RUNTIME_DIR = join(dir, "daemon-runtime");
+  env.JRI_DAEMON_STATE_DIR = join(dir, "daemon-state");
+  env.JRI_DAEMON_SOCKET_PATH =
+    process.platform === "win32" ? `\\\\.\\pipe\\jri-cli-test-${crypto.randomUUID()}` : join(dir, "daemon-runtime", "daemon.sock");
+  env.JRI_DAEMON_REGISTRY_PATH = join(dir, "daemon-state", "daemon-registry.json");
   return env;
 }
