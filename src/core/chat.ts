@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import { startRalphLoop, type RuntimeOptions } from "./daemon-runtime";
+import { daemonStartLoop } from "./daemon-ipc";
+import type { RuntimeOptions } from "./daemon-runtime";
 import { JriError } from "./errors";
 import { invokeDefaultHarness, readProjectConfig, type HarnessAdapter } from "./harness";
 import { checkInterrogationStartGate, listSpecFiles, readInterrogationState, recordInterrogatorSpecUpdate } from "./interrogation-state";
@@ -58,7 +59,7 @@ export async function* sendChat(projectDir: string, input: ChatInput, options: C
       return;
     }
     yield* emitAssistant(projectDir, `Start request accepted (${trigger}). Running the specs auditor now.`);
-    yield* (options.startLoop ?? startLoopLocally)(projectDir, trigger, options);
+    yield* startLoop(projectDir, trigger, options);
     return;
   }
 
@@ -263,11 +264,11 @@ async function* handleInterrogatorHandoff(
   }
 
   yield* emitAssistant(projectDir, `Start request accepted (${trigger}). Running the specs auditor now.`);
-  yield* (options.startLoop ?? startLoopLocally)(projectDir, trigger, options);
+  yield* startLoop(projectDir, trigger, options);
 }
 
-async function* startLoopLocally(projectDir: string, _trigger: StartTrigger, options: RuntimeOptions): AsyncIterable<CoreEvent> {
-  yield await startRalphLoop(projectDir, options);
+function startLoop(projectDir: string, trigger: StartTrigger, options: ChatRuntimeOptions): AsyncIterable<CoreEvent> {
+  return (options.startLoop ?? daemonStartLoop)(projectDir, trigger, options);
 }
 
 export function normalizeStartTrigger(message: string): StartTrigger | null {

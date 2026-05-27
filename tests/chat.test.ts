@@ -348,23 +348,30 @@ describe("interrogation chat", () => {
     expect(normalizeStartTrigger("just ralph it now")).toBeNull();
   });
 
-  test("standalone start trigger enters auditing and starts a controlled runner", async () => {
+  test("standalone start trigger defaults to daemon-owned streaming start", async () => {
     const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const previousEnv = captureDaemonEnv();
+    const daemon = await startDaemonServer({
+      paths,
+      idleTimeoutMs: 10_000,
+      runtimeOptions: {
+        now: new Date("2026-05-27T20:00:00.000Z"),
+        observePollIntervalMs: 10,
+        spawnRunner: ({ loopId, phase }) => {
+          scheduleLoopCompletion(dir, loopId);
+          return { pid: process.pid, command: `runner ${phase}` };
+        },
+      },
+    });
     try {
       await mkdir(join(dir, ".jri", "logs"), { recursive: true });
       await writeStatusAtomic(dir, defaultStatus(dir));
+      applyDaemonEnv(paths);
 
-      const events = await collect(
-        sendChat(
-          dir,
-          { message: "just ralph it" },
-          {
-            now: new Date("2026-05-27T20:00:00.000Z"),
-            spawnRunner: ({ phase }) => ({ pid: 33333, command: `runner ${phase}` }),
-          },
-        ),
-      );
+      const events = await collect(sendChat(dir, { message: "just ralph it" }));
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const registry = JSON.parse(await readFile(paths.registryPath, "utf8"));
 
       expect(events.map((event) => event.type)).toEqual([
         "chatTurnRecorded",
@@ -373,15 +380,21 @@ describe("interrogation chat", () => {
         "chatMessageFinished",
         "chatTurnRecorded",
         "loopStarted",
+        "loopFinished",
       ]);
-      expect(events[5]).toMatchObject({ type: "loopStarted", data: { pid: 33333 } });
+      expect(events[5]).toMatchObject({ type: "loopStarted", data: { pid: process.pid } });
       expect(status).toMatchObject({
-        state: "auditing",
-        activeLoopId: "20260527T200000Z",
-        process: { pid: 33333, command: "runner auditing" },
-        lock: { operation: "audit", pid: 33333 },
+        state: "idle",
+        activeLoopId: null,
+        lastLoopId: "20260527T200000Z",
+        lastResult: { outcome: "completed", summary: "Fake loop completed." },
       });
+      expect(status.process).toBeUndefined();
+      expect(status.lock).toBeUndefined();
+      expect(registry.projects[0]).toMatchObject({ projectDir: dir, activeLoopId: null });
     } finally {
+      restoreDaemonEnv(previousEnv);
+      await daemon.close();
       await rm(dir, { recursive: true, force: true });
     }
   });

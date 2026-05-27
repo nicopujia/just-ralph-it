@@ -14,8 +14,7 @@
   - Completed/Tested: Default interrogator harness now uses the first inline context entry as the current user message rather than recent-turn context; focused `tests/harness.test.ts` harness tests passed. Final serial validation passed with `bun run test` (119 tests), `bun run typecheck`, and `bun run lint`.
 
 - P0: Restore daemon-owned chat start semantics.
-  - Remove the exported `sendChat` local `startRalphLoop` fallback for accepted triggers; the default production path must start via daemon IPC and stream the daemon lifecycle events.
-  - Keep in-process start only as an explicit test fake matching `loop.start` stream semantics.
+  - Completed/Tested: `sendChat` accepted triggers now default to `daemonStartLoop` streaming instead of the local `startRalphLoop` fallback, while injected `startLoop` remains the explicit test fake path. Focused validation passed with `bun test tests/chat.test.ts` (20 tests). Final serial validation passed with `bun run test` (120 tests), `bun run typecheck`, and `bun run lint`.
   - On accepted trigger, stream `loopStarted` plus subsequent audit/planning/build/blocker/stop/halt/failure/completion events without requiring the caller to separately attach.
   - Reject active loops, unresolved human-task blockers, pending reconciliation, and invalid triggers with state-specific actionable errors.
 
@@ -47,6 +46,7 @@
   - Cover search/fetch success, unavailable command, invalid JSON, timeout, redirects/limits, Unicode truncation, and artifact creation.
 
 - P0: Harden runtime mutation, locking, halt, and stopped-start policy.
+  - Validate existing `.jri/interrogation-state.json` during `open()`/startup, matching config/status validation; malformed durable interrogation state should fail with an actionable recovery path before chat/start workflows use it.
   - Replace `acquireLock` read/write/reread with a race-safe CAS/status mutation strategy, file lock, or daemon-only single-writer guarantee; add contention tests.
   - Make resolving, resuming, halting, repairing, and starting acquire/check lifecycle ownership consistently, including stale lock ownership and lock-loss paths.
   - Make halt take precedence while the process is live, cancel registered children, escalate from graceful termination to forceful kill after a short grace period, and record the final halt/reset outcome.
