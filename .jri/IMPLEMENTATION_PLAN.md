@@ -34,7 +34,7 @@
   - Keep existing stopped/human-task fingerprint checks and add coverage for stale lock ownership, dead runner repair, and resume after audit/planning/build boundaries.
 
 - P0: Make handoff contracts strict and enforce validation/commit safety.
-  - `parseHandoff` currently validates required fields but does not reject unknown keys; add strict unknown-key rejection for every handoff, blocker, validation record, and artifact ref, with transition coverage for legacy builder blocker/replan prefixes.
+  - Completed/Tested: root handoffs plus nested blocker, resolutionGuide, validation, and artifact records now reject unknown keys; legacy builder blocker/replan prefixes still work. Validation passed with `bun test tests/handoffs.test.ts`, `bun run test` (104 tests), `bun run typecheck`, and `bun run lint`.
   - Core already records `failedValidation`, but commit/tag observation only runs after successful builder handoffs; add git-state guards for `failedValidation` and `blocked` outcomes so unexpected commits/tags become structured loop failure/recovery evidence and never emit success commit/tag events.
   - Implement validation evidence expectations from `AGENTS.md`/project operational guidance, including minimum behavior when commands are absent or unsafe, and ensure commit/tag success requires clean validation evidence.
 

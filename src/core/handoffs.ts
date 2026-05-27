@@ -153,8 +153,10 @@ function onlyRecord(records: string[]): string {
 function parseInterrogator(value: Record<string, unknown>): InterrogatorHandoff {
   switch (value.action) {
     case "messageOnly":
+      assertKnownKeys(value, "interrogator handoff", ["agent", "action", "summary"], "interrogator");
       return { agent: "interrogator", action: "messageOnly", ...optionalSummary(value, "interrogator") };
     case "specsUpdated":
+      assertKnownKeys(value, "interrogator handoff", ["agent", "action", "specFiles", "summary", "sealedSpecFiles"], "interrogator");
       return {
         agent: "interrogator",
         action: "specsUpdated",
@@ -163,12 +165,16 @@ function parseInterrogator(value: Record<string, unknown>): InterrogatorHandoff 
         ...(value.sealedSpecFiles === undefined ? {} : { sealedSpecFiles: parseSpecFiles(value.sealedSpecFiles, "interrogator") }),
       };
     case "scratchpadUpdated":
+      assertKnownKeys(value, "interrogator handoff", ["agent", "action", "summary"], "interrogator");
       return { agent: "interrogator", action: "scratchpadUpdated", summary: requiredString(value.summary, "summary", "interrogator") };
     case "humanTaskVerified":
+      assertKnownKeys(value, "interrogator handoff", ["agent", "action", "verificationSummary"], "interrogator");
       return { agent: "interrogator", action: "humanTaskVerified", ...optionalVerificationSummary(value, "interrogator") };
     case "humanTaskStillBlocked":
+      assertKnownKeys(value, "interrogator handoff", ["agent", "action", "blocker"], "interrogator");
       return { agent: "interrogator", action: "humanTaskStillBlocked", blocker: parseBlocker(value.blocker) };
     case "startRequested": {
+      assertKnownKeys(value, "interrogator handoff", ["agent", "action", "trigger"], "interrogator");
       const trigger = value.trigger;
       if (trigger !== "just ralph it" && trigger !== "ralfealo") {
         throw invalidHandoff("interrogator", "startRequested requires trigger just ralph it or ralfealo.");
@@ -183,6 +189,7 @@ function parseInterrogator(value: Record<string, unknown>): InterrogatorHandoff 
 function parseAuditor(value: Record<string, unknown>): AuditorHandoff {
   switch (value.action) {
     case "passed":
+      assertKnownKeys(value, "auditor handoff", ["agent", "action", "specFiles", "specsFingerprint", "summary"], "auditor");
       return {
         agent: "auditor",
         action: "passed",
@@ -191,6 +198,7 @@ function parseAuditor(value: Record<string, unknown>): AuditorHandoff {
         ...optionalSummary(value, "auditor"),
       };
     case "failed":
+      assertKnownKeys(value, "auditor handoff", ["agent", "action", "feedback", "ambiguousSpecFiles", "questions"], "auditor");
       return {
         agent: "auditor",
         action: "failed",
@@ -206,6 +214,7 @@ function parseAuditor(value: Record<string, unknown>): AuditorHandoff {
 function parsePlanner(value: Record<string, unknown>): PlannerHandoff {
   switch (value.action) {
     case "planned":
+      assertKnownKeys(value, "planner handoff", ["agent", "action", "planPath", "summary"], "planner");
       if (value.planPath !== ".jri/IMPLEMENTATION_PLAN.md") {
         throw invalidHandoff("planner", "planned requires planPath .jri/IMPLEMENTATION_PLAN.md.");
       }
@@ -216,6 +225,7 @@ function parsePlanner(value: Record<string, unknown>): PlannerHandoff {
         summary: requiredString(value.summary, "summary", "planner"),
       };
     case "blocked":
+      assertKnownKeys(value, "planner handoff", ["agent", "action", "blocker"], "planner");
       return { agent: "planner", action: "blocked", blocker: parseBlocker(value.blocker) };
     default:
       throw invalidHandoff("planner", "Unsupported planner handoff action.");
@@ -226,6 +236,7 @@ function parseBuilder(value: Record<string, unknown>): BuilderHandoff {
   const validation = optionalValidationList(value.validation, "builder");
   switch (value.action) {
     case "continue":
+      assertKnownKeys(value, "builder handoff", ["agent", "action", "summary", "url", "artifacts", "validation"], "builder");
       return {
         agent: "builder",
         action: "continue",
@@ -235,6 +246,7 @@ function parseBuilder(value: Record<string, unknown>): BuilderHandoff {
         ...(validation ? { validation } : {}),
       };
     case "complete":
+      assertKnownKeys(value, "builder handoff", ["agent", "action", "summary", "url", "artifacts", "validation"], "builder");
       return {
         agent: "builder",
         action: "complete",
@@ -244,8 +256,10 @@ function parseBuilder(value: Record<string, unknown>): BuilderHandoff {
         ...(validation ? { validation } : {}),
       };
     case "blocked":
+      assertKnownKeys(value, "builder handoff", ["agent", "action", "blocker", "validation"], "builder");
       return { agent: "builder", action: "blocked", blocker: parseBlocker(value.blocker), ...(validation ? { validation } : {}) };
     case "needsReplan":
+      assertKnownKeys(value, "builder handoff", ["agent", "action", "reason", "summary", "validation"], "builder");
       return {
         agent: "builder",
         action: "needsReplan",
@@ -254,6 +268,7 @@ function parseBuilder(value: Record<string, unknown>): BuilderHandoff {
         ...(validation ? { validation } : {}),
       };
     case "failedValidation":
+      assertKnownKeys(value, "builder handoff", ["agent", "action", "validation", "summary"], "builder");
       return {
         agent: "builder",
         action: "failedValidation",
@@ -268,8 +283,10 @@ function parseBuilder(value: Record<string, unknown>): BuilderHandoff {
 function parseVerifier(value: Record<string, unknown>): HumanTaskVerificationHandoff {
   switch (value.action) {
     case "verified":
+      assertKnownKeys(value, "verifier handoff", ["agent", "action", "verificationSummary"], "verifier");
       return { agent: "verifier", action: "verified", ...optionalVerificationSummary(value, "verifier") };
     case "stillBlocked":
+      assertKnownKeys(value, "verifier handoff", ["agent", "action", "blocker"], "verifier");
       return { agent: "verifier", action: "stillBlocked", blocker: parseBlocker(value.blocker) };
     default:
       throw invalidHandoff("verifier", "Unsupported verifier handoff action.");
@@ -280,6 +297,7 @@ export function parseBlocker(value: unknown): Blocker {
   if (!isRecord(value)) {
     throw invalidHandoff("builder", "The blocker must be a JSON object.");
   }
+  assertKnownKeys(value, "builder blocker", ["reason", "description", "resolutionGuide", "changedFiles", "validationRan"], "builder");
   const reason = value.reason;
   if (reason !== "ambiguousSpecs" && reason !== "needsHumanTask") {
     throw invalidHandoff("builder", "The blocker reason must be ambiguousSpecs or needsHumanTask.");
@@ -288,6 +306,7 @@ export function parseBlocker(value: unknown): Blocker {
   if (!isRecord(guide)) {
     throw invalidHandoff("builder", "The blocker needs a resolutionGuide object.");
   }
+  assertKnownKeys(guide, "builder blocker.resolutionGuide", ["summary", "steps", "successCriteria", "resumeInstruction", "sensitive"], "builder");
   return {
     reason: reason as BlockerReason,
     description: requiredString(value.description, "blocker.description", "builder"),
@@ -309,6 +328,7 @@ function parseValidation(value: unknown, agent: HandoffAgent): ValidationHandoff
   if (!isRecord(value)) {
     throw invalidHandoff(agent, "The validation handoff must be an object.");
   }
+  assertKnownKeys(value, `${agent} validation`, ["command", "exitCode", "passed", "summary", "artifacts"], agent);
   return {
     command: requiredString(value.command, "validation.command", agent),
     exitCode: requiredInteger(value.exitCode, "validation.exitCode", agent),
@@ -372,6 +392,7 @@ function parseArtifact(value: unknown, agent: HandoffAgent): ArtifactRef {
   if (!isRecord(value)) {
     throw invalidHandoff(agent, "Artifact references must be objects.");
   }
+  assertKnownKeys(value, `${agent} artifact`, ["path", "summary"], agent);
   const path = requiredString(value.path, "artifact.path", agent);
   if (!path.startsWith(".jri/logs/") || path.includes("..")) {
     throw invalidHandoff(agent, "Artifact paths must be stable .jri/logs/* paths.");
@@ -416,6 +437,15 @@ function requiredInteger(value: unknown, field: string, agent: HandoffAgent): nu
 
 function invalidHandoff(agent: HandoffAgent, message: string): JriError {
   return new JriError(message, "invalid-agent-handoff", `Emit ${handoffPrefix} followed by valid JSON for the ${agent} contract.`);
+}
+
+function assertKnownKeys(value: Record<string, unknown>, label: string, allowed: readonly string[], agent: HandoffAgent): void {
+  const allowedKeys = new Set(allowed);
+  for (const key of Object.keys(value)) {
+    if (!allowedKeys.has(key)) {
+      throw invalidHandoff(agent, `Unknown ${label} key: ${key}.`);
+    }
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

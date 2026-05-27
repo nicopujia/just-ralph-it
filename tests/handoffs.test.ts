@@ -123,6 +123,55 @@ describe("agent handoff contracts", () => {
     ).toThrow("specFiles must be a non-empty array of strings");
   });
 
+  test("rejects unknown keys in handoffs and nested contract objects", () => {
+    expect(() =>
+      parseHandoff("auditor", {
+        agent: "auditor",
+        action: "passed",
+        specFiles: [".jri/specs/app.md"],
+        specsFingerprint: "abc123",
+        extra: "ignored by old parser",
+      }),
+    ).toThrow("Unknown auditor handoff key: extra");
+
+    expect(() =>
+      parseHandoff("builder", {
+        agent: "builder",
+        action: "failedValidation",
+        validation: {
+          command: "bun run test",
+          exitCode: 1,
+          passed: false,
+          summary: "Tests failed.",
+          rawOutput: "must be an artifact, not embedded",
+        },
+      }),
+    ).toThrow("Unknown builder validation key: rawOutput");
+
+    expect(() =>
+      parseHandoff("builder", {
+        agent: "builder",
+        action: "complete",
+        summary: "Done.",
+        artifacts: [{ path: ".jri/logs/20260527T184210Z/artifacts/report.md", label: "unexpected" }],
+      }),
+    ).toThrow("Unknown builder artifact key: label");
+
+    expect(() =>
+      parseHandoff("planner", {
+        agent: "planner",
+        action: "blocked",
+        blocker: {
+          ...blocker,
+          resolutionGuide: {
+            ...blocker.resolutionGuide,
+            hint: "unexpected",
+          },
+        },
+      }),
+    ).toThrow("Unknown builder blocker.resolutionGuide key: hint");
+  });
+
   test("accepts legacy builder blocker and replan lines during transition", () => {
     expect(extractLatestBuilderHandoffFromText(`JRI_BLOCKER_JSON: ${JSON.stringify(blocker)}`)).toMatchObject({
       action: "blocked",
