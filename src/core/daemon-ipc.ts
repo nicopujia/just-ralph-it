@@ -461,6 +461,14 @@ async function handleRequestLine(socket: Socket, paths: DaemonPaths, runtimeOpti
       const event = await startRalphLoop(projectDir, runtimeOptions);
       await updateRegistry(paths, projectDir);
       writeStreamEvent(socket, request.id, event);
+      for await (const followup of observeLoop(projectDir, {
+        ...runtimeOptions,
+        follow: true,
+        afterSequence: event.sequence,
+      })) {
+        writeStreamEvent(socket, request.id, followup);
+      }
+      await updateRegistry(paths, projectDir);
       writeStreamDone(socket, request.id);
       return;
     }

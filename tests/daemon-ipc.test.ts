@@ -12,7 +12,7 @@ import {
   startDaemonServer,
   type DaemonPaths,
 } from "../src/core/daemon-ipc";
-import { appendLoopEvent, writeStatusAtomic } from "../src/core/runtime-state";
+import { appendLoopEvent, updateStatus, writeStatusAtomic } from "../src/core/runtime-state";
 import { defaultStatus } from "../src/core/schema";
 import { fingerprintSpecFile, writeInterrogationState } from "../src/core/interrogation-state";
 
@@ -91,7 +91,11 @@ describe("daemon IPC", () => {
       idleTimeoutMs: 10_000,
       runtimeOptions: {
         now: new Date("2026-05-27T20:00:00.000Z"),
-        spawnRunner: ({ phase }) => ({ pid: process.pid, command: `runner ${phase}` }),
+        observePollIntervalMs: 10,
+        spawnRunner: ({ loopId, phase }) => {
+          scheduleLoopCompletion(dir, loopId);
+          return { pid: process.pid, command: `runner ${phase}` };
+        },
       },
     });
     try {
@@ -99,21 +103,21 @@ describe("daemon IPC", () => {
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
       const registry = JSON.parse(await readFile(paths.registryPath, "utf8"));
 
-      expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({
         type: "loopStarted",
         loopId: "20260527T200000Z",
         data: { projectDir: dir, pid: process.pid },
       });
+      expect(events.map((event) => event.type)).toEqual(["loopStarted", "loopFinished"]);
       expect(status).toMatchObject({
-        state: "auditing",
-        activeLoopId: "20260527T200000Z",
-        process: { pid: process.pid, command: "runner auditing" },
-        lock: { owner: "daemon", pid: process.pid, operation: "audit" },
+        state: "idle",
+        activeLoopId: null,
+        lastLoopId: "20260527T200000Z",
+        lastResult: { outcome: "completed", summary: "Fake loop completed." },
       });
       expect(registry.projects[0]).toMatchObject({
         projectDir: dir,
-        activeLoopId: "20260527T200000Z",
+        activeLoopId: null,
       });
     } finally {
       await daemon.close();
@@ -372,6 +376,32 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const items: T[] = [];
   for await (const item of iterable) items.push(item);
   return items;
+}
+
+function scheduleLoopCompletion(projectDir: string, loopId: string): void {
+  setTimeout(() => {
+    void (async () => {
+      await appendLoopEvent(projectDir, {
+        type: "loopFinished",
+        loopId,
+        data: { outcome: "completed", summary: "Fake loop completed." },
+      });
+      await updateStatus(projectDir, (current) => {
+        const { process, lock, ...withoutOwnership } = current;
+        void process;
+        void lock;
+        return {
+          ...withoutOwnership,
+          state: "idle",
+          activeLoopId: null,
+          lastLoopId: loopId,
+          finishedAt: "2026-05-27T20:00:01.000Z",
+          stopRequested: false,
+          lastResult: { outcome: "completed", summary: "Fake loop completed." },
+        };
+      });
+    })();
+  }, 25);
 }
 
 async function startFakeDaemon(paths: DaemonPaths, protocolVersion: number): Promise<{ requests: string[]; close(): Promise<void> }> {

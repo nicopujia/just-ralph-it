@@ -115,7 +115,12 @@ export async function recoverRuntimeStatus(
   return repairedEvent ? { status: repaired, repairedEvent } : { status: repaired };
 }
 
-export async function* observeLoop(projectDir: string, options: RuntimeOptions & LoopObserveOptions = {}): AsyncIterable<CoreEvent> {
+type RuntimeLoopObserveOptions = RuntimeOptions &
+  LoopObserveOptions & {
+    afterSequence?: number;
+  };
+
+export async function* observeLoop(projectDir: string, options: RuntimeLoopObserveOptions = {}): AsyncIterable<CoreEvent> {
   const { status, repairedEvent } = await recoverRuntimeStatus(projectDir, options);
   if (repairedEvent) yield repairedEvent;
 
@@ -133,8 +138,8 @@ export async function* observeLoop(projectDir: string, options: RuntimeOptions &
     }
   }
 
-  let lastSequence = 0;
-  for (const event of await readLoopEvents(projectDir, loopId)) {
+  let lastSequence = options.afterSequence ?? 0;
+  for (const event of (await readLoopEvents(projectDir, loopId)).filter((event) => event.sequence > lastSequence)) {
     lastSequence = Math.max(lastSequence, event.sequence);
     yield event;
   }

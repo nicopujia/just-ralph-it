@@ -6,7 +6,7 @@ import { normalizeStartTrigger, sendChat } from "../src/core/chat";
 import { open } from "../src/core";
 import { startDaemonServer, type DaemonPaths } from "../src/core/daemon-ipc";
 import { defaultStatus } from "../src/core/schema";
-import { writeStatusAtomic } from "../src/core/runtime-state";
+import { appendLoopEvent, updateStatus, writeStatusAtomic } from "../src/core/runtime-state";
 import { fingerprintSpecFile, writeInterrogationState } from "../src/core/interrogation-state";
 import type { CoreEvent } from "../src/core";
 import type { HarnessAdapter } from "../src/core/harness";
@@ -572,7 +572,11 @@ describe("interrogation chat", () => {
       idleTimeoutMs: 10_000,
       runtimeOptions: {
         now: new Date("2026-05-27T20:00:00.000Z"),
-        spawnRunner: ({ phase }) => ({ pid: process.pid, command: `runner ${phase}` }),
+        observePollIntervalMs: 10,
+        spawnRunner: ({ loopId, phase }) => {
+          scheduleLoopCompletion(dir, loopId);
+          return { pid: process.pid, command: `runner ${phase}` };
+        },
       },
     });
     try {
@@ -592,14 +596,17 @@ describe("interrogation chat", () => {
       const loopEvents = await readJsonl(join(dir, ".jri", "logs", "20260527T200000Z", "events.jsonl"));
 
       expect(events.map((event) => event.type)).toContain("loopStarted");
-      expect(events.at(-1)).toMatchObject({ type: "loopStarted", loopId: "20260527T200000Z", data: { pid: process.pid } });
+      expect(events.map((event) => event.type)).toContain("loopFinished");
+      expect(events.at(-1)).toMatchObject({ type: "loopFinished", loopId: "20260527T200000Z" });
       expect(status).toMatchObject({
-        state: "auditing",
-        activeLoopId: "20260527T200000Z",
-        process: { pid: process.pid, command: "runner auditing" },
+        state: "idle",
+        activeLoopId: null,
+        lastLoopId: "20260527T200000Z",
+        lastResult: { outcome: "completed", summary: "Fake loop completed." },
       });
-      expect(registry.projects[0]).toMatchObject({ projectDir: dir, activeLoopId: "20260527T200000Z" });
+      expect(registry.projects[0]).toMatchObject({ projectDir: dir, activeLoopId: null });
       expect(loopEvents[0]).toMatchObject({ type: "loopStarted", loopId: "20260527T200000Z" });
+      expect(loopEvents.at(-1)).toMatchObject({ type: "loopFinished", loopId: "20260527T200000Z" });
     } finally {
       restoreEnv("JRI_PI_COMMAND", previousPiCommand);
       restoreDaemonEnv(previousEnv);
@@ -742,4 +749,30 @@ function restoreDaemonEnv(previous: Record<string, string | undefined>): void {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }
+}
+
+function scheduleLoopCompletion(projectDir: string, loopId: string): void {
+  setTimeout(() => {
+    void (async () => {
+      await appendLoopEvent(projectDir, {
+        type: "loopFinished",
+        loopId,
+        data: { outcome: "completed", summary: "Fake loop completed." },
+      });
+      await updateStatus(projectDir, (current) => {
+        const { process, lock, ...withoutOwnership } = current;
+        void process;
+        void lock;
+        return {
+          ...withoutOwnership,
+          state: "idle",
+          activeLoopId: null,
+          lastLoopId: loopId,
+          finishedAt: "2026-05-27T20:00:01.000Z",
+          stopRequested: false,
+          lastResult: { outcome: "completed", summary: "Fake loop completed." },
+        };
+      });
+    })();
+  }, 25);
 }

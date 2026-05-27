@@ -3,6 +3,7 @@
 - P0: Repair accepted-trigger and active-loop chat semantics.
   - Completed/Tested: accepted-trigger and active-loop ordering slice.
     - Deterministic trigger handling now runs before interrogator harness execution.
+    - `daemon loop.start` now streams follow-up lifecycle events after `loopStarted` by observing from the loopStarted sequence; focused `daemon-ipc`/`chat` tests pass, followed by full `bun run test` (107 tests), `bun run typecheck`, and `bun run lint`.
     - `startRequested` handoffs are revalidated against the current normalized user message.
     - In active `auditing`, `planning`, and `building` states, chat returns `attach`/`stop` guidance without invoking the interrogator/start path.
     - Focused chat tests covering this path now pass; final validation also passed with `bun test tests/chat.test.ts`, full `bun run test` (103 tests), `bun run typecheck`, and `bun run lint`.
@@ -11,13 +12,11 @@
     - Core `chat` empty/open checks now invoke interrogation start-gate reconciliation before user input.
     - Non-trigger chat now runs start-gate reconciliation, and CLI bare `jri` with empty stdin displays and persists pending spec reconciliation.
     - Validation passed with focused checks plus full `bun test`, `bun run typecheck`, and `bun run lint`.
-  - Remaining: Make the accepted-trigger `chat.send()` stream include daemon lifecycle events beyond `loopStarted` by keeping `loop.start` streaming or chaining observation for the newly authorized loop.
-
 - P0: Finish durable interrogator context reconstruction and capabilities.
   - Current harness invocation passes broad refs (`.jri/specs`, `.jri/scratchpad.md`, `.jri/status.json`, full `.jri/logs/interrogation.jsonl`), and the default Pi CLI adapter only uses the last inline user message; implement selected context refs from `.jri/interrogation-state.json`: open topics, pending reconciliation, recent unsealed turns, status, relevant loop summaries, specs, and scratchpad.
   - Add topic/open-turn selection so sealed topics omit old chat logs while their spec files remain requirements truth; cover reopen after manual edit, deleted spec, added spec, and context passed to fakes.
   - Add interrogator web capability support with chat-owned owner metadata and artifacts under `.jri/logs/interrogation-artifacts/`, separate from loop events/status.
-  - Remaining: `checkInterrogationStartGate` does not yet detect newly added/untracked spec files.
+  - Finding: `checkInterrogationStartGate` still lacks added/untracked spec-file detection.
 
 - P0: Replace Pi CLI shellout harness with the controlled SDK adapter contract.
   - Current `invokeDefaultHarness` and `runControlledPiSession` build `pi --print` commands; loop phases still use `HarnessSessionRunner` with `{ projectDir, loopId, phase, stdoutPath }`, bypassing `HarnessInvocation` fields for owner, context refs, capabilities, and cancellation.
@@ -34,7 +33,7 @@
 - P0: Harden runtime state mutation, resume, and failure recovery.
   - `acquireLock` is read/mutate/write plus reread confirmation, not a real CAS; implement race-safe lock acquisition or a single-daemon mutation guarantee that satisfies the runtime spec, with contention tests.
   - `chooseResumePhase` currently resumes stopped loops to `building` when `.jri/IMPLEMENTATION_PLAN.md` exists, otherwise `planning`; persist and resume the exact next safe phase from durable state/events instead.
-  - Convert invalid or missing handoff parser failures inside `runLoopProcess` into structured loop failure events and status transitions instead of letting the runner throw out of band with only later recovery.
+  - Finding: malformed/missing handoff parser failures in `runLoopProcess` still need structured loop failure handling.
   - Keep existing stopped/human-task fingerprint checks and add coverage for stale lock ownership, dead runner repair, and resume after audit/planning/build boundaries.
 
 - P0: Make handoff contracts strict and enforce validation/commit safety.
