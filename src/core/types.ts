@@ -96,6 +96,11 @@ export type ProjectStatus = {
 export type AuthState = {
   provider: "openai";
   authenticated: boolean;
+  recovery?: {
+    code: string;
+    message: string;
+    instructions: string;
+  };
 };
 
 export type AuthResult =

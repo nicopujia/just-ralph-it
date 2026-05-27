@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
@@ -68,6 +68,34 @@ describe("project auth", () => {
     });
   });
 
+  test("treats corrupt Pi auth cache as recoverable unauthenticated state", async () => {
+    const dir = await tempProject();
+    const piDir = join(dir, "pi-agent");
+    await mkdir(piDir, { recursive: true });
+    await writeFile(join(piDir, "auth.json"), "{not json", "utf8");
+
+    await withAuthEnv({ OPENAI_API_KEY: undefined, PI_CODING_AGENT_DIR: piDir }, async () => {
+      try {
+        const project = await open(dir);
+        expect(await project.auth.status()).toEqual({
+          provider: "openai",
+          authenticated: false,
+          recovery: {
+            code: "invalid-pi-auth",
+            message: expect.stringContaining("is not valid JSON"),
+            instructions: expect.stringContaining("Fix or remove"),
+          },
+        });
+        expect(await project.auth.login()).toMatchObject({
+          status: "userActionRequired",
+          instructions: expect.stringContaining("Fix or remove"),
+        });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
   test("login guidance calls out stale Pi auth entries", async () => {
     const dir = await tempProject();
     const piDir = join(dir, "pi-agent");
@@ -129,6 +157,26 @@ describe("project auth", () => {
         await expect(project.auth.logout()).rejects.toThrow(JriError);
       } finally {
         await rm(envDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("logout moves corrupt Pi auth cache aside so auth can recover", async () => {
+    const dir = await tempProject();
+    const piDir = join(dir, "pi-agent");
+    await mkdir(piDir, { recursive: true });
+    const authPath = join(piDir, "auth.json");
+    await writeFile(authPath, "{not json", "utf8");
+
+    await withAuthEnv({ OPENAI_API_KEY: undefined, PI_CODING_AGENT_DIR: piDir }, async () => {
+      try {
+        const project = await open(dir);
+        await project.auth.logout();
+        expect(await Bun.file(authPath).exists()).toBe(false);
+        expect((await readdir(piDir)).some((entry) => entry.startsWith("auth.json.corrupt."))).toBe(true);
+        expect(await project.auth.status()).toEqual({ provider: "openai", authenticated: false });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
       }
     });
   });

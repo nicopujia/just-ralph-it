@@ -68,8 +68,8 @@
   - Add end-to-end tests for bare `jri` `done`, verified resume, still-blocked updates, ambiguous-spec guidance, changed-spec rejection, inconclusive verification, and no-op behavior outside eligible blocked state.
 
 - P0: Make auth recoverable and UI-neutral.
-  - Treat invalid/corrupt Pi auth cache payloads as recoverable auth state with actionable status/login guidance; `jri auth status` must not hard-fail on bad auth JSON.
-  - Implement or passthrough real Pi-backed login/logout/status operations where available, and normalize unsupported passthrough errors through JRI auth result types.
+  - Completed/Tested: invalid/corrupt Pi auth cache payloads are now treated as recoverable auth state with actionable status/login guidance; `jri auth status` no longer hard-fails on bad auth JSON; and corrupt-cache logout recovery clears the local auth cache cleanly. Validation passed with focused auth recovery tests covering corrupt cache status/logout paths plus final serial `bun run test` (133 tests), `bun run typecheck`, and `bun run lint`.
+  - Implement or passthrough real Pi-backed login/logout/status operations where available beyond the local corrupt-cache recovery path, and normalize unsupported passthrough errors through JRI auth result types.
   - Bare interactive `jri` should launch or guide inline auth and continue into interrogation after success; non-interactive mode should print direct recovery commands and exit cleanly.
   - Keep auth behavior in core UI-neutral, with CLI responsible for display.
 

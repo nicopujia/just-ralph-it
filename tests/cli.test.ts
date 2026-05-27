@@ -270,6 +270,88 @@ describe("CLI", () => {
     }
   });
 
+  test("auth status reports corrupt Pi auth cache without hard failure", async () => {
+    const dir = await tempProject();
+    try {
+      const piDir = join(dir, "pi-agent");
+      await mkdir(piDir, { recursive: true });
+      await writeFile(join(piDir, "auth.json"), "{not json", "utf8");
+
+      const proc = Bun.spawn(["bun", cliPath, "auth", "status"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          OPENAI_API_KEY: "",
+          PI_CODING_AGENT_DIR: piDir,
+        },
+      });
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toBe("");
+      expect(stdout).toContain("openai: not authenticated");
+      expect(stdout).toContain("Fix or remove");
+      expect(stdout).toContain("jri auth status");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("auth logout recovers corrupt Pi auth cache", async () => {
+    const dir = await tempProject();
+    try {
+      const piDir = join(dir, "pi-agent");
+      await mkdir(piDir, { recursive: true });
+      const authPath = join(piDir, "auth.json");
+      await writeFile(authPath, "{not json", "utf8");
+
+      const logout = Bun.spawn(["bun", cliPath, "auth", "logout"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          OPENAI_API_KEY: "",
+          PI_CODING_AGENT_DIR: piDir,
+        },
+      });
+      const [logoutCode, logoutStdout, logoutStderr] = await Promise.all([
+        logout.exited,
+        new Response(logout.stdout).text(),
+        new Response(logout.stderr).text(),
+      ]);
+
+      expect(logoutCode).toBe(0);
+      expect(logoutStdout).toContain("Logged out.");
+      expect(logoutStderr).toBe("");
+      expect(await Bun.file(authPath).exists()).toBe(false);
+
+      const status = Bun.spawn(["bun", cliPath, "auth", "status"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          OPENAI_API_KEY: "",
+          PI_CODING_AGENT_DIR: piDir,
+        },
+      });
+      const [statusCode, statusStdout, statusStderr] = await Promise.all([
+        status.exited,
+        new Response(status.stdout).text(),
+        new Response(status.stderr).text(),
+      ]);
+
+      expect(statusCode).toBe(0);
+      expect(statusStdout).toContain("openai: not authenticated");
+      expect(statusStderr).toBe("");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("interactive bare jri opens a fallback interrogator REPL", async () => {
     const dir = await tempProject();
     try {

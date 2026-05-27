@@ -110,6 +110,7 @@ async function main(argv: string[]): Promise<number> {
     if (subcommand === "status") {
       const status = await project.auth.status();
       console.log(`${status.provider}: ${status.authenticated ? "authenticated" : "not authenticated"}`);
+      if (status.recovery) console.log(status.recovery.instructions);
       return 0;
     }
     if (subcommand === "login") {
