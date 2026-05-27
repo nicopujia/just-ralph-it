@@ -22,12 +22,20 @@ have in mind.
   - Otherwise, use the current directory and initialize git there.
 - If the resolved project root has not been prepared for JRI, `jri` prepares it
   automatically.
-- Preparation includes initializing git when needed, creating `.jri/*`, and
-  creating the root `AGENTS.md` operational template when missing.
-- Automatic preparation performs only local scaffolding: `git init` when the
+- Preparation includes initializing git when needed, creating `.jri/*`,
+  creating the root `AGENTS.md` operational template when missing, and creating
+  an initial commit when JRI created the git repository.
+- Automatic preparation creates only local scaffolding: `git init` when the
   directory is not already inside a git repository, default `.jri/config.json`,
   `.jri/status.json`, `.jri/specs/`, `.jri/logs/`,
   `.jri/scratchpad.md`, and root `AGENTS.md`.
+- If JRI initializes a directory that was not already inside a git repository,
+  it creates an initial local commit containing only the files JRI scaffolded,
+  with message `Initialize JRI project`. This gives halt rollback and later
+  Ralph iterations a clean baseline.
+- If JRI prepares a project that was already inside a git repository, it does
+  not auto-commit scaffold changes. Existing repository history and dirty state
+  are preserved for the user and Ralph to inspect.
 - Existing `.jri` durable files and existing root `AGENTS.md` are never overwritten.
 - If a subset of scaffold files is missing, preparation creates only the missing
   files.
@@ -66,16 +74,28 @@ have in mind.
 
 ## Chat Rendering
 
-- The MVP CLI should use Pi's terminal chat UI primitives when they can be used
-  with JRI-controlled SDK sessions.
+- The MVP CLI must use Pi's terminal chat UI primitives for bare interactive
+  `jri` unless implementation work records a concrete Pi SDK/API limitation
+  that prevents doing so with JRI-controlled SDK sessions.
 - Pi may render the interactive chat, streaming assistant output, and input
   affordances, but JRI owns initialization, durable context, specs, status, loop
   lifecycle, and capability selection.
 - Using Pi chat UI must not require JRI to accept ambient Pi session history,
   global config, global skills, global MCPs, or unrelated user prompt/context
   discovery.
+- Ralph must inspect Pi's available terminal chat primitives before choosing the
+  fallback. "The fallback is simpler" or "the current code already has a REPL"
+  is not sufficient evidence.
 - If Pi's chat UI primitives cannot be used without compromising controlled
-  sessions, the MVP falls back to a JRI-managed interrogator REPL on stdin/stdout.
+  sessions, or the installed Pi SDK exposes no suitable primitive, the MVP may
+  temporarily fall back to a JRI-managed interrogator REPL on stdin/stdout.
+- The fallback REPL is an explicit degraded path, not an unproven default. If the
+  MVP ships or tags with the fallback REPL, the implementation plan or durable
+  project notes must explain what was verified about Pi terminal chat primitives
+  and why using them would compromise controlled JRI sessions or is otherwise
+  unavailable for the current increment.
+- If that evidence does not exist, bare interactive `jri` showing only a plain
+  `jri>` prompt is incomplete relative to the primary CLI experience.
 - The fallback REPL still shows the same project status line and blocked
   guidance that the Pi-backed TUI would show.
 - `jri loop attach` remains a separate CLI rendering surface because it needs
@@ -217,9 +237,17 @@ Public MVP command surface:
 ## Acceptance Criteria
 
 - A new user can run `jri` without knowing the Ralph phases.
+- Running bare interactive `jri` uses Pi terminal chat UI primitives unless a
+  documented concrete Pi limitation justifies the degraded fallback REPL.
 - The CLI does not require the user to run planning or start commands manually.
+- The real installed public CLI path is smoke-tested for the primary chat path:
+  `jri auth status` must agree with the auth state used by the first controlled
+  interrogator session, and a normal user message sent through `jri` must either
+  receive an interrogator response or fail before chat with consistent,
+  actionable auth/setup guidance.
 - Initialization is invisible unless there is an error or useful concise status
-  to report.
+  to report. In a directory that was not already a git repository, initialization
+  leaves the repository with a clean initial commit containing the JRI scaffold.
 - JRI never starts the first Ralph build loop from a direct public start command.
 - JRI never starts later Ralph build loops from a direct public start command
   either; new lifecycles are always authorized through interrogation.

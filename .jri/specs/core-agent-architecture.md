@@ -409,8 +409,18 @@ authority are execution permissions, not user-visible Pi packages.
 - Users should not need to know or run Pi directly for normal JRI auth setup.
 - JRI may use Pi `AuthStorage` and `ModelRegistry` to read existing Pi auth from
   `~/.pi/agent/auth.json` and supported environment variables.
+- JRI has one authentication truth for the configured provider/model preset:
+  the same Pi-backed provider/model preflight used by controlled SDK sessions.
+  `jri auth status`, inline auth, and harness startup must agree. `jri auth
+  status` must not report `authenticated` merely because an auth file contains a
+  plausible credential shape unless the configured SDK model path would also
+  accept that auth.
 - After explicit or inline auth, JRI validates that it can create a controlled
-  SDK session with the configured provider/model preset.
+  SDK session or equivalent provider/model preflight with the configured
+  provider/model preset.
+- If a credential exists but the configured SDK model path cannot use it, JRI
+  reports `not authenticated` or an actionable auth recovery state rather than
+  letting a later chat or loop fail with a contradictory auth error.
 - If Pi SDK/package is unavailable or auth cannot be completed inline, JRI fails
   with a direct actionable message that points to `jri auth`.
 - The MVP has no fallback harness and no JRI-managed API key flow.

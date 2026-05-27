@@ -18,6 +18,11 @@ Some durable files are generated lazily when the corresponding workflow first
 runs. In particular, `.jri/IMPLEMENTATION_PLAN.md` is generated during planning
 and is not required after initialization.
 
+When JRI initializes a directory that was not already inside a git repository,
+initialization also creates the first local git commit for the scaffolded JRI
+files and `AGENTS.md`. Existing git repositories are not auto-committed during
+initialization.
+
 ```text
 .jri/
   config.json
@@ -575,6 +580,10 @@ type PlanRegenerationRequested = BaseEvent & {
   because MVP automatic reset affects tracked files and does not delete
   untracked files. If no rollback commit exists or the tracked tree was dirty,
   halt must refuse automatic reset and explain why.
+- A freshly initialized project that was not previously a git repository should
+  have the scaffold initial commit as `HEAD`, so the first Ralph iteration has a
+  rollback baseline. Existing repositories may still lack an eligible rollback
+  point when they were dirty or history-less before JRI was prepared.
 - Event-before-status is the default for lifecycle milestones, but startup and
   runner handoff are allowed to write ownership status before the first
   externally visible event so attach, stop, and halt can find the live runner

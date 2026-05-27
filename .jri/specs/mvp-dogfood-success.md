@@ -69,6 +69,17 @@ allowed when required by the target project.
 
 ## Validation Requirements
 
+- Before JRI is considered ready to attempt the target dogfood run, the real
+  installed public CLI must pass a smoke path without fake harness environment
+  variables or direct internal entrypoints:
+  - `jri auth status` reports the same provider/model readiness that the real
+    controlled SDK session path will use.
+  - Bare `jri` can accept a normal user message and either produce an
+    interrogator response through the production harness or fail before chat with
+    consistent actionable setup guidance.
+  - If the primary terminal UI is the fallback REPL rather than Pi terminal chat
+    primitives, the implementation plan records the evidence and rationale for
+    that fallback.
 - The target project is completed according to its own repository instructions
   and requirements.
 - The deployed result is available at `gupta-to-web.mpujia.justralph.it` over
