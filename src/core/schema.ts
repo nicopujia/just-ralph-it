@@ -79,6 +79,7 @@ export function validateStatus(value: Record<string, unknown>, filePath: string)
       "state",
       "activeLoopId",
       "lastLoopId",
+      "authorizedSpecsFingerprint",
       "iteration",
       "iterations",
       "startedAt",
@@ -110,6 +111,7 @@ export function validateStatus(value: Record<string, unknown>, filePath: string)
     throw new JriError(`${filePath} must include stopRequested as a boolean.`, "invalid-status", "Set stopRequested to true or false.");
   }
   validateOptionalString(value.lastLoopId, "lastLoopId", filePath);
+  validateOptionalString(value.authorizedSpecsFingerprint, "authorizedSpecsFingerprint", filePath);
   validateOptionalInteger(value.iteration, "iteration", filePath);
   validateOptionalInteger(value.iterations, "iterations", filePath);
   validateOptionalString(value.startedAt, "startedAt", filePath);

@@ -6,6 +6,8 @@ import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeL
 import { appendLoopEvent, writeStatusAtomic } from "../src/core/runtime-state";
 import { defaultStatus } from "../src/core/schema";
 
+const emptySpecsFingerprint = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
 async function tempProject(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "jri-daemon-test-"));
   await mkdir(join(dir, ".jri", "logs"), { recursive: true });
@@ -152,6 +154,7 @@ describe("daemon/runtime scaffolding", () => {
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
         stopRequested: true,
+        authorizedSpecsFingerprint: emptySpecsFingerprint,
       });
 
       const events = await collect(
@@ -190,6 +193,7 @@ describe("daemon/runtime scaffolding", () => {
         state: "stopped",
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
+        authorizedSpecsFingerprint: emptySpecsFingerprint,
       });
 
       await collect(
@@ -204,6 +208,74 @@ describe("daemon/runtime scaffolding", () => {
         process: { pid: 13579, command: "runner building" },
         lock: { operation: "build" },
       });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resume from stopped rejects direct continuation when specs changed", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nChanged requirements.\n", "utf8");
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        authorizedSpecsFingerprint: "previous-authorized-fingerprint",
+      });
+
+      await expect(
+        collect(
+          resumeLoop(dir, {
+            spawnRunner: ({ phase }) => ({ pid: 11111, command: `runner ${phase}` }),
+          }),
+        ),
+      ).rejects.toThrow("specs changed");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resume from verified needs-human-task blocker clears blocker and records resolution", async () => {
+    const dir = await tempProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Provide deployment credentials.",
+          resolutionGuide: {
+            summary: "Credentials are required.",
+            steps: ["Provide the deployment token."],
+            resumeInstruction: "Say done in bare jri after the token is available.",
+          },
+          resolution: {
+            status: "verified",
+            verifiedAt: "2026-05-27T19:10:00.000Z",
+            verificationSummary: "Deployment token is present.",
+          },
+        },
+      });
+
+      const events = await collect(
+        resumeLoop(dir, {
+          spawnRunner: ({ phase }) => ({ pid: 22222, command: `runner ${phase}` }),
+        }),
+      );
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(events.map((event) => event.type)).toEqual(["blockerResolved", "loopStarted"]);
+      expect(status).toMatchObject({
+        state: "building",
+        process: { pid: 22222, command: "runner building" },
+        lock: { operation: "build" },
+      });
+      expect(status.blocker).toBeUndefined();
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -524,6 +596,76 @@ describe("daemon/runtime scaffolding", () => {
       expect(status.process).toBeUndefined();
       expect(status.lock).toBeUndefined();
       expect(head.trim()).toBe(headBefore.trim());
+    } finally {
+      if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
+      else process.env.JRI_PI_COMMAND = previousPiCommand;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runner regenerates the plan when builder requests replan", async () => {
+    const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    try {
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/bin/sh",
+          "count_file=.jri/fake-pi-count",
+          "count=0",
+          "[ -f \"$count_file\" ] && count=$(cat \"$count_file\")",
+          "count=$((count + 1))",
+          "printf '%s' \"$count\" > \"$count_file\"",
+          "if [ \"$count\" = 1 ]; then",
+          "  echo 'JRI_NEEDS_REPLAN: plan is stale'",
+          "elif [ \"$count\" = 2 ]; then",
+          "  echo 'planner-regenerated'",
+          "else",
+          "  echo 'builder-finished'",
+          "fi",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: {
+          owner: "daemon",
+          pid: process.pid,
+          operation: "build",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "building");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+
+      expect(events.map((event) => event.type)).toEqual([
+        "iterationStarted",
+        "iterationFinished",
+        "planRegenerationRequested",
+        "planRegenerationStarted",
+        "planRegenerationFinished",
+        "iterationStarted",
+        "iterationFinished",
+        "loopFinished",
+      ]);
+      expect(status).toMatchObject({
+        state: "idle",
+        activeLoopId: null,
+        iterations: 2,
+        lastResult: { outcome: "completed" },
+      });
     } finally {
       if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
       else process.env.JRI_PI_COMMAND = previousPiCommand;

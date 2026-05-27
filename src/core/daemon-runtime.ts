@@ -1,4 +1,5 @@
-import { appendFile, readFile, stat } from "node:fs/promises";
+import { appendFile, readdir, readFile, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JriError } from "./errors";
@@ -197,7 +198,23 @@ export async function* resumeLoop(projectDir: string, options: RuntimeOptions = 
       throw new JriError("Cannot resume without an active loop id.", "missing-loop-id", "Return to bare jri and authorize a new Ralph lifecycle.");
     }
 
-    const phase = await chooseResumePhase(projectDir);
+    const currentSpecsFingerprint = await computeSpecsFingerprint(projectDir);
+    if (eligibleStopped && !status.authorizedSpecsFingerprint) {
+      throw new JriError(
+        "Cannot resume because the authorized specs fingerprint is missing.",
+        "specs-fingerprint-missing",
+        "Return to bare jri, confirm the requirements, then say just ralph it so audit and planning authorize the lifecycle.",
+      );
+    }
+    if (eligibleStopped && status.authorizedSpecsFingerprint !== currentSpecsFingerprint) {
+      throw new JriError(
+        "Cannot resume because specs changed after the loop stopped.",
+        "specs-changed",
+        "Return to bare jri, resolve or confirm the changed requirements, then say just ralph it so audit and planning rerun.",
+      );
+    }
+
+    const phase = eligibleHumanTask ? "building" : await chooseResumePhase(projectDir);
     const runner = (options.spawnRunner ?? defaultSpawnRunner)({ projectDir, loopId, phase });
     const lock = await acquireLock(projectDir, phaseToOperation(phase), {
       pid: runner.pid,
@@ -213,20 +230,24 @@ export async function* resumeLoop(projectDir: string, options: RuntimeOptions = 
         update: {
           stopRequested: false,
           startedAt: (options.now ?? new Date()).toISOString(),
+          authorizedSpecsFingerprint: currentSpecsFingerprint,
           process: {
             pid: runner.pid,
             command: runner.command,
             startedAt: (options.now ?? new Date()).toISOString(),
           },
           lock,
-          ...(eligibleHumanTask
-            ? {
-                blocker: status.blocker,
-              }
-            : {}),
+          ...(eligibleHumanTask ? { blocker: undefined } : {}),
         },
       });
 
+      if (eligibleHumanTask && status.blocker?.reason) {
+        yield await appendLoopEvent(projectDir, {
+          type: "blockerResolved",
+          loopId,
+          data: { reason: status.blocker.reason },
+        });
+      }
       yield await appendLoopEvent(projectDir, {
         type: "loopStarted",
         loopId,
@@ -324,6 +345,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         await finishFailedRun(projectDir, loopId, "building", exitCode);
         return;
       }
+      const replanRequested = await readLatestReplanRequest(projectDir, loopId, stdoutOffset);
 
       const latest = await readStatus(projectDir);
       const finishedIteration = latest.currentIteration?.iteration ?? latest.iteration ?? 1;
@@ -335,6 +357,25 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         data: iterationResult,
       });
       if (await stopIfRequested(projectDir, loopId, finishedIteration)) return;
+      if (replanRequested) {
+        await appendLoopEvent(projectDir, {
+          type: "planRegenerationRequested",
+          loopId,
+          data: { reason: "needsReplan" },
+        });
+        currentLock = await switchRunnerPhase(projectDir, currentLock, "planning");
+        await appendLoopEvent(projectDir, { type: "planRegenerationStarted", loopId, data: {} });
+        const planningExitCode = await runPiSession(projectDir, loopId, "planning");
+        if (planningExitCode !== 0) {
+          await finishFailedRun(projectDir, loopId, "planning", planningExitCode);
+          return;
+        }
+        await appendLoopEvent(projectDir, { type: "planRegenerationFinished", loopId, data: {} });
+        if (await stopIfRequested(projectDir, loopId)) return;
+        currentLock = await switchRunnerPhase(projectDir, currentLock, "building");
+        currentPhase = "building";
+        continue;
+      }
       await appendLoopEvent(projectDir, {
         type: "loopFinished",
         loopId,
@@ -376,6 +417,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
 async function stopIfRequested(projectDir: string, loopId: string, iteration?: number): Promise<boolean> {
   const status = await readStatus(projectDir);
   if (!status.stopRequested) return false;
+  const authorizedSpecsFingerprint = await computeSpecsFingerprint(projectDir);
 
   await appendLoopEvent(projectDir, {
     type: "loopStopped",
@@ -383,6 +425,7 @@ async function stopIfRequested(projectDir: string, loopId: string, iteration?: n
     data: {
       reason: "gracefulStopRequested",
       ...(iteration === undefined ? {} : { iteration }),
+      specsFingerprint: authorizedSpecsFingerprint,
     },
   });
   await transitionStatus(projectDir, "stopped", {
@@ -390,6 +433,7 @@ async function stopIfRequested(projectDir: string, loopId: string, iteration?: n
     update: {
       ...ownershipCleared(status),
       stopRequested: false,
+      authorizedSpecsFingerprint,
       lastResult: {
         outcome: "stopped",
         summary:
@@ -737,6 +781,37 @@ async function readLatestBlockerReport(projectDir: string, loopId: string, offse
     );
   }
   return parseBlockerReport(parsed);
+}
+
+const replanPrefix = "JRI_NEEDS_REPLAN:";
+
+async function readLatestReplanRequest(projectDir: string, loopId: string, offset: number): Promise<boolean> {
+  const path = join(projectDir, ".jri", "logs", loopId, "stdout.log");
+  if (!(await Bun.file(path).exists())) return false;
+
+  const currentSessionOutput = (await readFile(path, "utf8")).slice(offset);
+  return currentSessionOutput
+    .split("\n")
+    .some((candidate) => candidate.trimStart().startsWith(replanPrefix));
+}
+
+async function computeSpecsFingerprint(projectDir: string): Promise<string> {
+  const specsDir = join(projectDir, ".jri", "specs");
+  const hash = createHash("sha256");
+  if (!(await Bun.file(specsDir).exists())) return hash.digest("hex");
+
+  const entries = (await readdir(specsDir, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+    .map((entry) => entry.name)
+    .sort();
+
+  for (const name of entries) {
+    hash.update(name);
+    hash.update("\0");
+    hash.update(await readFile(join(specsDir, name)));
+    hash.update("\0");
+  }
+  return hash.digest("hex");
 }
 
 function parseBlockerReport(value: unknown): Blocker {

@@ -42,6 +42,10 @@ and is not required after initialization.
   of guessing values.
 - `.jri/status.json` records current project status, active loop id, process
   metadata, stop requests, blocker state, and lock information.
+- `.jri/status.json` stores the specs fingerprint authorized for the current
+  controllable lifecycle as `authorizedSpecsFingerprint`. Runtime treats this as
+  an opaque deterministic equality token for the accepted specs, not as a
+  user-facing summary.
 - `.jri/status.json` is updated with write-temp-then-rename atomic replacement.
 - Event appends and status replacement are not treated as a single cross-file
   transaction. For state transitions, JRI emits the event, then writes status.
@@ -107,6 +111,7 @@ type ProjectStatus = {
     | "halted";
   activeLoopId: string | null;
   lastLoopId?: string;
+  authorizedSpecsFingerprint?: string;
   iteration?: number;
   iterations?: number;
   startedAt?: string;
@@ -202,9 +207,10 @@ halted -> auditing | halted
   resolved. If verification is inconclusive, status remains `blocked` and the
   guide is updated.
 - `stopped -> building | planning` is direct resume for the same authorized
-  lifecycle only when the current specs still match the specs fingerprint that
-  was authorized or stopped. It starts a fresh Pi session and never resumes a
-  prior Pi session.
+  lifecycle only when the current specs still match
+  `authorizedSpecsFingerprint` in status. It starts a fresh Pi session and
+  never resumes a prior Pi session. If the fingerprint is missing or does not
+  match, resume falls back to `stopped -> auditing`.
 - `stopped -> auditing` happens when specs changed after the stop. The user
   must return to bare `jri`, resolve or confirm the changed requirements, and
   reissue `just ralph it` or `ralfealo`; the auditor and planner rerun before
@@ -302,7 +308,7 @@ type AuditFailed = BaseEvent & {
 type AuditPassed = BaseEvent & {
   type: "auditPassed";
   loopId: string;
-  data: { specFiles: string[] };
+  data: { specFiles: string[]; specsFingerprint: string };
 };
 
 type PlanningFinished = BaseEvent & {
@@ -410,7 +416,11 @@ type BlockerResolved = BaseEvent & {
 type LoopStopped = BaseEvent & {
   type: "loopStopped";
   loopId: string;
-  data: { reason: "gracefulStopRequested"; iteration?: number };
+  data: {
+    reason: "gracefulStopRequested";
+    iteration?: number;
+    specsFingerprint?: string;
+  };
 };
 
 type LoopHalted = BaseEvent & {
@@ -520,6 +530,9 @@ type PlanRegenerationRequested = BaseEvent & {
   because MVP automatic reset affects tracked files and does not delete
   untracked files. If no rollback commit exists or the tracked tree was dirty,
   halt must refuse automatic reset and explain why.
+- At `auditPassed`, JRI copies `data.specsFingerprint` into
+  `status.authorizedSpecsFingerprint`. `loopStopped` records the same
+  fingerprint when known so recovery can preserve the stopped-loop resume gate.
 
 ## Process Rules
 

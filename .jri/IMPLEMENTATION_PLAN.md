@@ -31,18 +31,30 @@ Completed work:
   `iterationFinished`, preserves changed files, clears runtime ownership, and
   moves status to `blocked` without committing. This matters because blockers
   are durable loop state, not prose buried in stdout.
+- [x] P0: Add durable `authorizedSpecsFingerprint` resume gating for resume
+  safety. The resume runner now checks a persisted fingerprint before resuming so
+  stale or mismatched spec sets cannot silently resume into invalid state.
+- [x] P0: Add verified `needsHumanTask` blocker cleanup with explicit
+  `blockerResolved` transitions. This ensures resumptions and subsequent
+  iterations only proceed after a blocker is explicitly confirmed as resolved.
+- [x] P0: Add builder `JRI_NEEDS_REPLAN` signaling to trigger plan
+  regeneration. This avoids continuing from stale planning output when the resume
+  path detects conditions that require replanning.
+- [x] P0: Improve prompt spec traversal portability. Spec path resolution in
+  prompt construction is now consistent across contexts, reducing environment or
+  cwd-dependent failures in resume/build execution.
 
 Next work:
 
-- [ ] P0: Implement full resume runner.
-  Remaining work: richer orchestration decisions after Pi returns,
-  plan-regeneration decisions, verified needs-human-task resume cleanup, spec
-  fingerprint checks before stopped-loop resume, and eventual SDK-native session
-  wiring.
+- [ ] P0: Finish full resume-runner hardening only where still true: add fallback
+  to chat/audit for audit/spec-change mismatches, and complete SDK-native
+  session wiring if gaps remain.
 - [ ] P1: Expand test coverage into status transitions, planner/loop command
   behavior, and daemon recovery paths.
 
 Validation:
 
-- `bun run test`, `bun run typecheck`, and `bun run lint` pass after blocker
-  reporting coverage was added.
+- `bun run test`, `bun run typecheck`, and `bun run lint` pass after resume
+  runner durability and portability changes were added. This verification is
+  important because these flows control loop state transitions that can silently
+  lose progress or resume from incorrect work.

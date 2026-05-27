@@ -52,6 +52,7 @@ export type ProjectStatus = {
   state: ProjectState;
   activeLoopId: string | null;
   lastLoopId?: string;
+  authorizedSpecsFingerprint?: string;
   iteration?: number;
   iterations?: number;
   startedAt?: string;
@@ -118,7 +119,7 @@ export type BaseEvent = {
 export type CoreEvent =
   | (BaseEvent & { type: "loopStarted"; loopId: string; data: { projectDir: string; pid?: number } })
   | (BaseEvent & { type: "auditStarted"; loopId: string; data: Record<string, never> })
-  | (BaseEvent & { type: "auditPassed"; loopId: string; data: { specFiles: string[] } })
+  | (BaseEvent & { type: "auditPassed"; loopId: string; data: { specFiles: string[]; specsFingerprint: string } })
   | (BaseEvent & { type: "auditFailed"; loopId: string; data: { feedback: string; ambiguousSpecFiles?: string[] } })
   | (BaseEvent & { type: "planningStarted"; loopId: string; data: Record<string, never> })
   | (BaseEvent & { type: "planningFinished"; loopId: string; data: { planPath: ".jri/IMPLEMENTATION_PLAN.md" } })
@@ -151,7 +152,7 @@ export type CoreEvent =
     })
   | (BaseEvent & { type: "blockerResolved"; loopId: string; data: { reason: BlockerReason } })
   | (BaseEvent & { type: "stopRequested"; loopId: string; data: { requested: boolean } })
-  | (BaseEvent & { type: "loopStopped"; loopId: string; data: { reason: "gracefulStopRequested"; iteration?: number } })
+  | (BaseEvent & { type: "loopStopped"; loopId: string; data: { reason: "gracefulStopRequested"; iteration?: number; specsFingerprint?: string } })
   | (BaseEvent & {
       type: "loopHalted";
       loopId: string;

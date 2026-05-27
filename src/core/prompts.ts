@@ -1,3 +1,4 @@
+import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentConfig, AgentName, ProjectConfig, ReasoningLevel } from "./types";
 
@@ -46,6 +47,7 @@ export async function buildPiPrompt(projectDir: string, phase: "planning" | "bui
     "Implement completely, run relevant validation, update .jri/IMPLEMENTATION_PLAN.md with findings/resolution, update AGENTS.md only for operational learnings, then commit if tracked files changed and validation passes.",
     "If build/test validation has no errors after a successful change commit, create or increment a patch semver git tag.",
     "If specs are ambiguous or a human task is required, leave work uncommitted, update .jri/IMPLEMENTATION_PLAN.md, and emit one line that starts with JRI_BLOCKER_JSON: followed by JSON with reason, description, resolutionGuide, optional changedFiles, and optional validationRan.",
+    "If the current plan is stale or confusing but specs are not blocked, finish the current iteration safely and emit one line that starts with JRI_NEEDS_REPLAN: followed by a concise reason.",
     agents ? `Operational guide:\n${agents}` : "",
     plan ? `Current implementation plan:\n${plan}` : "No implementation plan exists yet; inspect specs and code before choosing work.",
     specs.join("\n\n"),
@@ -57,17 +59,9 @@ export async function buildPiPrompt(projectDir: string, phase: "planning" | "bui
 async function listSpecFiles(projectDir: string): Promise<string[]> {
   const specsDir = join(projectDir, ".jri", "specs");
   if (!(await Bun.file(specsDir).exists())) return [];
-  const proc = Bun.spawn(["find", ".jri/specs", "-maxdepth", "1", "-type", "f", "-name", "*.md", "-print"], {
-    cwd: projectDir,
-    stdout: "pipe",
-    stderr: "ignore",
-  });
-  const output = await new Response(proc.stdout).text();
-  await proc.exited;
-  return output
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
+  return (await readdir(specsDir, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+    .map((entry) => `.jri/specs/${entry.name}`)
     .sort();
 }
 
