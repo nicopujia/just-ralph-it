@@ -1446,6 +1446,60 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("runner records startup lock loss as durable failure evidence", async () => {
+    const dir = await tempProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: {
+          owner: "daemon",
+          pid: 99999,
+          operation: "plan",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+        process: {
+          pid: 99999,
+          command: "runner planning",
+          startedAt: "2026-05-27T19:00:00.000Z",
+        },
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "planning", {
+        observePollIntervalMs: 1,
+        isProcessAlive: () => true,
+      });
+
+      const events = await collect(observeLoop(dir, { isProcessAlive: () => true }));
+      expect(events.map((event) => event.type)).toEqual(["loopStarted", "loopFinished"]);
+      expect(events[1]).toMatchObject({
+        type: "loopFinished",
+        data: {
+          outcome: "failed",
+          summary: expect.stringContaining("The JRI runner startup state changed before ownership was confirmed."),
+        },
+      });
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(status).toMatchObject({
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastResult: {
+          outcome: "failed",
+          summary: expect.stringContaining("The JRI runner startup state changed before ownership was confirmed."),
+        },
+      });
+      expect(status.process).toBeUndefined();
+      expect(status.lock).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("runner cancellation fans out to registered loop children before recording failure", async () => {
     const dir = await tempProject();
     const controller = new AbortController();

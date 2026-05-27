@@ -525,26 +525,30 @@ export async function* resumeLoop(projectDir: string, options: RuntimeOptions = 
 export async function runLoopProcess(projectDir: string, loopId: string, phase: RunnerPhase, options: RuntimeOptions = {}): Promise<void> {
   throwIfRuntimeCancelled(options.signal);
   const status = await getRecoveredStatus(projectDir, options);
-  const lock = await waitForRunnerLock(projectDir, loopId, phase, status, options);
-  if (!lock || lock.pid !== process.pid || lock.operation !== phaseToOperation(phase)) {
-    throw new JriError("The JRI runner does not own the project lock.", "lock-lost", "Resume the loop again so the daemon can start a fresh runner.");
-  }
-
-  const runtimeCancellation = bindRunnerTimeout(options.signal, options.runnerTimeoutMs);
-  const runnerOptions: RuntimeOptions = runtimeCancellation.signal ? { ...options, signal: runtimeCancellation.signal } : options;
-  let currentLock = lock;
-  const heartbeat = setInterval(() => {
-    heartbeatLock(projectDir, currentLock)
-      .then((next) => {
-        currentLock = next;
-      })
-      .catch(() => {
-        clearInterval(heartbeat);
-      });
-  }, 10_000);
-
   let currentPhase: RunnerPhase = phase;
+  let currentLock: ProjectStatus["lock"];
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
+  let runtimeCancellation: ReturnType<typeof bindRunnerTimeout> | undefined;
   try {
+    const lock = await waitForRunnerLock(projectDir, loopId, phase, status, options);
+    if (!lock || lock.pid !== process.pid || lock.operation !== phaseToOperation(phase)) {
+      throw new JriError("The JRI runner does not own the project lock.", "lock-lost", "Resume the loop again so the daemon can start a fresh runner.");
+    }
+
+    currentLock = lock;
+    runtimeCancellation = bindRunnerTimeout(options.signal, options.runnerTimeoutMs);
+    const runnerOptions: RuntimeOptions = runtimeCancellation.signal ? { ...options, signal: runtimeCancellation.signal } : options;
+    heartbeat = setInterval(() => {
+      if (!currentLock) return;
+      heartbeatLock(projectDir, currentLock)
+        .then((next) => {
+          currentLock = next;
+        })
+        .catch(() => {
+          if (heartbeat) clearInterval(heartbeat);
+        });
+    }, 10_000);
+
     for (;;) {
       throwIfRuntimeCancelled(runnerOptions.signal);
       const statusAtPhaseStart = await readStatus(projectDir);
@@ -742,8 +746,9 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
     }
     throw error;
   } finally {
-    runtimeCancellation.cleanup();
-    clearInterval(heartbeat);
+    runtimeCancellation?.cleanup();
+    if (heartbeat) clearInterval(heartbeat);
+    if (!currentLock) return;
     const latest = await readStatus(projectDir);
     if (latest.lock && latest.lock.pid === currentLock.pid && latest.lock.acquiredAt === currentLock.acquiredAt) {
       try {
@@ -1694,6 +1699,7 @@ function isLoopFailureError(error: JriError): boolean {
     "harness-cancelled",
     "harness-timeout",
     "invalid-agent-handoff",
+    "lock-lost",
     "missing-agent-handoff",
     "multiple-agent-handoffs",
     "planner-plan-missing",
