@@ -806,7 +806,8 @@ describe("CLI", () => {
       expect(`${stdout}\n${stderr}`).toContain("OpenAI authentication is required");
       expect(stdout).toContain("pi-login-ok");
       expect(stdout).toContain("Authenticated.");
-      expect(stdout).toContain("jri>");
+      expect(stdout).toContain("JRI interactive chat");
+      expect(stdout).toContain("Status: idle");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -920,7 +921,7 @@ describe("CLI", () => {
     }
   });
 
-  test("interactive bare jri uses the public bin and declares the degraded fallback REPL", async () => {
+  test("interactive bare jri uses the public bin with a Pi-backed terminal chat surface", async () => {
     const dir = await tempProject();
     try {
       const fakePi = join(dir, "fake-pi.sh");
@@ -957,11 +958,13 @@ describe("CLI", () => {
 
       expect(exitCode).toBe(0);
       expect(`${stdout}\n${stderr}`).toContain(`Initialized JRI in ${dir}`);
-      expect(stdout).toContain("Fallback JRI REPL active.");
-      expect(stdout).toContain("Pi terminal chat UI is not yet wired to JRI-controlled lifecycle routing.");
-      expect(stdout).toContain("jri>");
-      expect(stdout).toContain("idle");
+      expect(stdout).toContain("JRI interactive chat");
+      expect(stdout).toContain("Status: idle");
+      expect(stdout).toContain("Enter to send | Ctrl+D to exit | /exit to quit");
       expect(stdout).toContain("Which CLI commands should stay public?");
+      expect(stdout).not.toContain("Fallback JRI REPL active.");
+      expect(stdout).not.toContain("Pi terminal chat UI is not yet wired to JRI-controlled lifecycle routing.");
+      expect(stdout).not.toContain("jri>");
 
       const log = await readFile(join(dir, ".jri", "logs", "interrogation.jsonl"), "utf8");
       expect(log).toContain("Need a CLI.");

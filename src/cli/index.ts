@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
-import { createInterface } from "node:readline/promises";
+import { Input, ProcessTerminal, Text, TUI, matchesKey } from "@earendil-works/pi-tui";
 import { open, isJriError, JriError } from "../core";
 import { assertCapabilityOwnership, assertLoopCapabilityOwnership, parseCapabilityMetadata } from "../core/capability-ownership";
 import type { CoreEvent, Project, ProjectStatus, ProjectState } from "../core";
@@ -321,42 +321,141 @@ async function subprocessStreamText(stream: number | ReadableStream<Uint8Array> 
 }
 
 async function runInteractiveChat(project: Project): Promise<void> {
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    prompt: "jri> ",
+  const tui = new TUI(new ProcessTerminal());
+  const header = new Text("JRI interactive chat");
+  const transcript = new Text("");
+  const status = new Text("");
+  const mode = new Text("Ready");
+  const hints = new Text("Enter to send | Ctrl+D to exit | /exit to quit");
+  const prompt = new Text("You:");
+  const input = new Input();
+  const lines: string[] = [];
+  let busy = false;
+  let closeRequested = false;
+  let closed = false;
+  let fatalError: unknown;
+  let resolveClosed!: () => void;
+  const closedPromise = new Promise<void>((resolve) => {
+    resolveClosed = resolve;
+  });
+
+  tui.addChild(header);
+  tui.addChild(transcript);
+  tui.addChild(status);
+  tui.addChild(mode);
+  tui.addChild(hints);
+  tui.addChild(prompt);
+  tui.addChild(input);
+  tui.setFocus(input);
+
+  const appendTranscript = (text: string): void => {
+    if (!text.trim()) return;
+    lines.push(text);
+    transcript.setText(lines.join("\n"));
+    tui.requestRender();
+  };
+
+  const close = (): void => {
+    if (closed) return;
+    closed = true;
+    tui.stop();
+    resolveClosed();
+  };
+
+  const requestClose = (): void => {
+    if (busy) {
+      closeRequested = true;
+      mode.setText("Assistant working | exit queued");
+      tui.requestRender();
+      return;
+    }
+    close();
+  };
+
+  const refreshStatus = async (): Promise<void> => {
+    status.setText(formatInteractiveStatus(await project.status.get()));
+    tui.requestRender();
+  };
+
+  const submit = async (value: string): Promise<void> => {
+    const message = value.trim();
+    input.setValue("");
+    tui.requestRender();
+
+    if (!message) return;
+    if (message === "/exit" || message === "/quit") {
+      requestClose();
+      return;
+    }
+    if (busy) {
+      appendTranscript("JRI: Wait for the current response to finish before sending another message.");
+      return;
+    }
+
+    busy = true;
+    mode.setText("Assistant working");
+    appendTranscript(`You: ${message}`);
+    await refreshStatus();
+    try {
+      for await (const event of project.chat.send({ message })) {
+        const text = formatChatEvent(event);
+        if (text) appendTranscript(formatInteractiveEvent(event, text));
+        await refreshStatus();
+      }
+    } catch (error) {
+      fatalError = error;
+      close();
+      return;
+    } finally {
+      busy = false;
+    }
+
+    if (closeRequested) {
+      tui.requestRender(true);
+      await Bun.sleep(10);
+      close();
+      return;
+    }
+
+    mode.setText("Ready");
+    await refreshStatus();
+  };
+
+  input.onSubmit = (value) => {
+    void submit(value);
+  };
+
+  tui.addInputListener((data) => {
+    if (matchesKey(data, "ctrl+c") || matchesKey(data, "ctrl+d")) {
+      requestClose();
+      return { consume: true };
+    }
+    return undefined;
   });
 
   try {
-    console.log(formatInteractiveFallbackBanner());
     const reconciliation = await pendingReconciliationMessage(project.projectDir);
-    if (reconciliation) console.log(reconciliation);
-    for (;;) {
-      console.log(formatStatus(await project.status.get()));
-      const input = await rl.question("jri> ");
-      if (input.trim() === "/exit" || input.trim() === "/quit") return;
-      if (!input.trim()) continue;
-      for await (const event of project.chat.send({ message: input })) {
-        writeChatEvent(event);
-      }
-    }
-  } catch (error) {
-    if (isReadlineClosed(error)) return;
-    throw error;
+    if (reconciliation) appendTranscript(reconciliation);
+    await refreshStatus();
+    tui.start();
+    tui.requestRender(true);
+    await closedPromise;
   } finally {
-    rl.close();
+    if (!closed) close();
   }
+
+  if (fatalError) throw fatalError;
 }
 
-function isReadlineClosed(error: unknown): boolean {
-  return error instanceof Error && error.message === "readline was closed";
+function formatInteractiveStatus(status: ProjectStatus): string {
+  const [first, ...rest] = formatStatus(status).split("\n");
+  return [`Status: ${first}`, ...rest].join("\n");
 }
 
-function formatInteractiveFallbackBanner(): string {
-  return [
-    "Fallback JRI REPL active.",
-    "Pi terminal chat UI is not yet wired to JRI-controlled lifecycle routing.",
-  ].join("\n");
+function formatInteractiveEvent(event: CoreEvent, text: string): string {
+  const [first, ...rest] = text.split("\n");
+  const label = event.type === "chatMessageDelta" ? "Assistant" : "JRI";
+  return [`${label}: ${first}`, ...rest].join("\n");
 }
 
 async function pendingReconciliationMessage(projectDir: string): Promise<string | null> {
