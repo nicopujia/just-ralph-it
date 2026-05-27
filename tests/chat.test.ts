@@ -465,10 +465,14 @@ describe("interrogation chat", () => {
     }
   });
 
-  test("active loop chat reports observation guidance without invoking interrogator", async () => {
+  test("active loop chat invokes interrogator in observation mode with loop context", async () => {
     const dir = await tempProject();
     try {
-      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "logs", "20260527T184210Z"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "IMPLEMENTATION_PLAN.md"), "# Plan\n\n- Keep building.\n", "utf8");
+      await writeFile(join(dir, ".jri", "logs", "20260527T184210Z", "events.jsonl"), '{"type":"iterationStarted"}\n', "utf8");
+      await writeFile(join(dir, ".jri", "logs", "20260527T184210Z", "stdout.log"), "Builder output.\n", "utf8");
       await writeStatusAtomic(dir, {
         ...defaultStatus(dir),
         state: "building",
@@ -482,17 +486,20 @@ describe("interrogation chat", () => {
         },
       });
 
-      let harnessCalled = false;
+      let refs: string[] = [];
+      let inline: string[] = [];
       let startCalled = false;
       const events = await collect(
-        sendChat(dir, { message: "just ralph it" }, {
-          interrogatorHarness: async () => {
-            harnessCalled = true;
+        sendChat(dir, { message: "What is Ralph doing?" }, {
+          interrogatorHarness: async (invocation) => {
+            refs = invocation.context.refs;
+            inline = invocation.context.inline;
+            await invocation.output.write("Ralph is currently building from the authorized specs.");
             return {
               handoff: {
                 agent: "interrogator",
-                action: "startRequested",
-                trigger: "just ralph it",
+                action: "messageOnly",
+                summary: "Explained active loop status.",
               },
             };
           },
@@ -502,13 +509,56 @@ describe("interrogation chat", () => {
         }),
       );
 
-      expect(harnessCalled).toBe(false);
       expect(startCalled).toBe(false);
       expect(events.map((event) => event.type)).not.toContain("loopStarted");
+      expect(refs).toContain(".jri/status.json");
+      expect(refs).toContain(".jri/IMPLEMENTATION_PLAN.md");
+      expect(refs).toContain(".jri/logs/20260527T184210Z/events.jsonl");
+      expect(refs).toContain(".jri/logs/20260527T184210Z/stdout.log");
+      expect(inline[0]).toBe("What is Ralph doing?");
+      expect(inline[1]).toContain("Observation mode restrictions:");
+      expect(inline[1]).toContain("must not mutate .jri/specs/*");
       expect(events[2]).toMatchObject({
         type: "chatMessageDelta",
-        data: { text: expect.stringContaining("jri loop attach") },
+        data: { text: "Ralph is currently building from the authorized specs." },
       });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("active loop observation mode rejects lifecycle-changing interrogator handoffs", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "planning",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        startedAt: "2026-05-27T18:42:10.000Z",
+        process: {
+          pid: 12345,
+          command: "runner planning",
+          startedAt: "2026-05-27T18:42:10.000Z",
+        },
+      });
+
+      await expect(
+        collect(
+          sendChat(dir, { message: "Change the requirements now." }, {
+            interrogatorHarness: async () => ({
+              handoff: {
+                agent: "interrogator",
+                action: "specsUpdated",
+                specFiles: [".jri/specs/app.md"],
+                summary: "Changed requirements.",
+              },
+            }),
+          }),
+        ),
+      ).rejects.toMatchObject({ code: "invalid-observation-handoff" });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

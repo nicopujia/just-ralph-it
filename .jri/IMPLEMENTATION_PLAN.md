@@ -20,6 +20,7 @@
   - Reject active loops, unresolved human-task blockers, pending reconciliation, and invalid triggers with state-specific actionable errors.
 
 - P0: Implement active-loop observation-mode interrogator.
+  - Active-loop chat short-circuit is resolved: chat now invokes the interrogator with observation-mode context/restrictions, includes status/plan/log refs, and rejects lifecycle-changing handoffs in observation mode. Validation passed: focused `tests/chat.test.ts`, `bun run test`, `bun run typecheck`, and `bun run lint`.
   - Bare `jri`/`chat.send()` must still invoke the Pi-backed interrogator when status is `auditing`, `planning`, or `building`, but with observation-mode context and restrictions.
   - Observation mode may explain status/logs/specs/plan, record thoughts to `.jri/scratchpad.md`, and offer/request graceful stop.
   - Observation mode must not mutate `.jri/specs/*`, trigger replanning, authorize a new lifecycle, or change active requirements.

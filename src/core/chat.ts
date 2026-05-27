@@ -41,7 +41,7 @@ export async function* sendChat(projectDir: string, input: ChatInput, options: C
 
   const status = await readStatus(projectDir);
   if (isActiveLoopState(status)) {
-    yield* emitAssistant(projectDir, responseForStatus(status));
+    yield* runInterrogator(projectDir, message, options, { mode: "observation", status });
     return;
   }
 
@@ -71,14 +71,19 @@ export async function* sendChat(projectDir: string, input: ChatInput, options: C
   yield* emitAssistant(projectDir, responseForStatus(status));
 }
 
-async function* runInterrogator(projectDir: string, message: string, options: ChatRuntimeOptions): AsyncIterable<CoreEvent> {
+async function* runInterrogator(
+  projectDir: string,
+  message: string,
+  options: ChatRuntimeOptions,
+  observation?: { mode: "observation"; status: ProjectStatus },
+): AsyncIterable<CoreEvent> {
   const harness = options.interrogatorHarness ?? invokeDefaultHarness;
   const started = await appendInterrogationEvent(projectDir, {
     type: "chatMessageStarted",
     data: { role: "assistant" },
   });
   yield started;
-  const context = await buildInterrogatorContext(projectDir, message);
+  const context = await buildInterrogatorContext(projectDir, message, observation);
 
   const chunks: string[] = [];
   const result = await harness({
@@ -112,10 +117,18 @@ async function* runInterrogator(projectDir: string, message: string, options: Ch
     data: { role: "assistant" },
   });
   yield await recordTurn(projectDir, "assistant", assistantText);
+  if (observation) {
+    yield* handleObservationHandoff(projectDir, handoff);
+    return;
+  }
   yield* handleInterrogatorHandoff(projectDir, message, handoff, options);
 }
 
-async function buildInterrogatorContext(projectDir: string, message: string): Promise<{ refs: string[]; inline: string[] }> {
+async function buildInterrogatorContext(
+  projectDir: string,
+  message: string,
+  observation?: { mode: "observation"; status: ProjectStatus },
+): Promise<{ refs: string[]; inline: string[] }> {
   const refs = new Set<string>();
   if (await relativePathExists(projectDir, ".jri/status.json")) refs.add(".jri/status.json");
 
@@ -124,8 +137,25 @@ async function buildInterrogatorContext(projectDir: string, message: string): Pr
 
   for (const specFile of await listSpecFiles(projectDir)) refs.add(specFile);
   if (await relativePathExists(projectDir, ".jri/scratchpad.md")) refs.add(".jri/scratchpad.md");
+  if (observation?.status.activeLoopId) {
+    const loopId = observation.status.activeLoopId;
+    if (await relativePathExists(projectDir, ".jri/IMPLEMENTATION_PLAN.md")) refs.add(".jri/IMPLEMENTATION_PLAN.md");
+    if (await relativePathExists(projectDir, `.jri/logs/${loopId}/events.jsonl`)) refs.add(`.jri/logs/${loopId}/events.jsonl`);
+    if (await relativePathExists(projectDir, `.jri/logs/${loopId}/stdout.log`)) refs.add(`.jri/logs/${loopId}/stdout.log`);
+  }
 
   const inline = [message];
+  if (observation) {
+    inline.push(
+      [
+        "Observation mode restrictions:",
+        `JRI is currently ${observation.status.state} for loop ${observation.status.activeLoopId ?? "unknown"}.`,
+        "You may explain status, logs, specs, and the implementation plan; record durable notes only in .jri/scratchpad.md; and suggest jri loop stop for a graceful stop.",
+        "You must not mutate .jri/specs/*, trigger replanning, authorize a new lifecycle, or change active requirements.",
+        'Emit messageOnly when you only answer, or scratchpadUpdated only if you updated .jri/scratchpad.md. Do not emit specsUpdated or startRequested in observation mode.',
+      ].join("\n"),
+    );
+  }
   const needsRecentTurns =
     !state ||
     Object.values(state.topics).some((topic) => topic.status === "open" || Boolean(topic.pendingReconciliation));
@@ -136,6 +166,25 @@ async function buildInterrogatorContext(projectDir: string, message: string): Pr
   }
 
   return { refs: [...refs], inline };
+}
+
+async function* handleObservationHandoff(projectDir: string, handoff: InterrogatorHandoff): AsyncIterable<CoreEvent> {
+  if (handoff.action === "messageOnly") return;
+
+  if (handoff.action === "scratchpadUpdated") {
+    await assertScratchpadExists(projectDir);
+    yield await appendInterrogationEvent(projectDir, {
+      type: "scratchpadUpdated",
+      data: { scratchpadPath: ".jri/scratchpad.md", summary: handoff.summary },
+    });
+    return;
+  }
+
+  throw new JriError(
+    `The interrogator returned ${handoff.action} while JRI is in observation mode.`,
+    "invalid-observation-handoff",
+    "Observation mode may answer from current status/logs/specs or update .jri/scratchpad.md, but it cannot update specs, verify blockers, or start Ralph.",
+  );
 }
 
 async function recentInterrogationTurns(projectDir: string): Promise<string> {
