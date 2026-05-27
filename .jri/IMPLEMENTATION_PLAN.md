@@ -31,11 +31,9 @@
   - Add coverage for invalid runner phase at runtime, malformed handoff failure evidence, stop/halt races, forceful halt, dead runner repair from latest events, and status/event recovery.
 
 - P0: Fix stopped-loop and ambiguous-spec lifecycle guardrails.
-  - Confirmed gap: `startRalphLoop()` permits `stopped -> auditing` without proving specs changed or the authorized fingerprint is missing.
-  - For unchanged stopped loops, require `jri loop resume`; for changed/missing-fingerprint stopped loops, allow bare `jri` reauthorization via `just ralph it` / `ralfealo`, reuse the existing `activeLoopId`, rerun audit and planning, then continue.
   - Keep `blocked[ambiguousSpecs]` uncleared until the user reissues the trigger and the auditor passes; emit `blockerResolved` once when the ambiguity is actually resolved.
   - Preserve `blocked[needsHumanTask]` resume behavior only after bare `jri` verifies `done`, records `resumePhase`, and `jri loop resume` starts a fresh runner at that phase.
-  - Add tests for stopped unchanged rejection through start, stopped changed reauthorization, missing fingerprint reauthorization, ambiguous-spec blocker preservation on audit failure, and single blocker resolution event on audit pass.
+  - Add tests for ambiguous-spec blocker preservation on audit failure and single blocker resolution event on audit pass.
 
 - P0: Finish validation and git/tag safety semantics.
   - Confirmed implemented: core records validation evidence, rejects git-changing successful handoffs without at least one concrete `passed: true` validation item, records commits/tags it observes, and guards blocked/failed-validation outcomes against unexpected git mutations.

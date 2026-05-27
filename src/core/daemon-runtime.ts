@@ -246,6 +246,16 @@ export async function startRalphLoop(projectDir: string, options: RuntimeOptions
       status.blocker.resolutionGuide.resumeInstruction,
     );
   }
+  if (status.state === "stopped" && status.authorizedSpecsFingerprint) {
+    const currentSpecsFingerprint = await computeSpecsFingerprint(projectDir);
+    if (status.authorizedSpecsFingerprint === currentSpecsFingerprint) {
+      throw new JriError(
+        "Cannot start because the stopped loop has unchanged specs.",
+        "stopped-loop-resume-required",
+        "Run jri loop resume to continue the existing authorized lifecycle, or change the specs and say just ralph it to reauthorize.",
+      );
+    }
+  }
 
   const loopId =
     status.state === "stopped" || status.blocker?.reason === "ambiguousSpecs"

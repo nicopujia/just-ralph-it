@@ -410,6 +410,107 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("start rejects unchanged stopped loops and points to resume", async () => {
+    const dir = await tempProject();
+    let spawnCalled = false;
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        authorizedSpecsFingerprint: emptySpecsFingerprint,
+      });
+
+      await expect(
+        startRalphLoop(dir, {
+          isProcessAlive: () => false,
+          spawnRunner: () => {
+            spawnCalled = true;
+            return { pid: 24680, command: "runner auditing" };
+          },
+        }),
+      ).rejects.toThrow("stopped loop has unchanged specs");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(spawnCalled).toBe(false);
+      expect(status).toMatchObject({
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        authorizedSpecsFingerprint: emptySpecsFingerprint,
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("start reauthorizes stopped loops when specs changed", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nChanged requirements.\n", "utf8");
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        authorizedSpecsFingerprint: "previous-authorized-fingerprint",
+      });
+
+      const event = await startRalphLoop(dir, {
+        isProcessAlive: () => false,
+        spawnRunner: ({ phase }) => ({ pid: 24681, command: `runner ${phase}` }),
+      });
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(event).toMatchObject({
+        type: "loopStarted",
+        loopId: "20260527T184210Z",
+        data: { projectDir: dir, pid: 24681 },
+      });
+      expect(status).toMatchObject({
+        state: "auditing",
+        activeLoopId: "20260527T184210Z",
+        process: { pid: 24681, command: "runner auditing" },
+        lock: { operation: "audit" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("start reauthorizes stopped loops when authorized fingerprint is missing", async () => {
+    const dir = await tempProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+      });
+
+      const event = await startRalphLoop(dir, {
+        isProcessAlive: () => false,
+        spawnRunner: ({ phase }) => ({ pid: 24682, command: `runner ${phase}` }),
+      });
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(event).toMatchObject({
+        type: "loopStarted",
+        loopId: "20260527T184210Z",
+        data: { projectDir: dir, pid: 24682 },
+      });
+      expect(status).toMatchObject({
+        state: "auditing",
+        activeLoopId: "20260527T184210Z",
+        process: { pid: 24682, command: "runner auditing" },
+        lock: { operation: "audit" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("resume from stopped starts a controlled runner and records ownership", async () => {
     const dir = await tempProject();
     try {
