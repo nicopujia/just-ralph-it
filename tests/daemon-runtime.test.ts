@@ -362,10 +362,94 @@ describe("daemon/runtime scaffolding", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("runner records commits and tags created by a successful build iteration", async () => {
+    const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    try {
+      await git(dir, ["init"]);
+      await git(dir, ["config", "user.email", "ralph@example.test"]);
+      await git(dir, ["config", "user.name", "Ralph"]);
+      await writeFile(join(dir, "README.md"), "initial\n", "utf8");
+      await git(dir, ["add", "README.md"]);
+      await git(dir, ["commit", "-m", "initial"]);
+
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/bin/sh",
+          "printf 'built\\n' > built.txt",
+          "git add built.txt",
+          "git commit -m 'build iteration'",
+          "git tag 0.0.99",
+          "echo build-committed",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: {
+          owner: "daemon",
+          pid: process.pid,
+          operation: "build",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "building");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+      const commit = events.find((event) => event.type === "commitCreated");
+      const tag = events.find((event) => event.type === "tagCreated");
+      const iterationFinished = events.find((event) => event.type === "iterationFinished");
+
+      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "commitCreated", "tagCreated", "iterationFinished", "loopFinished"]);
+      expect(events[0]).toMatchObject({ type: "iterationStarted", data: { trackedTreeCleanAtStart: true } });
+      expect(commit).toMatchObject({ type: "commitCreated", iteration: 1, data: { subject: "build iteration" } });
+      expect(tag).toMatchObject({ type: "tagCreated", iteration: 1, data: { tag: "0.0.99" } });
+      expect(iterationFinished).toMatchObject({
+        type: "iterationFinished",
+        data: { outcome: "committed", tag: "0.0.99" },
+      });
+      expect(status).toMatchObject({
+        state: "idle",
+        activeLoopId: null,
+        iterations: 1,
+        lastResult: { outcome: "completed", tag: "0.0.99" },
+      });
+      expect(status.lastResult.commit).toBe(commit?.data.sha);
+    } finally {
+      if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
+      else process.env.JRI_PI_COMMAND = previousPiCommand;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   const items: T[] = [];
   for await (const item of iterable) items.push(item);
   return items;
+}
+
+async function git(cwd: string, args: string[]): Promise<void> {
+  const proc = Bun.spawn(["git", ...args], {
+    cwd,
+    stdout: "ignore",
+    stderr: "pipe",
+    stdin: "ignore",
+  });
+  const stderr = await new Response(proc.stderr).text();
+  const exitCode = await proc.exited;
+  if (exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${stderr}`);
 }

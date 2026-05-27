@@ -291,19 +291,26 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
       }
 
       const iteration = (statusAtPhaseStart.iteration ?? statusAtPhaseStart.iterations ?? 0) + 1;
+      const iterationStartGit = await readGitSnapshot(projectDir);
       await updateStatus(projectDir, (current) => ({
         ...current,
         iteration,
         currentIteration: {
           iteration,
-          trackedTreeCleanAtStart: true,
+          trackedTreeCleanAtStart: iterationStartGit.trackedTreeClean,
+          ...(iterationStartGit.head ? { rollbackCommit: iterationStartGit.head } : {}),
+          ...(iterationStartGit.dirtySummary ? { dirtySummary: iterationStartGit.dirtySummary } : {}),
         },
       }));
       await appendLoopEvent(projectDir, {
         type: "iterationStarted",
         loopId,
         iteration,
-        data: { trackedTreeCleanAtStart: true },
+        data: {
+          trackedTreeCleanAtStart: iterationStartGit.trackedTreeClean,
+          ...(iterationStartGit.head ? { rollbackCommit: iterationStartGit.head } : {}),
+          ...(iterationStartGit.dirtySummary ? { dirtySummary: iterationStartGit.dirtySummary } : {}),
+        },
       });
 
       const exitCode = await runPiSession(projectDir, loopId, "building");
@@ -314,17 +321,23 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
 
       const latest = await readStatus(projectDir);
       const finishedIteration = latest.currentIteration?.iteration ?? latest.iteration ?? 1;
+      const iterationResult = await observeIterationGitResult(projectDir, loopId, finishedIteration, iterationStartGit);
       await appendLoopEvent(projectDir, {
         type: "iterationFinished",
         loopId,
         iteration: finishedIteration,
-        data: { outcome: "noChanges" },
+        data: iterationResult,
       });
       if (await stopIfRequested(projectDir, loopId, finishedIteration)) return;
       await appendLoopEvent(projectDir, {
         type: "loopFinished",
         loopId,
-        data: { outcome: "completed", summary: "Pi runner exited successfully." },
+        data: {
+          outcome: "completed",
+          summary: "Pi runner exited successfully.",
+          ...(iterationResult.commit ? { commit: iterationResult.commit } : {}),
+          ...(iterationResult.tag ? { tag: iterationResult.tag } : {}),
+        },
       });
       await transitionStatus(projectDir, "idle", {
         loopId,
@@ -334,6 +347,8 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
           lastResult: {
             outcome: "completed",
             summary: "Pi runner exited successfully.",
+            ...(iterationResult.commit ? { commit: iterationResult.commit } : {}),
+            ...(iterationResult.tag ? { tag: iterationResult.tag } : {}),
           },
         },
       });
@@ -533,6 +548,91 @@ async function appendStream(path: string, stream: ReadableStream<Uint8Array>): P
   }
   const tail = decoder.decode();
   if (tail) await appendFile(path, tail, "utf8");
+}
+
+type GitSnapshot = {
+  head?: string;
+  trackedTreeClean: boolean;
+  dirtySummary?: string;
+};
+
+type IterationGitResult = {
+  outcome: "committed" | "noChanges";
+  commit?: string;
+  tag?: string;
+  changedFiles?: string[];
+};
+
+async function readGitSnapshot(projectDir: string): Promise<GitSnapshot> {
+  const head = await gitOutput(projectDir, ["rev-parse", "--verify", "HEAD"]);
+  const status = await gitOutput(projectDir, ["status", "--porcelain", "--untracked-files=no"]);
+  if (status === undefined) {
+    return { trackedTreeClean: true };
+  }
+  const dirtySummary = status.trim();
+  return {
+    ...(head?.trim() ? { head: head.trim() } : {}),
+    trackedTreeClean: dirtySummary.length === 0,
+    ...(dirtySummary ? { dirtySummary } : {}),
+  };
+}
+
+async function observeIterationGitResult(
+  projectDir: string,
+  loopId: string,
+  iteration: number,
+  before: GitSnapshot,
+): Promise<IterationGitResult> {
+  const afterHead = (await gitOutput(projectDir, ["rev-parse", "--verify", "HEAD"]))?.trim();
+  if (!afterHead || afterHead === before.head) {
+    return { outcome: "noChanges" };
+  }
+
+  const subject = (await gitOutput(projectDir, ["log", "-1", "--pretty=%s", afterHead]))?.trim();
+  await appendLoopEvent(projectDir, {
+    type: "commitCreated",
+    loopId,
+    iteration,
+    data: {
+      sha: afterHead,
+      ...(subject ? { subject } : {}),
+    },
+  });
+
+  const tag = firstLine(await gitOutput(projectDir, ["tag", "--points-at", afterHead]));
+  if (tag) {
+    await appendLoopEvent(projectDir, {
+      type: "tagCreated",
+      loopId,
+      iteration,
+      data: { tag, sha: afterHead },
+    });
+  }
+
+  return {
+    outcome: "committed",
+    commit: afterHead,
+    ...(tag ? { tag } : {}),
+  };
+}
+
+async function gitOutput(projectDir: string, args: string[]): Promise<string | undefined> {
+  const proc = Bun.spawn(["git", ...args], {
+    cwd: projectDir,
+    stdout: "pipe",
+    stderr: "ignore",
+    stdin: "ignore",
+  });
+  const output = await new Response(proc.stdout).text();
+  const exitCode = await proc.exited;
+  return exitCode === 0 ? output : undefined;
+}
+
+function firstLine(text: string | undefined): string | undefined {
+  return text
+    ?.split("\n")
+    .map((line) => line.trim())
+    .find(Boolean);
 }
 
 async function finishFailedRun(projectDir: string, loopId: string, phase: RunnerPhase, exitCode: number): Promise<void> {
