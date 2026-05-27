@@ -341,6 +341,71 @@ describe("controlled Pi harness", () => {
     }
   });
 
+  test("runWebFetch truncates unicode cleanly and reports exact omitted bytes", async () => {
+    const dir = await tempProject();
+    try {
+      const fakeWeb = join(dir, "fake-web-unicode.ts");
+      await writeFile(
+        fakeWeb,
+        [
+          `#!${process.execPath}`,
+          "const markdown = 'intro ' + '😀'.repeat(13000) + ' done';",
+          "process.stdout.write(JSON.stringify({ url: 'https://example.com/unicode', fetchedAt: '2026-05-27T00:00:00.000Z', markdown }));",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeWeb, 0o755);
+
+      const result = await runWebFetch({
+        projectDir: dir,
+        loopId: "20260527T184210Z",
+        url: "https://example.com/unicode",
+        env: {
+          JRI_PI_WEB_COMMAND: fakeWeb,
+        },
+      });
+
+      const original = "intro " + "😀".repeat(13000) + " done";
+      expect(result.markdown).not.toContain("\uFFFD");
+      expect(result.markdown.endsWith("😀")).toBe(true);
+      expect(result.omittedBytes).toBe(new TextEncoder().encode(original).length - new TextEncoder().encode(result.markdown).length);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runWebFetch enforces process timeout and reports actionable cleanup", async () => {
+    const dir = await tempProject();
+    try {
+      const fakeWeb = join(dir, "fake-web-timeout.ts");
+      await writeFile(
+        fakeWeb,
+        [
+          `#!${process.execPath}`,
+          "process.on('SIGTERM', () => {});",
+          "await new Promise((resolve) => setTimeout(resolve, 5000));",
+          "process.stdout.write(JSON.stringify({ markdown: 'late' }));",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeWeb, 0o755);
+
+      await expect(
+        runWebFetch({
+          projectDir: dir,
+          loopId: "20260527T184210Z",
+          url: "https://example.com/docs",
+          timeoutMs: 1_000,
+          env: {
+            JRI_PI_WEB_COMMAND: fakeWeb,
+          },
+        }),
+      ).rejects.toThrow("JRI web capability timed out after 1000ms");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("runWebFetch reports actionable capability errors", async () => {
     const dir = await tempProject();
     try {

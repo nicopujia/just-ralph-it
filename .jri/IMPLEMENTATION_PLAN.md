@@ -40,8 +40,8 @@
 
 - P0: Finish web capability surfacing and robustness.
   - Surface the JRI web capability through `HarnessInvocation.capabilities` and prompts for every allowed agent, including the interrogator; required web access must fail with an actionable capability blocker or labeled degraded answer, never guessed facts.
-  - Implement real process timeouts for `pi-web-access` and route timeout cleanup through the same cancellation path as halt.
-  - Fix fetch excerpt/artifact truncation to respect Unicode boundaries and report accurate omitted byte/character counts.
+  - Completed/Tested: web wrapper now enforces process timeouts with termination cleanup and optional abort cancellation, and fetch truncation respects Unicode boundaries with exact omitted-byte accounting. Focused validation passed with `bun test tests/harness.test.ts`; final serial validation passed with `bun run test` (136 tests), `bun run typecheck`, and `bun run lint`.
+  - Remaining: route loop halt cleanup through the same capability cancellation path once loop-owned child registration is wired.
   - Preserve source metadata and artifact refs in capability results without injecting raw oversized HTML/markdown into agent context.
   - Cover search/fetch success, unavailable command, invalid JSON, timeout, redirects/limits, Unicode truncation, and artifact creation.
 

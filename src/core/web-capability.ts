@@ -29,6 +29,7 @@ export type WebCapabilityOptions = {
   projectDir: string;
   loopId: string;
   env?: NodeJS.ProcessEnv;
+  signal?: AbortSignal;
 };
 
 export async function runWebSearch(
@@ -57,44 +58,56 @@ export async function runWebFetch(
 
   const timeoutMs = Math.min(Math.max(Math.trunc(options.timeoutMs ?? defaultFetchTimeoutMs), 1_000), defaultFetchTimeoutMs);
   const redirectLimit = Math.min(Math.max(Math.trunc(options.redirectLimit ?? defaultRedirectLimit), 0), defaultRedirectLimit);
-  const parsed = await runWebJsonCommand(options, [
-    "fetch",
-    "--url",
-    url,
-    "--timeout-ms",
-    String(timeoutMs),
-    "--redirects",
-    String(redirectLimit),
-    "--format",
-    "markdown",
-  ]);
+  const parsed = await runWebJsonCommand(
+    options,
+    [
+      "fetch",
+      "--url",
+      url,
+      "--timeout-ms",
+      String(timeoutMs),
+      "--redirects",
+      String(redirectLimit),
+      "--format",
+      "markdown",
+    ],
+    timeoutMs,
+  );
 
   const markdown = stringField(parsed, "markdown") ?? stringField(parsed, "content") ?? "";
   const fetchedAt = stringField(parsed, "fetchedAt") ?? new Date().toISOString();
   const sourceUrl = stringField(parsed, "url") ?? url;
   const title = stringField(parsed, "title");
-  const bytes = new TextEncoder().encode(markdown);
-  const excerpt = new TextDecoder().decode(bytes.slice(0, maxFetchArtifactBytes)).slice(0, maxFetchExcerptChars);
+  const bytes = encodeUtf8(markdown);
+  const artifactMarkdown = truncateUtf8ByBytes(markdown, maxFetchArtifactBytes);
+  const excerpt = truncateUnicode(markdown, maxFetchExcerptChars);
   const needsArtifact = markdown.length > excerpt.length || bytes.length > maxFetchArtifactBytes;
 
   if (!needsArtifact) {
     return { url: sourceUrl, ...(title ? { title } : {}), fetchedAt, markdown: excerpt };
   }
 
-  const artifactRef = await writeWebArtifact(options.projectDir, options.loopId, sourceUrl, bytes.slice(0, maxFetchArtifactBytes));
+  const artifactRef = await writeWebArtifact(options.projectDir, options.loopId, sourceUrl, artifactMarkdown);
   return {
     url: sourceUrl,
     ...(title ? { title } : {}),
     fetchedAt,
     markdown: excerpt,
     artifactRef,
-    omittedBytes: Math.max(0, bytes.length - new TextEncoder().encode(excerpt).length),
+    omittedBytes: Math.max(0, bytes.length - encodeUtf8(excerpt).length),
   };
 }
 
-async function runWebJsonCommand(options: WebCapabilityOptions, args: string[]): Promise<Record<string, unknown>> {
+async function runWebJsonCommand(
+  options: WebCapabilityOptions,
+  args: string[],
+  timeoutMs = defaultFetchTimeoutMs,
+): Promise<Record<string, unknown>> {
   const env = options.env ?? process.env;
   const command = env.JRI_PI_WEB_COMMAND ?? "pi-web-access";
+  if (options.signal?.aborted) {
+    throw webCancelledError();
+  }
   const proc = Bun.spawn([command, ...args, "--json"], {
     cwd: options.projectDir,
     stdin: "ignore",
@@ -102,7 +115,38 @@ async function runWebJsonCommand(options: WebCapabilityOptions, args: string[]):
     stderr: "pipe",
     env,
   });
-  const [stdout, stderr, exitCode] = await Promise.all([streamText(proc.stdout), streamText(proc.stderr), proc.exited]);
+  let timedOut = false;
+  let cancelled = false;
+  let forceKill: Timer | undefined;
+  const terminate = (reason: "timeout" | "cancelled"): void => {
+    if (reason === "timeout") timedOut = true;
+    if (reason === "cancelled") cancelled = true;
+    proc.kill("SIGTERM");
+    forceKill = setTimeout(() => proc.kill("SIGKILL"), 250);
+  };
+  const timeout = setTimeout(() => terminate("timeout"), timeoutMs);
+  const abort = (): void => terminate("cancelled");
+  options.signal?.addEventListener("abort", abort, { once: true });
+  let stdout = "";
+  let stderr = "";
+  let exitCode = 0;
+  try {
+    [stdout, stderr, exitCode] = await Promise.all([streamText(proc.stdout), streamText(proc.stderr), proc.exited]);
+  } finally {
+    clearTimeout(timeout);
+    if (forceKill) clearTimeout(forceKill);
+    options.signal?.removeEventListener("abort", abort);
+  }
+  if (cancelled) {
+    throw webCancelledError();
+  }
+  if (timedOut) {
+    throw new JriError(
+      `JRI web capability timed out after ${timeoutMs}ms.`,
+      "web-capability-timeout",
+      "Retry when web access is responsive, or continue only with a clearly labeled degraded answer if current facts are not required.",
+    );
+  }
   if (exitCode !== 0) {
     throw new JriError(
       `JRI web capability failed with exit code ${exitCode}.`,
@@ -123,6 +167,14 @@ async function runWebJsonCommand(options: WebCapabilityOptions, args: string[]):
   }
 }
 
+function webCancelledError(): JriError {
+  return new JriError(
+    "JRI web capability was cancelled.",
+    "web-capability-cancelled",
+    "Retry from the active Ralph loop if web access is still needed.",
+  );
+}
+
 function normalizeSearchResult(value: unknown, fallbackRetrievedAt: string): WebSearchResult {
   const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   return {
@@ -138,12 +190,36 @@ function stringField(record: Record<string, unknown>, key: string): string | und
   return typeof value === "string" ? value : undefined;
 }
 
-async function writeWebArtifact(projectDir: string, loopId: string, url: string, bytes: Uint8Array): Promise<string> {
+async function writeWebArtifact(projectDir: string, loopId: string, url: string, markdown: string): Promise<string> {
   const artifactRef = `.jri/logs/${loopId}/artifacts/web-${crypto.randomUUID()}.md`;
   const absolutePath = join(projectDir, artifactRef);
   await mkdir(dirname(absolutePath), { recursive: true });
-  await writeFile(absolutePath, [`Source: ${url}`, "", new TextDecoder().decode(bytes)].join("\n"), "utf8");
+  await writeFile(absolutePath, [`Source: ${url}`, "", markdown].join("\n"), "utf8");
   return artifactRef;
+}
+
+function truncateUnicode(value: string, maxChars: number): string {
+  return Array.from(value).slice(0, maxChars).join("");
+}
+
+function truncateUtf8ByBytes(value: string, maxBytes: number): string {
+  if (encodeUtf8(value).length <= maxBytes) return value;
+  const chars = Array.from(value);
+  let low = 0;
+  let high = chars.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (encodeUtf8(chars.slice(0, mid).join("")).length <= maxBytes) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return chars.slice(0, low).join("");
+}
+
+function encodeUtf8(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
 }
 
 async function streamText(stream: ReadableStream<Uint8Array>): Promise<string> {
