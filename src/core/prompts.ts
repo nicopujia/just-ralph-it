@@ -1,6 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { renderWebCapabilityInstructions } from "./capabilities";
+import { renderExplorerCapabilityInstructions, renderWebCapabilityInstructions } from "./capabilities";
 import type { AgentConfig, AgentName, ProjectConfig, ReasoningLevel } from "./types";
 
 const openAiPreset: Record<AgentName, Required<AgentConfig>> = {
@@ -53,7 +53,7 @@ export async function buildPiPrompt(
       "Keep the plan concise, prioritized, and focused on remaining work. Capture why implementation and tests matter.",
       "Do not commit. Do not edit requirements specs unless you find a direct contradiction that blocks implementation.",
       renderWebCapabilityInstructions(projectDir, options.loopId),
-      explorerCapabilityInstructions(projectDir, options.loopId),
+      renderExplorerCapabilityInstructions(projectDir, options.loopId),
       'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by JSON: {"agent":"planner","action":"planned","planPath":".jri/IMPLEMENTATION_PLAN.md","summary":"..."} or {"agent":"planner","action":"blocked","blocker":{...}}.',
       agents ? `Operational guide:\n${agents}` : "",
       specs.join("\n\n"),
@@ -82,7 +82,7 @@ export async function buildPiPrompt(
     "Implement completely, run relevant validation, update .jri/IMPLEMENTATION_PLAN.md with findings/resolution, update AGENTS.md only for operational learnings, then commit if tracked files changed and validation passes.",
     "If build/test validation has no errors after a successful change commit, create or increment a patch semver git tag.",
     renderWebCapabilityInstructions(projectDir, options.loopId),
-    explorerCapabilityInstructions(projectDir, options.loopId),
+    renderExplorerCapabilityInstructions(projectDir, options.loopId),
     'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by a builder contract JSON with agent "builder" and action "continue", "complete", "blocked", "needsReplan", or "failedValidation".',
     'Use "blocked" with blocker.reason "ambiguousSpecs" or "needsHumanTask" when specs are ambiguous or a human task is required; do not include secrets.',
     'Use "needsReplan" when the current plan is stale or confusing but specs are not blocked. Use "failedValidation" with validation evidence when validation ran and failed.',
@@ -92,17 +92,6 @@ export async function buildPiPrompt(
   ]
     .filter(Boolean)
     .join("\n\n");
-}
-
-function explorerCapabilityInstructions(projectDir: string, loopId: string | undefined): string {
-  if (!loopId) return "";
-  return [
-    "JRI explorer capability:",
-    `- For read-only codebase investigation, delegate to the JRI-owned explorer wrapper with: jri --run-explorer ${JSON.stringify(projectDir)} ${JSON.stringify(loopId)} "<focused task>"`,
-    "- Use focused tasks for codebase search or investigation before making risky changes.",
-    "- Explorer sessions are spawn/fresh by default, read-only, event logged, and their parent handoff is capped with artifact refs for longer output.",
-    "- Do not use raw pi-subagent package commands directly.",
-  ].join("\n");
 }
 
 async function listSpecFiles(projectDir: string): Promise<string[]> {

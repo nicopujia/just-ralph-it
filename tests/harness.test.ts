@@ -109,7 +109,7 @@ describe("controlled Pi harness", () => {
     }
   });
 
-  test("builds an isolated read-only explorer command with the explorer model", async () => {
+  test("builds an isolated read-only pi-subagent explorer command with the explorer model", async () => {
     const dir = await tempProject();
     try {
       const built = await buildControlledPiCommand({
@@ -124,11 +124,18 @@ describe("controlled Pi harness", () => {
 
       expect(built.command[built.command.indexOf("--model") + 1]).toBe("gpt-5.3-codex-spark");
       expect(built.command[built.command.indexOf("--thinking") + 1]).toBe("xhigh");
+      expect(built.command).toContain("--no-extensions");
+      expect(built.command[built.command.indexOf("--extension") + 1]).toBe("npm:pi-subagent");
       expect(built.command[built.command.indexOf("--tools") + 1]).toBe("read,grep,find,ls");
       expect(built.command[built.command.indexOf("--session-dir") + 1]).toBe(
         join(dir, ".jri", "logs", "20260527T184210Z", "pi-sessions"),
       );
-      expect(built.command.at(-1)).toContain("Task: Find the CLI dispatch code.");
+      expect(built.env.PI_CODING_AGENT_DIR).toBe(join(dir, ".jri", "logs", "20260527T184210Z", "capabilities", "explorer"));
+      expect(built.command.at(-1)).toContain('/run explorer "Find the CLI dispatch code."');
+      const descriptor = await readFile(join(dir, ".jri", "logs", "20260527T184210Z", "capabilities", "explorer", "agents", "explorer.md"), "utf8");
+      expect(descriptor).toContain("name: explorer");
+      expect(descriptor).toContain("inheritProjectContext: false");
+      expect(descriptor).toContain("tools:\n  - read\n  - grep\n  - find\n  - ls");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

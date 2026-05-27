@@ -2,7 +2,7 @@
 
 - Current confirmed state from specs/source search:
   - Completed baseline: TypeScript/Bun scaffold, project root resolution, idempotent initialization, config/status validation, public core `Project` API shape, auth status/login/logout, runtime status/event primitives, daemon IPC scaffold, stop/halt/resume scaffolds, event sequence locking, live `observeLoop` follow with stdout/event cursors, runner phase orchestration, validation events, commit/tag observation, blocker parsing, resume fingerprint checks, replan signaling, and planner/builder handoff outcomes are present.
-  - Completed but partial slices: bare piped `jri` routes through `Project.chat.send()`; standalone start triggers enter the audit runner path; hidden `jri --run-explorer` records explorer events and capped artifact-backed handoffs; controlled Pi command construction isolates several CLI flags and model selection.
+  - Completed but partial slices: bare piped `jri` routes through `Project.chat.send()`; standalone start triggers enter the audit runner path; hidden `jri --run-explorer` now builds an isolated `pi-subagent` parent command via `--extension npm:pi-subagent`, records explorer events, and emits capped artifact-backed handoffs; controlled Pi command construction isolates several CLI flags and model selection.
   - MVP is still blocked because the primary interrogation UX, SDK harness boundary, required capabilities, daemon negotiation, attach/halt controls, and dogfood docs/tests are incomplete.
 
 - [ ] P0: Replace canned interrogation with a real Pi-backed interrogator.
@@ -20,8 +20,9 @@
 - [ ] P0: Implement required MVP capabilities behind JRI descriptors.
   - Completed/tested slice: web search/fetch is now exposed through a JRI-owned capability descriptor and hidden `jri --run-web search|fetch` bridge around the `pi-web-access` command. Search is capped to 5 timestamped results; fetch is bounded to 12k markdown and emits artifact refs for omitted content; capability/auth/tool failures produce actionable errors; and agent prompts render concrete wrapper commands instead of encouraging ad hoc fetching.
   - Validation passed for the web capability slice: `bun test tests/harness.test.ts tests/cli.test.ts tests/capabilities.test.ts`, `bun run test` (69 pass), `bun run typecheck`, and `bun run lint`.
-  - Replace the current explorer CLI wrapper with wrapped `pi-subagent` behind a JRI `explorer` capability descriptor. Preserve spawn/fresh read-only default, 6-way concurrency, 10-minute timeout, 4000-character handoff cap, artifacts, and `subagentStarted`/`subagentFinished`/`subagentFailed` events.
-  - Add JRI-owned capability descriptors/instructions for web and explorer, prevent inherited user Pi packages/settings, and cancel active explorers on halt while graceful stop prevents new explorer work after the current boundary.
+  - Completed/tested slice: explorer is now exposed through a JRI-owned capability descriptor/instructions, and hidden `jri --run-explorer` builds an isolated `pi-subagent` parent command via `--extension npm:pi-subagent`. It writes `.jri/logs/<loopId>/capabilities/explorer/agents/explorer.md`, uses `PI_CODING_AGENT_DIR` isolation, preserves spawn/fresh read-only defaults, 6-way concurrency, a 10-minute timeout, a 4000-character handoff cap, artifact-backed handoffs, and `subagentStarted`/`subagentFinished`/`subagentFailed` events.
+  - Validation passed for the explorer capability slice: `bun run test` (74 pass), `bun run typecheck`, and `bun run lint`.
+  - Remaining follow-up: halt cancellation of active explorers is still not implemented; graceful stop should still prevent new explorer work after the current boundary.
 
 - [ ] P0: Finish CLI loop controls and state-specific UX.
   - `jri loop attach` must become the live TUI surface: merged recent/live stdout plus milestone events, stable footer, `[d]etach`, `[s]top`, no footer redraws in `stdout.log`, and concise state-specific errors for blocked/stopped/halted/idle.

@@ -1,18 +1,19 @@
 import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAuthStatus } from "./auth";
+import { explorerCapabilityDescriptor, renderExplorerAgentDescriptor } from "./capabilities";
 import { JriError } from "./errors";
 import { buildPiPrompt, modelForAgent } from "./prompts";
 import { appendLoopEvent } from "./runtime-state";
 import { parseJsonObject, validateConfig } from "./schema";
 import type { CoreEvent } from "./types";
-import type { AgentName } from "./types";
+import type { AgentConfig, AgentName } from "./types";
 
 export type HarnessPhase = "auditing" | "planning" | "building" | "explorer";
 
-const explorerHandoffLimit = 4_000;
-const explorerTimeoutMs = 10 * 60 * 1_000;
-const explorerConcurrencyLimit = 6;
+const explorerHandoffLimit = explorerCapabilityDescriptor.limits.handoffChars;
+const explorerTimeoutMs = explorerCapabilityDescriptor.limits.timeoutMs;
+const explorerConcurrencyLimit = explorerCapabilityDescriptor.limits.concurrency;
 const explorerQueues = new Map<string, { active: number; waiters: Array<() => void> }>();
 
 export type HarnessSessionRequest = {
@@ -141,6 +142,9 @@ export async function buildControlledPiCommand(
   const agent = agentForPhase(request.phase);
   const model = modelForAgent(await readProjectConfig(request.projectDir), agent);
   const piPath = env.JRI_PI_COMMAND ?? "pi";
+  if (request.phase === "explorer") {
+    return await buildControlledExplorerSubagentCommand(request, env, piPath, model, prompt);
+  }
 
   return {
     command: [
@@ -165,6 +169,62 @@ export async function buildControlledPiCommand(
     ],
     env: {
       ...env,
+      PI_CODING_AGENT_SESSION_DIR: join(request.projectDir, ".jri", "logs", request.loopId, "pi-sessions"),
+    },
+  };
+}
+
+async function buildControlledExplorerSubagentCommand(
+  request: Omit<HarnessSessionRequest, "stdoutPath">,
+  env: NodeJS.ProcessEnv,
+  piPath: string,
+  model: Required<AgentConfig>,
+  prompt: string,
+): Promise<PiHarnessCommand> {
+  const capabilityDir = join(request.projectDir, ".jri", "logs", request.loopId, "capabilities", "explorer");
+  const agentsDir = join(capabilityDir, "agents");
+  await mkdir(agentsDir, { recursive: true });
+  await writeFile(join(agentsDir, "explorer.md"), `${renderExplorerAgentDescriptor(model)}\n`, "utf8");
+
+  const extension = env.JRI_PI_SUBAGENT_EXTENSION ?? "npm:pi-subagent";
+  const task = request.explorerTask ?? "Inspect the codebase and report concise findings.";
+  const commandPrompt = [
+    "Use the pi-subagent extension to run exactly one foreground JRI explorer delegation.",
+    "Use agent name explorer with spawn/fresh context only. Do not run chains or parallel subtasks inside this wrapper.",
+    "Return only the explorer's final concise handoff.",
+    "",
+    `/run explorer ${JSON.stringify(task)}`,
+    "",
+    "JRI wrapper context for the parent session:",
+    prompt,
+  ].join("\n");
+
+  return {
+    command: [
+      piPath,
+      "--provider",
+      "openai",
+      "--model",
+      model.model,
+      "--thinking",
+      model.reasoning,
+      "--no-extensions",
+      "--extension",
+      extension,
+      "--no-skills",
+      "--no-prompt-templates",
+      "--no-themes",
+      "--no-context-files",
+      "--tools",
+      allowedToolsForPhase(request.phase).join(","),
+      "--session-dir",
+      join(request.projectDir, ".jri", "logs", request.loopId, "pi-sessions"),
+      "--print",
+      commandPrompt,
+    ],
+    env: {
+      ...env,
+      PI_CODING_AGENT_DIR: capabilityDir,
       PI_CODING_AGENT_SESSION_DIR: join(request.projectDir, ".jri", "logs", request.loopId, "pi-sessions"),
     },
   };
