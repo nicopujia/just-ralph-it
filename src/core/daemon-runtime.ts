@@ -603,6 +603,10 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         await finishUnsafeGitSuccessRun(projectDir, loopId, iteration);
         return;
       }
+      if ((builderHandoff.action === "continue" || builderHandoff.action === "complete") && hasFailingValidation(validationEvidence)) {
+        await finishInvalidSuccessfulValidationRun(projectDir, loopId, iteration);
+        return;
+      }
 
       const latest = await readStatus(projectDir);
       const finishedIteration = latest.currentIteration?.iteration ?? latest.iteration ?? 1;
@@ -1650,6 +1654,37 @@ async function finishUnsafeGitSuccessRun(projectDir: string, loopId: string, ite
   });
 }
 
+async function finishInvalidSuccessfulValidationRun(projectDir: string, loopId: string, iteration: number): Promise<void> {
+  const changedFiles = await readChangedFiles(projectDir);
+  const summary = "Builder reported a successful handoff with failed validation evidence. Inspect the validation output before resuming.";
+  await appendLoopEvent(projectDir, {
+    type: "iterationFinished",
+    loopId,
+    iteration,
+    data: {
+      outcome: "validationFailed",
+      ...(changedFiles.length > 0 ? { changedFiles } : {}),
+    },
+  });
+  await appendLoopEvent(projectDir, {
+    type: "loopFinished",
+    loopId,
+    data: { outcome: "failed", summary },
+  });
+  await transitionStatus(projectDir, "stopped", {
+    loopId,
+    update: {
+      ...ownershipCleared(await readStatus(projectDir)),
+      stopRequested: false,
+      lastResult: {
+        outcome: "failed",
+        summary,
+        validationPassed: false,
+      },
+    },
+  });
+}
+
 async function finishUnsafeGitTagRun(
   projectDir: string,
   loopId: string,
@@ -1689,6 +1724,10 @@ async function finishUnsafeGitTagRun(
 
 function hasPassingValidation(validations: ValidationHandoff[]): boolean {
   return validations.some((validation) => validation.passed);
+}
+
+function hasFailingValidation(validations: ValidationHandoff[]): boolean {
+  return validations.some((validation) => !validation.passed);
 }
 
 async function readLatestPlannerHandoff(projectDir: string, loopId: string, offset: number): Promise<PlannerHandoff> {

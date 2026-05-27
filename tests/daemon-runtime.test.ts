@@ -2071,6 +2071,61 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("runner fails successful handoffs with failed validation evidence even without git changes", async () => {
+    const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    try {
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/bin/sh",
+          "echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"Claimed success despite failed validation.\",\"validation\":[{\"command\":\"bun run test\",\"exitCode\":1,\"passed\":false,\"summary\":\"Tests failed.\"}]}'",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: {
+          owner: "daemon",
+          pid: process.pid,
+          operation: "build",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "building");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+
+      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "validationStarted", "validationFinished", "iterationFinished", "loopFinished"]);
+      expect(events[3]).toMatchObject({ type: "iterationFinished", data: { outcome: "validationFailed" } });
+      expect(events[4]).toMatchObject({ type: "loopFinished", data: { outcome: "failed" } });
+      expect(status).toMatchObject({
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastResult: {
+          outcome: "failed",
+          validationPassed: false,
+        },
+      });
+      expect(status.lastResult.summary).toContain("successful handoff with failed validation evidence");
+    } finally {
+      if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
+      else process.env.JRI_PI_COMMAND = previousPiCommand;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("runner fails failed-validation handoffs that committed git changes", async () => {
     const dir = await tempProject();
     const previousPiCommand = process.env.JRI_PI_COMMAND;

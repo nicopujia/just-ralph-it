@@ -48,11 +48,11 @@
   - Keep core auth UI-neutral; CLI owns display.
 
 - P1: Tighten durable validation, schema, and safety checks.
-  - Confirmed implemented: core records validation evidence, rejects git-changing successful handoffs without at least one concrete `passed: true` validation item, records commits/tags it observes, guards blocked/failed-validation outcomes against unexpected git mutations, and requires the expected next semantic-version patch tag on successful git-changing iterations.
-  - Confirmed gaps: successful builder `continue`/`complete` handoffs can carry failed validation evidence when no git mutation occurred, and multi-commit iterations are not detected because runtime compares only previous `HEAD` with final `HEAD`.
+  - Confirmed implemented: core records validation evidence, rejects git-changing successful handoffs without at least one concrete `passed: true` validation item, rejects successful builder `continue`/`complete` handoffs that include failed validation evidence even without git mutation, records commits/tags it observes, guards blocked/failed-validation outcomes against unexpected git mutations, and requires the expected next semantic-version patch tag on successful git-changing iterations.
+  - Confirmed gap: multi-commit iterations are not detected because runtime compares only previous `HEAD` with final `HEAD`.
   - Confirmed gaps: `validateStatus()` validates shape but not all lifecycle invariants, and interrogation-state durable `specFile` validation is looser than the stable `.jri/specs/*` path rules used by handoffs.
   - Preserve changed files for inspection on validation failure and blocker outcomes; keep destructive rollback behind explicit halt/reset confirmation.
-  - Add tests for successful handoffs with failed validation evidence, multi-commit iterations, active states without loop ids, idle with active loop ids, blocked without blocker details, and traversal-like interrogation-state spec paths.
+  - Add tests for multi-commit iterations, active states without loop ids, idle with active loop ids, blocked without blocker details, and traversal-like interrogation-state spec paths.
 
 - P1: Finish observation-mode and terminal workflow hardening.
   - Confirmed gap: active-loop observation mode is prompt/handoff-restricted, but the interrogator still has write/edit tools and no post-run file-diff guard against `.jri/specs/*` mutation.
