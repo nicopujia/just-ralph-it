@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { webCapabilityDescriptor } from "./capabilities";
+import type { CapabilityInvocationMetadata } from "./capability-ownership";
 import { JriError } from "./errors";
 
 const maxSearchResults = webCapabilityDescriptor.limits.searchResults;
@@ -27,7 +28,7 @@ export type WebFetchResult = {
 
 export type WebCapabilityOptions = {
   projectDir: string;
-  loopId: string;
+  owner: CapabilityInvocationMetadata["owner"];
   env?: NodeJS.ProcessEnv;
   signal?: AbortSignal;
 };
@@ -87,7 +88,7 @@ export async function runWebFetch(
     return { url: sourceUrl, ...(title ? { title } : {}), fetchedAt, markdown: excerpt };
   }
 
-  const artifactRef = await writeWebArtifact(options.projectDir, options.loopId, sourceUrl, artifactMarkdown);
+  const artifactRef = await writeWebArtifact(options.projectDir, options.owner, sourceUrl, artifactMarkdown);
   return {
     url: sourceUrl,
     ...(title ? { title } : {}),
@@ -190,8 +191,11 @@ function stringField(record: Record<string, unknown>, key: string): string | und
   return typeof value === "string" ? value : undefined;
 }
 
-async function writeWebArtifact(projectDir: string, loopId: string, url: string, markdown: string): Promise<string> {
-  const artifactRef = `.jri/logs/${loopId}/artifacts/web-${crypto.randomUUID()}.md`;
+async function writeWebArtifact(projectDir: string, owner: CapabilityInvocationMetadata["owner"], url: string, markdown: string): Promise<string> {
+  const artifactRef =
+    owner.kind === "chat"
+      ? `.jri/logs/interrogation-artifacts/web-${owner.turnId}-${crypto.randomUUID()}.md`
+      : `.jri/logs/${owner.loopId}/artifacts/web-${crypto.randomUUID()}.md`;
   const absolutePath = join(projectDir, artifactRef);
   await mkdir(dirname(absolutePath), { recursive: true });
   await writeFile(absolutePath, [`Source: ${url}`, "", markdown].join("\n"), "utf8");

@@ -1,6 +1,7 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { renderExplorerCapabilityInstructions, renderWebCapabilityInstructions } from "./capabilities";
+import type { CapabilityOwner } from "./capability-ownership";
 import type { AgentConfig, AgentName, ProjectConfig, ReasoningLevel } from "./types";
 
 const openAiPreset: Record<AgentName, Required<AgentConfig>> = {
@@ -22,7 +23,7 @@ export function modelForAgent(config: unknown, agent: AgentName): Required<Agent
 export async function buildPiPrompt(
   projectDir: string,
   phase: "interrogation" | "auditing" | "planning" | "building" | "explorer",
-  options: { loopId?: string; contextRefs?: string[]; contextInline?: string[]; explorerTask?: string; userMessage?: string } = {},
+  options: { owner?: CapabilityOwner; loopId?: string; contextRefs?: string[]; contextInline?: string[]; explorerTask?: string; userMessage?: string } = {},
 ): Promise<string> {
   const specFiles = await listSpecFiles(projectDir);
   const specs = await Promise.all(
@@ -46,6 +47,7 @@ export async function buildPiPrompt(
       'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by an interrogator contract JSON with action "messageOnly", "specsUpdated", "scratchpadUpdated", "humanTaskVerified", "humanTaskStillBlocked", or "startRequested".',
       'Use "specsUpdated" when you changed .jri/specs/* and include changed specFiles plus a user-facing summary. Use "scratchpadUpdated" when only scratchpad changed.',
       'Use "messageOnly" when no durable file changed. Never include secrets in handoffs.',
+      renderWebCapabilityInstructions(projectDir, options.owner),
       agents ? `Operational guide:\n${agents}` : "",
       selectedContext ||
         [
@@ -80,7 +82,7 @@ export async function buildPiPrompt(
       "You are the JRI planner. Create or regenerate .jri/IMPLEMENTATION_PLAN.md from the durable specs and current code.",
       "Keep the plan concise, prioritized, and focused on remaining work. Capture why implementation and tests matter.",
       "Do not commit. Do not edit requirements specs unless you find a direct contradiction that blocks implementation.",
-      renderWebCapabilityInstructions(projectDir, options.loopId),
+    renderWebCapabilityInstructions(projectDir, options.owner ?? (options.loopId ? { kind: "loop", loopId: options.loopId } : undefined)),
       renderExplorerCapabilityInstructions(projectDir, options.loopId),
       'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by JSON: {"agent":"planner","action":"planned","planPath":".jri/IMPLEMENTATION_PLAN.md","summary":"..."} or {"agent":"planner","action":"blocked","blocker":{...}}.',
       agents ? `Operational guide:\n${agents}` : "",
@@ -109,7 +111,7 @@ export async function buildPiPrompt(
     "Use .jri/specs/* as requirements truth and ignore .jri/scratchpad.md. Choose the most important remaining plan item.",
     "Implement completely, run relevant validation, update .jri/IMPLEMENTATION_PLAN.md with findings/resolution, update AGENTS.md only for operational learnings, then commit if tracked files changed and validation passes.",
     "If build/test validation has no errors after a successful change commit, create or increment a patch semver git tag.",
-    renderWebCapabilityInstructions(projectDir, options.loopId),
+      renderWebCapabilityInstructions(projectDir, options.owner ?? (options.loopId ? { kind: "loop", loopId: options.loopId } : undefined)),
     renderExplorerCapabilityInstructions(projectDir, options.loopId),
     'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by a builder contract JSON with agent "builder" and action "continue", "complete", "blocked", "needsReplan", or "failedValidation".',
     'Use "blocked" with blocker.reason "ambiguousSpecs" or "needsHumanTask" when specs are ambiguous or a human task is required; for needsHumanTask include blocker.resumePhase "building"; do not include secrets.',

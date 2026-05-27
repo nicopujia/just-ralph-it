@@ -283,7 +283,7 @@ describe("controlled Pi harness", () => {
 
       const results = await runWebSearch({
         projectDir: dir,
-        loopId: "20260527T184210Z",
+        owner: { kind: "loop", loopId: "20260527T184210Z" },
         query: "current docs",
         limit: 99,
         env: {
@@ -321,7 +321,7 @@ describe("controlled Pi harness", () => {
 
       const result = await runWebFetch({
         projectDir: dir,
-        loopId: "20260527T184210Z",
+        owner: { kind: "loop", loopId: "20260527T184210Z" },
         url: "https://example.com/docs",
         env: {
           JRI_PI_WEB_COMMAND: fakeWeb,
@@ -336,6 +336,39 @@ describe("controlled Pi harness", () => {
       const artifact = await readFile(join(dir, result.artifactRef!), "utf8");
       expect(artifact).toContain("Source: https://example.com/docs");
       expect(artifact).toContain("section");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runWebFetch stores chat-owned artifacts under interrogation artifacts", async () => {
+    const dir = await tempProject();
+    try {
+      const fakeWeb = join(dir, "fake-web-chat-fetch.sh");
+      await writeFile(
+        fakeWeb,
+        [
+          "#!/usr/bin/env bash",
+          "printf '{\"url\":\"https://example.com/chat-docs\",\"fetchedAt\":\"2026-05-27T00:00:00.000Z\",\"markdown\":\"'",
+          "printf 'chat section %.0s' {1..2000}",
+          "printf '\"}'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeWeb, 0o755);
+
+      const result = await runWebFetch({
+        projectDir: dir,
+        owner: { kind: "chat", turnId: "turn-1" },
+        url: "https://example.com/chat-docs",
+        env: {
+          JRI_PI_WEB_COMMAND: fakeWeb,
+        },
+      });
+
+      expect(result.artifactRef).toMatch(/^\.jri\/logs\/interrogation-artifacts\/web-turn-1-/);
+      const artifact = await readFile(join(dir, result.artifactRef!), "utf8");
+      expect(artifact).toContain("Source: https://example.com/chat-docs");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -358,7 +391,7 @@ describe("controlled Pi harness", () => {
 
       const result = await runWebFetch({
         projectDir: dir,
-        loopId: "20260527T184210Z",
+        owner: { kind: "loop", loopId: "20260527T184210Z" },
         url: "https://example.com/unicode",
         env: {
           JRI_PI_WEB_COMMAND: fakeWeb,
@@ -393,7 +426,7 @@ describe("controlled Pi harness", () => {
       await expect(
         runWebFetch({
           projectDir: dir,
-          loopId: "20260527T184210Z",
+          owner: { kind: "loop", loopId: "20260527T184210Z" },
           url: "https://example.com/docs",
           timeoutMs: 1_000,
           env: {
@@ -416,7 +449,7 @@ describe("controlled Pi harness", () => {
       await expect(
         runWebFetch({
           projectDir: dir,
-          loopId: "20260527T184210Z",
+          owner: { kind: "loop", loopId: "20260527T184210Z" },
           url: "https://example.com/docs",
           env: {
             JRI_PI_WEB_COMMAND: fakeWeb,

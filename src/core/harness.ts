@@ -2,6 +2,7 @@ import { appendFile, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getAuthStatus } from "./auth";
 import { explorerCapabilityDescriptor, renderExplorerAgentDescriptor } from "./capabilities";
+import type { CapabilityOwner } from "./capability-ownership";
 import { JriError } from "./errors";
 import { extractLatestHandoffFromText } from "./handoffs";
 import { buildPiPrompt, modelForAgent } from "./prompts";
@@ -48,6 +49,7 @@ const explorerQueues = new Map<string, { active: number; waiters: Array<() => vo
 export type HarnessSessionRequest = {
   projectDir: string;
   loopId: string;
+  owner?: CapabilityOwner;
   phase: HarnessPhase;
   stdoutPath: string;
   env?: NodeJS.ProcessEnv;
@@ -88,6 +90,7 @@ export async function invokeDefaultHarness(invocation: HarnessInvocation, env: N
   const built = await buildControlledPiCommand({
     projectDir: invocation.projectDir,
     loopId,
+    owner: invocation.owner,
     phase: invocation.phase,
     env,
     contextRefs: invocation.context.refs,
@@ -212,7 +215,9 @@ export async function buildControlledPiCommand(
   await assertProviderAuth(env);
   await mkdir(join(request.projectDir, ".jri", "logs", request.loopId, "pi-sessions"), { recursive: true });
 
+  const promptOwner = request.owner ?? (request.phase === "interrogation" ? { kind: "chat" as const, turnId: request.loopId } : { kind: "loop" as const, loopId: request.loopId });
   const prompt = await buildPiPrompt(request.projectDir, request.phase, {
+    owner: promptOwner,
     loopId: request.loopId,
     ...(request.contextRefs ? { contextRefs: request.contextRefs } : {}),
     ...(request.contextInline ? { contextInline: request.contextInline } : {}),

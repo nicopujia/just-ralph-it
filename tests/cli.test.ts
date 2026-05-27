@@ -447,8 +447,13 @@ describe("CLI", () => {
         "utf8",
       );
       await chmod(fakeWeb, 0o755);
+      const metadata = JSON.stringify({
+        projectDir: dir,
+        owner: { kind: "loop", loopId: "20260527T184210Z" },
+        capability: "web",
+      });
 
-      const search = Bun.spawn(["bun", cliPath, "--run-web", "search", dir, "20260527T184210Z", "docs"], {
+      const search = Bun.spawn(["bun", cliPath, "--run-web", "search", metadata, "docs"], {
         cwd: dir,
         stdout: "pipe",
         stderr: "pipe",
@@ -458,7 +463,7 @@ describe("CLI", () => {
       expect(await search.exited).toBe(0);
       expect(JSON.parse(searchStdout)[0].title).toBe("Docs");
 
-      const fetch = Bun.spawn(["bun", cliPath, "--run-web", "fetch", dir, "20260527T184210Z", "https://example.com/docs"], {
+      const fetch = Bun.spawn(["bun", cliPath, "--run-web", "fetch", metadata, "https://example.com/docs"], {
         cwd: dir,
         stdout: "pipe",
         stderr: "pipe",
@@ -476,7 +481,12 @@ describe("CLI", () => {
     const dir = await tempProject();
     try {
       await activateLoop(dir, "active-loop", "building");
-      const proc = Bun.spawn(["bun", cliPath, "--run-web", "search", dir, "stale-loop", "docs"], {
+      const metadata = JSON.stringify({
+        projectDir: dir,
+        owner: { kind: "loop", loopId: "stale-loop" },
+        capability: "web",
+      });
+      const proc = Bun.spawn(["bun", cliPath, "--run-web", "search", metadata, "docs"], {
         cwd: dir,
         stdout: "pipe",
         stderr: "pipe",
@@ -489,6 +499,44 @@ describe("CLI", () => {
       expect(stdout).toBe("");
       expect(stderr).toContain("stale or mismatched loop");
       expect(stderr).toContain("currently running Ralph loop");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("hidden web command accepts chat-owned metadata and writes interrogation artifacts", async () => {
+    const dir = await tempInitializedProject();
+    try {
+      const fakeWeb = join(dir, "fake-web-chat.sh");
+      await writeFile(
+        fakeWeb,
+        [
+          "#!/usr/bin/env bash",
+          "printf '{\"url\":\"https://example.com/docs\",\"fetchedAt\":\"2026-05-27T00:00:00.000Z\",\"markdown\":\"'",
+          "printf 'chat docs %.0s' {1..2000}",
+          "printf '\"}'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeWeb, 0o755);
+      const metadata = JSON.stringify({
+        projectDir: dir,
+        owner: { kind: "chat", turnId: "turn-1" },
+        capability: "web",
+      });
+
+      const proc = Bun.spawn(["bun", cliPath, "--run-web", "fetch", metadata, "https://example.com/docs"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, JRI_PI_WEB_COMMAND: fakeWeb },
+      });
+
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toBe("");
+      expect(JSON.parse(stdout).artifactRef).toMatch(/^\.jri\/logs\/interrogation-artifacts\/web-turn-1-/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

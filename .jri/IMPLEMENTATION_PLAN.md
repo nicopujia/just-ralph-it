@@ -20,13 +20,14 @@
   - Add contention tests for simultaneous start/resume/stop/halt, stale live locks, stale dead locks, lock loss during runner heartbeat, and daemon unavailable mutation attempts.
 
 - P0: Finish capability ownership, chat-owned capability support, and child registration.
-  - Validate internal capability owner metadata as `{ owner: { kind: "loop", loopId } | { kind: "chat", turnId }, projectDir, capability }`, not only active loop id.
-  - Provide the web capability to the interrogator with chat-owned artifacts under `.jri/logs/interrogation-artifacts/`.
+  - Implemented/covered: explicit internal owner metadata as `{ owner: { kind: "loop", loopId } | { kind: "chat", turnId }, projectDir, capability }` and chat-owned web artifacts under `.jri/logs/interrogation-artifacts/`.
   - Ensure chat-owned capabilities cannot mutate loop status or append loop events.
   - Register loop-owned web/explorer child processes with the runner so halt cancels runner plus children and capability timeouts produce structured evidence.
+  - Keep first-class web capability usability for auditor, explorer, and interrogator without relying on broad shell access.
   - Cover loop owner mismatch, chat/loop ownership separation, stale owner metadata, explorer spawn-only mode, child cancellation, and capability artifact refs.
 
 - P0: Harden runtime recovery, durable-state validation, and failure evidence.
+  - Finding from explorer review: `runControlledPiSession` still appends stdout/stderr concurrently when writing stdout, so output sink serialization belongs with runtime/capability cleanup.
   - Convert malformed/missing handoff parser failures, SDK errors, capability failures, and runner phase mismatches into structured loop failure/recovery events and status updates.
   - Reconcile event/status ordering with the spec where lifecycle transitions currently write status before milestone events.
   - Make halt precedence explicit when stop/natural exit races occur, including final halt/reset outcome.

@@ -1,4 +1,5 @@
 import type { AgentConfig } from "./types";
+import { encodeCapabilityMetadata, type CapabilityOwner } from "./capability-ownership";
 
 export type WebCapabilityDescriptor = {
   name: "web";
@@ -50,13 +51,16 @@ export const explorerCapabilityDescriptor: ExplorerCapabilityDescriptor = {
   tools: ["read", "grep", "find", "ls"],
 };
 
-export function renderWebCapabilityInstructions(projectDir: string, loopId: string | undefined): string {
-  if (!loopId) return "";
+export function renderWebCapabilityInstructions(projectDir: string, owner: CapabilityOwner | undefined): string {
+  if (!owner) return "";
   const limits = webCapabilityDescriptor.limits;
+  const metadata = encodeCapabilityMetadata({ projectDir, owner, capability: "web" });
+  const artifactDir =
+    owner.kind === "chat" ? ".jri/logs/interrogation-artifacts/" : `.jri/logs/${owner.loopId}/artifacts/`;
   return [
     "JRI web capability:",
-    `- For current external facts, use the JRI-owned web wrapper commands: jri --run-web search ${JSON.stringify(projectDir)} ${JSON.stringify(loopId)} "<query>" and jri --run-web fetch ${JSON.stringify(projectDir)} ${JSON.stringify(loopId)} "<url>".`,
-    `- Search results are capped at ${limits.searchResults} and include retrieval timestamps; fetched markdown is capped at ${limits.fetchMarkdownChars} characters with artifact refs for omitted content.`,
+    `- For current external facts, use the JRI-owned web wrapper commands: jri --run-web search ${JSON.stringify(metadata)} "<query>" and jri --run-web fetch ${JSON.stringify(metadata)} "<url>".`,
+    `- Search results are capped at ${limits.searchResults} and include retrieval timestamps; fetched markdown is capped at ${limits.fetchMarkdownChars} characters with artifact refs under ${artifactDir} for omitted content.`,
     "- Cite sources in user-visible summaries when web facts affect a decision.",
     "- If required web access is unavailable, return an actionable capability blocker or a clearly labeled degraded answer; do not guess current facts.",
     "- Do not use ad hoc shell curl, browser automation, package CLIs, or raw HTML dumps for facts the JRI web capability can retrieve.",
