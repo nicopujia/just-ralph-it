@@ -345,14 +345,14 @@ export async function* resumeLoop(projectDir: string, options: RuntimeOptions = 
     }
 
     const currentSpecsFingerprint = await computeSpecsFingerprint(projectDir);
-    if (eligibleStopped && !status.authorizedSpecsFingerprint) {
+    if (!status.authorizedSpecsFingerprint) {
       throw new JriError(
         "Cannot resume because the authorized specs fingerprint is missing.",
         "specs-fingerprint-missing",
         "Return to bare jri, confirm the requirements, then say just ralph it so audit and planning authorize the lifecycle.",
       );
     }
-    if (eligibleStopped && status.authorizedSpecsFingerprint !== currentSpecsFingerprint) {
+    if (status.authorizedSpecsFingerprint !== currentSpecsFingerprint) {
       throw new JriError(
         "Cannot resume because specs changed after the loop stopped.",
         "specs-changed",

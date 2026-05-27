@@ -469,6 +469,7 @@ describe("daemon/runtime scaffolding", () => {
         state: "blocked",
         activeLoopId: "20260527T184210Z",
         lastLoopId: "20260527T184210Z",
+        authorizedSpecsFingerprint: emptySpecsFingerprint,
         blocker: {
           reason: "needsHumanTask",
           description: "Provide deployment credentials.",
@@ -499,6 +500,57 @@ describe("daemon/runtime scaffolding", () => {
         lock: { operation: "build" },
       });
       expect(status.blocker).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resume from verified needs-human-task blocker rejects changed specs", async () => {
+    const dir = await tempProject();
+    let spawnCalled = false;
+    try {
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nChanged requirements.\n", "utf8");
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        authorizedSpecsFingerprint: "previous-authorized-fingerprint",
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Provide deployment credentials.",
+          resolutionGuide: {
+            summary: "Credentials are required.",
+            steps: ["Provide the deployment token."],
+            resumeInstruction: "Say done in bare jri after the token is available.",
+          },
+          resolution: {
+            status: "verified",
+            verifiedAt: "2026-05-27T19:10:00.000Z",
+            verificationSummary: "Deployment token is present.",
+          },
+        },
+      });
+
+      await expect(
+        collect(
+          resumeLoop(dir, {
+            spawnRunner: ({ phase }) => {
+              spawnCalled = true;
+              return { pid: 22222, command: `runner ${phase}` };
+            },
+          }),
+        ),
+      ).rejects.toThrow("specs changed");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(spawnCalled).toBe(false);
+      expect(status).toMatchObject({
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        authorizedSpecsFingerprint: "previous-authorized-fingerprint",
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

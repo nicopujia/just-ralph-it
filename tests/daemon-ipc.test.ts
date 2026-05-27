@@ -94,7 +94,7 @@ describe("daemon IPC", () => {
       },
     });
     try {
-      const events = await collect(daemonStartLoop(dir, { paths }));
+      const events = await collect(daemonStartLoop(dir, "just ralph it", { paths }));
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
       const registry = JSON.parse(await readFile(paths.registryPath, "utf8"));
 
@@ -114,6 +114,21 @@ describe("daemon IPC", () => {
         projectDir: dir,
         activeLoopId: "20260527T200000Z",
       });
+    } finally {
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects loop start requests without a standalone accepted trigger", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const daemon = await startDaemonServer({ paths, idleTimeoutMs: 10_000 });
+    try {
+      await expect(collect(daemonStartLoop(dir, "please just ralph it" as "just ralph it", { paths }))).rejects.toThrow("invalid start trigger");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(status).toMatchObject({ state: "idle", activeLoopId: null });
     } finally {
       await daemon.close();
       await rm(dir, { recursive: true, force: true });

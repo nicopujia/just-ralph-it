@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { JriError, isJriError } from "./errors";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop, startRalphLoop, type RuntimeOptions } from "./daemon-runtime";
 import { isActiveState } from "./runtime-state";
+import type { StartTrigger } from "./chat";
 import type { CoreEvent, HaltOptions, LoopObserveOptions, ProjectStatus } from "./types";
 
 export const DAEMON_PROTOCOL_VERSION = 1;
@@ -90,8 +91,8 @@ export async function daemonRequestStop(projectDir: string, options: DaemonClien
   await daemonRequest("loop.stop", { projectDir }, { ...options, startIfUnavailable: true });
 }
 
-export async function* daemonStartLoop(projectDir: string, options: DaemonClientOptions = {}): AsyncIterable<CoreEvent> {
-  yield* daemonStream("loop.start", { projectDir }, { ...options, startIfUnavailable: true });
+export async function* daemonStartLoop(projectDir: string, trigger: StartTrigger, options: DaemonClientOptions = {}): AsyncIterable<CoreEvent> {
+  yield* daemonStream("loop.start", { projectDir, trigger }, { ...options, startIfUnavailable: true });
 }
 
 export async function* daemonHaltLoop(projectDir: string, options: DaemonClientOptions = {}): AsyncIterable<CoreEvent> {
@@ -454,6 +455,7 @@ async function handleRequestLine(socket: Socket, paths: DaemonPaths, runtimeOpti
       return;
     }
     if (request.method === "loop.start") {
+      startTriggerParam(request.params);
       const event = await startRalphLoop(projectDir, runtimeOptions);
       await updateRegistry(paths, projectDir);
       writeStreamEvent(socket, request.id, event);
@@ -591,6 +593,23 @@ function projectDirParam(params: unknown): string {
     throw new JriError("Daemon request is missing projectDir.", "invalid-daemon-request", "Retry with a compatible JRI client.");
   }
   return resolve(params.projectDir);
+}
+
+function startTriggerParam(params: unknown): StartTrigger {
+  if (!params || typeof params !== "object" || !("trigger" in params)) {
+    throw new JriError(
+      "Daemon loop.start is missing an accepted start trigger.",
+      "invalid-start-trigger",
+      "Retry from bare jri with exactly \"just ralph it\" or \"ralfealo\" after the specs are ready.",
+    );
+  }
+  const trigger = (params as Record<string, unknown>).trigger;
+  if (trigger === "just ralph it" || trigger === "ralfealo") return trigger;
+  throw new JriError(
+    "Daemon loop.start received an invalid start trigger.",
+    "invalid-start-trigger",
+    "Retry from bare jri with exactly \"just ralph it\" or \"ralfealo\" after the specs are ready.",
+  );
 }
 
 function observeOptionsParam(options: LoopObserveOptions): LoopObserveOptions {

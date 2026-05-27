@@ -340,6 +340,10 @@ async function attachLoop(project: Project, initialStatus: ProjectStatus): Promi
       if (result.source === "input") {
         const key = result.value;
         nextInput = input.next();
+        if (key === undefined) {
+          stop = true;
+          break;
+        }
         if (key === "d") {
           await flushReadyAttachEvents(events, nextEvent);
           stop = true;
@@ -372,23 +376,36 @@ type AttachInput = {
 function attachInput(stdin: NodeJS.ReadStream): AttachInput {
   const queue: Array<"d" | "s"> = [];
   let pending: ((key: "d" | "s" | undefined) => void) | undefined;
+  let ended = false;
   const wasRaw = Boolean(stdin.isRaw);
   const wasPaused = stdin.isPaused();
+
+  const resolvePending = (key: "d" | "s" | undefined): void => {
+    if (!pending) return;
+    const resolve = pending;
+    pending = undefined;
+    resolve(key);
+  };
 
   const push = (chunk: Buffer | string): void => {
     for (const char of chunk.toString("utf8")) {
       if (char !== "d" && char !== "s") continue;
       if (pending) {
-        const resolve = pending;
-        pending = undefined;
-        resolve(char);
+        resolvePending(char);
       } else {
         queue.push(char);
       }
     }
   };
 
+  const end = (): void => {
+    ended = true;
+    resolvePending(undefined);
+  };
+
   stdin.on("data", push);
+  stdin.once("end", end);
+  stdin.once("close", end);
   if (stdin.isTTY) {
     stdin.setRawMode?.(true);
   }
@@ -398,21 +415,20 @@ function attachInput(stdin: NodeJS.ReadStream): AttachInput {
     next: async (): Promise<"d" | "s" | undefined> => {
       const queued = queue.shift();
       if (queued) return queued;
+      if (ended) return undefined;
       return await new Promise((resolve) => {
         pending = resolve;
       });
     },
     close: (): void => {
       stdin.off("data", push);
+      stdin.off("end", end);
+      stdin.off("close", end);
       if (stdin.isTTY) {
         stdin.setRawMode?.(wasRaw);
       }
       if (wasPaused) stdin.pause();
-      if (pending) {
-        const resolve = pending;
-        pending = undefined;
-        resolve(undefined);
-      }
+      resolvePending(undefined);
     },
   };
 }

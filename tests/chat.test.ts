@@ -4,12 +4,22 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { normalizeStartTrigger, sendChat } from "../src/core/chat";
 import { open } from "../src/core";
+import { startDaemonServer, type DaemonPaths } from "../src/core/daemon-ipc";
 import { defaultStatus } from "../src/core/schema";
 import { writeStatusAtomic } from "../src/core/runtime-state";
 import type { CoreEvent } from "../src/core";
 
 async function tempProject(): Promise<string> {
   return await mkdtemp(join(tmpdir(), "jri-chat-test-"));
+}
+
+function tempDaemonPaths(dir: string): DaemonPaths {
+  return {
+    runtimeDir: join(dir, "runtime"),
+    stateDir: join(dir, "state"),
+    socketPath: process.platform === "win32" ? `\\\\.\\pipe\\jri-chat-test-${crypto.randomUUID()}` : join(dir, "runtime", "daemon.sock"),
+    registryPath: join(dir, "state", "daemon-registry.json"),
+  };
 }
 
 describe("interrogation chat", () => {
@@ -92,7 +102,8 @@ describe("interrogation chat", () => {
 
       const events = await collect(
         sendChat(dir, { message: "ralfealo" }, {
-          startLoop: async function* () {
+          startLoop: async function* (_projectDir, trigger) {
+            expect(trigger).toBe("ralfealo");
             yield {
               id: "event-1",
               sequence: 1,
@@ -115,6 +126,49 @@ describe("interrogation chat", () => {
       ]);
       expect(events[5]).toMatchObject({ type: "loopStarted", data: { pid: 44444 } });
     } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("project chat starts accepted triggers through daemon IPC and updates the registry", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const previousEnv = captureDaemonEnv();
+    const daemon = await startDaemonServer({
+      paths,
+      idleTimeoutMs: 10_000,
+      runtimeOptions: {
+        now: new Date("2026-05-27T20:00:00.000Z"),
+        spawnRunner: ({ phase }) => ({ pid: process.pid, command: `runner ${phase}` }),
+      },
+    });
+    try {
+      applyDaemonEnv(paths);
+      const project = await open(dir);
+      const events = await collect(project.chat.send({ message: "just ralph it" }));
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const registry = JSON.parse(await readFile(paths.registryPath, "utf8"));
+      const loopEvents = await readJsonl(join(dir, ".jri", "logs", "20260527T200000Z", "events.jsonl"));
+
+      expect(events.map((event) => event.type)).toEqual([
+        "chatTurnRecorded",
+        "chatMessageStarted",
+        "chatMessageDelta",
+        "chatMessageFinished",
+        "chatTurnRecorded",
+        "loopStarted",
+      ]);
+      expect(events[5]).toMatchObject({ type: "loopStarted", loopId: "20260527T200000Z", data: { pid: process.pid } });
+      expect(status).toMatchObject({
+        state: "auditing",
+        activeLoopId: "20260527T200000Z",
+        process: { pid: process.pid, command: "runner auditing" },
+      });
+      expect(registry.projects[0]).toMatchObject({ projectDir: dir, activeLoopId: "20260527T200000Z" });
+      expect(loopEvents[0]).toMatchObject({ type: "loopStarted", loopId: "20260527T200000Z" });
+    } finally {
+      restoreDaemonEnv(previousEnv);
+      await daemon.close();
       await rm(dir, { recursive: true, force: true });
     }
   });
@@ -217,4 +271,27 @@ async function readJsonl(path: string): Promise<CoreEvent[]> {
     .split("\n")
     .filter(Boolean)
     .map((line) => JSON.parse(line) as CoreEvent);
+}
+
+function captureDaemonEnv(): Record<string, string | undefined> {
+  return {
+    JRI_DAEMON_RUNTIME_DIR: process.env.JRI_DAEMON_RUNTIME_DIR,
+    JRI_DAEMON_STATE_DIR: process.env.JRI_DAEMON_STATE_DIR,
+    JRI_DAEMON_SOCKET_PATH: process.env.JRI_DAEMON_SOCKET_PATH,
+    JRI_DAEMON_REGISTRY_PATH: process.env.JRI_DAEMON_REGISTRY_PATH,
+  };
+}
+
+function applyDaemonEnv(paths: DaemonPaths): void {
+  process.env.JRI_DAEMON_RUNTIME_DIR = paths.runtimeDir;
+  process.env.JRI_DAEMON_STATE_DIR = paths.stateDir;
+  process.env.JRI_DAEMON_SOCKET_PATH = paths.socketPath;
+  process.env.JRI_DAEMON_REGISTRY_PATH = paths.registryPath;
+}
+
+function restoreDaemonEnv(previous: Record<string, string | undefined>): void {
+  for (const [key, value] of Object.entries(previous)) {
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
 }

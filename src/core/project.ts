@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { getAuthStatus, login, logout } from "./auth";
 import { sendChat } from "./chat";
 import { JriError } from "./errors";
-import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop, startRalphLoop } from "./daemon-runtime";
+import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
 import { daemonHaltLoop, daemonObserveLoop, daemonRequestStop, daemonResumeLoop, daemonStartLoop, daemonStatus } from "./daemon-ipc";
 import { defaultConfig, defaultStatus, parseJsonObject, validateConfig, validateStatus } from "./schema";
 import type { AuthResult, AuthState, ChatInput, CoreEvent, HaltOptions, LoopObserveOptions, ProjectConfig, ProjectStatus } from "./types";
@@ -150,12 +150,12 @@ async function* resumeWithFallback(projectDir: string): AsyncIterable<CoreEvent>
   }
 }
 
-async function* startLoopWithFallback(projectDir: string): AsyncIterable<CoreEvent> {
+async function* startLoopWithFallback(projectDir: string, trigger: Parameters<typeof daemonStartLoop>[1]): AsyncIterable<CoreEvent> {
   try {
-    yield* daemonStartLoop(projectDir);
+    yield* daemonStartLoop(projectDir, trigger);
   } catch (error) {
     if (!isDaemonUnavailable(error)) throw error;
-    yield await startRalphLoop(projectDir);
+    throw error;
   }
 }
 

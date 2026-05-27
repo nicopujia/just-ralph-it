@@ -3,6 +3,7 @@ import { appendInterrogationEvent, appendLoopEvent, readStatus, updateStatus } f
 import type { Blocker, ChatInput, CoreEvent, HumanTaskVerificationHandoff, ProjectStatus } from "./types";
 
 const interrogationLogPath = ".jri/logs/interrogation.jsonl" as const;
+export type StartTrigger = "just ralph it" | "ralfealo";
 
 export type HumanTaskVerifier = (request: {
   projectDir: string;
@@ -13,7 +14,7 @@ export type HumanTaskVerifier = (request: {
 
 export type ChatRuntimeOptions = RuntimeOptions & {
   verifyHumanTask?: HumanTaskVerifier;
-  startLoop?: (projectDir: string, options: RuntimeOptions) => AsyncIterable<CoreEvent>;
+  startLoop?: (projectDir: string, trigger: StartTrigger, options: RuntimeOptions) => AsyncIterable<CoreEvent>;
 };
 
 export async function* sendChat(projectDir: string, input: ChatInput, options: ChatRuntimeOptions = {}): AsyncIterable<CoreEvent> {
@@ -34,18 +35,18 @@ export async function* sendChat(projectDir: string, input: ChatInput, options: C
   const trigger = normalizeStartTrigger(message);
   if (trigger) {
     yield* emitAssistant(projectDir, `Start request accepted (${trigger}). Running the specs auditor now.`);
-    yield* (options.startLoop ?? startLoopLocally)(projectDir, options);
+    yield* (options.startLoop ?? startLoopLocally)(projectDir, trigger, options);
     return;
   }
 
   yield* emitAssistant(projectDir, responseForStatus(status));
 }
 
-async function* startLoopLocally(projectDir: string, options: RuntimeOptions): AsyncIterable<CoreEvent> {
+async function* startLoopLocally(projectDir: string, _trigger: StartTrigger, options: RuntimeOptions): AsyncIterable<CoreEvent> {
   yield await startRalphLoop(projectDir, options);
 }
 
-export function normalizeStartTrigger(message: string): "just ralph it" | "ralfealo" | null {
+export function normalizeStartTrigger(message: string): StartTrigger | null {
   const normalized = message.trim().replace(/[.!?]+$/u, "").trim().toLowerCase();
   if (normalized === "just ralph it") return "just ralph it";
   if (normalized === "ralfealo") return "ralfealo";
