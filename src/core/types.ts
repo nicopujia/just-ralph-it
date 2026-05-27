@@ -44,6 +44,8 @@ export type Blocker = {
   };
 };
 
+export type LockOperation = "audit" | "plan" | "build" | "halt" | "resume";
+
 export type ProjectStatus = {
   schemaVersion: 1;
   projectDir: string;
@@ -83,7 +85,7 @@ export type ProjectStatus = {
   lock?: {
     owner: "daemon";
     pid: number;
-    operation: "audit" | "plan" | "build" | "halt" | "resume";
+    operation: LockOperation;
     acquiredAt: string;
     heartbeatAt: string;
     expiresAt: string;
@@ -103,20 +105,62 @@ export type ChatInput = {
   message: string;
 };
 
+export type BaseEvent = {
+  id: string;
+  sequence: number;
+  timestamp: string;
+  loopId?: string;
+  iteration?: number;
+  stdoutOffset?: number;
+  message?: string;
+};
+
 export type CoreEvent =
-  | {
-      id: string;
-      sequence?: number;
-      type: "chatTurnRecorded";
-      timestamp: string;
-      message?: string;
-      data: { role: "user" | "assistant"; logPath: string };
-    }
-  | {
-      id: string;
-      sequence?: number;
-      type: "statusRepaired";
-      timestamp: string;
-      message?: string;
-      data: { repairedFrom: string; repairedTo: string; reason: string };
-    };
+  | (BaseEvent & { type: "loopStarted"; loopId: string; data: { projectDir: string; pid?: number } })
+  | (BaseEvent & { type: "auditStarted"; loopId: string; data: Record<string, never> })
+  | (BaseEvent & { type: "auditPassed"; loopId: string; data: { specFiles: string[] } })
+  | (BaseEvent & { type: "auditFailed"; loopId: string; data: { feedback: string; ambiguousSpecFiles?: string[] } })
+  | (BaseEvent & { type: "planningStarted"; loopId: string; data: Record<string, never> })
+  | (BaseEvent & { type: "planningFinished"; loopId: string; data: { planPath: ".jri/IMPLEMENTATION_PLAN.md" } })
+  | (BaseEvent & { type: "planRegenerationRequested"; loopId: string; data: { reason: "needsReplan" | "specsChanged" | "ambiguousSpecsResolved" } })
+  | (BaseEvent & { type: "planRegenerationStarted"; loopId: string; data: Record<string, never> })
+  | (BaseEvent & { type: "planRegenerationFinished"; loopId: string; data: Record<string, never> })
+  | (BaseEvent & {
+      type: "iterationStarted";
+      loopId: string;
+      iteration: number;
+      data: { rollbackCommit?: string; trackedTreeCleanAtStart: boolean; dirtySummary?: string };
+    })
+  | (BaseEvent & {
+      type: "iterationFinished";
+      loopId: string;
+      iteration: number;
+      data: { outcome: "committed" | "noChanges" | "validationFailed" | "blocked"; commit?: string; tag?: string; changedFiles?: string[] };
+    })
+  | (BaseEvent & { type: "subagentStarted"; loopId: string; data: { agent: "explorer"; task: string; mode: "spawn" | "fork" } })
+  | (BaseEvent & { type: "subagentFinished"; loopId: string; data: { agent: "explorer"; summary: string; artifactRef?: string } })
+  | (BaseEvent & { type: "subagentFailed"; loopId: string; data: { agent: "explorer"; error: string; artifactRef?: string } })
+  | (BaseEvent & { type: "validationStarted"; loopId: string; iteration: number; data: { command: string } })
+  | (BaseEvent & { type: "validationFinished"; loopId: string; iteration: number; data: { command: string; exitCode: number; passed: boolean } })
+  | (BaseEvent & { type: "commitCreated"; loopId: string; iteration: number; data: { sha: string; subject?: string } })
+  | (BaseEvent & { type: "tagCreated"; loopId: string; iteration: number; data: { tag: string; sha?: string } })
+  | (BaseEvent & {
+      type: "blockerReported";
+      loopId: string;
+      data: Pick<Blocker, "reason" | "description" | "resolutionGuide" | "changedFiles" | "validationRan">;
+    })
+  | (BaseEvent & { type: "blockerResolved"; loopId: string; data: { reason: BlockerReason } })
+  | (BaseEvent & { type: "stopRequested"; loopId: string; data: { requested: boolean } })
+  | (BaseEvent & { type: "loopStopped"; loopId: string; data: { reason: "gracefulStopRequested"; iteration?: number } })
+  | (BaseEvent & {
+      type: "loopHalted";
+      loopId: string;
+      data: { killedPid?: number; resetOffered: boolean; resetAccepted: boolean; resetSucceeded?: boolean; rollbackCommit?: string };
+    })
+  | (BaseEvent & { type: "loopFinished"; loopId: string; data: { outcome: "completed" | "failed"; summary?: string; url?: string; commit?: string; tag?: string } })
+  | (BaseEvent & { type: "statusRepaired"; data: { repairedFrom: string; repairedTo: string; reason: string } })
+  | (BaseEvent & { type: "chatMessageStarted"; data: { role: "assistant" } })
+  | (BaseEvent & { type: "chatMessageDelta"; data: { role: "assistant"; text: string } })
+  | (BaseEvent & { type: "chatMessageFinished"; data: { role: "assistant" } })
+  | (BaseEvent & { type: "chatTurnRecorded"; data: { role: "user" | "assistant"; logPath: ".jri/logs/interrogation.jsonl" } })
+  | (BaseEvent & { type: "specsUpdated"; data: { specFiles: string[]; summary: string } });

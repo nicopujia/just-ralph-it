@@ -23,8 +23,11 @@ Completed work:
 
 Next work:
 
-- [ ] P0: Implement core lifecycle/state primitives (atomic status updates,
-  lifecycle transitions, lock/heartbeat model, loop metadata, event sequencing).
+- [x] P0 (selected): Implement core lifecycle/state primitives.
+  Completed via runtime-state primitives with atomic status reads/writes,
+  legal lifecycle transition enforcement, lock acquire/heartbeat/release with
+  stale-lock checks, UTC loop-id collision handling, canonical `CoreEvent`
+  union expansion, and monotonic JSONL event sequence allocation.
 - [ ] P0: Implement daemon/runtime scaffolding (IPC, process/ownership tracking,
   recovery, idle shutdown).
 - [ ] P0: Implement Pi-bounded interrogation/auth/loop paths needed to replace
