@@ -152,6 +152,19 @@ describe("agent handoff contracts", () => {
     expect(() =>
       parseHandoff("builder", {
         agent: "builder",
+        action: "failedValidation",
+        validation: {
+          command: "bun run test",
+          exitCode: 0,
+          passed: true,
+          summary: "Tests passed despite failedValidation action.",
+        },
+      }),
+    ).toThrow("failedValidation.validation.passed must be false");
+
+    expect(() =>
+      parseHandoff("builder", {
+        agent: "builder",
         action: "complete",
         summary: "Done.",
         artifacts: [{ path: ".jri/logs/20260527T184210Z/artifacts/report.md", label: "unexpected" }],

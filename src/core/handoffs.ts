@@ -267,14 +267,19 @@ function parseBuilder(value: Record<string, unknown>): BuilderHandoff {
         ...optionalSummary(value, "builder"),
         ...(validation ? { validation } : {}),
       };
-    case "failedValidation":
+    case "failedValidation": {
       assertKnownKeys(value, "builder handoff", ["agent", "action", "validation", "summary"], "builder");
+      const failedValidation = parseValidation(value.validation, "builder");
+      if (failedValidation.passed) {
+        throw invalidHandoff("builder", "failedValidation.validation.passed must be false.");
+      }
       return {
         agent: "builder",
         action: "failedValidation",
-        validation: parseValidation(value.validation, "builder"),
+        validation: failedValidation,
         ...optionalSummary(value, "builder"),
       };
+    }
     default:
       throw invalidHandoff("builder", "Unsupported builder handoff action.");
   }

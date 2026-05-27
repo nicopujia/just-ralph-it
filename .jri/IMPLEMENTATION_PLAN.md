@@ -34,7 +34,7 @@
 
 - P0: Finish validation and git-safety semantics.
   - Keep builder/Ralph responsible for discovering and running target-project validation from `AGENTS.md` or equivalent project guidance; core records handoff evidence and guards git/tag success.
-  - Require at least one concrete passing validation item before accepting git-changing successful iterations, and reject malformed `failedValidation` evidence where `passed` is not `false`.
+  - Require at least one concrete passing validation item before accepting git-changing successful iterations.
   - Preserve changed files for inspection on validation failure and blocker outcomes.
   - Ensure no-op success, missing validation evidence, absent validation commands, unsafe validation commands, blocked with unexpected git changes, failed validation with unexpected git changes, and missing/ambiguous tag evidence are all covered.
   - Keep destructive rollback behind explicit halt/reset confirmation across every failure shape.
@@ -69,4 +69,4 @@
   - Dogfood success requires deployment at `gupta-to-web.mpujia.justralph.it` plus durable artifacts for interrogation, planning, iterations, blockers, validation, deployment, commits, and tags.
   - Update `README.md` after the dogfood flow works: install/run basics, auth setup, bare `jri` workflow, loop controls, recovery paths, validation behavior, and dogfood workflow.
 
-- Confirmed complete and not re-listed as active implementation work: daemon-owned accepted chat start stream, active-loop observation-mode interrogator restrictions, most fallback CLI chat/event rendering, corrupt-auth cache recovery, core commit/tag guards for successful builder handoffs, verified human-task blocker recording, durable human-task `Blocker.resumePhase` recording, planner/builder blocker resume phase assignment, resume-phase requirement enforcement, planner blockers resuming planning, builder blockers resuming building, duplicate `blockerResolved` prevention, project root resolution, idempotent initialization, manual spec edit reconciliation, and public CLI surface restrictions.
+- Confirmed complete and not re-listed as active implementation work: daemon-owned accepted chat start stream, active-loop observation-mode interrogator restrictions, most fallback CLI chat/event rendering, corrupt-auth cache recovery, core commit/tag guards for successful builder handoffs, malformed `failedValidation` evidence where `passed` is not `false`, verified human-task blocker recording, durable human-task `Blocker.resumePhase` recording, planner/builder blocker resume phase assignment, resume-phase requirement enforcement, planner blockers resuming planning, builder blockers resuming building, duplicate `blockerResolved` prevention, project root resolution, idempotent initialization, manual spec edit reconciliation, and public CLI surface restrictions.
