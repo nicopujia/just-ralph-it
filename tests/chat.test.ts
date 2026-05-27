@@ -874,10 +874,84 @@ describe("interrogation chat", () => {
         },
       });
       expect(status.blocker.resolution).toBeUndefined();
-      expect(status.blocker.resolutionGuide.summary).toContain("needs a verifier");
+      expect(status.blocker.resolutionGuide.summary).toContain("no machine-checkable success criteria");
       expect(events.find((event) => event.type === "chatMessageDelta")).toMatchObject({
         data: { text: expect.stringContaining("remains blocked") },
       });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("done verifies machine-checkable human-task success criteria without exposing secrets", async () => {
+    const dir = await tempProject();
+    const previousToken = process.env.JRI_CHAT_TEST_DEPLOY_TOKEN;
+    try {
+      process.env.JRI_CHAT_TEST_DEPLOY_TOKEN = "present";
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Deployment credentials are missing.",
+          resolutionGuide: {
+            summary: "Credentials are required.",
+            steps: ["Set the deployment token outside chat."],
+            successCriteria: ["env JRI_CHAT_TEST_DEPLOY_TOKEN is set"],
+            resumeInstruction: "Say done in bare jri after the token is available.",
+            sensitive: true,
+          },
+        },
+      });
+
+      const events = await collect(sendChat(dir, { message: "done" }));
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const assistantText = events.find((event) => event.type === "chatMessageDelta")?.data.text;
+
+      expect(events.some((event) => event.type === "blockerResolved")).toBe(true);
+      expect(status.blocker.resolution).toMatchObject({
+        status: "verified",
+        verificationSummary: "Verified 1 machine-checkable success criterion.",
+      });
+      expect(assistantText).not.toContain("present");
+    } finally {
+      restoreEnv("JRI_CHAT_TEST_DEPLOY_TOKEN", previousToken);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("done for ambiguous-spec blockers gives spec-resolution guidance instead of human-task verification", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "ambiguousSpecs",
+          description: "The deployment target is unclear.",
+          resolutionGuide: {
+            summary: "Clarify the deployment target.",
+            steps: ["Choose Cloudflare or another deployment target."],
+            resumeInstruction: "Clarify the target in bare jri, then say just ralph it.",
+          },
+        },
+      });
+
+      const events = await collect(sendChat(dir, { message: "done" }));
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(events.some((event) => event.type === "blockerResolved")).toBe(false);
+      expect(status.blocker.resolution).toBeUndefined();
+      expect(events.find((event) => event.type === "chatMessageDelta")).toMatchObject({
+        data: { text: expect.stringContaining("ambiguous specs") },
+      });
+      expect(events.find((event) => event.type === "chatMessageDelta")?.message).toContain("Clarify the target in bare jri");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -1,5 +1,5 @@
 import { stat } from "node:fs/promises";
-import { join } from "node:path";
+import { isAbsolute, join, normalize, sep } from "node:path";
 import { daemonStartLoop } from "./daemon-ipc";
 import type { RuntimeOptions } from "./daemon-runtime";
 import { JriError } from "./errors";
@@ -313,6 +313,19 @@ async function* handleDone(projectDir: string, status: ProjectStatus, userMessag
     return;
   }
 
+  if (status.state === "blocked" && status.blocker?.reason === "ambiguousSpecs") {
+    yield* emitAssistant(
+      projectDir,
+      [
+        "The current blocker is ambiguous specs, not a human task, so done cannot resume Ralph.",
+        status.blocker.resolutionGuide.summary,
+        `Next step: ${status.blocker.resolutionGuide.steps[0] ?? status.blocker.resolutionGuide.resumeInstruction}`,
+        `Resume: ${status.blocker.resolutionGuide.resumeInstruction}`,
+      ].join("\n"),
+    );
+    return;
+  }
+
   yield* emitAssistant(projectDir, "There is no unresolved human-task blocker to verify. I recorded your message.");
 }
 
@@ -349,20 +362,102 @@ function assistantTextForInterrogatorHandoff(handoff: InterrogatorHandoff): stri
   return handoff.summary ?? "I recorded your note.";
 }
 
-function defaultHumanTaskVerifier(request: { blocker: Blocker }): HumanTaskVerificationHandoff {
+async function defaultHumanTaskVerifier(request: { projectDir: string; blocker: Blocker }): Promise<HumanTaskVerificationHandoff> {
+  const criteria = request.blocker.resolutionGuide.successCriteria ?? [];
+  if (criteria.length > 0) {
+    const checks = await Promise.all(criteria.map((criterion) => evaluateHumanTaskCriterion(request.projectDir, criterion)));
+    const failed = checks.filter((check) => !check.passed);
+    if (failed.length === 0) {
+      return {
+        agent: "verifier",
+        action: "verified",
+        verificationSummary: `Verified ${checks.length} machine-checkable success ${checks.length === 1 ? "criterion" : "criteria"}.`,
+      };
+    }
+
+    return stillBlockedWithVerificationGuide(
+      request.blocker,
+      "JRI could not verify the human task is complete yet.",
+      failed.map((check) => check.message),
+    );
+  }
+
+  return stillBlockedWithVerificationGuide(request.blocker, "JRI has no machine-checkable success criteria for this human task.", [
+    "Add observable success criteria to the blocker, such as an environment variable presence check or project-relative file/path existence check.",
+  ]);
+}
+
+type HumanTaskCriterionCheck = {
+  passed: boolean;
+  message: string;
+};
+
+async function evaluateHumanTaskCriterion(projectDir: string, criterion: string): Promise<HumanTaskCriterionCheck> {
+  const text = criterion.trim();
+  const envName = parseEnvPresenceCriterion(text);
+  if (envName) {
+    return process.env[envName]
+      ? { passed: true, message: `${envName} is present in the current process environment.` }
+      : { passed: false, message: `Set environment variable ${envName} where JRI runs, then say done again.` };
+  }
+
+  const relativePath = parsePathExistsCriterion(text);
+  if (relativePath) {
+    if (!isSafeProjectRelativePath(relativePath)) {
+      return { passed: false, message: `Use a project-relative verification path inside this project instead of ${relativePath}.` };
+    }
+    return (await relativePathExists(projectDir, relativePath))
+      ? { passed: true, message: `${relativePath} exists.` }
+      : { passed: false, message: `Create ${relativePath} or update the blocker with observable evidence JRI can inspect.` };
+  }
+
+  return {
+    passed: false,
+    message: `JRI does not know how to verify this success criterion safely: ${text}`,
+  };
+}
+
+function parseEnvPresenceCriterion(criterion: string): string | undefined {
+  const patterns = [
+    /^(?:env|environment variable)\s+([A-Z_][A-Z0-9_]*)\s+(?:is\s+)?(?:set|present|configured)\.?$/iu,
+    /^([A-Z_][A-Z0-9_]*)\s+(?:env|environment variable)\s+(?:is\s+)?(?:set|present|configured)\.?$/iu,
+  ];
+  for (const pattern of patterns) {
+    const match = criterion.match(pattern);
+    if (match?.[1]) return match[1].toUpperCase();
+  }
+  return undefined;
+}
+
+function parsePathExistsCriterion(criterion: string): string | undefined {
+  const patterns = [/^(?:file|path)\s+exists:\s*(.+)$/iu, /^(.+)\s+(?:file|path)\s+exists\.?$/iu];
+  for (const pattern of patterns) {
+    const match = criterion.match(pattern);
+    if (match?.[1]) return normalizeProjectRelativePath(match[1]);
+  }
+  return undefined;
+}
+
+function normalizeProjectRelativePath(path: string): string {
+  return path.trim().replace(/^["']|["']$/g, "").replaceAll("\\", "/").replace(/^\.\//u, "");
+}
+
+function isSafeProjectRelativePath(path: string): boolean {
+  const normalized = normalize(path);
+  return Boolean(path) && !isAbsolute(path) && normalized !== ".." && !normalized.startsWith(`..${sep}`);
+}
+
+function stillBlockedWithVerificationGuide(blocker: Blocker, summary: string, steps: string[]): HumanTaskVerificationHandoff {
   return {
     agent: "verifier",
     action: "stillBlocked",
     blocker: {
-      ...request.blocker,
+      ...blocker,
       resolutionGuide: {
-        ...request.blocker.resolutionGuide,
-        summary: "JRI needs a verifier that can inspect the external condition before this blocker can be marked resolved.",
-        steps: [
-          ...request.blocker.resolutionGuide.steps,
-          "Retry after the verification capability or required observable evidence is available.",
-        ],
-        resumeInstruction: request.blocker.resolutionGuide.resumeInstruction,
+        ...blocker.resolutionGuide,
+        summary,
+        steps: [...blocker.resolutionGuide.steps, ...steps],
+        resumeInstruction: blocker.resolutionGuide.resumeInstruction,
       },
     },
   };

@@ -63,9 +63,7 @@
   - Remaining coverage: no-op success, blocked with unexpected git changes, absent validation commands, unsafe validation commands, and missing-tag evidence.
 
 - P0: Complete human-task verifier and blocked recovery.
-  - Replace the default verifier that always returns `stillBlocked` with a safe verifier path that inspects allowed evidence/capabilities and returns `verified` or `stillBlocked` without asking users to paste secrets.
-  - `done` in bare `jri` should verify only `blocked[needsHumanTask]`, update status/events with `humanTaskVerified` or `humanTaskStillBlocked`, and guide `jri loop resume` only after verified.
-  - For `blocked[ambiguousSpecs]`, `done` must return explicit spec-resolution guidance instead of generic "no human-task blocker" text.
+  - Completed/Tested: default `done` now verifies machine-checkable success criteria such as env presence and project-relative path/file existence without exposing secret values; unsupported criteria remain blocked with updated guidance; and `blocked[ambiguousSpecs]` receives spec-resolution guidance instead of human-task verification. Validation passed with focused `bun test tests/chat.test.ts`, final serial `bun run test` (129 tests), `bun run typecheck`, and `bun run lint`.
   - Reject resume when specs changed after the blocker, verification is inconclusive, the blocker is not human-task, or no active loop id/fingerprint is available.
   - Add end-to-end tests for bare `jri` `done`, verified resume, still-blocked updates, ambiguous-spec guidance, changed-spec rejection, inconclusive verification, and no-op behavior outside eligible blocked state.
 
