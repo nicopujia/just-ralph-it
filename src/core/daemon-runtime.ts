@@ -1,9 +1,9 @@
-import { appendFile, readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JriError } from "./errors";
-import { parseJsonObject, validateConfig } from "./schema";
+import { runControlledPiSession, type HarnessSessionRunner } from "./harness";
 import {
   acquireLock,
   appendLoopEvent,
@@ -16,7 +16,6 @@ import {
   updateStatus,
   writeStatusAtomic,
 } from "./runtime-state";
-import { buildPiPrompt, modelForAgent } from "./prompts";
 import { extractLatestBuilderHandoffFromText, extractLatestHandoffFromText } from "./handoffs";
 import type { AuditorHandoff, Blocker, BuilderHandoff, CoreEvent, LockOperation, PlannerHandoff, ProjectStatus, ValidationHandoff } from "./types";
 
@@ -28,6 +27,7 @@ export type RuntimeOptions = {
   isProcessAlive?: ProcessAliveCheck;
   killProcess?: ProcessKiller;
   spawnRunner?: RunnerSpawner;
+  harnessRunner?: HarnessSessionRunner;
 };
 
 export type RunnerPhase = "auditing" | "planning" | "building";
@@ -362,7 +362,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
       if (currentPhase === "auditing") {
         await appendLoopEvent(projectDir, { type: "auditStarted", loopId, data: {} });
         const stdoutOffset = await stdoutLogSize(projectDir, loopId);
-        const exitCode = await runPiSession(projectDir, loopId, "auditing");
+        const exitCode = await runHarnessSession(projectDir, loopId, "auditing", options);
         if (exitCode !== 0) {
           await finishFailedRun(projectDir, loopId, "auditing", exitCode);
           return;
@@ -390,7 +390,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
       if (currentPhase === "planning") {
         await appendLoopEvent(projectDir, { type: "planningStarted", loopId, data: {} });
         const stdoutOffset = await stdoutLogSize(projectDir, loopId);
-        const exitCode = await runPiSession(projectDir, loopId, "planning");
+        const exitCode = await runHarnessSession(projectDir, loopId, "planning", options);
         if (exitCode !== 0) {
           await finishFailedRun(projectDir, loopId, "planning", exitCode);
           return;
@@ -435,7 +435,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
       });
 
       const stdoutOffset = await stdoutLogSize(projectDir, loopId);
-      const exitCode = await runPiSession(projectDir, loopId, "building");
+      const exitCode = await runHarnessSession(projectDir, loopId, "building", options);
       if (exitCode !== 0) {
         await finishFailedRun(projectDir, loopId, "building", exitCode);
         return;
@@ -470,7 +470,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         currentLock = await switchRunnerPhase(projectDir, currentLock, "planning");
         await appendLoopEvent(projectDir, { type: "planRegenerationStarted", loopId, data: {} });
         const planningStdoutOffset = await stdoutLogSize(projectDir, loopId);
-        const planningExitCode = await runPiSession(projectDir, loopId, "planning");
+        const planningExitCode = await runHarnessSession(projectDir, loopId, "planning", options);
         if (planningExitCode !== 0) {
           await finishFailedRun(projectDir, loopId, "planning", planningExitCode);
           return;
@@ -662,58 +662,14 @@ function defaultSpawnRunner(request: RunnerSpawnRequest): RunnerProcess {
   return { pid: proc.pid, command: command.join(" ") };
 }
 
-async function runPiSession(projectDir: string, loopId: string, phase: RunnerPhase): Promise<number> {
-  const piPath = process.env.JRI_PI_COMMAND ?? "pi";
-  const prompt = await buildPiPrompt(projectDir, phase);
-  const agent = phase === "auditing" ? "auditor" : phase === "planning" ? "planner" : "builder";
-  const model = modelForAgent(await readProjectConfig(projectDir), agent);
-  const command = [
-    piPath,
-    "--provider",
-    "openai",
-    "--model",
-    model.model,
-    "--thinking",
-    model.reasoning,
-    "--no-extensions",
-    "--no-skills",
-    "--no-prompt-templates",
-    "--no-themes",
-    "--no-context-files",
-    "--tools",
-    "read,bash,edit,write,grep,find,ls",
-    "--print",
-    prompt,
-  ];
-  const proc = Bun.spawn(command, {
-    cwd: projectDir,
-    stdout: "pipe",
-    stderr: "pipe",
-    stdin: "ignore",
-    env: {
-      ...process.env,
-      PI_CODING_AGENT_SESSION_DIR: join(projectDir, ".jri", "logs", loopId, "pi-sessions"),
-    },
+async function runHarnessSession(projectDir: string, loopId: string, phase: RunnerPhase, options: RuntimeOptions): Promise<number> {
+  const runner = options.harnessRunner ?? runControlledPiSession;
+  return await runner({
+    projectDir,
+    loopId,
+    phase,
+    stdoutPath: join(projectDir, ".jri", "logs", loopId, "stdout.log"),
   });
-  await appendStreamsToStdoutLog(projectDir, loopId, proc);
-  return await proc.exited;
-}
-
-async function appendStreamsToStdoutLog(projectDir: string, loopId: string, proc: Bun.Subprocess<"ignore", "pipe", "pipe">): Promise<void> {
-  const stdoutPath = join(projectDir, ".jri", "logs", loopId, "stdout.log");
-  await Promise.all([appendStream(stdoutPath, proc.stdout), appendStream(stdoutPath, proc.stderr)]);
-}
-
-async function appendStream(path: string, stream: ReadableStream<Uint8Array>): Promise<void> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  for (;;) {
-    const chunk = await reader.read();
-    if (chunk.done) break;
-    await appendFile(path, decoder.decode(chunk.value, { stream: true }), "utf8");
-  }
-  const tail = decoder.decode();
-  if (tail) await appendFile(path, tail, "utf8");
 }
 
 type GitSnapshot = {
@@ -1051,10 +1007,4 @@ function mergeChangedFiles(reported: string[] | undefined, observed: string[]): 
 
 function ownershipCleared(status: ProjectStatus): { [K in keyof ProjectStatus]?: ProjectStatus[K] | undefined } {
   return { ...status, process: undefined, lock: undefined };
-}
-
-async function readProjectConfig(projectDir: string) {
-  const path = join(projectDir, ".jri", "config.json");
-  if (!(await Bun.file(path).exists())) return undefined;
-  return validateConfig(parseJsonObject(await Bun.file(path).text(), path), path);
 }
