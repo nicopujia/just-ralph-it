@@ -139,9 +139,9 @@ async function runWebJsonCommand(
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
       throw new JriError(
-        `JRI web capability is not available: ${JSON.stringify(command)} was not found.`,
+        "JRI web capability is not available: the configured JRI_PI_WEB_COMMAND executable was not found.",
         "capability-web-unavailable",
-        "Install or configure pi-web-access, or set JRI_PI_WEB_COMMAND to a working wrapper before retrying.",
+        "Configure the JRI web capability implementation, or set JRI_PI_WEB_COMMAND to a working executable before retrying.",
       );
     }
     throw error;

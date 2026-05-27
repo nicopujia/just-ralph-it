@@ -812,7 +812,7 @@ describe("controlled Pi harness", () => {
     }
   });
 
-  test("runExplorerTask fails early when the configured subagent extension is unavailable", async () => {
+  test("runExplorerTask fails early with JRI-native wording when the configured explorer extension is unavailable", async () => {
     const dir = await tempProject();
     try {
       const fakePi = join(dir, "fake-pi.sh");
@@ -826,8 +826,9 @@ describe("controlled Pi harness", () => {
       );
       await chmod(fakePi, 0o755);
 
-      await expect(
-        runExplorerTask({
+      let error: unknown;
+      try {
+        await runExplorerTask({
           projectDir: dir,
           loopId: "20260527T184210Z",
           task: "Inspect CLI behavior.",
@@ -835,8 +836,16 @@ describe("controlled Pi harness", () => {
             JRI_PI_COMMAND: fakePi,
             JRI_PI_SUBAGENT_EXTENSION: join(dir, "missing-pi-subagent.js"),
           },
-        }),
-      ).rejects.toThrow("JRI explorer capability is not available");
+        });
+      } catch (thrown) {
+        error = thrown;
+      }
+
+      expect(error).toBeDefined();
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toContain("JRI explorer capability is not available");
+      expect(message).toContain("JRI_PI_SUBAGENT_EXTENSION");
+      expect(message).not.toContain("pi-subagent");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -1172,19 +1181,28 @@ describe("controlled Pi harness", () => {
     }
   });
 
-  test("runWebFetch fails early when pi-web-access is unavailable", async () => {
+  test("runWebFetch fails early with JRI-native wording when the configured web capability command is unavailable", async () => {
     const dir = await tempProject();
     try {
-      await expect(
-        runWebFetch({
+      let error: unknown;
+      try {
+        await runWebFetch({
           projectDir: dir,
           owner: { kind: "loop", loopId: "20260527T184210Z" },
           url: "https://example.com/docs",
           env: {
             JRI_PI_WEB_COMMAND: join(dir, "missing-pi-web-access"),
           },
-        }),
-      ).rejects.toThrow("JRI web capability is not available");
+        });
+      } catch (thrown) {
+        error = thrown;
+      }
+
+      expect(error).toBeDefined();
+      const message = error instanceof Error ? error.message : String(error);
+      expect(message).toContain("JRI web capability is not available");
+      expect(message).toContain("JRI_PI_WEB_COMMAND");
+      expect(message).not.toContain("pi-web-access");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -1545,24 +1545,43 @@ describe("interrogation chat", () => {
 
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
       const loopEvents = await readJsonl(join(dir, ".jri", "logs", "20260527T200000Z", "events.jsonl"));
+      const loopFinished = [...loopEvents].reverse().find((event: unknown) => {
+        return Boolean(event && typeof event === "object" && "type" in event && event.type === "loopFinished");
+      });
+      const loopFinishedSummary =
+        loopFinished && typeof loopFinished === "object" && "data" in loopFinished && loopFinished.data && typeof loopFinished.data === "object" && "summary" in loopFinished.data
+          ? String(loopFinished.data.summary)
+          : "";
+      const loopFinishedMessage =
+        loopFinished && typeof loopFinished === "object" && "message" in loopFinished && loopFinished.message !== undefined
+          ? String(loopFinished.message)
+          : "";
+      const lastResultSummary =
+        status && typeof status === "object" && status.lastResult && typeof status.lastResult === "object" && "summary" in status.lastResult
+          ? String(status.lastResult.summary)
+          : "";
 
       expect(events.map((event) => event.type)).toContain("loopStarted");
-      expect(loopEvents.at(-1)).toMatchObject({
+      expect(loopFinished).toMatchObject({
         type: "loopFinished",
         data: {
           outcome: "failed",
-          summary: expect.stringContaining("pi-subagent"),
+          summary: expect.stringContaining("JRI explorer capability is not available"),
         },
+        message: expect.stringContaining("JRI_PI_SUBAGENT_EXTENSION"),
       });
+      expect(loopFinishedSummary).not.toContain("pi-subagent");
+      expect(loopFinishedMessage).not.toContain("pi-subagent");
       expect(status).toMatchObject({
         state: "stopped",
         activeLoopId: "20260527T200000Z",
         lastLoopId: "20260527T200000Z",
         lastResult: {
           outcome: "failed",
-          summary: expect.stringContaining("pi-subagent"),
+          summary: expect.stringContaining("JRI explorer capability is not available"),
         },
       });
+      expect(lastResultSummary).not.toContain("pi-subagent");
     } finally {
       restoreEnv("OPENAI_API_KEY", previousOpenAiApiKey);
       restoreEnv("JRI_PI_COMMAND", previousPiCommand);

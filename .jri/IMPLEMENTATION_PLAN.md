@@ -9,7 +9,7 @@
   - Remaining: retire any other legacy wrapper-command guidance and preserve regression coverage around native web/explorer routing so the harness-native contract stays durable.
 
 - [ ] Finish capability policy cleanup around native descriptors and grants.
-  - Current state: `capabilities.ts`, `web-capability.ts`, and `harness.ts` enforce many ownership/shape rules, but descriptor-like policy is still mixed with prompt-driven paths.
+  - Current state: `capabilities.ts`, `web-capability.ts`, and `harness.ts` enforce many ownership/shape rules, but descriptor-like policy is still mixed with prompt-driven paths; user-visible web/explorer capability failures now use JRI-native actionable wording without leaking package names, and regression coverage was added.
   - Remaining: consolidate runtime-declared policy, reduce over-granted web/explorer access, and keep chat-owned capability ownership validation/preflight actionable.
 
 - [x] Improve interrogation context reconstruction.
