@@ -286,12 +286,18 @@ async function buildControlledExplorerSubagentCommand(
 
   const extension = env.JRI_PI_SUBAGENT_EXTENSION ?? "npm:pi-subagent";
   const task = request.explorerTask ?? "Inspect the codebase and report concise findings.";
+  const delegatedTask = [
+    task,
+    "",
+    "JRI wrapper-provided context and capability instructions:",
+    prompt,
+  ].join("\n");
   const commandPrompt = [
     "Use the pi-subagent extension to run exactly one foreground JRI explorer delegation.",
     "Use agent name explorer with spawn/fresh context only. Do not run chains or parallel subtasks inside this wrapper.",
     "Return only the explorer's final concise handoff.",
     "",
-    `/run explorer ${JSON.stringify(task)}`,
+    `/run explorer ${JSON.stringify(delegatedTask)}`,
     "",
     "JRI wrapper context for the parent session:",
     prompt,

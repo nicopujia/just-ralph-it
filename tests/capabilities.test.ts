@@ -62,6 +62,23 @@ describe("capability descriptors", () => {
     }
   });
 
+  test("explorer prompt includes loop-owned web capability instructions", async () => {
+    const dir = await tempProject();
+    try {
+      const prompt = await buildPiPrompt(dir, "explorer", {
+        loopId: "20260527T184210Z",
+        explorerTask: "Check current framework docs before reporting findings.",
+      });
+
+      expect(prompt).toContain("jri --run-web search");
+      expect(prompt).toContain("jri --run-web fetch");
+      expect(prompt).toContain('\\"owner\\":{\\"kind\\":\\"loop\\",\\"loopId\\":\\"20260527T184210Z\\"}');
+      expect(prompt).toContain("Check current framework docs before reporting findings.");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("interrogator prompt includes chat-owned web capability instructions", async () => {
     const dir = await tempProject();
     try {

@@ -336,9 +336,12 @@ describe("controlled Pi harness", () => {
         join(dir, ".jri", "logs", "20260527T184210Z", "pi-sessions"),
       );
       expect(built.env.PI_CODING_AGENT_DIR).toBe(join(dir, ".jri", "logs", "20260527T184210Z", "capabilities", "explorer"));
-      expect(built.command.at(-1)).toContain('/run explorer "Find the CLI dispatch code."');
+      expect(built.command.at(-1)).toContain('/run explorer "Find the CLI dispatch code.');
+      expect(built.command.at(-1)).toContain("jri --run-web search");
+      expect(built.command.at(-1)).toContain("jri --run-web fetch");
       const descriptor = await readFile(join(dir, ".jri", "logs", "20260527T184210Z", "capabilities", "explorer", "agents", "explorer.md"), "utf8");
       expect(descriptor).toContain("name: explorer");
+      expect(descriptor).toContain("JRI web capability instructions");
       expect(descriptor).toContain("inheritProjectContext: false");
       expect(descriptor).toContain("tools:\n  - read\n  - grep\n  - find\n  - ls");
     } finally {

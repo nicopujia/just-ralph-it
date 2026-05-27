@@ -23,10 +23,10 @@
 
 - P0: Finish capability ownership, chat-owned capability support, and child registration.
   - Implemented/covered: explicit internal owner metadata as `{ owner: { kind: "loop", loopId } | { kind: "chat", turnId }, projectDir, capability }` and chat-owned web artifacts under `.jri/logs/interrogation-artifacts/`.
+  - Implemented/covered: explorer prompts and the pi-subagent delegation payload now include loop-owned JRI web capability instructions; focused coverage was added in `tests/capabilities.test.ts` and `tests/harness.test.ts`.
   - Ensure chat-owned capabilities cannot mutate loop status or append loop events.
   - Register loop-owned web/explorer child processes with the runner so halt cancels runner plus children and capability timeouts produce structured evidence.
   - Keep first-class web capability usability for auditor, explorer, and interrogator without relying on broad shell access.
-  - Fix explorer prompt/capability drift: explorer is allowed to use web, but current explorer prompts/descriptors do not expose web capability instructions, which risks agents ignoring the supported path.
   - Cover loop owner mismatch, chat/loop ownership separation, stale owner metadata, explorer spawn-only mode, child cancellation, and capability artifact refs.
 
 - P0: Harden runtime recovery, durable-state validation, and failure evidence.
@@ -45,6 +45,7 @@
   - Keep destructive rollback behind explicit halt/reset confirmation across every failure shape.
 
 - P0: Finish remaining human-task resume guardrails.
+  - Fix deleted sealed spec reconciliation: deleted sealed spec files currently create pending `specFileDeleted` reconciliation, but the `specsUpdated` handoff/`recordInterrogatorSpecUpdate` path requires reported spec files to exist and has no durable intentional-deletion reconciliation path. This matters because users can get trapped behind the start gate unless the deleted file is restored, even when deletion was intentional. Expected coverage: detect deleted sealed specs, accept intentional deletion and clear the start gate, preserve the restore-file path, and allow accepted start after deletion reconciliation.
   - Keep `done` limited to verification and blocker resolution recording; it must not start a runner.
   - Make `jri loop resume` require verified resolution, active loop id, authorized specs fingerprint, and unchanged specs.
   - On resume, consume/clear the blocker and start a fresh runner at the recorded phase.

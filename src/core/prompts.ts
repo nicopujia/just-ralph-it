@@ -93,10 +93,12 @@ export async function buildPiPrompt(
   }
 
   if (phase === "explorer") {
+    const owner = options.owner ?? (options.loopId ? { kind: "loop" as const, loopId: options.loopId } : undefined);
     return [
       "You are the JRI explorer. Perform one focused, read-only codebase investigation for Ralph.",
       "Use only read-only tools. Do not edit files, run builds, mutate git state, install packages, or change project state.",
       "Return a concise handoff with concrete file references and findings. Prefer exact paths and line numbers when useful.",
+      renderWebCapabilityInstructions(projectDir, owner),
       `Task: ${options.explorerTask ?? "Inspect the codebase and report concise findings."}`,
       agents ? `Operational guide:\n${agents}` : "",
       plan ? `Current implementation plan:\n${plan}` : "",
