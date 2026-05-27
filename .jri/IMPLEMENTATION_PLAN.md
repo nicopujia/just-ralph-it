@@ -33,15 +33,13 @@
 
 - P0: Fix remaining public CLI/auth lifecycle correctness.
   - Confirmed gap: interactive bare `jri` exits with status 1 on `userActionRequired` instead of continuing an inline auth flow or returning to the REPL with direct recovery.
-  - Confirmed gap: `formatStatus` returns raw `stopped`/`halted`, and final/idle result output lacks the expected next-action guidance even when it includes result facts.
   - Confirmed partial: fallback status output shows the full blocked resolution guide, but automatic chat/interrogation messages still summarize only the first step.
-  - Continue Pi-backed auth recovery inline where possible, improve stopped/halted/final status rendering, and emit the full blocked-project resolution guide as an automatic chat/interrogation message.
+  - Continue Pi-backed auth recovery inline where possible and emit the full blocked-project resolution guide as an automatic chat/interrogation message.
 
 - P1: Finish attach and fallback terminal experience.
-  - Confirmed gap: `attachLoop` streams recent output/events with a footer but lacks a compact header/latest milestone view.
-  - Confirmed gap: synthetic `loopOutput` events still use `sequence: 0`, and attach readiness remains timing-sensitive instead of deterministic.
+  - Confirmed gap: attach readiness remains timing-sensitive instead of deterministic.
   - Confirmed gap: interactive bare `jri` uses the fallback readline REPL and prints status only between prompts, not as a live status line.
-  - Add compact attach header/latest milestones, nonzero synthetic sequences or a deterministic stream-only sequence policy, deterministic readiness for attach tests, and a live status line for the fallback REPL.
+  - Add deterministic readiness for attach tests and a live status line for the fallback REPL.
 
 - P1: Validate public packaging and command surface.
   - Confirmed gap: `package.json` exposes `jri` directly as `./src/cli/index.ts`, while tests invoke `bun src/cli/index.ts`; the installed/public bin path is untested.
@@ -75,6 +73,9 @@
   - Auth help passthrough is implemented and covered.
   - Daemon missing/invalid `projectDir` and malformed `loop.halt` payload cases are implemented and tested.
   - Attach stdout cursors are byte-safe for multibyte output.
+  - Raw stopped/halted/final status rendering has been replaced with user-facing next-action guidance.
+  - Attach now renders a compact header with latest context/milestones.
+  - Synthetic `loopOutput` events now use nonzero deterministic sequence values.
   - Bare blocked status formatting includes the full resolution guide; only automatic chat/interrogation blocked guidance remains active above.
   - Public omission of documented-forbidden `jri init`, `jri status`, and `jri loop start` remains complete; internal entrypoint guarding remains active above.
   - Dogfood MVP successful completion now requires durable `subagentFinished` explorer evidence; completion fails without proof, and `loopFinished` plus status `lastResult` success evidence include the explorer proof. Broader first-class SDK/runtime capability work for explorer and web remains active above.

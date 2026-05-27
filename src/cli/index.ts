@@ -462,10 +462,23 @@ function formatStatus(status: {
       ...(result.validationPassed === undefined ? [] : [`Validation: ${result.validationPassed ? "passed" : "failed"}`]),
       ...(result.commit ? [`Commit: ${result.commit}`] : []),
       ...(result.tag ? [`Tag: ${result.tag}`] : []),
+      "Next: Run bare jri to inspect the result or authorize another Ralph loop.",
     ].join("\n");
   }
   if (status.state === "idle" && status.iterations !== undefined) {
     return `idle | iterations: ${status.iterations}`;
+  }
+  if (status.state === "stopped") {
+    return [
+      `stopped${status.iteration ? ` | iteration: ${status.iteration}` : ""}${status.lastResult?.summary ? ` | ${status.lastResult.summary}` : ""}`,
+      "Next: Run jri loop resume to continue, or bare jri to revise requirements before authorizing a new loop.",
+    ].join("\n");
+  }
+  if (status.state === "halted") {
+    return [
+      `halted${status.lastResult?.summary ? ` | ${status.lastResult.summary}` : ""}`,
+      "Next: Inspect the working tree, then run bare jri to reconcile requirements and authorize fresh work.",
+    ].join("\n");
   }
   return status.state;
 }
@@ -505,6 +518,7 @@ async function attachLoop(project: Project, initialStatus: ProjectStatus): Promi
   let nextEvent = events.next();
   let nextInput = input.next();
 
+  renderAttachHeader(initialStatus);
   renderAttachFooter(status);
   try {
     while (!stop) {
@@ -630,6 +644,11 @@ function writeAttachEvent(event: CoreEvent): void {
   clearAttachFooter();
   const text = formatLoopEvent(event);
   process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+}
+
+function renderAttachHeader(status: ProjectStatus): void {
+  const loopLabel = status.activeLoopId ?? status.lastLoopId ?? "unknown";
+  process.stdout.write(`Attached to JRI loop ${loopLabel}\n${formatStatus(status)}\nRecent context:\n`);
 }
 
 function renderAttachFooter(status: ProjectStatus): void {

@@ -196,6 +196,70 @@ describe("CLI", () => {
       expect(stdout).toContain("Validation: passed");
       expect(stdout).toContain("Commit: abc123");
       expect(stdout).toContain("Tag: 0.0.1");
+      expect(stdout).toContain("Next: Run bare jri to inspect the result or authorize another Ralph loop.");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("bare jri with no input renders stopped status with resume guidance", async () => {
+    const dir = await tempInitializedProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        iteration: 2,
+        lastResult: {
+          outcome: "stopped",
+          summary: "Graceful stop completed after iteration 2.",
+        },
+      });
+
+      const proc = Bun.spawn(["bun", cliPath], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      proc.stdin.end();
+      const [exitCode, stdout] = await Promise.all([proc.exited, new Response(proc.stdout).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("stopped | iteration: 2 | Graceful stop completed after iteration 2.");
+      expect(stdout).toContain("Next: Run jri loop resume to continue, or bare jri to revise requirements before authorizing a new loop.");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("bare jri with no input renders halted status with recovery guidance", async () => {
+    const dir = await tempInitializedProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "halted",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lastResult: {
+          outcome: "halted",
+          summary: "Force halt completed. Rollback reset skipped.",
+        },
+      });
+
+      const proc = Bun.spawn(["bun", cliPath], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      proc.stdin.end();
+      const [exitCode, stdout] = await Promise.all([proc.exited, new Response(proc.stdout).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("halted | Force halt completed. Rollback reset skipped.");
+      expect(stdout).toContain("Next: Inspect the working tree, then run bare jri to reconcile requirements and authorize fresh work.");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -836,6 +900,8 @@ describe("CLI", () => {
       const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
 
       expect(exitCode).toBe(0);
+      expect(stdout).toContain("Attached to JRI loop 20260527T184210Z");
+      expect(stdout).toContain("Recent context:");
       expect(stdout).toContain("first line");
       expect(stdout).toContain("second line");
       expect(stdout).toContain("iterationStarted");

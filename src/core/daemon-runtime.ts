@@ -817,7 +817,7 @@ async function readStdoutFromOffset(projectDir: string, loopId: string, stdoutOf
 function syntheticLoopOutputEvent(loopId: string, text: string, stdoutOffset: number, replayed = true): CoreEvent {
   return {
     id: crypto.randomUUID(),
-    sequence: 0,
+    sequence: -(stdoutOffset + 1),
     timestamp: new Date().toISOString(),
     type: "loopOutput",
     loopId,

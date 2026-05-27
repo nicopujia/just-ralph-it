@@ -280,6 +280,7 @@ describe("daemon/runtime scaffolding", () => {
       if (output?.type !== "loopOutput") throw new Error("Expected loopOutput event.");
       expect(output.data).toEqual({ text: "second line\nthird line\n", replayed: true });
       expect(output.stdoutOffset).toBe(Buffer.byteLength("préface café\n", "utf8"));
+      expect(output.sequence).toBe(-(output.stdoutOffset + 1));
       expect(events[1]).toMatchObject({ type: "iterationStarted", sequence: 1 });
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -309,7 +310,7 @@ describe("daemon/runtime scaffolding", () => {
 
       await expect(iterator.next()).resolves.toMatchObject({
         done: false,
-        value: { type: "loopOutput", stdoutOffset: 0, data: { text: "before\n", replayed: true } },
+        value: { type: "loopOutput", sequence: -1, stdoutOffset: 0, data: { text: "before\n", replayed: true } },
       });
       await expect(iterator.next()).resolves.toMatchObject({
         done: false,
@@ -334,6 +335,7 @@ describe("daemon/runtime scaffolding", () => {
         done: false,
         value: {
           type: "loopOutput",
+          sequence: -(Buffer.byteLength("before\n", "utf8") + 1),
           stdoutOffset: Buffer.byteLength("before\n", "utf8"),
           data: { text: "after\n", replayed: false },
         },
