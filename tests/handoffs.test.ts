@@ -24,9 +24,10 @@ describe("agent handoff contracts", () => {
         agent: "interrogator",
         action: "specsUpdated",
         specFiles: [".jri/specs/app.md"],
+        sealedSpecFiles: [".jri/specs/app.md"],
         summary: "App behavior clarified.",
       }),
-    ).toMatchObject({ action: "specsUpdated", specFiles: [".jri/specs/app.md"] });
+    ).toMatchObject({ action: "specsUpdated", specFiles: [".jri/specs/app.md"], sealedSpecFiles: [".jri/specs/app.md"] });
 
     expect(() => parseHandoff("interrogator", { agent: "interrogator", action: "startRequested", trigger: "please just ralph it" })).toThrow(
       "startRequested requires trigger",

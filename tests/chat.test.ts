@@ -141,6 +141,86 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("interrogator specsUpdated handoff can seal completed topics", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+
+      const events = await collect(
+        sendChat(dir, { message: "Deployment is fully decided." }, {
+          interrogatorHarness: async (invocation) => {
+            await writeFile(join(invocation.projectDir, ".jri", "specs", "deployment.md"), "# Deployment\n\nDeploy to Cloudflare.\n");
+            return {
+              handoff: {
+                agent: "interrogator",
+                action: "specsUpdated",
+                specFiles: [".jri/specs/deployment.md"],
+                sealedSpecFiles: [".jri/specs/deployment.md"],
+                summary: "Deployment target is complete.",
+              },
+            };
+          },
+        }),
+      );
+
+      expect(events.at(-1)).toMatchObject({
+        type: "specsUpdated",
+        data: {
+          specFiles: [".jri/specs/deployment.md"],
+          sealedSpecFiles: [".jri/specs/deployment.md"],
+          summary: "Deployment target is complete.",
+        },
+      });
+      const state = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+      expect(state.topics.deployment).toMatchObject({
+        specFile: ".jri/specs/deployment.md",
+        status: "sealed",
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("interrogator scratchpadUpdated handoff emits durable scratchpad evidence", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await mkdir(join(dir, ".jri"), { recursive: true });
+      await writeFile(join(dir, ".jri", "scratchpad.md"), "Open question: deployment credentials.\n");
+      await writeStatusAtomic(dir, defaultStatus(dir));
+
+      const events = await collect(
+        sendChat(dir, { message: "Credentials are unresolved." }, {
+          interrogatorHarness: async (invocation) => {
+            await writeFile(join(invocation.projectDir, ".jri", "scratchpad.md"), "Open question: deployment credentials.\n", "utf8");
+            return {
+              handoff: {
+                agent: "interrogator",
+                action: "scratchpadUpdated",
+                summary: "Recorded unresolved credential question.",
+              },
+            };
+          },
+        }),
+      );
+
+      expect(events.at(-1)).toMatchObject({
+        type: "scratchpadUpdated",
+        data: {
+          scratchpadPath: ".jri/scratchpad.md",
+          summary: "Recorded unresolved credential question.",
+        },
+      });
+      const scratchpad = await readFile(join(dir, ".jri", "scratchpad.md"), "utf8");
+      expect(scratchpad).toContain("deployment credentials");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("normalizes only standalone start triggers", () => {
     expect(normalizeStartTrigger("just ralph it")).toBe("just ralph it");
     expect(normalizeStartTrigger("Just Ralph It!")).toBe("just ralph it");

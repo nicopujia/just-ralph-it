@@ -84,12 +84,17 @@ export async function checkInterrogationStartGate(projectDir: string, options: {
   return pending.length > 0 ? { ok: false, state: next, pending } : { ok: true, state: next };
 }
 
-export async function recordInterrogatorSpecUpdate(projectDir: string, specFiles: string[]): Promise<InterrogationState> {
+export async function recordInterrogatorSpecUpdate(
+  projectDir: string,
+  specFiles: string[],
+  options: { sealedSpecFiles?: string[] } = {},
+): Promise<InterrogationState> {
   const existing = await readInterrogationState(projectDir);
   const next: InterrogationState = structuredClone(existing ?? { schemaVersion: 1, topics: {} });
+  const sealedSpecFiles = new Set((options.sealedSpecFiles ?? []).map(validateSpecFilePath));
+  const filesToRecord = new Set([...specFiles.map(validateSpecFilePath), ...sealedSpecFiles]);
 
-  for (const specFile of specFiles) {
-    const stableSpecFile = validateSpecFilePath(specFile);
+  for (const stableSpecFile of filesToRecord) {
     const absoluteSpecPath = join(projectDir, stableSpecFile);
     if (!(await pathExists(absoluteSpecPath))) {
       throw new JriError(
@@ -107,7 +112,7 @@ export async function recordInterrogatorSpecUpdate(projectDir: string, specFiles
 
     next.topics[targetTopicId] = {
       specFile: stableSpecFile,
-      status: prior?.status === "sealed" ? "sealed" : "open",
+      status: sealedSpecFiles.has(stableSpecFile) || (prior?.status === "sealed" && !prior.pendingReconciliation) ? "sealed" : "open",
       lastReconciledSpecFingerprint: fingerprint,
     };
   }

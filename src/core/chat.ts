@@ -1,4 +1,7 @@
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import { startRalphLoop, type RuntimeOptions } from "./daemon-runtime";
+import { JriError } from "./errors";
 import { invokeDefaultHarness, readProjectConfig, type HarnessAdapter } from "./harness";
 import { checkInterrogationStartGate, recordInterrogatorSpecUpdate } from "./interrogation-state";
 import { modelForAgent } from "./prompts";
@@ -117,10 +120,19 @@ async function* handleInterrogatorHandoff(
   options: ChatRuntimeOptions,
 ): AsyncIterable<CoreEvent> {
   if (handoff.action === "specsUpdated") {
-    await recordInterrogatorSpecUpdate(projectDir, handoff.specFiles);
+    await recordInterrogatorSpecUpdate(projectDir, handoff.specFiles, handoff.sealedSpecFiles ? { sealedSpecFiles: handoff.sealedSpecFiles } : {});
     yield await appendInterrogationEvent(projectDir, {
       type: "specsUpdated",
-      data: { specFiles: handoff.specFiles, summary: handoff.summary },
+      data: { specFiles: handoff.specFiles, summary: handoff.summary, ...(handoff.sealedSpecFiles ? { sealedSpecFiles: handoff.sealedSpecFiles } : {}) },
+    });
+    return;
+  }
+
+  if (handoff.action === "scratchpadUpdated") {
+    await assertScratchpadExists(projectDir);
+    yield await appendInterrogationEvent(projectDir, {
+      type: "scratchpadUpdated",
+      data: { scratchpadPath: ".jri/scratchpad.md", summary: handoff.summary },
     });
     return;
   }
@@ -259,6 +271,21 @@ function defaultHumanTaskVerifier(request: { blocker: Blocker }): HumanTaskVerif
       },
     },
   };
+}
+
+async function assertScratchpadExists(projectDir: string): Promise<void> {
+  const path = join(projectDir, ".jri", "scratchpad.md");
+  try {
+    const info = await stat(path);
+    if (info.isFile()) return;
+  } catch {
+    // Normalize missing or inaccessible scratchpad evidence below.
+  }
+  throw new JriError(
+    "The interrogator reported a scratchpad update, but .jri/scratchpad.md does not exist.",
+    "missing-updated-scratchpad",
+    "Write .jri/scratchpad.md before emitting a scratchpadUpdated handoff.",
+  );
 }
 
 function responseForStatus(status: ProjectStatus): string {

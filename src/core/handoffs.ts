@@ -160,6 +160,7 @@ function parseInterrogator(value: Record<string, unknown>): InterrogatorHandoff 
         action: "specsUpdated",
         specFiles: parseSpecFiles(value.specFiles, "interrogator"),
         summary: requiredString(value.summary, "summary", "interrogator"),
+        ...(value.sealedSpecFiles === undefined ? {} : { sealedSpecFiles: parseSpecFiles(value.sealedSpecFiles, "interrogator") }),
       };
     case "scratchpadUpdated":
       return { agent: "interrogator", action: "scratchpadUpdated", summary: requiredString(value.summary, "summary", "interrogator") };

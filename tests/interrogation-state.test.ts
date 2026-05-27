@@ -91,6 +91,31 @@ describe("interrogation state", () => {
     }
   });
 
+  test("records sealed spec topics with reconciled fingerprints", async () => {
+    const dir = await tempProject();
+    try {
+      await writeFile(join(dir, ".jri", "specs", "deployment.md"), "# Deployment\n\nDeploy with Wrangler.\n");
+
+      const state = await recordInterrogatorSpecUpdate(dir, [".jri/specs/deployment.md"], {
+        sealedSpecFiles: [".jri/specs/deployment.md"],
+      });
+
+      expect(state.topics.deployment).toMatchObject({
+        specFile: ".jri/specs/deployment.md",
+        status: "sealed",
+        lastReconciledSpecFingerprint: await fingerprintSpecFile(dir, ".jri/specs/deployment.md"),
+      });
+
+      await writeFile(join(dir, ".jri", "specs", "deployment.md"), "# Deployment\n\nDeploy with Wrangler and preview URLs.\n");
+      await expect(checkInterrogationStartGate(dir, { now: new Date("2026-05-27T20:00:00.000Z") })).resolves.toMatchObject({
+        ok: false,
+        pending: [{ topicId: "deployment", topic: { pendingReconciliation: { reason: "manualSpecEdit" } } }],
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("clears pending manual reconciliation when the interrogator accepts the updated spec", async () => {
     const dir = await tempProject();
     try {

@@ -123,7 +123,7 @@ export type ArtifactRef = {
 
 export type InterrogatorHandoff =
   | { agent: "interrogator"; action: "messageOnly"; summary?: string }
-  | { agent: "interrogator"; action: "specsUpdated"; specFiles: string[]; summary: string }
+  | { agent: "interrogator"; action: "specsUpdated"; specFiles: string[]; summary: string; sealedSpecFiles?: string[] }
   | { agent: "interrogator"; action: "scratchpadUpdated"; summary: string }
   | { agent: "interrogator"; action: "humanTaskVerified"; verificationSummary?: string }
   | { agent: "interrogator"; action: "humanTaskStillBlocked"; blocker: Blocker }
@@ -222,4 +222,5 @@ export type CoreEvent =
   | (BaseEvent & { type: "chatMessageDelta"; data: { role: "assistant"; text: string } })
   | (BaseEvent & { type: "chatMessageFinished"; data: { role: "assistant" } })
   | (BaseEvent & { type: "chatTurnRecorded"; data: { role: "user" | "assistant"; logPath: ".jri/logs/interrogation.jsonl"; content?: string } })
-  | (BaseEvent & { type: "specsUpdated"; data: { specFiles: string[]; summary: string } });
+  | (BaseEvent & { type: "specsUpdated"; data: { specFiles: string[]; summary: string; sealedSpecFiles?: string[] } })
+  | (BaseEvent & { type: "scratchpadUpdated"; data: { scratchpadPath: ".jri/scratchpad.md"; summary: string } });
