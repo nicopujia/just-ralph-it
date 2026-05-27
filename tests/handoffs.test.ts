@@ -83,6 +83,40 @@ describe("agent handoff contracts", () => {
     expect(() => extractLatestHandoffFromText("planner", "planner finished but forgot JSON")).toThrow("did not emit");
   });
 
+  test("rejects handoff arrays with whitespace-only entries", () => {
+    expect(() =>
+      parseHandoff("auditor", {
+        agent: "auditor",
+        action: "failed",
+        feedback: "Specs need sharper acceptance criteria.",
+        questions: ["   "],
+      }),
+    ).toThrow("questions must be a non-empty array of strings");
+
+    expect(() =>
+      parseHandoff("builder", {
+        agent: "builder",
+        action: "blocked",
+        blocker: {
+          ...blocker,
+          resolutionGuide: {
+            ...blocker.resolutionGuide,
+            steps: ["Set the deployment token in the environment.", "  "],
+          },
+        },
+      }),
+    ).toThrow("blocker.resolutionGuide.steps must be a non-empty array of strings");
+
+    expect(() =>
+      parseHandoff("interrogator", {
+        agent: "interrogator",
+        action: "specsUpdated",
+        specFiles: ["   "],
+        summary: "Updated specs.",
+      }),
+    ).toThrow("specFiles must be a non-empty array of strings");
+  });
+
   test("accepts legacy builder blocker and replan lines during transition", () => {
     expect(extractLatestBuilderHandoffFromText(`JRI_BLOCKER_JSON: ${JSON.stringify(blocker)}`)).toMatchObject({
       action: "blocked",

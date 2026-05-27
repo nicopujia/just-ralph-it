@@ -353,10 +353,14 @@ function requiredString(value: unknown, field: string, agent: HandoffAgent): str
 }
 
 function requiredStringArray(value: unknown, field: string, agent: HandoffAgent): string[] {
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string") || value.length === 0) {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    !value.every((item) => typeof item === "string" && item.trim().length > 0)
+  ) {
     throw invalidHandoff(agent, `${field} must be a non-empty array of strings.`);
   }
-  return value.map((item) => item.trim()).filter(Boolean);
+  return value.map((item) => item.trim());
 }
 
 function requiredBoolean(value: unknown, field: string, agent: HandoffAgent): boolean {

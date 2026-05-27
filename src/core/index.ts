@@ -4,6 +4,7 @@ import { Project, validateExistingProject } from "./project";
 export type * from "./types";
 export { JriError, isJriError } from "./errors";
 export { handoffPrefix, parseHandoff, extractLatestHandoffFromText, extractLatestBuilderHandoffFromText } from "./handoffs";
+export { configJsonSchema } from "./schema";
 export { Project } from "./project";
 export { resolveProjectRoot } from "./project-root";
 

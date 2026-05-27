@@ -14,6 +14,42 @@ export const defaultConfig: ProjectConfig = {
   modelPreset: "openai",
 };
 
+export const configJsonSchema = {
+  $schema: "https://json-schema.org/draft/2020-12/schema",
+  $id: "https://justralph.it/schemas/config.schema.json",
+  type: "object",
+  additionalProperties: false,
+  required: ["schemaVersion", "provider", "modelPreset"],
+  properties: {
+    $schema: { type: "string" },
+    schemaVersion: { const: 1 },
+    provider: { enum: ["openai"] },
+    modelPreset: { enum: ["openai"] },
+    agents: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        interrogator: { $ref: "#/$defs/agentConfig" },
+        explorer: { $ref: "#/$defs/agentConfig" },
+        auditor: { $ref: "#/$defs/agentConfig" },
+        planner: { $ref: "#/$defs/agentConfig" },
+        builder: { $ref: "#/$defs/agentConfig" },
+      },
+    },
+  },
+  $defs: {
+    agentConfig: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        model: { type: "string", minLength: 1 },
+        reasoning: { enum: ["low", "medium", "high", "xhigh"] },
+      },
+      anyOf: [{ required: ["model"] }, { required: ["reasoning"] }],
+    },
+  },
+} as const;
+
 export function defaultStatus(projectDir: string): ProjectStatus {
   return {
     schemaVersion: 1,

@@ -2,13 +2,47 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, test } from "bun:test";
-import { JriError, open, resolveProjectRoot } from "../src/core";
+import { configJsonSchema, JriError, open, resolveProjectRoot } from "../src/core";
 
 async function tempProject(): Promise<string> {
   return await mkdtemp(join(tmpdir(), "jri-test-"));
 }
 
 describe("project initialization", () => {
+  test("exports the canonical config JSON schema", () => {
+    expect(configJsonSchema).toMatchObject({
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      $id: "https://justralph.it/schemas/config.schema.json",
+      additionalProperties: false,
+      required: ["schemaVersion", "provider", "modelPreset"],
+      properties: {
+        schemaVersion: { const: 1 },
+        provider: { enum: ["openai"] },
+        modelPreset: { enum: ["openai"] },
+        agents: {
+          additionalProperties: false,
+          properties: {
+            interrogator: { $ref: "#/$defs/agentConfig" },
+            explorer: { $ref: "#/$defs/agentConfig" },
+            auditor: { $ref: "#/$defs/agentConfig" },
+            planner: { $ref: "#/$defs/agentConfig" },
+            builder: { $ref: "#/$defs/agentConfig" },
+          },
+        },
+      },
+      $defs: {
+        agentConfig: {
+          additionalProperties: false,
+          properties: {
+            model: { type: "string", minLength: 1 },
+            reasoning: { enum: ["low", "medium", "high", "xhigh"] },
+          },
+          anyOf: [{ required: ["model"] }, { required: ["reasoning"] }],
+        },
+      },
+    });
+  });
+
   test("open binds an uninitialized directory without mutating it", async () => {
     const dir = await tempProject();
     try {
