@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { JriError } from "./errors";
 import { parseJsonObject, validateStatus } from "./schema";
@@ -165,32 +165,37 @@ export async function appendLoopEvent(projectDir: string, event: Omit<CoreEvent,
   if (!("loopId" in event) || !event.loopId) {
     throw new JriError("Loop events require a loop id.", "missing-loop-id", "Generate a loop id before appending loop lifecycle events.");
   }
-  const persisted = {
-    ...event,
-    id: event.id ?? crypto.randomUUID(),
-    sequence: await nextEventSequence(projectDir),
-    timestamp: event.timestamp ?? new Date().toISOString(),
-  } as CoreEvent;
-  const path = join(projectDir, ".jri", "logs", event.loopId, "events.jsonl");
-  await mkdir(dirname(path), { recursive: true });
-  await appendFile(path, `${JSON.stringify(persisted)}\n`, "utf8");
-  return persisted;
+  const loopId = event.loopId;
+  return await withEventAppendLock(projectDir, async () => {
+    const persisted = {
+      ...event,
+      id: event.id ?? crypto.randomUUID(),
+      sequence: await nextEventSequence(projectDir),
+      timestamp: event.timestamp ?? new Date().toISOString(),
+    } as CoreEvent;
+    const path = join(projectDir, ".jri", "logs", loopId, "events.jsonl");
+    await mkdir(dirname(path), { recursive: true });
+    await appendFile(path, `${JSON.stringify(persisted)}\n`, "utf8");
+    return persisted;
+  });
 }
 
 export async function appendInterrogationEvent(
   projectDir: string,
   event: Omit<CoreEvent, "id" | "sequence" | "timestamp"> & Partial<Pick<CoreEvent, "id" | "timestamp">>,
 ): Promise<CoreEvent> {
-  const persisted = {
-    ...event,
-    id: event.id ?? crypto.randomUUID(),
-    sequence: await nextEventSequence(projectDir),
-    timestamp: event.timestamp ?? new Date().toISOString(),
-  } as CoreEvent;
-  const path = join(projectDir, ".jri", "logs", "interrogation.jsonl");
-  await mkdir(dirname(path), { recursive: true });
-  await appendFile(path, `${JSON.stringify(persisted)}\n`, "utf8");
-  return persisted;
+  return await withEventAppendLock(projectDir, async () => {
+    const persisted = {
+      ...event,
+      id: event.id ?? crypto.randomUUID(),
+      sequence: await nextEventSequence(projectDir),
+      timestamp: event.timestamp ?? new Date().toISOString(),
+    } as CoreEvent;
+    const path = join(projectDir, ".jri", "logs", "interrogation.jsonl");
+    await mkdir(dirname(path), { recursive: true });
+    await appendFile(path, `${JSON.stringify(persisted)}\n`, "utf8");
+    return persisted;
+  });
 }
 
 export async function nextEventSequence(projectDir: string): Promise<number> {
@@ -265,6 +270,59 @@ async function maxSequenceInJsonl(path: string): Promise<number> {
     }
   }
   return max;
+}
+
+async function withEventAppendLock<T>(projectDir: string, operation: () => Promise<T>): Promise<T> {
+  const lockDir = join(projectDir, ".jri", "logs", ".event-append.lock");
+  await mkdir(dirname(lockDir), { recursive: true });
+  await acquireEventAppendLock(lockDir);
+  try {
+    return await operation();
+  } finally {
+    await rm(lockDir, { recursive: true, force: true });
+  }
+}
+
+async function acquireEventAppendLock(lockDir: string): Promise<void> {
+  const startedAt = Date.now();
+  for (;;) {
+    try {
+      await mkdir(lockDir);
+      await writeFile(join(lockDir, "owner.json"), `${JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() })}\n`, "utf8");
+      return;
+    } catch (error) {
+      if (!isNodeError(error, "EEXIST")) throw error;
+      if (await removeStaleEventAppendLock(lockDir)) continue;
+      if (Date.now() - startedAt > 10_000) {
+        throw new JriError(
+          "Timed out waiting to append a JRI event.",
+          "event-append-lock-timeout",
+          "Retry the command; another JRI process held the event append lock for too long.",
+        );
+      }
+      await sleep(10);
+    }
+  }
+}
+
+async function removeStaleEventAppendLock(lockDir: string): Promise<boolean> {
+  try {
+    const info = await stat(lockDir);
+    if (Date.now() - info.mtimeMs < 30_000) return false;
+    await rm(lockDir, { recursive: true, force: true });
+    return true;
+  } catch (error) {
+    if (isNodeError(error, "ENOENT")) return true;
+    throw error;
+  }
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isNodeError(error: unknown, code: string): boolean {
+  return Boolean(error && typeof error === "object" && "code" in error && error.code === code);
 }
 
 function statusPath(projectDir: string): string {

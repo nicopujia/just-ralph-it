@@ -175,4 +175,37 @@ describe("runtime state primitives", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("concurrent event appends allocate unique monotonic sequences", async () => {
+    const dir = await tempInitializedProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs", "20260527T184210Z"), { recursive: true });
+
+      const events = await Promise.all(
+        Array.from({ length: 25 }, (_, index) =>
+          appendLoopEvent(dir, {
+            type: "validationStarted",
+            loopId: "20260527T184210Z",
+            iteration: 1,
+            data: { command: `command-${index}` },
+          }),
+        ),
+      );
+
+      expect(new Set(events.map((event) => event.sequence)).size).toBe(25);
+      expect([...events.map((event) => event.sequence)].sort((left, right) => left - right)).toEqual(
+        Array.from({ length: 25 }, (_, index) => index + 1),
+      );
+
+      const persisted = await readFile(join(dir, ".jri", "logs", "20260527T184210Z", "events.jsonl"), "utf8");
+      const persistedSequences = persisted
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { sequence: number })
+        .map((event) => event.sequence);
+      expect(persistedSequences).toEqual(Array.from({ length: 25 }, (_, index) => index + 1));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
