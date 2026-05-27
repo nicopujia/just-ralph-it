@@ -36,11 +36,71 @@ describe("CLI", () => {
       const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
 
       expect(exitCode).toBe(0);
-      expect(stderr).toBe("");
+      expect(stderr).toContain(`Initialized JRI in ${dir}`);
       expect(stdout).toContain("I recorded your note.");
 
       const log = await readFile(join(dir, ".jri", "logs", "interrogation.jsonl"), "utf8");
       expect(log).toContain("Need a deployment workflow.");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("bare jri shows full blocked resolution guide in fallback status output", async () => {
+    const dir = await tempInitializedProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Cloudflare billing access is missing.",
+          resolutionGuide: {
+            summary: "A billing-capable account must be connected before deployment.",
+            steps: ["Sign in to Cloudflare.", "Enable billing on the target account."],
+            successCriteria: ["JRI can deploy without an account setup error."],
+            resumeInstruction: "Say done in bare jri after billing is enabled.",
+          },
+        },
+      });
+
+      const proc = Bun.spawn(["bun", cliPath], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      proc.stdin.end();
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain(`Initialized JRI in ${dir}`);
+      expect(stdout).toContain("blocked | reason: needsHumanTask | Cloudflare billing access is missing.");
+      expect(stdout).toContain("1. Sign in to Cloudflare.");
+      expect(stdout).toContain("2. Enable billing on the target account.");
+      expect(stdout).toContain("Success criteria:");
+      expect(stdout).toContain("Resume: Say done in bare jri after billing is enabled.");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("auth help lists stable commands before auth-only passthrough note", async () => {
+    const dir = await tempProject();
+    try {
+      const proc = Bun.spawn(["bun", cliPath, "auth", "--help"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toBe("");
+      expect(stdout).toContain("Stable auth commands:");
+      expect(stdout.indexOf("jri auth status")).toBeLessThan(stdout.indexOf("Advanced passthrough:"));
+      expect(stdout).toContain("This namespace is not general Pi access.");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

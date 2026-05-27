@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import { open, isJriError, JriError } from "../core";
 import type { CoreEvent, Project, ProjectStatus, ProjectState } from "../core";
 import { runDaemon } from "../core/daemon-ipc";
@@ -60,7 +62,11 @@ async function main(argv: string[]): Promise<number> {
   const project = await open(process.cwd());
 
   if (!command) {
+    const shouldPrintInitialized = await needsInitializationNotice(project);
     await project.lifecycle.ensureInitialized();
+    if (shouldPrintInitialized) {
+      console.error(`Initialized JRI in ${project.projectDir}`);
+    }
     if (process.stdin.isTTY) {
       const auth = await project.auth.login();
       if (auth.status === "userActionRequired") {
@@ -83,6 +89,10 @@ async function main(argv: string[]): Promise<number> {
   }
 
   if (command === "auth") {
+    if (subcommand === "--help" || subcommand === "-h" || !subcommand) {
+      console.log(formatAuthHelp());
+      return 0;
+    }
     if (subcommand === "status") {
       const status = await project.auth.status();
       console.log(`${status.provider}: ${status.authenticated ? "authenticated" : "not authenticated"}`);
@@ -162,10 +172,49 @@ function isRunnerPhase(value: string | undefined): value is RunnerPhase {
   return value === "auditing" || value === "planning" || value === "building";
 }
 
+async function needsInitializationNotice(project: Project): Promise<boolean> {
+  const requiredPaths = [
+    join(project.projectDir, ".jri", "config.json"),
+    join(project.projectDir, ".jri", "status.json"),
+    join(project.projectDir, ".jri", "specs"),
+    join(project.projectDir, ".jri", "logs"),
+    join(project.projectDir, ".jri", "scratchpad.md"),
+    join(project.projectDir, "AGENTS.md"),
+  ];
+  for (const path of requiredPaths) {
+    if (!(await pathExists(path))) return true;
+  }
+  return false;
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return false;
+    throw error;
+  }
+}
+
 function usage(error?: string): number {
   if (error) console.error(error);
   console.error("Usage: jri | jri auth {status|login|logout} | jri loop {attach|stop|halt|resume}");
   return 1;
+}
+
+function formatAuthHelp(): string {
+  return [
+    "Usage: jri auth {status|login|logout}",
+    "",
+    "Stable auth commands:",
+    "  jri auth status   Show whether the configured provider is authenticated.",
+    "  jri auth login    Print or complete the provider auth recovery flow.",
+    "  jri auth logout   Remove local Pi-backed OpenAI credentials when possible.",
+    "",
+    "Advanced passthrough:",
+    "  Only auth-related passthrough behavior may be added here. This namespace is not general Pi access.",
+  ].join("\n");
 }
 
 function isActiveLoopState(state: ProjectState): boolean {
@@ -237,12 +286,29 @@ function formatAlreadyHalted(status: ProjectStatus): string {
   return `JRI is already halted.${formatLogHint(status)}`;
 }
 
-function formatStatus(status: { state: string; blocker?: { reason: string; description: string; resolutionGuide: { resumeInstruction: string } }; iteration?: number; iterations?: number; stopRequested: boolean }): string {
+function formatStatus(status: {
+  state: string;
+  blocker?: {
+    reason: string;
+    description: string;
+    resolutionGuide: { summary: string; steps: string[]; successCriteria?: string[]; resumeInstruction: string };
+  };
+  iteration?: number;
+  iterations?: number;
+  stopRequested: boolean;
+}): string {
   if (status.state === "building") {
     return `ralphing${status.iteration ? ` | iteration: ${status.iteration}` : ""} | stop: ${status.stopRequested ? "yes" : "no"}`;
   }
   if (status.state === "blocked" && status.blocker) {
-    return `blocked | reason: ${status.blocker.reason} | ${status.blocker.description} | ${status.blocker.resolutionGuide.resumeInstruction}`;
+    const guide = status.blocker.resolutionGuide;
+    return [
+      `blocked | reason: ${status.blocker.reason} | ${status.blocker.description}`,
+      guide.summary,
+      ...guide.steps.map((step, index) => `${index + 1}. ${step}`),
+      ...(guide.successCriteria?.length ? ["Success criteria:", ...guide.successCriteria.map((criterion) => `- ${criterion}`)] : []),
+      `Resume: ${guide.resumeInstruction}`,
+    ].join("\n");
   }
   if (status.state === "idle" && status.iterations !== undefined) {
     return `idle | iterations: ${status.iterations}`;
@@ -275,6 +341,7 @@ async function attachLoop(project: Project, initialStatus: ProjectStatus): Promi
         const key = result.value;
         nextInput = input.next();
         if (key === "d") {
+          await flushReadyAttachEvents(events, nextEvent);
           stop = true;
           break;
         }
@@ -350,6 +417,23 @@ function attachInput(stdin: NodeJS.ReadStream): AttachInput {
   };
 }
 
+async function flushReadyAttachEvents(
+  events: AsyncIterator<CoreEvent>,
+  nextEvent: Promise<IteratorResult<CoreEvent>>,
+  timeoutMs = 25,
+): Promise<void> {
+  let current = nextEvent;
+  for (;;) {
+    const result = await Promise.race([
+      current.then((value) => ({ ready: true as const, value })),
+      sleep(timeoutMs).then(() => ({ ready: false as const })),
+    ]);
+    if (!result.ready || result.value.done) return;
+    writeAttachEvent(result.value.value);
+    current = events.next();
+  }
+}
+
 function writeAttachEvent(event: CoreEvent): void {
   clearAttachFooter();
   const text = formatLoopEvent(event);
@@ -362,6 +446,10 @@ function renderAttachFooter(status: ProjectStatus): void {
 
 function clearAttachFooter(): void {
   process.stderr.write("\r\x1b[2K");
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function confirm(question: string): Promise<boolean> {
