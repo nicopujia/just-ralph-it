@@ -307,6 +307,7 @@ describe("controlled Pi harness", () => {
       await chmod(fakeWeb, 0o755);
 
       let capturedOptions: Parameters<PiSdkSessionFactory>[0] | undefined;
+      let capturedPrompt = "";
       let capturedToolText = "";
       const listeners: Array<(event: unknown) => void> = [];
       const createSession: PiSdkSessionFactory = async (options) => {
@@ -318,7 +319,8 @@ describe("controlled Pi harness", () => {
               listeners.push(listener);
               return () => {};
             },
-            async prompt() {
+            async prompt(prompt: string) {
+              capturedPrompt = prompt;
               const searchTool = options.customTools?.find((tool) => tool.name === "jri_web_search");
               if (searchTool) {
                 const toolResult = await searchTool.execute(
@@ -368,9 +370,99 @@ describe("controlled Pi harness", () => {
       expect(capturedOptions?.customTools?.map((tool) => tool.name)).toEqual(["jri_web_search"]);
       expect(capturedOptions?.tools).toContain("jri_web_search");
       expect(capturedOptions?.tools).not.toContain("jri_web_fetch");
+      expect(capturedPrompt).toContain("jri_web_search");
+      expect(capturedPrompt).not.toContain("jri --run-web");
       expect(capturedToolText).toContain('"title": "JRI docs"');
       expect(capturedToolText).toContain('"retrievedAt": "2026-05-27T20:00:00.000Z"');
       expect(capturedToolText).not.toContain("<html");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("SDK harness registers only the native web fetch tool for fetch-only sessions", async () => {
+    const dir = await tempProject();
+    try {
+      const fakeWeb = join(dir, "fake-web-fetch.sh");
+      await writeFile(
+        fakeWeb,
+        [
+          "#!/usr/bin/env bash",
+          'printf \'{"url":"https://example.com/docs","title":"JRI docs","fetchedAt":"2026-05-27T20:00:00.000Z","markdown":"# Docs\\\\n\\\\nCurrent docs."}\'',
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeWeb, 0o755);
+
+      let capturedOptions: Parameters<PiSdkSessionFactory>[0] | undefined;
+      let capturedPrompt = "";
+      let capturedToolText = "";
+      const listeners: Array<(event: unknown) => void> = [];
+      const createSession: PiSdkSessionFactory = async (options) => {
+        capturedOptions = options;
+        return {
+          extensionsResult: { extensions: [], diagnostics: [], collisions: [] },
+          session: {
+            subscribe(listener: (event: unknown) => void) {
+              listeners.push(listener);
+              return () => {};
+            },
+            async prompt(prompt: string) {
+              capturedPrompt = prompt;
+              const fetchTool = options.customTools?.find((tool) => tool.name === "jri_web_fetch");
+              if (fetchTool) {
+                const toolResult = await fetchTool.execute(
+                  "tool-call-1",
+                  { url: "https://example.com/docs" },
+                  undefined,
+                  undefined,
+                  {} as never,
+                );
+                capturedToolText = toolResult.content
+                  .flatMap((entry) => ("text" in entry && typeof entry.text === "string" ? [entry.text] : []))
+                  .join("\n");
+              }
+              for (const listener of listeners) {
+                listener({
+                  type: "message_update",
+                  assistantMessageEvent: {
+                    type: "text_delta",
+                    delta: 'SDK answer.\nJRI_HANDOFF_JSON: {"agent":"interrogator","action":"messageOnly","summary":"Answered through SDK."}\n',
+                  },
+                });
+              }
+            },
+            async abort() {},
+            dispose() {},
+          },
+        } as unknown as Awaited<ReturnType<PiSdkSessionFactory>>;
+      };
+
+      const result = await invokePiSdkHarness(
+        {
+          owner: { kind: "chat", turnId: "turn-1" },
+          projectDir: dir,
+          agent: "interrogator",
+          phase: "interrogation",
+          model: { model: "gpt-5.5", reasoning: "xhigh" },
+          context: { refs: [], inline: ["Fetch the current docs."] },
+          capabilities: [{ name: "web", operation: "fetch" }],
+          output: { write: () => {} },
+          signal: new AbortController().signal,
+        },
+        { OPENAI_API_KEY: "test-key", JRI_PI_WEB_COMMAND: fakeWeb },
+        createSession,
+      );
+
+      expect(result.handoff).toMatchObject({ agent: "interrogator", action: "messageOnly" });
+      expect(capturedOptions?.customTools?.map((tool) => tool.name)).toEqual(["jri_web_fetch"]);
+      expect(capturedOptions?.tools).toContain("jri_web_fetch");
+      expect(capturedOptions?.tools).not.toContain("jri_web_search");
+      expect(capturedPrompt).toContain("jri_web_fetch");
+      expect(capturedPrompt).not.toContain("jri --run-web");
+      expect(capturedToolText).toContain('"url": "https://example.com/docs"');
+      expect(capturedToolText).toContain('"fetchedAt": "2026-05-27T20:00:00.000Z"');
+      expect(capturedToolText).toContain('"markdown": "# Docs\\n\\nCurrent docs."');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -392,6 +484,7 @@ describe("controlled Pi harness", () => {
       await chmod(fakePi, 0o755);
 
       let capturedOptions: Parameters<PiSdkSessionFactory>[0] | undefined;
+      let capturedPrompt = "";
       let capturedToolText = "";
       const listeners: Array<(event: unknown) => void> = [];
       const createSession: PiSdkSessionFactory = async (options) => {
@@ -403,7 +496,8 @@ describe("controlled Pi harness", () => {
               listeners.push(listener);
               return () => {};
             },
-            async prompt() {
+            async prompt(prompt: string) {
+              capturedPrompt = prompt;
               const explorerTool = options.customTools?.find((tool) => tool.name === "jri_explorer");
               if (explorerTool) {
                 const toolResult = await explorerTool.execute(
@@ -442,7 +536,7 @@ describe("controlled Pi harness", () => {
           phase: "building",
           model: { model: "gpt-5.5", reasoning: "xhigh" },
           context: { refs: [], inline: ["Loop 20260527T184210Z phase building."] },
-          capabilities: [{ name: "explorer" }],
+          capabilities: [{ name: "web", operation: "search" }, { name: "web", operation: "fetch" }, { name: "explorer" }],
           output: { write: () => {} },
           signal: new AbortController().signal,
         },
@@ -451,8 +545,15 @@ describe("controlled Pi harness", () => {
       );
 
       expect(result.handoff).toMatchObject({ agent: "builder", action: "continue" });
-      expect(capturedOptions?.customTools?.map((tool) => tool.name)).toEqual(["jri_explorer"]);
+      expect(capturedOptions?.customTools?.map((tool) => tool.name)).toEqual(["jri_web_search", "jri_web_fetch", "jri_explorer"]);
+      expect(capturedOptions?.tools).toContain("jri_web_search");
+      expect(capturedOptions?.tools).toContain("jri_web_fetch");
       expect(capturedOptions?.tools).toContain("jri_explorer");
+      expect(capturedPrompt).toContain("jri_web_search");
+      expect(capturedPrompt).toContain("jri_web_fetch");
+      expect(capturedPrompt).toContain("jri_explorer");
+      expect(capturedPrompt).not.toContain("jri --run-web");
+      expect(capturedPrompt).not.toContain("jri --run-explorer");
       expect(capturedToolText).toContain("Found CLI dispatch in src/cli/index.ts.");
       expect(capturedToolText).toContain(".jri/logs/20260527T184210Z/artifacts/explorer-");
       expect(capturedToolText).not.toContain("JRI_EXPLORER_SUMMARY_JSON");

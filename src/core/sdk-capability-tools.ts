@@ -1,7 +1,8 @@
 import { defineTool, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { jriExplorerToolName, jriWebFetchToolName, jriWebSearchToolName } from "./capability-tool-names";
 import type { CapabilityOwner } from "./capability-ownership";
-import { runWebSearch } from "./web-capability";
+import { runWebFetch, runWebSearch } from "./web-capability";
 import type { AgentName } from "./types";
 
 type HarnessPhase = "interrogation" | "auditing" | "planning" | "building" | "explorer";
@@ -31,14 +32,18 @@ export type SdkCapabilityTools = {
   activeToolNames: string[];
 };
 
-const webSearchToolName = "jri_web_search";
 const webSearchParameters = Type.Object({
   query: Type.String({
     minLength: 1,
     description: "Focused search query for current external facts.",
   }),
 });
-const explorerToolName = "jri_explorer";
+const webFetchParameters = Type.Object({
+  url: Type.String({
+    minLength: 1,
+    description: "Absolute URL to fetch as bounded markdown/plain text.",
+  }),
+});
 const explorerParameters = Type.Object({
   task: Type.String({
     minLength: 1,
@@ -49,14 +54,14 @@ const explorerParameters = Type.Object({
 export function buildSdkCapabilityTools(request: SdkCapabilityToolsRequest): SdkCapabilityTools {
   const customTools: ToolDefinition[] = [];
 
-  if (shouldRegisterInterrogatorWebSearch(request)) {
+  if (declaresWebOperation(request, "search")) {
     customTools.push(
       defineTool({
-        name: webSearchToolName,
+        name: jriWebSearchToolName,
         label: "JRI Web Search",
         description: "Search current external sources through JRI-owned bounded web capability.",
         promptSnippet: "Search current external sources through the JRI-owned web capability",
-        promptGuidelines: ["Use jri_web_search when current external facts are required. Do not guess current facts."],
+        promptGuidelines: [`Use ${jriWebSearchToolName} when current external facts are required. Do not guess current facts.`],
         parameters: webSearchParameters,
         async execute(_toolCallId, params, signal) {
           const results = await runWebSearch({
@@ -75,15 +80,44 @@ export function buildSdkCapabilityTools(request: SdkCapabilityToolsRequest): Sdk
     );
   }
 
+  if (declaresWebOperation(request, "fetch")) {
+    customTools.push(
+      defineTool({
+        name: jriWebFetchToolName,
+        label: "JRI Web Fetch",
+        description: "Fetch one source URL through JRI-owned bounded markdown/plain-text web capability.",
+        promptSnippet: "Fetch a specific source URL through the JRI-owned web capability",
+        promptGuidelines: [
+          `Use ${jriWebFetchToolName} when you need bounded markdown/plain-text content from a known source URL.`,
+          "Do not fetch pages through ad hoc shell commands or raw HTML dumps.",
+        ],
+        parameters: webFetchParameters,
+        async execute(_toolCallId, params, signal) {
+          const result = await runWebFetch({
+            projectDir: request.projectDir,
+            owner: request.owner,
+            url: params.url,
+            ...(request.env ? { env: request.env } : {}),
+            ...(signal ? { signal } : {}),
+          });
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
+            details: { capability: "web.fetch", result },
+          };
+        },
+      }),
+    );
+  }
+
   if (shouldRegisterLoopExplorer(request)) {
     customTools.push(
       defineTool({
-        name: explorerToolName,
+        name: jriExplorerToolName,
         label: "JRI Explorer",
         description: "Run one read-only JRI-owned explorer delegation for focused codebase investigation.",
         promptSnippet: "Delegate focused read-only codebase investigation through the JRI explorer capability",
         promptGuidelines: [
-          "Use jri_explorer for focused read-only codebase investigation before risky changes.",
+          `Use ${jriExplorerToolName} for focused read-only codebase investigation before risky changes.`,
           "Keep the task narrow and concrete; the explorer returns a bounded summary and optional artifact reference.",
         ],
         parameters: explorerParameters,
@@ -128,13 +162,8 @@ export function buildSdkCapabilityTools(request: SdkCapabilityToolsRequest): Sdk
   };
 }
 
-function shouldRegisterInterrogatorWebSearch(request: SdkCapabilityToolsRequest): boolean {
-  return (
-    request.owner.kind === "chat" &&
-    request.agent === "interrogator" &&
-    request.phase === "interrogation" &&
-    request.capabilities.some((capability) => capability.name === "web" && capability.operation === "search")
-  );
+function declaresWebOperation(request: SdkCapabilityToolsRequest, operation: "search" | "fetch"): boolean {
+  return request.capabilities.some((capability) => capability.name === "web" && capability.operation === operation);
 }
 
 function shouldRegisterLoopExplorer(request: SdkCapabilityToolsRequest): request is SdkCapabilityToolsRequest & {

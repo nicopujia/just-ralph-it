@@ -5,8 +5,8 @@
   - Remaining: confirm whether the CLI-owned Pi terminal surface satisfies the spec's intended Pi-primitives requirement or record the fallback rationale as durable dogfood evidence.
 
 - [ ] Replace prompt-injected web/explorer shell escape hatches with harness-native, runtime-declared capabilities reachable by the intended agents.
-  - Current state: SDK-native `jri_web_search` exists for chat-owned interrogator SDK sessions, and loop-owned planner/builder sessions now reach native explorer work through `jri_explorer -> invokePiSdkHarness() -> runExplorerTask()`, which records durable `subagentStarted`/`subagentFinished` evidence instead of relying on prompt text for `jri --run-explorer ...`.
-  - Remaining: add SDK-native `jri_web_fetch`, enforce native web search/fetch separation, and remove the remaining prompt-driven `jri --run-web ...` escape hatch. The new acceptance test matters because it proves the loop-owned explorer path executes through the harness and leaves durable subagent evidence, protecting the contract from regressions.
+  - Current state: SDK-native `jri_web_search` and `jri_web_fetch` now exist, SDK tool registration enforces declared web search/fetch separation, and SDK prompts for interrogator/planner/builder/auditor now reference native `jri_web_search`, `jri_web_fetch`, and `jri_explorer` tool names instead of leaking hidden `jri --run-web ...` / `jri --run-explorer ...` wrapper commands. Loop-owned planner/builder explorer work still flows through `jri_explorer -> invokePiSdkHarness() -> runExplorerTask()`, which records durable `subagentStarted`/`subagentFinished` evidence.
+  - Remaining: retire the remaining legacy wrapper-command guidance outside the updated SDK prompt paths and keep regression coverage around native web/explorer capability routing so the harness-native contract stays durable.
 
 - [ ] Finish capability policy cleanup around native descriptors and grants.
   - Current state: `capabilities.ts`, `web-capability.ts`, and `harness.ts` enforce many ownership/shape rules, but descriptor-like policy is still mixed with prompt-driven paths.

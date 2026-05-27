@@ -202,6 +202,7 @@ export async function invokePiSdkHarness(
     contextInline: invocation.context.inline,
     ...(invocation.phase === "interrogation" && invocation.context.inline[0] ? { userMessage: invocation.context.inline[0] } : {}),
     capabilities: invocation.capabilities,
+    capabilityStyle: "sdk-tools",
   });
   const sessionDir = join(invocation.projectDir, ".jri", "logs", loopId, "pi-sessions");
   const agentDir = join(invocation.projectDir, ".jri", "logs", loopId, "pi-agent");

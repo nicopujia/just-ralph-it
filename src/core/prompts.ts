@@ -1,6 +1,10 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
-import { renderExplorerCapabilityInstructions, renderWebCapabilityInstructions } from "./capabilities";
+import {
+  renderExplorerCapabilityInstructions,
+  renderWebCapabilityInstructions,
+  type CapabilityInstructionStyle,
+} from "./capabilities";
 import type { CapabilityOwner, WebCapabilityOperation } from "./capability-ownership";
 import type { AgentConfig, AgentName, ProjectConfig, ReasoningLevel } from "./types";
 
@@ -36,6 +40,7 @@ export async function buildPiPrompt(
     explorerTask?: string;
     userMessage?: string;
     capabilities?: PromptCapabilityDescriptor[];
+    capabilityStyle?: CapabilityInstructionStyle;
   } = {},
 ): Promise<string> {
   const specFiles = await listSpecFiles(projectDir);
@@ -142,17 +147,18 @@ export async function buildPiPrompt(
 function renderDeclaredCapabilityInstructions(
   projectDir: string,
   phase: "interrogation" | "auditing" | "planning" | "building" | "explorer",
-  options: { owner?: CapabilityOwner; loopId?: string; capabilities?: PromptCapabilityDescriptor[] },
+  options: { owner?: CapabilityOwner; loopId?: string; capabilities?: PromptCapabilityDescriptor[]; capabilityStyle?: CapabilityInstructionStyle },
 ): string {
   const capabilities = options.capabilities ?? defaultCapabilitiesForPhase(phase);
   const owner = options.owner ?? (options.loopId ? { kind: "loop" as const, loopId: options.loopId } : undefined);
+  const capabilityStyle = options.capabilityStyle ?? "wrapper-commands";
   const sections: string[] = [];
   if (capabilities.some((capability) => capability.name === "web")) {
-    const instructions = renderWebCapabilityInstructions(projectDir, owner, declaredWebOperations(capabilities));
+    const instructions = renderWebCapabilityInstructions(projectDir, owner, declaredWebOperations(capabilities), capabilityStyle);
     if (instructions) sections.push(instructions);
   }
   if (capabilities.some((capability) => capability.name === "explorer")) {
-    const instructions = renderExplorerCapabilityInstructions(projectDir, options.loopId);
+    const instructions = renderExplorerCapabilityInstructions(projectDir, options.loopId, capabilityStyle);
     if (instructions) sections.push(instructions);
   }
   return sections.join("\n\n");

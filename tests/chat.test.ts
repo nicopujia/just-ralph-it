@@ -11,7 +11,7 @@ import { defaultStatus } from "../src/core/schema";
 import { appendLoopEvent, updateStatus, writeStatusAtomic } from "../src/core/runtime-state";
 import { fingerprintSpecFile, recordInterrogatorSpecUpdate, writeInterrogationState } from "../src/core/interrogation-state";
 import type { CoreEvent } from "../src/core";
-import type { HarnessAdapter } from "../src/core/harness";
+import { invokePiSdkHarness, type HarnessAdapter, type PiSdkSessionFactory } from "../src/core/harness";
 
 async function tempProject(): Promise<string> {
   return await mkdtemp(join(tmpdir(), "jri-chat-test-"));
@@ -161,6 +161,100 @@ describe("interrogation chat", () => {
         type: "chatTurnRecorded",
         data: { role: "assistant", content: "First streamed answer chunk. Second streamed answer chunk." },
       });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("ordinary chat can use native SDK web fetch without hidden wrapper commands in the SDK prompt", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nUse current docs when needed.\n", "utf8");
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await recordInterrogatorSpecUpdate(dir, [".jri/specs/app.md"]);
+
+      const fakeWeb = join(dir, "fake-web-fetch.sh");
+      await writeFile(
+        fakeWeb,
+        [
+          "#!/usr/bin/env bash",
+          'printf \'{"url":"https://example.com/docs","title":"Docs","fetchedAt":"2026-05-27T20:00:00.000Z","markdown":"# Docs\\\\n\\\\nCurrent guidance."}\'',
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeWeb, 0o755);
+
+      let capturedOptions: Parameters<PiSdkSessionFactory>[0] | undefined;
+      let capturedPrompt = "";
+      let capturedToolText = "";
+      const listeners: Array<(event: unknown) => void> = [];
+      const createSession: PiSdkSessionFactory = async (options) => {
+        capturedOptions = options;
+        return {
+          extensionsResult: { extensions: [], diagnostics: [], collisions: [] },
+          session: {
+            subscribe(listener: (event: unknown) => void) {
+              listeners.push(listener);
+              return () => {};
+            },
+            async prompt(prompt: string) {
+              capturedPrompt = prompt;
+              const fetchTool = options.customTools?.find((tool) => tool.name === "jri_web_fetch");
+              if (fetchTool) {
+                const toolResult = await fetchTool.execute(
+                  "tool-call-1",
+                  { url: "https://example.com/docs" },
+                  undefined,
+                  undefined,
+                  {} as never,
+                );
+                capturedToolText = toolResult.content
+                  .flatMap((entry) => ("text" in entry && typeof entry.text === "string" ? [entry.text] : []))
+                  .join("\n");
+              }
+              for (const listener of listeners) {
+                listener({
+                  type: "message_update",
+                  assistantMessageEvent: {
+                    type: "text_delta",
+                    delta:
+                      'Fetched the current docs.\nJRI_HANDOFF_JSON: {"agent":"interrogator","action":"messageOnly","summary":"Answered with native web fetch."}\n',
+                  },
+                });
+              }
+            },
+            async abort() {},
+            dispose() {},
+          },
+        } as unknown as Awaited<ReturnType<PiSdkSessionFactory>>;
+      };
+
+      const events = await collect(
+        sendChat(dir, { message: "Fetch the current docs." }, {
+          interrogatorHarness: (invocation) =>
+            invokePiSdkHarness(invocation, { OPENAI_API_KEY: "test-key", JRI_PI_WEB_COMMAND: fakeWeb }, createSession),
+        }),
+      );
+
+      expect(capturedOptions?.customTools?.map((tool) => tool.name)).toEqual(["jri_web_search", "jri_web_fetch"]);
+      expect(capturedOptions?.tools).toContain("jri_web_fetch");
+      expect(capturedPrompt).toContain("jri_web_fetch");
+      expect(capturedPrompt).not.toContain("jri --run-web");
+      expect(capturedToolText).toContain('"url": "https://example.com/docs"');
+      expect(capturedToolText).toContain('"fetchedAt": "2026-05-27T20:00:00.000Z"');
+      expect(capturedToolText).toContain('"markdown": "# Docs\\n\\nCurrent guidance."');
+      expect(events.map((event) => event.type)).toEqual([
+        "chatTurnRecorded",
+        "chatMessageStarted",
+        "chatMessageDelta",
+        "chatMessageFinished",
+        "chatTurnRecorded",
+      ]);
+
+      const log = await readJsonl(join(dir, ".jri", "logs", "interrogation.jsonl"));
+      expect(log.at(-1)).toMatchObject({ type: "chatTurnRecorded", data: { role: "assistant", content: "Fetched the current docs." } });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
