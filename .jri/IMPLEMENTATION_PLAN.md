@@ -6,7 +6,7 @@
   - Keep the public `HarnessInvocation` / `HarnessResult` boundary as the JRI-owned contract and make the SDK adapter the production path for interrogator, auditor, planner, builder, and explorer sessions.
   - Keep subprocess/CLI shellout only as an explicit compatibility or test path, not the default MVP architecture.
   - Preserve JRI-controlled auth, model resolution, selected context refs, capability descriptors, output sink writes, artifact refs, handoff parsing, and cancellation.
-  - Preserve raw handoff frames in durable loop output or an equivalent raw log; current default adapter strips `JRI_HANDOFF_JSON:` lines before writing the loop output sink even though the handoff spec says frames remain inspectable in `stdout.log`.
+  - Confirmed implemented: the default harness preserves raw `JRI_HANDOFF_JSON:` frames for loop-owned output while chat-owned output remains user-visible and stripped, with regression coverage in `tests/harness.test.ts`.
   - Map provider auth, model resolution, missing capability, timeout, cancellation, invalid handoff, and SDK failures into actionable `JriError`s and durable loop failure evidence.
   - Extend fake harness coverage for assistant chunks, artifacts, auth errors, capability errors, delays, cancellation, malformed/missing handoffs, duplicate handoffs, wrong-agent/wrong-phase handoffs, raw handoff preservation, and SDK failure normalization.
 

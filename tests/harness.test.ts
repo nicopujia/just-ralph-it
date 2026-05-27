@@ -175,6 +175,51 @@ describe("controlled Pi harness", () => {
     }
   });
 
+  test("default loop harness preserves raw handoff frames in the output sink", async () => {
+    const dir = await tempProject();
+    try {
+      const fakePi = join(dir, "fake-pi-raw-handoff.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          "printf 'Builder display output.\\n'",
+          "printf 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"Build complete.\"}\\n'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      const chunks: string[] = [];
+      const result = await invokeDefaultHarness(
+        {
+          owner: { kind: "loop", loopId: "20260527T184210Z" },
+          projectDir: dir,
+          agent: "builder",
+          phase: "building",
+          model: { model: "gpt-5.5", reasoning: "xhigh" },
+          context: { refs: [], inline: ["Loop 20260527T184210Z phase building."] },
+          capabilities: [],
+          output: {
+            write: (chunk) => {
+              chunks.push(chunk);
+            },
+          },
+          signal: new AbortController().signal,
+        },
+        {
+          JRI_PI_COMMAND: fakePi,
+        },
+      );
+
+      expect(result.handoff).toMatchObject({ agent: "builder", action: "complete" });
+      expect(chunks.join("")).toContain("Builder display output.");
+      expect(chunks.join("")).toContain('JRI_HANDOFF_JSON: {"agent":"builder","action":"complete","summary":"Build complete."}');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("default harness cancels an in-flight Pi child process", async () => {
     const dir = await tempProject();
     try {

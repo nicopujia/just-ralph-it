@@ -117,8 +117,8 @@ export async function invokeDefaultHarness(invocation: HarnessInvocation, env: N
     timeoutMs: 10 * 60 * 1000,
     signal: invocation.signal,
   });
-  const assistantText = stripHandoffLines(output.text).trim();
-  if (assistantText) await invocation.output.write(assistantText);
+  const visibleOutput = invocation.owner.kind === "loop" ? output.text.trimEnd() : stripHandoffLines(output.text).trim();
+  if (visibleOutput) await invocation.output.write(visibleOutput);
   if (output.exitCode !== 0) {
     throw new JriError(
       `${invocation.agent} harness exited with code ${output.exitCode}.`,
