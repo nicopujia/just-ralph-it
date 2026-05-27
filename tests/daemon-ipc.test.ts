@@ -76,6 +76,37 @@ describe("daemon IPC", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("idle shutdown waits until registered loops are no longer active", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const daemon = await startDaemonServer({ paths, idleTimeoutMs: 20 });
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+      });
+
+      await daemonStatus(dir, { paths });
+      await Bun.sleep(60);
+
+      const activeStatus = await daemonStatus(dir, { paths });
+      expect(activeStatus.state).toBe("building");
+
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        lastLoopId: "20260527T184210Z",
+      });
+      await Bun.sleep(80);
+
+      await expect(daemonStatus(dir, { paths })).rejects.toThrow("The JRI daemon is unavailable.");
+    } finally {
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {

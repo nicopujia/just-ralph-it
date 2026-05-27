@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JriError, isJriError } from "./errors";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
+import { isActiveState } from "./runtime-state";
 import type { CoreEvent, ProjectStatus } from "./types";
 
 export const DAEMON_PROTOCOL_VERSION = 1;
@@ -99,7 +100,7 @@ export async function startDaemonServer(options: DaemonServerOptions = {}): Prom
   if (process.platform !== "win32") await rm(paths.socketPath, { force: true });
 
   let connections = 0;
-  let idleTimer: Timer | undefined;
+  let idleTimer: ReturnType<typeof setTimeout> | undefined;
   let closing = false;
 
   const server = createServer((socket) => {
@@ -107,7 +108,7 @@ export async function startDaemonServer(options: DaemonServerOptions = {}): Prom
     clearIdleTimer();
     handleConnection(socket, paths, () => {
       closing = true;
-      server.close();
+      void closeWithCleanup();
     }).finally(() => {
       connections -= 1;
       if (!closing && connections === 0) scheduleIdleClose();
@@ -135,25 +136,69 @@ export async function startDaemonServer(options: DaemonServerOptions = {}): Prom
     close: async () => {
       closing = true;
       clearIdleTimer();
-      await closeServer(server);
-      if (process.platform !== "win32") await rm(paths.socketPath, { force: true });
+      await closeWithCleanup();
     },
   };
 
   function scheduleIdleClose(): void {
     clearIdleTimer();
     idleTimer = setTimeout(() => {
-      if (connections === 0) {
-        closing = true;
-        server.close();
-      }
+      void closeIfIdle();
     }, idleTimeoutMs);
+    idleTimer.unref?.();
+  }
+
+  async function closeIfIdle(): Promise<void> {
+    if (connections !== 0 || closing) return;
+    try {
+      if (await hasActiveRegisteredLoop(paths)) {
+        scheduleIdleClose();
+        return;
+      }
+      if (connections === 0 && !closing) {
+        closing = true;
+        await closeWithCleanup();
+      }
+    } catch {
+      scheduleIdleClose();
+    }
   }
 
   function clearIdleTimer(): void {
     if (idleTimer) clearTimeout(idleTimer);
     idleTimer = undefined;
   }
+
+  async function closeWithCleanup(): Promise<void> {
+    clearIdleTimer();
+    await closeServer(server);
+    if (process.platform !== "win32") await rm(paths.socketPath, { force: true });
+  }
+}
+
+async function hasActiveRegisteredLoop(paths: DaemonPaths): Promise<boolean> {
+  const registry = await readRegistry(paths.registryPath);
+  let changed = false;
+
+  for (const project of registry.projects) {
+    try {
+      const status = await getRecoveredStatus(project.projectDir);
+      if (project.activeLoopId !== status.activeLoopId) {
+        project.activeLoopId = status.activeLoopId;
+        project.lastSeenAt = new Date().toISOString();
+        changed = true;
+      }
+      if (isActiveState(status.state)) {
+        if (changed) await writeRegistry(paths.registryPath, registry);
+        return true;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  if (changed) await writeRegistry(paths.registryPath, registry);
+  return false;
 }
 
 export async function runDaemon(options: DaemonServerOptions = {}): Promise<void> {
@@ -457,6 +502,7 @@ function connectionError(error: unknown): JriError {
 }
 
 function closeServer(server: Server): Promise<void> {
+  if (!server.listening) return Promise.resolve();
   return new Promise((resolveClose, rejectClose) => {
     server.close((error) => (error ? rejectClose(error) : resolveClose()));
   });
