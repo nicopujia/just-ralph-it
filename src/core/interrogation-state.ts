@@ -49,7 +49,6 @@ export async function checkInterrogationStartGate(projectDir: string, options: {
 
   for (const topic of Object.values(next.topics)) {
     if (topic.pendingReconciliation) continue;
-    if (topic.status !== "sealed" || !topic.lastReconciledSpecFingerprint) continue;
 
     const absoluteSpecPath = join(projectDir, topic.specFile);
     if (!(await pathExists(absoluteSpecPath))) {
@@ -58,6 +57,19 @@ export async function checkInterrogationStartGate(projectDir: string, options: {
         reason: "specFileDeleted",
         detectedAt: now,
         summary: `${topic.specFile} was deleted after this topic was sealed. Confirm whether the requirement was removed or should be restored.`,
+      };
+      changed = true;
+      continue;
+    }
+
+    if (topic.status !== "sealed") continue;
+
+    if (!topic.lastReconciledSpecFingerprint) {
+      topic.status = "open";
+      topic.pendingReconciliation = {
+        reason: "manualSpecEdit",
+        detectedAt: now,
+        summary: `${topic.specFile} was sealed without a reconciled fingerprint. Reconcile the current spec in chat before starting Ralph.`,
       };
       changed = true;
       continue;
