@@ -22,11 +22,6 @@
   - Route pre-start aborts, in-flight aborts, timeouts, halt, graceful-stop boundaries, connected-but-silent daemon IPC, parser failures, lock loss, and capability failures through one structured failure path.
   - Normalize failures into durable `loopFinished` failure events plus stopped status/`lastResult` evidence that recovery can trust.
 
-- P0: Harden web fetch result validation.
-  - Confirmed gap: `runWebFetch` falls back to the requested URL/current time, accepts `markdown` or generic `content`, and does not validate raw HTML/content type for the declared markdown operation.
-  - Require source URL, fetched timestamp, declared markdown/plain-text content type or format, and non-HTML content before results enter agent context.
-  - Return precise `web-capability-invalid-shape` or `web-capability-*` failures with artifact refs when output was captured.
-
 - P0: Harden interrogation readiness and spec mutation safety.
   - Confirmed gap: auditor context includes specs but not unresolved scratchpad scope; loop context ignores `.jri/scratchpad.md` even when readiness depends on resolving or deferring it.
   - Confirmed gap: manual spec reconciliation checks sealed topics but skips changed open topics; recent-turn reconstruction is coarse and includes the last eight turns whenever any topic is open.
@@ -84,6 +79,7 @@
   - Public omission of documented-forbidden `jri init`, `jri status`, and `jri loop start` remains complete; internal entrypoint guarding remains active above.
   - Dogfood MVP successful completion now requires durable `subagentFinished` explorer evidence; completion fails without proof, and `loopFinished` plus status `lastResult` success evidence include the explorer proof. Broader first-class SDK/runtime capability work for explorer and web remains active above.
   - Runtime failure normalization now treats `harness-cancelled`, `runtime-cancelled`, `explorer-failed`, `capability-*`, and `web-capability-*` errors as durable loop failures; child-process cancellation fanout remains active above.
+  - Web fetch result validation now requires wrapper-provided source URL, fetched timestamp, and `markdown`; rejects generic `content`, non-markdown/plain declared formats, non-text content types, and obvious raw HTML before content enters agent context. This matters because fetched web content is injected into agent context, so core must not invent provenance or pass raw HTML as markdown. Covered by `tests/harness.test.ts`.
   - Single-line handoff parsing, duplicate/missing/wrong-agent/wrong-phase rejection, strict known-key parsing, validation artifact refs, affected auditor topics, and obvious secret-shaped handoff rejection are implemented.
   - Public event type coverage now includes the canonical `RuntimeStateEvent` export and the `CoreEvent` compatibility alias.
   - Daemon-owned public lifecycle mutation baseline, read-only local fallback, status mutation locking, loop id generation, event sequencing baseline, start-trigger normalization, runtime recovery for dead/stale ownership, planner plan existence checks, and stopped-loop resume lineage checks are implemented.

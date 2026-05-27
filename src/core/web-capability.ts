@@ -77,9 +77,22 @@ export async function runWebFetch(
     timeoutMs,
   );
 
-  const markdown = stringField(parsed, "markdown") ?? stringField(parsed, "content") ?? "";
-  const fetchedAt = stringField(parsed, "fetchedAt") ?? new Date().toISOString();
-  const sourceUrl = stringField(parsed, "url") ?? url;
+  const fields = {
+    url: stringField(parsed, "url"),
+    fetchedAt: stringField(parsed, "fetchedAt"),
+    markdown: stringField(parsed, "markdown"),
+  };
+  const missing = Object.entries(fields)
+    .filter(([, fieldValue]) => fieldValue === undefined)
+    .map(([fieldName]) => fieldName);
+  if (missing.length > 0) {
+    throw invalidWebShapeError(`fetch response is missing string field(s): ${missing.join(", ")}.`);
+  }
+
+  const markdown = fields.markdown!;
+  validateFetchMarkdownShape(parsed, markdown);
+  const fetchedAt = fields.fetchedAt!;
+  const sourceUrl = fields.url!;
   const title = stringField(parsed, "title");
   const bytes = encodeUtf8(markdown);
   const artifactMarkdown = truncateUtf8ByBytes(markdown, maxFetchArtifactBytes);
@@ -205,10 +218,44 @@ function normalizeSearchResult(value: unknown, fallbackRetrievedAt: string | und
 
 function invalidWebShapeError(detail: string): JriError {
   return new JriError(
-    `JRI web capability returned an invalid search result shape: ${detail}`,
+    `JRI web capability returned an invalid result shape: ${detail}`,
     "web-capability-invalid-shape",
     "Check the JRI web access wrapper output and retry.",
   );
+}
+
+function validateFetchMarkdownShape(record: Record<string, unknown>, markdown: string): void {
+  const declaredFormat = lowerStringField(record, "format") ?? lowerStringField(record, "contentFormat");
+  const declaredContentType = lowerStringField(record, "contentType") ?? lowerStringField(record, "mimeType");
+  if (declaredFormat !== undefined && declaredFormat !== "markdown" && declaredFormat !== "plain" && declaredFormat !== "text") {
+    throw invalidWebShapeError(`fetch response format must be markdown or plain text, got ${declaredFormat}.`);
+  }
+  if (declaredContentType !== undefined && !isPlainTextContentType(declaredContentType)) {
+    throw invalidWebShapeError(`fetch markdown must be markdown/plain text, not raw HTML or ${declaredContentType}.`);
+  }
+  if (looksLikeHtml(markdown)) {
+    throw invalidWebShapeError("fetch markdown must be markdown/plain text, not raw HTML.");
+  }
+}
+
+function lowerStringField(record: Record<string, unknown>, key: string): string | undefined {
+  return stringField(record, key)?.trim().toLowerCase();
+}
+
+function isPlainTextContentType(contentType: string): boolean {
+  const mediaType = contentType.split(";")[0]?.trim();
+  return (
+    mediaType === "text/markdown" ||
+    mediaType === "text/plain" ||
+    mediaType === "text/x-markdown" ||
+    mediaType === "application/markdown" ||
+    mediaType === "application/x-markdown"
+  );
+}
+
+function looksLikeHtml(value: string): boolean {
+  const trimmed = value.trimStart().slice(0, 512).toLowerCase();
+  return trimmed.startsWith("<!doctype html") || trimmed.startsWith("<html") || /<body[\s>]/.test(trimmed);
 }
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {

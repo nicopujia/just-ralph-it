@@ -561,6 +561,86 @@ describe("controlled Pi harness", () => {
     }
   });
 
+  test("runWebFetch requires source URL, fetched timestamp, and markdown field", async () => {
+    const dir = await tempProject();
+    try {
+      const cases = [
+        {
+          name: "missing-url",
+          payload: { fetchedAt: "2026-05-27T00:00:00.000Z", markdown: "# Docs" },
+          message: "fetch response is missing string field(s): url",
+        },
+        {
+          name: "missing-fetched-at",
+          payload: { url: "https://example.com/docs", markdown: "# Docs" },
+          message: "fetch response is missing string field(s): fetchedAt",
+        },
+        {
+          name: "generic-content",
+          payload: { url: "https://example.com/docs", fetchedAt: "2026-05-27T00:00:00.000Z", content: "# Docs" },
+          message: "fetch response is missing string field(s): markdown",
+        },
+      ];
+
+      for (const testCase of cases) {
+        const fakeWeb = join(dir, `fake-web-${testCase.name}.ts`);
+        await writeFile(
+          fakeWeb,
+          [`#!${process.execPath}`, `process.stdout.write(${JSON.stringify(JSON.stringify(testCase.payload))});`].join("\n"),
+          "utf8",
+        );
+        await chmod(fakeWeb, 0o755);
+
+        await expect(
+          runWebFetch({
+            projectDir: dir,
+            owner: { kind: "loop", loopId: "20260527T184210Z" },
+            url: "https://example.com/docs",
+            env: {
+              JRI_PI_WEB_COMMAND: fakeWeb,
+            },
+          }),
+        ).rejects.toThrow(testCase.message);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runWebFetch rejects raw HTML before it enters agent context", async () => {
+    const dir = await tempProject();
+    try {
+      const fakeWeb = join(dir, "fake-web-html.ts");
+      await writeFile(
+        fakeWeb,
+        [
+          `#!${process.execPath}`,
+          "process.stdout.write(JSON.stringify({",
+          "  url: 'https://example.com/docs',",
+          "  fetchedAt: '2026-05-27T00:00:00.000Z',",
+          "  contentType: 'text/html',",
+          "  markdown: '<!doctype html><html><body><h1>Docs</h1></body></html>'",
+          "}));",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeWeb, 0o755);
+
+      await expect(
+        runWebFetch({
+          projectDir: dir,
+          owner: { kind: "loop", loopId: "20260527T184210Z" },
+          url: "https://example.com/docs",
+          env: {
+            JRI_PI_WEB_COMMAND: fakeWeb,
+          },
+        }),
+      ).rejects.toThrow("fetch markdown must be markdown/plain text, not raw HTML");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("runWebFetch stores chat-owned artifacts under interrogation artifacts", async () => {
     const dir = await tempProject();
     try {
