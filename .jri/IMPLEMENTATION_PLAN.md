@@ -34,7 +34,7 @@
 
 - [ ] P0: Harden durable contracts and schema exports.
   - Completed/tested slice: canonical `.jri/config.json` JSON Schema is exported from core, and handoff array validators reject whitespace-only values for `specFiles`, `questions`, blocker `steps`, `successCriteria`, and related fields.
-  - Make handoff extraction resilient to trailing/partial malformed records without silently accepting bad lifecycle decisions; invalid or missing handoffs should still fail with actionable phase-specific recovery.
+  - Completed/tested slice: handoff extraction now requires exactly one explicit valid handoff decision per phase, rejects multiple handoff records, and fails on malformed/partial handoff-prefixed output instead of carrying forward an earlier valid decision; invalid or missing handoffs fail with actionable phase-specific recovery.
 
 - [ ] P0: Fill MVP-critical tests before dogfood.
   - Add focused tests for Pi SDK harness fakes, web search/fetch capability errors/artifacts/citations, Pi-subagent explorer descriptors and halt cancellation, real interrogator handoffs/spec updates/context reconstruction/manual edit reconciliation, verified vs still-blocked human-task flow, chat persistence semantics, daemon handshake/version negotiation, attach TUI controls/state errors, halt reset handling, canonical schema export, and handoff trim edge cases.

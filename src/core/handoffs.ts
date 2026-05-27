@@ -74,36 +74,28 @@ export function parseHandoffJson(agent: HandoffAgent, rawJson: string, phaseLabe
 }
 
 export function extractLatestHandoffFromText(agent: HandoffAgent, text: string, phaseLabel: string = agent): AgentHandoff {
-  const lines = text.split("\n").reverse();
-  const line = lines.find((candidate) => candidate.trimStart().startsWith(handoffPrefix));
-  if (!line) {
-    throw new JriError(
-      `The ${phaseLabel} phase did not emit a machine-readable JRI handoff.`,
-      "missing-agent-handoff",
-      `Emit exactly one line that starts with ${handoffPrefix} followed by the ${phaseLabel} JSON contract.`,
-    );
-  }
-  const rawJson = line.slice(line.indexOf(handoffPrefix) + handoffPrefix.length).trim();
+  const rawJson = extractSinglePrefixedRecord(text, handoffPrefix, phaseLabel);
   return parseHandoffJson(agent, rawJson, phaseLabel);
 }
 
 export function extractLatestBuilderHandoffFromText(text: string, phaseLabel = "builder"): BuilderHandoff {
-  const lines = text.split("\n").reverse();
-  const handoffLine = lines.find((candidate) => candidate.trimStart().startsWith(handoffPrefix));
-  if (handoffLine) {
-    const rawJson = handoffLine.slice(handoffLine.indexOf(handoffPrefix) + handoffPrefix.length).trim();
-    return parseHandoff("builder", parseRawJson(rawJson, phaseLabel)) as BuilderHandoff;
+  const handoffRecords = extractPrefixedRecords(text, handoffPrefix);
+  if (handoffRecords.length > 0) {
+    assertSingleRecord(handoffRecords, phaseLabel, handoffPrefix);
+    return parseHandoff("builder", parseRawJson(onlyRecord(handoffRecords), phaseLabel)) as BuilderHandoff;
   }
 
-  const blockerLine = lines.find((candidate) => candidate.trimStart().startsWith(legacyBlockerPrefix));
-  if (blockerLine) {
-    const rawJson = blockerLine.slice(blockerLine.indexOf(legacyBlockerPrefix) + legacyBlockerPrefix.length).trim();
+  const blockerRecords = extractPrefixedRecords(text, legacyBlockerPrefix);
+  if (blockerRecords.length > 0) {
+    assertSingleRecord(blockerRecords, "builder blocker", legacyBlockerPrefix);
+    const rawJson = onlyRecord(blockerRecords);
     return { agent: "builder", action: "blocked", blocker: parseBlocker(parseRawJson(rawJson, "builder blocker")) };
   }
 
-  const replanLine = lines.find((candidate) => candidate.trimStart().startsWith(legacyReplanPrefix));
-  if (replanLine) {
-    const reason = replanLine.slice(replanLine.indexOf(legacyReplanPrefix) + legacyReplanPrefix.length).trim();
+  const replanRecords = extractPrefixedRecords(text, legacyReplanPrefix);
+  if (replanRecords.length > 0) {
+    assertSingleRecord(replanRecords, "builder replan", legacyReplanPrefix);
+    const reason = onlyRecord(replanRecords).trim();
     return { agent: "builder", action: "needsReplan", reason: reason || "Builder requested plan regeneration." };
   }
 
@@ -112,6 +104,50 @@ export function extractLatestBuilderHandoffFromText(text: string, phaseLabel = "
     "missing-agent-handoff",
     `Emit exactly one line that starts with ${handoffPrefix} followed by the ${phaseLabel} JSON contract.`,
   );
+}
+
+function extractSinglePrefixedRecord(text: string, prefix: string, phaseLabel: string): string {
+  const records = extractPrefixedRecords(text, prefix);
+  if (records.length === 0) {
+    throw new JriError(
+      `The ${phaseLabel} phase did not emit a machine-readable JRI handoff.`,
+      "missing-agent-handoff",
+      `Emit exactly one line that starts with ${handoffPrefix} followed by the ${phaseLabel} JSON contract.`,
+    );
+  }
+  assertSingleRecord(records, phaseLabel, prefix);
+  return onlyRecord(records);
+}
+
+function extractPrefixedRecords(text: string, prefix: string): string[] {
+  const records: string[] = [];
+  for (const line of text.split("\n")) {
+    if (line.trimStart().startsWith(prefix)) {
+      records.push(line.slice(line.indexOf(prefix) + prefix.length).trim());
+    }
+  }
+  return records;
+}
+
+function assertSingleRecord(records: string[], phaseLabel: string, prefix: string): void {
+  if (records.length === 1) return;
+  throw new JriError(
+    `The ${phaseLabel} phase emitted multiple machine-readable JRI handoffs.`,
+    "multiple-agent-handoffs",
+    `Emit exactly one line that starts with ${prefix} for the ${phaseLabel} contract.`,
+  );
+}
+
+function onlyRecord(records: string[]): string {
+  const record = records[0];
+  if (record === undefined) {
+    throw new JriError(
+      "The handoff record was unexpectedly missing after validation.",
+      "missing-agent-handoff",
+      `Emit exactly one line that starts with ${handoffPrefix} followed by the JSON contract.`,
+    );
+  }
+  return record;
 }
 
 function parseInterrogator(value: Record<string, unknown>): InterrogatorHandoff {

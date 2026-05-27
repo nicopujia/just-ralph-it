@@ -71,16 +71,21 @@ describe("agent handoff contracts", () => {
     });
   });
 
-  test("extracts the latest bounded handoff and rejects missing handoffs", () => {
-    const text = [
-      "free-form prose",
-      'JRI_HANDOFF_JSON: {"agent":"builder","action":"continue","summary":"More work remains."}',
-      'JRI_HANDOFF_JSON: {"agent":"builder","action":"complete","summary":"Scope complete.","url":"https://example.test"}',
-      "",
-    ].join("\n");
+  test("extracts a bounded handoff and rejects missing handoffs", () => {
+    const text = ["free-form prose", 'JRI_HANDOFF_JSON: {"agent":"builder","action":"complete","summary":"Scope complete.","url":"https://example.test"}', ""].join("\n");
 
     expect(extractLatestBuilderHandoffFromText(text)).toMatchObject({ action: "complete", url: "https://example.test" });
     expect(() => extractLatestHandoffFromText("planner", "planner finished but forgot JSON")).toThrow("did not emit");
+  });
+
+  test("rejects ambiguous or trailing malformed handoff records instead of reusing an earlier decision", () => {
+    const valid = 'JRI_HANDOFF_JSON: {"agent":"builder","action":"complete","summary":"Scope complete."}';
+
+    expect(() => extractLatestBuilderHandoffFromText([valid, 'JRI_HANDOFF_JSON: {"agent":"builder","action":"continue"', ""].join("\n"))).toThrow(
+      "multiple machine-readable JRI handoffs",
+    );
+
+    expect(() => extractLatestBuilderHandoffFromText('JRI_HANDOFF_JSON: {"agent":"builder","action":"continue"')).toThrow("not valid JSON");
   });
 
   test("rejects handoff arrays with whitespace-only entries", () => {
