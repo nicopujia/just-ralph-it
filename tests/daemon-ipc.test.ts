@@ -7,6 +7,7 @@ import {
   daemonHaltLoop,
   daemonObserveLoop,
   daemonRequestStop,
+  daemonStartLoop,
   daemonStatus,
   startDaemonServer,
   type DaemonPaths,
@@ -75,6 +76,44 @@ describe("daemon IPC", () => {
       const events = await collect(daemonObserveLoop(dir, { paths, includeStdout: true }));
       expect(events.map((event) => event.type)).toEqual(["loopOutput", "loopStarted", "stopRequested"]);
       expect(events[0]).toMatchObject({ type: "loopOutput", data: { text: "agent output\n", replayed: true } });
+    } finally {
+      await daemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("routes daemon-owned loop start over streaming IPC", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const daemon = await startDaemonServer({
+      paths,
+      idleTimeoutMs: 10_000,
+      runtimeOptions: {
+        now: new Date("2026-05-27T20:00:00.000Z"),
+        spawnRunner: ({ phase }) => ({ pid: process.pid, command: `runner ${phase}` }),
+      },
+    });
+    try {
+      const events = await collect(daemonStartLoop(dir, { paths }));
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const registry = JSON.parse(await readFile(paths.registryPath, "utf8"));
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: "loopStarted",
+        loopId: "20260527T200000Z",
+        data: { projectDir: dir, pid: process.pid },
+      });
+      expect(status).toMatchObject({
+        state: "auditing",
+        activeLoopId: "20260527T200000Z",
+        process: { pid: process.pid, command: "runner auditing" },
+        lock: { owner: "daemon", pid: process.pid, operation: "audit" },
+      });
+      expect(registry.projects[0]).toMatchObject({
+        projectDir: dir,
+        activeLoopId: "20260527T200000Z",
+      });
     } finally {
       await daemon.close();
       await rm(dir, { recursive: true, force: true });

@@ -84,6 +84,41 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("standalone start trigger can stream an injected daemon-owned start event", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+
+      const events = await collect(
+        sendChat(dir, { message: "ralfealo" }, {
+          startLoop: async function* () {
+            yield {
+              id: "event-1",
+              sequence: 1,
+              timestamp: "2026-05-27T20:00:00.000Z",
+              type: "loopStarted",
+              loopId: "20260527T200000Z",
+              data: { projectDir: dir, pid: 44444 },
+            };
+          },
+        }),
+      );
+
+      expect(events.map((event) => event.type)).toEqual([
+        "chatTurnRecorded",
+        "chatMessageStarted",
+        "chatMessageDelta",
+        "chatMessageFinished",
+        "chatTurnRecorded",
+        "loopStarted",
+      ]);
+      expect(events[5]).toMatchObject({ type: "loopStarted", data: { pid: 44444 } });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("done verifies an existing needs-human-task blocker only after verifier approval", async () => {
     const dir = await tempProject();
     try {

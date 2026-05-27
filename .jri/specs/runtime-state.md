@@ -22,6 +22,7 @@ and is not required after initialization.
 .jri/
   config.json
   status.json
+  interrogation-state.json  # generated lazily by interrogation
   scratchpad.md
   specs/
   logs/
@@ -42,6 +43,9 @@ and is not required after initialization.
   of guessing values.
 - `.jri/status.json` records current project status, active loop id, process
   metadata, stop requests, blocker state, and lock information.
+- `.jri/interrogation-state.json` records machine-readable topic sealing,
+  spec-fingerprint reconciliation, and manual-edit reconciliation state. It is
+  generated lazily and is not requirements truth.
 - `.jri/status.json` stores the specs fingerprint authorized for the current
   controllable lifecycle as `authorizedSpecsFingerprint`. Runtime treats this as
   an opaque deterministic equality token for the accepted specs, not as a

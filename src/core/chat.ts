@@ -13,6 +13,7 @@ export type HumanTaskVerifier = (request: {
 
 export type ChatRuntimeOptions = RuntimeOptions & {
   verifyHumanTask?: HumanTaskVerifier;
+  startLoop?: (projectDir: string, options: RuntimeOptions) => AsyncIterable<CoreEvent>;
 };
 
 export async function* sendChat(projectDir: string, input: ChatInput, options: ChatRuntimeOptions = {}): AsyncIterable<CoreEvent> {
@@ -33,11 +34,15 @@ export async function* sendChat(projectDir: string, input: ChatInput, options: C
   const trigger = normalizeStartTrigger(message);
   if (trigger) {
     yield* emitAssistant(projectDir, `Start request accepted (${trigger}). Running the specs auditor now.`);
-    yield await startRalphLoop(projectDir, options);
+    yield* (options.startLoop ?? startLoopLocally)(projectDir, options);
     return;
   }
 
   yield* emitAssistant(projectDir, responseForStatus(status));
+}
+
+async function* startLoopLocally(projectDir: string, options: RuntimeOptions): AsyncIterable<CoreEvent> {
+  yield await startRalphLoop(projectDir, options);
 }
 
 export function normalizeStartTrigger(message: string): "just ralph it" | "ralfealo" | null {

@@ -3,8 +3,8 @@ import { dirname, join } from "node:path";
 import { getAuthStatus, login, logout } from "./auth";
 import { sendChat } from "./chat";
 import { JriError } from "./errors";
-import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
-import { daemonHaltLoop, daemonObserveLoop, daemonRequestStop, daemonResumeLoop, daemonStatus } from "./daemon-ipc";
+import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop, startRalphLoop } from "./daemon-runtime";
+import { daemonHaltLoop, daemonObserveLoop, daemonRequestStop, daemonResumeLoop, daemonStartLoop, daemonStatus } from "./daemon-ipc";
 import { defaultConfig, defaultStatus, parseJsonObject, validateConfig, validateStatus } from "./schema";
 import type { AuthResult, AuthState, ChatInput, CoreEvent, HaltOptions, LoopObserveOptions, ProjectConfig, ProjectStatus } from "./types";
 
@@ -97,7 +97,7 @@ export class Project {
 
   private async *sendChat(input: ChatInput): AsyncIterable<CoreEvent> {
     await this.ensureInitialized();
-    yield* sendChat(this.projectDir, input);
+    yield* sendChat(this.projectDir, input, { startLoop: startLoopWithFallback });
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -147,6 +147,15 @@ async function* resumeWithFallback(projectDir: string): AsyncIterable<CoreEvent>
   } catch (error) {
     if (!isDaemonUnavailable(error)) throw error;
     yield* resumeLoop(projectDir);
+  }
+}
+
+async function* startLoopWithFallback(projectDir: string): AsyncIterable<CoreEvent> {
+  try {
+    yield* daemonStartLoop(projectDir);
+  } catch (error) {
+    if (!isDaemonUnavailable(error)) throw error;
+    yield await startRalphLoop(projectDir);
   }
 }
 

@@ -4,7 +4,7 @@ import { homedir, tmpdir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { JriError, isJriError } from "./errors";
-import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
+import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop, startRalphLoop, type RuntimeOptions } from "./daemon-runtime";
 import { isActiveState } from "./runtime-state";
 import type { CoreEvent, HaltOptions, LoopObserveOptions, ProjectStatus } from "./types";
 
@@ -49,6 +49,7 @@ type DaemonServerHandle = {
 type DaemonServerOptions = {
   paths?: DaemonPaths;
   idleTimeoutMs?: number;
+  runtimeOptions?: RuntimeOptions;
 };
 
 type DaemonClientOptions = LoopObserveOptions &
@@ -89,6 +90,10 @@ export async function daemonRequestStop(projectDir: string, options: DaemonClien
   await daemonRequest("loop.stop", { projectDir }, { ...options, startIfUnavailable: true });
 }
 
+export async function* daemonStartLoop(projectDir: string, options: DaemonClientOptions = {}): AsyncIterable<CoreEvent> {
+  yield* daemonStream("loop.start", { projectDir }, { ...options, startIfUnavailable: true });
+}
+
 export async function* daemonHaltLoop(projectDir: string, options: DaemonClientOptions = {}): AsyncIterable<CoreEvent> {
   yield* daemonStream("loop.halt", { projectDir, halt: haltOptionsParam(options) }, { ...options, startIfUnavailable: true });
 }
@@ -111,7 +116,7 @@ export async function startDaemonServer(options: DaemonServerOptions = {}): Prom
   const server = createServer((socket) => {
     connections += 1;
     clearIdleTimer();
-    handleConnection(socket, paths, () => {
+    handleConnection(socket, paths, options.runtimeOptions ?? {}, () => {
       closing = true;
       void closeWithCleanup();
     }).finally(() => {
@@ -389,7 +394,7 @@ async function connectSocket(socketPath: string): Promise<Socket> {
   });
 }
 
-async function handleConnection(socket: Socket, paths: DaemonPaths, requestShutdown: () => void): Promise<void> {
+async function handleConnection(socket: Socket, paths: DaemonPaths, runtimeOptions: RuntimeOptions, requestShutdown: () => void): Promise<void> {
   let buffer = "";
   socket.setEncoding("utf8");
   for await (const chunk of socket) {
@@ -400,12 +405,12 @@ async function handleConnection(socket: Socket, paths: DaemonPaths, requestShutd
       const line = buffer.slice(0, newline).trim();
       buffer = buffer.slice(newline + 1);
       if (!line) continue;
-      await handleRequestLine(socket, paths, line, requestShutdown);
+      await handleRequestLine(socket, paths, runtimeOptions, line, requestShutdown);
     }
   }
 }
 
-async function handleRequestLine(socket: Socket, paths: DaemonPaths, line: string, requestShutdown: () => void): Promise<void> {
+async function handleRequestLine(socket: Socket, paths: DaemonPaths, runtimeOptions: RuntimeOptions, line: string, requestShutdown: () => void): Promise<void> {
   let request: DaemonRequest;
   try {
     request = parseRequest(line);
@@ -443,20 +448,27 @@ async function handleRequestLine(socket: Socket, paths: DaemonPaths, line: strin
       return;
     }
     if (request.method === "loop.stop") {
-      const event = await requestGracefulStop(projectDir);
+      const event = await requestGracefulStop(projectDir, runtimeOptions);
       await updateRegistry(paths, projectDir);
       writeResponse(socket, { id: request.id, ok: true, result: event.type === "stopRequested" ? { requested: event.data.requested } : undefined });
       return;
     }
+    if (request.method === "loop.start") {
+      const event = await startRalphLoop(projectDir, runtimeOptions);
+      await updateRegistry(paths, projectDir);
+      writeStreamEvent(socket, request.id, event);
+      writeStreamDone(socket, request.id);
+      return;
+    }
     if (request.method === "loop.observe") {
-      for await (const event of observeLoop(projectDir, observeOptionsFromParams(request.params))) {
+      for await (const event of observeLoop(projectDir, { ...runtimeOptions, ...observeOptionsFromParams(request.params) })) {
         writeStreamEvent(socket, request.id, event);
       }
       writeStreamDone(socket, request.id);
       return;
     }
     if (request.method === "loop.halt") {
-      for await (const event of haltLoop(projectDir, haltOptionsFromParams(request.params))) {
+      for await (const event of haltLoop(projectDir, { ...runtimeOptions, ...haltOptionsFromParams(request.params) })) {
         writeStreamEvent(socket, request.id, event);
       }
       await updateRegistry(paths, projectDir);
@@ -464,7 +476,7 @@ async function handleRequestLine(socket: Socket, paths: DaemonPaths, line: strin
       return;
     }
     if (request.method === "loop.resume") {
-      for await (const event of resumeLoop(projectDir)) {
+      for await (const event of resumeLoop(projectDir, runtimeOptions)) {
         writeStreamEvent(socket, request.id, event);
       }
       await updateRegistry(paths, projectDir);
