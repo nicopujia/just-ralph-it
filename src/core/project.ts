@@ -2,6 +2,7 @@ import { mkdir, rename, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { JriError } from "./errors";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop } from "./daemon-runtime";
+import { daemonHaltLoop, daemonObserveLoop, daemonRequestStop, daemonResumeLoop, daemonStatus } from "./daemon-ipc";
 import { defaultConfig, defaultStatus, parseJsonObject, validateConfig, validateStatus } from "./schema";
 import type { AuthResult, AuthState, ChatInput, CoreEvent, ProjectConfig, ProjectStatus } from "./types";
 
@@ -38,7 +39,14 @@ export class Project {
   };
 
   readonly status = {
-    get: async (): Promise<ProjectStatus> => getRecoveredStatus(this.projectDir),
+    get: async (): Promise<ProjectStatus> => {
+      try {
+        return await daemonStatus(this.projectDir);
+      } catch (error) {
+        if (!isDaemonUnavailable(error)) throw error;
+        return await getRecoveredStatus(this.projectDir);
+      }
+    },
   };
 
   readonly auth = {
@@ -59,16 +67,21 @@ export class Project {
 
   readonly loop = {
     observe: (): AsyncIterable<CoreEvent> => {
-      return observeLoop(this.projectDir);
+      return observeWithFallback(this.projectDir);
     },
     requestStop: async (): Promise<void> => {
-      await requestGracefulStop(this.projectDir);
+      try {
+        await daemonRequestStop(this.projectDir);
+      } catch (error) {
+        if (!isDaemonUnavailable(error)) throw error;
+        await requestGracefulStop(this.projectDir);
+      }
     },
     halt: (): AsyncIterable<CoreEvent> => {
-      return haltLoop(this.projectDir);
+      return haltWithFallback(this.projectDir);
     },
     resume: (): AsyncIterable<CoreEvent> => {
-      return resumeLoop(this.projectDir);
+      return resumeWithFallback(this.projectDir);
     },
   };
 
@@ -107,6 +120,37 @@ export class Project {
     await this.readConfig();
     await this.getStatus();
   }
+}
+
+async function* observeWithFallback(projectDir: string): AsyncIterable<CoreEvent> {
+  try {
+    yield* daemonObserveLoop(projectDir);
+  } catch (error) {
+    if (!isDaemonUnavailable(error)) throw error;
+    yield* observeLoop(projectDir);
+  }
+}
+
+async function* haltWithFallback(projectDir: string): AsyncIterable<CoreEvent> {
+  try {
+    yield* daemonHaltLoop(projectDir);
+  } catch (error) {
+    if (!isDaemonUnavailable(error)) throw error;
+    yield* haltLoop(projectDir);
+  }
+}
+
+async function* resumeWithFallback(projectDir: string): AsyncIterable<CoreEvent> {
+  try {
+    yield* daemonResumeLoop(projectDir);
+  } catch (error) {
+    if (!isDaemonUnavailable(error)) throw error;
+    yield* resumeLoop(projectDir);
+  }
+}
+
+function isDaemonUnavailable(error: unknown): boolean {
+  return error instanceof JriError && error.code === "daemon-unavailable";
 }
 
 export async function validateExistingProject(projectDir: string): Promise<void> {

@@ -31,9 +31,13 @@ Next work:
 - [x] P0 (selected): Add daemon/runtime scaffolding to core loop controls without Pi
   SDK execution yet: recovery-aware status reads, loop event replay observation,
   graceful stop toggle, and halt scaffolding are implemented and tested.
-- [ ] P0: Implement actual IPC + daemon runner.
+- [x] P0: Implement actual IPC + daemon runner.
+  Completed a core-owned JSON-line socket/named-pipe protocol with hidden `--daemon`
+  CLI entrypoint, user-state registry, daemon `status/observe/stop/halt/resume`
+  routing, read-only fallback for status+observe, lazy startup for mutating loop
+  controls, and validation coverage in `tests/daemon-ipc.test.ts`.
 - [ ] P0: Implement Pi-backed execution/session startup.
-- [ ] P0: Implement idle shutdown.
+- [ ] P0: Implement idle shutdown hardening (beyond baseline).
 - [ ] P0: Implement full resume runner.
 - [ ] P1: Expand test coverage into status transitions, planner/loop command
   behavior, and daemon recovery paths.

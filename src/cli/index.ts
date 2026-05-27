@@ -1,8 +1,14 @@
 #!/usr/bin/env bun
 import { open, isJriError } from "../core";
+import { runDaemon } from "../core/daemon-ipc";
 
 async function main(argv: string[]): Promise<number> {
   const [command, subcommand] = argv;
+  if (command === "--daemon") {
+    await runDaemon();
+    return 0;
+  }
+
   const project = await open(process.cwd());
 
   if (!command) {
