@@ -1,5 +1,17 @@
 import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import {
+  AuthStorage,
+  createAgentSession,
+  DefaultResourceLoader,
+  ModelRegistry,
+  SessionManager,
+  SettingsManager,
+  type AgentSessionEvent,
+  type CreateAgentSessionOptions,
+  type CreateAgentSessionResult,
+} from "@earendil-works/pi-coding-agent";
 import { getAuthStatus } from "./auth";
 import { explorerCapabilityDescriptor, renderExplorerAgentDescriptor, webCapabilityDescriptor } from "./capabilities";
 import type { CapabilityOwner } from "./capability-ownership";
@@ -40,6 +52,8 @@ export type HarnessResult = {
 };
 
 export type HarnessAdapter = (invocation: HarnessInvocation) => Promise<HarnessResult>;
+
+export type PiSdkSessionFactory = (options: CreateAgentSessionOptions) => Promise<CreateAgentSessionResult>;
 
 const explorerHandoffLimit = explorerCapabilityDescriptor.limits.handoffChars;
 const explorerTimeoutMs = explorerCapabilityDescriptor.limits.timeoutMs;
@@ -101,6 +115,10 @@ export async function invokeDefaultHarness(invocation: HarnessInvocation, env: N
     throw harnessCancelledError();
   }
 
+  if (!env.JRI_PI_COMMAND) {
+    return await invokePiSdkHarness(invocation, env);
+  }
+
   const loopId = invocation.owner.kind === "loop" ? invocation.owner.loopId : `chat-${invocation.owner.turnId}`;
   const userMessage = invocation.phase === "interrogation" ? invocation.context.inline[0] : undefined;
   const built = await buildControlledPiCommand({
@@ -143,6 +161,132 @@ export async function invokeDefaultHarness(invocation: HarnessInvocation, env: N
 
   return {
     handoff: extractLatestHandoffFromText(invocation.agent, output.text, invocation.phase),
+  };
+}
+
+export async function invokePiSdkHarness(
+  invocation: HarnessInvocation,
+  env: NodeJS.ProcessEnv = process.env,
+  createSession: PiSdkSessionFactory = createAgentSession,
+): Promise<HarnessResult> {
+  assertHarnessCapabilities(invocation);
+  if (invocation.signal.aborted) {
+    throw harnessCancelledError();
+  }
+  if (invocation.agent === "explorer") {
+    throw new JriError(
+      "Explorer invocations use the explorer capability wrapper, not the generic handoff harness.",
+      "unsupported-harness-agent",
+      "Run explorer tasks through the JRI explorer capability.",
+    );
+  }
+
+  const loopId = invocation.owner.kind === "loop" ? invocation.owner.loopId : `chat-${invocation.owner.turnId}`;
+  const prompt = await buildPiPrompt(invocation.projectDir, invocation.phase, {
+    owner: invocation.owner,
+    loopId,
+    contextRefs: invocation.context.refs,
+    contextInline: invocation.context.inline,
+    ...(invocation.phase === "interrogation" && invocation.context.inline[0] ? { userMessage: invocation.context.inline[0] } : {}),
+    capabilities: invocation.capabilities,
+  });
+  const sessionDir = join(invocation.projectDir, ".jri", "logs", loopId, "pi-sessions");
+  const agentDir = join(invocation.projectDir, ".jri", "logs", loopId, "pi-agent");
+  await mkdir(sessionDir, { recursive: true });
+  await mkdir(agentDir, { recursive: true });
+
+  const authStorage = AuthStorage.create(piAuthPath(env));
+  if (env.OPENAI_API_KEY?.trim()) {
+    authStorage.setRuntimeApiKey("openai", env.OPENAI_API_KEY.trim());
+  }
+  const modelRegistry = ModelRegistry.create(authStorage);
+  const model = modelRegistry.find("openai", invocation.model.model);
+  if (!model) {
+    throw new JriError(
+      `JRI could not resolve OpenAI model ${invocation.model.model}.`,
+      "model-not-found",
+      "Check .jri/config.json agent model overrides or update the Pi SDK model registry.",
+    );
+  }
+  if (!modelRegistry.hasConfiguredAuth(model)) {
+    throw new JriError(
+      "OpenAI authentication is required before JRI can start a controlled Pi SDK session.",
+      "auth-required",
+      "Run jri auth login, set OPENAI_API_KEY, or complete Pi OpenAI auth, then retry.",
+    );
+  }
+
+  const settingsManager = SettingsManager.inMemory({
+    defaultProvider: "openai",
+    defaultModel: invocation.model.model,
+    defaultThinkingLevel: invocation.model.reasoning,
+    sessionDir,
+    retry: { enabled: false },
+  });
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: invocation.projectDir,
+    agentDir,
+    settingsManager,
+    noExtensions: true,
+    noSkills: true,
+    noPromptTemplates: true,
+    noThemes: true,
+    noContextFiles: true,
+    appendSystemPromptOverride: () => [],
+  });
+  await resourceLoader.reload();
+
+  const chunks: string[] = [];
+  let completed = false;
+  const { session } = await createSession({
+    cwd: invocation.projectDir,
+    agentDir,
+    authStorage,
+    modelRegistry,
+    model,
+    thinkingLevel: invocation.model.reasoning,
+    tools: allowedToolsForPhase(invocation.phase),
+    resourceLoader,
+    settingsManager,
+    sessionManager: SessionManager.create(invocation.projectDir, sessionDir),
+  });
+  const abort = (): void => {
+    void session.abort().catch(() => {});
+  };
+  invocation.signal.addEventListener("abort", abort, { once: true });
+  try {
+    const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+      if (event.type !== "message_update" || event.assistantMessageEvent.type !== "text_delta") return;
+      chunks.push(event.assistantMessageEvent.delta);
+    });
+    try {
+      await session.prompt(prompt, { source: "rpc" });
+      completed = true;
+    } finally {
+      unsubscribe();
+    }
+  } catch (error) {
+    if (invocation.signal.aborted) throw harnessCancelledError();
+    throw normalizeSdkHarnessError(error, invocation.agent);
+  } finally {
+    invocation.signal.removeEventListener("abort", abort);
+    session.dispose();
+  }
+
+  if (invocation.signal.aborted) throw harnessCancelledError();
+  if (!completed) {
+    throw new JriError(
+      `${invocation.agent} SDK harness ended before completion.`,
+      "harness-failed",
+      "Retry after checking the captured SDK diagnostics.",
+    );
+  }
+
+  const outputText = chunks.join("");
+  const visibleOutput = invocation.owner.kind === "loop" ? outputText.trimEnd() : stripHandoffLines(outputText).trim();
+  if (visibleOutput) await invocation.output.write(visibleOutput);
+  return {
+    handoff: extractLatestHandoffFromText(invocation.agent, outputText, invocation.phase),
   };
 }
 
@@ -431,6 +575,20 @@ function stripHandoffLines(text: string): string {
     .split("\n")
     .filter((line) => !line.trimStart().startsWith("JRI_HANDOFF_JSON:"))
     .join("\n");
+}
+
+function piAuthPath(env: NodeJS.ProcessEnv): string {
+  return join(env.PI_CODING_AGENT_DIR ?? join(homedir(), ".pi", "agent"), "auth.json");
+}
+
+function normalizeSdkHarnessError(error: unknown, agent: AgentName): JriError {
+  if (error instanceof JriError) return error;
+  const message = error instanceof Error ? error.message : String(error);
+  return new JriError(
+    `${agent} SDK harness failed. ${message}`.trim(),
+    "harness-failed",
+    "Inspect the SDK diagnostics, verify auth/model configuration, and retry.",
+  );
 }
 
 async function assertProviderAuth(env: NodeJS.ProcessEnv): Promise<void> {

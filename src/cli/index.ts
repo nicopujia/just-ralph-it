@@ -600,6 +600,12 @@ function attachInput(stdin: NodeJS.ReadStream): AttachInput {
       }
     }
   };
+  const drainReadable = (): void => {
+    let chunk: Buffer | string | null;
+    while ((chunk = stdin.read() as Buffer | string | null) !== null) {
+      push(chunk);
+    }
+  };
 
   const end = (): void => {
     ended = true;
@@ -607,6 +613,7 @@ function attachInput(stdin: NodeJS.ReadStream): AttachInput {
   };
 
   stdin.on("data", push);
+  stdin.on("readable", drainReadable);
   stdin.once("end", end);
   stdin.once("close", end);
   if (stdin.isTTY) {
@@ -625,6 +632,7 @@ function attachInput(stdin: NodeJS.ReadStream): AttachInput {
     },
     close: (): void => {
       stdin.off("data", push);
+      stdin.off("readable", drainReadable);
       stdin.off("end", end);
       stdin.off("close", end);
       if (stdin.isTTY) {
@@ -641,16 +649,13 @@ async function flushReadyAttachEvents(
   nextEvent: Promise<IteratorResult<CoreEvent>>,
   timeoutMs = 25,
 ): Promise<void> {
-  let current = nextEvent;
-  for (;;) {
-    const result = await Promise.race([
-      current.then((value) => ({ ready: true as const, value })),
-      sleep(timeoutMs).then(() => ({ ready: false as const })),
-    ]);
-    if (!result.ready || result.value.done) return;
-    writeAttachEvent(result.value.value);
-    current = events.next();
-  }
+  void events;
+  const result = await Promise.race([
+    nextEvent.then((value) => ({ ready: true as const, value })),
+    sleep(timeoutMs).then(() => ({ ready: false as const })),
+  ]);
+  if (!result.ready || result.value.done) return;
+  writeAttachEvent(result.value.value);
 }
 
 function writeAttachEvent(event: CoreEvent): void {

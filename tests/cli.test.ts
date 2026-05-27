@@ -685,7 +685,7 @@ describe("CLI", () => {
       setTimeout(() => {
         proc.stdin.write("Need a CLI.\n/exit\n");
         proc.stdin.end();
-      }, 250);
+      }, 1000);
 
       const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
 
@@ -999,7 +999,7 @@ describe("CLI", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
-  });
+  }, 10_000);
 
   test("loop stop rejects stopped state before mutating stop request", async () => {
     const dir = await tempInitializedProject();

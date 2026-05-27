@@ -1,12 +1,13 @@
 # Implementation Plan
 
 - P0: Replace the shellout harness with the real Pi TypeScript SDK adapter.
-  - Confirmed gap: `src/core/harness.ts` still builds `pi` command arrays and executes them with `Bun.spawn` in both the legacy session runner and default harness path; `package.json` has no Pi SDK dependency.
-  - Add the Pi SDK dependency and make SDK sessions the production path for interrogator, auditor, planner, builder, and explorer.
+  - Completed increment: added `@earendil-works/pi-coding-agent` and made `invokeDefaultHarness` use a Pi TypeScript SDK adapter path through `createAgentSession` when `JRI_PI_COMMAND` is not set.
+  - Completed increment: the SDK adapter uses the existing `HarnessInvocation`/`HarnessResult` boundary, explicit OpenAI model/reasoning/auth resolution, phase tool allowlists, isolated loop/chat session and agent dirs under `.jri/logs/*`, in-memory settings, a resource loader with ambient extensions/skills/prompts/themes/context files disabled, the shared handoff parser, cancellation, and normalized SDK failures.
+  - Completed increment: the legacy Pi CLI shellout is now the explicit compatibility/test path selected by `JRI_PI_COMMAND`; focused offline adapter coverage asserts SDK isolation and shared handoff parsing.
+  - Remaining gap: explorer production use is still wrapper-based instead of a first-class SDK session/capability path.
+  - Remaining gap: SDK custom capability wiring, artifact refs, richer fake coverage, and broader failure normalization still need to be completed against the SDK path.
   - Use the existing `HarnessInvocation`/`HarnessResult` boundary as the adapter contract; fakes and production must share handoff parsing, output sinks, selected context refs, model config, declared capabilities, artifact refs, cancellation, and failure normalization.
-  - Stop recomputing model/provider details inside shell command construction; the production adapter must honor `HarnessInvocation.model` and JRI-owned auth/model resolution.
-  - Keep Pi CLI shellout only as an explicit compatibility/test path.
-  - Enforce clean runtime isolation from ambient Pi packages, skills, MCPs, prompts, settings, memories, sessions, themes, context files, and broad user config.
+  - Enforce clean runtime isolation from ambient Pi packages, MCPs, memories, and broad user config beyond the isolated settings/resource/session work already in place.
   - Normalize missing SDK/package/spawn errors, provider auth errors, model errors, invalid handoffs, SDK failures, timeout, and cancellation into actionable JRI errors that durable runtime failure handling can record.
   - Expand fake adapter coverage for chunks, artifacts, auth/model/capability failures, delays, cancellation, malformed/missing/duplicate/wrong-phase handoffs, raw handoff preservation, and SDK failure normalization.
 
@@ -45,6 +46,7 @@
 - P1: Finish the primary terminal experience.
   - Confirmed gap: bare interactive `jri` uses the fallback readline REPL and prints status only between prompts; it is not a Pi-backed TUI with a live status line.
   - Confirmed gap: active status rendering is richer for `building` than for `auditing` or `planning`; failed stopped loops need user-facing distinction from graceful stopped loops.
+  - Completed increment: attach detach flushing no longer starts and abandons an extra follow read, so piped `[s]top` then `[d]etach` exits cleanly after recording the stop request; attach input also drains readable pipe data.
   - Confirmed gap: attach readiness remains timing-sensitive and attach does not truly merge sparse event lines by `stdoutOffset`.
   - Decide and document whether the fallback REPL is the MVP terminal UI or whether Pi terminal chat primitives are required before dogfood.
   - Add a live or refreshed status line for fallback REPL, including active phase, stop flag, blocked/failed/stopped guidance, and latest milestone.

@@ -2,7 +2,8 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { buildControlledPiCommand, invokeDefaultHarness, runControlledPiSession, runExplorerTask } from "../src/core/harness";
+import { buildControlledPiCommand, invokeDefaultHarness, invokePiSdkHarness, runControlledPiSession, runExplorerTask } from "../src/core/harness";
+import type { PiSdkSessionFactory } from "../src/core/harness";
 import { writeStatusAtomic } from "../src/core/runtime-state";
 import { defaultConfig, defaultStatus } from "../src/core/schema";
 import { runWebFetch, runWebSearch } from "../src/core/web-capability";
@@ -215,6 +216,77 @@ describe("controlled Pi harness", () => {
       expect(result.handoff).toMatchObject({ agent: "builder", action: "complete" });
       expect(chunks.join("")).toContain("Builder display output.");
       expect(chunks.join("")).toContain('JRI_HANDOFF_JSON: {"agent":"builder","action":"complete","summary":"Build complete."}');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("SDK harness uses isolated Pi resources and the shared handoff parser", async () => {
+    const dir = await tempProject();
+    try {
+      let capturedPrompt = "";
+      let capturedOptions: Parameters<PiSdkSessionFactory>[0] | undefined;
+      const listeners: Array<(event: unknown) => void> = [];
+      const createSession: PiSdkSessionFactory = async (options) => {
+        capturedOptions = options;
+        return {
+          extensionsResult: { extensions: [], diagnostics: [], collisions: [] },
+          session: {
+            subscribe(listener: (event: unknown) => void) {
+              listeners.push(listener);
+              return () => {};
+            },
+            async prompt(prompt: string) {
+              capturedPrompt = prompt;
+              for (const listener of listeners) {
+                listener({
+                  type: "message_update",
+                  assistantMessageEvent: {
+                    type: "text_delta",
+                    delta: 'SDK answer.\nJRI_HANDOFF_JSON: {"agent":"interrogator","action":"messageOnly","summary":"Answered through SDK."}\n',
+                  },
+                });
+              }
+            },
+            async abort() {},
+            dispose() {},
+          },
+        } as unknown as Awaited<ReturnType<PiSdkSessionFactory>>;
+      };
+
+      const chunks: string[] = [];
+      const result = await invokePiSdkHarness(
+        {
+          owner: { kind: "chat", turnId: "turn-1" },
+          projectDir: dir,
+          agent: "interrogator",
+          phase: "interrogation",
+          model: { model: "gpt-5.5", reasoning: "xhigh" },
+          context: { refs: [], inline: ["Current trimmed message."] },
+          capabilities: [],
+          output: {
+            write: (chunk) => {
+              chunks.push(chunk);
+            },
+          },
+          signal: new AbortController().signal,
+        },
+        { OPENAI_API_KEY: "test-key" },
+        createSession,
+      );
+
+      expect(result.handoff).toMatchObject({ agent: "interrogator", action: "messageOnly" });
+      expect(chunks.join("")).toBe("SDK answer.");
+      expect(capturedPrompt).toContain("You are the JRI interrogator");
+      expect(capturedPrompt).toContain("Current user message:\nCurrent trimmed message.");
+      expect(capturedOptions?.cwd).toBe(dir);
+      expect(capturedOptions?.tools).toEqual(["read", "write", "edit", "grep", "find", "ls"]);
+      expect(capturedOptions?.thinkingLevel).toBe("xhigh");
+      expect(capturedOptions?.sessionManager?.getSessionDir()).toBe(join(dir, ".jri", "logs", "chat-turn-1", "pi-sessions"));
+      expect(capturedOptions?.agentDir).toBe(join(dir, ".jri", "logs", "chat-turn-1", "pi-agent"));
+      expect(capturedOptions?.resourceLoader?.getExtensions()).toMatchObject({ extensions: [] });
+      expect(capturedOptions?.resourceLoader?.getSkills()).toMatchObject({ skills: [] });
+      expect(capturedOptions?.resourceLoader?.getAgentsFiles()).toEqual({ agentsFiles: [] });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
