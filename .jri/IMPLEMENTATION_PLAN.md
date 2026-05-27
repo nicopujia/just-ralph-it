@@ -17,6 +17,8 @@ Completed work:
   registered project statuses from `.jri/status.json` and only exits when there are
   no connected clients and no active loops, preventing active Ralph loops from
   losing daemon management.
+- [x] P0: Honor `status.stopRequested` in `runLoopProcess` at safe planning and build
+  iteration boundaries for graceful stopping, with coverage for both boundary cases.
 
 Next work:
 

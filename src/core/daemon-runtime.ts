@@ -284,6 +284,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
           loopId,
           data: { planPath: ".jri/IMPLEMENTATION_PLAN.md" },
         });
+        if (await stopIfRequested(projectDir, loopId)) return;
         currentLock = await switchRunnerPhase(projectDir, currentLock, "building");
         currentPhase = "building";
         continue;
@@ -319,6 +320,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         iteration: finishedIteration,
         data: { outcome: "noChanges" },
       });
+      if (await stopIfRequested(projectDir, loopId, finishedIteration)) return;
       await appendLoopEvent(projectDir, {
         type: "loopFinished",
         loopId,
@@ -348,6 +350,35 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
       }
     }
   }
+}
+
+async function stopIfRequested(projectDir: string, loopId: string, iteration?: number): Promise<boolean> {
+  const status = await readStatus(projectDir);
+  if (!status.stopRequested) return false;
+
+  await appendLoopEvent(projectDir, {
+    type: "loopStopped",
+    loopId,
+    data: {
+      reason: "gracefulStopRequested",
+      ...(iteration === undefined ? {} : { iteration }),
+    },
+  });
+  await transitionStatus(projectDir, "stopped", {
+    loopId,
+    update: {
+      ...ownershipCleared(status),
+      stopRequested: false,
+      lastResult: {
+        outcome: "stopped",
+        summary:
+          iteration === undefined
+            ? "Graceful stop completed after planning finished."
+            : `Graceful stop completed after iteration ${iteration}.`,
+      },
+    },
+  });
+  return true;
 }
 
 async function readLoopEvents(projectDir: string, loopId: string): Promise<CoreEvent[]> {

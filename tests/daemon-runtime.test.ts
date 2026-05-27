@@ -254,6 +254,114 @@ describe("daemon/runtime scaffolding", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("runner honors graceful stop after planning before building starts", async () => {
+    const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    try {
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/bin/sh",
+          "echo planning-done",
+          "bun -e 'const fs = require(\"node:fs\"); const path = \".jri/status.json\"; const status = JSON.parse(fs.readFileSync(path, \"utf8\")); status.stopRequested = true; fs.writeFileSync(path, `${JSON.stringify(status, null, 2)}\\n`);'",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "planning",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: {
+          owner: "daemon",
+          pid: process.pid,
+          operation: "plan",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "planning");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+
+      expect(events.map((event) => event.type)).toEqual(["planningStarted", "planningFinished", "loopStopped"]);
+      expect(status).toMatchObject({
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        stopRequested: false,
+        lastResult: { outcome: "stopped", summary: "Graceful stop completed after planning finished." },
+      });
+      expect(status.process).toBeUndefined();
+      expect(status.lock).toBeUndefined();
+    } finally {
+      if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
+      else process.env.JRI_PI_COMMAND = previousPiCommand;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runner honors graceful stop after the current build iteration", async () => {
+    const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    try {
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/bin/sh",
+          "echo build-done",
+          "bun -e 'const fs = require(\"node:fs\"); const path = \".jri/status.json\"; const status = JSON.parse(fs.readFileSync(path, \"utf8\")); status.stopRequested = true; fs.writeFileSync(path, `${JSON.stringify(status, null, 2)}\\n`);'",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: {
+          owner: "daemon",
+          pid: process.pid,
+          operation: "build",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "building");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+
+      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "iterationFinished", "loopStopped"]);
+      expect(events[2]).toMatchObject({ type: "loopStopped", data: { reason: "gracefulStopRequested", iteration: 1 } });
+      expect(status).toMatchObject({
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        stopRequested: false,
+        iteration: 1,
+        lastResult: { outcome: "stopped", summary: "Graceful stop completed after iteration 1." },
+      });
+      expect(status.process).toBeUndefined();
+      expect(status.lock).toBeUndefined();
+    } finally {
+      if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
+      else process.env.JRI_PI_COMMAND = previousPiCommand;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
