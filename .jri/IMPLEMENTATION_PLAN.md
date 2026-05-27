@@ -20,17 +20,18 @@
   - Completed increment: loop-owned harness, explorer, and web subprocesses now append start/finish records to `.jri/logs/<loopId>/child-processes.jsonl`, and `jri loop halt` reads that registry to kill registered children before clearing runner ownership. This matters because halt must not strand capability work after the runner process is terminated. Covered by `tests/daemon-runtime.test.ts` and `tests/harness.test.ts`.
   - Completed increment: shared SIGTERM-then-SIGKILL fanout now covers halt for the runner and registered children, plus cancellation-driven runtime failure for registered children. Covered by `tests/daemon-runtime.test.ts`.
   - Completed increment: runner-owned timeouts now use a single runner cancellation signal for phase work, abort the active harness invocation, fan out SIGTERM-then-SIGKILL to registered loop children, and record durable failed `loopFinished` plus stopped status evidence. This matters because a whole-runner timeout must not depend on individual capability wrappers to clean up child work. Covered by `tests/daemon-runtime.test.ts`.
-  - Remaining gap: connected-but-silent daemon IPC, parser failures, lock loss, and capability failures still need a consolidated structured failure audit across every path.
+  - Remaining gap: runner startup lock-lost escaping durable loop failure evidence is the highest-priority next slice; connected-but-silent daemon IPC, parser failures, broader lock loss, and capability failures still need a consolidated structured failure audit across every path.
   - Normalize failures into durable `loopFinished` failure events plus stopped status/`lastResult` evidence that recovery can trust.
 
 - P0: Harden interrogation readiness and spec mutation safety.
   - Completed increment: start-gate manual spec reconciliation now checks both open and sealed topics against the last interrogator-reconciled fingerprint, and auditing harness context includes `.jri/interrogation-state.json` plus `.jri/scratchpad.md` when present. This matters because user edits to open specs and unresolved scratchpad notes can change authorized scope just as much as sealed-topic edits. Covered by `tests/interrogation-state.test.ts` and `tests/daemon-runtime.test.ts`.
+  - Completed increment: active-loop observation chat now handles exact graceful stop requests deterministically and idempotently, so repeated matching stop intent produces the same controlled lifecycle request instead of relying on prompt guidance. Covered by `tests/chat.test.ts`.
   - Remaining gap: recent-turn reconstruction is coarse and includes the last eight turns whenever any topic is open.
   - Confirmed gap: sealing records `sealedSpecFiles` without proof that related scratchpad notes were cleaned up or moved into specs/deferred scope.
-  - Confirmed gap: observation chat can suggest `jri loop stop` but cannot request a graceful stop, and planner/build phases rely on prompts rather than deterministic `.jri/specs/*` mutation guards.
+  - Confirmed gap: planner/build phases rely on prompts rather than deterministic `.jri/specs/*` mutation guards.
   - Block audit pass until scratchpad scope is resolved into specs or explicitly deferred.
   - Filter recent turns by relevant unsealed topics and enforce scratchpad cleanup proof before sealing.
-  - Add observation-mode graceful stop handling and before/after `.jri/specs/*` mutation guards for observation, planning, and building.
+  - Add before/after `.jri/specs/*` mutation guards for observation, planning, and building.
 
 - P1: Finish attach and fallback terminal experience.
   - Confirmed gap: attach readiness remains timing-sensitive instead of deterministic.

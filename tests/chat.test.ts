@@ -588,6 +588,97 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("active loop chat exact stop request asks daemon for graceful stop without invoking interrogator", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        startedAt: "2026-05-27T18:42:10.000Z",
+        process: {
+          pid: 12345,
+          command: "runner building",
+          startedAt: "2026-05-27T18:42:10.000Z",
+        },
+      });
+
+      let requestedStop = false;
+      let harnessCalled = false;
+      const events = await collect(
+        sendChat(dir, { message: "jri loop stop" }, {
+          requestStop: async () => {
+            requestedStop = true;
+            await updateStatus(dir, (current) => ({ ...current, stopRequested: true }));
+          },
+          interrogatorHarness: async () => {
+            harnessCalled = true;
+            return { handoff: { agent: "interrogator", action: "messageOnly", summary: "Should not run." } };
+          },
+        }),
+      );
+
+      expect(requestedStop).toBe(true);
+      expect(harnessCalled).toBe(false);
+      expect(events.map((event) => event.type)).toEqual([
+        "chatTurnRecorded",
+        "chatMessageStarted",
+        "chatMessageDelta",
+        "chatMessageFinished",
+        "chatTurnRecorded",
+      ]);
+      expect(events[2]).toMatchObject({
+        type: "chatMessageDelta",
+        data: { text: expect.stringContaining("Graceful stop requested for loop 20260527T184210Z") },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("active loop chat stop request is idempotent when graceful stop is already requested", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        startedAt: "2026-05-27T18:42:10.000Z",
+        stopRequested: true,
+        process: {
+          pid: 12345,
+          command: "runner building",
+          startedAt: "2026-05-27T18:42:10.000Z",
+        },
+      });
+
+      let requestedStop = false;
+      const events = await collect(
+        sendChat(dir, { message: "stop" }, {
+          requestStop: async () => {
+            requestedStop = true;
+          },
+        }),
+      );
+
+      expect(requestedStop).toBe(false);
+      expect(events[2]).toMatchObject({
+        type: "chatMessageDelta",
+        data: { text: expect.stringContaining("A graceful stop is already requested for loop 20260527T184210Z") },
+      });
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(status.stopRequested).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("standalone start trigger can stream an injected daemon-owned start event", async () => {
     const dir = await tempProject();
     try {

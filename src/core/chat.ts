@@ -1,6 +1,6 @@
 import { stat } from "node:fs/promises";
 import { isAbsolute, join, normalize, sep } from "node:path";
-import { daemonStartLoop } from "./daemon-ipc";
+import { daemonRequestStop, daemonStartLoop } from "./daemon-ipc";
 import type { RuntimeOptions } from "./daemon-runtime";
 import { JriError } from "./errors";
 import { invokeDefaultHarness, readProjectConfig, type HarnessAdapter } from "./harness";
@@ -22,6 +22,7 @@ export type HumanTaskVerifier = (request: {
 export type ChatRuntimeOptions = RuntimeOptions & {
   verifyHumanTask?: HumanTaskVerifier;
   startLoop?: (projectDir: string, trigger: StartTrigger, options: RuntimeOptions) => AsyncIterable<CoreEvent>;
+  requestStop?: (projectDir: string, options: RuntimeOptions) => Promise<void>;
   interrogatorHarness?: HarnessAdapter;
 };
 
@@ -42,6 +43,10 @@ export async function* sendChat(projectDir: string, input: ChatInput, options: C
 
   const status = await readStatus(projectDir);
   if (isActiveLoopState(status)) {
+    if (isObservationStopRequest(message)) {
+      yield* handleObservationStopRequest(projectDir, status, options);
+      return;
+    }
     yield* runInterrogator(projectDir, message, options, { mode: "observation", status });
     return;
   }
@@ -269,6 +274,22 @@ async function* handleInterrogatorHandoff(
 
 function startLoop(projectDir: string, trigger: StartTrigger, options: ChatRuntimeOptions): AsyncIterable<CoreEvent> {
   return (options.startLoop ?? daemonStartLoop)(projectDir, trigger, options);
+}
+
+async function* handleObservationStopRequest(projectDir: string, status: ProjectStatus, options: ChatRuntimeOptions): AsyncIterable<CoreEvent> {
+  if (status.stopRequested) {
+    yield* emitAssistant(
+      projectDir,
+      `A graceful stop is already requested for loop ${status.activeLoopId}. Ralph will stop after the current safe boundary.`,
+    );
+    return;
+  }
+
+  await (options.requestStop ?? daemonRequestStop)(projectDir, options);
+  yield* emitAssistant(
+    projectDir,
+    `Graceful stop requested for loop ${status.activeLoopId}. Ralph will stop after the current safe boundary.`,
+  );
 }
 
 export function normalizeStartTrigger(message: string): StartTrigger | null {
@@ -542,6 +563,11 @@ async function recordTurn(projectDir: string, role: "user" | "assistant", conten
 
 function isDoneMessage(message: string): boolean {
   return message.trim().replace(/[.!?]+$/u, "").trim().toLowerCase() === "done";
+}
+
+function isObservationStopRequest(message: string): boolean {
+  const normalized = message.trim().replace(/[.!?]+$/u, "").trim().toLowerCase();
+  return normalized === "stop" || normalized === "jri loop stop" || normalized === "request stop" || normalized === "graceful stop";
 }
 
 async function relativePathExists(projectDir: string, relativePath: string): Promise<boolean> {
