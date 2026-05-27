@@ -15,6 +15,7 @@ Run validation commands serially; running `bun run test` concurrently with typec
 ## Operational Notes
 
 Use Bun for project scripts and execution.
+- The public `jri` bin points at `src/cli/index.ts`; keep that file executable.
 
 ### Codebase Patterns
 

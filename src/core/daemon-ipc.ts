@@ -11,6 +11,7 @@ import type { CoreEvent, HaltOptions, LoopObserveOptions, ProjectStatus } from "
 
 export const DAEMON_PROTOCOL_VERSION = 1;
 export const MAX_DAEMON_FRAME_BYTES = 1024 * 1024;
+const internalInvocationEnv = "JRI_INTERNAL_INVOCATION";
 
 export type DaemonRequest = {
   id: string;
@@ -308,6 +309,7 @@ async function startDaemonProcess(paths: DaemonPaths): Promise<void> {
   Bun.spawn([process.execPath, cliPath, "--daemon"], {
     env: {
       ...process.env,
+      [internalInvocationEnv]: "1",
       JRI_DAEMON_RUNTIME_DIR: paths.runtimeDir,
       JRI_DAEMON_STATE_DIR: paths.stateDir,
       JRI_DAEMON_SOCKET_PATH: paths.socketPath,

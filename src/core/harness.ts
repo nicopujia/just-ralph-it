@@ -45,6 +45,7 @@ const explorerHandoffLimit = explorerCapabilityDescriptor.limits.handoffChars;
 const explorerTimeoutMs = explorerCapabilityDescriptor.limits.timeoutMs;
 const explorerConcurrencyLimit = explorerCapabilityDescriptor.limits.concurrency;
 const explorerQueues = new Map<string, { active: number; waiters: Array<() => void> }>();
+const internalInvocationEnv = "JRI_INTERNAL_INVOCATION";
 
 export type HarnessSessionRequest = {
   projectDir: string;
@@ -278,6 +279,7 @@ export async function buildControlledPiCommand(
     ],
     env: {
       ...env,
+      [internalInvocationEnv]: "1",
       PI_CODING_AGENT_SESSION_DIR: join(request.projectDir, ".jri", "logs", request.loopId, "pi-sessions"),
     },
   };
@@ -353,6 +355,7 @@ async function buildControlledExplorerSubagentCommand(
     ],
     env: {
       ...env,
+      [internalInvocationEnv]: "1",
       PI_CODING_AGENT_DIR: capabilityDir,
       PI_CODING_AGENT_SESSION_DIR: join(request.projectDir, ".jri", "logs", request.loopId, "pi-sessions"),
     },

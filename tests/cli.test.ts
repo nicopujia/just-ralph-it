@@ -10,6 +10,7 @@ import { fingerprintSpecFile, writeInterrogationState } from "../src/core/interr
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const cliPath = join(repoRoot, "src", "cli", "index.ts");
 const daemonEnvKeys = ["JRI_DAEMON_RUNTIME_DIR", "JRI_DAEMON_STATE_DIR", "JRI_DAEMON_SOCKET_PATH", "JRI_DAEMON_REGISTRY_PATH"];
+const internalInvocationEnv = { JRI_INTERNAL_INVOCATION: "1" };
 
 async function tempProject(): Promise<string> {
   return await mkdtemp(join(tmpdir(), "jri-cli-test-"));
@@ -45,6 +46,41 @@ function activeTestLock(operation: "audit" | "plan" | "build") {
 }
 
 describe("CLI", () => {
+  test("public package bin path exposes help without internal entrypoints", async () => {
+    const packageJson = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as { bin?: { jri?: string } };
+    const jriBin = packageJson.bin?.jri;
+    expect(jriBin).toBe("./src/cli/index.ts");
+
+    const proc = Bun.spawn([join(repoRoot, jriBin ?? ""), "auth", "--help"], {
+      cwd: repoRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+    expect(exitCode).toBe(0);
+    expect(stderr).toBe("");
+    expect(stdout).toContain("Usage: jri auth {status|login|logout}");
+    expect(stdout).not.toContain("--run-web");
+    expect(stdout).not.toContain("--run-explorer");
+  });
+
+  test("direct internal entrypoints are rejected from the public CLI", async () => {
+    const proc = Bun.spawn(["bun", cliPath, "--run-web", "search", "{}", "docs"], {
+      cwd: repoRoot,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+    expect(exitCode).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toContain("--run-web is an internal JRI entrypoint");
+    expect(stderr).toContain("Use the public MVP commands");
+  });
+
   test("bare jri records a piped interrogation message", async () => {
     const dir = await tempProject();
     try {
@@ -682,6 +718,7 @@ describe("CLI", () => {
         stderr: "pipe",
         env: {
           ...process.env,
+          ...internalInvocationEnv,
           JRI_PI_COMMAND: fakePi,
         },
       });
@@ -726,7 +763,7 @@ describe("CLI", () => {
         cwd: dir,
         stdout: "pipe",
         stderr: "pipe",
-        env: { ...process.env, JRI_PI_WEB_COMMAND: fakeWeb },
+        env: { ...process.env, ...internalInvocationEnv, JRI_PI_WEB_COMMAND: fakeWeb },
       });
       const searchStdout = await new Response(search.stdout).text();
       expect(await search.exited).toBe(0);
@@ -742,7 +779,7 @@ describe("CLI", () => {
         cwd: dir,
         stdout: "pipe",
         stderr: "pipe",
-        env: { ...process.env, JRI_PI_WEB_COMMAND: fakeWeb },
+        env: { ...process.env, ...internalInvocationEnv, JRI_PI_WEB_COMMAND: fakeWeb },
       });
       const fetchStdout = await new Response(fetch.stdout).text();
       expect(await fetch.exited).toBe(0);
@@ -767,7 +804,7 @@ describe("CLI", () => {
         cwd: dir,
         stdout: "pipe",
         stderr: "pipe",
-        env: { ...process.env, JRI_PI_WEB_COMMAND: "/bin/false" },
+        env: { ...process.env, ...internalInvocationEnv, JRI_PI_WEB_COMMAND: "/bin/false" },
       });
 
       const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
@@ -795,7 +832,7 @@ describe("CLI", () => {
         cwd: dir,
         stdout: "pipe",
         stderr: "pipe",
-        env: { ...process.env, JRI_PI_WEB_COMMAND: "/bin/false" },
+        env: { ...process.env, ...internalInvocationEnv, JRI_PI_WEB_COMMAND: "/bin/false" },
       });
 
       const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
@@ -835,7 +872,7 @@ describe("CLI", () => {
         cwd: dir,
         stdout: "pipe",
         stderr: "pipe",
-        env: { ...process.env, JRI_PI_WEB_COMMAND: fakeWeb },
+        env: { ...process.env, ...internalInvocationEnv, JRI_PI_WEB_COMMAND: fakeWeb },
       });
 
       const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
@@ -862,7 +899,7 @@ describe("CLI", () => {
         cwd: dir,
         stdout: "pipe",
         stderr: "pipe",
-        env: { ...process.env, JRI_PI_COMMAND: "/bin/false" },
+        env: { ...process.env, ...internalInvocationEnv, JRI_PI_COMMAND: "/bin/false" },
       });
 
       const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);

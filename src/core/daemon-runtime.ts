@@ -44,6 +44,8 @@ import type {
   ValidationHandoff,
 } from "./types";
 
+const internalInvocationEnv = "JRI_INTERNAL_INVOCATION";
+
 export type ProcessAliveCheck = (pid: number) => boolean;
 export type KillSignal = "SIGTERM" | "SIGKILL";
 export type ProcessKiller = (pid: number, signal?: KillSignal) => void;
@@ -1141,7 +1143,7 @@ function defaultSpawnRunner(request: RunnerSpawnRequest): RunnerProcess {
   const command = [process.execPath, cliPath, "--run-loop", request.projectDir, request.loopId, request.phase];
   const proc = Bun.spawn(command, {
     cwd: request.projectDir,
-    env: process.env,
+    env: { ...process.env, [internalInvocationEnv]: "1" },
     stdout: "ignore",
     stderr: "ignore",
     stdin: "ignore",

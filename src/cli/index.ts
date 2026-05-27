@@ -11,13 +11,17 @@ import { runExplorerTask } from "../core/harness";
 import { checkInterrogationStartGate } from "../core/interrogation-state";
 import { runWebFetch, runWebSearch } from "../core/web-capability";
 
+const internalInvocationEnv = "JRI_INTERNAL_INVOCATION";
+
 async function main(argv: string[]): Promise<number> {
   const [command, subcommand] = argv;
   if (command === "--daemon") {
+    requireInternalInvocation(command);
     await runDaemon();
     return 0;
   }
   if (command === "--run-loop") {
+    requireInternalInvocation(command);
     const [projectDir, loopId, phase] = argv.slice(1);
     if (!projectDir || !loopId || !isRunnerPhase(phase)) {
       return usage("Invalid internal runner invocation.");
@@ -26,6 +30,7 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (command === "--run-explorer") {
+    requireInternalInvocation(command);
     const [projectDir, loopId, ...taskParts] = argv.slice(1);
     const task = taskParts.join(" ").trim();
     if (!projectDir || !loopId || !task) {
@@ -38,6 +43,7 @@ async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (command === "--run-web") {
+    requireInternalInvocation(command);
     const [operation, metadataJson, ...rest] = argv.slice(1);
     if (operation === "search") {
       const query = rest.join(" ").trim();
@@ -62,6 +68,7 @@ async function main(argv: string[]): Promise<number> {
     return usage("Invalid internal web invocation.");
   }
   if (command === "--web-search" || command === "--web-fetch") {
+    requireInternalInvocation(command);
     const [projectDir, loopId, ...rest] = argv.slice(1);
     const operation = command === "--web-search" ? "search" : "fetch";
     const metadata = JSON.stringify({ projectDir, owner: { kind: "loop", loopId }, capability: "web", operation });
@@ -184,6 +191,15 @@ async function main(argv: string[]): Promise<number> {
   }
 
   return usage(`Unsupported command: ${command}`);
+}
+
+function requireInternalInvocation(command: string): void {
+  if (process.env[internalInvocationEnv] === "1") return;
+  throw new JriError(
+    `${command} is an internal JRI entrypoint and is not part of the public CLI.`,
+    "internal-entrypoint-forbidden",
+    "Use the public MVP commands: jri, jri auth {status|login|logout}, or jri loop {attach|stop|halt|resume}.",
+  );
 }
 
 function isRunnerPhase(value: string | undefined): value is RunnerPhase {

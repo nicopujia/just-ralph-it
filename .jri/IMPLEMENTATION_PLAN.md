@@ -37,11 +37,6 @@
   - Confirmed gap: interactive bare `jri` uses the fallback readline REPL and prints status only between prompts, not as a live status line.
   - Add deterministic readiness for attach tests and a live status line for the fallback REPL.
 
-- P1: Validate public packaging and command surface.
-  - Confirmed gap: `package.json` exposes `jri` directly as `./src/cli/index.ts`, while tests invoke `bun src/cli/index.ts`; the installed/public bin path is untested.
-  - Confirmed gap: internal entrypoints `--daemon`, `--run-loop`, `--run-web`, `--run-explorer`, and legacy `--web-search`/`--web-fetch` are hidden from usage but still callable if invoked directly.
-  - Test the installed/public `jri` bin path, decide whether the TypeScript source-file bin is intentional for MVP, and hide or environment-guard internal entrypoints.
-
 - P1: Decide lint validation semantics.
   - Confirmed gap: `bun run lint` aliases `tsc --noEmit`, so it is not independent lint evidence.
   - Either make `bun run lint` a real lint command or stop documenting it as distinct from typecheck.
@@ -73,7 +68,8 @@
   - Attach now renders a compact header with latest context/milestones.
   - Synthetic `loopOutput` events now use nonzero deterministic sequence values.
   - Bare blocked status, automatic blocked chat responses, failed human-task verification messages, and ambiguous-spec `done` messages include the full blocked resolution guide, so recovery evidence is complete instead of preserving only the first step.
-  - Public omission of documented-forbidden `jri init`, `jri status`, and `jri loop start` remains complete; internal entrypoint guarding remains active above.
+  - Public command-surface hardening is complete: internal entrypoints now require `JRI_INTERNAL_INVOCATION=1`, daemon/runner/harness-controlled spawns set it, direct user invocation is rejected with public MVP command guidance, the package bin path is covered, and CLI tests pass for this unit.
+  - Public omission of documented-forbidden `jri init`, `jri status`, and `jri loop start` remains complete.
   - Dogfood MVP successful completion now requires durable `subagentFinished` explorer evidence; completion fails without proof, and `loopFinished` plus status `lastResult` success evidence include the explorer proof. Broader first-class SDK/runtime capability work for explorer and web remains active above.
   - Runtime failure normalization now treats `harness-cancelled`, `runtime-cancelled`, `explorer-failed`, `capability-*`, and `web-capability-*` errors as durable loop failures; child-process cancellation fanout remains active above.
   - Web fetch result validation now requires wrapper-provided source URL, fetched timestamp, and `markdown`; rejects generic `content`, non-markdown/plain declared formats, non-text content types, and obvious raw HTML before content enters agent context. This matters because fetched web content is injected into agent context, so core must not invent provenance or pass raw HTML as markdown. Covered by `tests/harness.test.ts`.
