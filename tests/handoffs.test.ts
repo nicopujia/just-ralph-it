@@ -167,6 +167,22 @@ describe("agent handoff contracts", () => {
         agent: "builder",
         action: "complete",
         summary: "Done.",
+        validation: [
+          {
+            command: "bun run test",
+            exitCode: 1,
+            passed: true,
+            summary: "Contradictory validation evidence.",
+          },
+        ],
+      }),
+    ).toThrow("validation.passed must match whether validation.exitCode is 0");
+
+    expect(() =>
+      parseHandoff("builder", {
+        agent: "builder",
+        action: "complete",
+        summary: "Done.",
         artifacts: [{ path: ".jri/logs/20260527T184210Z/artifacts/report.md", label: "unexpected" }],
       }),
     ).toThrow("Unknown builder artifact key: label");

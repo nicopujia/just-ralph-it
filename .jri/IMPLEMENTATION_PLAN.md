@@ -38,13 +38,10 @@
   - Add tests for stopped unchanged rejection through start, stopped changed reauthorization, missing fingerprint reauthorization, ambiguous-spec blocker preservation on audit failure, and single blocker resolution event on audit pass.
 
 - P0: Finish validation and git/tag safety semantics.
-  - Confirmed implemented: core records validation evidence, rejects git-changing successful handoffs without at least one `passed: true` validation item, records commits/tags it observes, and guards blocked/failed-validation outcomes against unexpected git mutations.
-  - Remaining gap: successful git-changing iterations can still be accepted when expected tag evidence is missing or ambiguous.
-  - Confirmed gap: completed loop status does not populate `lastResult.validationPassed`, so the CLI cannot surface validation outcome for successful runs.
-  - Require at least one concrete passing validation item before accepting git-changing success; "no concrete validation command exists" cannot justify a git-changing successful MVP iteration.
-  - Treat missing expected semantic-version tag, multiple plausible new tags, or tag/commit mismatch as loop failure evidence rather than successful committed iteration.
+  - Confirmed implemented: core records validation evidence, rejects git-changing successful handoffs without at least one concrete `passed: true` validation item, records commits/tags it observes, and guards blocked/failed-validation outcomes against unexpected git mutations.
+  - Confirmed resolved: successful git-changing iterations now require the expected next semantic-version patch tag, reject missing tags, ambiguous tags, wrong-commit tags, tag-only mutations, and uncommitted tracked-file mutations after a successful handoff, populate successful `lastResult.validationPassed`, and validate `validation.passed` against `exitCode`.
   - Preserve changed files for inspection on validation failure and blocker outcomes; keep destructive rollback behind explicit halt/reset confirmation.
-  - Add coverage for no-op success, missing validation evidence, absent validation commands, unsafe validation commands, failed validation with unexpected git changes, blocked with unexpected git changes, missing tag, ambiguous tag, and tag/commit mismatch.
+  - Keep tests focused on safety boundaries because implementation mistakes here can falsely publish unvalidated or incorrectly tagged work; retain coverage for no-op success, missing validation evidence, absent/unsafe validation commands, failed validation with unexpected git changes, blocked with unexpected git changes, expected tag acceptance, missing/ambiguous/wrong-commit tags, tag-only mutations, validation/exit-code mismatch, and uncommitted tracked-file mutations.
 
 - P0: Finish Pi-backed auth UX.
   - Confirmed gap: `jri auth login` currently inspects `OPENAI_API_KEY` / Pi auth cache and prints instructions; interactive bare `jri` exits on `userActionRequired`.

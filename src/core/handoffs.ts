@@ -309,10 +309,15 @@ function parseValidation(value: unknown, agent: HandoffAgent): ValidationHandoff
     throw invalidHandoff(agent, "The validation handoff must be an object.");
   }
   assertKnownKeys(value, `${agent} validation`, ["command", "exitCode", "passed", "summary", "artifacts"], agent);
+  const exitCode = requiredInteger(value.exitCode, "validation.exitCode", agent);
+  const passed = requiredBoolean(value.passed, "validation.passed", agent);
+  if (passed !== (exitCode === 0)) {
+    throw invalidHandoff(agent, "validation.passed must match whether validation.exitCode is 0.");
+  }
   return {
     command: requiredString(value.command, "validation.command", agent),
-    exitCode: requiredInteger(value.exitCode, "validation.exitCode", agent),
-    passed: requiredBoolean(value.passed, "validation.passed", agent),
+    exitCode,
+    passed,
     summary: requiredString(value.summary, "validation.summary", agent),
     ...optionalArtifacts(value, agent),
   };

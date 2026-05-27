@@ -577,6 +577,10 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
       const latest = await readStatus(projectDir);
       const finishedIteration = latest.currentIteration?.iteration ?? latest.iteration ?? 1;
       const iterationResult = await observeIterationGitResult(projectDir, loopId, finishedIteration, iterationStartGit);
+      if (iterationResult.tagIssue) {
+        await finishUnsafeGitTagRun(projectDir, loopId, finishedIteration, iterationResult.tagIssue, hasPassingValidation(validationEvidence));
+        return;
+      }
       await appendLoopEvent(projectDir, {
         type: "iterationFinished",
         loopId,
@@ -625,6 +629,7 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
           lastResult: {
             outcome: "completed",
             summary: builderHandoff.summary,
+            validationPassed: hasPassingValidation(validationEvidence),
             ...(builderHandoff.url ? { url: builderHandoff.url } : {}),
             ...(iterationResult.commit ? { commit: iterationResult.commit } : {}),
             ...(iterationResult.tag ? { tag: iterationResult.tag } : {}),
@@ -1045,6 +1050,7 @@ function stdoutOutputSink(projectDir: string, loopId: string): HarnessOutputSink
 type GitSnapshot = {
   head?: string;
   tags: string[];
+  tagTargets: Record<string, string>;
   trackedTreeClean: boolean;
   dirtySummary?: string;
 };
@@ -1053,20 +1059,23 @@ type IterationGitResult = {
   outcome: "committed" | "noChanges";
   commit?: string;
   tag?: string;
+  tagIssue?: string;
   changedFiles?: string[];
 };
 
 async function readGitSnapshot(projectDir: string): Promise<GitSnapshot> {
   const head = await gitOutput(projectDir, ["rev-parse", "--verify", "HEAD"]);
-  const tags = parseGitLines(await gitOutput(projectDir, ["tag", "--list"]));
+  const tagTargets = parseGitTagTargets(await gitOutput(projectDir, ["for-each-ref", "--format=%(refname:short)%09%(objectname)", "refs/tags"]));
+  const tags = Object.keys(tagTargets);
   const status = await gitOutput(projectDir, ["status", "--porcelain", "--untracked-files=no"]);
   if (status === undefined) {
-    return { tags, trackedTreeClean: true };
+    return { tags, tagTargets, trackedTreeClean: true };
   }
   const dirtySummary = status.trim();
   return {
     ...(head?.trim() ? { head: head.trim() } : {}),
     tags,
+    tagTargets,
     trackedTreeClean: dirtySummary.length === 0,
     ...(dirtySummary ? { dirtySummary } : {}),
   };
@@ -1075,7 +1084,12 @@ async function readGitSnapshot(projectDir: string): Promise<GitSnapshot> {
 async function hasUnexpectedGitMutation(projectDir: string, before: GitSnapshot): Promise<boolean> {
   const after = await readGitSnapshot(projectDir);
   if (after.head !== before.head) return true;
-  return !sameStringSet(after.tags, before.tags);
+  return hasTagMutation(before, after);
+}
+
+function hasTagMutation(before: GitSnapshot, after: GitSnapshot): boolean {
+  if (!sameStringSet(after.tags, before.tags)) return true;
+  return after.tags.some((tag) => after.tagTargets[tag] !== before.tagTargets[tag]);
 }
 
 async function observeIterationGitResult(
@@ -1086,6 +1100,13 @@ async function observeIterationGitResult(
 ): Promise<IterationGitResult> {
   const afterHead = (await gitOutput(projectDir, ["rev-parse", "--verify", "HEAD"]))?.trim();
   if (!afterHead || afterHead === before.head) {
+    const after = await readGitSnapshot(projectDir);
+    if (hasTagMutation(before, after)) {
+      return { outcome: "noChanges", tagIssue: "Builder changed git tags without creating an iteration commit." };
+    }
+    if ((after.dirtySummary ?? "") !== (before.dirtySummary ?? "")) {
+      return { outcome: "noChanges", tagIssue: "Builder left tracked working-tree changes without creating an iteration commit." };
+    }
     return { outcome: "noChanges" };
   }
 
@@ -1100,29 +1121,41 @@ async function observeIterationGitResult(
     },
   });
 
-  const tag = await validIterationTag(projectDir, afterHead, before.tags);
-  if (tag) {
+  const tagResult = await validateIterationTag(projectDir, afterHead, before.tags);
+  if (tagResult.tag) {
     await appendLoopEvent(projectDir, {
       type: "tagCreated",
       loopId,
       iteration,
-      data: { tag, sha: afterHead },
+      data: { tag: tagResult.tag, sha: afterHead },
     });
   }
 
   return {
     outcome: "committed",
     commit: afterHead,
-    ...(tag ? { tag } : {}),
+    ...(tagResult.tag ? { tag: tagResult.tag } : {}),
+    ...(tagResult.issue ? { tagIssue: tagResult.issue } : {}),
   };
 }
 
-async function validIterationTag(projectDir: string, afterHead: string, tagsBeforeIteration: string[]): Promise<string | undefined> {
+async function validateIterationTag(
+  projectDir: string,
+  afterHead: string,
+  tagsBeforeIteration: string[],
+): Promise<{ tag?: string; issue?: string }> {
+  const expectedTag = nextPatchTag(tagsBeforeIteration);
+  const tagsAfterIteration = parseGitLines(await gitOutput(projectDir, ["tag", "--list"]));
+  const newSemverTags = tagsAfterIteration.filter((tag) => !tagsBeforeIteration.includes(tag) && isSemverPatchTag(tag));
   const tagsAtHead = parseGitLines(await gitOutput(projectDir, ["tag", "--points-at", afterHead]));
-  if (tagsAtHead.length !== 1) return undefined;
-  const [tag] = tagsAtHead;
-  if (!tag || !isSemverPatchTag(tag)) return undefined;
-  return tag === nextPatchTag(tagsBeforeIteration) ? tag : undefined;
+  if (newSemverTags.length > 1) {
+    return { issue: `Builder created multiple new semantic-version tags (${newSemverTags.join(", ")}); expected exactly ${expectedTag} on the iteration commit.` };
+  }
+  if (tagsAtHead.includes(expectedTag)) return { tag: expectedTag };
+  if (newSemverTags.includes(expectedTag)) {
+    return { issue: `Builder created expected tag ${expectedTag}, but it does not point at the iteration commit.` };
+  }
+  return { issue: `Builder committed changes without creating expected semantic-version tag ${expectedTag} on the iteration commit.` };
 }
 
 function nextPatchTag(tags: string[]): string {
@@ -1150,6 +1183,15 @@ function parseGitLines(text: string | undefined): string[] {
         .map((line) => line.trim())
         .filter(Boolean)
     : [];
+}
+
+function parseGitTagTargets(text: string | undefined): Record<string, string> {
+  const targets: Record<string, string> = {};
+  for (const line of parseGitLines(text)) {
+    const [tag, sha] = line.split("\t");
+    if (tag && sha) targets[tag] = sha;
+  }
+  return targets;
 }
 
 function sameStringSet(left: string[], right: string[]): boolean {
@@ -1216,6 +1258,7 @@ async function finishFailedRun(projectDir: string, loopId: string, phase: Runner
       lastResult: {
         outcome: "failed",
         summary,
+        validationPassed: false,
       },
     },
   });
@@ -1247,6 +1290,7 @@ async function finishRuntimeFailureRun(projectDir: string, loopId: string, phase
       lastResult: {
         outcome: "failed",
         summary,
+        validationPassed: false,
       },
     },
   });
@@ -1443,6 +1487,7 @@ async function finishUnexpectedGitMutationRun(
       lastResult: {
         outcome: "failed",
         summary,
+        validationPassed: false,
       },
     },
   });
@@ -1474,6 +1519,43 @@ async function finishUnsafeGitSuccessRun(projectDir: string, loopId: string, ite
         outcome: "failed",
         summary,
         validationPassed: false,
+      },
+    },
+  });
+}
+
+async function finishUnsafeGitTagRun(
+  projectDir: string,
+  loopId: string,
+  iteration: number,
+  issue: string,
+  validationPassed: boolean,
+): Promise<void> {
+  const changedFiles = await readChangedFiles(projectDir);
+  const summary = `${issue} Inspect the commit and tag state before resuming.`;
+  await appendLoopEvent(projectDir, {
+    type: "iterationFinished",
+    loopId,
+    iteration,
+    data: {
+      outcome: "validationFailed",
+      ...(changedFiles.length > 0 ? { changedFiles } : {}),
+    },
+  });
+  await appendLoopEvent(projectDir, {
+    type: "loopFinished",
+    loopId,
+    data: { outcome: "failed", summary },
+  });
+  await transitionStatus(projectDir, "stopped", {
+    loopId,
+    update: {
+      ...ownershipCleared(await readStatus(projectDir)),
+      stopRequested: false,
+      lastResult: {
+        outcome: "failed",
+        summary,
+        validationPassed,
       },
     },
   });
