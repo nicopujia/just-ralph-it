@@ -376,6 +376,95 @@ describe("controlled Pi harness", () => {
     }
   });
 
+  test("SDK harness registers a native builder explorer tool that records durable loop events", async () => {
+    const dir = await tempProject();
+    try {
+      const fakePi = join(dir, "fake-pi-explorer.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          "printf 'explorer detail line\\n'",
+          "printf 'JRI_EXPLORER_SUMMARY_JSON: {\"summary\":\"Found CLI dispatch in src/cli/index.ts.\"}\\n'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      let capturedOptions: Parameters<PiSdkSessionFactory>[0] | undefined;
+      let capturedToolText = "";
+      const listeners: Array<(event: unknown) => void> = [];
+      const createSession: PiSdkSessionFactory = async (options) => {
+        capturedOptions = options;
+        return {
+          extensionsResult: { extensions: [], diagnostics: [], collisions: [] },
+          session: {
+            subscribe(listener: (event: unknown) => void) {
+              listeners.push(listener);
+              return () => {};
+            },
+            async prompt() {
+              const explorerTool = options.customTools?.find((tool) => tool.name === "jri_explorer");
+              if (explorerTool) {
+                const toolResult = await explorerTool.execute(
+                  "tool-call-1",
+                  { task: "Inspect CLI dispatch." },
+                  undefined,
+                  undefined,
+                  {} as never,
+                );
+                capturedToolText = toolResult.content
+                  .flatMap((entry) => ("text" in entry && typeof entry.text === "string" ? [entry.text] : []))
+                  .join("\n");
+              }
+              for (const listener of listeners) {
+                listener({
+                  type: "message_update",
+                  assistantMessageEvent: {
+                    type: "text_delta",
+                    delta:
+                      'Builder answer.\nJRI_HANDOFF_JSON: {"agent":"builder","action":"continue","summary":"Explorer finished.","validation":[{"command":"bun run test --filter harness","exitCode":0,"passed":true,"summary":"Focused harness coverage passed."}]}\n',
+                  },
+                });
+              }
+            },
+            async abort() {},
+            dispose() {},
+          },
+        } as unknown as Awaited<ReturnType<PiSdkSessionFactory>>;
+      };
+
+      const result = await invokePiSdkHarness(
+        {
+          owner: { kind: "loop", loopId: "20260527T184210Z" },
+          projectDir: dir,
+          agent: "builder",
+          phase: "building",
+          model: { model: "gpt-5.5", reasoning: "xhigh" },
+          context: { refs: [], inline: ["Loop 20260527T184210Z phase building."] },
+          capabilities: [{ name: "explorer" }],
+          output: { write: () => {} },
+          signal: new AbortController().signal,
+        },
+        { OPENAI_API_KEY: "test-key", JRI_PI_COMMAND: fakePi },
+        createSession,
+      );
+
+      expect(result.handoff).toMatchObject({ agent: "builder", action: "continue" });
+      expect(capturedOptions?.customTools?.map((tool) => tool.name)).toEqual(["jri_explorer"]);
+      expect(capturedOptions?.tools).toContain("jri_explorer");
+      expect(capturedToolText).toContain("Found CLI dispatch in src/cli/index.ts.");
+      expect(capturedToolText).toContain(".jri/logs/20260527T184210Z/artifacts/explorer-");
+      expect(capturedToolText).not.toContain("JRI_EXPLORER_SUMMARY_JSON");
+
+      const events = await readFile(join(dir, ".jri", "logs", "20260527T184210Z", "events.jsonl"), "utf8");
+      expect(events).toContain('"type":"subagentStarted"');
+      expect(events).toContain('"type":"subagentFinished"');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("default harness cancels an in-flight Pi child process", async () => {
     const dir = await tempProject();
     try {

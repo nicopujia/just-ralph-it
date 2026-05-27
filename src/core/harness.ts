@@ -243,6 +243,7 @@ export async function invokePiSdkHarness(
     phase: invocation.phase,
     capabilities: invocation.capabilities,
     env,
+    runExplorerTask,
   });
   const resourceLoader = new DefaultResourceLoader({
     cwd: invocation.projectDir,
