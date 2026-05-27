@@ -43,10 +43,12 @@ export async function runWebSearch(
 
   const limit = Math.min(Math.max(Math.trunc(options.limit ?? maxSearchResults), 1), maxSearchResults);
   const parsed = await runWebJsonCommand(options, ["search", "--query", query, "--limit", String(limit)]);
-  const rawResults = Array.isArray(parsed) ? parsed : Array.isArray(parsed.results) ? parsed.results : [];
-  const retrievedAt = typeof parsed.retrievedAt === "string" ? parsed.retrievedAt : new Date().toISOString();
+  if (!Array.isArray(parsed.results)) {
+    throw invalidWebShapeError("search response must include a results array.");
+  }
+  const retrievedAt = stringField(parsed, "retrievedAt");
 
-  return rawResults.slice(0, limit).map((result: unknown) => normalizeSearchResult(result, retrievedAt));
+  return parsed.results.slice(0, limit).map((result: unknown, index: number) => normalizeSearchResult(result, retrievedAt, index));
 }
 
 export async function runWebFetch(
@@ -176,14 +178,37 @@ function webCancelledError(): JriError {
   );
 }
 
-function normalizeSearchResult(value: unknown, fallbackRetrievedAt: string): WebSearchResult {
-  const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-  return {
-    title: stringField(record, "title") ?? "",
-    url: stringField(record, "url") ?? "",
-    snippet: stringField(record, "snippet") ?? "",
+function normalizeSearchResult(value: unknown, fallbackRetrievedAt: string | undefined, index: number): WebSearchResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw invalidWebShapeError(`search result ${index + 1} must be an object.`);
+  }
+  const record = value as Record<string, unknown>;
+  const fields = {
+    title: stringField(record, "title"),
+    url: stringField(record, "url"),
+    snippet: stringField(record, "snippet"),
     retrievedAt: stringField(record, "retrievedAt") ?? fallbackRetrievedAt,
   };
+  const missing = Object.entries(fields)
+    .filter(([, fieldValue]) => fieldValue === undefined)
+    .map(([fieldName]) => fieldName);
+  if (missing.length > 0) {
+    throw invalidWebShapeError(`search result ${index + 1} is missing string field(s): ${missing.join(", ")}.`);
+  }
+  return {
+    title: fields.title!,
+    url: fields.url!,
+    snippet: fields.snippet!,
+    retrievedAt: fields.retrievedAt!,
+  };
+}
+
+function invalidWebShapeError(detail: string): JriError {
+  return new JriError(
+    `JRI web capability returned an invalid search result shape: ${detail}`,
+    "web-capability-invalid-shape",
+    "Check the JRI web access wrapper output and retry.",
+  );
 }
 
 function stringField(record: Record<string, unknown>, key: string): string | undefined {

@@ -15,7 +15,8 @@
   - Confirmed implemented: chat and loop harness invocations declare web/explorer capabilities, `buildPiPrompt()` can render descriptor-driven capability instructions, web fetch/search limits and artifacts are implemented, chat-owned web artifacts write under `.jri/logs/interrogation-artifacts/`, and explorer spawn mode is concurrency-limited in-process.
   - Confirmed gap: web/explorer are still exposed to agents as `jri --run-web` / `jri --run-explorer` wrapper commands, while read-only phases do not have `bash`, so required web is not reliably usable by interrogator/auditor/explorer agents.
   - Confirmed gap: `allowedToolsForPhase()` still hardcodes tool availability separately from declared capabilities, and capability policy enforcement still leaks through wrapper behavior.
-  - Confirmed gap: `runWebSearch()` still accepts structurally malformed result objects by defaulting missing `title`, `url`, `snippet`, and `retrievedAt` fields instead of rejecting the bad JSON shape.
+  - Confirmed implemented: `runWebSearch()` now rejects malformed web search response/result shapes, with focused regression coverage in place to keep bad JSON from being normalized into usable search results.
+  - This preserves the typed JRI web capability contract so agents cannot proceed on fabricated or defaulted external facts.
   - Feed explicit JRI capability descriptors through the SDK adapter for interrogator, auditor, planner, builder, and explorer.
   - Ensure web capability is usable by agents that lack broad shell access, and ensure required web failures become actionable capability errors or labeled degraded responses without inventing new `ProjectStatus.blocker.reason` values.
   - Keep explorer delegation JRI-owned, spawn/fresh by default, read-only, concurrency-limited across the active runner, handoff-bounded, and isolated from ambient Pi packages/settings.

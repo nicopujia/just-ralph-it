@@ -472,6 +472,57 @@ describe("controlled Pi harness", () => {
     }
   });
 
+  test("runWebSearch rejects malformed result shapes", async () => {
+    const dir = await tempProject();
+    try {
+      const fakeWeb = join(dir, "fake-web-malformed-search.sh");
+      await writeFile(
+        fakeWeb,
+        [
+          "#!/usr/bin/env bash",
+          "printf '{\"retrievedAt\":\"2026-05-27T00:00:00.000Z\",\"results\":[{\"title\":\"Docs\",\"url\":\"https://example.com/docs\"}]}'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeWeb, 0o755);
+
+      await expect(
+        runWebSearch({
+          projectDir: dir,
+          owner: { kind: "loop", loopId: "20260527T184210Z" },
+          query: "current docs",
+          env: {
+            JRI_PI_WEB_COMMAND: fakeWeb,
+          },
+        }),
+      ).rejects.toThrow("search result 1 is missing string field(s): snippet");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runWebSearch rejects search responses without result arrays", async () => {
+    const dir = await tempProject();
+    try {
+      const fakeWeb = join(dir, "fake-web-no-results.sh");
+      await writeFile(fakeWeb, "#!/usr/bin/env bash\nprintf '{\"retrievedAt\":\"2026-05-27T00:00:00.000Z\"}'\n", "utf8");
+      await chmod(fakeWeb, 0o755);
+
+      await expect(
+        runWebSearch({
+          projectDir: dir,
+          owner: { kind: "loop", loopId: "20260527T184210Z" },
+          query: "current docs",
+          env: {
+            JRI_PI_WEB_COMMAND: fakeWeb,
+          },
+        }),
+      ).rejects.toThrow("search response must include a results array");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("runWebFetch caps markdown and stores omitted content as an artifact", async () => {
     const dir = await tempProject();
     try {
