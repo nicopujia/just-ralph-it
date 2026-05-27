@@ -34,10 +34,11 @@
 - P0: Finish cancellation, timeout, halt fanout, and runtime failure normalization.
   - Completed planning increment: clarified `.jri/specs/runtime-state.md` and `.jri/specs/sdk-runtime-contracts.md` so failed runtime outcomes are durable `loopFinished.failed` plus `stopped`/`lastResult.failed`, and connected-but-silent daemon IPC must time out without duplicating lifecycle mutations.
   - Completed increments: loop-owned harness, explorer, and web subprocesses append child-process records; halt kills registered children; cancellation and runner timeouts fan out SIGTERM then SIGKILL; runner startup ownership/lock-lost failures normalize into durable failed outcomes.
-  - Confirmed gap: connected-but-silent daemon IPC, parser failures, broader lock loss, capability failures, and direct stream failures still need a consolidated structured failure audit across every path.
-  - Add bounded inactivity timeouts for daemon unary and streaming clients. Read-only status/observe may recover from durable state; ambiguous lifecycle-mutating requests must not be reissued unless core can prove the original request was not accepted.
+  - Completed increment: daemon IPC clients now have bounded inactivity timeouts for connected-but-silent unary and streaming responses; invalid daemon stream event payloads are rejected before yielding; coverage includes silent unary, silent stream, disconnect before done, and invalid stream event frames.
+  - Confirmed gap: parser failures outside validated daemon stream event payloads, broader lock loss, capability failures, and remaining runtime failure paths still need a consolidated structured failure audit across every path.
+  - Preserve the daemon IPC timeout contract: read-only status/observe may recover from durable state; ambiguous lifecycle-mutating requests must not be reissued unless core can prove the original request was not accepted.
   - Ensure every runtime failure path records a `loopFinished` failure event plus stopped status/`lastResult` evidence that recovery can trust.
-  - Add coverage for parser errors, invalid stream frames, daemon disconnect before done, silent daemon after connect, stale lock during phase switch, and capability cancellation/error propagation.
+  - Add coverage for remaining parser errors, stale lock during phase switch, and capability cancellation/error propagation.
 
 - P0: Consolidate human-task verification lifecycle ownership.
   - Completed increment: durable human-task verification now goes through the bare `done` path, which reuses the existing resume lifecycle lock while marking a `needsHumanTask` blocker verified.

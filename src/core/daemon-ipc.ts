@@ -11,6 +11,7 @@ import type { CoreEvent, HaltOptions, LoopObserveOptions, ProjectStatus } from "
 
 export const DAEMON_PROTOCOL_VERSION = 1;
 export const MAX_DAEMON_FRAME_BYTES = 1024 * 1024;
+export const DEFAULT_DAEMON_INACTIVITY_TIMEOUT_MS = 5_000;
 const internalInvocationEnv = "JRI_INTERNAL_INVOCATION";
 
 export type DaemonRequest = {
@@ -60,6 +61,7 @@ type DaemonClientOptions = LoopObserveOptions &
   paths?: DaemonPaths;
   startIfUnavailable?: boolean;
   startupTimeoutMs?: number;
+  inactivityTimeoutMs?: number;
 };
 
 type DaemonHandshake = {
@@ -228,10 +230,11 @@ export async function runDaemon(options: DaemonServerOptions = {}): Promise<void
 
 async function daemonRequest(method: string, params: Record<string, unknown>, options: DaemonClientOptions): Promise<unknown> {
   const socket = await connectDaemon(options);
+  const inactivityTimeoutMs = options.inactivityTimeoutMs ?? DEFAULT_DAEMON_INACTIVITY_TIMEOUT_MS;
   try {
     const request: DaemonRequest = { id: crypto.randomUUID(), method, params };
     socket.write(`${JSON.stringify(request)}\n`);
-    for await (const line of readSocketLines(socket)) {
+    for await (const line of readSocketLines(socket, inactivityTimeoutMs)) {
       const message = parseDaemonMessage(line);
       if (message.id !== request.id) continue;
       if (!("ok" in message) || !message.ok) throw daemonError(message);
@@ -248,10 +251,11 @@ async function daemonRequest(method: string, params: Record<string, unknown>, op
 
 async function* daemonStream(method: string, params: Record<string, unknown>, options: DaemonClientOptions): AsyncIterable<CoreEvent> {
   const socket = await connectDaemon(options);
+  const inactivityTimeoutMs = options.inactivityTimeoutMs ?? DEFAULT_DAEMON_INACTIVITY_TIMEOUT_MS;
   const request: DaemonRequest = { id: crypto.randomUUID(), method, params };
   socket.write(`${JSON.stringify(request)}\n`);
   try {
-    for await (const line of readSocketLines(socket)) {
+    for await (const line of readSocketLines(socket, inactivityTimeoutMs)) {
       const message = parseDaemonMessage(line);
       if (message.id !== request.id) continue;
       if (!("ok" in message) || !message.ok) throw daemonError(message);
@@ -270,16 +274,17 @@ async function* daemonStream(method: string, params: Record<string, unknown>, op
 
 async function connectDaemon(options: DaemonClientOptions): Promise<Socket> {
   const paths = options.paths ?? daemonPaths();
+  const inactivityTimeoutMs = options.inactivityTimeoutMs ?? DEFAULT_DAEMON_INACTIVITY_TIMEOUT_MS;
   let socket: Socket;
   try {
     socket = await connectSocket(paths.socketPath);
   } catch (error) {
     if (!options.startIfUnavailable) throw connectionError(error);
     await startDaemonProcess(paths);
-    return await waitForCompatibleDaemon(paths, options.startupTimeoutMs ?? 2_000);
+    return await waitForCompatibleDaemon(paths, options.startupTimeoutMs ?? 2_000, inactivityTimeoutMs);
   }
 
-  if (await isCompatibleDaemon(socket)) return socket;
+  if (await isCompatibleDaemon(socket, inactivityTimeoutMs)) return socket;
   socket.end();
 
   if (await hasActiveRegisteredLoop(paths)) {
@@ -299,7 +304,7 @@ async function connectDaemon(options: DaemonClientOptions): Promise<Socket> {
     );
   }
   await startDaemonProcess(paths);
-  return await waitForCompatibleDaemon(paths, options.startupTimeoutMs ?? 2_000);
+  return await waitForCompatibleDaemon(paths, options.startupTimeoutMs ?? 2_000, inactivityTimeoutMs);
 }
 
 async function startDaemonProcess(paths: DaemonPaths): Promise<void> {
@@ -321,13 +326,13 @@ async function startDaemonProcess(paths: DaemonPaths): Promise<void> {
   }).unref();
 }
 
-async function waitForCompatibleDaemon(paths: DaemonPaths, timeoutMs: number): Promise<Socket> {
+async function waitForCompatibleDaemon(paths: DaemonPaths, timeoutMs: number, inactivityTimeoutMs: number): Promise<Socket> {
   const startedAt = Date.now();
   let lastError: unknown;
   while (Date.now() - startedAt < timeoutMs) {
     try {
       const socket = await connectSocket(paths.socketPath);
-      if (await isCompatibleDaemon(socket)) return socket;
+      if (await isCompatibleDaemon(socket, inactivityTimeoutMs)) return socket;
       socket.end();
       lastError = new JriError(
         "The JRI daemon uses an incompatible protocol.",
@@ -342,9 +347,9 @@ async function waitForCompatibleDaemon(paths: DaemonPaths, timeoutMs: number): P
   throw connectionError(lastError);
 }
 
-async function isCompatibleDaemon(socket: Socket): Promise<boolean> {
+async function isCompatibleDaemon(socket: Socket, inactivityTimeoutMs: number): Promise<boolean> {
   try {
-    const result = await sendUnaryRequest(socket, "handshake");
+    const result = await sendUnaryRequest(socket, "handshake", undefined, inactivityTimeoutMs);
     return isHandshake(result) && result.protocolVersion === DAEMON_PROTOCOL_VERSION;
   } catch {
     return false;
@@ -364,11 +369,16 @@ async function requestDaemonShutdown(paths: DaemonPaths): Promise<void> {
   }
 }
 
-async function sendUnaryRequest(socket: Socket, method: string, params?: Record<string, unknown>): Promise<unknown> {
+async function sendUnaryRequest(
+  socket: Socket,
+  method: string,
+  params?: Record<string, unknown>,
+  inactivityTimeoutMs = DEFAULT_DAEMON_INACTIVITY_TIMEOUT_MS,
+): Promise<unknown> {
   const request: DaemonRequest = { id: crypto.randomUUID(), method, ...(params === undefined ? {} : { params }) };
   socket.write(`${JSON.stringify(request)}\n`);
   for (;;) {
-    const line = await readOneSocketLine(socket);
+    const line = await readOneSocketLine(socket, inactivityTimeoutMs);
     const message = parseDaemonMessage(line);
     if (message.id !== request.id) continue;
     if (!("ok" in message) || !message.ok) throw daemonError(message);
@@ -573,28 +583,36 @@ async function writeRegistry(path: string, registry: DaemonRegistry): Promise<vo
   await rename(tmpPath, path);
 }
 
-async function* readSocketLines(socket: Socket): AsyncIterable<string> {
+async function* readSocketLines(socket: Socket, inactivityTimeoutMs: number): AsyncIterable<string> {
   let buffer = "";
   socket.setEncoding("utf8");
-  for await (const chunk of socket) {
-    buffer += chunk;
-    if (!buffer.includes("\n")) assertFrameWithinLimit(buffer, "Daemon response exceeded the maximum IPC frame size.");
-    for (;;) {
-      const newline = buffer.indexOf("\n");
-      if (newline === -1) break;
-      const line = buffer.slice(0, newline).trim();
-      buffer = buffer.slice(newline + 1);
-      if (!line) continue;
-      assertFrameWithinLimit(line, "Daemon response exceeded the maximum IPC frame size.");
-      yield line;
+  const disarmTimeout = armSocketInactivityTimeout(socket, inactivityTimeoutMs);
+  try {
+    for await (const chunk of socket) {
+      buffer += chunk;
+      if (!buffer.includes("\n")) assertFrameWithinLimit(buffer, "Daemon response exceeded the maximum IPC frame size.");
+      for (;;) {
+        const newline = buffer.indexOf("\n");
+        if (newline === -1) break;
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (!line) continue;
+        assertFrameWithinLimit(line, "Daemon response exceeded the maximum IPC frame size.");
+        socket.setTimeout(inactivityTimeoutMs);
+        yield line;
+      }
     }
+  } finally {
+    disarmTimeout();
   }
 }
 
-function readOneSocketLine(socket: Socket): Promise<string> {
+function readOneSocketLine(socket: Socket, inactivityTimeoutMs: number): Promise<string> {
   return new Promise((resolveLine, rejectLine) => {
     let buffer = "";
+    const disarmTimeout = armSocketInactivityTimeout(socket, inactivityTimeoutMs);
     const cleanup = () => {
+      disarmTimeout();
       socket.off("data", onData);
       socket.off("error", onError);
       socket.off("close", onClose);
@@ -635,6 +653,24 @@ function readOneSocketLine(socket: Socket): Promise<string> {
   });
 }
 
+function armSocketInactivityTimeout(socket: Socket, inactivityTimeoutMs: number): () => void {
+  if (!Number.isFinite(inactivityTimeoutMs) || inactivityTimeoutMs <= 0) return () => {};
+  const onTimeout = () => {
+    socket.destroy(
+      new JriError(
+        "Daemon stopped producing IPC frames before the request completed.",
+        "daemon-inactivity-timeout",
+        "Inspect .jri/status.json and retry only after confirming whether the previous lifecycle request was accepted.",
+      ),
+    );
+  };
+  socket.setTimeout(inactivityTimeoutMs, onTimeout);
+  return () => {
+    socket.setTimeout(0);
+    socket.off("timeout", onTimeout);
+  };
+}
+
 function parseRequest(line: string): DaemonRequest {
   let parsed: unknown;
   try {
@@ -663,7 +699,11 @@ function parseDaemonMessage(line: string): DaemonStreamMessage {
 
   const message = parsed as Record<string, unknown>;
   if (message.ok === true) {
-    if ("event" in message || message.done === true || "result" in message) return message as DaemonStreamMessage;
+    if ("event" in message) {
+      if (isCoreEventFrame(message.event)) return message as DaemonStreamMessage;
+      throw new JriError("Daemon returned an invalid stream event.", "daemon-protocol-error", "Retry the command with a compatible JRI daemon.");
+    }
+    if (message.done === true || "result" in message) return message as DaemonStreamMessage;
   }
   if (
     message.ok === false &&
@@ -676,6 +716,25 @@ function parseDaemonMessage(line: string): DaemonStreamMessage {
   }
 
   throw new JriError("Daemon returned an invalid response.", "daemon-protocol-error", "Retry the command with a compatible JRI daemon.");
+}
+
+function isCoreEventFrame(value: unknown): value is CoreEvent {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const event = value as Partial<CoreEvent>;
+  return (
+    typeof event.id === "string" &&
+    event.id.length > 0 &&
+    typeof event.type === "string" &&
+    event.type.length > 0 &&
+    typeof event.sequence === "number" &&
+    Number.isInteger(event.sequence) &&
+    typeof event.timestamp === "string" &&
+    !Number.isNaN(Date.parse(event.timestamp)) &&
+    "data" in event &&
+    Boolean(event.data) &&
+    typeof event.data === "object" &&
+    !Array.isArray(event.data)
+  );
 }
 
 function projectDirParam(params: unknown): string {

@@ -516,6 +516,70 @@ describe("daemon IPC", () => {
     }
   });
 
+  test("times out connected daemon unary requests that stop producing frames", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const fakeDaemon = await startSilentMethodDaemon(paths, "status.get");
+    try {
+      await expect(daemonStatus(dir, { paths, inactivityTimeoutMs: 20 })).rejects.toMatchObject({
+        code: "daemon-inactivity-timeout",
+        message: "Daemon stopped producing IPC frames before the request completed.",
+      });
+      expect(fakeDaemon.requests).toEqual(["handshake", "status.get"]);
+    } finally {
+      await fakeDaemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("times out connected daemon streams that stop before done", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const fakeDaemon = await startSilentMethodDaemon(paths, "loop.observe");
+    try {
+      await expect(collect(daemonObserveLoop(dir, { paths, inactivityTimeoutMs: 20 }))).rejects.toMatchObject({
+        code: "daemon-inactivity-timeout",
+        message: "Daemon stopped producing IPC frames before the request completed.",
+      });
+      expect(fakeDaemon.requests).toEqual(["handshake", "loop.observe"]);
+    } finally {
+      await fakeDaemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("maps daemon disconnect before stream done to disconnected errors", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const fakeDaemon = await startDisconnectingStreamDaemon(paths);
+    try {
+      await expect(collect(daemonObserveLoop(dir, { paths }))).rejects.toMatchObject({
+        code: "daemon-disconnected",
+        message: "Daemon closed the connection before finishing the stream.",
+      });
+      expect(fakeDaemon.requests).toEqual(["handshake", "loop.observe"]);
+    } finally {
+      await fakeDaemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("rejects invalid daemon stream event payloads before yielding them", async () => {
+    const dir = await tempProject();
+    const paths = tempDaemonPaths(dir);
+    const fakeDaemon = await startBadResponseDaemon(paths, "loop.observe", (id) => `${JSON.stringify({ id, ok: true, event: { type: "loopStarted" } })}\n`);
+    try {
+      await expect(collect(daemonObserveLoop(dir, { paths }))).rejects.toMatchObject({
+        code: "daemon-protocol-error",
+        message: "Daemon returned an invalid stream event.",
+      });
+      expect(fakeDaemon.requests).toEqual(["handshake", "loop.observe"]);
+    } finally {
+      await fakeDaemon.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("rejects oversized daemon responses before parsing payloads", async () => {
     const dir = await tempProject();
     const paths = tempDaemonPaths(dir);
@@ -788,6 +852,93 @@ async function startBadResponseDaemon(
           continue;
         }
         socket.write(`${JSON.stringify({ id: request.id, ok: false, error: { code: "unsupported-daemon-method", message: "unsupported" } })}\n`);
+      }
+    });
+    socket.on("close", () => sockets.delete(socket));
+  });
+  await new Promise<void>((resolveListen, rejectListen) => {
+    server.once("error", rejectListen);
+    server.once("listening", resolveListen);
+    server.listen(paths.socketPath);
+  });
+  return {
+    requests,
+    close: async () => {
+      await closeServer(server, sockets);
+      if (process.platform !== "win32") await rm(paths.socketPath, { force: true });
+    },
+  };
+}
+
+async function startSilentMethodDaemon(paths: DaemonPaths, silentMethod: string): Promise<{ requests: string[]; close(): Promise<void> }> {
+  await mkdir(paths.runtimeDir, { recursive: true });
+  await mkdir(paths.stateDir, { recursive: true });
+  if (process.platform !== "win32") await rm(paths.socketPath, { force: true });
+  const requests: string[] = [];
+  const sockets = new Set<Socket>();
+  const server = createServer((socket) => {
+    sockets.add(socket);
+    socket.setEncoding("utf8");
+    let buffer = "";
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      for (;;) {
+        const newline = buffer.indexOf("\n");
+        if (newline === -1) break;
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (!line) continue;
+        const request = JSON.parse(line) as { id: string; method: string };
+        requests.push(request.method);
+        if (request.method === "handshake") {
+          socket.write(`${JSON.stringify({ id: request.id, ok: true, result: { protocolVersion: 1 } })}\n`);
+          continue;
+        }
+        if (request.method === silentMethod) continue;
+        socket.write(`${JSON.stringify({ id: request.id, ok: false, error: { code: "unsupported-daemon-method", message: "unsupported" } })}\n`);
+      }
+    });
+    socket.on("close", () => sockets.delete(socket));
+  });
+  await new Promise<void>((resolveListen, rejectListen) => {
+    server.once("error", rejectListen);
+    server.once("listening", resolveListen);
+    server.listen(paths.socketPath);
+  });
+  return {
+    requests,
+    close: async () => {
+      await closeServer(server, sockets);
+      if (process.platform !== "win32") await rm(paths.socketPath, { force: true });
+    },
+  };
+}
+
+async function startDisconnectingStreamDaemon(paths: DaemonPaths): Promise<{ requests: string[]; close(): Promise<void> }> {
+  await mkdir(paths.runtimeDir, { recursive: true });
+  await mkdir(paths.stateDir, { recursive: true });
+  if (process.platform !== "win32") await rm(paths.socketPath, { force: true });
+  const requests: string[] = [];
+  const sockets = new Set<Socket>();
+  const server = createServer((socket) => {
+    sockets.add(socket);
+    socket.setEncoding("utf8");
+    let buffer = "";
+    socket.on("data", (chunk) => {
+      buffer += chunk;
+      for (;;) {
+        const newline = buffer.indexOf("\n");
+        if (newline === -1) break;
+        const line = buffer.slice(0, newline).trim();
+        buffer = buffer.slice(newline + 1);
+        if (!line) continue;
+        const request = JSON.parse(line) as { id: string; method: string };
+        requests.push(request.method);
+        if (request.method === "handshake") {
+          socket.write(`${JSON.stringify({ id: request.id, ok: true, result: { protocolVersion: 1 } })}\n`);
+          continue;
+        }
+        socket.destroy();
       }
     });
     socket.on("close", () => sockets.delete(socket));
