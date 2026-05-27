@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
@@ -104,6 +104,67 @@ describe("daemon/runtime scaffolding", () => {
       expect(output.data).toEqual({ text: "second line\nthird line\n", replayed: true });
       expect(output.stdoutOffset).toBe(Buffer.byteLength("first line\n", "utf8"));
       expect(events[1]).toMatchObject({ type: "iterationStarted", sequence: 1 });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("observe can follow newly appended stdout and loop events without duplicating replayed output", async () => {
+    const dir = await tempProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+      });
+      await mkdir(join(dir, ".jri", "logs", "20260527T184210Z"), { recursive: true });
+      await writeFile(join(dir, ".jri", "logs", "20260527T184210Z", "stdout.log"), "before\n", "utf8");
+      await appendLoopEvent(dir, {
+        type: "iterationStarted",
+        loopId: "20260527T184210Z",
+        iteration: 1,
+        data: { trackedTreeCleanAtStart: true },
+      });
+
+      const iterator = observeLoop(dir, { includeStdout: true, recentStdoutLines: 1, follow: true, observePollIntervalMs: 5 })[Symbol.asyncIterator]();
+
+      await expect(iterator.next()).resolves.toMatchObject({
+        done: false,
+        value: { type: "loopOutput", stdoutOffset: 0, data: { text: "before\n", replayed: true } },
+      });
+      await expect(iterator.next()).resolves.toMatchObject({
+        done: false,
+        value: { type: "iterationStarted", sequence: 1 },
+      });
+
+      await appendFile(join(dir, ".jri", "logs", "20260527T184210Z", "stdout.log"), "after\n", "utf8");
+      await appendLoopEvent(dir, {
+        type: "validationStarted",
+        loopId: "20260527T184210Z",
+        iteration: 1,
+        data: { command: "bun run test" },
+      });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "idle",
+        activeLoopId: null,
+        lastLoopId: "20260527T184210Z",
+      });
+
+      await expect(iterator.next()).resolves.toMatchObject({
+        done: false,
+        value: {
+          type: "loopOutput",
+          stdoutOffset: Buffer.byteLength("before\n", "utf8"),
+          data: { text: "after\n", replayed: false },
+        },
+      });
+      await expect(iterator.next()).resolves.toMatchObject({
+        done: false,
+        value: { type: "validationStarted", sequence: 2 },
+      });
+      await expect(iterator.next()).resolves.toMatchObject({ done: true });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

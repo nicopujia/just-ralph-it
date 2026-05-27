@@ -109,6 +109,7 @@ export type ChatInput = {
 export type LoopObserveOptions = {
   includeStdout?: boolean;
   recentStdoutLines?: number;
+  follow?: boolean;
 };
 
 export type ArtifactRef = {

@@ -38,6 +38,7 @@ export type RuntimeOptions = {
   killProcess?: ProcessKiller;
   spawnRunner?: RunnerSpawner;
   harnessRunner?: HarnessSessionRunner;
+  observePollIntervalMs?: number;
 };
 
 export type RunnerPhase = "auditing" | "planning" | "building";
@@ -115,15 +116,56 @@ export async function* observeLoop(projectDir: string, options: RuntimeOptions &
     throw new JriError("There is no JRI loop to observe.", "no-loop", "Start Ralph from bare jri after specs are ready.");
   }
 
+  let stdoutOffset = options.includeStdout ? await stdoutLogSize(projectDir, loopId) : 0;
   if (options.includeStdout) {
     const output = await readRecentStdout(projectDir, loopId, options.recentStdoutLines ?? 100);
     if (output) {
       yield syntheticLoopOutputEvent(loopId, output.text, output.stdoutOffset);
+      stdoutOffset = output.stdoutOffset + Buffer.byteLength(output.text, "utf8");
     }
   }
 
+  let lastSequence = 0;
   for (const event of await readLoopEvents(projectDir, loopId)) {
+    lastSequence = Math.max(lastSequence, event.sequence);
     yield event;
+  }
+
+  if (!options.follow || !isActiveState(status.state)) return;
+
+  const pollIntervalMs = options.observePollIntervalMs ?? 250;
+  for (;;) {
+    if (options.includeStdout) {
+      const output = await readStdoutFromOffset(projectDir, loopId, stdoutOffset);
+      if (output) {
+        yield syntheticLoopOutputEvent(loopId, output.text, stdoutOffset, false);
+        stdoutOffset += Buffer.byteLength(output.text, "utf8");
+      }
+    }
+
+    const events = await readLoopEventsAfter(projectDir, loopId, lastSequence);
+    for (const event of events) {
+      lastSequence = Math.max(lastSequence, event.sequence);
+      yield event;
+    }
+
+    const latest = await readStatus(projectDir);
+    if (!isActiveState(latest.state)) {
+      const finalEvents = await readLoopEventsAfter(projectDir, loopId, lastSequence);
+      for (const event of finalEvents) {
+        lastSequence = Math.max(lastSequence, event.sequence);
+        yield event;
+      }
+      if (options.includeStdout) {
+        const output = await readStdoutFromOffset(projectDir, loopId, stdoutOffset);
+        if (output) {
+          yield syntheticLoopOutputEvent(loopId, output.text, stdoutOffset, false);
+        }
+      }
+      return;
+    }
+
+    await sleep(pollIntervalMs);
   }
 }
 
@@ -590,6 +632,10 @@ async function readLoopEvents(projectDir: string, loopId: string): Promise<CoreE
   return events;
 }
 
+async function readLoopEventsAfter(projectDir: string, loopId: string, sequence: number): Promise<CoreEvent[]> {
+  return (await readLoopEvents(projectDir, loopId)).filter((event) => event.sequence > sequence);
+}
+
 async function readRecentStdout(projectDir: string, loopId: string, maxLines: number): Promise<{ text: string; stdoutOffset: number } | undefined> {
   const path = join(projectDir, ".jri", "logs", loopId, "stdout.log");
   if (!(await Bun.file(path).exists())) return undefined;
@@ -604,7 +650,16 @@ async function readRecentStdout(projectDir: string, loopId: string, maxLines: nu
   };
 }
 
-function syntheticLoopOutputEvent(loopId: string, text: string, stdoutOffset: number): CoreEvent {
+async function readStdoutFromOffset(projectDir: string, loopId: string, stdoutOffset: number): Promise<{ text: string } | undefined> {
+  const path = join(projectDir, ".jri", "logs", loopId, "stdout.log");
+  if (!(await Bun.file(path).exists())) return undefined;
+  const bytes = await readFile(path);
+  const currentSize = bytes.byteLength;
+  if (currentSize <= stdoutOffset) return undefined;
+  return { text: bytes.subarray(stdoutOffset).toString("utf8") };
+}
+
+function syntheticLoopOutputEvent(loopId: string, text: string, stdoutOffset: number, replayed = true): CoreEvent {
   return {
     id: crypto.randomUUID(),
     sequence: 0,
@@ -613,8 +668,12 @@ function syntheticLoopOutputEvent(loopId: string, text: string, stdoutOffset: nu
     loopId,
     stdoutOffset,
     message: text,
-    data: { text, replayed: true },
+    data: { text, replayed },
   };
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 async function appendRecoveryEvent(projectDir: string, repairedFrom: string, repairedTo: string, reason: string): Promise<CoreEvent | undefined> {

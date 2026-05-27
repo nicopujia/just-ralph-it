@@ -473,6 +473,7 @@ function observeOptionsParam(options: LoopObserveOptions): LoopObserveOptions {
   return {
     ...(options.includeStdout === undefined ? {} : { includeStdout: options.includeStdout }),
     ...(options.recentStdoutLines === undefined ? {} : { recentStdoutLines: options.recentStdoutLines }),
+    ...(options.follow === undefined ? {} : { follow: options.follow }),
   };
 }
 
@@ -484,6 +485,7 @@ function observeOptionsFromParams(params: unknown): LoopObserveOptions {
     ...(typeof observe.recentStdoutLines === "number" && Number.isInteger(observe.recentStdoutLines) && observe.recentStdoutLines > 0
       ? { recentStdoutLines: observe.recentStdoutLines }
       : {}),
+    ...(typeof observe.follow === "boolean" ? { follow: observe.follow } : {}),
   };
 }
 

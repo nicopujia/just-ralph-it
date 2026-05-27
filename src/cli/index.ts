@@ -57,7 +57,7 @@ async function main(argv: string[]): Promise<number> {
 
   if (command === "loop") {
     if (subcommand === "attach") {
-      for await (const event of project.loop.observe({ includeStdout: true, recentStdoutLines: 100 })) {
+      for await (const event of project.loop.observe({ includeStdout: true, recentStdoutLines: 100, follow: true })) {
         console.log(formatLoopEvent(event));
       }
       return 0;
