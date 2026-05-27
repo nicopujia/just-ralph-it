@@ -13,8 +13,6 @@ import type {
 } from "./types";
 
 export const handoffPrefix = "JRI_HANDOFF_JSON:";
-export const legacyBlockerPrefix = "JRI_BLOCKER_JSON:";
-export const legacyReplanPrefix = "JRI_NEEDS_REPLAN:";
 
 export type HandoffAgent = AgentHandoff["agent"];
 
@@ -79,31 +77,7 @@ export function extractLatestHandoffFromText(agent: HandoffAgent, text: string, 
 }
 
 export function extractLatestBuilderHandoffFromText(text: string, phaseLabel = "builder"): BuilderHandoff {
-  const handoffRecords = extractPrefixedRecords(text, handoffPrefix);
-  if (handoffRecords.length > 0) {
-    assertSingleRecord(handoffRecords, phaseLabel, handoffPrefix);
-    return parseHandoff("builder", parseRawJson(onlyRecord(handoffRecords), phaseLabel)) as BuilderHandoff;
-  }
-
-  const blockerRecords = extractPrefixedRecords(text, legacyBlockerPrefix);
-  if (blockerRecords.length > 0) {
-    assertSingleRecord(blockerRecords, "builder blocker", legacyBlockerPrefix);
-    const rawJson = onlyRecord(blockerRecords);
-    return { agent: "builder", action: "blocked", blocker: parseBlocker(parseRawJson(rawJson, "builder blocker")) };
-  }
-
-  const replanRecords = extractPrefixedRecords(text, legacyReplanPrefix);
-  if (replanRecords.length > 0) {
-    assertSingleRecord(replanRecords, "builder replan", legacyReplanPrefix);
-    const reason = onlyRecord(replanRecords).trim();
-    return { agent: "builder", action: "needsReplan", reason: reason || "Builder requested plan regeneration." };
-  }
-
-  throw new JriError(
-    `The ${phaseLabel} phase did not emit a machine-readable JRI handoff.`,
-    "missing-agent-handoff",
-    `Emit exactly one line that starts with ${handoffPrefix} followed by the ${phaseLabel} JSON contract.`,
-  );
+  return extractLatestHandoffFromText("builder", text, phaseLabel) as BuilderHandoff;
 }
 
 function extractSinglePrefixedRecord(text: string, prefix: string, phaseLabel: string): string {

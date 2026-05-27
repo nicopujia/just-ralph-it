@@ -186,14 +186,8 @@ describe("agent handoff contracts", () => {
     ).toThrow("Unknown builder blocker.resolutionGuide key: hint");
   });
 
-  test("accepts legacy builder blocker and replan lines during transition", () => {
-    expect(extractLatestBuilderHandoffFromText(`JRI_BLOCKER_JSON: ${JSON.stringify(blocker)}`)).toMatchObject({
-      action: "blocked",
-      blocker: { reason: "needsHumanTask" },
-    });
-    expect(extractLatestBuilderHandoffFromText("JRI_NEEDS_REPLAN: plan drifted")).toMatchObject({
-      action: "needsReplan",
-      reason: "plan drifted",
-    });
+  test("rejects legacy builder blocker and replan lines", () => {
+    expect(() => extractLatestBuilderHandoffFromText(`JRI_BLOCKER_JSON: ${JSON.stringify(blocker)}`)).toThrow("did not emit");
+    expect(() => extractLatestBuilderHandoffFromText("JRI_NEEDS_REPLAN: plan drifted")).toThrow("did not emit");
   });
 });
