@@ -8,7 +8,6 @@ import {
   invokeDefaultHarness,
   assertHarnessCapabilities,
   readActiveLoopChildren,
-  readProjectConfig,
   runControlledPiSession,
   type CapabilityDescriptor,
   type HarnessAdapter,
@@ -17,6 +16,7 @@ import {
   type HarnessSessionRunner,
 } from "./harness";
 import { checkInterrogationStartGate } from "./interrogation-state";
+import { readProjectConfig } from "./project-config";
 import {
   acquireLock,
   appendLoopEvent,

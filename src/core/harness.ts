@@ -19,8 +19,8 @@ import type { CapabilityOwner } from "./capability-ownership";
 import { JriError } from "./errors";
 import { extractLatestHandoffFromText } from "./handoffs";
 import { buildPiPrompt, modelForAgent } from "./prompts";
+import { readProjectConfig } from "./project-config";
 import { appendLoopEvent } from "./runtime-state";
-import { parseJsonObject, validateConfig } from "./schema";
 import type { CoreEvent } from "./types";
 import type { AgentConfig, AgentHandoff, AgentName, ArtifactRef } from "./types";
 
@@ -394,7 +394,7 @@ export async function buildControlledPiCommand(
   request: Omit<HarnessSessionRequest, "stdoutPath">,
 ): Promise<PiHarnessCommand> {
   const env = request.env ?? process.env;
-  await assertProviderAuth(env);
+  await assertProviderAuth(request.projectDir, env);
   await mkdir(join(request.projectDir, ".jri", "logs", request.loopId, "pi-sessions"), { recursive: true });
 
   const promptOwner = request.owner ?? (request.phase === "interrogation" ? { kind: "chat" as const, turnId: request.loopId } : { kind: "loop" as const, loopId: request.loopId });
@@ -609,21 +609,18 @@ function normalizeSdkHarnessError(error: unknown, agent: AgentName): JriError {
   );
 }
 
-async function assertProviderAuth(env: NodeJS.ProcessEnv): Promise<void> {
+async function assertProviderAuth(projectDir: string, env: NodeJS.ProcessEnv): Promise<void> {
   if (env.JRI_PI_COMMAND) return;
-  const status = await getAuthStatus(env);
+  const status = await getAuthStatus(projectDir, env);
   if (status.authenticated) return;
+  if (status.recovery) {
+    throw new JriError(status.recovery.message, status.recovery.code, status.recovery.instructions);
+  }
   throw new JriError(
     "OpenAI authentication is required before JRI can start a controlled Pi session.",
     "auth-required",
     "Run jri auth login, set OPENAI_API_KEY, or complete Pi OpenAI auth, then retry.",
   );
-}
-
-export async function readProjectConfig(projectDir: string): Promise<unknown> {
-  const path = join(projectDir, ".jri", "config.json");
-  if (!(await Bun.file(path).exists())) return undefined;
-  return validateConfig(parseJsonObject(await Bun.file(path).text(), path), path);
 }
 
 async function appendMergedStreams(path: string, streams: ReadableStream<Uint8Array>[]): Promise<void> {

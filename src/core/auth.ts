@@ -1,7 +1,10 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
+import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import { JriError } from "./errors";
+import { modelForAgent } from "./prompts";
+import { readProjectConfig } from "./project-config";
 import type { AuthResult, AuthState } from "./types";
 
 type PiAuthEntry = {
@@ -13,24 +16,68 @@ type PiAuthEntry = {
 };
 
 const provider = "openai" as const;
+const modelRecoveryInstructions = "Check .jri/config.json agent model overrides or update the Pi SDK model registry.";
 
-export async function getAuthStatus(env: NodeJS.ProcessEnv = process.env): Promise<AuthState> {
+export async function getAuthStatus(projectDir?: string, env: NodeJS.ProcessEnv = process.env): Promise<AuthState> {
+  const configuredModel = modelForAgent(projectDir ? await readProjectConfig(projectDir) : undefined, "interrogator");
+  const authStorage = AuthStorage.create(piAuthPath(env));
+  if (hasOpenAiApiKey(env)) {
+    authStorage.setRuntimeApiKey(provider, env.OPENAI_API_KEY!.trim());
+  }
+  const modelRegistry = ModelRegistry.create(authStorage);
+  const resolvedModel = modelRegistry.find(provider, configuredModel.model);
+  if (!resolvedModel) {
+    return {
+      provider,
+      authenticated: false,
+      recovery: {
+        code: "model-not-found",
+        message: `JRI could not resolve OpenAI model ${configuredModel.model}.`,
+        instructions: modelRecoveryInstructions,
+      },
+    };
+  }
+
   if (hasOpenAiApiKey(env)) return { provider, authenticated: true };
   const diagnostics = await inspectPiOpenAiAuth(env);
+  if (diagnostics.recovery) {
+    return {
+      provider,
+      authenticated: false,
+      recovery: diagnostics.recovery,
+    };
+  }
+  if (!diagnostics.hasUsableOpenAiAuth) {
+    return {
+      provider,
+      authenticated: false,
+    };
+  }
+  const authenticated = modelRegistry.hasConfiguredAuth(resolvedModel);
   return {
     provider,
-    authenticated: diagnostics.hasUsableOpenAiAuth,
-    ...(diagnostics.recovery
+    authenticated,
+    ...(!authenticated
       ? {
-          recovery: diagnostics.recovery,
+          recovery: {
+            code: "auth-required",
+            message: "OpenAI authentication is required before JRI can start a controlled Pi SDK session.",
+            instructions: "Run jri auth login, set OPENAI_API_KEY, or complete Pi OpenAI auth, then retry.",
+          },
         }
       : {}),
   };
 }
 
-export async function login(env: NodeJS.ProcessEnv = process.env): Promise<AuthResult> {
-  const state = await getAuthStatus(env);
+export async function login(projectDir?: string, env: NodeJS.ProcessEnv = process.env): Promise<AuthResult> {
+  const state = await getAuthStatus(projectDir, env);
   if (state.authenticated) return { status: "authenticated", state };
+  if (state.recovery?.code === "model-not-found") {
+    return {
+      status: "userActionRequired",
+      instructions: `${state.recovery.message} ${state.recovery.instructions}`,
+    };
+  }
   const diagnostics = await inspectPiOpenAiAuth(env);
   const invalidAuthNote = diagnostics.recovery ? ` ${diagnostics.recovery.instructions}` : "";
   const staleAuthNote = diagnostics.hasStaleOpenAiAuth

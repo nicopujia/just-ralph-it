@@ -8,3 +8,4 @@
   - Note: a timestamp-based cutoff is now implemented in `src/core/chat.ts`, so new interrogator sessions include only turns at or after the earliest currently open/pending topic timestamp; this prevents older sealed-topic discussion from leaking back into context. The broader item stays open because true topic-aware excerpt selection and older-excerpt retrieval are still not implemented.
 - [ ] Backfill focused coverage for the remaining contract gaps, especially the primary public chat smoke path.
   - Note: focused public `project.chat.send` smoke coverage now exercises the timestamp cutoff, but broader contract-gap coverage is still outstanding.
+  - Note: the real installed-bin `jri` smoke path now covers `jri auth status` alignment with the first controlled interrogator session for configured SDK model readiness, while broader chat smoke coverage remains outstanding.

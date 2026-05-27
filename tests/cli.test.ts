@@ -67,6 +67,83 @@ describe("CLI", () => {
     expect(stdout).not.toContain("--run-explorer");
   });
 
+  test("installed public CLI keeps auth status aligned with first controlled interrogator readiness", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri"), { recursive: true });
+      await writeFile(
+        join(dir, ".jri", "config.json"),
+        `${JSON.stringify(
+          {
+            $schema: "https://justralph.it/schemas/config.schema.json",
+            schemaVersion: 1,
+            provider: "openai",
+            modelPreset: "openai",
+            agents: {
+              interrogator: {
+                model: "not-a-real-model",
+                reasoning: "xhigh",
+              },
+            },
+          },
+          null,
+          2,
+        )}\n`,
+        "utf8",
+      );
+
+      const packageJson = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as { bin?: { jri?: string } };
+      const jriBin = join(repoRoot, packageJson.bin?.jri ?? "");
+      const env = {
+        ...process.env,
+        OPENAI_API_KEY: "test-key",
+        PI_CODING_AGENT_DIR: join(dir, "pi-agent"),
+      };
+      const recovery = "Check .jri/config.json agent model overrides or update the Pi SDK model registry.";
+
+      const authStatus = Bun.spawn([jriBin, "auth", "status"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env,
+      });
+      const [authExitCode, authStdout, authStderr] = await Promise.all([
+        authStatus.exited,
+        new Response(authStatus.stdout).text(),
+        new Response(authStatus.stderr).text(),
+      ]);
+
+      expect(authExitCode).toBe(0);
+      expect(authStderr).toBe("");
+      expect(authStdout).toContain("openai: not authenticated");
+      expect(authStdout).toContain("JRI could not resolve OpenAI model not-a-real-model.");
+      expect(authStdout).toContain(recovery);
+
+      const chat = Bun.spawn([jriBin], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        env,
+      });
+      chat.stdin.write("Need a CLI.\n");
+      chat.stdin.end();
+
+      const [chatExitCode, chatStdout, chatStderr] = await Promise.all([
+        chat.exited,
+        new Response(chat.stdout).text(),
+        new Response(chat.stderr).text(),
+      ]);
+
+      expect(chatExitCode).toBe(1);
+      expect(chatStdout).toBe("");
+      expect(chatStderr).toContain("JRI could not resolve OpenAI model not-a-real-model.");
+      expect(chatStderr).toContain(recovery);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("direct internal entrypoints are rejected from the public CLI", async () => {
     const proc = Bun.spawn(["bun", cliPath, "--run-web", "search", "{}", "docs"], {
       cwd: repoRoot,

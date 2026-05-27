@@ -32,11 +32,8 @@ describe("project auth", () => {
     await writeFile(
       join(piDir, "auth.json"),
       `${JSON.stringify({
-        "openai-codex": {
-          type: "oauth",
-          access: "access-token",
-          refresh: "refresh-token",
-          expires: Date.now() + 60_000,
+        openai: {
+          apiKey: "sk-test",
         },
       })}\n`,
       "utf8",
@@ -46,6 +43,52 @@ describe("project auth", () => {
       try {
         const project = await open(dir);
         expect(await project.auth.status()).toEqual({ provider: "openai", authenticated: true });
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  test("does not report authenticated when the configured interrogator model is unavailable", async () => {
+    const dir = await tempProject();
+    await mkdir(join(dir, ".jri"), { recursive: true });
+    await writeFile(
+      join(dir, ".jri", "config.json"),
+      `${JSON.stringify(
+        {
+          $schema: "https://justralph.it/schemas/config.schema.json",
+          schemaVersion: 1,
+          provider: "openai",
+          modelPreset: "openai",
+          agents: {
+            interrogator: {
+              model: "not-a-real-model",
+              reasoning: "xhigh",
+            },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    await withAuthEnv({ OPENAI_API_KEY: "test-key", PI_CODING_AGENT_DIR: join(dir, "pi-agent") }, async () => {
+      try {
+        const project = await open(dir);
+        expect(await project.auth.status()).toEqual({
+          provider: "openai",
+          authenticated: false,
+          recovery: {
+            code: "model-not-found",
+            message: "JRI could not resolve OpenAI model not-a-real-model.",
+            instructions: "Check .jri/config.json agent model overrides or update the Pi SDK model registry.",
+          },
+        });
+        expect(await project.auth.login()).toMatchObject({
+          status: "userActionRequired",
+          instructions: expect.stringContaining("Check .jri/config.json agent model overrides or update the Pi SDK model registry."),
+        });
       } finally {
         await rm(dir, { recursive: true, force: true });
       }

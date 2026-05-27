@@ -3,7 +3,7 @@ import { isAbsolute, join, normalize, sep } from "node:path";
 import { daemonRequestStop, daemonStartLoop } from "./daemon-ipc";
 import type { RuntimeOptions } from "./daemon-runtime";
 import { JriError } from "./errors";
-import { invokeDefaultHarness, readProjectConfig, type HarnessAdapter } from "./harness";
+import { invokeDefaultHarness, type HarnessAdapter } from "./harness";
 import {
   checkInterrogationStartGate,
   listSpecFiles,
@@ -12,6 +12,7 @@ import {
   type InterrogationState,
 } from "./interrogation-state";
 import { modelForAgent } from "./prompts";
+import { readProjectConfig } from "./project-config";
 import { acquireLock, appendInterrogationEvent, appendLoopEvent, readStatus, releaseLock, updateStatus } from "./runtime-state";
 import type { Blocker, ChatInput, CoreEvent, HumanTaskVerificationHandoff, InterrogatorHandoff, ProjectStatus } from "./types";
 

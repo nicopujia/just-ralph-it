@@ -55,8 +55,8 @@ export class Project {
   };
 
   readonly auth = {
-    status: async (): Promise<AuthState> => getAuthStatus(),
-    login: async (): Promise<AuthResult> => login(),
+    status: async (): Promise<AuthState> => getAuthStatus(this.projectDir),
+    login: async (): Promise<AuthResult> => login(this.projectDir),
     logout: async (): Promise<void> => logout(),
   };
 

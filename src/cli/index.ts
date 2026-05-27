@@ -117,7 +117,10 @@ async function main(argv: string[]): Promise<number> {
     if (subcommand === "status") {
       const status = await project.auth.status();
       console.log(`${status.provider}: ${status.authenticated ? "authenticated" : "not authenticated"}`);
-      if (status.recovery) console.log(status.recovery.instructions);
+      if (status.recovery) {
+        console.log(status.recovery.message);
+        console.log(status.recovery.instructions);
+      }
       return 0;
     }
     if (subcommand === "login") {
@@ -277,12 +280,20 @@ async function runAuthPassthrough(args: string[]): Promise<number> {
 }
 
 async function runStableAuthLogin(project: Project): Promise<number> {
+  const status = await project.auth.status();
+  if (status.authenticated) {
+    console.log("Authenticated.");
+    return 0;
+  }
+  if (status.recovery?.code === "model-not-found") {
+    throw new JriError(status.recovery.message, status.recovery.code, status.recovery.instructions);
+  }
+
   const before = await project.auth.login();
   if (before.status === "authenticated") {
     console.log("Authenticated.");
     return 0;
   }
-
   console.error(before.instructions);
   await runAuthPassthrough(["login"]);
 
