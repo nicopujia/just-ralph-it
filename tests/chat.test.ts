@@ -752,6 +752,90 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("standalone start trigger bootstraps missing interrogation state from existing specs before starting", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
+
+      let startCalled = false;
+      const events = await collect(
+        sendChat(dir, { message: "just ralph it" }, {
+          now: new Date("2026-05-27T20:00:00.000Z"),
+          startLoop: async function* () {
+            startCalled = true;
+          },
+        }),
+      );
+      const state = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+
+      expect(startCalled).toBe(false);
+      expect(events.map((event) => event.type)).toEqual([
+        "chatTurnRecorded",
+        "chatMessageStarted",
+        "chatMessageDelta",
+        "chatMessageFinished",
+        "chatTurnRecorded",
+      ]);
+      expect(events[2]).toMatchObject({
+        type: "chatMessageDelta",
+        data: { text: expect.stringContaining("pending spec reconciliation") },
+      });
+      expect(state.topics.app).toMatchObject({
+        specFile: ".jri/specs/app.md",
+        status: "open",
+        pendingReconciliation: {
+          reason: "specFileAdded",
+          detectedAt: "2026-05-27T20:00:00.000Z",
+        },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("standalone start trigger blocks on unresolved scratchpad notes when interrogation state is missing", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await writeFile(join(dir, ".jri", "scratchpad.md"), "Open question: should the app have a TUI?\n");
+
+      let startCalled = false;
+      const events = await collect(
+        sendChat(dir, { message: "just ralph it" }, {
+          now: new Date("2026-05-27T20:00:00.000Z"),
+          startLoop: async function* () {
+            startCalled = true;
+          },
+        }),
+      );
+      const state = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+
+      expect(startCalled).toBe(false);
+      expect(events.map((event) => event.type)).toEqual([
+        "chatTurnRecorded",
+        "chatMessageStarted",
+        "chatMessageDelta",
+        "chatMessageFinished",
+        "chatTurnRecorded",
+      ]);
+      expect(events[2]).toMatchObject({
+        type: "chatMessageDelta",
+        data: { text: expect.stringContaining("scratchpad") },
+      });
+      expect(state).toEqual({
+        schemaVersion: 1,
+        topics: {},
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("interrogator specsUpdated handoff can accept intentional deletion of a sealed spec", async () => {
     const dir = await tempProject();
     try {

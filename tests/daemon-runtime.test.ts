@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop, runLoopProcess, startRalphLoop } from "../src/core/daemon-runtime";
 import { appendLoopEvent, writeStatusAtomic } from "../src/core/runtime-state";
 import { defaultStatus } from "../src/core/schema";
-import { fingerprintSpecFile, writeInterrogationState } from "../src/core/interrogation-state";
+import { fingerprintSpecFile, recordInterrogatorSpecUpdate, writeInterrogationState } from "../src/core/interrogation-state";
 import { registerLoopChild } from "../src/core/harness";
 
 const emptySpecsFingerprint = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -691,6 +691,7 @@ describe("daemon/runtime scaffolding", () => {
     try {
       await mkdir(join(dir, ".jri", "specs"), { recursive: true });
       await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nChanged requirements.\n", "utf8");
+      await recordInterrogatorSpecUpdate(dir, [".jri/specs/app.md"]);
       await writeStatusAtomic(dir, {
         ...defaultStatus(dir),
         state: "stopped",

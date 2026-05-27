@@ -491,7 +491,14 @@ function stillBlockedWithVerificationGuide(blocker: Blocker, summary: string, st
 
 function reconciliationPrompt(startGate: Extract<Awaited<ReturnType<typeof checkInterrogationStartGate>>, { ok: false }>): string {
   const pending = startGate.pending[0];
-  const summary = pending?.topic.pendingReconciliation?.summary ?? "A pending spec reconciliation must be resolved before Ralph can start.";
+  if (!pending) {
+    return [
+      "Ralph cannot start until unresolved scratchpad notes are reconciled.",
+      "The scratchpad still contains notes that have not been resolved into specs or explicitly deferred out of the current build scope.",
+      "Resolve or defer the scratchpad notes in bare jri, then say just ralph it again when the specs are ready.",
+    ].join("\n");
+  }
+  const summary = pending.topic.pendingReconciliation?.summary ?? "A pending spec reconciliation must be resolved before Ralph can start.";
   return [
     "Ralph cannot start until pending spec reconciliation is resolved.",
     summary,

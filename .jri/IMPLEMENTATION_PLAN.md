@@ -1,0 +1,9 @@
+- [ ] Tighten executable durable-state validation to match the specs: enforce a bound absolute `projectDir`, full lifecycle invariants, reject blocker payloads outside blocked state, clear stale `process` metadata outside active states, require `resumePhase` for verified `needsHumanTask` blockers, and treat missing `authorizedSpecsFingerprint` on stopped loops as invalid durable authorization state rather than silently permitting reauthorization.
+- [ ] Make chat-owned runtime artifacts first-class by accepting `.jri/logs/interrogation-artifacts/*` in the executable schema and wiring `humanTaskVerified` into durable blocker/resume handling instead of ignoring it.
+- [ ] Finish new-repo initialization semantics by creating the required clean scaffold commit `Initialize JRI project` after `git init`, while still avoiding auto-commits inside pre-existing git repositories.
+- [ ] Replace prompt-level web/explorer shell escape hatches with harness-native capabilities that are actually reachable for interrogator, auditor, and explorer under the intended tool grants.
+- [ ] Consolidate capability policy into descriptors, reduce over-granted explorer/web access, strongly validate chat-owned capability ownership, and add preflight plus actionable recovery for missing `pi-web-access` / `pi-subagent`.
+- [ ] Implement the primary bare-`jri` Pi terminal chat UI path; if the readline fallback must remain temporarily, record verified evidence and rationale for that degraded path in durable project notes.
+- [ ] Keep the `jri loop attach` `[d]etach [s]top` footer stable while live output streams instead of clearing it after the first event.
+- [ ] Refine interrogation context reconstruction so open or pending topics receive only relevant recent turns and sealed-topic transcript turns stay pruned.
+- [ ] Backfill focused coverage for the remaining contract gaps, especially the primary public chat smoke path and the new-repo initialization commit behavior.

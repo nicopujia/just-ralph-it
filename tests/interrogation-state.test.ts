@@ -27,6 +27,65 @@ describe("interrogation state", () => {
     }
   });
 
+  test("bootstraps existing spec files into pending reconciliation when interrogation state is missing", async () => {
+    const dir = await tempProject();
+    try {
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
+
+      const result = await checkInterrogationStartGate(dir, { now: new Date("2026-05-27T20:00:00.000Z") });
+      const persisted = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+
+      expect(result).toMatchObject({
+        ok: false,
+        pending: [
+          {
+            topicId: "app",
+            topic: {
+              specFile: ".jri/specs/app.md",
+              status: "open",
+              pendingReconciliation: {
+                reason: "specFileAdded",
+                detectedAt: "2026-05-27T20:00:00.000Z",
+              },
+            },
+          },
+        ],
+      });
+      expect(persisted.topics.app).toMatchObject({
+        specFile: ".jri/specs/app.md",
+        status: "open",
+        pendingReconciliation: { reason: "specFileAdded" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("blocks start when unresolved scratchpad notes exist before any topics are tracked", async () => {
+    const dir = await tempProject();
+    try {
+      await writeFile(join(dir, ".jri", "scratchpad.md"), "Open question: should there be a TUI?\n");
+
+      const result = await checkInterrogationStartGate(dir, { now: new Date("2026-05-27T20:00:00.000Z") });
+      const persisted = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+
+      expect(result).toEqual({
+        ok: false,
+        state: {
+          schemaVersion: 1,
+          topics: {},
+        },
+        pending: [],
+      });
+      expect(persisted).toEqual({
+        schemaVersion: 1,
+        topics: {},
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("detects manual edits to sealed spec topics before start", async () => {
     const dir = await tempProject();
     try {

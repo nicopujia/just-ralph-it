@@ -47,10 +47,10 @@ export async function writeInterrogationState(projectDir: string, state: Interro
 }
 
 export async function checkInterrogationStartGate(projectDir: string, options: { now?: Date } = {}): Promise<StartGateResult> {
-  const state = await readInterrogationState(projectDir);
+  const now = (options.now ?? new Date()).toISOString();
+  const state = (await readInterrogationState(projectDir)) ?? (await bootstrapInterrogationState(projectDir, now));
   if (!state) return { ok: true, state };
 
-  const now = (options.now ?? new Date()).toISOString();
   const scratchpadFingerprint = await fingerprintScratchpad(projectDir);
   let changed = false;
   const next: InterrogationState = structuredClone(state);
@@ -142,8 +142,9 @@ export async function checkInterrogationStartGate(projectDir: string, options: {
   const pending = Object.entries(next.topics)
     .filter(([, topic]) => Boolean(topic.pendingReconciliation))
     .map(([topicId, topic]) => ({ topicId, topic }));
+  const scratchpadBlocksStart = pending.length === 0 && Object.keys(next.topics).length === 0 && (await scratchpadHasNotes(projectDir));
 
-  return pending.length > 0 ? { ok: false, state: next, pending } : { ok: true, state: next };
+  return pending.length > 0 || scratchpadBlocksStart ? { ok: false, state: next, pending } : { ok: true, state: next };
 }
 
 export async function recordInterrogatorSpecUpdate(
@@ -318,6 +319,39 @@ async function fingerprintScratchpad(projectDir: string): Promise<string> {
   const path = join(projectDir, ".jri", "scratchpad.md");
   if (!(await pathExists(path))) return createHash("sha256").update("").digest("hex");
   return await fingerprintFile(path);
+}
+
+async function bootstrapInterrogationState(projectDir: string, detectedAt: string): Promise<InterrogationState | null> {
+  const specFiles = await listSpecFiles(projectDir);
+  if (specFiles.length === 0) {
+    if (!(await scratchpadHasNotes(projectDir))) return null;
+    const state: InterrogationState = { schemaVersion: 1, topics: {} };
+    await writeInterrogationState(projectDir, state);
+    return state;
+  }
+
+  const state: InterrogationState = { schemaVersion: 1, topics: {} };
+  for (const specFile of specFiles) {
+    const topicId = uniqueTopicId(state, topicIdForSpecFile(specFile));
+    state.topics[topicId] = {
+      specFile,
+      status: "open",
+      lastReconciledSpecFingerprint: await fingerprintSpecFile(projectDir, specFile),
+      pendingReconciliation: {
+        reason: "specFileAdded",
+        detectedAt,
+        summary: `${specFile} was added outside the interrogator. Confirm whether it belongs in the current build scope before starting Ralph.`,
+      },
+    };
+  }
+  await writeInterrogationState(projectDir, state);
+  return state;
+}
+
+async function scratchpadHasNotes(projectDir: string): Promise<boolean> {
+  const path = join(projectDir, ".jri", "scratchpad.md");
+  if (!(await pathExists(path))) return false;
+  return (await Bun.file(path).text()).trim().length > 0;
 }
 
 function rejectUnknownKeys(value: Record<string, unknown>, allowed: Set<string>, filePath: string): void {
