@@ -1,20 +1,18 @@
 ## Build & Run
 
-Succinct rules for how to BUILD the project:
+- Bun is the package manager and test runner.
 
 ## Validation
 
 Run these after implementing to get immediate feedback:
 
-- Tests: `[test command]`
-- Typecheck: `[typecheck command]`
-- Lint: `[lint command]`
+- Tests: `bun run test`
+- Typecheck: `bun run typecheck`
+- Lint: `bun run lint`
 
 ## Operational Notes
 
-Succinct learnings about how to RUN the project:
-
-...
+Use Bun for project scripts and execution.
 
 ### Codebase Patterns
 

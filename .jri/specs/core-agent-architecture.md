@@ -61,7 +61,10 @@ src/
 - Core uses a canonical runtime event contract (a discriminated TypeScript union
   from runtime-state) as the `CoreEvent` shape for all streamed outputs.
 - `open(projectDir)` binds and validates a project context only; it does not
-  create or mutate files.
+  create or mutate files. A missing `.jri` directory means the project is
+  uninitialized, not invalid. If `.jri` files already exist, `open()` validates
+  the durable JSON/schema-bearing files and fails with a recovery path when they
+  are malformed or unsupported.
 - `ensureInitialized()` is idempotent and only creates missing durable scaffold
   artifacts.
 
@@ -105,6 +108,15 @@ audit/planning/build. When the user message contains an accepted trigger, the
 interrogator invokes an internal core start-loop capability, and the returned
 event stream includes audit, planning, and loop lifecycle events. Core does not
 expose a public `loop.start()` method.
+
+`loop.resume()` is a continuation control for an already-authorized lifecycle,
+not a second start path. It never creates a loop id, never authorizes new or
+changed requirements, and never clears an `ambiguousSpecs` blocker. It may only
+continue the current `activeLoopId` from `stopped`, or from a
+`needsHumanTask` blocker after bare `jri` has received `done` and core has
+verified and recorded the blocker resolution. If specs changed while stopped,
+the user must return through `chat.send()` with `just ralph it` or `ralfealo` so
+audit and planning rerun before building.
 
 Loop control methods operate on the current `activeLoopId` recorded in
 `.jri/status.json`. `resume()` reconstructs from durable `.jri` state and starts

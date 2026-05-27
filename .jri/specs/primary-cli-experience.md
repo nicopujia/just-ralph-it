@@ -170,9 +170,16 @@ progress notes, implementation plans, or generic JRI process instructions.
 - `jri loop resume` from `stopped` continues the same authorized lifecycle from
   durable `.jri` state by starting the next safe phase or outer-loop iteration;
   it does not resume a previous Pi session.
+- `jri loop resume` from `stopped` is rejected if specs changed after the stop.
+  The actionable recovery is to run bare `jri`, reconcile the changed
+  requirements, and say `just ralph it` or `ralfealo` so audit and planning
+  rerun before building.
 - `jri loop resume` is allowed from `blocked` only for `needsHumanTask` after
   the user has said `done` in bare `jri` and JRI has marked the blocker
   resolved.
+- The `done` message is processed only by bare `jri` chat. `jri loop resume`
+  does not accept `done` as a substitute for the chat verification path; it only
+  continues when a verified human-task resolution is already recorded.
 - `jri loop resume` is not allowed from `idle`, `halted`, active states, or
   `blocked` with `ambiguousSpecs`.
 - `jri loop resume` from disallowed states returns concise actionable errors with the
