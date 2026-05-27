@@ -50,11 +50,10 @@
 - P0: Finish minimum CLI/auth control correctness.
   - Confirmed gap: `jri auth login` currently inspects `OPENAI_API_KEY` / Pi auth cache and prints instructions rather than completing or delegating to a real Pi-backed flow.
   - Confirmed gap: interactive bare `jri` exits on `userActionRequired`, while non-interactive mode can proceed until harness auth failure.
-  - Confirmed gap: `jri loop halt` confirmation reads the whole stdin stream per prompt, so force-halt and reset confirmations cannot reliably work as two prompts.
   - Confirmed gap: halt reset ineligibility and active-state `loop resume` errors are less actionable than the specs require.
   - Implement real Pi-backed `jri auth login|logout|status` or normalized passthroughs without requiring raw Pi commands in normal JRI use.
   - Make interactive bare `jri` handle missing auth inline where possible and provide direct recovery in non-interactive mode.
-  - Fix halt confirmation input, reset ineligibility messaging, active-resume guidance, and regression coverage for forbidden public commands/internal entrypoints.
+  - Fix reset ineligibility messaging, active-resume guidance, and regression coverage for forbidden public commands/internal entrypoints.
 
 - P1: Finish observation and terminal experience.
   - Confirmed gap: interactive bare `jri` always uses the fallback readline REPL; the project has not decided whether Pi terminal chat primitives can be used with controlled SDK sessions.
@@ -68,6 +67,7 @@
   - Test the installed/public `jri` bin path, not only direct Bun execution.
   - Decide whether the Bun source-file bin is intentional for MVP or whether a built JS/bin wrapper is required.
   - Hide or environment-guard `--daemon`, `--run-loop`, `--run-web`, and `--run-explorer`.
+  - Confirmed follow-up gap: CLI/IPC loop command validation matrix is missing unknown loop subcommand and malformed daemon payload cases.
 
 - P1: Decide lint validation semantics.
   - Confirmed gap: `bun run lint` aliases `tsc --noEmit`, so it is not independent lint evidence.
@@ -84,6 +84,9 @@
   - Specify daemon stream cancellation/reconnect behavior beyond the current request/response/event/end protocol if implementation needs it.
   - Add artifact reread-by-ref/range only when a concrete MVP task requires it.
   - Tighten public core exports and remove minor dead code when touching nearby files.
+  - Confirmed follow-up gap: daemon request contract hardening should add missing/invalid `projectDir` and malformed `halt` payload cases.
+  - Confirmed follow-up gap: capability ownership matrix coverage should include wrong `projectDir`, mismatched `loopId`, stale state, and wrong owner type in one consolidated set of tests.
+  - Confirmed follow-up gap: startup lock/runner ownership race paths need focused tests for ownership handoff and lock contention behavior.
 
 - Confirmed complete and not re-listed as active implementation work unless regressions appear:
   - Blocking spec clarifications for dogfood evidence, capability SDK/runtime contracts, artifact refs, validation artifacts, affected auditor topics, `RuntimeStateEvent` / `CoreEvent`, public API boundaries, startup event/status exceptions, and transient file locks.

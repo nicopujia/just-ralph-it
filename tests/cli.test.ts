@@ -723,6 +723,55 @@ describe("CLI", () => {
     }
   });
 
+  test("loop halt reads separate confirmations for force halt and rollback reset", async () => {
+    const dir = await tempInitializedProject();
+    const loopId = "20260527T184210Z";
+    try {
+      await mkdir(join(dir, ".jri", "logs", loopId), { recursive: true });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: loopId,
+        lastLoopId: loopId,
+        lock: activeTestLock("build"),
+        currentIteration: {
+          iteration: 1,
+          rollbackCommit: "abc123",
+          trackedTreeCleanAtStart: true,
+        },
+      });
+
+      const proc = Bun.spawn(["bun", cliPath, "loop", "halt"], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        env: isolatedDaemonEnv(dir),
+      });
+      proc.stdin.write("y\ny\n");
+      proc.stdin.end();
+
+      const [exitCode, stderr] = await Promise.all([proc.exited, new Response(proc.stderr).text()]);
+      const events = (await readFile(join(dir, ".jri", "logs", loopId, "events.jsonl"), "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line));
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(exitCode).toBe(0);
+      expect(stderr).toContain("Force halt the active JRI loop?");
+      expect(stderr).toContain("Reset tracked files with git reset --hard abc123?");
+      expect(events.at(-1)).toMatchObject({
+        type: "loopHalted",
+        data: { resetOffered: true, resetAccepted: true, rollbackCommit: "abc123" },
+      });
+      expect(status.state).toBe("halted");
+      expect(status.lastResult.summary).toContain("Rollback reset failed");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("loop resume rejects idle state with bare jri recovery", async () => {
     const dir = await tempInitializedProject();
     try {

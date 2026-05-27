@@ -157,16 +157,21 @@ async function main(argv: string[]): Promise<number> {
       if (!isActiveLoopState(status.state)) {
         throw loopStateError("halt", status);
       }
-      if (!(await confirm("Force halt the active JRI loop?"))) {
-        console.log("Halt canceled.");
-        return 0;
-      }
-      const rollbackCommit = status.currentIteration?.rollbackCommit;
-      const resetGit =
-        Boolean(rollbackCommit && status.currentIteration?.trackedTreeCleanAtStart) &&
-        (await confirm(`Reset tracked files with git reset --hard ${rollbackCommit}?`));
-      for await (const event of project.loop.halt({ resetGit })) {
-        console.log(formatLoopEvent(event));
+      const prompts = confirmationInput();
+      try {
+        if (!(await prompts.confirm("Force halt the active JRI loop?"))) {
+          console.log("Halt canceled.");
+          return 0;
+        }
+        const rollbackCommit = status.currentIteration?.rollbackCommit;
+        const resetGit =
+          Boolean(rollbackCommit && status.currentIteration?.trackedTreeCleanAtStart) &&
+          (await prompts.confirm(`Reset tracked files with git reset --hard ${rollbackCommit}?`));
+        for await (const event of project.loop.halt({ resetGit })) {
+          console.log(formatLoopEvent(event));
+        }
+      } finally {
+        prompts.close();
       }
       return 0;
     }
@@ -569,10 +574,82 @@ async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function confirm(question: string): Promise<boolean> {
-  process.stderr.write(`${question} y/N `);
-  const answer = await new Response(Bun.stdin.stream()).text();
-  return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
+type ConfirmationInput = {
+  confirm: (question: string) => Promise<boolean>;
+  close: () => void;
+};
+
+function confirmationInput(stdin: NodeJS.ReadStream = process.stdin, stderr: NodeJS.WriteStream = process.stderr): ConfirmationInput {
+  const queue: string[] = [];
+  let buffer = "";
+  let pending: ((line: string | undefined) => void) | undefined;
+  let ended = false;
+  const wasPaused = stdin.isPaused();
+
+  const resolvePending = (line: string | undefined): void => {
+    if (!pending) return;
+    const resolve = pending;
+    pending = undefined;
+    resolve(line);
+  };
+
+  const pushLine = (line: string): void => {
+    if (pending) {
+      resolvePending(line);
+    } else {
+      queue.push(line);
+    }
+  };
+
+  const push = (chunk: Buffer | string): void => {
+    buffer += chunk.toString("utf8");
+    for (;;) {
+      const newline = buffer.search(/\r?\n/);
+      if (newline === -1) break;
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(buffer[newline] === "\r" && buffer[newline + 1] === "\n" ? newline + 2 : newline + 1);
+      pushLine(line);
+    }
+  };
+
+  const end = (): void => {
+    ended = true;
+    if (buffer) {
+      const line = buffer;
+      buffer = "";
+      pushLine(line);
+    }
+    resolvePending(undefined);
+  };
+
+  const readLine = async (): Promise<string> => {
+    const queued = queue.shift();
+    if (queued !== undefined) return queued;
+    if (ended) return "";
+    return (await new Promise((resolve: (line: string | undefined) => void) => {
+      pending = resolve;
+    })) ?? "";
+  };
+
+  stdin.on("data", push);
+  stdin.once("end", end);
+  stdin.once("close", end);
+  stdin.resume();
+
+  return {
+    confirm: async (question: string): Promise<boolean> => {
+      stderr.write(`${question} y/N `);
+      const answer = await readLine();
+      return answer.trim().toLowerCase() === "y" || answer.trim().toLowerCase() === "yes";
+    },
+    close: (): void => {
+      stdin.off("data", push);
+      stdin.off("end", end);
+      stdin.off("close", end);
+      resolvePending(undefined);
+      if (wasPaused) stdin.pause();
+    },
+  };
 }
 
 main(Bun.argv.slice(2))
