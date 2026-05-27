@@ -53,10 +53,6 @@
   - Confirmed gap: internal entrypoints `--daemon`, `--run-loop`, `--run-web`, `--run-explorer`, and legacy `--web-search`/`--web-fetch` are hidden from usage but still callable if invoked directly.
   - Test the installed/public `jri` bin path, decide whether the TypeScript source-file bin is intentional for MVP, and hide or environment-guard internal entrypoints.
 
-- P1: Align the public event type contract.
-  - Confirmed gap: specs say `RuntimeStateEvent` is the canonical event union and `CoreEvent` may be an alias, but code exports only `CoreEvent`.
-  - Add the canonical `RuntimeStateEvent` alias/export and update public types/tests without changing event shapes.
-
 - P1: Decide lint validation semantics.
   - Confirmed gap: `bun run lint` aliases `tsc --noEmit`, so it is not independent lint evidence.
   - Either make `bun run lint` a real lint command or stop documenting it as distinct from typecheck.
@@ -89,5 +85,6 @@
   - Dogfood MVP successful completion now requires durable `subagentFinished` explorer evidence; completion fails without proof, and `loopFinished` plus status `lastResult` success evidence include the explorer proof. Broader first-class SDK/runtime capability work for explorer and web remains active above.
   - Runtime failure normalization now treats `harness-cancelled`, `runtime-cancelled`, `explorer-failed`, `capability-*`, and `web-capability-*` errors as durable loop failures; child-process cancellation fanout remains active above.
   - Single-line handoff parsing, duplicate/missing/wrong-agent/wrong-phase rejection, strict known-key parsing, validation artifact refs, affected auditor topics, and obvious secret-shaped handoff rejection are implemented.
+  - Public event type coverage now includes the canonical `RuntimeStateEvent` export and the `CoreEvent` compatibility alias.
   - Daemon-owned public lifecycle mutation baseline, read-only local fallback, status mutation locking, loop id generation, event sequencing baseline, start-trigger normalization, runtime recovery for dead/stale ownership, planner plan existence checks, and stopped-loop resume lineage checks are implemented.
   - Audit pass now computes the canonical `.jri/specs/*.md` fingerprint in daemon/core, rejects auditor fingerprint mismatches as durable runtime failures, persists only the core-computed value, and covers non-empty specs directories by using directory `stat` instead of `Bun.file(directory).exists()`.

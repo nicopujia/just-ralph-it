@@ -184,7 +184,7 @@ export type BaseEvent = {
   message?: string;
 };
 
-export type CoreEvent =
+export type RuntimeStateEvent =
   | (BaseEvent & { type: "loopStarted"; loopId: string; data: { projectDir: string; pid?: number } })
   | (BaseEvent & { type: "auditStarted"; loopId: string; data: Record<string, never> })
   | (BaseEvent & { type: "auditPassed"; loopId: string; data: { specFiles: string[]; specsFingerprint: string } })
@@ -254,3 +254,5 @@ export type CoreEvent =
   | (BaseEvent & { type: "chatTurnRecorded"; data: { role: "user" | "assistant"; logPath: ".jri/logs/interrogation.jsonl"; content?: string } })
   | (BaseEvent & { type: "specsUpdated"; data: { specFiles: string[]; summary: string; sealedSpecFiles?: string[] } })
   | (BaseEvent & { type: "scratchpadUpdated"; data: { scratchpadPath: ".jri/scratchpad.md"; summary: string } });
+
+export type CoreEvent = RuntimeStateEvent;
