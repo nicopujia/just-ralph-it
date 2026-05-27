@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
+import { createInterface } from "node:readline/promises";
 import { open, isJriError, JriError } from "../core";
 import type { CoreEvent, Project, ProjectStatus, ProjectState } from "../core";
 import { runDaemon } from "../core/daemon-ipc";
@@ -74,7 +75,12 @@ async function main(argv: string[]): Promise<number> {
         return 1;
       }
     }
-    const input = process.stdin.isTTY ? "" : await new Response(Bun.stdin.stream()).text();
+    if (process.stdin.isTTY) {
+      await runInteractiveChat(project);
+      return 0;
+    }
+
+    const input = await new Response(Bun.stdin.stream()).text();
     if (!input.trim()) {
       const status = await project.status.get();
       console.log(formatStatus(status));
@@ -201,6 +207,39 @@ function usage(error?: string): number {
   if (error) console.error(error);
   console.error("Usage: jri | jri auth {status|login|logout} | jri loop {attach|stop|halt|resume}");
   return 1;
+}
+
+async function runInteractiveChat(project: Project): Promise<void> {
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: "jri> ",
+  });
+
+  try {
+    for (;;) {
+      console.log(formatStatus(await project.status.get()));
+      const input = await rl.question("jri> ");
+      if (input.trim() === "/exit" || input.trim() === "/quit") return;
+      if (!input.trim()) continue;
+      for await (const event of project.chat.send({ message: input })) {
+        if (event.type === "chatMessageDelta") {
+          console.log(event.data.text);
+        } else if (event.type === "loopStarted") {
+          console.log(formatLoopEvent(event));
+        }
+      }
+    }
+  } catch (error) {
+    if (isReadlineClosed(error)) return;
+    throw error;
+  } finally {
+    rl.close();
+  }
+}
+
+function isReadlineClosed(error: unknown): boolean {
+  return error instanceof Error && error.message === "readline was closed";
 }
 
 function formatAuthHelp(): string {

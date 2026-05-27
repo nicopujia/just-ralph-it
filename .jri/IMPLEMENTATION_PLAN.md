@@ -18,7 +18,7 @@
   - Reconcile chat persistence with the runtime contract: stream `chatMessageStarted`/`chatMessageDelta`/`chatMessageFinished` to callers, but persist durable completed turns/history material in `interrogation.jsonl`.
 
 - [ ] P0: Make bare `jri` the primary interactive interrogation surface.
-  - Current TTY bare `jri` initializes, checks auth, prints status, and exits; it does not open the required long-lived Pi-backed TUI or fallback REPL.
+  - Current TTY bare `jri` now opens the fallback interrogator REPL with status, typed-message input, streamed assistant deltas, and `/exit` or `/quit` termination; focused CLI coverage exists for that path.
   - Completed/tested slice: focused chat/CLI coverage now fakes the same Pi command boundary used by the default interrogator harness.
   - Implement a usable bare `jri` chat loop with compact status footer/line, blocked guide presentation, inline auth recovery that can continue into interrogation, and observation mode while Ralph is running.
   - Keep public CLI surface limited to `jri`, `jri auth {status|login|logout}`, and `jri loop {attach|stop|halt|resume}`; internal `--run-*` commands remain hidden adapter entrypoints.
@@ -57,6 +57,7 @@
   - Include web instructions for all agents allowed by `harness-capabilities.md`, including auditor/explorer when task-relevant.
 
 - [ ] P0: Complete safe human-task verification and auth UX.
+  - Source-search finding: interrogator `humanTaskVerified` / `humanTaskStillBlocked` handoff branches are implemented but lack direct end-to-end coverage; `humanTaskStillBlocked` currently no-ops unless status is already `blocked` with `needsHumanTask`, so add explicit behavior coverage before relying on this flow.
   - Current default human-task verifier always returns `stillBlocked`; product code needs a real safe verification agent/capability path that can produce `verified` or `stillBlocked`.
   - Ensure `done` never substitutes for resolving ambiguous specs and never asks users to paste secrets unless a future narrow spec allows it.
   - Replace guidance-only auth login with Pi-backed auth operations where available; bare `jri` should launch or guide the same flow inline and continue into interrogation after success.

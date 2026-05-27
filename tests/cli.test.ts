@@ -147,6 +147,53 @@ describe("CLI", () => {
     }
   });
 
+  test("interactive bare jri opens a fallback interrogator REPL", async () => {
+    const dir = await tempProject();
+    try {
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          "printf 'Which CLI commands should stay public?\\n'",
+          "printf 'JRI_HANDOFF_JSON: {\"agent\":\"interrogator\",\"action\":\"messageOnly\",\"summary\":\"Asked about public CLI scope.\"}\\n'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      const proc = Bun.spawn(["script", "-q", "-e", "-c", `bun ${cliPath}`, "/dev/null"], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          OPENAI_API_KEY: "test-key",
+          JRI_PI_COMMAND: fakePi,
+        },
+      });
+      setTimeout(() => {
+        proc.stdin.write("Need a CLI.\n/exit\n");
+        proc.stdin.end();
+      }, 250);
+
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(`${stdout}\n${stderr}`).toContain(`Initialized JRI in ${dir}`);
+      expect(stdout).toContain("jri>");
+      expect(stdout).toContain("idle");
+      expect(stdout).toContain("Which CLI commands should stay public?");
+
+      const log = await readFile(join(dir, ".jri", "logs", "interrogation.jsonl"), "utf8");
+      expect(log).toContain("Need a CLI.");
+      expect(log).toContain("Which CLI commands should stay public?");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("hidden run-explorer command prints a bounded handoff and artifact ref", async () => {
     const dir = await tempProject();
     try {
