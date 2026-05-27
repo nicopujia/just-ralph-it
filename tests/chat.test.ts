@@ -84,7 +84,51 @@ describe("interrogation chat", () => {
     }
   });
 
-  test("done verifies an existing needs-human-task blocker and records a blocker event", async () => {
+  test("done verifies an existing needs-human-task blocker only after verifier approval", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Deployment credentials are missing.",
+          resolutionGuide: {
+            summary: "Credentials are required.",
+            steps: ["Set the deployment token."],
+            resumeInstruction: "Say done in bare jri after the token is available.",
+          },
+        },
+      });
+
+      const events = await collect(
+        sendChat(
+          dir,
+          { message: "done" },
+          {
+            verifyHumanTask: () => ({
+              agent: "verifier",
+              action: "verified",
+              verificationSummary: "Deployment token is present.",
+            }),
+          },
+        ),
+      );
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const loopEvents = await readJsonl(join(dir, ".jri", "logs", "20260527T184210Z", "events.jsonl"));
+
+      expect(events.some((event) => event.type === "blockerResolved")).toBe(true);
+      expect(status.blocker.resolution).toMatchObject({ status: "verified", verificationSummary: "Deployment token is present." });
+      expect(loopEvents[0]).toMatchObject({ type: "blockerResolved", data: { reason: "needsHumanTask" } });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("done preserves a needs-human-task blocker when verification is inconclusive", async () => {
     const dir = await tempProject();
     try {
       await mkdir(join(dir, ".jri", "logs"), { recursive: true });
@@ -107,11 +151,20 @@ describe("interrogation chat", () => {
       const project = await open(dir);
       const events = await collect(project.chat.send({ message: "done" }));
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
-      const loopEvents = await readJsonl(join(dir, ".jri", "logs", "20260527T184210Z", "events.jsonl"));
 
-      expect(events.some((event) => event.type === "blockerResolved")).toBe(true);
-      expect(status.blocker.resolution).toMatchObject({ status: "verified" });
-      expect(loopEvents[0]).toMatchObject({ type: "blockerResolved", data: { reason: "needsHumanTask" } });
+      expect(events.some((event) => event.type === "blockerResolved")).toBe(false);
+      expect(status).toMatchObject({
+        state: "blocked",
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Deployment credentials are missing.",
+        },
+      });
+      expect(status.blocker.resolution).toBeUndefined();
+      expect(status.blocker.resolutionGuide.summary).toContain("needs a verifier");
+      expect(events.find((event) => event.type === "chatMessageDelta")).toMatchObject({
+        data: { text: expect.stringContaining("remains blocked") },
+      });
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

@@ -9,6 +9,7 @@
   - Current `chat.send()` records turns and handles triggers, but assistant behavior is canned/minimal and does not use Pi, reconstruct durable context, update specs/scratchpad, reconcile manual spec edits, seal/unseal topics, or run observation/blocker modes.
   - Process interrogator handoffs (`messageOnly`, `specsUpdated`, `scratchpadUpdated`, `startRequested`, `humanTaskVerified`, `humanTaskStillBlocked`) instead of inferring from fixed strings.
   - Fix `done` handling for `needsHumanTask`: run safe verification and preserve/update the blocker when inconclusive instead of trusting the user's confirmation as verified.
+  - Completed/tested slice: done handling now uses a verifier gate; verified handoffs mark needsHumanTask blockers resolved, while inconclusive verification preserves/updates the blocker.
   - Reconcile chat stream persistence with the runtime spec: assistant deltas/start/finish should be stream behavior while durable `interrogation.jsonl` remains completed-turn/history material.
 
 - [ ] P0: Replace the Pi CLI `--print` shellout with the real controlled SDK harness boundary.

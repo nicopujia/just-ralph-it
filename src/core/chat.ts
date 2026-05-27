@@ -1,10 +1,21 @@
-import { appendInterrogationEvent, appendLoopEvent, readStatus, updateStatus } from "./runtime-state";
 import { startRalphLoop, type RuntimeOptions } from "./daemon-runtime";
-import type { ChatInput, CoreEvent, ProjectStatus } from "./types";
+import { appendInterrogationEvent, appendLoopEvent, readStatus, updateStatus } from "./runtime-state";
+import type { Blocker, ChatInput, CoreEvent, HumanTaskVerificationHandoff, ProjectStatus } from "./types";
 
 const interrogationLogPath = ".jri/logs/interrogation.jsonl" as const;
 
-export async function* sendChat(projectDir: string, input: ChatInput, options: RuntimeOptions = {}): AsyncIterable<CoreEvent> {
+export type HumanTaskVerifier = (request: {
+  projectDir: string;
+  blocker: Blocker;
+  userMessage: string;
+  status: ProjectStatus;
+}) => Promise<HumanTaskVerificationHandoff> | HumanTaskVerificationHandoff;
+
+export type ChatRuntimeOptions = RuntimeOptions & {
+  verifyHumanTask?: HumanTaskVerifier;
+};
+
+export async function* sendChat(projectDir: string, input: ChatInput, options: ChatRuntimeOptions = {}): AsyncIterable<CoreEvent> {
   const message = input.message.trim();
   if (!message) {
     yield* emitAssistant(projectDir, "Send a message, clarify the specs, say done after a human-task blocker is resolved, or say just ralph it when the specs are ready.");
@@ -15,7 +26,7 @@ export async function* sendChat(projectDir: string, input: ChatInput, options: R
 
   const status = await readStatus(projectDir);
   if (isDoneMessage(message)) {
-    yield* handleDone(projectDir, status);
+    yield* handleDone(projectDir, status, message, options);
     return;
   }
 
@@ -36,8 +47,35 @@ export function normalizeStartTrigger(message: string): "just ralph it" | "ralfe
   return null;
 }
 
-async function* handleDone(projectDir: string, status: ProjectStatus): AsyncIterable<CoreEvent> {
+async function* handleDone(projectDir: string, status: ProjectStatus, userMessage: string, options: ChatRuntimeOptions): AsyncIterable<CoreEvent> {
   if (status.state === "blocked" && status.blocker?.reason === "needsHumanTask") {
+    const verification = await (options.verifyHumanTask ?? defaultHumanTaskVerifier)({
+      projectDir,
+      blocker: status.blocker,
+      userMessage,
+      status,
+    });
+
+    if (verification.action === "stillBlocked") {
+      await updateStatus(projectDir, (current) => {
+        if (current.state !== "blocked" || current.blocker?.reason !== "needsHumanTask") return current;
+        return {
+          ...current,
+          blocker: verification.blocker,
+        };
+      });
+      yield* emitAssistant(
+        projectDir,
+        [
+          "I could not verify the human task is complete yet, so JRI remains blocked.",
+          verification.blocker.resolutionGuide.summary,
+          `Next step: ${verification.blocker.resolutionGuide.steps[0] ?? verification.blocker.resolutionGuide.resumeInstruction}`,
+          `Resume: ${verification.blocker.resolutionGuide.resumeInstruction}`,
+        ].join("\n"),
+      );
+      return;
+    }
+
     const verifiedAt = new Date().toISOString();
     await updateStatus(projectDir, (current) => {
       if (current.state !== "blocked" || current.blocker?.reason !== "needsHumanTask") return current;
@@ -48,7 +86,7 @@ async function* handleDone(projectDir: string, status: ProjectStatus): AsyncIter
           resolution: {
             status: "verified",
             verifiedAt,
-            verificationSummary: "The user reported the required human task is done in bare jri.",
+            verificationSummary: verification.verificationSummary ?? "JRI verified the required human task after the user said done.",
           },
         },
       };
@@ -66,6 +104,25 @@ async function* handleDone(projectDir: string, status: ProjectStatus): AsyncIter
   }
 
   yield* emitAssistant(projectDir, "There is no unresolved human-task blocker to verify. I recorded your message.");
+}
+
+function defaultHumanTaskVerifier(request: { blocker: Blocker }): HumanTaskVerificationHandoff {
+  return {
+    agent: "verifier",
+    action: "stillBlocked",
+    blocker: {
+      ...request.blocker,
+      resolutionGuide: {
+        ...request.blocker.resolutionGuide,
+        summary: "JRI needs a verifier that can inspect the external condition before this blocker can be marked resolved.",
+        steps: [
+          ...request.blocker.resolutionGuide.steps,
+          "Retry after the verification capability or required observable evidence is available.",
+        ],
+        resumeInstruction: request.blocker.resolutionGuide.resumeInstruction,
+      },
+    },
+  };
 }
 
 function responseForStatus(status: ProjectStatus): string {
