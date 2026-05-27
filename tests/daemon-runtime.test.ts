@@ -945,9 +945,9 @@ describe("daemon/runtime scaffolding", () => {
           "printf 'built\\n' > built.txt",
           "git add built.txt",
           "git commit -m 'build iteration'",
-          "git tag 0.0.99",
+          "git tag 0.0.1",
           "echo build-committed",
-          "echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"Build iteration committed.\"}'",
+          "echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"Build iteration committed.\",\"validation\":[{\"command\":\"bun run test\",\"exitCode\":0,\"passed\":true,\"summary\":\"Tests passed.\"}]}'",
           "",
         ].join("\n"),
         "utf8",
@@ -977,21 +977,224 @@ describe("daemon/runtime scaffolding", () => {
       const tag = events.find((event) => event.type === "tagCreated");
       const iterationFinished = events.find((event) => event.type === "iterationFinished");
 
-      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "commitCreated", "tagCreated", "iterationFinished", "loopFinished"]);
+      expect(events.map((event) => event.type)).toEqual([
+        "iterationStarted",
+        "validationStarted",
+        "validationFinished",
+        "commitCreated",
+        "tagCreated",
+        "iterationFinished",
+        "loopFinished",
+      ]);
       expect(events[0]).toMatchObject({ type: "iterationStarted", data: { trackedTreeCleanAtStart: true } });
       expect(commit).toMatchObject({ type: "commitCreated", iteration: 1, data: { subject: "build iteration" } });
-      expect(tag).toMatchObject({ type: "tagCreated", iteration: 1, data: { tag: "0.0.99" } });
+      expect(tag).toMatchObject({ type: "tagCreated", iteration: 1, data: { tag: "0.0.1" } });
       expect(iterationFinished).toMatchObject({
         type: "iterationFinished",
-        data: { outcome: "committed", tag: "0.0.99" },
+        data: { outcome: "committed", tag: "0.0.1" },
       });
       expect(status).toMatchObject({
         state: "idle",
         activeLoopId: null,
         iterations: 1,
-        lastResult: { outcome: "completed", tag: "0.0.99" },
+        lastResult: { outcome: "completed", tag: "0.0.1" },
       });
       expect(status.lastResult.commit).toBe(commit?.data.sha);
+    } finally {
+      if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
+      else process.env.JRI_PI_COMMAND = previousPiCommand;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runner ignores invalid or ambiguous tags on a successful build iteration", async () => {
+    const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    try {
+      await git(dir, ["init"]);
+      await git(dir, ["config", "user.email", "ralph@example.test"]);
+      await git(dir, ["config", "user.name", "Ralph"]);
+      await writeFile(join(dir, "README.md"), "initial\n", "utf8");
+      await git(dir, ["add", "README.md"]);
+      await git(dir, ["commit", "-m", "initial"]);
+
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/bin/sh",
+          "printf 'built\\n' > built.txt",
+          "git add built.txt",
+          "git commit -m 'build iteration'",
+          "git tag 0.0.99",
+          "git tag latest",
+          "echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"Build iteration committed.\",\"validation\":[{\"command\":\"bun run test\",\"exitCode\":0,\"passed\":true,\"summary\":\"Tests passed.\"}]}'",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: {
+          owner: "daemon",
+          pid: process.pid,
+          operation: "build",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "building");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+      const tag = events.find((event) => event.type === "tagCreated");
+      const iterationFinished = events.find((event) => event.type === "iterationFinished");
+
+      expect(tag).toBeUndefined();
+      expect(iterationFinished).toMatchObject({
+        type: "iterationFinished",
+        data: { outcome: "committed" },
+      });
+      expect(iterationFinished && "tag" in iterationFinished.data).toBe(false);
+      expect(status.lastResult.tag).toBeUndefined();
+    } finally {
+      if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
+      else process.env.JRI_PI_COMMAND = previousPiCommand;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runner fails git-changing successful handoffs without passing validation evidence", async () => {
+    const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    try {
+      await git(dir, ["init"]);
+      await git(dir, ["config", "user.email", "ralph@example.test"]);
+      await git(dir, ["config", "user.name", "Ralph"]);
+      await writeFile(join(dir, "README.md"), "initial\n", "utf8");
+      await git(dir, ["add", "README.md"]);
+      await git(dir, ["commit", "-m", "initial"]);
+
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/bin/sh",
+          "printf 'built\\n' > built.txt",
+          "git add built.txt",
+          "git commit -m 'build iteration'",
+          "git tag 0.0.1",
+          "echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"Build iteration committed without validation.\"}'",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: {
+          owner: "daemon",
+          pid: process.pid,
+          operation: "build",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "building");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+
+      expect(events.some((event) => event.type === "commitCreated")).toBe(false);
+      expect(events.some((event) => event.type === "tagCreated")).toBe(false);
+      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "iterationFinished", "loopFinished"]);
+      expect(status).toMatchObject({
+        state: "stopped",
+        lastResult: {
+          outcome: "failed",
+          validationPassed: false,
+        },
+      });
+      expect(status.lastResult.summary).toContain("without passing validation evidence");
+    } finally {
+      if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
+      else process.env.JRI_PI_COMMAND = previousPiCommand;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runner fails failed-validation handoffs that committed git changes", async () => {
+    const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    try {
+      await git(dir, ["init"]);
+      await git(dir, ["config", "user.email", "ralph@example.test"]);
+      await git(dir, ["config", "user.name", "Ralph"]);
+      await writeFile(join(dir, "README.md"), "initial\n", "utf8");
+      await git(dir, ["add", "README.md"]);
+      await git(dir, ["commit", "-m", "initial"]);
+
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/bin/sh",
+          "printf 'broken\\n' > broken.txt",
+          "git add broken.txt",
+          "git commit -m 'unexpected validation commit'",
+          "git tag 0.0.1",
+          "echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"failedValidation\",\"summary\":\"Tests failed.\",\"validation\":{\"command\":\"bun run test\",\"exitCode\":1,\"passed\":false,\"summary\":\"Unit tests failed.\"}}'",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: {
+          owner: "daemon",
+          pid: process.pid,
+          operation: "build",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "building");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+
+      expect(events.some((event) => event.type === "commitCreated")).toBe(false);
+      expect(events.some((event) => event.type === "tagCreated")).toBe(false);
+      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "validationStarted", "validationFinished", "iterationFinished", "loopFinished"]);
+      expect(events[3]).toMatchObject({ type: "iterationFinished", data: { outcome: "validationFailed" } });
+      expect(status).toMatchObject({
+        state: "stopped",
+        lastResult: {
+          outcome: "failed",
+        },
+      });
+      expect(status.lastResult.summary).toContain("git commits or tags changed");
+      expect(status.lastResult.validationPassed).toBeUndefined();
     } finally {
       if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
       else process.env.JRI_PI_COMMAND = previousPiCommand;

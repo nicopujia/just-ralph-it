@@ -554,13 +554,26 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
         return;
       }
       const builderHandoff = await readLatestBuilderHandoff(projectDir, loopId, stdoutOffset);
-      await recordValidationEvidence(projectDir, loopId, iteration, validationEvidenceFromBuilder(builderHandoff));
+      const validationEvidence = validationEvidenceFromBuilder(builderHandoff);
+      await recordValidationEvidence(projectDir, loopId, iteration, validationEvidence);
       if (builderHandoff.action === "blocked") {
+        if (await hasUnexpectedGitMutation(projectDir, iterationStartGit)) {
+          await finishUnexpectedGitMutationRun(projectDir, loopId, iteration, "blocked");
+          return;
+        }
         await finishBlockedRun(projectDir, loopId, builderHandoff.blocker);
         return;
       }
       if (builderHandoff.action === "failedValidation") {
+        if (await hasUnexpectedGitMutation(projectDir, iterationStartGit)) {
+          await finishUnexpectedGitMutationRun(projectDir, loopId, iteration, "failedValidation");
+          return;
+        }
         await finishValidationFailedRun(projectDir, loopId, builderHandoff);
+        return;
+      }
+      if ((await hasUnexpectedGitMutation(projectDir, iterationStartGit)) && !hasPassingValidation(validationEvidence)) {
+        await finishUnsafeGitSuccessRun(projectDir, loopId, iteration);
         return;
       }
 
@@ -903,6 +916,7 @@ async function runHarnessSession(projectDir: string, loopId: string, phase: Runn
 
 type GitSnapshot = {
   head?: string;
+  tags: string[];
   trackedTreeClean: boolean;
   dirtySummary?: string;
 };
@@ -916,16 +930,24 @@ type IterationGitResult = {
 
 async function readGitSnapshot(projectDir: string): Promise<GitSnapshot> {
   const head = await gitOutput(projectDir, ["rev-parse", "--verify", "HEAD"]);
+  const tags = parseGitLines(await gitOutput(projectDir, ["tag", "--list"]));
   const status = await gitOutput(projectDir, ["status", "--porcelain", "--untracked-files=no"]);
   if (status === undefined) {
-    return { trackedTreeClean: true };
+    return { tags, trackedTreeClean: true };
   }
   const dirtySummary = status.trim();
   return {
     ...(head?.trim() ? { head: head.trim() } : {}),
+    tags,
     trackedTreeClean: dirtySummary.length === 0,
     ...(dirtySummary ? { dirtySummary } : {}),
   };
+}
+
+async function hasUnexpectedGitMutation(projectDir: string, before: GitSnapshot): Promise<boolean> {
+  const after = await readGitSnapshot(projectDir);
+  if (after.head !== before.head) return true;
+  return !sameStringSet(after.tags, before.tags);
 }
 
 async function observeIterationGitResult(
@@ -950,7 +972,7 @@ async function observeIterationGitResult(
     },
   });
 
-  const tag = firstLine(await gitOutput(projectDir, ["tag", "--points-at", afterHead]));
+  const tag = await validIterationTag(projectDir, afterHead, before.tags);
   if (tag) {
     await appendLoopEvent(projectDir, {
       type: "tagCreated",
@@ -965,6 +987,47 @@ async function observeIterationGitResult(
     commit: afterHead,
     ...(tag ? { tag } : {}),
   };
+}
+
+async function validIterationTag(projectDir: string, afterHead: string, tagsBeforeIteration: string[]): Promise<string | undefined> {
+  const tagsAtHead = parseGitLines(await gitOutput(projectDir, ["tag", "--points-at", afterHead]));
+  if (tagsAtHead.length !== 1) return undefined;
+  const [tag] = tagsAtHead;
+  if (!tag || !isSemverPatchTag(tag)) return undefined;
+  return tag === nextPatchTag(tagsBeforeIteration) ? tag : undefined;
+}
+
+function nextPatchTag(tags: string[]): string {
+  const versions = tags.filter(isSemverPatchTag).map(parseSemverPatchTag);
+  if (versions.length === 0) return "0.0.1";
+  versions.sort((left, right) => left.major - right.major || left.minor - right.minor || left.patch - right.patch);
+  const latest = versions[versions.length - 1];
+  if (!latest) return "0.0.1";
+  return `${latest.major}.${latest.minor}.${latest.patch + 1}`;
+}
+
+function isSemverPatchTag(tag: string): boolean {
+  return /^\d+\.\d+\.\d+$/.test(tag);
+}
+
+function parseSemverPatchTag(tag: string): { major: number; minor: number; patch: number } {
+  const [major, minor, patch] = tag.split(".").map((part) => Number(part));
+  return { major: major ?? 0, minor: minor ?? 0, patch: patch ?? 0 };
+}
+
+function parseGitLines(text: string | undefined): string[] {
+  return text
+    ? text
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+    : [];
+}
+
+function sameStringSet(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  const rightSet = new Set(right);
+  return left.every((value) => rightSet.has(value));
 }
 
 async function gitOutput(projectDir: string, args: string[]): Promise<string | undefined> {
@@ -998,13 +1061,6 @@ function haltSummary(killedPid: number | undefined, resetOffered: boolean, reset
   if (!resetAccepted) return `${halt} Rollback reset was skipped.`;
   if (resetResult?.succeeded) return `${halt} Rollback reset completed.`;
   return `${halt} Rollback reset failed${resetResult?.error ? `: ${resetResult.error}` : "."}`;
-}
-
-function firstLine(text: string | undefined): string | undefined {
-  return text
-    ?.split("\n")
-    .map((line) => line.trim())
-    .find(Boolean);
 }
 
 async function finishFailedRun(projectDir: string, loopId: string, phase: RunnerPhase, exitCode: number): Promise<void> {
@@ -1174,6 +1230,76 @@ async function finishValidationFailedRun(projectDir: string, loopId: string, han
       },
     },
   });
+}
+
+async function finishUnexpectedGitMutationRun(
+  projectDir: string,
+  loopId: string,
+  iteration: number,
+  handoffAction: "blocked" | "failedValidation",
+): Promise<void> {
+  const changedFiles = await readChangedFiles(projectDir);
+  const summary = `Builder reported ${handoffAction}, but git commits or tags changed during the iteration. Inspect the working tree before resuming.`;
+  await appendLoopEvent(projectDir, {
+    type: "iterationFinished",
+    loopId,
+    iteration,
+    data: {
+      outcome: "validationFailed",
+      ...(changedFiles.length > 0 ? { changedFiles } : {}),
+    },
+  });
+  await appendLoopEvent(projectDir, {
+    type: "loopFinished",
+    loopId,
+    data: { outcome: "failed", summary },
+  });
+  await transitionStatus(projectDir, "stopped", {
+    loopId,
+    update: {
+      ...ownershipCleared(await readStatus(projectDir)),
+      stopRequested: false,
+      lastResult: {
+        outcome: "failed",
+        summary,
+      },
+    },
+  });
+}
+
+async function finishUnsafeGitSuccessRun(projectDir: string, loopId: string, iteration: number): Promise<void> {
+  const changedFiles = await readChangedFiles(projectDir);
+  const summary = "Builder changed git history or tags without passing validation evidence. Inspect the changes and rerun validation before resuming.";
+  await appendLoopEvent(projectDir, {
+    type: "iterationFinished",
+    loopId,
+    iteration,
+    data: {
+      outcome: "validationFailed",
+      ...(changedFiles.length > 0 ? { changedFiles } : {}),
+    },
+  });
+  await appendLoopEvent(projectDir, {
+    type: "loopFinished",
+    loopId,
+    data: { outcome: "failed", summary },
+  });
+  await transitionStatus(projectDir, "stopped", {
+    loopId,
+    update: {
+      ...ownershipCleared(await readStatus(projectDir)),
+      stopRequested: false,
+      lastResult: {
+        outcome: "failed",
+        summary,
+        validationPassed: false,
+      },
+    },
+  });
+}
+
+function hasPassingValidation(validations: ValidationHandoff[]): boolean {
+  return validations.some((validation) => validation.passed);
 }
 
 async function readLatestPlannerHandoff(projectDir: string, loopId: string, offset: number): Promise<PlannerHandoff> {

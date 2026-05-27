@@ -57,12 +57,10 @@
   - Add coverage for stale lock ownership, dead runner repair, halt/stop races, forceful halt, lock mismatch, stopped start/resume boundaries, and resume after audit/planning/build.
 
 - P0: Enforce git commit/tag and validation safety.
-  - Open finding: runtime currently records the first tag pointing at `HEAD` without validating semver patch increment or tag ambiguity, per `src/core/daemon-runtime.ts`.
-  - Guard `failedValidation` and `blocked` handoffs by comparing git state from iteration start to handoff completion; unexpected commits/tags become structured loop failure/recovery evidence and must not emit successful `commitCreated`/`tagCreated` events.
-  - Require minimum validation evidence before commit/tag success: read commands from `AGENTS.md`/project guidance, record what ran, and record why stronger validation was unavailable when commands are absent or unsafe.
-  - Treat tag success as valid only after a clean validation outcome and a successful change commit; validate tag format/increment rules and ensure no tag is recorded for no-op, blocked, or failed-validation iterations.
-  - Preserve changed files for inspection on validation failure/blockers and keep destructive rollback behind explicit halt/reset policy.
-  - Cover successful commit/tag, no-op, failed validation, blocked with unexpected git changes, absent validation commands, unsafe validation commands, and invalid/missing tag evidence.
+  - Completed/Tested: Runtime now requires passing validation evidence before accepting a git-changing successful builder handoff, records a tag only when exactly one tag points at the new commit and it is the next patch semver tag, suppresses invalid/ambiguous tag success, and fails `blocked`/`failedValidation` handoffs that changed commits or tags without emitting `commitCreated`/`tagCreated`. Focused validation passed with `bun test tests/daemon-runtime.test.ts`; final serial validation passed with `bun run test` (127 tests), `bun run typecheck`, and `bun run lint`.
+  - Remaining: read validation commands from `AGENTS.md`/project guidance, record what ran, and record why stronger validation was unavailable when commands are absent or unsafe.
+  - Remaining: preserve changed files for inspection on validation failure/blockers and keep destructive rollback behind explicit halt/reset policy across all failure shapes.
+  - Remaining coverage: no-op success, blocked with unexpected git changes, absent validation commands, unsafe validation commands, and missing-tag evidence.
 
 - P0: Complete human-task verifier and blocked recovery.
   - Replace the default verifier that always returns `stillBlocked` with a safe verifier path that inspects allowed evidence/capabilities and returns `verified` or `stillBlocked` without asking users to paste secrets.
