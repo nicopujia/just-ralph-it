@@ -1519,6 +1519,52 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("auditing harness context includes interrogation scratchpad scope", async () => {
+    const dir = await tempProject();
+    let refs: string[] = [];
+    try {
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild the app.\n", "utf8");
+      await writeFile(join(dir, ".jri", "scratchpad.md"), "Open question: deployment owner.\n", "utf8");
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          app: {
+            specFile: ".jri/specs/app.md",
+            status: "open",
+            lastReconciledSpecFingerprint: await fingerprintSpecFile(dir, ".jri/specs/app.md"),
+          },
+        },
+      });
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "auditing",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("audit"),
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "auditing", {
+        harnessAdapter: async (invocation) => {
+          refs = invocation.context.refs;
+          return {
+            handoff: {
+              agent: "auditor",
+              action: "failed",
+              feedback: "Scratchpad scope still needs review.",
+              affectedTopics: ["app"],
+              questions: ["Should deployment owner be in scope?"],
+            },
+          };
+        },
+      });
+
+      expect(refs).toEqual(expect.arrayContaining([".jri/interrogation-state.json", ".jri/scratchpad.md", ".jri/specs/app.md"]));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("runner rejects completion without durable explorer proof", async () => {
     const dir = await tempProject();
     try {

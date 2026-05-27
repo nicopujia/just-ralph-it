@@ -1283,6 +1283,10 @@ async function buildLoopHarnessContext(
 ): Promise<{ refs: string[]; inline: string[] }> {
   const refs = new Set<string>([".jri/status.json"]);
   if (await relativePathExists(projectDir, ".jri/IMPLEMENTATION_PLAN.md")) refs.add(".jri/IMPLEMENTATION_PLAN.md");
+  if (phase === "auditing") {
+    if (await relativePathExists(projectDir, ".jri/interrogation-state.json")) refs.add(".jri/interrogation-state.json");
+    if (await relativePathExists(projectDir, ".jri/scratchpad.md")) refs.add(".jri/scratchpad.md");
+  }
   for (const specFile of await listSpecFiles(projectDir)) refs.add(specFile);
   return {
     refs: [...refs],

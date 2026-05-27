@@ -62,26 +62,27 @@ export async function checkInterrogationStartGate(projectDir: string, options: {
       continue;
     }
 
-    if (topic.status !== "sealed") continue;
-
     if (!topic.lastReconciledSpecFingerprint) {
       topic.status = "open";
       topic.pendingReconciliation = {
         reason: "manualSpecEdit",
         detectedAt: now,
-        summary: `${topic.specFile} was sealed without a reconciled fingerprint. Reconcile the current spec in chat before starting Ralph.`,
+        summary: `${topic.specFile} was tracked without a reconciled fingerprint. Reconcile the current spec in chat before starting Ralph.`,
       };
       changed = true;
       continue;
     }
 
+    const wasSealed = topic.status === "sealed";
     const currentFingerprint = await fingerprintFile(absoluteSpecPath);
     if (currentFingerprint !== topic.lastReconciledSpecFingerprint) {
       topic.status = "open";
       topic.pendingReconciliation = {
         reason: "manualSpecEdit",
         detectedAt: now,
-        summary: `${topic.specFile} changed after this topic was sealed. Reconcile the edit in chat before starting Ralph.`,
+        summary: wasSealed
+          ? `${topic.specFile} changed after this topic was sealed. Reconcile the edit in chat before starting Ralph.`
+          : `${topic.specFile} changed after the last interrogator reconciliation. Reconcile the edit in chat before starting Ralph.`,
       };
       changed = true;
     }

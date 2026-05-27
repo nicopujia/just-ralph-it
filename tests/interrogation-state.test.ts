@@ -71,6 +71,40 @@ describe("interrogation state", () => {
     }
   });
 
+  test("detects manual edits to open spec topics before start", async () => {
+    const dir = await tempProject();
+    try {
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI.\n");
+      await recordInterrogatorSpecUpdate(dir, [".jri/specs/app.md"]);
+
+      await writeFile(join(dir, ".jri", "specs", "app.md"), "# App\n\nBuild a CLI and a web UI.\n");
+      const result = await checkInterrogationStartGate(dir, { now: new Date("2026-05-27T20:00:00.000Z") });
+      const persisted = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+
+      expect(result).toMatchObject({
+        ok: false,
+        pending: [
+          {
+            topicId: "app",
+            topic: {
+              status: "open",
+              pendingReconciliation: {
+                reason: "manualSpecEdit",
+                detectedAt: "2026-05-27T20:00:00.000Z",
+              },
+            },
+          },
+        ],
+      });
+      expect(persisted.topics.app).toMatchObject({
+        status: "open",
+        pendingReconciliation: { reason: "manualSpecEdit" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("detects deleted open spec topics before start", async () => {
     const dir = await tempProject();
     try {

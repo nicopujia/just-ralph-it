@@ -23,12 +23,12 @@
   - Normalize failures into durable `loopFinished` failure events plus stopped status/`lastResult` evidence that recovery can trust.
 
 - P0: Harden interrogation readiness and spec mutation safety.
-  - Confirmed gap: auditor context includes specs but not unresolved scratchpad scope; loop context ignores `.jri/scratchpad.md` even when readiness depends on resolving or deferring it.
-  - Confirmed gap: manual spec reconciliation checks sealed topics but skips changed open topics; recent-turn reconstruction is coarse and includes the last eight turns whenever any topic is open.
+  - Completed increment: start-gate manual spec reconciliation now checks both open and sealed topics against the last interrogator-reconciled fingerprint, and auditing harness context includes `.jri/interrogation-state.json` plus `.jri/scratchpad.md` when present. This matters because user edits to open specs and unresolved scratchpad notes can change authorized scope just as much as sealed-topic edits. Covered by `tests/interrogation-state.test.ts` and `tests/daemon-runtime.test.ts`.
+  - Remaining gap: recent-turn reconstruction is coarse and includes the last eight turns whenever any topic is open.
   - Confirmed gap: sealing records `sealedSpecFiles` without proof that related scratchpad notes were cleaned up or moved into specs/deferred scope.
   - Confirmed gap: observation chat can suggest `jri loop stop` but cannot request a graceful stop, and planner/build phases rely on prompts rather than deterministic `.jri/specs/*` mutation guards.
-  - Make unresolved scratchpad scope visible to the auditor and block pass until it is resolved into specs or explicitly deferred.
-  - Reconcile manual edits for open and sealed topics, filter recent turns by relevant unsealed topics, and enforce scratchpad cleanup proof before sealing.
+  - Block audit pass until scratchpad scope is resolved into specs or explicitly deferred.
+  - Filter recent turns by relevant unsealed topics and enforce scratchpad cleanup proof before sealing.
   - Add observation-mode graceful stop handling and before/after `.jri/specs/*` mutation guards for observation, planning, and building.
 
 - P0: Fix remaining public CLI/auth lifecycle correctness.
@@ -84,3 +84,4 @@
   - Public event type coverage now includes the canonical `RuntimeStateEvent` export and the `CoreEvent` compatibility alias.
   - Daemon-owned public lifecycle mutation baseline, read-only local fallback, status mutation locking, loop id generation, event sequencing baseline, start-trigger normalization, runtime recovery for dead/stale ownership, planner plan existence checks, and stopped-loop resume lineage checks are implemented.
   - Audit pass now computes the canonical `.jri/specs/*.md` fingerprint in daemon/core, rejects auditor fingerprint mismatches as durable runtime failures, persists only the core-computed value, and covers non-empty specs directories by using directory `stat` instead of `Bun.file(directory).exists()`.
+  - Start-gate manual spec reconciliation now detects edits to open topics as well as sealed topics, and auditor harness context sees interrogation state plus scratchpad refs before authorization.
