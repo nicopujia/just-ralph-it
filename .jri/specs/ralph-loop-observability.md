@@ -33,6 +33,10 @@ stop the loop.
   validation command is available or safe for the current project, Ralph records
   validation evidence explaining what was checked and why stronger validation was
   unavailable.
+- Ralph, not core, runs those project validation commands in the MVP. Core records
+  the builder's validation handoff evidence, emits validation events, and refuses
+  to treat a git-changing iteration as successful when passing validation evidence
+  is absent.
 - Core guards validation failure and blocker outcomes by comparing git state from
   iteration start with git state after the builder handoff. If a
   `failedValidation` or `blocked` handoff is accompanied by a new commit or tag,
@@ -44,8 +48,9 @@ stop the loop.
   the MVP.
 - Tag policy follows original Ralph: when there are no build or test errors,
   the iteration has a clean validation outcome and a successful change commit,
-  Ralph creates a git tag. If there are no tags, start at `0.0.0`; otherwise
-  increment the patch version.
+  Ralph creates a git tag. If there are no existing semantic version tags, start
+  at `0.0.1`; otherwise increment the patch version of the highest semantic
+  version tag. Non-semver tags are ignored for this calculation.
 - Ralph commits locally only in the MVP. It does not push unless JRI is
   explicitly configured to allow push behavior in a later version.
 - JRI does not parse `.jri/IMPLEMENTATION_PLAN.md` to choose tasks in the MVP.

@@ -141,8 +141,10 @@ its deployment target `gupta-to-web.mpujia.justralph.it`.
   reference instead of raw dump.
 - Ralph can delegate codebase investigation to subagents without manual user
   setup, with spawn/fresh context by default.
-- If a required capability is missing, JRI reports blocked/degraded handling
-  before guessing.
+- If a required capability is missing, JRI reports an actionable capability error
+  or a clearly labeled degraded answer before guessing. Capability failures do
+  not create new `ProjectStatus.blocker.reason` values in the MVP unless a
+  future runtime-state spec adds them.
 - Capabilities appear in JRI specs/status/logs as JRI concepts, not accidental Pi
   package details.
 - A clean user environment and a heavily customized Pi environment produce the

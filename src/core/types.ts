@@ -37,6 +37,7 @@ export type Blocker = {
   };
   changedFiles?: string[];
   validationRan?: boolean;
+  resumePhase?: "planning" | "building";
   resolution?: {
     status: "verified";
     verifiedAt: string;

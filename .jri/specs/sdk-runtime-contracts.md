@@ -115,6 +115,15 @@ type LoopStartRequest = {
   applies the same incompatible-daemon safety rules as loop controls.
 - The daemon owns loop id selection, registry updates, lock acquisition, status
   transition, runner process spawn, and initial `loopStarted` event emission.
+- Daemon ownership is lifecycle authority; runner ownership is execution
+  ownership. The daemon acquires the initial lock, spawns the runner, and
+  transfers the lock pid to that runner. While a phase runs,
+  `status.process.pid` and `status.lock.pid` refer to the daemon-spawned runner;
+  `lock.owner: "daemon"` remains the authority label, not the daemon process id.
+- Loop lifecycle mutation is daemon-owned in normal operation. Local in-process
+  runtime mutation is allowed only for tests with explicit fakes or for read-only
+  recovery/inspection fallbacks; public CLI controls must not bypass the daemon
+  when the requested operation changes lifecycle state.
 - `chat.send()` streams the daemon's lifecycle events back to the caller. The
   accepted-trigger stream must bridge into the newly authorized loop's audit,
   planning, build, blocker, stop, halt, failure, and completion events; callers
@@ -134,15 +143,20 @@ type LoopStartRequest = {
 
 - Every capability process has an owner: either the current interrogator
   `chat.send()` invocation or a daemon-managed loop runner.
-- Loop-owned capability processes are bound to `{ projectDir, loopId,
-  capability }` and are registered with the runner so halt can cancel them and
-  logs/events attach to the correct lifecycle.
+- Loop-owned capability processes are bound to
+  `{ owner: { kind: "loop", loopId }, projectDir, capability }` and are
+  registered with the runner so halt can cancel them and logs/events attach to the
+  correct lifecycle.
 - Chat-owned capability processes may not mutate loop status or create loop
   events. If they need artifacts, they write under
   `.jri/logs/interrogation-artifacts/` rather than a loop directory.
+- Chat-owned capability processes are bound to
+  `{ owner: { kind: "chat", turnId }, projectDir, capability }`; internal
+  capability entrypoints must distinguish chat ownership from loop ownership
+  instead of accepting only an active loop id.
 - Internal commands such as `jri --run-web` and `jri --run-explorer` are adapter
   entrypoints, not public commands. They must validate their owner metadata and
-  refuse missing, stale, or mismatched project/loop ownership.
+  refuse missing, stale, or mismatched project/owner ownership.
 - Graceful stop does not interrupt an in-flight capability. It prevents new
   loop-owned capability work at the next safe phase or iteration boundary.
 - Halt cancels the runner and all registered loop-owned capability children.

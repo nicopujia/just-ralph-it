@@ -178,7 +178,7 @@ function validateBlocker(value: unknown, filePath: string): void {
   if (!isRecord(value) || Array.isArray(value)) {
     throw new JriError(`${filePath} blocker must be an object.`, "invalid-status", "Set blocker to a valid blocker object.");
   }
-  rejectUnknownKeys(value, new Set(["reason", "description", "resolutionGuide", "changedFiles", "validationRan", "resolution"]), filePath);
+  rejectUnknownKeys(value, new Set(["reason", "description", "resolutionGuide", "changedFiles", "validationRan", "resumePhase", "resolution"]), filePath);
   if (typeof value.reason !== "string" || !blockerReasons.has(value.reason as BlockerReason)) {
     throw new JriError(`${filePath} blocker has an invalid reason.`, "invalid-status", "Use ambiguousSpecs or needsHumanTask.");
   }
@@ -187,6 +187,9 @@ function validateBlocker(value: unknown, filePath: string): void {
   validateOptionalStringArray(value.changedFiles, "blocker.changedFiles", filePath);
   if (value.validationRan !== undefined && typeof value.validationRan !== "boolean") {
     throw new JriError(`${filePath} blocker.validationRan must be a boolean.`, "invalid-status", "Set blocker.validationRan to true or false.");
+  }
+  if (value.resumePhase !== undefined && value.resumePhase !== "planning" && value.resumePhase !== "building") {
+    throw new JriError(`${filePath} blocker.resumePhase must be planning or building.`, "invalid-status", "Set blocker.resumePhase to planning or building.");
   }
   validateBlockerResolution(value.resolution, filePath);
 }

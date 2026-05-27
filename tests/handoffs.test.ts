@@ -9,6 +9,7 @@ const blocker = {
     steps: ["Set the deployment token in the environment."],
     resumeInstruction: "Say done in bare jri after the token is available.",
   },
+  resumePhase: "building",
 };
 
 describe("agent handoff contracts", () => {
@@ -68,7 +69,7 @@ describe("agent handoff contracts", () => {
 
     expect(parseHandoff("verifier", { agent: "verifier", action: "stillBlocked", blocker })).toMatchObject({
       action: "stillBlocked",
-      blocker: { reason: "needsHumanTask" },
+      blocker: { reason: "needsHumanTask", resumePhase: "building" },
     });
   });
 

@@ -297,7 +297,7 @@ export function parseBlocker(value: unknown): Blocker {
   if (!isRecord(value)) {
     throw invalidHandoff("builder", "The blocker must be a JSON object.");
   }
-  assertKnownKeys(value, "builder blocker", ["reason", "description", "resolutionGuide", "changedFiles", "validationRan"], "builder");
+  assertKnownKeys(value, "builder blocker", ["reason", "description", "resolutionGuide", "changedFiles", "validationRan", "resumePhase"], "builder");
   const reason = value.reason;
   if (reason !== "ambiguousSpecs" && reason !== "needsHumanTask") {
     throw invalidHandoff("builder", "The blocker reason must be ambiguousSpecs or needsHumanTask.");
@@ -321,6 +321,7 @@ export function parseBlocker(value: unknown): Blocker {
     },
     ...(value.changedFiles === undefined ? {} : { changedFiles: requiredStringArray(value.changedFiles, "blocker.changedFiles", "builder") }),
     ...(value.validationRan === undefined ? {} : { validationRan: requiredBoolean(value.validationRan, "blocker.validationRan", "builder") }),
+    ...(value.resumePhase === undefined ? {} : { resumePhase: requiredResumePhase(value.resumePhase, "blocker.resumePhase", "builder") }),
   };
 }
 
@@ -433,6 +434,13 @@ function requiredInteger(value: unknown, field: string, agent: HandoffAgent): nu
     throw invalidHandoff(agent, `${field} must be an integer.`);
   }
   return value as number;
+}
+
+function requiredResumePhase(value: unknown, field: string, agent: HandoffAgent): "planning" | "building" {
+  if (value !== "planning" && value !== "building") {
+    throw invalidHandoff(agent, `${field} must be planning or building.`);
+  }
+  return value;
 }
 
 function invalidHandoff(agent: HandoffAgent, message: string): JriError {

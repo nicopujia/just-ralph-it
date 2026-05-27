@@ -75,7 +75,10 @@ and is not required after initialization.
   iteration finished.
 - `halted` means the loop was force-killed after explicit confirmation.
 - Blocked status includes a reason, initially `ambiguousSpecs` or
-  `needsHumanTask`, plus a detailed description.
+  `needsHumanTask`, plus a detailed description. Missing required capabilities,
+  auth failures, SDK failures, invalid handoffs, and runtime process failures are
+  actionable runtime errors or failed loop outcomes in the MVP, not additional
+  `blocked` reasons.
 - Blocked status also includes a resolution guide so the user can tell exactly
   what happened, what to do, how to know it is done, and how JRI will resume.
 - Lock information is part of `.jri/status.json`; there is no separate `.jri/lock`
@@ -168,6 +171,7 @@ type Blocker = {
   };
   changedFiles?: string[];
   validationRan?: boolean;
+  resumePhase?: "planning" | "building";
   resolution?: {
     status: "verified";
     verifiedAt: string;
@@ -192,6 +196,10 @@ Lock ownership rules:
 - `blocked` and `stopped` keep `activeLoopId` but do not keep a live builder
   process. The daemon or core still owns lifecycle mutation through the lock
   when resolving, resuming, halting, or repairing state.
+- `process.pid` is the daemon-spawned runner process for the active loop phase,
+  not the daemon pid and not an individual Pi SDK/capability child pid. Loop-owned
+  child processes are registered separately with the runner for halt/cancellation
+  fanout and may be summarized in events or artifacts.
 
 Legal status transitions:
 
@@ -212,8 +220,9 @@ halted -> auditing | halted
   the questions and reissues `just ralph it` or `ralfealo`.
 - `blocked[needsHumanTask] -> building | planning` only happens after the user
   says `done` in bare `jri` and JRI verifies enough to mark the blocker
-  resolved. If verification is inconclusive, status remains `blocked` and the
-  guide is updated.
+  resolved. A `needsHumanTask` blocker records `resumePhase` so planner blockers
+  resume planning and builder blockers resume building. If verification is
+  inconclusive, status remains `blocked` and the guide is updated.
 - `stopped -> building | planning` is direct resume for the same authorized
   lifecycle only when the current specs still match
   `authorizedSpecsFingerprint` in status. It starts a fresh Pi session and
@@ -571,8 +580,9 @@ type PlanRegenerationRequested = BaseEvent & {
 - Runtime files under `.jri` remain the durable source for recovery and
   inspection; the daemon is not the source of truth by itself.
 - If the daemon is unavailable, CLI commands should either start it lazily or
-  fall back to reading `.jri/status.json` and logs when the operation is
-  read-only.
+  fall back only for read-only inspection such as status/log rendering. Lifecycle
+  mutation commands such as start, stop, halt, and resume must not silently take a
+  separate local mutation path that bypasses the daemon protocol.
 - The daemon IPC transport is a Unix socket on Unix-like systems and the
   platform-appropriate named pipe equivalent on Windows.
 - The daemon starts lazily when a JRI operation needs daemon behavior.

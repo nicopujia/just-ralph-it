@@ -114,8 +114,9 @@ into chat unless that is explicitly safe and intended. Prefer instructing the
 user to configure credentials, accounts, billing, environment variables, or
 identity outside the chat, then return and confirm completion. After the user
 confirms completion by saying `done` in bare `jri`, JRI verifies what it can and
-resumes the loop through the interrogator-controlled resume path. `done` is only
-a human-blocker resume signal; it is not a substitute for `just ralph it` or
+records the blocker resolution. The user then runs `jri loop resume` to continue
+the already-authorized lifecycle from durable state. `done` is only a
+human-blocker verification signal; it is not a substitute for `just ralph it` or
 `ralfealo` when specs were ambiguous. If verification is inconclusive, JRI keeps
 the loop blocked and updates the resolution guide with the failed or missing
 check.

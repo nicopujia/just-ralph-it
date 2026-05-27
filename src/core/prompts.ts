@@ -112,7 +112,7 @@ export async function buildPiPrompt(
     renderWebCapabilityInstructions(projectDir, options.loopId),
     renderExplorerCapabilityInstructions(projectDir, options.loopId),
     'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by a builder contract JSON with agent "builder" and action "continue", "complete", "blocked", "needsReplan", or "failedValidation".',
-    'Use "blocked" with blocker.reason "ambiguousSpecs" or "needsHumanTask" when specs are ambiguous or a human task is required; do not include secrets.',
+    'Use "blocked" with blocker.reason "ambiguousSpecs" or "needsHumanTask" when specs are ambiguous or a human task is required; for needsHumanTask include blocker.resumePhase "building"; do not include secrets.',
     'Use "needsReplan" when the current plan is stale or confusing but specs are not blocked. Use "failedValidation" with validation evidence when validation ran and failed.',
     agents ? `Operational guide:\n${agents}` : "",
     plan ? `Current implementation plan:\n${plan}` : "No implementation plan exists yet; inspect specs and code before choosing work.",

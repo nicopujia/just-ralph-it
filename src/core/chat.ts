@@ -329,7 +329,7 @@ async function* handleDone(projectDir: string, status: ProjectStatus, userMessag
   yield* emitAssistant(projectDir, "There is no unresolved human-task blocker to verify. I recorded your message.");
 }
 
-async function markHumanTaskVerified(projectDir: string, status: ProjectStatus, verificationSummary?: string): Promise<CoreEvent | undefined> {
+async function markHumanTaskVerified(projectDir: string, _status: ProjectStatus, verificationSummary?: string): Promise<CoreEvent | undefined> {
   const verifiedAt = new Date().toISOString();
   await updateStatus(projectDir, (current) => {
     if (current.state !== "blocked" || current.blocker?.reason !== "needsHumanTask") return current;
@@ -346,12 +346,7 @@ async function markHumanTaskVerified(projectDir: string, status: ProjectStatus, 
     };
   });
 
-  if (!status.activeLoopId) return undefined;
-  return await appendLoopEvent(projectDir, {
-    type: "blockerResolved",
-    loopId: status.activeLoopId,
-    data: { reason: "needsHumanTask" },
-  });
+  return undefined;
 }
 
 function assistantTextForInterrogatorHandoff(handoff: InterrogatorHandoff): string {

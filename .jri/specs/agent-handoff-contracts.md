@@ -19,6 +19,16 @@ and follow-up actions are durable and reliable.
   raw Pi package output.
 - Handoffs are parsed from bounded agent output, validated, persisted into
   status/events where relevant, and preserved in `.jri/logs/<loopId>/stdout.log`.
+- The MVP handoff frame is exactly one physical UTF-8 line: optional leading
+  whitespace, the literal `JRI_HANDOFF_JSON:`, optional whitespace, then one
+  complete JSON object and no trailing non-whitespace text. The JSON is not
+  fenced, split across lines, or wrapped in an array. Agent prose may appear
+  before or after the frame, but lifecycle code reads only this framed JSON for
+  durable decisions.
+- A lifecycle-changing phase must emit exactly one valid handoff frame for the
+  expected agent and phase. Missing frames, duplicate/corrective frames, invalid
+  JSON, wrong-agent handoffs, or wrong-phase actions are runtime failures with
+  structured recovery evidence.
 - Invalid handoff JSON is a JRI runtime error with a recovery message that names
   the expected contract and the phase that produced bad output.
 - Handoffs must not include secrets. For human tasks involving credentials,
@@ -62,7 +72,8 @@ The auditor returns exactly one of:
   interrogator.
 
 Auditor failures do not start planning or building. They are injected into the
-interrogator response and recorded as `auditFailed`.
+interrogator response, recorded as `auditFailed`, and leave the lifecycle in
+`blocked[ambiguousSpecs]` with the auditor's questions as the resolution guide.
 
 ## Planner Handoffs
 
@@ -108,6 +119,14 @@ Validation evidence records:
 
 Each validation command produces `validationStarted` and `validationFinished`
 events. Validation failures prevent commit/tag creation for that iteration.
+
+For the MVP, Ralph/the builder is responsible for discovering and running the
+target project's relevant validation commands from `AGENTS.md` or equivalent
+project guidance, then returning validation evidence in the builder handoff. Core
+does not independently choose or run general project validation commands in the
+MVP; core validates the handoff shape, records the evidence, and refuses any
+git-changing successful iteration unless at least one concrete validation item
+has `passed: true`. `failedValidation.validation.passed` must be `false`.
 
 ## Human-Task Verification
 

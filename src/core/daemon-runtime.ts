@@ -400,7 +400,7 @@ export async function* resumeLoop(projectDir: string, options: RuntimeOptions = 
       );
     }
 
-    const phase = eligibleHumanTask ? "building" : await chooseResumePhase(projectDir, loopId);
+    const phase = eligibleHumanTask ? resumePhaseFromBlocker(status.blocker) : await chooseResumePhase(projectDir, loopId);
     const lock = await acquireLock(projectDir, phaseToOperation(phase), {
       pid: process.pid,
       ...(options.now ? { now: options.now } : {}),
@@ -426,7 +426,7 @@ export async function* resumeLoop(projectDir: string, options: RuntimeOptions = 
       runner = (options.spawnRunner ?? defaultSpawnRunner)({ projectDir, loopId, phase });
       await transferStartupOwnership(projectDir, loopId, lock, runner, options.now ?? new Date());
 
-      if (eligibleHumanTask && status.blocker?.reason) {
+      if (eligibleHumanTask && status.blocker?.reason && !(await hasBlockerResolvedEvent(projectDir, loopId, status.blocker.reason))) {
         yield await appendLoopEvent(projectDir, {
           type: "blockerResolved",
           loopId,
@@ -790,6 +790,19 @@ async function chooseResumePhase(projectDir: string, loopId: string): Promise<Ru
     "resume-phase-missing",
     "Return to bare jri, confirm the requirements, then say just ralph it so audit and planning authorize a fresh lifecycle.",
   );
+}
+
+function resumePhaseFromBlocker(blocker: Blocker | undefined): RunnerPhase {
+  if (blocker?.resumePhase === "planning" || blocker?.resumePhase === "building") return blocker.resumePhase;
+  throw new JriError(
+    "Cannot resume because the human-task blocker did not record a resume phase.",
+    "resume-phase-missing",
+    "Return to bare jri, confirm the requirements, then say just ralph it so audit and planning authorize a fresh lifecycle.",
+  );
+}
+
+async function hasBlockerResolvedEvent(projectDir: string, loopId: string, reason: Blocker["reason"]): Promise<boolean> {
+  return (await readLoopEvents(projectDir, loopId)).some((event) => event.type === "blockerResolved" && event.data.reason === reason);
 }
 
 function phaseToOperation(phase: RunnerPhase): LockOperation {
@@ -1242,6 +1255,7 @@ async function finishBlockedRun(projectDir: string, loopId: string, blocker: Blo
   const recordedBlocker = {
     ...blocker,
     ...(changedFiles.length > 0 ? { changedFiles } : {}),
+    ...(blocker.reason === "needsHumanTask" ? { resumePhase: "building" as const } : {}),
   };
 
   await appendLoopEvent(projectDir, {
@@ -1295,7 +1309,10 @@ async function finishPlanningBlockedRun(projectDir: string, loopId: string, bloc
     update: {
       ...ownershipCleared(await readStatus(projectDir)),
       stopRequested: false,
-      blocker,
+      blocker: {
+        ...blocker,
+        ...(blocker.reason === "needsHumanTask" ? { resumePhase: "planning" as const } : {}),
+      },
       lastResult: {
         outcome: "blocked",
         summary: blocker.description,

@@ -176,7 +176,9 @@ progress notes, implementation plans, or generic JRI process instructions.
   rerun before building.
 - `jri loop resume` is allowed from `blocked` only for `needsHumanTask` after
   the user has said `done` in bare `jri` and JRI has marked the blocker
-  resolved.
+  resolved. The verified blocker must include the durable `resumePhase` recorded
+  when the blocker was created; `jri loop resume` starts a fresh runner at that
+  phase and emits `blockerResolved` once.
 - The `done` message is processed only by bare `jri` chat. `jri loop resume`
   does not accept `done` as a substitute for the chat verification path; it only
   continues when a verified human-task resolution is already recorded.

@@ -559,6 +559,7 @@ describe("daemon/runtime scaffolding", () => {
             steps: ["Provide the deployment token."],
             resumeInstruction: "Say done in bare jri after the token is available.",
           },
+          resumePhase: "building",
           resolution: {
             status: "verified",
             verifiedAt: "2026-05-27T19:10:00.000Z",
@@ -586,6 +587,136 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("resume from verified planner human-task blocker returns to planning", async () => {
+    const dir = await tempProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        authorizedSpecsFingerprint: emptySpecsFingerprint,
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Choose a deployment account.",
+          resolutionGuide: {
+            summary: "Account choice is required.",
+            steps: ["Choose the account outside chat."],
+            resumeInstruction: "Say done in bare jri after choosing the account.",
+          },
+          resumePhase: "planning",
+          resolution: {
+            status: "verified",
+            verifiedAt: "2026-05-27T19:10:00.000Z",
+            verificationSummary: "Account is selected.",
+          },
+        },
+      });
+
+      await collect(
+        resumeLoop(dir, {
+          spawnRunner: ({ phase }) => ({ pid: 22223, command: `runner ${phase}` }),
+        }),
+      );
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(status).toMatchObject({
+        state: "planning",
+        process: { pid: 22223, command: "runner planning" },
+        lock: { operation: "plan" },
+      });
+      expect(status.blocker).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resume from verified human-task blocker rejects missing resume phase", async () => {
+    const dir = await tempProject();
+    let spawnCalled = false;
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        authorizedSpecsFingerprint: emptySpecsFingerprint,
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Provide deployment credentials.",
+          resolutionGuide: {
+            summary: "Credentials are required.",
+            steps: ["Provide the deployment token."],
+            resumeInstruction: "Say done in bare jri after the token is available.",
+          },
+          resolution: {
+            status: "verified",
+            verifiedAt: "2026-05-27T19:10:00.000Z",
+            verificationSummary: "Deployment token is present.",
+          },
+        },
+      });
+
+      await expect(
+        collect(
+          resumeLoop(dir, {
+            spawnRunner: ({ phase }) => {
+              spawnCalled = true;
+              return { pid: 22222, command: `runner ${phase}` };
+            },
+          }),
+        ),
+      ).rejects.toThrow("did not record a resume phase");
+
+      expect(spawnCalled).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resume does not duplicate an already recorded human-task resolution event", async () => {
+    const dir = await tempProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        authorizedSpecsFingerprint: emptySpecsFingerprint,
+        blocker: {
+          reason: "needsHumanTask",
+          description: "Provide deployment credentials.",
+          resolutionGuide: {
+            summary: "Credentials are required.",
+            steps: ["Provide the deployment token."],
+            resumeInstruction: "Say done in bare jri after the token is available.",
+          },
+          resumePhase: "building",
+          resolution: {
+            status: "verified",
+            verifiedAt: "2026-05-27T19:10:00.000Z",
+            verificationSummary: "Deployment token is present.",
+          },
+        },
+      });
+      await appendLoopEvent(dir, {
+        type: "blockerResolved",
+        loopId: "20260527T184210Z",
+        data: { reason: "needsHumanTask" },
+      });
+
+      const events = await collect(
+        resumeLoop(dir, {
+          spawnRunner: ({ phase }) => ({ pid: 22224, command: `runner ${phase}` }),
+        }),
+      );
+
+      expect(events.map((event) => event.type)).toEqual(["loopStarted"]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("resume from verified needs-human-task blocker rejects changed specs", async () => {
     const dir = await tempProject();
     let spawnCalled = false;
@@ -606,6 +737,7 @@ describe("daemon/runtime scaffolding", () => {
             steps: ["Provide the deployment token."],
             resumeInstruction: "Say done in bare jri after the token is available.",
           },
+          resumePhase: "building",
           resolution: {
             status: "verified",
             verifiedAt: "2026-05-27T19:10:00.000Z",
