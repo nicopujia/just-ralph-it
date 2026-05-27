@@ -18,7 +18,7 @@ export function modelForAgent(config: unknown, agent: AgentName): Required<Agent
   };
 }
 
-export async function buildPiPrompt(projectDir: string, phase: "planning" | "building"): Promise<string> {
+export async function buildPiPrompt(projectDir: string, phase: "auditing" | "planning" | "building"): Promise<string> {
   const specFiles = await listSpecFiles(projectDir);
   const specs = await Promise.all(
     specFiles.map(async (path) => {
@@ -28,6 +28,19 @@ export async function buildPiPrompt(projectDir: string, phase: "planning" | "bui
   );
   const agents = await readIfExists(join(projectDir, "AGENTS.md"));
   const plan = await readIfExists(join(projectDir, ".jri", "IMPLEMENTATION_PLAN.md"));
+
+  if (phase === "auditing") {
+    return [
+      "You are the JRI auditor. Decide whether the durable specs are ready for Ralph to plan and build safely.",
+      "Use only .jri/specs/* as requirements truth. Do not edit files, do not plan, and do not build.",
+      "Pass only when the current build scope is sufficiently unambiguous for the planner and builder.",
+      'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by JSON: {"agent":"auditor","action":"passed","specFiles":[".jri/specs/example.md"],"specsFingerprint":"...","summary":"..."} or {"agent":"auditor","action":"failed","feedback":"...","ambiguousSpecFiles":[".jri/specs/example.md"],"questions":["..."]}.',
+      agents ? `Operational guide:\n${agents}` : "",
+      specs.join("\n\n"),
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+  }
 
   if (phase === "planning") {
     return [

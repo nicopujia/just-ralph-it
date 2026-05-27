@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { normalizeStartTrigger } from "../src/core/chat";
+import { normalizeStartTrigger, sendChat } from "../src/core/chat";
 import { open } from "../src/core";
 import { defaultStatus } from "../src/core/schema";
 import { writeStatusAtomic } from "../src/core/runtime-state";
@@ -44,6 +44,44 @@ describe("interrogation chat", () => {
     expect(normalizeStartTrigger("ralfealo.")).toBe("ralfealo");
     expect(normalizeStartTrigger("please just ralph it")).toBeNull();
     expect(normalizeStartTrigger("just ralph it now")).toBeNull();
+  });
+
+  test("standalone start trigger enters auditing and starts a controlled runner", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+
+      const events = await collect(
+        sendChat(
+          dir,
+          { message: "just ralph it" },
+          {
+            now: new Date("2026-05-27T20:00:00.000Z"),
+            spawnRunner: ({ phase }) => ({ pid: 33333, command: `runner ${phase}` }),
+          },
+        ),
+      );
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(events.map((event) => event.type)).toEqual([
+        "chatTurnRecorded",
+        "chatMessageStarted",
+        "chatMessageDelta",
+        "chatMessageFinished",
+        "chatTurnRecorded",
+        "loopStarted",
+      ]);
+      expect(events[5]).toMatchObject({ type: "loopStarted", data: { pid: 33333 } });
+      expect(status).toMatchObject({
+        state: "auditing",
+        activeLoopId: "20260527T200000Z",
+        process: { pid: 33333, command: "runner auditing" },
+        lock: { operation: "audit", pid: 33333 },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test("done verifies an existing needs-human-task blocker and records a blocker event", async () => {

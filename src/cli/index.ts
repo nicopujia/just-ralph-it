@@ -91,7 +91,7 @@ async function main(argv: string[]): Promise<number> {
 }
 
 function isRunnerPhase(value: string | undefined): value is RunnerPhase {
-  return value === "planning" || value === "building";
+  return value === "auditing" || value === "planning" || value === "building";
 }
 
 function usage(error?: string): number {

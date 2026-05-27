@@ -7,6 +7,7 @@ import { parseJsonObject, validateConfig } from "./schema";
 import {
   acquireLock,
   appendLoopEvent,
+  generateLoopId,
   heartbeatLock,
   isActiveState,
   readStatus,
@@ -17,7 +18,7 @@ import {
 } from "./runtime-state";
 import { buildPiPrompt, modelForAgent } from "./prompts";
 import { extractLatestBuilderHandoffFromText, extractLatestHandoffFromText } from "./handoffs";
-import type { Blocker, BuilderHandoff, CoreEvent, LockOperation, PlannerHandoff, ProjectStatus, ValidationHandoff } from "./types";
+import type { AuditorHandoff, Blocker, BuilderHandoff, CoreEvent, LockOperation, PlannerHandoff, ProjectStatus, ValidationHandoff } from "./types";
 
 export type ProcessAliveCheck = (pid: number) => boolean;
 export type ProcessKiller = (pid: number) => void;
@@ -29,7 +30,7 @@ export type RuntimeOptions = {
   spawnRunner?: RunnerSpawner;
 };
 
-export type RunnerPhase = "planning" | "building";
+export type RunnerPhase = "auditing" | "planning" | "building";
 
 export type RunnerSpawner = (request: RunnerSpawnRequest) => RunnerProcess;
 
@@ -132,6 +133,69 @@ export async function requestGracefulStop(projectDir: string, options: RuntimeOp
     return { ...current, stopRequested: requested };
   });
   return event;
+}
+
+export async function startRalphLoop(projectDir: string, options: RuntimeOptions = {}): Promise<CoreEvent> {
+  const status = await getRecoveredStatus(projectDir, options);
+  if (isActiveState(status.state)) {
+    throw new JriError(
+      `Cannot start a new Ralph lifecycle while JRI is ${status.state}.`,
+      "loop-already-active",
+      "Use jri loop attach to observe the current loop, or jri loop stop to request a graceful stop.",
+    );
+  }
+  if (status.state === "blocked" && status.blocker?.reason === "needsHumanTask" && status.blocker.resolution?.status !== "verified") {
+    throw new JriError(
+      "Cannot start while a human-task blocker is unresolved.",
+      "human-task-blocked",
+      status.blocker.resolutionGuide.resumeInstruction,
+    );
+  }
+
+  const loopId =
+    status.state === "stopped" || status.blocker?.reason === "ambiguousSpecs"
+      ? (status.activeLoopId ?? (await generateLoopId(projectDir, options.now ?? new Date())))
+      : await generateLoopId(projectDir, options.now ?? new Date());
+  const runner = (options.spawnRunner ?? defaultSpawnRunner)({ projectDir, loopId, phase: "auditing" });
+  const lock = await acquireLock(projectDir, "audit", {
+    pid: runner.pid,
+    ...(options.now ? { now: options.now } : {}),
+    ...(options.isProcessAlive ? { isProcessAlive: options.isProcessAlive } : {}),
+  });
+
+  try {
+    await transitionStatus(projectDir, "auditing", {
+      loopId,
+      ...(status.blocker?.reason ? { blockerReason: status.blocker.reason } : {}),
+      ...(options.now ? { now: options.now } : {}),
+      update: {
+        stopRequested: false,
+        startedAt: (options.now ?? new Date()).toISOString(),
+        process: {
+          pid: runner.pid,
+          command: runner.command,
+          startedAt: (options.now ?? new Date()).toISOString(),
+        },
+        lock,
+        blocker: undefined,
+        currentIteration: undefined,
+      },
+    });
+
+    return await appendLoopEvent(projectDir, {
+      type: "loopStarted",
+      loopId,
+      message: `Started JRI auditing runner with pid ${runner.pid}.`,
+      data: { projectDir, pid: runner.pid },
+    });
+  } catch (error) {
+    try {
+      await releaseLock(projectDir, lock);
+    } catch {
+      // Preserve the original startup error.
+    }
+    throw error;
+  }
 }
 
 export async function* haltLoop(projectDir: string, options: RuntimeOptions = {}): AsyncIterable<CoreEvent> {
@@ -295,6 +359,34 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
     let currentPhase: RunnerPhase = phase;
     for (;;) {
       const statusAtPhaseStart = await readStatus(projectDir);
+      if (currentPhase === "auditing") {
+        await appendLoopEvent(projectDir, { type: "auditStarted", loopId, data: {} });
+        const stdoutOffset = await stdoutLogSize(projectDir, loopId);
+        const exitCode = await runPiSession(projectDir, loopId, "auditing");
+        if (exitCode !== 0) {
+          await finishFailedRun(projectDir, loopId, "auditing", exitCode);
+          return;
+        }
+        const auditorHandoff = await readLatestAuditorHandoff(projectDir, loopId, stdoutOffset);
+        if (auditorHandoff.action === "failed") {
+          await finishAuditFailedRun(projectDir, loopId, auditorHandoff);
+          return;
+        }
+        await appendLoopEvent(projectDir, {
+          type: "auditPassed",
+          loopId,
+          data: { specFiles: auditorHandoff.specFiles, specsFingerprint: auditorHandoff.specsFingerprint },
+        });
+        await updateStatus(projectDir, (current) => ({
+          ...current,
+          authorizedSpecsFingerprint: auditorHandoff.specsFingerprint,
+        }));
+        if (await stopIfRequested(projectDir, loopId)) return;
+        currentLock = await switchRunnerPhase(projectDir, currentLock, "planning");
+        currentPhase = "planning";
+        continue;
+      }
+
       if (currentPhase === "planning") {
         await appendLoopEvent(projectDir, { type: "planningStarted", loopId, data: {} });
         const stdoutOffset = await stdoutLogSize(projectDir, loopId);
@@ -529,6 +621,7 @@ async function chooseResumePhase(projectDir: string): Promise<RunnerPhase> {
 }
 
 function phaseToOperation(phase: RunnerPhase): LockOperation {
+  if (phase === "auditing") return "audit";
   return phase === "planning" ? "plan" : "build";
 }
 
@@ -572,7 +665,7 @@ function defaultSpawnRunner(request: RunnerSpawnRequest): RunnerProcess {
 async function runPiSession(projectDir: string, loopId: string, phase: RunnerPhase): Promise<number> {
   const piPath = process.env.JRI_PI_COMMAND ?? "pi";
   const prompt = await buildPiPrompt(projectDir, phase);
-  const agent = phase === "planning" ? "planner" : "builder";
+  const agent = phase === "auditing" ? "auditor" : phase === "planning" ? "planner" : "builder";
   const model = modelForAgent(await readProjectConfig(projectDir), agent);
   const command = [
     piPath,
@@ -736,6 +829,47 @@ async function finishFailedRun(projectDir: string, loopId: string, phase: Runner
       },
     },
   });
+}
+
+async function finishAuditFailedRun(projectDir: string, loopId: string, handoff: Extract<AuditorHandoff, { action: "failed" }>): Promise<void> {
+  await appendLoopEvent(projectDir, {
+    type: "auditFailed",
+    loopId,
+    data: {
+      feedback: handoff.feedback,
+      ...(handoff.ambiguousSpecFiles ? { ambiguousSpecFiles: handoff.ambiguousSpecFiles } : {}),
+    },
+  });
+  const blocker: Blocker = {
+    reason: "ambiguousSpecs",
+    description: handoff.feedback,
+    resolutionGuide: {
+      summary: "The current specs are not ready for Ralph to build safely.",
+      steps: handoff.questions,
+      resumeInstruction: "Answer the audit questions in bare jri, then say just ralph it.",
+    },
+    ...(handoff.ambiguousSpecFiles ? { changedFiles: handoff.ambiguousSpecFiles } : {}),
+    validationRan: false,
+  };
+  await transitionStatus(projectDir, "blocked", {
+    loopId,
+    update: {
+      ...ownershipCleared(await readStatus(projectDir)),
+      stopRequested: false,
+      blocker,
+      lastResult: {
+        outcome: "blocked",
+        summary: handoff.feedback,
+      },
+    },
+  });
+}
+
+async function readLatestAuditorHandoff(projectDir: string, loopId: string, offset: number): Promise<AuditorHandoff> {
+  const path = join(projectDir, ".jri", "logs", loopId, "stdout.log");
+  const currentSessionOutput = (await readFile(path, "utf8")).slice(offset);
+  const handoff = extractLatestHandoffFromText("auditor", currentSessionOutput, "auditing");
+  return handoff as AuditorHandoff;
 }
 
 async function finishBlockedRun(projectDir: string, loopId: string, blocker: Blocker): Promise<void> {

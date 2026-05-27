@@ -1,9 +1,10 @@
 import { appendInterrogationEvent, appendLoopEvent, readStatus, updateStatus } from "./runtime-state";
+import { startRalphLoop, type RuntimeOptions } from "./daemon-runtime";
 import type { ChatInput, CoreEvent, ProjectStatus } from "./types";
 
 const interrogationLogPath = ".jri/logs/interrogation.jsonl" as const;
 
-export async function* sendChat(projectDir: string, input: ChatInput): AsyncIterable<CoreEvent> {
+export async function* sendChat(projectDir: string, input: ChatInput, options: RuntimeOptions = {}): AsyncIterable<CoreEvent> {
   const message = input.message.trim();
   if (!message) {
     yield* emitAssistant(projectDir, "Send a message, clarify the specs, say done after a human-task blocker is resolved, or say just ralph it when the specs are ready.");
@@ -20,10 +21,8 @@ export async function* sendChat(projectDir: string, input: ChatInput): AsyncIter
 
   const trigger = normalizeStartTrigger(message);
   if (trigger) {
-    yield* emitAssistant(
-      projectDir,
-      `Start request accepted (${trigger}). The auditor and planner start path is not wired yet, so no lifecycle state was changed. This request is recorded in the interrogation log.`,
-    );
+    yield* emitAssistant(projectDir, `Start request accepted (${trigger}). Running the specs auditor now.`);
+    yield await startRalphLoop(projectDir, options);
     return;
   }
 
