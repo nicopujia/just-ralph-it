@@ -511,6 +511,54 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("start preserves ambiguous-spec blocker until the new audit passes", async () => {
+    const dir = await tempProject();
+    const observedStates: unknown[] = [];
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "blocked",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "ambiguousSpecs",
+          description: "Deployment target is unclear.",
+          resolutionGuide: {
+            summary: "Clarify deployment target.",
+            steps: ["Choose the deployment target."],
+            resumeInstruction: "Clarify specs in bare jri, then say just ralph it.",
+          },
+        },
+      });
+
+      await startRalphLoop(dir, {
+        isProcessAlive: () => false,
+        spawnRunner: ({ phase }) => {
+          observedStates.push(JSON.parse(readFileSync(join(dir, ".jri", "status.json"), "utf8")));
+          return { pid: 24683, command: `runner ${phase}` };
+        },
+      });
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(observedStates[0]).toMatchObject({
+        state: "auditing",
+        blocker: {
+          reason: "ambiguousSpecs",
+          description: "Deployment target is unclear.",
+        },
+      });
+      expect(status).toMatchObject({
+        state: "auditing",
+        blocker: {
+          reason: "ambiguousSpecs",
+          description: "Deployment target is unclear.",
+        },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("resume from stopped starts a controlled runner and records ownership", async () => {
     const dir = await tempProject();
     try {
@@ -1212,6 +1260,85 @@ describe("daemon/runtime scaffolding", () => {
         iterations: 1,
         lastResult: { outcome: "completed" },
       });
+    } finally {
+      if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
+      else process.env.JRI_PI_COMMAND = previousPiCommand;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("auditing runner resolves an ambiguous-spec blocker only after audit passes", async () => {
+    const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    try {
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/bin/sh",
+          "count_file=.jri/fake-pi-count",
+          "count=0",
+          "[ -f \"$count_file\" ] && count=$(cat \"$count_file\")",
+          "count=$((count + 1))",
+          "printf '%s' \"$count\" > \"$count_file\"",
+          "if [ \"$count\" = 1 ]; then",
+          `  echo 'JRI_HANDOFF_JSON: {"agent":"auditor","action":"passed","specFiles":[".jri/specs/app.md"],"specsFingerprint":"${emptySpecsFingerprint}","summary":"Specs ready."}'`,
+          "elif [ \"$count\" = 2 ]; then",
+          "  echo 'JRI_HANDOFF_JSON: {\"agent\":\"planner\",\"action\":\"planned\",\"planPath\":\".jri/IMPLEMENTATION_PLAN.md\",\"summary\":\"Plan ready.\"}'",
+          "else",
+          "  echo 'JRI_HANDOFF_JSON: {\"agent\":\"builder\",\"action\":\"complete\",\"summary\":\"Build complete.\"}'",
+          "fi",
+          "",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "auditing",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        blocker: {
+          reason: "ambiguousSpecs",
+          description: "Deployment target is unclear.",
+          resolutionGuide: {
+            summary: "Clarify deployment target.",
+            steps: ["Choose the deployment target."],
+            resumeInstruction: "Clarify specs in bare jri, then say just ralph it.",
+          },
+        },
+        lock: {
+          owner: "daemon",
+          pid: process.pid,
+          operation: "audit",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "auditing");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const events = await collect(observeLoop(dir));
+
+      expect(events.map((event) => event.type)).toEqual([
+        "auditStarted",
+        "auditPassed",
+        "blockerResolved",
+        "planningStarted",
+        "planningFinished",
+        "iterationStarted",
+        "iterationFinished",
+        "loopFinished",
+      ]);
+      expect(events[2]).toMatchObject({
+        type: "blockerResolved",
+        data: { reason: "ambiguousSpecs" },
+      });
+      expect(status.state).toBe("idle");
+      expect(status.blocker).toBeUndefined();
     } finally {
       if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
       else process.env.JRI_PI_COMMAND = previousPiCommand;

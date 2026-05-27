@@ -278,7 +278,7 @@ export async function startRalphLoop(projectDir: string, options: RuntimeOptions
         stopRequested: false,
         startedAt: (options.now ?? new Date()).toISOString(),
         lock,
-        blocker: undefined,
+        ...(status.blocker?.reason === "ambiguousSpecs" ? {} : { blocker: undefined }),
         currentIteration: undefined,
       },
     });
@@ -509,10 +509,27 @@ export async function runLoopProcess(projectDir: string, loopId: string, phase: 
           loopId,
           data: { specFiles: auditorHandoff.specFiles, specsFingerprint: auditorHandoff.specsFingerprint },
         });
-        await updateStatus(projectDir, (current) => ({
-          ...current,
-          authorizedSpecsFingerprint: auditorHandoff.specsFingerprint,
-        }));
+        if (statusAtPhaseStart.blocker?.reason === "ambiguousSpecs" && !(await hasBlockerResolvedEvent(projectDir, loopId, "ambiguousSpecs"))) {
+          await appendLoopEvent(projectDir, {
+            type: "blockerResolved",
+            loopId,
+            data: { reason: "ambiguousSpecs" },
+          });
+        }
+        await updateStatus(projectDir, (current) => {
+          if (current.blocker?.reason !== "ambiguousSpecs") {
+            return {
+              ...current,
+              authorizedSpecsFingerprint: auditorHandoff.specsFingerprint,
+            };
+          }
+          const { blocker, ...withoutBlocker } = current;
+          void blocker;
+          return {
+            ...withoutBlocker,
+            authorizedSpecsFingerprint: auditorHandoff.specsFingerprint,
+          };
+        });
         if (await stopIfRequested(projectDir, loopId, "planning")) return;
         currentLock = await switchRunnerPhase(projectDir, currentLock, "planning");
         currentPhase = "planning";
