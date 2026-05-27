@@ -167,6 +167,43 @@ describe("daemon/runtime scaffolding", () => {
     }
   });
 
+  test("recovery appends missing loopStarted milestone for live startup ownership", async () => {
+    const dir = await tempProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "auditing",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        process: {
+          pid: 24680,
+          command: "runner auditing",
+          startedAt: "2026-05-27T18:42:10.000Z",
+        },
+        lock: activeTestLock("audit", 24680),
+      });
+
+      const status = await getRecoveredStatus(dir, {
+        isProcessAlive: () => true,
+      });
+      const events = await collect(observeLoop(dir, { isProcessAlive: () => true }));
+
+      expect(status).toMatchObject({
+        state: "auditing",
+        activeLoopId: "20260527T184210Z",
+        process: { pid: 24680, command: "runner auditing" },
+      });
+      expect(events.map((event) => event.type)).toEqual(["loopStarted"]);
+      expect(events[0]).toMatchObject({
+        type: "loopStarted",
+        loopId: "20260527T184210Z",
+        data: { projectDir: dir, pid: 24680 },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("observe can include recent stdout context with byte offset before milestone events", async () => {
     const dir = await tempProject();
     try {
@@ -2437,10 +2474,10 @@ async function collect<T>(iterable: AsyncIterable<T>): Promise<T[]> {
   return items;
 }
 
-function activeTestLock(operation: "audit" | "plan" | "build") {
+function activeTestLock(operation: "audit" | "plan" | "build", pid = process.pid) {
   return {
     owner: "daemon" as const,
-    pid: process.pid,
+    pid,
     operation,
     acquiredAt: "2026-05-27T18:42:10.000Z",
     heartbeatAt: "2026-05-27T18:42:10.000Z",

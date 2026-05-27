@@ -34,14 +34,15 @@
   - Add tests for active capability halt fanout, SIGTERM-then-SIGKILL escalation, capability timeout evidence, pre-start abort, in-flight abort, halt while a child is active, no new loop-owned capability work after graceful stop boundaries, and daemon request/read timeouts.
 
 - P0: Harden runtime recovery, lifecycle invariants, and event/status consistency.
-  - Confirmed implemented: audit failure `blockerReported` parity is covered alongside blocked status, stable handoff path validation rejects traversal-like segments, stop toggle and stopped resume fingerprint gating are implemented, daemon-owned lifecycle mutation is the normal public path, and runtime recovery now repairs active states with no process/lock by consulting the latest loop event when terminal evidence exists or otherwise marking the orphaned active lifecycle as a failed stopped loop with a `statusRepaired` event.
-  - Confirmed gaps: recovery checks process/lock liveness but still does not repair startup ownership status when the matching milestone event is missing.
-  - Confirmed gaps: auditor-reported `specsFingerprint` is trusted without daemon recomputation, `iterationStarted` writes status before its event, and halt/reset confirmation ordering remains fragile.
+  - Confirmed implemented: audit failure `blockerReported` parity is covered alongside blocked status, stable handoff path validation rejects traversal-like segments, stop toggle and stopped resume fingerprint gating are implemented, daemon-owned lifecycle mutation is the normal public path, runtime recovery repairs active states with no process/lock by consulting the latest loop event when terminal evidence exists or otherwise marking the orphaned active lifecycle as a failed stopped loop with a `statusRepaired` event, and runtime recovery now appends a missing `loopStarted` milestone when active startup ownership has a live recorded runner process but no `loopStarted` event, with daemon-runtime regression coverage.
+  - Confirmed gaps: auditor-reported `specsFingerprint` is trusted without daemon recomputation, `iterationStarted` writes status before its event, the loop-start trigger variant is not persisted in the start event/status, and halt/reset confirmation ordering remains fragile.
+  - Confirmed gaps: fresh or legacy projects with specs but no interrogation-state can bypass start-gate reconciliation, and open topics without `pendingReconciliation` do not block start.
+  - Confirmed gap: halt mutates lifecycle state and kills processes without acquiring the defined halt lock.
   - Normalize malformed/missing handoff parser failures, SDK failures, capability failures, runner phase mismatches, lock loss, and cancellation into structured `loopFinished` failure evidence plus status recovery.
-  - Implement the spec's event/status ordering policy, including documented startup/runner ownership exceptions and recovery when ownership status exists without the matching milestone event.
+  - Implement the spec's event/status ordering policy, including documented startup/runner ownership exceptions and remaining ownership/milestone recovery cases.
   - Verify auditor fingerprints against core-computed spec fingerprints before storing `authorizedSpecsFingerprint`.
   - Make halt precedence explicit when stop/natural exit races occur, including final halt/reset outcome and idempotent already-halted handling.
-  - Add coverage for invalid runner phase at runtime, malformed handoff failure evidence, stop/halt races, forceful halt, dead runner repair with recorded ownership, missing milestone recovery, and status/event recovery.
+  - Add coverage for invalid runner phase at runtime, malformed handoff failure evidence, stop/halt races, forceful halt, dead runner repair with recorded ownership, and status/event recovery.
 
 - P0: Finish Pi-backed auth UX.
   - Confirmed gap: `jri auth login` currently inspects `OPENAI_API_KEY` / Pi auth cache and prints instructions; interactive bare `jri` exits on `userActionRequired`, and non-interactive mode can proceed until a harness operation fails.
@@ -61,6 +62,7 @@
   - Confirmed gap: active-loop observation mode is prompt/handoff-restricted, but the interrogator still has write/edit tools and no post-run file-diff guard against `.jri/specs/*` mutation.
   - Confirmed gap: CLI always uses the fallback readline REPL and `invokeDefaultHarness()` waits for full subprocess output before emitting assistant text.
   - Confirmed gaps: attach lacks the compact header/latest milestone view, attach replay ordering still needs byte-safe cursor handling, live observe rereads whole files, and synthetic stdout events use sequence `0`.
+  - Confirmed gap: human-task verification has no immediate chat/interrogation event until resume.
   - Decide whether Pi terminal chat UI primitives can be used with JRI-controlled SDK sessions; if yes, integrate them without accepting ambient Pi session history/config.
   - If fallback remains, make it match the required status line, blocked guidance, final result display, active-loop observation behavior, and streaming assistant output expectations.
   - Add observation-mode mutation guards around `.jri/specs/*` and lifecycle files, or run observation with a narrower capability/tool set that makes forbidden mutation impossible.

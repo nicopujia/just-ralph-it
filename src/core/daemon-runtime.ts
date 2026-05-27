@@ -95,6 +95,9 @@ export async function recoverRuntimeStatus(
   const missingRuntimeOwnership = isActiveState(status.state) && !status.process && !status.lock;
 
   if (!processDead && !staleLock && !missingRuntimeOwnership) {
+    if (isActiveState(status.state) && status.process) {
+      await ensureStartupMilestone(projectDir, status);
+    }
     return { status };
   }
 
@@ -789,6 +792,24 @@ async function appendRecoveryEvent(projectDir: string, repairedFrom: string, rep
     type: "statusRepaired",
     loopId,
     data: { repairedFrom, repairedTo, reason },
+  });
+}
+
+async function ensureStartupMilestone(projectDir: string, status: ProjectStatus): Promise<void> {
+  const loopId = status.activeLoopId ?? status.lastLoopId;
+  if (!loopId) return;
+  const processInfo = status.process;
+  if (!processInfo) return;
+  if ((await readLoopEvents(projectDir, loopId)).some((event) => event.type === "loopStarted")) return;
+
+  await appendLoopEvent(projectDir, {
+    type: "loopStarted",
+    loopId,
+    message: `Recovered missing JRI startup milestone for pid ${processInfo.pid}.`,
+    data: {
+      projectDir,
+      pid: processInfo.pid,
+    },
   });
 }
 
