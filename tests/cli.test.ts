@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -1187,6 +1187,48 @@ describe("CLI", () => {
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
       expect(status.stopRequested).toBe(true);
       expect(await readFile(join(dir, ".jri", "logs", loopId, "stdout.log"), "utf8")).toBe("first line\nsecond line\n");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 10_000);
+
+  test("loop attach redraws the detach and stop footer after live output arrives", async () => {
+    const dir = await tempInitializedProject();
+    const loopId = "20260527T184210Z";
+    try {
+      await mkdir(join(dir, ".jri", "logs", loopId), { recursive: true });
+      await writeFile(join(dir, ".jri", "logs", loopId, "stdout.log"), "before\n", "utf8");
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: loopId,
+        lastLoopId: loopId,
+        iteration: 1,
+        lock: activeTestLock("build"),
+      });
+
+      const proc = Bun.spawn(["bun", cliPath, "loop", "attach"], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        env: isolatedDaemonEnv(dir),
+      });
+
+      setTimeout(async () => {
+        await appendFile(join(dir, ".jri", "logs", loopId, "stdout.log"), "after\n", "utf8");
+      }, 50);
+      setTimeout(() => {
+        proc.stdin.write("d");
+        proc.stdin.end();
+      }, 150);
+
+      const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("before");
+      expect(stdout).toContain("after");
+      expect(stderr.match(/\[d\]etach \[s\]top/g)?.length).toBeGreaterThanOrEqual(2);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

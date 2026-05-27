@@ -548,7 +548,7 @@ async function attachLoop(project: Project, initialStatus: ProjectStatus): Promi
           break;
         }
         if (key === "d") {
-          await flushReadyAttachEvents(events, nextEvent);
+          await flushReadyAttachEvents(events, nextEvent, status);
           stop = true;
           break;
         }
@@ -561,7 +561,7 @@ async function attachLoop(project: Project, initialStatus: ProjectStatus): Promi
       }
 
       if (result.value.done) break;
-      writeAttachEvent(result.value.value);
+      writeAttachEvent(result.value.value, status);
       nextEvent = events.next();
     }
   } finally {
@@ -647,6 +647,7 @@ function attachInput(stdin: NodeJS.ReadStream): AttachInput {
 async function flushReadyAttachEvents(
   events: AsyncIterator<CoreEvent>,
   nextEvent: Promise<IteratorResult<CoreEvent>>,
+  status: ProjectStatus,
   timeoutMs = 25,
 ): Promise<void> {
   void events;
@@ -655,13 +656,14 @@ async function flushReadyAttachEvents(
     sleep(timeoutMs).then(() => ({ ready: false as const })),
   ]);
   if (!result.ready || result.value.done) return;
-  writeAttachEvent(result.value.value);
+  writeAttachEvent(result.value.value, status);
 }
 
-function writeAttachEvent(event: CoreEvent): void {
+function writeAttachEvent(event: CoreEvent, status: ProjectStatus): void {
   clearAttachFooter();
   const text = formatLoopEvent(event);
   process.stdout.write(text.endsWith("\n") ? text : `${text}\n`);
+  renderAttachFooter(status);
 }
 
 function renderAttachHeader(status: ProjectStatus): void {

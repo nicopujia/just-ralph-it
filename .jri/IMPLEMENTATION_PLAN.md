@@ -1,6 +1,7 @@
-- [ ] Replace prompt-level web/explorer shell escape hatches with harness-native capabilities that are actually reachable for interrogator, auditor, and explorer under the intended tool grants.
+- [ ] Replace prompt-level web/explorer shell escape hatches with harness-native capabilities that are actually reachable for interrogator, auditor, and explorer under the intended tool grants; this matters because the current prompt-driven path hides real capability gaps and makes the roles look more complete than they are.
+  - Note: web/explorer remain prompt-driven in the SDK harness and need native tool wiring.
 - [ ] Consolidate capability policy into descriptors, reduce over-granted explorer/web access, strongly validate chat-owned capability ownership, and add preflight plus actionable recovery for missing `pi-web-access` / `pi-subagent`.
 - [ ] Implement the primary bare-`jri` Pi terminal chat UI path; if the readline fallback must remain temporarily, record verified evidence and rationale for that degraded path in durable project notes.
-- [ ] Keep the `jri loop attach` `[d]etach [s]top` footer stable while live output streams instead of clearing it after the first event.
+- [x] Keep the `jri loop attach` `[d]etach [s]top` footer stable while live output streams so detach/stop controls remain visible after the first event.
 - [ ] Refine interrogation context reconstruction so open or pending topics receive only relevant recent turns and sealed-topic transcript turns stay pruned.
 - [ ] Backfill focused coverage for the remaining contract gaps, especially the primary public chat smoke path.
