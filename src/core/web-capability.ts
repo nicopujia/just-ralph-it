@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { webCapabilityDescriptor } from "./capabilities";
 import type { CapabilityInvocationMetadata } from "./capability-ownership";
 import { JriError } from "./errors";
+import { registerLoopChild, unregisterLoopChild } from "./harness";
 
 const maxSearchResults = webCapabilityDescriptor.limits.searchResults;
 const maxFetchExcerptChars = webCapabilityDescriptor.limits.fetchMarkdownChars;
@@ -131,6 +132,8 @@ async function runWebJsonCommand(
     stderr: "pipe",
     env,
   });
+  const ownerLoopId = options.owner.kind === "loop" ? options.owner.loopId : undefined;
+  const registeredChild = ownerLoopId && proc.pid ? await registerLoopChild(options.projectDir, ownerLoopId, { pid: proc.pid, capability: "web" }) : undefined;
   let timedOut = false;
   let cancelled = false;
   let forceKill: Timer | undefined;
@@ -152,6 +155,7 @@ async function runWebJsonCommand(
     clearTimeout(timeout);
     if (forceKill) clearTimeout(forceKill);
     options.signal?.removeEventListener("abort", abort);
+    if (registeredChild && ownerLoopId) await unregisterLoopChild(options.projectDir, ownerLoopId, registeredChild);
   }
   if (cancelled) {
     throw webCancelledError();

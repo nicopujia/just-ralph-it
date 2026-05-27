@@ -8,6 +8,7 @@ import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeL
 import { appendLoopEvent, writeStatusAtomic } from "../src/core/runtime-state";
 import { defaultStatus } from "../src/core/schema";
 import { fingerprintSpecFile, writeInterrogationState } from "../src/core/interrogation-state";
+import { registerLoopChild } from "../src/core/harness";
 
 const emptySpecsFingerprint = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
@@ -420,6 +421,47 @@ describe("daemon/runtime scaffolding", () => {
       expect(status.process).toBeUndefined();
       expect(status.lock).toBeUndefined();
       expect(status.stopRequested).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("halt kills registered loop child processes before clearing ownership", async () => {
+    const dir = await tempProject();
+    const killed: number[] = [];
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: activeTestLock("build", 67890),
+        process: {
+          pid: 67890,
+          command: "jri-runner",
+          startedAt: "2026-05-27T18:42:10.000Z",
+        },
+      });
+      await registerLoopChild(dir, "20260527T184210Z", { pid: 11111, capability: "web" });
+      await registerLoopChild(dir, "20260527T184210Z", { pid: 22222, capability: "explorer" });
+
+      const events = await collect(
+        haltLoop(dir, {
+          isProcessAlive: () => true,
+          killProcess: (pid) => killed.push(pid),
+        }),
+      );
+
+      expect(killed).toEqual([11111, 22222, 67890]);
+      expect(events[0]).toMatchObject({
+        type: "loopHalted",
+        data: { killedPid: 67890, killedChildPids: [11111, 22222] },
+      });
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      expect(status.state).toBe("halted");
+      expect(status.process).toBeUndefined();
+      expect(status.lock).toBeUndefined();
+      expect(status.lastResult.summary).toContain("child pids 11111, 22222");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

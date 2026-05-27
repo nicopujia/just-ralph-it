@@ -6,6 +6,7 @@ import { JriError } from "./errors";
 import {
   invokeDefaultHarness,
   assertHarnessCapabilities,
+  readActiveLoopChildren,
   readProjectConfig,
   runControlledPiSession,
   type CapabilityDescriptor,
@@ -359,7 +360,7 @@ export async function* haltLoop(projectDir: string, options: RuntimeOptions = {}
   if (!loopId) {
     throw new JriError("Cannot halt without an active loop id.", "missing-loop-id", "Reload status and retry halt.");
   }
-  const killedPid = haltProcess(haltStatus, options.killProcess ?? defaultKillProcess);
+  const killedProcesses = await haltProcesses(projectDir, loopId, haltStatus, options.killProcess ?? defaultKillProcess);
   const rollbackCommit = haltStatus.currentIteration?.rollbackCommit;
   const resetOffered = Boolean(rollbackCommit && haltStatus.currentIteration?.trackedTreeCleanAtStart);
   const resetAccepted = Boolean(options.resetGit && resetOffered && rollbackCommit);
@@ -370,7 +371,8 @@ export async function* haltLoop(projectDir: string, options: RuntimeOptions = {}
     type: "loopHalted",
     loopId,
     data: {
-      ...(killedPid === undefined ? {} : { killedPid }),
+      ...(killedProcesses.runnerPid === undefined ? {} : { killedPid: killedProcesses.runnerPid }),
+      ...(killedProcesses.childPids.length === 0 ? {} : { killedChildPids: killedProcesses.childPids }),
       resetOffered,
       resetAccepted,
       ...(resetResult ? { resetSucceeded: resetResult.succeeded } : {}),
@@ -393,7 +395,7 @@ export async function* haltLoop(projectDir: string, options: RuntimeOptions = {}
       finishedAt: (options.now ?? new Date()).toISOString(),
       lastResult: {
         outcome: "halted",
-        summary: haltSummary(killedPid, resetOffered, resetAccepted, resetResult),
+        summary: haltSummary(killedProcesses, resetOffered, resetAccepted, resetResult),
       },
     };
   });
@@ -936,10 +938,18 @@ async function statusRepairFromLatestTerminalEvent(
         finishedAt: latestEvent.timestamp,
         lastResult: {
           outcome: "halted",
-          summary: haltSummary(latestEvent.data.killedPid, latestEvent.data.resetOffered, latestEvent.data.resetAccepted, {
-            succeeded: Boolean(latestEvent.data.resetSucceeded),
-            ...(latestEvent.data.resetError ? { error: latestEvent.data.resetError } : {}),
-          }),
+          summary: haltSummary(
+            {
+              ...(latestEvent.data.killedPid === undefined ? {} : { runnerPid: latestEvent.data.killedPid }),
+              childPids: latestEvent.data.killedChildPids ?? [],
+            },
+            latestEvent.data.resetOffered,
+            latestEvent.data.resetAccepted,
+            {
+              succeeded: Boolean(latestEvent.data.resetSucceeded),
+              ...(latestEvent.data.resetError ? { error: latestEvent.data.resetError } : {}),
+            },
+          ),
         },
       },
     };
@@ -956,10 +966,32 @@ function repairReason(status: ProjectStatus, processDead: boolean, staleLock: bo
   return `Recovered runtime ownership because ${reasons.join(" and ")}.`;
 }
 
-function haltProcess(status: ProjectStatus, killProcess: ProcessKiller): number | undefined {
-  if (!status.process) return undefined;
-  killProcess(status.process.pid);
-  return status.process.pid;
+type HaltedProcesses = {
+  runnerPid?: number;
+  childPids: number[];
+};
+
+async function haltProcesses(
+  projectDir: string,
+  loopId: string,
+  status: ProjectStatus,
+  killProcess: ProcessKiller,
+): Promise<HaltedProcesses> {
+  const killed = new Set<number>();
+  const kill = (pid: number): void => {
+    if (killed.has(pid)) return;
+    killProcess(pid);
+    killed.add(pid);
+  };
+
+  const childPids = (await readActiveLoopChildren(projectDir, loopId)).map((child) => child.pid);
+  for (const pid of childPids) kill(pid);
+  if (status.process) kill(status.process.pid);
+
+  return {
+    ...(status.process ? { runnerPid: status.process.pid } : {}),
+    childPids: childPids.filter((pid) => pid !== status.process?.pid),
+  };
 }
 
 function defaultProcessAlive(pid: number): boolean {
@@ -1493,8 +1525,12 @@ async function resetTrackedFiles(projectDir: string, rollbackCommit: string): Pr
   return { succeeded: false, error };
 }
 
-function haltSummary(killedPid: number | undefined, resetOffered: boolean, resetAccepted: boolean, resetResult: GitResetResult | undefined): string {
-  const halt = killedPid === undefined ? "Loop halted; no live process was recorded." : `Loop halted by killing pid ${killedPid}.`;
+function haltSummary(killed: HaltedProcesses, resetOffered: boolean, resetAccepted: boolean, resetResult: GitResetResult | undefined): string {
+  const killedTargets = [
+    ...(killed.runnerPid === undefined ? [] : [`runner pid ${killed.runnerPid}`]),
+    ...(killed.childPids.length === 0 ? [] : [`child pid${killed.childPids.length === 1 ? "" : "s"} ${killed.childPids.join(", ")}`]),
+  ];
+  const halt = killedTargets.length === 0 ? "Loop halted; no live process was recorded." : `Loop halted by killing ${killedTargets.join(" and ")}.`;
   if (!resetOffered) return `${halt} No rollback reset was available.`;
   if (!resetAccepted) return `${halt} Rollback reset was skipped.`;
   if (resetResult?.succeeded) return `${halt} Rollback reset completed.`;

@@ -1,5 +1,5 @@
-import { appendFile, mkdir, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { appendFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { getAuthStatus } from "./auth";
 import { explorerCapabilityDescriptor, renderExplorerAgentDescriptor, webCapabilityDescriptor } from "./capabilities";
 import type { CapabilityOwner } from "./capability-ownership";
@@ -81,6 +81,7 @@ export async function runControlledPiSession(request: HarnessSessionRequest): Pr
     stdin: "ignore",
     env: built.env,
   });
+  const childRegistration = await maybeRegisterLoopChild(request.projectDir, request.loopId, proc.pid, "harness");
   const cancellation = bindProcessCancellation(proc, request.signal);
   try {
     await appendMergedStreams(request.stdoutPath, [proc.stdout, proc.stderr]);
@@ -89,6 +90,7 @@ export async function runControlledPiSession(request: HarnessSessionRequest): Pr
     return exitCode;
   } finally {
     cancellation.cleanup();
+    await childRegistration.cleanup();
   }
 }
 
@@ -117,6 +119,9 @@ export async function invokeDefaultHarness(invocation: HarnessInvocation, env: N
     env: built.env,
     timeoutMs: 10 * 60 * 1000,
     signal: invocation.signal,
+    ...(invocation.owner.kind === "loop"
+      ? { child: { projectDir: invocation.projectDir, loopId: invocation.owner.loopId, capability: "harness" as const } }
+      : {}),
   });
   const visibleOutput = invocation.owner.kind === "loop" ? output.text.trimEnd() : stripHandoffLines(output.text).trim();
   if (visibleOutput) await invocation.output.write(visibleOutput);
@@ -188,6 +193,7 @@ export async function runExplorerTask(
         env: built.env,
         timeoutMs: request.timeoutMs ?? explorerTimeoutMs,
         ...(request.signal ? { signal: request.signal } : {}),
+        child: { projectDir: request.projectDir, loopId: request.loopId, capability: "explorer" },
       });
       const artifactRef = await writeExplorerArtifact(request.projectDir, request.loopId, task, output.text);
       if (output.exitCode !== 0) {
@@ -470,6 +476,11 @@ type CapturedCommand = {
   env: NodeJS.ProcessEnv;
   timeoutMs: number;
   signal?: AbortSignal;
+  child?: {
+    projectDir: string;
+    loopId: string;
+    capability: "harness" | "explorer" | "web";
+  };
 };
 
 async function runCommandCapture(request: CapturedCommand): Promise<{ exitCode: number; text: string }> {
@@ -483,6 +494,9 @@ async function runCommandCapture(request: CapturedCommand): Promise<{ exitCode: 
     stdin: "ignore",
     env: request.env,
   });
+  const childRegistration = request.child
+    ? await maybeRegisterLoopChild(request.child.projectDir, request.child.loopId, proc.pid, request.child.capability)
+    : { cleanup: async () => {} };
   let timedOut = false;
   const cancellation = bindProcessCancellation(proc, request.signal);
   const timeout = setTimeout(() => {
@@ -503,6 +517,7 @@ async function runCommandCapture(request: CapturedCommand): Promise<{ exitCode: 
   } finally {
     clearTimeout(timeout);
     cancellation.cleanup();
+    await childRegistration.cleanup();
   }
 }
 
@@ -530,6 +545,92 @@ function terminateProcess(proc: Bun.Subprocess): void {
 
 function harnessCancelledError(): JriError {
   return new JriError("JRI harness invocation was cancelled.", "harness-cancelled", "Retry the operation if it is still needed.");
+}
+
+export type RegisteredLoopChild = {
+  id: string;
+  pid: number;
+  capability: "harness" | "explorer" | "web";
+  startedAt: string;
+};
+
+type LoopChildRecord =
+  | (RegisteredLoopChild & { event: "started" })
+  | { event: "finished"; id: string; pid: number; finishedAt: string };
+
+async function maybeRegisterLoopChild(
+  projectDir: string,
+  loopId: string,
+  pid: number | undefined,
+  capability: RegisteredLoopChild["capability"],
+): Promise<{ cleanup: () => Promise<void> }> {
+  if (!pid) return { cleanup: async () => {} };
+  const child = await registerLoopChild(projectDir, loopId, { pid, capability });
+  return {
+    cleanup: async () => {
+      await unregisterLoopChild(projectDir, loopId, child);
+    },
+  };
+}
+
+export async function registerLoopChild(
+  projectDir: string,
+  loopId: string,
+  child: Pick<RegisteredLoopChild, "pid" | "capability">,
+): Promise<RegisteredLoopChild> {
+  const registered: RegisteredLoopChild = {
+    id: crypto.randomUUID(),
+    pid: child.pid,
+    capability: child.capability,
+    startedAt: new Date().toISOString(),
+  };
+  await appendLoopChildRecord(projectDir, loopId, { event: "started", ...registered });
+  return registered;
+}
+
+export async function unregisterLoopChild(projectDir: string, loopId: string, child: Pick<RegisteredLoopChild, "id" | "pid">): Promise<void> {
+  await appendLoopChildRecord(projectDir, loopId, {
+    event: "finished",
+    id: child.id,
+    pid: child.pid,
+    finishedAt: new Date().toISOString(),
+  });
+}
+
+export async function readActiveLoopChildren(projectDir: string, loopId: string): Promise<RegisteredLoopChild[]> {
+  let text = "";
+  try {
+    text = await readFile(loopChildRegistryPath(projectDir, loopId), "utf8");
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return [];
+    throw error;
+  }
+  const active = new Map<string, RegisteredLoopChild>();
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    const parsed = JSON.parse(line) as LoopChildRecord;
+    if (parsed.event === "started") {
+      active.set(parsed.id, {
+        id: parsed.id,
+        pid: parsed.pid,
+        capability: parsed.capability,
+        startedAt: parsed.startedAt,
+      });
+    } else {
+      active.delete(parsed.id);
+    }
+  }
+  return [...active.values()];
+}
+
+async function appendLoopChildRecord(projectDir: string, loopId: string, record: LoopChildRecord): Promise<void> {
+  const path = loopChildRegistryPath(projectDir, loopId);
+  await mkdir(dirname(path), { recursive: true });
+  await appendFile(path, `${JSON.stringify(record)}\n`, "utf8");
+}
+
+function loopChildRegistryPath(projectDir: string, loopId: string): string {
+  return join(projectDir, ".jri", "logs", loopId, "child-processes.jsonl");
 }
 
 async function streamText(stream: ReadableStream<Uint8Array>): Promise<string> {

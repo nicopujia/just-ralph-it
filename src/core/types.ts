@@ -228,7 +228,15 @@ export type RuntimeStateEvent =
   | (BaseEvent & {
       type: "loopHalted";
       loopId: string;
-      data: { killedPid?: number; resetOffered: boolean; resetAccepted: boolean; resetSucceeded?: boolean; resetError?: string; rollbackCommit?: string };
+      data: {
+        killedPid?: number;
+        killedChildPids?: number[];
+        resetOffered: boolean;
+        resetAccepted: boolean;
+        resetSucceeded?: boolean;
+        resetError?: string;
+        rollbackCommit?: string;
+      };
     })
   | (BaseEvent & {
       type: "loopFinished";
