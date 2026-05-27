@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { buildControlledPiCommand, runExplorerTask } from "../src/core/harness";
 import { writeStatusAtomic } from "../src/core/runtime-state";
 import { defaultConfig, defaultStatus } from "../src/core/schema";
+import { runWebFetch, runWebSearch } from "../src/core/web-capability";
 
 async function tempProject(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "jri-harness-test-"));
@@ -165,6 +166,107 @@ describe("controlled Pi harness", () => {
       expect(events).toContain('"type":"subagentStarted"');
       expect(events).toContain('"type":"subagentFinished"');
       expect(events).toContain('"artifactRef"');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runWebSearch wraps pi-web-access with bounded timestamped results", async () => {
+    const dir = await tempProject();
+    try {
+      const fakeWeb = join(dir, "fake-web.sh");
+      await writeFile(
+        fakeWeb,
+        [
+          "#!/usr/bin/env bash",
+          "printf '{\"retrievedAt\":\"2026-05-27T00:00:00.000Z\",\"results\":['",
+          "for i in 1 2 3 4 5 6; do",
+          "  if [ \"$i\" != \"1\" ]; then printf ','; fi",
+          "  printf '{\"title\":\"Result %s\",\"url\":\"https://example.com/%s\",\"snippet\":\"Snippet %s\"}' \"$i\" \"$i\" \"$i\"",
+          "done",
+          "printf ']}'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeWeb, 0o755);
+
+      const results = await runWebSearch({
+        projectDir: dir,
+        loopId: "20260527T184210Z",
+        query: "current docs",
+        limit: 99,
+        env: {
+          JRI_PI_WEB_COMMAND: fakeWeb,
+        },
+      });
+
+      expect(results).toHaveLength(5);
+      expect(results[0]).toEqual({
+        title: "Result 1",
+        url: "https://example.com/1",
+        snippet: "Snippet 1",
+        retrievedAt: "2026-05-27T00:00:00.000Z",
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runWebFetch caps markdown and stores omitted content as an artifact", async () => {
+    const dir = await tempProject();
+    try {
+      const fakeWeb = join(dir, "fake-web-fetch.sh");
+      await writeFile(
+        fakeWeb,
+        [
+          "#!/usr/bin/env bash",
+          "printf '{\"url\":\"https://example.com/docs\",\"title\":\"Docs\",\"fetchedAt\":\"2026-05-27T00:00:00.000Z\",\"markdown\":\"'",
+          "printf 'section %.0s' {1..3000}",
+          "printf '\"}'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeWeb, 0o755);
+
+      const result = await runWebFetch({
+        projectDir: dir,
+        loopId: "20260527T184210Z",
+        url: "https://example.com/docs",
+        env: {
+          JRI_PI_WEB_COMMAND: fakeWeb,
+        },
+      });
+
+      expect(result.url).toBe("https://example.com/docs");
+      expect(result.title).toBe("Docs");
+      expect(result.markdown.length).toBeLessThanOrEqual(12_000);
+      expect(result.artifactRef).toMatch(/^\.jri\/logs\/20260527T184210Z\/artifacts\/web-/);
+      expect(result.omittedBytes).toBeGreaterThan(0);
+      const artifact = await readFile(join(dir, result.artifactRef!), "utf8");
+      expect(artifact).toContain("Source: https://example.com/docs");
+      expect(artifact).toContain("section");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runWebFetch reports actionable capability errors", async () => {
+    const dir = await tempProject();
+    try {
+      const fakeWeb = join(dir, "fake-web-fail.sh");
+      await writeFile(fakeWeb, "#!/usr/bin/env bash\nprintf 'missing web package' >&2\nexit 9\n", "utf8");
+      await chmod(fakeWeb, 0o755);
+
+      await expect(
+        runWebFetch({
+          projectDir: dir,
+          loopId: "20260527T184210Z",
+          url: "https://example.com/docs",
+          env: {
+            JRI_PI_WEB_COMMAND: fakeWeb,
+          },
+        }),
+      ).rejects.toThrow("JRI web capability failed with exit code 9");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

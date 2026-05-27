@@ -18,7 +18,8 @@
   - Keep Pi-specific concepts inside the harness adapter and preserve the public core API as JRI domain concepts.
 
 - [ ] P0: Implement required MVP capabilities behind JRI descriptors.
-  - Add bounded web search/fetch capability using wrapped `pi-web-access`: up to 5 search results, bounded markdown fetches, citations, retrieval timestamps, artifact refs for omitted/large content, timeout/redirect/size limits, and explicit degraded-or-blocked behavior when web facts are required but unavailable.
+  - Completed/tested slice: web search/fetch is now exposed through a JRI-owned capability descriptor and hidden `jri --run-web search|fetch` bridge around the `pi-web-access` command. Search is capped to 5 timestamped results; fetch is bounded to 12k markdown and emits artifact refs for omitted content; capability/auth/tool failures produce actionable errors; and agent prompts render concrete wrapper commands instead of encouraging ad hoc fetching.
+  - Validation passed for the web capability slice: `bun test tests/harness.test.ts tests/cli.test.ts tests/capabilities.test.ts`, `bun run test` (69 pass), `bun run typecheck`, and `bun run lint`.
   - Replace the current explorer CLI wrapper with wrapped `pi-subagent` behind a JRI `explorer` capability descriptor. Preserve spawn/fresh read-only default, 6-way concurrency, 10-minute timeout, 4000-character handoff cap, artifacts, and `subagentStarted`/`subagentFinished`/`subagentFailed` events.
   - Add JRI-owned capability descriptors/instructions for web and explorer, prevent inherited user Pi packages/settings, and cancel active explorers on halt while graceful stop prevents new explorer work after the current boundary.
 
@@ -37,7 +38,8 @@
   - Completed/tested slice: handoff extraction now requires exactly one explicit valid handoff decision per phase, rejects multiple handoff records, and fails on malformed/partial handoff-prefixed output instead of carrying forward an earlier valid decision; invalid or missing handoffs fail with actionable phase-specific recovery.
 
 - [ ] P0: Fill MVP-critical tests before dogfood.
-  - Add focused tests for Pi SDK harness fakes, web search/fetch capability errors/artifacts/citations, Pi-subagent explorer descriptors and halt cancellation, real interrogator handoffs/spec updates/context reconstruction/manual edit reconciliation, verified vs still-blocked human-task flow, chat persistence semantics, daemon handshake/version negotiation, attach TUI controls/state errors, halt reset handling, canonical schema export, and handoff trim edge cases.
+  - Add focused tests for Pi SDK harness fakes, Pi-subagent explorer descriptors and halt cancellation, real interrogator handoffs/spec updates/context reconstruction/manual edit reconciliation, verified vs still-blocked human-task flow, chat persistence semantics, daemon handshake/version negotiation, attach TUI controls/state errors, halt reset handling, canonical schema export, and handoff trim edge cases.
+  - Web search/fetch capability errors, artifact refs, result caps, fetch bounds, timestamped results, hidden CLI bridge, descriptor-rendered prompt instructions, and validation coverage are now covered.
   - Canonical schema export and handoff trim-edge tests are now covered.
   - Halt reset handling is now covered at runtime and daemon IPC boundaries, including eligible reset execution, ineligible rollback refusal, and failed reset reporting.
   - Keep existing validation command set as the feedback loop: `bun run test`, `bun run typecheck`, and `bun run lint`.

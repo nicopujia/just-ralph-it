@@ -90,4 +90,46 @@ describe("CLI", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  test("hidden web commands print bounded JSON results", async () => {
+    const dir = await tempProject();
+    try {
+      const fakeWeb = join(dir, "fake-web.sh");
+      await writeFile(
+        fakeWeb,
+        [
+          "#!/usr/bin/env bash",
+          "if [ \"$1\" = \"search\" ]; then",
+          "  printf '{\"retrievedAt\":\"2026-05-27T00:00:00.000Z\",\"results\":[{\"title\":\"Docs\",\"url\":\"https://example.com/docs\",\"snippet\":\"Read docs\"}]}'",
+          "else",
+          "  printf '{\"url\":\"https://example.com/docs\",\"fetchedAt\":\"2026-05-27T00:00:00.000Z\",\"markdown\":\"# Docs\"}'",
+          "fi",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeWeb, 0o755);
+
+      const search = Bun.spawn(["bun", cliPath, "--run-web", "search", dir, "20260527T184210Z", "docs"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, JRI_PI_WEB_COMMAND: fakeWeb },
+      });
+      const searchStdout = await new Response(search.stdout).text();
+      expect(await search.exited).toBe(0);
+      expect(JSON.parse(searchStdout)[0].title).toBe("Docs");
+
+      const fetch = Bun.spawn(["bun", cliPath, "--run-web", "fetch", dir, "20260527T184210Z", "https://example.com/docs"], {
+        cwd: dir,
+        stdout: "pipe",
+        stderr: "pipe",
+        env: { ...process.env, JRI_PI_WEB_COMMAND: fakeWeb },
+      });
+      const fetchStdout = await new Response(fetch.stdout).text();
+      expect(await fetch.exited).toBe(0);
+      expect(JSON.parse(fetchStdout).markdown).toBe("# Docs");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

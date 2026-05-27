@@ -1,5 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { renderWebCapabilityInstructions } from "./capabilities";
 import type { AgentConfig, AgentName, ProjectConfig, ReasoningLevel } from "./types";
 
 const openAiPreset: Record<AgentName, Required<AgentConfig>> = {
@@ -51,6 +52,7 @@ export async function buildPiPrompt(
       "You are the JRI planner. Create or regenerate .jri/IMPLEMENTATION_PLAN.md from the durable specs and current code.",
       "Keep the plan concise, prioritized, and focused on remaining work. Capture why implementation and tests matter.",
       "Do not commit. Do not edit requirements specs unless you find a direct contradiction that blocks implementation.",
+      renderWebCapabilityInstructions(projectDir, options.loopId),
       explorerCapabilityInstructions(projectDir, options.loopId),
       'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by JSON: {"agent":"planner","action":"planned","planPath":".jri/IMPLEMENTATION_PLAN.md","summary":"..."} or {"agent":"planner","action":"blocked","blocker":{...}}.',
       agents ? `Operational guide:\n${agents}` : "",
@@ -79,6 +81,7 @@ export async function buildPiPrompt(
     "Use .jri/specs/* as requirements truth and ignore .jri/scratchpad.md. Choose the most important remaining plan item.",
     "Implement completely, run relevant validation, update .jri/IMPLEMENTATION_PLAN.md with findings/resolution, update AGENTS.md only for operational learnings, then commit if tracked files changed and validation passes.",
     "If build/test validation has no errors after a successful change commit, create or increment a patch semver git tag.",
+    renderWebCapabilityInstructions(projectDir, options.loopId),
     explorerCapabilityInstructions(projectDir, options.loopId),
     'At the end, emit exactly one line starting with JRI_HANDOFF_JSON: followed by a builder contract JSON with agent "builder" and action "continue", "complete", "blocked", "needsReplan", or "failedValidation".',
     'Use "blocked" with blocker.reason "ambiguousSpecs" or "needsHumanTask" when specs are ambiguous or a human task is required; do not include secrets.',

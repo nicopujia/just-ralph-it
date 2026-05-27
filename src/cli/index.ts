@@ -3,6 +3,7 @@ import { open, isJriError } from "../core";
 import { runDaemon } from "../core/daemon-ipc";
 import { runLoopProcess, type RunnerPhase } from "../core/daemon-runtime";
 import { runExplorerTask } from "../core/harness";
+import { runWebFetch, runWebSearch } from "../core/web-capability";
 
 async function main(argv: string[]): Promise<number> {
   const [command, subcommand] = argv;
@@ -28,6 +29,31 @@ async function main(argv: string[]): Promise<number> {
     console.log(result.summary);
     if (result.artifactRef) console.log(`artifactRef: ${result.artifactRef}`);
     return 0;
+  }
+  if (command === "--run-web") {
+    const [operation, projectDir, loopId, ...rest] = argv.slice(1);
+    if (operation === "search") {
+      const query = rest.join(" ").trim();
+      if (!projectDir || !loopId || !query) {
+        return usage("Invalid internal web search invocation.");
+      }
+      console.log(JSON.stringify(await runWebSearch({ projectDir, loopId, query }), null, 2));
+      return 0;
+    }
+    if (operation === "fetch") {
+      const [url] = rest;
+      if (!projectDir || !loopId || !url) {
+        return usage("Invalid internal web fetch invocation.");
+      }
+      console.log(JSON.stringify(await runWebFetch({ projectDir, loopId, url }), null, 2));
+      return 0;
+    }
+    return usage("Invalid internal web invocation.");
+  }
+  if (command === "--web-search" || command === "--web-fetch") {
+    const [projectDir, loopId, ...rest] = argv.slice(1);
+    const operation = command === "--web-search" ? "search" : "fetch";
+    return await main(["--run-web", operation, projectDir ?? "", loopId ?? "", ...rest]);
   }
 
   const project = await open(process.cwd());
