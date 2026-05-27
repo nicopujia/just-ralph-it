@@ -1,11 +1,20 @@
 #!/usr/bin/env bun
 import { open, isJriError } from "../core";
 import { runDaemon } from "../core/daemon-ipc";
+import { runLoopProcess, type RunnerPhase } from "../core/daemon-runtime";
 
 async function main(argv: string[]): Promise<number> {
   const [command, subcommand] = argv;
   if (command === "--daemon") {
     await runDaemon();
+    return 0;
+  }
+  if (command === "--run-loop") {
+    const [projectDir, loopId, phase] = argv.slice(1);
+    if (!projectDir || !loopId || !isRunnerPhase(phase)) {
+      return usage("Invalid internal runner invocation.");
+    }
+    await runLoopProcess(projectDir, loopId, phase);
     return 0;
   }
 
@@ -70,6 +79,10 @@ async function main(argv: string[]): Promise<number> {
   }
 
   return usage(`Unsupported command: ${command}`);
+}
+
+function isRunnerPhase(value: string | undefined): value is RunnerPhase {
+  return value === "planning" || value === "building";
 }
 
 function usage(error?: string): number {

@@ -1,8 +1,20 @@
-import { readFile } from "node:fs/promises";
+import { appendFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { JriError } from "./errors";
-import { appendLoopEvent, isActiveState, readStatus, updateStatus, writeStatusAtomic } from "./runtime-state";
-import type { CoreEvent, ProjectStatus } from "./types";
+import {
+  acquireLock,
+  appendLoopEvent,
+  heartbeatLock,
+  isActiveState,
+  readStatus,
+  releaseLock,
+  transitionStatus,
+  updateStatus,
+  writeStatusAtomic,
+} from "./runtime-state";
+import { buildPiPrompt, modelForAgent } from "./prompts";
+import type { CoreEvent, LockOperation, ProjectStatus } from "./types";
 
 export type ProcessAliveCheck = (pid: number) => boolean;
 export type ProcessKiller = (pid: number) => void;
@@ -11,6 +23,22 @@ export type RuntimeOptions = {
   now?: Date;
   isProcessAlive?: ProcessAliveCheck;
   killProcess?: ProcessKiller;
+  spawnRunner?: RunnerSpawner;
+};
+
+export type RunnerPhase = "planning" | "building";
+
+export type RunnerSpawner = (request: RunnerSpawnRequest) => RunnerProcess;
+
+export type RunnerSpawnRequest = {
+  projectDir: string;
+  loopId: string;
+  phase: RunnerPhase;
+};
+
+export type RunnerProcess = {
+  pid: number;
+  command: string;
 };
 
 export async function getRecoveredStatus(projectDir: string, options: RuntimeOptions = {}): Promise<ProjectStatus> {
@@ -158,27 +186,168 @@ export async function* haltLoop(projectDir: string, options: RuntimeOptions = {}
   yield event;
 }
 
-export async function* resumeLoop(projectDir: string, _options: RuntimeOptions = {}): AsyncIterable<CoreEvent> {
-  const status = await getRecoveredStatus(projectDir, _options);
-  if (status.state === "stopped") {
-    throw new JriError(
-      "Loop resume requires the Pi-backed daemon runner, which is not implemented yet.",
-      "runtime-runner-missing",
-      "The durable state is eligible for resume, but starting fresh Pi sessions is still a remaining P0 item.",
-    );
-  }
-  if (status.state === "blocked" && status.blocker?.reason === "needsHumanTask" && status.blocker.resolution?.status === "verified") {
-    throw new JriError(
-      "Verified human-task resume requires the Pi-backed daemon runner, which is not implemented yet.",
-      "runtime-runner-missing",
-      "The blocker is resolved; resume will be available after the runtime runner is implemented.",
-    );
+export async function* resumeLoop(projectDir: string, options: RuntimeOptions = {}): AsyncIterable<CoreEvent> {
+  const status = await getRecoveredStatus(projectDir, options);
+  const eligibleStopped = status.state === "stopped";
+  const eligibleHumanTask =
+    status.state === "blocked" && status.blocker?.reason === "needsHumanTask" && status.blocker.resolution?.status === "verified";
+  if (eligibleStopped || eligibleHumanTask) {
+    const loopId = status.activeLoopId;
+    if (!loopId) {
+      throw new JriError("Cannot resume without an active loop id.", "missing-loop-id", "Return to bare jri and authorize a new Ralph lifecycle.");
+    }
+
+    const phase = await chooseResumePhase(projectDir);
+    const runner = (options.spawnRunner ?? defaultSpawnRunner)({ projectDir, loopId, phase });
+    const lock = await acquireLock(projectDir, phaseToOperation(phase), {
+      pid: runner.pid,
+      ...(options.now ? { now: options.now } : {}),
+      ...(options.isProcessAlive ? { isProcessAlive: options.isProcessAlive } : {}),
+    });
+
+    try {
+      await transitionStatus(projectDir, phase, {
+        loopId,
+        ...(status.blocker?.reason ? { blockerReason: status.blocker.reason } : {}),
+        ...(options.now ? { now: options.now } : {}),
+        update: {
+          stopRequested: false,
+          startedAt: (options.now ?? new Date()).toISOString(),
+          process: {
+            pid: runner.pid,
+            command: runner.command,
+            startedAt: (options.now ?? new Date()).toISOString(),
+          },
+          lock,
+          ...(eligibleHumanTask
+            ? {
+                blocker: status.blocker,
+              }
+            : {}),
+        },
+      });
+
+      yield await appendLoopEvent(projectDir, {
+        type: "loopStarted",
+        loopId,
+        message: `Started JRI ${phase} runner with pid ${runner.pid}.`,
+        data: { projectDir, pid: runner.pid },
+      });
+      return;
+    } catch (error) {
+      try {
+        await releaseLock(projectDir, lock);
+      } catch {
+        // Preserve the original startup error.
+      }
+      throw error;
+    }
   }
   throw new JriError(
     `Cannot resume while JRI is ${status.state}.`,
     "resume-not-allowed",
     "Resume is only allowed from stopped loops or verified needs-human-task blockers.",
   );
+}
+
+export async function runLoopProcess(projectDir: string, loopId: string, phase: RunnerPhase, options: RuntimeOptions = {}): Promise<void> {
+  const status = await getRecoveredStatus(projectDir, options);
+  const lock = status.lock;
+  if (!lock || lock.pid !== process.pid || lock.operation !== phaseToOperation(phase)) {
+    throw new JriError("The JRI runner does not own the project lock.", "lock-lost", "Resume the loop again so the daemon can start a fresh runner.");
+  }
+
+  let currentLock = lock;
+  const heartbeat = setInterval(() => {
+    heartbeatLock(projectDir, currentLock)
+      .then((next) => {
+        currentLock = next;
+      })
+      .catch(() => {
+        clearInterval(heartbeat);
+      });
+  }, 10_000);
+
+  try {
+    let currentPhase: RunnerPhase = phase;
+    for (;;) {
+      const statusAtPhaseStart = await readStatus(projectDir);
+      if (currentPhase === "planning") {
+        await appendLoopEvent(projectDir, { type: "planningStarted", loopId, data: {} });
+        const exitCode = await runPiSession(projectDir, loopId, "planning");
+        if (exitCode !== 0) {
+          await finishFailedRun(projectDir, loopId, "planning", exitCode);
+          return;
+        }
+        await appendLoopEvent(projectDir, {
+          type: "planningFinished",
+          loopId,
+          data: { planPath: ".jri/IMPLEMENTATION_PLAN.md" },
+        });
+        currentLock = await switchRunnerPhase(projectDir, currentLock, "building");
+        currentPhase = "building";
+        continue;
+      }
+
+      const iteration = (statusAtPhaseStart.iteration ?? statusAtPhaseStart.iterations ?? 0) + 1;
+      await updateStatus(projectDir, (current) => ({
+        ...current,
+        iteration,
+        currentIteration: {
+          iteration,
+          trackedTreeCleanAtStart: true,
+        },
+      }));
+      await appendLoopEvent(projectDir, {
+        type: "iterationStarted",
+        loopId,
+        iteration,
+        data: { trackedTreeCleanAtStart: true },
+      });
+
+      const exitCode = await runPiSession(projectDir, loopId, "building");
+      if (exitCode !== 0) {
+        await finishFailedRun(projectDir, loopId, "building", exitCode);
+        return;
+      }
+
+      const latest = await readStatus(projectDir);
+      const finishedIteration = latest.currentIteration?.iteration ?? latest.iteration ?? 1;
+      await appendLoopEvent(projectDir, {
+        type: "iterationFinished",
+        loopId,
+        iteration: finishedIteration,
+        data: { outcome: "noChanges" },
+      });
+      await appendLoopEvent(projectDir, {
+        type: "loopFinished",
+        loopId,
+        data: { outcome: "completed", summary: "Pi runner exited successfully." },
+      });
+      await transitionStatus(projectDir, "idle", {
+        loopId,
+        update: {
+          ...ownershipCleared(latest),
+          iterations: finishedIteration,
+          lastResult: {
+            outcome: "completed",
+            summary: "Pi runner exited successfully.",
+          },
+        },
+      });
+      return;
+    }
+  } finally {
+    clearInterval(heartbeat);
+    const latest = await readStatus(projectDir);
+    if (latest.lock && latest.lock.pid === currentLock.pid && latest.lock.acquiredAt === currentLock.acquiredAt) {
+      try {
+        await releaseLock(projectDir, latest.lock);
+      } catch {
+        // Status may already have been repaired or completed.
+      }
+    }
+  }
 }
 
 async function readLoopEvents(projectDir: string, loopId: string): Promise<CoreEvent[]> {
@@ -234,4 +403,143 @@ function defaultKillProcess(pid: number): void {
     if (error && typeof error === "object" && "code" in error && error.code === "ESRCH") return;
     throw error;
   }
+}
+
+async function chooseResumePhase(projectDir: string): Promise<RunnerPhase> {
+  return (await Bun.file(join(projectDir, ".jri", "IMPLEMENTATION_PLAN.md")).exists()) ? "building" : "planning";
+}
+
+function phaseToOperation(phase: RunnerPhase): LockOperation {
+  return phase === "planning" ? "plan" : "build";
+}
+
+async function switchRunnerPhase(
+  projectDir: string,
+  currentLock: NonNullable<ProjectStatus["lock"]>,
+  nextPhase: RunnerPhase,
+): Promise<NonNullable<ProjectStatus["lock"]>> {
+  const now = new Date();
+  const nextLock = {
+    ...currentLock,
+    operation: phaseToOperation(nextPhase),
+    heartbeatAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 30_000).toISOString(),
+  };
+  await transitionStatus(projectDir, nextPhase, {
+    update: {
+      lock: nextLock,
+    },
+  });
+  return nextLock;
+}
+
+function defaultSpawnRunner(request: RunnerSpawnRequest): RunnerProcess {
+  const cliPath = fileURLToPath(new URL("../cli/index.ts", import.meta.url));
+  const command = [process.execPath, cliPath, "--run-loop", request.projectDir, request.loopId, request.phase];
+  const proc = Bun.spawn(command, {
+    cwd: request.projectDir,
+    env: process.env,
+    stdout: "ignore",
+    stderr: "ignore",
+    stdin: "ignore",
+  });
+  proc.unref();
+  if (!proc.pid) {
+    throw new JriError("Failed to start the JRI runner process.", "runner-start-failed", "Retry resume; if it repeats, inspect daemon logs and .jri/status.json.");
+  }
+  return { pid: proc.pid, command: command.join(" ") };
+}
+
+async function runPiSession(projectDir: string, loopId: string, phase: RunnerPhase): Promise<number> {
+  const piPath = process.env.JRI_PI_COMMAND ?? "pi";
+  const prompt = await buildPiPrompt(projectDir, phase);
+  const agent = phase === "planning" ? "planner" : "builder";
+  const model = modelForAgent(await readProjectConfig(projectDir), agent);
+  const command = [
+    piPath,
+    "--provider",
+    "openai",
+    "--model",
+    model.model,
+    "--thinking",
+    model.reasoning,
+    "--no-extensions",
+    "--no-skills",
+    "--no-prompt-templates",
+    "--no-themes",
+    "--no-context-files",
+    "--tools",
+    "read,bash,edit,write,grep,find,ls",
+    "--print",
+    prompt,
+  ];
+  const proc = Bun.spawn(command, {
+    cwd: projectDir,
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: "ignore",
+    env: {
+      ...process.env,
+      PI_CODING_AGENT_SESSION_DIR: join(projectDir, ".jri", "logs", loopId, "pi-sessions"),
+    },
+  });
+  await appendStreamsToStdoutLog(projectDir, loopId, proc);
+  return await proc.exited;
+}
+
+async function appendStreamsToStdoutLog(projectDir: string, loopId: string, proc: Bun.Subprocess<"ignore", "pipe", "pipe">): Promise<void> {
+  const stdoutPath = join(projectDir, ".jri", "logs", loopId, "stdout.log");
+  await Promise.all([appendStream(stdoutPath, proc.stdout), appendStream(stdoutPath, proc.stderr)]);
+}
+
+async function appendStream(path: string, stream: ReadableStream<Uint8Array>): Promise<void> {
+  const reader = stream.getReader();
+  const decoder = new TextDecoder();
+  for (;;) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    await appendFile(path, decoder.decode(chunk.value, { stream: true }), "utf8");
+  }
+  const tail = decoder.decode();
+  if (tail) await appendFile(path, tail, "utf8");
+}
+
+async function finishFailedRun(projectDir: string, loopId: string, phase: RunnerPhase, exitCode: number): Promise<void> {
+  const summary = `Pi ${phase} runner exited with code ${exitCode}.`;
+  if (phase === "building") {
+    const status = await readStatus(projectDir);
+    const iteration = status.currentIteration?.iteration ?? status.iteration ?? 1;
+    await appendLoopEvent(projectDir, {
+      type: "iterationFinished",
+      loopId,
+      iteration,
+      data: { outcome: "validationFailed" },
+    });
+  }
+  await appendLoopEvent(projectDir, {
+    type: "loopFinished",
+    loopId,
+    data: { outcome: "failed", summary },
+  });
+  await transitionStatus(projectDir, "stopped", {
+    loopId,
+    update: {
+      ...ownershipCleared(await readStatus(projectDir)),
+      stopRequested: false,
+      lastResult: {
+        outcome: "failed",
+        summary,
+      },
+    },
+  });
+}
+
+function ownershipCleared(status: ProjectStatus): { [K in keyof ProjectStatus]?: ProjectStatus[K] | undefined } {
+  return { ...status, process: undefined, lock: undefined };
+}
+
+async function readProjectConfig(projectDir: string) {
+  const path = join(projectDir, ".jri", "config.json");
+  if (!(await Bun.file(path).exists())) return undefined;
+  return JSON.parse(await Bun.file(path).text()) as unknown;
 }

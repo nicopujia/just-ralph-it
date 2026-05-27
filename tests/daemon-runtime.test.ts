@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
-import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop } from "../src/core/daemon-runtime";
+import { getRecoveredStatus, haltLoop, observeLoop, requestGracefulStop, resumeLoop, runLoopProcess } from "../src/core/daemon-runtime";
 import { appendLoopEvent, writeStatusAtomic } from "../src/core/runtime-state";
 import { defaultStatus } from "../src/core/schema";
 
@@ -139,6 +139,118 @@ describe("daemon/runtime scaffolding", () => {
       expect(status.lock).toBeUndefined();
       expect(status.stopRequested).toBe(false);
     } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resume from stopped starts a controlled runner and records ownership", async () => {
+    const dir = await tempProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        stopRequested: true,
+      });
+
+      const events = await collect(
+        resumeLoop(dir, {
+          now: new Date("2026-05-27T19:00:00.000Z"),
+          isProcessAlive: () => false,
+          spawnRunner: ({ phase }) => ({ pid: 24680, command: `runner ${phase}` }),
+        }),
+      );
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        type: "loopStarted",
+        loopId: "20260527T184210Z",
+        data: { projectDir: dir, pid: 24680 },
+      });
+      expect(status).toMatchObject({
+        state: "planning",
+        activeLoopId: "20260527T184210Z",
+        stopRequested: false,
+        process: { pid: 24680, command: "runner planning" },
+        lock: { owner: "daemon", pid: 24680, operation: "plan" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("resume with an existing implementation plan starts in building", async () => {
+    const dir = await tempProject();
+    try {
+      await Bun.write(join(dir, ".jri", "IMPLEMENTATION_PLAN.md"), "# Plan\n");
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "stopped",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+      });
+
+      await collect(
+        resumeLoop(dir, {
+          spawnRunner: ({ phase }) => ({ pid: 13579, command: `runner ${phase}` }),
+        }),
+      );
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+
+      expect(status).toMatchObject({
+        state: "building",
+        process: { pid: 13579, command: "runner building" },
+        lock: { operation: "build" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("runner executes an isolated Pi command, records stdout, and completes the loop", async () => {
+    const dir = await tempProject();
+    const previousPiCommand = process.env.JRI_PI_COMMAND;
+    try {
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(fakePi, "#!/bin/sh\necho fake-pi-ran\n", "utf8");
+      await chmod(fakePi, 0o755);
+      process.env.JRI_PI_COMMAND = fakePi;
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T184210Z",
+        lastLoopId: "20260527T184210Z",
+        lock: {
+          owner: "daemon",
+          pid: process.pid,
+          operation: "build",
+          acquiredAt: "2026-05-27T19:00:00.000Z",
+          heartbeatAt: "2026-05-27T19:00:00.000Z",
+          expiresAt: "2026-05-27T19:01:00.000Z",
+        },
+      });
+
+      await runLoopProcess(dir, "20260527T184210Z", "building");
+
+      const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const stdout = await readFile(join(dir, ".jri", "logs", "20260527T184210Z", "stdout.log"), "utf8");
+      const events = await collect(observeLoop(dir));
+
+      expect(stdout).toContain("fake-pi-ran");
+      expect(events.map((event) => event.type)).toEqual(["iterationStarted", "iterationFinished", "loopFinished"]);
+      expect(status).toMatchObject({
+        state: "idle",
+        activeLoopId: null,
+        iterations: 1,
+        lastResult: { outcome: "completed" },
+      });
+      expect(status.process).toBeUndefined();
+      expect(status.lock).toBeUndefined();
+    } finally {
+      if (previousPiCommand === undefined) delete process.env.JRI_PI_COMMAND;
+      else process.env.JRI_PI_COMMAND = previousPiCommand;
       await rm(dir, { recursive: true, force: true });
     }
   });

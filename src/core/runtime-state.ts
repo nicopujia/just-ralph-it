@@ -7,6 +7,7 @@ import type { BlockerReason, CoreEvent, LockOperation, ProjectState, ProjectStat
 const activeStates = new Set<ProjectState>(["auditing", "planning", "building"]);
 
 export type StatusMutator = (status: ProjectStatus) => ProjectStatus | Promise<ProjectStatus>;
+export type StatusPatch = { [K in keyof ProjectStatus]?: ProjectStatus[K] | undefined };
 
 export async function readStatus(projectDir: string): Promise<ProjectStatus> {
   const path = statusPath(projectDir);
@@ -37,7 +38,7 @@ export async function transitionStatus(
     loopId?: string;
     blockerReason?: BlockerReason;
     now?: Date;
-    update?: Partial<ProjectStatus>;
+    update?: StatusPatch;
   } = {},
 ): Promise<ProjectStatus> {
   return await updateStatus(projectDir, (current) => {
@@ -52,15 +53,25 @@ export async function transitionStatus(
     }
 
     const timestamp = (options.now ?? new Date()).toISOString();
+    const patched = applyStatusPatch(current, options.update);
     return {
-      ...current,
-      ...options.update,
+      ...patched,
       state: nextState,
       activeLoopId,
       ...(activeLoopId ? { lastLoopId: activeLoopId } : {}),
       ...(nextState === "idle" || nextState === "stopped" || nextState === "halted" ? { finishedAt: timestamp } : {}),
     };
   });
+}
+
+function applyStatusPatch(status: ProjectStatus, patch?: StatusPatch): ProjectStatus {
+  if (!patch) return status;
+  const next: Record<string, unknown> = { ...status };
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === undefined) delete next[key];
+    else next[key] = value;
+  }
+  return next as ProjectStatus;
 }
 
 export function assertLegalTransition(current: ProjectStatus, nextState: ProjectState, blockerReason = current.blocker?.reason): void {

@@ -36,8 +36,19 @@ Next work:
   CLI entrypoint, user-state registry, daemon `status/observe/stop/halt/resume`
   routing, read-only fallback for status+observe, lazy startup for mutating loop
   controls, and validation coverage in `tests/daemon-ipc.test.ts`.
-- [ ] P0: Implement Pi-backed execution/session startup.
+- [x] P0: Implement Pi-backed execution/session startup.
+  Completed a core-owned runner startup path for eligible resumes: stopped or
+  verified human-task loops now start a hidden runner process, record process
+  ownership/lock state, emit `loopStarted`, choose planning vs building from the
+  presence of `.jri/IMPLEMENTATION_PLAN.md`, run isolated Pi CLI sessions with
+  core-owned prompts/model defaults, tee stdout/stderr to
+  `.jri/logs/<loopId>/stdout.log`, and complete/fail status from runner exit.
+  Tests use an injected runner and fake Pi executable so startup and process
+  accounting are covered without live provider calls.
 - [ ] P0: Implement idle shutdown hardening (beyond baseline).
 - [ ] P0: Implement full resume runner.
+  Remaining work: richer orchestration decisions after Pi returns, commit/tag
+  observation, stop-boundary handling inside multi-iteration runs, blocker
+  parsing/recording from builder output, and eventual SDK-native session wiring.
 - [ ] P1: Expand test coverage into status transitions, planner/loop command
   behavior, and daemon recovery paths.
