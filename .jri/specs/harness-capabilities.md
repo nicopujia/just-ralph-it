@@ -43,11 +43,14 @@ its deployment target `gupta-to-web.mpujia.justralph.it`.
 - Users should not need to manually install or configure arbitrary web/MCP
   packages for MVP web access.
 - If web is required and unavailable, the interrogator must return a clear
-  capability-blocker or a labeled degraded response (never guess/fabricate current
-  facts).
+  actionable capability error or a labeled degraded response (never
+  guess/fabricate current facts).
 - If the current task cannot proceed safely without web facts, JRI blocks that
   agent action with an actionable capability error. If web is useful but not
   required, the agent may continue only with a visibly labeled degraded answer.
+  Capability failures do not create a `ProjectStatus.blocker` in the MVP unless
+  the agent can continue to a legitimate `ambiguousSpecs` or `needsHumanTask`
+  handoff for a separate product or human-action reason.
 
 ## Ralph Subagents
 
@@ -128,9 +131,10 @@ its deployment target `gupta-to-web.mpujia.justralph.it`.
 - A future `context-mode` integration should be a reduced JRI-owned wrapper with
   `.jri`-scoped data and explicit capability surfaces, not raw package behavior.
 - Without `context-mode`, fetched artifacts live under `.jri/logs` with stable
-  artifact refs. Agents may reread a referenced artifact through the JRI web
-  capability by ref and byte/section range; they should not inject whole large
-  artifacts into context.
+  artifact refs. Agents should not inject whole large artifacts into context. A
+  future JRI web operation may reread referenced artifacts by ref and byte/section
+  range; this reread-by-ref operation is not required for the MVP core/CLI
+  dogfood path unless a concrete implementation task needs it.
 
 ## Acceptance Criteria
 

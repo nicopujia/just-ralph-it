@@ -232,7 +232,9 @@ halted -> auditing | halted
   specs changed or its authorized specs fingerprint is missing. The user must
   resolve or confirm the changed requirements in interrogation and reissue
   `just ralph it` or `ralfealo`; the auditor and planner rerun before building
-  continues.
+  continues. This reauthorization reuses the existing `activeLoopId` because the
+  stopped lifecycle is being continued from durable state after renewed audit
+  and planning; it does not create a replacement loop id.
 - `halted` is terminal for that lifecycle. `halted -> auditing` is a new
   lifecycle authorization only: core generates a new loop id, replaces
   `activeLoopId`, and leaves the old halted loop immutable in history.
@@ -292,6 +294,7 @@ halted -> auditing | halted
   - `chatMessageFinished`
   - `chatTurnRecorded`
   - `specsUpdated`
+  - `scratchpadUpdated`
 - Project interaction events are emitted over core streams. Completed chat turns
   are persisted in `.jri/logs/interrogation.jsonl`; assistant deltas are
   stream-only and are not written token-by-token to loop event logs.
@@ -549,6 +552,12 @@ type PlanRegenerationRequested = BaseEvent & {
   because MVP automatic reset affects tracked files and does not delete
   untracked files. If no rollback commit exists or the tracked tree was dirty,
   halt must refuse automatic reset and explain why.
+- Event-before-status is the default for lifecycle milestones, but startup and
+  runner handoff are allowed to write ownership status before the first
+  externally visible event so attach, stop, and halt can find the live runner
+  immediately. Those exceptions must be recoverable: if ownership status is
+  written but the corresponding event is missing after a crash, recovery emits
+  `statusRepaired` or the missing milestone before continuing.
 - At `auditPassed`, JRI copies `data.specsFingerprint` into
   `status.authorizedSpecsFingerprint`. `loopStopped` records the same
   fingerprint when known so recovery can preserve the stopped-loop resume gate.

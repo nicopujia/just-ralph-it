@@ -661,6 +661,119 @@ describe("interrogation chat", () => {
     }
   });
 
+  test("interrogator specsUpdated handoff can accept intentional deletion of a sealed spec", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await writeFile(join(dir, ".jri", "specs", "legacy.md"), "# Legacy\n\nBuild the legacy mode.\n");
+      const fingerprint = await fingerprintSpecFile(dir, ".jri/specs/legacy.md");
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          legacy: {
+            specFile: ".jri/specs/legacy.md",
+            status: "sealed",
+            lastReconciledSpecFingerprint: fingerprint,
+          },
+        },
+      });
+      await rm(join(dir, ".jri", "specs", "legacy.md"));
+
+      let startCalled = false;
+      await collect(sendChat(dir, { message: "" }, { now: new Date("2026-05-27T20:00:00.000Z") }));
+      const events = await collect(
+        sendChat(dir, { message: "Legacy mode is intentionally removed." }, {
+          interrogatorHarness: async () => ({
+            handoff: {
+              agent: "interrogator",
+              action: "specsUpdated",
+              specFiles: [".jri/specs/legacy.md"],
+              summary: "Removed legacy mode from scope.",
+            },
+          }),
+          startLoop: async function* () {
+            startCalled = true;
+          },
+        }),
+      );
+      const state = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+      await collect(
+        sendChat(dir, { message: "just ralph it" }, {
+          startLoop: async function* () {
+            startCalled = true;
+          },
+        }),
+      );
+
+      expect(events.at(-1)).toMatchObject({
+        type: "specsUpdated",
+        data: { specFiles: [".jri/specs/legacy.md"], summary: "Removed legacy mode from scope." },
+      });
+      expect(state.topics.legacy).toBeUndefined();
+      expect(startCalled).toBe(true);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("interrogator specsUpdated handoff can restore a deleted sealed spec", async () => {
+    const dir = await tempProject();
+    try {
+      await mkdir(join(dir, ".jri", "logs"), { recursive: true });
+      await mkdir(join(dir, ".jri", "specs"), { recursive: true });
+      await writeStatusAtomic(dir, defaultStatus(dir));
+      await writeFile(join(dir, ".jri", "specs", "legacy.md"), "# Legacy\n\nBuild the legacy mode.\n");
+      const fingerprint = await fingerprintSpecFile(dir, ".jri/specs/legacy.md");
+      await writeInterrogationState(dir, {
+        schemaVersion: 1,
+        topics: {
+          legacy: {
+            specFile: ".jri/specs/legacy.md",
+            status: "sealed",
+            lastReconciledSpecFingerprint: fingerprint,
+          },
+        },
+      });
+      await rm(join(dir, ".jri", "specs", "legacy.md"));
+      await collect(sendChat(dir, { message: "" }, { now: new Date("2026-05-27T20:00:00.000Z") }));
+      await writeFile(join(dir, ".jri", "specs", "legacy.md"), "# Legacy\n\nBuild the restored legacy mode.\n");
+
+      const events = await collect(
+        sendChat(dir, { message: "The legacy spec is restored and should stay sealed." }, {
+          interrogatorHarness: async () => ({
+            handoff: {
+              agent: "interrogator",
+              action: "specsUpdated",
+              specFiles: [".jri/specs/legacy.md"],
+              sealedSpecFiles: [".jri/specs/legacy.md"],
+              summary: "Restored legacy mode.",
+            },
+          }),
+        }),
+      );
+      const state = JSON.parse(await readFile(join(dir, ".jri", "interrogation-state.json"), "utf8"));
+
+      expect(events.at(-1)).toMatchObject({
+        type: "specsUpdated",
+        data: {
+          specFiles: [".jri/specs/legacy.md"],
+          sealedSpecFiles: [".jri/specs/legacy.md"],
+          summary: "Restored legacy mode.",
+        },
+      });
+      expect(state.topics.legacy).toMatchObject({
+        specFile: ".jri/specs/legacy.md",
+        status: "sealed",
+      });
+      expect(state.topics.legacy.pendingReconciliation).toBeUndefined();
+      expect(state.topics.legacy.lastReconciledSpecFingerprint).not.toBe(fingerprint);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("empty chat open reports pending manual reconciliation before user input", async () => {
     const dir = await tempProject();
     try {

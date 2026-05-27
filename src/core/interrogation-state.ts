@@ -116,10 +116,16 @@ export async function recordInterrogatorSpecUpdate(
   for (const stableSpecFile of filesToRecord) {
     const absoluteSpecPath = join(projectDir, stableSpecFile);
     if (!(await pathExists(absoluteSpecPath))) {
+      const current = findTopicEntry(next, stableSpecFile);
+      if (current?.topic.pendingReconciliation?.reason === "specFileDeleted" && specFiles.includes(stableSpecFile) && !sealedSpecFiles.has(stableSpecFile)) {
+        delete next.topics[current.topicId];
+        continue;
+      }
+
       throw new JriError(
         `The interrogator reported ${stableSpecFile} as updated, but the file does not exist.`,
         "missing-updated-spec",
-        "Write the spec file before emitting a specsUpdated handoff.",
+        "Write the spec file before emitting a specsUpdated handoff, or report the deleted file only while resolving a pending specFileDeleted reconciliation.",
       );
     }
 

@@ -36,6 +36,10 @@ and follow-up actions are durable and reliable.
   verification criteria, not secret values.
 - Large artifacts are referenced by stable `.jri/logs/<loopId>/artifacts/*`
   paths instead of being embedded in handoff JSON.
+- The TypeScript union in `src/core/types.ts` is the MVP executable schema for
+  handoff JSON shapes until a separate generated JSON Schema is added. Spec work
+  that adds a handoff action or field must update that union and its parser tests
+  in the same implementation increment.
 
 ## Interrogator Handoffs
 
@@ -127,6 +131,13 @@ does not independently choose or run general project validation commands in the
 MVP; core validates the handoff shape, records the evidence, and refuses any
 git-changing successful iteration unless at least one concrete validation item
 has `passed: true`. `failedValidation.validation.passed` must be `false`.
+If no concrete validation command exists, a git-changing successful iteration is
+not accepted in the MVP; the builder must either add concrete project validation
+guidance, report a blocker, or complete a no-op/non-git-changing step with clear
+evidence. A successful git-changing iteration that creates a commit but omits the
+expected semantic-version tag, creates more than one plausible tag, or creates a
+tag that cannot be associated with the iteration commit is a loop failure with
+recovery evidence rather than a successful committed iteration.
 
 ## Human-Task Verification
 
