@@ -57,6 +57,10 @@ type DaemonClientOptions = LoopObserveOptions & {
   startupTimeoutMs?: number;
 };
 
+type DaemonHandshake = {
+  protocolVersion: number;
+};
+
 export function daemonPaths(): DaemonPaths {
   const runtimeDir = process.env.JRI_DAEMON_RUNTIME_DIR ?? process.env.XDG_RUNTIME_DIR ?? join(tmpdir(), `jri-${currentUserId()}`);
   const stateDir =
@@ -257,14 +261,36 @@ async function* daemonStream(method: string, params: Record<string, unknown>, op
 
 async function connectDaemon(options: DaemonClientOptions): Promise<Socket> {
   const paths = options.paths ?? daemonPaths();
+  let socket: Socket;
   try {
-    return await connectSocket(paths.socketPath);
+    socket = await connectSocket(paths.socketPath);
   } catch (error) {
     if (!options.startIfUnavailable) throw connectionError(error);
+    await startDaemonProcess(paths);
+    return await waitForCompatibleDaemon(paths, options.startupTimeoutMs ?? 2_000);
   }
 
+  if (await isCompatibleDaemon(socket)) return socket;
+  socket.end();
+
+  if (await hasActiveRegisteredLoop(paths)) {
+    throw new JriError(
+      "A running JRI daemon uses an incompatible protocol while a loop may still be active.",
+      "daemon-protocol-incompatible",
+      "Use the matching JRI version to attach or stop the active loop. Do not kill the daemon while work is active.",
+    );
+  }
+
+  await requestDaemonShutdown(paths);
+  if (!options.startIfUnavailable) {
+    throw new JriError(
+      "The existing JRI daemon uses an incompatible protocol and was stopped because it was idle.",
+      "daemon-restarted-required",
+      "Retry the command so JRI can start a compatible daemon.",
+    );
+  }
   await startDaemonProcess(paths);
-  return await waitForDaemon(paths.socketPath, options.startupTimeoutMs ?? 2_000);
+  return await waitForCompatibleDaemon(paths, options.startupTimeoutMs ?? 2_000);
 }
 
 async function startDaemonProcess(paths: DaemonPaths): Promise<void> {
@@ -285,18 +311,66 @@ async function startDaemonProcess(paths: DaemonPaths): Promise<void> {
   }).unref();
 }
 
-async function waitForDaemon(socketPath: string, timeoutMs: number): Promise<Socket> {
+async function waitForCompatibleDaemon(paths: DaemonPaths, timeoutMs: number): Promise<Socket> {
   const startedAt = Date.now();
   let lastError: unknown;
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      return await connectSocket(socketPath);
+      const socket = await connectSocket(paths.socketPath);
+      if (await isCompatibleDaemon(socket)) return socket;
+      socket.end();
+      lastError = new JriError(
+        "The JRI daemon uses an incompatible protocol.",
+        "daemon-protocol-incompatible",
+        "Retry after the old daemon exits, or use the matching JRI version if a loop is active.",
+      );
     } catch (error) {
       lastError = error;
       await Bun.sleep(25);
     }
   }
   throw connectionError(lastError);
+}
+
+async function isCompatibleDaemon(socket: Socket): Promise<boolean> {
+  try {
+    const result = await sendUnaryRequest(socket, "handshake");
+    return isHandshake(result) && result.protocolVersion === DAEMON_PROTOCOL_VERSION;
+  } catch {
+    return false;
+  }
+}
+
+async function requestDaemonShutdown(paths: DaemonPaths): Promise<void> {
+  try {
+    const socket = await connectSocket(paths.socketPath);
+    try {
+      await sendUnaryRequest(socket, "daemon.shutdown");
+    } finally {
+      socket.end();
+    }
+  } catch {
+    // An incompatible idle daemon may exit or drop the socket before acknowledging.
+  }
+}
+
+async function sendUnaryRequest(socket: Socket, method: string, params?: Record<string, unknown>): Promise<unknown> {
+  const request: DaemonRequest = { id: crypto.randomUUID(), method, ...(params === undefined ? {} : { params }) };
+  socket.write(`${JSON.stringify(request)}\n`);
+  for (;;) {
+    const line = await readOneSocketLine(socket);
+    const message = JSON.parse(line) as DaemonStreamMessage;
+    if (message.id !== request.id) continue;
+    if (!("ok" in message) || !message.ok) throw daemonError(message);
+    if ("event" in message || "done" in message) {
+      throw new JriError("Daemon returned a stream response for a unary request.", "daemon-protocol-error", "Retry the command with a compatible JRI daemon.");
+    }
+    return message.result;
+  }
+}
+
+function isHandshake(value: unknown): value is DaemonHandshake {
+  return Boolean(value && typeof value === "object" && "protocolVersion" in value && typeof value.protocolVersion === "number");
 }
 
 async function connectSocket(socketPath: string): Promise<Socket> {
@@ -452,6 +526,43 @@ async function* readSocketLines(socket: Socket): AsyncIterable<string> {
       yield line;
     }
   }
+}
+
+function readOneSocketLine(socket: Socket): Promise<string> {
+  return new Promise((resolveLine, rejectLine) => {
+    let buffer = "";
+    const cleanup = () => {
+      socket.off("data", onData);
+      socket.off("error", onError);
+      socket.off("close", onClose);
+    };
+    const onData = (chunk: string | Buffer) => {
+      buffer += chunk.toString();
+      const newline = buffer.indexOf("\n");
+      if (newline === -1) return;
+      const line = buffer.slice(0, newline).trim();
+      cleanup();
+      if (line) resolveLine(line);
+      else rejectLine(new JriError("Daemon returned an empty response.", "daemon-protocol-error", "Retry the command with a compatible JRI daemon."));
+    };
+    const onError = (error: Error) => {
+      cleanup();
+      rejectLine(error);
+    };
+    const onClose = () => {
+      cleanup();
+      rejectLine(
+        new JriError(
+          "Daemon closed the connection before responding.",
+          "daemon-disconnected",
+          "Retry the command; if it repeats, inspect project status from .jri/status.json.",
+        ),
+      );
+    };
+    socket.on("data", onData);
+    socket.once("error", onError);
+    socket.once("close", onClose);
+  });
 }
 
 function parseRequest(line: string): DaemonRequest {

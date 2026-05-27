@@ -28,7 +28,7 @@
   - Bare `jri` needs the initialization notice, Pi-backed or fallback interactive status line, blocked auto-guide display, inline auth recovery that can continue on success, and `jri auth --help` text that lists stable commands before passthrough behavior.
 
 - [ ] P0: Harden daemon/runtime protocol behavior for long-running dogfood.
-  - The daemon has a `handshake` method, but clients do not negotiate protocol versions; add client handshake/version checks, restart an incompatible idle daemon, and surface safe actions when an incompatible active daemon is running.
+  - Completed/tested slice: clients now negotiate daemon protocol on connect; incompatible active daemons are blocked with safe guidance, and incompatible idle daemons are shut down so a compatible daemon can be started/retried; daemon IPC tests cover these cases.
   - Tighten state-specific actionable errors for stop/halt/resume/attach, status repair messages, runner crash recovery across audit/planning/build, and the runtime lock/CAS story or a documented single-daemon mutation guarantee.
   - Preserve and test stdout offsets/event cursors across replay/live attach, daemon fallback, repaired states, and process death.
 
