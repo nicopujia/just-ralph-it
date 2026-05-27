@@ -328,6 +328,7 @@ async function runInteractiveChat(project: Project): Promise<void> {
   });
 
   try {
+    console.log(formatInteractiveFallbackBanner());
     const reconciliation = await pendingReconciliationMessage(project.projectDir);
     if (reconciliation) console.log(reconciliation);
     for (;;) {
@@ -349,6 +350,13 @@ async function runInteractiveChat(project: Project): Promise<void> {
 
 function isReadlineClosed(error: unknown): boolean {
   return error instanceof Error && error.message === "readline was closed";
+}
+
+function formatInteractiveFallbackBanner(): string {
+  return [
+    "Fallback JRI REPL active.",
+    "Pi terminal chat UI is not yet wired to JRI-controlled lifecycle routing.",
+  ].join("\n");
 }
 
 async function pendingReconciliationMessage(projectDir: string): Promise<string | null> {

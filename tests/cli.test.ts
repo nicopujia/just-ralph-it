@@ -920,7 +920,7 @@ describe("CLI", () => {
     }
   });
 
-  test("interactive bare jri opens a fallback interrogator REPL", async () => {
+  test("interactive bare jri uses the public bin and declares the degraded fallback REPL", async () => {
     const dir = await tempProject();
     try {
       const fakePi = join(dir, "fake-pi.sh");
@@ -934,8 +934,10 @@ describe("CLI", () => {
         "utf8",
       );
       await chmod(fakePi, 0o755);
+      const packageJson = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8")) as { bin?: { jri?: string } };
+      const jriBin = join(repoRoot, packageJson.bin?.jri ?? "");
 
-      const proc = Bun.spawn(["script", "-q", "-e", "-c", `bun ${cliPath}`, "/dev/null"], {
+      const proc = Bun.spawn(["script", "-q", "-e", "-c", jriBin, "/dev/null"], {
         cwd: dir,
         stdin: "pipe",
         stdout: "pipe",
@@ -955,6 +957,8 @@ describe("CLI", () => {
 
       expect(exitCode).toBe(0);
       expect(`${stdout}\n${stderr}`).toContain(`Initialized JRI in ${dir}`);
+      expect(stdout).toContain("Fallback JRI REPL active.");
+      expect(stdout).toContain("Pi terminal chat UI is not yet wired to JRI-controlled lifecycle routing.");
       expect(stdout).toContain("jri>");
       expect(stdout).toContain("idle");
       expect(stdout).toContain("Which CLI commands should stay public?");

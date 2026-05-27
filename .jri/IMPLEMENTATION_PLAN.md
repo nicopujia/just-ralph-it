@@ -1,12 +1,21 @@
-- [ ] Replace prompt-level web/explorer shell escape hatches with harness-native capabilities that are actually reachable for interrogator, auditor, and explorer under the intended tool grants; this matters because the current prompt-driven path hides real capability gaps and makes the roles look more complete than they are.
-  - Note: web/explorer remain prompt-driven in the SDK harness and need native tool wiring.
-  - Progress: SDK-native interrogator `web.search` is now wired through `invokePiSdkHarness` custom tools with focused acceptance coverage; native wiring for other operations/agents remains open.
-- [ ] Consolidate capability policy into descriptors, reduce over-granted explorer/web access, strongly validate chat-owned capability ownership, and add preflight plus actionable recovery for missing `pi-web-access` / `pi-subagent`.
-  - Note: explicit override preflight is now implemented for `JRI_PI_WEB_COMMAND` and `JRI_PI_SUBAGENT_EXTENSION`, with focused acceptance coverage; native capability wiring and broader policy cleanup remain open.
-- [ ] Implement the primary bare-`jri` Pi terminal chat UI path; if the readline fallback must remain temporarily, record verified evidence and rationale for that degraded path in durable project notes.
-- [x] Keep the `jri loop attach` `[d]etach [s]top` footer stable while live output streams so detach/stop controls remain visible after the first event.
-- [ ] Refine interrogation context reconstruction so open or pending topics receive only relevant recent turns and sealed-topic transcript turns stay pruned.
-  - Note: a timestamp-based cutoff is now implemented in `src/core/chat.ts`, so new interrogator sessions include only turns at or after the earliest currently open/pending topic timestamp; this prevents older sealed-topic discussion from leaking back into context. The broader item stays open because true topic-aware excerpt selection and older-excerpt retrieval are still not implemented.
-- [ ] Backfill focused coverage for the remaining contract gaps, especially the primary public chat smoke path.
-  - Note: focused public `project.chat.send` smoke coverage now exercises the timestamp cutoff, but broader contract-gap coverage is still outstanding.
-  - Note: the real installed-bin `jri` smoke path now covers `jri auth status` alignment with the first controlled interrogator session for configured SDK model readiness, while broader chat smoke coverage remains outstanding.
+# Implementation Plan
+
+- [ ] Ship the primary bare-`jri` Pi terminal chat UI as the MVP default.
+  - Current state: bare interactive `jri` still enters the readline `runInteractiveChat()` fallback, and `tests/cli.test.ts` explicitly codifies that degraded path.
+  - Progress note: verified that the Pi SDK exports `InteractiveMode`/TUI primitives, but JRI interactive flow still routes lifecycle decisions through core-owned `project.chat.send()` and one-shot harness paths (`--print`, `session.prompt(...)`, ignored stdin) instead of a JRI-owned bidirectional terminal session; because of that mismatch, the readline path remains a degraded fallback, and the public interactive CLI now declares that fallback explicitly and is smoke-tested through the installed `jri` bin in `tests/cli.test.ts`.
+
+- [ ] Replace prompt-injected web/explorer shell escape hatches with harness-native, runtime-declared capabilities reachable by the intended agents.
+  - Current state: SDK-native `jri_web_search` exists only for chat-owned interrogator SDK sessions; loop agents still rely on prompt text for `jri --run-web ...` and `jri --run-explorer ...`.
+  - Remaining: add SDK-native `jri_web_fetch`, enforce native web search/fetch separation, and add mandatory native explorer/subagent delegation with durable dogfood evidence.
+
+- [ ] Finish capability policy cleanup around native descriptors and grants.
+  - Current state: `capabilities.ts`, `web-capability.ts`, and `harness.ts` enforce many ownership/shape rules, but descriptor-like policy is still mixed with prompt-driven paths.
+  - Remaining: consolidate runtime-declared policy, reduce over-granted web/explorer access, and keep chat-owned capability ownership validation/preflight actionable.
+
+- [ ] Improve interrogation context reconstruction beyond timestamp cutoffs.
+  - Current state: reconstruction, start gating, manual spec edit detection, and topic sealing are implemented; recent-turn pruning is still timestamp-cutoff based.
+  - Remaining: implement topic-aware excerpt selection and older relevant excerpt retrieval without reintroducing sealed-topic transcript noise.
+
+- [ ] Backfill focused coverage for the remaining confirmed contract gaps.
+  - Current state: the suite already covers CLI, chat, harness, runtime state, daemon runtime, auth, handoffs, and capabilities broadly.
+  - Remaining: add coverage for the primary Pi-backed bare-`jri` chat path and the remaining native capability paths, especially web fetch and explorer delegation.
