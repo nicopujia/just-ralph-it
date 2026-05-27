@@ -64,6 +64,46 @@ describe("CLI", () => {
     }
   });
 
+  test("bare jri renders non-message chat events from the fallback stream", async () => {
+    const dir = await tempProject();
+    try {
+      const fakePi = join(dir, "fake-pi.sh");
+      await writeFile(
+        fakePi,
+        [
+          "#!/usr/bin/env bash",
+          "mkdir -p .jri/specs",
+          "printf '# App\\n\\nBuild a focused CLI.\\n' > .jri/specs/app.md",
+          "printf 'I wrote the CLI spec.\\n'",
+          "printf 'JRI_HANDOFF_JSON: {\"agent\":\"interrogator\",\"action\":\"specsUpdated\",\"specFiles\":[\".jri/specs/app.md\"],\"summary\":\"Captured CLI requirements.\",\"sealedSpecFiles\":[\".jri/specs/app.md\"]}\\n'",
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakePi, 0o755);
+
+      const proc = Bun.spawn(["bun", cliPath], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+          ...process.env,
+          JRI_PI_COMMAND: fakePi,
+        },
+      });
+      proc.stdin.write("Capture the CLI scope.\n");
+      proc.stdin.end();
+
+      const [exitCode, stdout] = await Promise.all([proc.exited, new Response(proc.stdout).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("I wrote the CLI spec.");
+      expect(stdout).toContain("Specs updated: Captured CLI requirements. (.jri/specs/app.md)");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("bare jri shows full blocked resolution guide in fallback status output", async () => {
     const dir = await tempInitializedProject();
     try {
@@ -99,6 +139,41 @@ describe("CLI", () => {
       expect(stdout).toContain("2. Enable billing on the target account.");
       expect(stdout).toContain("Success criteria:");
       expect(stdout).toContain("Resume: Say done in bare jri after billing is enabled.");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("bare jri with no input surfaces idle last result details", async () => {
+    const dir = await tempInitializedProject();
+    try {
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        lastResult: {
+          outcome: "completed",
+          summary: "Deployed the app.",
+          url: "https://example.com",
+          validationPassed: true,
+          commit: "abc123",
+          tag: "0.0.1",
+        },
+      });
+
+      const proc = Bun.spawn(["bun", cliPath], {
+        cwd: dir,
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      proc.stdin.end();
+      const [exitCode, stdout] = await Promise.all([proc.exited, new Response(proc.stdout).text()]);
+
+      expect(exitCode).toBe(0);
+      expect(stdout).toContain("idle | result: completed | Deployed the app.");
+      expect(stdout).toContain("URL: https://example.com");
+      expect(stdout).toContain("Validation: passed");
+      expect(stdout).toContain("Commit: abc123");
+      expect(stdout).toContain("Tag: 0.0.1");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

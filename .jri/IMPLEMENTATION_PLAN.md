@@ -26,6 +26,7 @@
   - If the user wants requirement changes during an active loop, record the thought in scratchpad and guide them through graceful stop before normal interrogation resumes.
 
 - P0: Finish CLI chat/event rendering for the MVP terminal workflow.
+  - Completed/Tested: fallback bare-`jri` rendering now routes `chat.send()` events through a shared renderer for piped and interactive modes; renders `specsUpdated`/`scratchpadUpdated` and normalized loop events beyond `chatMessageDelta`/`loopStarted`; handles `loopOutput` text payloads; and surfaces idle `lastResult` details including URL, validation, commit, and tag. Focused validation passed with `bun test tests/cli.test.ts`.
   - Replace or harden the readline fallback so bare `jri` renders all `chat.send()` events, not only `chatMessageDelta` and `loopStarted`.
   - Render normalized loop lifecycle events from accepted-trigger streams: audit, planning, iteration, validation, commit/tag, blocker, stop, halt, failure, completion, and loop output.
   - Keep stable status/footer behavior with attach/stop guidance; surface final `lastResult` details including URL/deployment, validation result, commit, tag, artifact/log hints, and next action.
@@ -55,6 +56,7 @@
   - Add coverage for stale lock ownership, dead runner repair, halt/stop races, forceful halt, lock mismatch, stopped start/resume boundaries, and resume after audit/planning/build.
 
 - P0: Enforce git commit/tag and validation safety.
+  - Open finding: runtime currently records the first tag pointing at `HEAD` without validating semver patch increment or tag ambiguity, per `src/core/daemon-runtime.ts`.
   - Guard `failedValidation` and `blocked` handoffs by comparing git state from iteration start to handoff completion; unexpected commits/tags become structured loop failure/recovery evidence and must not emit successful `commitCreated`/`tagCreated` events.
   - Require minimum validation evidence before commit/tag success: read commands from `AGENTS.md`/project guidance, record what ran, and record why stronger validation was unavailable when commands are absent or unsafe.
   - Treat tag success as valid only after a clean validation outcome and a successful change commit; validate tag format/increment rules and ensure no tag is recorded for no-op, blocked, or failed-validation iterations.

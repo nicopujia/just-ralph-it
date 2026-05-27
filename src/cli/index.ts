@@ -93,9 +93,7 @@ async function main(argv: string[]): Promise<number> {
       return 0;
     }
     for await (const event of project.chat.send({ message: input })) {
-      if (event.type === "chatMessageDelta") {
-        console.log(event.data.text);
-      }
+      writeChatEvent(event);
     }
     return 0;
   }
@@ -231,11 +229,7 @@ async function runInteractiveChat(project: Project): Promise<void> {
       if (input.trim() === "/exit" || input.trim() === "/quit") return;
       if (!input.trim()) continue;
       for await (const event of project.chat.send({ message: input })) {
-        if (event.type === "chatMessageDelta") {
-          console.log(event.data.text);
-        } else if (event.type === "loopStarted") {
-          console.log(formatLoopEvent(event));
-        }
+        writeChatEvent(event);
       }
     }
   } catch (error) {
@@ -355,6 +349,14 @@ function formatStatus(status: {
   iteration?: number;
   iterations?: number;
   stopRequested: boolean;
+  lastResult?: {
+    outcome: string;
+    summary?: string;
+    url?: string;
+    validationPassed?: boolean;
+    commit?: string;
+    tag?: string;
+  };
 }): string {
   if (status.state === "building") {
     return `ralphing${status.iteration ? ` | iteration: ${status.iteration}` : ""} | stop: ${status.stopRequested ? "yes" : "no"}`;
@@ -369,14 +371,46 @@ function formatStatus(status: {
       `Resume: ${guide.resumeInstruction}`,
     ].join("\n");
   }
+  if (status.state === "idle" && status.lastResult) {
+    const result = status.lastResult;
+    return [
+      `idle | result: ${result.outcome}${result.summary ? ` | ${result.summary}` : ""}`,
+      ...(result.url ? [`URL: ${result.url}`] : []),
+      ...(result.validationPassed === undefined ? [] : [`Validation: ${result.validationPassed ? "passed" : "failed"}`]),
+      ...(result.commit ? [`Commit: ${result.commit}`] : []),
+      ...(result.tag ? [`Tag: ${result.tag}`] : []),
+    ].join("\n");
+  }
   if (status.state === "idle" && status.iterations !== undefined) {
     return `idle | iterations: ${status.iterations}`;
   }
   return status.state;
 }
 
+function writeChatEvent(event: CoreEvent): void {
+  const text = formatChatEvent(event);
+  if (text) console.log(text);
+}
+
+function formatChatEvent(event: CoreEvent): string | null {
+  if (event.type === "chatMessageDelta") return event.data.text;
+  if (event.type === "chatMessageStarted" || event.type === "chatMessageFinished" || event.type === "chatTurnRecorded") return null;
+  if (event.type === "specsUpdated") {
+    return `Specs updated: ${event.data.summary} (${event.data.specFiles.join(", ")})`;
+  }
+  if (event.type === "scratchpadUpdated") {
+    return `Scratchpad updated: ${event.data.summary}`;
+  }
+  return formatLoopEvent(event);
+}
+
 function formatLoopEvent(event: { type: string; sequence: number; timestamp: string; message?: string; data?: unknown }): string {
-  if (event.type === "loopOutput" && event.message) return event.message.endsWith("\n") ? event.message.slice(0, -1) : event.message;
+  if (event.type === "loopOutput") {
+    const text =
+      event.message ??
+      (event.data && typeof event.data === "object" && "text" in event.data && typeof event.data.text === "string" ? event.data.text : "");
+    return text.endsWith("\n") ? text.slice(0, -1) : text;
+  }
   return event.message ?? `[${event.sequence}] ${event.timestamp} ${event.type} ${JSON.stringify(event.data ?? {})}`;
 }
 
