@@ -57,7 +57,7 @@ export function renderWebCapabilityInstructions(
   projectDir: string,
   owner: CapabilityOwner | undefined,
   operations: readonly WebCapabilityOperation[] = ["search", "fetch"],
-  style: CapabilityInstructionStyle = "wrapper-commands",
+  style: CapabilityInstructionStyle = "sdk-tools",
 ): string {
   if (!owner) return "";
   const limits = webCapabilityDescriptor.limits;
@@ -83,7 +83,7 @@ export function renderWebCapabilityInstructions(
   });
   return [
     "JRI web capability:",
-    `- For current external facts, use only the declared JRI-owned web wrapper command${commands.length === 1 ? "" : "s"}: ${commands.join(" and ")}.`,
+    `- For current external facts, use only the declared JRI-owned internal web command${commands.length === 1 ? "" : "s"}: ${commands.join(" and ")}.`,
     `- Search results are capped at ${limits.searchResults} and include retrieval timestamps; fetched markdown is capped at ${limits.fetchMarkdownChars} characters with artifact refs under ${artifactDir} for omitted content.`,
     "- Cite sources in user-visible summaries when web facts affect a decision.",
     "- If required web access is unavailable, return an actionable capability blocker or a clearly labeled degraded answer; do not guess current facts.",
@@ -99,7 +99,7 @@ function normalizeWebOperations(operations: readonly WebCapabilityOperation[]): 
 export function renderExplorerCapabilityInstructions(
   projectDir: string,
   loopId: string | undefined,
-  style: CapabilityInstructionStyle = "wrapper-commands",
+  style: CapabilityInstructionStyle = "sdk-tools",
 ): string {
   if (style === "sdk-tools") {
     const limits = explorerCapabilityDescriptor.limits;
@@ -108,17 +108,17 @@ export function renderExplorerCapabilityInstructions(
       `- For read-only codebase investigation, delegate through the declared ${jriExplorerToolName} tool.`,
       `- Explorer runs use spawn/fresh context by default, read-only tools only, ${limits.timeoutMs / 60_000}-minute timeout, ${limits.concurrency}-way concurrency, and ${limits.handoffChars}-character parent handoffs with artifact refs for longer output.`,
       "- Use focused explorer tasks for codebase search or investigation before making risky changes.",
-      "- Do not call pi-subagent, pi-subagents, or other raw Pi package commands directly; JRI owns capability isolation and logging.",
+      "- Do not invoke internal compatibility entrypoints or raw Pi package commands directly; JRI owns capability isolation and logging.",
     ].join("\n");
   }
   if (!loopId) return "";
   const limits = explorerCapabilityDescriptor.limits;
   return [
     "JRI explorer capability:",
-    `- For read-only codebase investigation, delegate through the JRI-owned explorer wrapper: jri --run-explorer ${JSON.stringify(projectDir)} ${JSON.stringify(loopId)} "<focused task>".`,
+    `- For read-only codebase investigation, delegate through the JRI-owned internal explorer command: jri --run-explorer ${JSON.stringify(projectDir)} ${JSON.stringify(loopId)} "<focused task>".`,
     `- Explorer runs use spawn/fresh context by default, read-only tools only, ${limits.timeoutMs / 60_000}-minute timeout, ${limits.concurrency}-way concurrency, and ${limits.handoffChars}-character parent handoffs with artifact refs for longer output.`,
     "- Use focused explorer tasks for codebase search or investigation before making risky changes.",
-    "- Do not call pi-subagent, pi-subagents, or other raw Pi package commands directly; JRI owns capability isolation and logging.",
+    "- Do not invoke raw Pi package commands or other unmanaged compatibility entrypoints directly; JRI owns capability isolation and logging.",
   ].join("\n");
 }
 

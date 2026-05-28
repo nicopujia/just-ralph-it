@@ -1,10 +1,5 @@
 # Implementation Plan
 
-- [ ] Remove the remaining wrapper-path guidance from native capability paths.
-  - `buildPiPrompt()` still defaults capability instructions to wrapper commands.
-  - `src/core/capabilities.ts` still renders `jri --run-web ...` / `jri --run-explorer ...` guidance.
-  - The explorer wrapper prompt still leaks `pi-subagent` / wrapper language.
-
 - [ ] Enforce capability policy consistently across prompt, runtime, and tool registration.
   - Web operation declarations are not fully enforced when the capability operation is omitted.
   - Explorer runs are over-granted both web operations regardless of task.
@@ -32,5 +27,6 @@
   - Reconcile the spec/implementation mismatch around recovery write ordering and read-path recovery exceptions during implementation.
 
 - [ ] Backfill focused regression coverage for the confirmed gaps.
+  - Prompt/harness regressions now cover native default capability prompts and explorer delegation wording.
   - Native chat-level web search/fetch coverage has now been added in this turn; remaining: plain `jri` smoke coverage for native capability paths.
   - Add regressions for capability grant mismatches, blocked-open guide behavior, blocked `loopFinished`, plan-regeneration reasons, and daemon payload validation; verified `done` durable `blockerResolved` coverage was added in this turn.

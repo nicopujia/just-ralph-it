@@ -19,10 +19,23 @@ async function tempProject(): Promise<string> {
 }
 
 describe("capability descriptors", () => {
+  test("web descriptor defaults to native JRI tool instructions", () => {
+    const instructions = renderWebCapabilityInstructions("/tmp/project", { kind: "loop", loopId: "20260527T184210Z" });
+
+    expect(instructions).toContain("jri_web_search");
+    expect(instructions).toContain("jri_web_fetch");
+    expect(instructions).not.toContain("jri --run-web");
+  });
+
   test("web descriptor renders concrete hidden CLI commands only with a loop id", () => {
     expect(renderWebCapabilityInstructions("/tmp/project", undefined)).toBe("");
 
-    const instructions = renderWebCapabilityInstructions("/tmp/project", { kind: "loop", loopId: "20260527T184210Z" });
+    const instructions = renderWebCapabilityInstructions(
+      "/tmp/project",
+      { kind: "loop", loopId: "20260527T184210Z" },
+      ["search", "fetch"],
+      "wrapper-commands",
+    );
     expect(instructions).toContain("jri --run-web search");
     expect(instructions).toContain("jri --run-web fetch");
     expect(instructions).toContain(String(webCapabilityDescriptor.limits.searchResults));
@@ -33,8 +46,18 @@ describe("capability descriptors", () => {
   });
 
   test("web descriptor renders only declared operations", () => {
-    const searchOnly = renderWebCapabilityInstructions("/tmp/project", { kind: "loop", loopId: "20260527T184210Z" }, ["search"]);
-    const fetchOnly = renderWebCapabilityInstructions("/tmp/project", { kind: "loop", loopId: "20260527T184210Z" }, ["fetch"]);
+    const searchOnly = renderWebCapabilityInstructions(
+      "/tmp/project",
+      { kind: "loop", loopId: "20260527T184210Z" },
+      ["search"],
+      "wrapper-commands",
+    );
+    const fetchOnly = renderWebCapabilityInstructions(
+      "/tmp/project",
+      { kind: "loop", loopId: "20260527T184210Z" },
+      ["fetch"],
+      "wrapper-commands",
+    );
 
     expect(searchOnly).toContain("jri --run-web search");
     expect(searchOnly).not.toContain("jri --run-web fetch");
@@ -45,21 +68,34 @@ describe("capability descriptors", () => {
   });
 
   test("web descriptor supports chat-owned interrogation artifacts", () => {
-    const instructions = renderWebCapabilityInstructions("/tmp/project", { kind: "chat", turnId: "turn-1" });
+    const instructions = renderWebCapabilityInstructions(
+      "/tmp/project",
+      { kind: "chat", turnId: "turn-1" },
+      ["search", "fetch"],
+      "wrapper-commands",
+    );
     expect(instructions).toContain('\\"owner\\":{\\"kind\\":\\"chat\\",\\"turnId\\":\\"turn-1\\"}');
     expect(instructions).toContain(".jri/logs/interrogation-artifacts/");
   });
 
-  test("explorer descriptor renders concrete hidden CLI commands only with a loop id", () => {
-    expect(renderExplorerCapabilityInstructions("/tmp/project", undefined)).toBe("");
-
+  test("explorer descriptor defaults to native JRI tool instructions", () => {
     const instructions = renderExplorerCapabilityInstructions("/tmp/project", "20260527T184210Z");
+
+    expect(instructions).toContain("jri_explorer");
+    expect(instructions).not.toContain("jri --run-explorer");
+    expect(instructions).not.toContain("pi-subagent");
+  });
+
+  test("explorer descriptor renders concrete hidden CLI commands only with a loop id", () => {
+    expect(renderExplorerCapabilityInstructions("/tmp/project", undefined, "wrapper-commands")).toBe("");
+
+    const instructions = renderExplorerCapabilityInstructions("/tmp/project", "20260527T184210Z", "wrapper-commands");
     expect(instructions).toContain("jri --run-explorer");
     expect(instructions).toContain(String(explorerCapabilityDescriptor.limits.concurrency));
     expect(instructions).toContain(String(explorerCapabilityDescriptor.limits.timeoutMs / 60_000));
     expect(instructions).toContain(String(explorerCapabilityDescriptor.limits.handoffChars));
     expect(instructions).toContain("spawn/fresh");
-    expect(instructions).toContain("Do not call pi-subagent");
+    expect(instructions).toContain("Do not invoke raw Pi package commands");
   });
 
   test("planner and builder prompts include concrete capability instructions", async () => {
@@ -68,10 +104,12 @@ describe("capability descriptors", () => {
       const planner = await buildPiPrompt(dir, "planning", { loopId: "20260527T184210Z" });
       const builder = await buildPiPrompt(dir, "building", { loopId: "20260527T184210Z" });
 
-      expect(planner).toContain("jri --run-web search");
-      expect(builder).toContain("jri --run-web fetch");
-      expect(planner).toContain("jri --run-explorer");
-      expect(builder).toContain("jri --run-explorer");
+      expect(planner).toContain("jri_web_search");
+      expect(builder).toContain("jri_web_fetch");
+      expect(planner).toContain("jri_explorer");
+      expect(builder).toContain("jri_explorer");
+      expect(planner).not.toContain("jri --run-web");
+      expect(builder).not.toContain("jri --run-explorer");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -85,9 +123,9 @@ describe("capability descriptors", () => {
         explorerTask: "Check current framework docs before reporting findings.",
       });
 
-      expect(prompt).toContain("jri --run-web search");
-      expect(prompt).toContain("jri --run-web fetch");
-      expect(prompt).toContain('\\"owner\\":{\\"kind\\":\\"loop\\",\\"loopId\\":\\"20260527T184210Z\\"}');
+      expect(prompt).toContain("jri_web_search");
+      expect(prompt).toContain("jri_web_fetch");
+      expect(prompt).not.toContain("jri --run-web");
       expect(prompt).toContain("Check current framework docs before reporting findings.");
     } finally {
       await rm(dir, { recursive: true, force: true });
@@ -103,9 +141,10 @@ describe("capability descriptors", () => {
         capabilities: [{ name: "web", operation: "search" }, { name: "web", operation: "fetch" }],
       });
 
-      expect(prompt).toContain("jri --run-web search");
-      expect(prompt).toContain('\\"owner\\":{\\"kind\\":\\"chat\\",\\"turnId\\":\\"turn-1\\"}');
+      expect(prompt).toContain("jri_web_search");
+      expect(prompt).toContain("jri_web_fetch");
       expect(prompt).toContain(".jri/logs/interrogation-artifacts/");
+      expect(prompt).not.toContain("jri --run-web");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -129,11 +168,11 @@ describe("capability descriptors", () => {
 
       expect(none).not.toContain("jri --run-web");
       expect(none).not.toContain("jri --run-explorer");
-      expect(webOnly).toContain("jri --run-web search");
-      expect(webOnly).not.toContain("jri --run-web fetch");
-      expect(webOnly).not.toContain("jri --run-explorer");
-      expect(explorerOnly).toContain("jri --run-explorer");
-      expect(explorerOnly).not.toContain("jri --run-web");
+      expect(webOnly).toContain("jri_web_search");
+      expect(webOnly).not.toContain("jri_web_fetch");
+      expect(webOnly).not.toContain("jri_explorer");
+      expect(explorerOnly).toContain("jri_explorer");
+      expect(explorerOnly).not.toContain("jri_web_search");
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

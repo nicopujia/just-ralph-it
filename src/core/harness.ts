@@ -443,6 +443,7 @@ export async function buildControlledPiCommand(
     ...(request.explorerTask ? { explorerTask: request.explorerTask } : {}),
     ...(request.userMessage ? { userMessage: request.userMessage } : {}),
     ...(request.capabilities ? { capabilities: request.capabilities } : {}),
+    capabilityStyle: "wrapper-commands",
   });
   const agent = agentForPhase(request.phase);
   const model = modelForAgent(await readProjectConfig(request.projectDir), agent);
@@ -511,7 +512,7 @@ async function buildControlledExplorerSubagentCommand(
   const delegatedTask = [
     task,
     "",
-    "JRI wrapper-provided context and capability instructions:",
+    "JRI-provided context and capability instructions:",
     prompt,
     "",
     "Explorer summary contract:",
@@ -519,13 +520,13 @@ async function buildControlledExplorerSubagentCommand(
     `The summary must be at most ${explorerHandoffLimit} characters and should cite concrete file paths or state no relevant evidence was found.`,
   ].join("\n");
   const commandPrompt = [
-    "Use the pi-subagent extension to run exactly one foreground JRI explorer delegation.",
-    "Use agent name explorer with spawn/fresh context only. Do not run chains or parallel subtasks inside this wrapper.",
+    "Run exactly one foreground JRI explorer delegation.",
+    "Use agent name explorer with spawn/fresh context only. Do not run chains or parallel subtasks inside this delegation.",
     `Return only the explorer's final ${explorerSummaryFramePrefix} handoff line.`,
     "",
     `/run explorer ${JSON.stringify(delegatedTask)}`,
     "",
-    "JRI wrapper context for the parent session:",
+    "JRI parent session context:",
     prompt,
   ].join("\n");
 

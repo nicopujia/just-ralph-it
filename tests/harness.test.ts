@@ -740,7 +740,7 @@ describe("controlled Pi harness", () => {
     }
   });
 
-  test("builds an isolated read-only pi-subagent explorer command with the explorer model", async () => {
+  test("builds an isolated read-only explorer command without leaking wrapper wording", async () => {
     const dir = await tempProject();
     try {
       const built = await buildControlledPiCommand({
@@ -766,6 +766,8 @@ describe("controlled Pi harness", () => {
       expect(built.command.at(-1)).toContain("jri --run-web search");
       expect(built.command.at(-1)).toContain("jri --run-web fetch");
       expect(built.command.at(-1)).toContain("JRI_EXPLORER_SUMMARY_JSON:");
+      expect(built.command.at(-1)).not.toContain("pi-subagent");
+      expect(built.command.at(-1)).not.toContain("wrapper");
       const descriptor = await readFile(join(dir, ".jri", "logs", "20260527T184210Z", "capabilities", "explorer", "agents", "explorer.md"), "utf8");
       expect(descriptor).toContain("name: explorer");
       expect(descriptor).toContain("JRI web capability instructions");

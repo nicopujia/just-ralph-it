@@ -151,7 +151,7 @@ function renderDeclaredCapabilityInstructions(
 ): string {
   const capabilities = options.capabilities ?? defaultCapabilitiesForPhase(phase);
   const owner = options.owner ?? (options.loopId ? { kind: "loop" as const, loopId: options.loopId } : undefined);
-  const capabilityStyle = options.capabilityStyle ?? "wrapper-commands";
+  const capabilityStyle = options.capabilityStyle ?? "sdk-tools";
   const sections: string[] = [];
   if (capabilities.some((capability) => capability.name === "web")) {
     const instructions = renderWebCapabilityInstructions(projectDir, owner, declaredWebOperations(capabilities), capabilityStyle);
