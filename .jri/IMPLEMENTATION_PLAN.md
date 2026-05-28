@@ -18,9 +18,12 @@
   - Sealed topics do not automatically unseal when accepted changes update them.
   - Opening a blocked project does not automatically show the blocker resolution guide.
   - Blocked/stopped interrogation context omits recent loop events/stdout needed for blocker recovery.
-  - `done` / verified human-task resolution updates status but does not emit durable `blockerResolved` evidence.
   - Blocked loop endings do not emit `loopFinished`.
   - Plan-regeneration events are emitted for `needsReplan` but not for the `specsChanged` / `ambiguousSpecsResolved` paths named in the spec.
+  - Builder handoffs accept interrogation-artifact refs.
+  - Native SDK capability execution bypasses wrapper ownership enforcement.
+  - Capability preflight does not validate default web/explorer implementations.
+  - Chat-owned capability ownership is not validated against the active turn.
 
 - [ ] Tighten public contracts and schema validation.
   - `daemonStatus()` and streamed daemon events are not fully validated against the public `ProjectStatus` / `CoreEvent` contracts.
@@ -30,4 +33,4 @@
 
 - [ ] Backfill focused regression coverage for the confirmed gaps.
   - Native chat-level web search/fetch coverage has now been added in this turn; remaining: plain `jri` smoke coverage for native capability paths.
-  - Add regressions for capability grant mismatches, blocked-open guide behavior, `done` -> `blockerResolved`, blocked `loopFinished`, plan-regeneration reasons, and daemon payload validation.
+  - Add regressions for capability grant mismatches, blocked-open guide behavior, blocked `loopFinished`, plan-regeneration reasons, and daemon payload validation; verified `done` durable `blockerResolved` coverage was added in this turn.

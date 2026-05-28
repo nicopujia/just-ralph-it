@@ -448,6 +448,7 @@ describe("CLI", () => {
 
       const [exitCode, stdout, stderr] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const loopEvents = await readFile(join(dir, ".jri", "logs", "20260527T184210Z", "events.jsonl"), "utf8");
 
       expect(exitCode).toBe(0);
       expect(stderr).toContain(`Initialized JRI in ${dir}`);
@@ -464,6 +465,8 @@ describe("CLI", () => {
           },
         },
       });
+      expect(loopEvents).toContain('"type":"blockerResolved"');
+      expect(loopEvents).toContain('"reason":"needsHumanTask"');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

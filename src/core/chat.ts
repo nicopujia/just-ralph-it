@@ -658,11 +658,13 @@ async function verifyHumanTaskWithInterrogatorHarness(
 async function markHumanTaskVerified(projectDir: string, verificationSummary: string | undefined, options: ChatRuntimeOptions): Promise<CoreEvent | undefined> {
   const lock = await acquireLock(projectDir, "resume", options.now ? { now: options.now } : {});
   const verifiedAt = (options.now ?? new Date()).toISOString();
+  let loopId: string | undefined;
   try {
     let updated = false;
     await updateStatus(projectDir, (current) => {
       if (current.state !== "blocked" || current.blocker?.reason !== "needsHumanTask") return current;
       updated = true;
+      loopId = current.activeLoopId ?? current.lastLoopId ?? undefined;
       return {
         ...current,
         blocker: {
@@ -682,11 +684,36 @@ async function markHumanTaskVerified(projectDir: string, verificationSummary: st
         "Reload the project status and say done again if the human task is still blocked.",
       );
     }
+
+    if (!loopId || (await hasBlockerResolvedEvent(projectDir, loopId, "needsHumanTask"))) {
+      return undefined;
+    }
+
+    return await appendLoopEvent(projectDir, {
+      type: "blockerResolved",
+      loopId,
+      data: { reason: "needsHumanTask" },
+    });
   } finally {
     await releaseLock(projectDir, lock);
   }
+}
 
-  return undefined;
+async function hasBlockerResolvedEvent(projectDir: string, loopId: string, reason: Blocker["reason"]): Promise<boolean> {
+  const path = join(projectDir, ".jri", "logs", loopId, "events.jsonl");
+  if (!(await Bun.file(path).exists())) return false;
+
+  return (await Bun.file(path).text())
+    .split("\n")
+    .filter(Boolean)
+    .some((line) => {
+      try {
+        const event = JSON.parse(line) as Partial<CoreEvent>;
+        return event.type === "blockerResolved" && "data" in event && event.data?.reason === reason;
+      } catch {
+        return false;
+      }
+    });
 }
 
 function assistantTextForInterrogatorHandoff(handoff: InterrogatorHandoff): string {

@@ -2019,8 +2019,10 @@ describe("interrogation chat", () => {
         ),
       );
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
+      const loopEvents = await readJsonl(join(dir, ".jri", "logs", "20260527T184210Z", "events.jsonl"));
 
-      expect(events.some((event) => event.type === "blockerResolved")).toBe(false);
+      expect(events.filter((event) => event.type === "blockerResolved")).toHaveLength(1);
+      expect(loopEvents.filter((event) => event.type === "blockerResolved")).toHaveLength(1);
       expect(status.blocker.resolution).toMatchObject({ status: "verified", verificationSummary: "Deployment token is present." });
       expect(status.lock).toBeUndefined();
     } finally {
@@ -2143,7 +2145,7 @@ describe("interrogation chat", () => {
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
       const assistantText = events.find((event) => event.type === "chatMessageDelta")?.data.text;
 
-      expect(events.some((event) => event.type === "blockerResolved")).toBe(false);
+      expect(events.filter((event) => event.type === "blockerResolved")).toHaveLength(1);
       expect(status.blocker.resolution).toMatchObject({
         status: "verified",
         verificationSummary: "Verified 1 machine-checkable success criterion.",
@@ -2182,7 +2184,7 @@ describe("interrogation chat", () => {
       const events = await collect(sendChat(dir, { message: "done" }));
       const status = JSON.parse(await readFile(join(dir, ".jri", "status.json"), "utf8"));
 
-      expect(events.some((event) => event.type === "blockerResolved")).toBe(false);
+      expect(events.filter((event) => event.type === "blockerResolved")).toHaveLength(1);
       expect(status.blocker.resolution).toMatchObject({
         status: "verified",
         verificationSummary: "Verified 1 machine-checkable success criterion.",
