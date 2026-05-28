@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { assertWebCapabilityAvailable } from "./capability-preflight";
 import { webCapabilityDescriptor } from "./capabilities";
+import { assertCapabilityOwnership } from "./capability-ownership";
 import type { CapabilityInvocationMetadata } from "./capability-ownership";
 import { JriError } from "./errors";
 import { registerLoopChild, unregisterLoopChild } from "./harness";
@@ -38,6 +39,7 @@ export type WebCapabilityOptions = {
 export async function runWebSearch(
   options: WebCapabilityOptions & { query: string; limit?: number },
 ): Promise<WebSearchResult[]> {
+  await assertCapabilityOwnership({ projectDir: options.projectDir, owner: options.owner, capability: "web", operation: "search" }, "web", "search");
   const query = options.query.trim();
   if (!query) {
     throw new JriError("Web search query must not be empty.", "invalid-web-query", "Pass a focused search query.");
@@ -56,6 +58,7 @@ export async function runWebSearch(
 export async function runWebFetch(
   options: WebCapabilityOptions & { url: string; timeoutMs?: number; redirectLimit?: number },
 ): Promise<WebFetchResult> {
+  await assertCapabilityOwnership({ projectDir: options.projectDir, owner: options.owner, capability: "web", operation: "fetch" }, "web", "fetch");
   const url = options.url.trim();
   if (!url) {
     throw new JriError("Web fetch URL must not be empty.", "invalid-web-url", "Pass an absolute URL to fetch.");

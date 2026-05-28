@@ -17,6 +17,15 @@ async function tempProject(): Promise<string> {
   return dir;
 }
 
+async function activateLoop(dir: string, loopId: string, state: "auditing" | "planning" | "building" = "building"): Promise<void> {
+  await writeStatusAtomic(dir, {
+    ...defaultStatus(dir),
+    state,
+    activeLoopId: loopId,
+    lastLoopId: loopId,
+  });
+}
+
 function createInterrogatorMessageSession(
   delta: string,
   summary: string,
@@ -489,6 +498,85 @@ describe("controlled Pi harness", () => {
     }
   });
 
+  test("SDK native web tools reject stale loop ownership the same way as wrapper commands", async () => {
+    const dir = await tempProject();
+    try {
+      const fakeWeb = join(dir, "fake-web-search.sh");
+      await writeFile(
+        fakeWeb,
+        [
+          "#!/usr/bin/env bash",
+          'printf \'{"retrievedAt":"2026-05-27T20:00:00.000Z","results":[{"title":"JRI docs","url":"https://example.com/docs","snippet":"Current docs."}]}\'',
+        ].join("\n"),
+        "utf8",
+      );
+      await chmod(fakeWeb, 0o755);
+      await writeStatusAtomic(dir, {
+        ...defaultStatus(dir),
+        state: "building",
+        activeLoopId: "20260527T200000Z",
+        lastLoopId: "20260527T200000Z",
+      });
+
+      const listeners: Array<(event: unknown) => void> = [];
+      const createSession: PiSdkSessionFactory = async (options) => {
+        return {
+          extensionsResult: { extensions: [], diagnostics: [], collisions: [] },
+          session: {
+            subscribe(listener: (event: unknown) => void) {
+              listeners.push(listener);
+              return () => {};
+            },
+            async prompt() {
+              const searchTool = options.customTools?.find((tool) => tool.name === "jri_web_search");
+              expect(searchTool).toBeDefined();
+              await expect(
+                searchTool!.execute(
+                  "tool-call-1",
+                  { query: "current JRI docs" },
+                  undefined,
+                  undefined,
+                  {} as never,
+                ),
+              ).rejects.toThrow("stale or mismatched loop");
+              for (const listener of listeners) {
+                listener({
+                  type: "message_update",
+                  assistantMessageEvent: {
+                    type: "text_delta",
+                    delta: 'Builder answer.\nJRI_HANDOFF_JSON: {"agent":"builder","action":"continue","summary":"Ownership failure handled.","validation":[{"command":"bun run test --filter harness","exitCode":0,"passed":true,"summary":"Focused harness coverage passed."}]}\n',
+                  },
+                });
+              }
+            },
+            async abort() {},
+            dispose() {},
+          },
+        } as unknown as Awaited<ReturnType<PiSdkSessionFactory>>;
+      };
+
+      const result = await invokePiSdkHarness(
+        {
+          owner: { kind: "loop", loopId: "20260527T184210Z" },
+          projectDir: dir,
+          agent: "builder",
+          phase: "building",
+          model: { model: "gpt-5.5", reasoning: "xhigh" },
+          context: { refs: [], inline: ["Loop 20260527T184210Z phase building."] },
+          capabilities: [{ name: "web", operation: "search" }],
+          output: { write: () => {} },
+          signal: new AbortController().signal,
+        },
+        { OPENAI_API_KEY: "test-key", JRI_PI_WEB_COMMAND: fakeWeb },
+        createSession,
+      );
+
+      expect(result.handoff).toMatchObject({ agent: "builder", action: "continue" });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   test("SDK harness registers a native builder explorer tool that records durable loop events", async () => {
     const dir = await tempProject();
     try {
@@ -891,6 +979,7 @@ describe("controlled Pi harness", () => {
   test("runWebSearch wraps pi-web-access with bounded timestamped results", async () => {
     const dir = await tempProject();
     try {
+      await activateLoop(dir, "20260527T184210Z");
       const fakeWeb = join(dir, "fake-web.sh");
       await writeFile(
         fakeWeb,
@@ -932,6 +1021,7 @@ describe("controlled Pi harness", () => {
   test("runWebSearch rejects malformed result shapes", async () => {
     const dir = await tempProject();
     try {
+      await activateLoop(dir, "20260527T184210Z");
       const fakeWeb = join(dir, "fake-web-malformed-search.sh");
       await writeFile(
         fakeWeb,
@@ -961,6 +1051,7 @@ describe("controlled Pi harness", () => {
   test("runWebSearch rejects search responses without result arrays", async () => {
     const dir = await tempProject();
     try {
+      await activateLoop(dir, "20260527T184210Z");
       const fakeWeb = join(dir, "fake-web-no-results.sh");
       await writeFile(fakeWeb, "#!/usr/bin/env bash\nprintf '{\"retrievedAt\":\"2026-05-27T00:00:00.000Z\"}'\n", "utf8");
       await chmod(fakeWeb, 0o755);
@@ -983,6 +1074,7 @@ describe("controlled Pi harness", () => {
   test("runWebFetch caps markdown and stores omitted content as an artifact", async () => {
     const dir = await tempProject();
     try {
+      await activateLoop(dir, "20260527T184210Z");
       const fakeWeb = join(dir, "fake-web-fetch.sh");
       await writeFile(
         fakeWeb,
@@ -1021,6 +1113,7 @@ describe("controlled Pi harness", () => {
   test("runWebFetch requires source URL, fetched timestamp, and markdown field", async () => {
     const dir = await tempProject();
     try {
+      await activateLoop(dir, "20260527T184210Z");
       const cases = [
         {
           name: "missing-url",
@@ -1067,6 +1160,7 @@ describe("controlled Pi harness", () => {
   test("runWebFetch rejects raw HTML before it enters agent context", async () => {
     const dir = await tempProject();
     try {
+      await activateLoop(dir, "20260527T184210Z");
       const fakeWeb = join(dir, "fake-web-html.ts");
       await writeFile(
         fakeWeb,
@@ -1134,6 +1228,7 @@ describe("controlled Pi harness", () => {
   test("runWebFetch truncates unicode cleanly and reports exact omitted bytes", async () => {
     const dir = await tempProject();
     try {
+      await activateLoop(dir, "20260527T184210Z");
       const fakeWeb = join(dir, "fake-web-unicode.ts");
       await writeFile(
         fakeWeb,
@@ -1167,6 +1262,7 @@ describe("controlled Pi harness", () => {
   test("runWebFetch enforces process timeout and reports actionable cleanup", async () => {
     const dir = await tempProject();
     try {
+      await activateLoop(dir, "20260527T184210Z");
       const fakeWeb = join(dir, "fake-web-timeout.ts");
       await writeFile(
         fakeWeb,
@@ -1199,6 +1295,7 @@ describe("controlled Pi harness", () => {
   test("runWebFetch reports actionable capability errors", async () => {
     const dir = await tempProject();
     try {
+      await activateLoop(dir, "20260527T184210Z");
       const fakeWeb = join(dir, "fake-web-fail.sh");
       await writeFile(fakeWeb, "#!/usr/bin/env bash\nprintf 'missing web package' >&2\nexit 9\n", "utf8");
       await chmod(fakeWeb, 0o755);
@@ -1221,6 +1318,7 @@ describe("controlled Pi harness", () => {
   test("runWebFetch fails early with JRI-native wording when the configured web capability command is unavailable", async () => {
     const dir = await tempProject();
     try {
+      await activateLoop(dir, "20260527T184210Z");
       let error: unknown;
       try {
         await runWebFetch({

@@ -16,7 +16,6 @@
   - Blocked loop endings do not emit `loopFinished`.
   - Plan-regeneration events are emitted for `needsReplan` but not for the `specsChanged` / `ambiguousSpecsResolved` paths named in the spec.
   - Builder handoffs accept interrogation-artifact refs.
-  - Native SDK capability execution bypasses wrapper ownership enforcement.
   - Capability preflight does not validate default web/explorer implementations.
   - Chat-owned capability ownership is not validated against the active turn.
 
@@ -28,5 +27,5 @@
 
 - [ ] Backfill focused regression coverage for the confirmed gaps.
   - Prompt/harness regressions now cover native default capability prompts and explorer delegation wording.
-  - Native chat-level web search/fetch coverage has now been added in this turn; remaining: plain `jri` smoke coverage for native capability paths.
+  - Focused harness coverage now verifies native SDK web execution enforces the same loop-ownership checks as the wrapper path, and the direct `runWebSearch()` / `runWebFetch()` tests now activate a loop fixture explicitly because loop ownership is part of the production contract; remaining: plain `jri` smoke coverage for native capability paths.
   - Add regressions for capability grant mismatches, blocked-open guide behavior, blocked `loopFinished`, plan-regeneration reasons, and daemon payload validation; verified `done` durable `blockerResolved` coverage was added in this turn.
