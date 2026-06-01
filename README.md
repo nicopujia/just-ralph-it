@@ -1,0 +1,7 @@
+# JRI (i.e. [Just Ralph It](https://justralph.it), a.k.a. [Ralfealo](https://ralfealo.com))
+
+## Related resources
+
+- [Concept document](https://nicolaspujia.com/just-ralph-it), by the creator of JRI.
+- [Original article about the Ralph technique](https://ghuntley.com/ralph), by [G. Huntley](https://x.com/GeoffreyHuntley), creator of Ralph.
+- [The Ralph Playbook](https://claytonfarr.github.io/ralph-playbook/), backed by G. Huntley.
