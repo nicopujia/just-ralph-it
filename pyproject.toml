@@ -1,0 +1,54 @@
+[project]
+name = "just-ralph-it"
+version = "0.1.0"
+description = "Easily define your own software project idea and then to build it entirely by just clicking a button."
+readme = "README.md"
+authors = [
+    { name = "Nicolás Pujia", email = "nico@pujia.ar" }
+]
+requires-python = ">=3.13"
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.39.6",
+    "pytest>=9.0.3",
+    "ruff>=0.15.15",
+]
+
+[project.scripts]
+jri = "jri.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.16,<0.12.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "jri"
+
+[tool.basedpyright]
+include = ["src", "tests"]
+typeCheckingMode = "all"
+
+[tool.ruff]
+line-length = 120
+indent-width = 4
+preview = true
+show-fixes = true
+unsafe-fixes = true
+
+[tool.ruff.lint]
+select = ["ALL"]
+fixable = ["ALL"]
+unfixable = []
+ignore = [
+    "CPY", # skip copyright notices
+    "D203", # prefer no blank line before class docstrings
+    "D212", # prefer docstring summary line to be on second line
+    "COM812", # let formatter handle missing trailing comma
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "S101", # pytest uses assert statements for test expectations
+]

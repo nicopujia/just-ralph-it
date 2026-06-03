@@ -1,5 +1,28 @@
 # JRI (i.e. [Just Ralph It](https://justralph.it), a.k.a. [Ralfealo](https://ralfealo.com))
 
+## Contributing
+
+### Prerrequisites
+
+- [uv](https://docs.astral.sh/uv/)
+
+### Commands
+
+```bash
+# Run CLI
+uv run jri
+
+# Validation
+uv run ruff format
+uv run basedpyright
+uv run ruff check --fix
+uv run pytest -q
+```
+
+### Guidelines
+
+- Follow strict TDD
+
 ## Related resources
 
 - [Concept document](https://nicolaspujia.com/just-ralph-it), by the creator of JRI.
