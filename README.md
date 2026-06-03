@@ -9,8 +9,17 @@
 ### Commands
 
 ```bash
-# Run CLI
-uv run jri
+# Setup
+git clone https://github.com/nicopujia/just-ralph-it
+cd ./just-ralph-it
+uv sync --all-groups
+
+# Run CLI inside this repo
+uv run jri --help
+
+# Install CLI globally and run it anywhere
+uv tool install -e .
+jri --help
 
 # Validate changes
 # Always run it after making changes
