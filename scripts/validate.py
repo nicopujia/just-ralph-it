@@ -10,7 +10,7 @@ COMMANDS: tuple[tuple[str, ...], ...] = (
     # Type checking
     ("uv", "run", "basedpyright"),
     # Testing
-    ("uv", "run", "coverage", "run", "-m", "pytest", "-q"),
+    ("uv", "run", "coverage", "run", "--branch", "-m", "pytest", "-q"),
     ("uv", "run", "coverage", "combine"),
     ("uv", "run", "coverage", "report", "--skip-covered", "--skip-empty"),
     ("uv", "run", "coverage", "html", "-q"),
