@@ -12,17 +12,15 @@
 # Run CLI
 uv run jri
 
-# Validation
-uv run ruff format
-uv run basedpyright
-uv run ruff check --fix
-uv run pytest -q
+# Validate changes
+# Always run it after making changes
+./scripts/validate.py
 ```
 
 ### Guidelines
 
-- Follow strict TDD
-- Make [conventional](https://www.conventionalcommits.org/en/v1.0.0/), atomic commits
+- Follow strict TDD maintaining 100% coverage of [source code](./src/).
+- Make [conventional](https://www.conventionalcommits.org/en/v1.0.0/), atomic commits.
 
 ## Related resources
 

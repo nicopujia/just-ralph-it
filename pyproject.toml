@@ -12,6 +12,7 @@ dependencies = []
 [dependency-groups]
 dev = [
     "basedpyright>=1.39.6",
+    "coverage>=7.14.1",
     "pytest>=9.0.3",
     "ruff>=0.15.15",
 ]
@@ -47,9 +48,21 @@ ignore = [
     "D212", # prefer docstring summary line to be on second line
     "COM812", # let formatter handle missing trailing comma
     "S404", # allow importing subprocess library
+    "S603", # allow running subprocesses
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
     "S101", # pytest uses assert statements for test expectations
 ]
+
+[tool.coverage.paths]
+source = ["src"]
+
+[tool.coverage.run]
+parallel = true
+patch = ["subprocess"]
+source = ["src"]
+
+[tool.coverage.report]
+omit = ["tests/**/*.py"]
