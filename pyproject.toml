@@ -45,7 +45,7 @@ unfixable = []
 ignore = [
     "CPY", # skip copyright notices
     "D203", # prefer no blank line before class docstrings
-    "D212", # prefer docstring summary line to be on second line
+    "D213", # prefer docstring summary line to be on the first line
     "COM812", # let formatter handle missing trailing comma
     "S404", # allow importing subprocess library
     "S603", # allow running subprocesses
