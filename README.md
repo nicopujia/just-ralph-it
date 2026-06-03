@@ -22,6 +22,7 @@ uv run pytest -q
 ### Guidelines
 
 - Follow strict TDD
+- Make [conventional](https://www.conventionalcommits.org/en/v1.0.0/), atomic commits
 
 ## Related resources
 
