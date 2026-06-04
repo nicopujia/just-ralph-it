@@ -29,6 +29,7 @@ jri --help
 ### Guidelines
 
 - Follow strict TDD maintaining 100% coverage of [source code](./src/).
+- Integration tests must follow a black box approach (i.e. assume the implementation is unknown and focus only on the behavior).
 - Make [conventional](https://www.conventionalcommits.org/en/v1.0.0/), atomic commits.
 
 ## Related resources
