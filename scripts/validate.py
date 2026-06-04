@@ -1,27 +1,33 @@
 #!/usr/bin/env uv run
 """Run the project validation workflow."""
 
+import shutil
 import subprocess
+import sys
 
-COMMANDS: tuple[tuple[str, ...], ...] = (
-    # Formatting
-    ("uv", "run", "ruff", "format", "-q"),
-    ("uv", "run", "ruff", "check", "--fix", "-q"),
-    # Type checking
-    ("uv", "run", "basedpyright"),
-    # Testing
-    ("uv", "run", "coverage", "run", "--branch", "-m", "pytest", "-q"),
-    ("uv", "run", "coverage", "combine"),
-    ("uv", "run", "coverage", "report", "--skip-covered", "--skip-empty"),
-    ("uv", "run", "coverage", "html", "-q"),
-)
+uv = shutil.which("uv")
+if uv is None:
+    msg = "uv is not available"
+    raise RuntimeError(msg)
 
+commands = [
+    (uv, "run", *line.split())
+    for line in """
+ruff format -q
+ruff check --fix -q
+basedpyright
+coverage erase
+coverage run --branch -m pytest -q
+coverage combine
+coverage report --skip-covered --skip-empty
+coverage html -q
+""".strip("\n").splitlines()
+]
 
-def main() -> None:
-    """Run validation commands in order."""
-    for command in COMMANDS:
-        _result = subprocess.run(command, check=True)
+returncode = 0
+for cmd in commands:
+    result = subprocess.run(cmd, check=False)
+    if result.returncode != 0:
+        returncode = 1
 
-
-if __name__ == "__main__":
-    main()
+sys.exit(returncode)
