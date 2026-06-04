@@ -1,12 +1,21 @@
 """Integration tests for the command line interface."""
 
-import pytest
+import shutil
+import subprocess
 
-from jri.cli import main
 
-
-def test_cli_introduces_app(capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_introduces_app() -> None:
     """The CLI greets users with the app name."""
-    main()
+    jri = shutil.which("jri")
+    assert jri is not None
 
-    assert capsys.readouterr().out == "Just Ralph It\n"
+    result = subprocess.run(
+        [jri],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert result.stdout == "Just Ralph It\n"
+    assert not result.stderr
