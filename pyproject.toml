@@ -47,6 +47,7 @@ ignore = [
     "D203", # prefer no blank line before class docstrings
     "D213", # prefer docstring summary line to be on the first line
     "COM812", # let formatter handle missing trailing comma
+    "ISC003", # prefer explicit string concatenation so basedpyright can catch accidental implicit concat
     "S404", # allow importing subprocess library
     "S603", # allow running subprocesses
 ]
