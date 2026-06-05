@@ -13,6 +13,7 @@ dependencies = []
 dev = [
     "basedpyright>=1.39.6",
     "coverage>=7.14.1",
+    "pre-commit>=4.5.0",
     "pytest>=9.0.3",
     "ruff>=0.15.15",
 ]
@@ -64,9 +65,13 @@ max-doc-length = 72
 source = ["src"]
 
 [tool.coverage.run]
+branch = true
 parallel = true
 patch = ["subprocess"]
 source = ["src"]
 
 [tool.coverage.report]
 omit = ["tests/**/*.py"]
+skip_covered = true
+skip_empty = true
+fail_under = 100
