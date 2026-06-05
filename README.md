@@ -1,6 +1,6 @@
 # JRI (i.e. [Just Ralph It](https://justralph.it), a.k.a. [Ralfealo](https://ralfealo.com))
 
-## Contributing
+## Getting started
 
 ### Prerrequisites
 
@@ -12,25 +12,12 @@
 # Setup
 git clone https://github.com/nicopujia/just-ralph-it
 cd ./just-ralph-it
-uv sync --all-groups
+uv sync
 
-# Run CLI inside this repo
-uv run jri --help
-
-# Install CLI globally and run it anywhere
+# Install CLI globally
 uv tool install -e .
 jri --help
-
-# Validate changes
-# Always run it after making changes
-./scripts/validate.py
 ```
-
-### Guidelines
-
-- Follow strict TDD maintaining 100% coverage of [source code](./src/).
-- Integration tests must follow a black box approach (i.e. assume the implementation is unknown and focus only on the behavior).
-- Make [conventional](https://www.conventionalcommits.org/en/v1.0.0/), atomic commits.
 
 ## Related resources
 
