@@ -20,3 +20,4 @@ uv run jri --help
 - Name normal functions and methods as verbs.
 - If two linting rules contradict themselves, pick the best one and configure [pyproject.toml](./pyproject.toml) accordingly.
 - Frequently make [conventional](https://www.conventionalcommits.org/en/v1.0.0/), atomic commits.
+- Work on a branch and, when you finish, squash and merge. If you push, delete the new remote branch afterwards.
