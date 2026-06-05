@@ -52,6 +52,9 @@ ignore = [
     "S603", # allow running subprocesses
 ]
 
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 72
+
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
     "S101", # pytest uses assert statements for test expectations
