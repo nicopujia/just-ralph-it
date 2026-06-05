@@ -4,12 +4,14 @@
 # Install all dependencies, including development ones
 uv sync --all-groups
 
+# Install Git hooks
+uv run pre-commit install --hook-type pre-commit --hook-type pre-push
+
 # Run CLI inside this repo
 uv run jri --help
 
 # Validate changes
-# Always run this command after making changes
-./scripts/validate.py
+./scripts/validate.py --help
 ```
 
 ## Guidelines
@@ -19,5 +21,5 @@ uv run jri --help
 - Add section comments at large modules (>300 lines) to group closely-related code blocks.
 - Name normal functions and methods as verbs.
 - If two linting rules contradict themselves, pick the best one and configure [pyproject.toml](./pyproject.toml) accordingly.
-- Frequently make [conventional](https://www.conventionalcommits.org/en/v1.0.0/), atomic commits.
-- Work on a branch and, when you finish, squash and merge. If you push, delete the new remote branch afterwards.
+- Work on a branch, push your branch, and, when you finish, squash and merge. Delete the new remote branch afterwards.
+- Pre-commit runs formatting, linting, and type checking before each commit. Pre-push runs the full test suite with coverage before each push. Frequently make [conventional](https://www.conventionalcommits.org/en/v1.0.0/), atomic commits. Push once you think the entire branch work is done.
