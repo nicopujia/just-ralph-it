@@ -32,7 +32,7 @@ include = ["src", "tests"]
 typeCheckingMode = "all"
 
 [tool.ruff]
-line-length = 120
+line-length = 79
 indent-width = 4
 preview = true
 show-fixes = true
