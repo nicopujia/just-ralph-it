@@ -1,7 +1,7 @@
 [project]
 name = "just-ralph-it"
 version = "0.1.0"
-description = "Easily define your own software project idea and then to build it entirely by just clicking a button."
+description = "Easily define your own software project idea and then build entirely by just clicking a button."
 readme = "README.md"
 authors = [
     { name = "Nicolás Pujia", email = "nico@pujia.ar" }
