@@ -6,16 +6,20 @@
 
 - [uv](https://docs.astral.sh/uv/)
 
-### Commands
+### Setup
 
 ```bash
-# Setup
+# Clone repo
 git clone https://github.com/nicopujia/just-ralph-it
 cd ./just-ralph-it
+
+# Install dependencies
 uv sync
 
 # Install CLI globally
 uv tool install -e .
+
+# Run it!
 jri --help
 ```
 
