@@ -356,6 +356,7 @@ async def _prepare_patch_hunks(
     prepared: list[_PreparedPatch] = []
     for hunk, target in hunks:
         if isinstance(hunk, AddHunk):
+            await _validate_missing_file(writer, target, hunk.path)
             prepared.append(
                 _PreparedAdd(
                     hunk=hunk,
@@ -446,6 +447,19 @@ async def _read_existing_file(
     lock = _locks.setdefault(target, asyncio.Lock())
     async with lock:
         return await _read_existing_file_unlocked(writer, target, patch_path)
+
+
+async def _validate_missing_file(
+    writer: PatchOperations,
+    target: Path,
+    patch_path: str,
+) -> None:
+    try:
+        await writer.read_bytes(target)
+    except FileNotFoundError:
+        return
+    msg = f"{patch_path} already exists"
+    raise WriteError(msg)
 
 
 async def _read_existing_file_unlocked(

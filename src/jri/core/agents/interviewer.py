@@ -22,7 +22,12 @@ from pydantic_ai import (
     Tool,
     UnexpectedModelBehavior,
 )
-from pydantic_ai.messages import ModelResponse, ToolCallPart, ToolReturnPart
+from pydantic_ai.messages import (
+    ModelResponse,
+    TextPart,
+    ToolCallPart,
+    ToolReturnPart,
+)
 from pydantic_ai.run import AgentRunResult
 from pydantic_ai.usage import RequestUsage, RunUsage
 
@@ -144,17 +149,9 @@ class Interviewer:
                 deps=deps,
                 turn_context=turn_context,
             )
-        except UnexpectedModelBehavior as exc:
-            recovered = await self._append_trigger_fallback_events(
-                deps,
-                events,
-            )
-            if not recovered:
-                raise
-            self.logger.write(
-                "model_error_recovered",
-                {"message": str(exc), "error_type": type(exc).__name__},
-            )
+        except UnexpectedModelBehavior:
+            await self._append_trigger_fallback_events(deps, events)
+            raise
         else:
             await self._append_trigger_fallback_events(deps, events)
         for event in events:
@@ -221,12 +218,14 @@ class Interviewer:
         )
         if event.part.tool_name != "ask":
             return False
+        question = _build_ask_tool_call_question(event.part.args)
         buffer.events.append(
             InterviewEvent(
                 kind="question",
-                content=_build_ask_tool_call_question(event.part.args),
+                content=question,
             ),
         )
+        self._append_question_to_history(question)
         return True
 
     def _record_text_delta_event(
@@ -268,6 +267,12 @@ class Interviewer:
             buffer.events.append(
                 InterviewEvent(kind="text", content=result.output)
             )
+
+    def _append_question_to_history(self, question: InterviewQuestion) -> None:
+        self._messages = [
+            *self._messages,
+            ModelResponse(parts=[TextPart(_question_history_text(question))]),
+        ][-12:]
 
     async def _append_trigger_fallback_events(
         self,
@@ -423,6 +428,23 @@ def _build_ask_tool_call_question(
     )
 
 
+def _question_history_text(question: InterviewQuestion) -> str:
+    parts = [f"Question ({question.level}): {question.question}"]
+    if question.choices:
+        choices = "; ".join(
+            (
+                f"{choice.label} - {choice.description}"
+                if choice.description
+                else choice.label
+            )
+            for choice in question.choices
+        )
+        parts.append(f"Choices: {choices}")
+    if question.default:
+        parts.append(f"Default: {question.default}")
+    return "\n".join(parts)
+
+
 def _tool_choices(value: object) -> list[object]:
     if isinstance(value, list):
         return cast("list[object]", value)
@@ -475,15 +497,24 @@ async def finalize_tool(
         if not spec_content.strip():
             msg = "just_ralph_it requires non-empty final spec_content."
             raise ModelRetry(msg)
-        if not known_blockers:
-            try:
-                await replace_spec(
-                    project_root=ctx.deps.project_root,
-                    path=spec_path,
-                    content=spec_content,
+        if not is_trigger_message(ctx.deps.latest_user_message):
+            raise ModelRetry(
+                _finalize_retry_message(
+                    "just_ralph_it requires a trigger phrase."
                 )
-            except WriteError as exc:
-                raise ModelRetry(_spec_path_retry_message(str(exc))) from exc
+            )
+        if known_blockers:
+            raise ModelRetry(
+                _finalize_retry_message("\n".join(known_blockers))
+            )
+        try:
+            await replace_spec(
+                project_root=ctx.deps.project_root,
+                path=spec_path,
+                content=spec_content,
+            )
+        except WriteError as exc:
+            raise ModelRetry(_spec_path_retry_message(str(exc))) from exc
         try:
             result = await finalize_jri(
                 project_root=ctx.deps.project_root,
@@ -551,7 +582,23 @@ def _trigger_fallback_skip_reason(
         return "model_asked_question"
     if not _has_persisted_spec(deps.project_root):
         return "no_persisted_spec"
+    if not _has_trigger_fallback_readiness(events):
+        return "no_readiness_signal"
     return None
+
+
+def _has_trigger_fallback_readiness(events: list[InterviewEvent]) -> bool:
+    text = "".join(
+        event.content
+        for event in events
+        if event.kind in {"text", "text_delta"}
+        and isinstance(event.content, str)
+    )
+    normalized = text.strip().lower().rstrip(".!")
+    return normalized in {
+        "ready for ralph handoff",
+        "ready to hand off",
+    }
 
 
 async def _finalize_trigger_fallback(

@@ -41,6 +41,7 @@ from jri.core.agents.interviewer import (
 from jri.core.agents.models import AgentModelConfig
 from jri.core.interview import InterviewQuestion, QuestionChoice
 from jri.core.logging import JsonlLogger
+from jri.core.tools.just_ralph_it import JustRalphItError
 from tests.doubles.agents import (
     FakeRunContext,
     FakeRunResult,
@@ -335,6 +336,45 @@ def test_interviewer_finalizes_persisted_specs_on_trigger_fallback(
     }
 
 
+def test_interviewer_trigger_fallback_requires_readiness_signal(
+    tmp_path: Path,
+) -> None:
+    """Blocker prose on a trigger does not finalize a persisted draft spec."""
+    _configure_repo(tmp_path)
+    log_path = tmp_path / ".jri" / "logs" / "interview.jsonl"
+    (tmp_path / ".jri" / "logs").mkdir(parents=True)
+    (tmp_path / ".jri" / ".gitignore").write_text("logs/\n")
+    specs = tmp_path / ".jri" / "specs"
+    specs.mkdir(parents=True)
+    (specs / "product.md").write_text("# Draft\n", encoding="utf-8")
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(log_path),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    object.__setattr__(
+        interviewer,
+        "agent",
+        FakeStreamAgent([
+            AgentRunResultEvent(
+                result=FakeRunResult("I still need the target user.")
+            )
+        ]),
+    )
+
+    events = asyncio.run(_collect(interviewer.respond("just ralph it")))
+
+    assert [(event.kind, event.content) for event in events] == [
+        ("text", "I still need the target user.")
+    ]
+    assert not interviewer.should_exit
+    assert not _has_commit(tmp_path)
+    skipped = _latest_event(_read_events(log_path), "trigger_fallback_skipped")
+    assert cast("dict[str, object]", skipped["data"])["reason"] == (
+        "no_readiness_signal"
+    )
+
+
 def test_interviewer_trigger_fallback_defers_to_model_questions(
     tmp_path: Path,
 ) -> None:
@@ -370,10 +410,10 @@ def test_interviewer_trigger_fallback_defers_to_model_questions(
     assert not _has_commit(tmp_path)
 
 
-def test_interviewer_trigger_fallback_recovers_model_errors(
+def test_interviewer_trigger_fallback_rejects_model_errors_without_readiness(
     tmp_path: Path,
 ) -> None:
-    """A trigger-turn model error can still finalize persisted specs."""
+    """A model error without readiness does not finalize persisted specs."""
     _configure_repo(tmp_path)
     log_path = tmp_path / ".jri" / "logs" / "interview.jsonl"
     (tmp_path / ".jri" / "logs").mkdir(parents=True)
@@ -388,11 +428,15 @@ def test_interviewer_trigger_fallback_recovers_model_errors(
     )
     object.__setattr__(interviewer, "agent", FailingStreamAgent())
 
-    events = asyncio.run(_collect(interviewer.respond("just ralph it")))
+    with pytest.raises(UnexpectedModelBehavior, match="max retries"):
+        asyncio.run(_collect(interviewer.respond("just ralph it")))
 
-    assert [event.kind for event in events] == ["tool_call", "text"]
-    assert interviewer.should_exit
-    assert _latest_event(_read_events(log_path), "model_error_recovered")
+    assert not interviewer.should_exit
+    assert not _has_commit(tmp_path)
+    skipped = _latest_event(_read_events(log_path), "trigger_fallback_skipped")
+    assert cast("dict[str, object]", skipped["data"])["reason"] == (
+        "no_readiness_signal"
+    )
 
 
 def test_interviewer_reraises_model_errors_without_fallback(
@@ -535,6 +579,39 @@ def test_interviewer_yields_ask_tool_call_question(
     assert _latest_event(_read_events(log_path), "model_text_delta")[
         "data"
     ] == {"content": "Preamble."}
+
+
+def test_interviewer_preserves_history_after_ask_tool_call(
+    tmp_path: Path,
+) -> None:
+    """Ask tool turns keep their model messages for the next reply."""
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    first_agent = FakeStreamAgent([
+        FunctionToolCallEvent(
+            ToolCallPart(
+                "ask",
+                args='{"level":"low","question":"Which interface?"}',
+            )
+        ),
+        AgentRunResultEvent(result=FakeRunResult("ignored")),
+    ])
+    second_agent = FakeStreamAgent([
+        AgentRunResultEvent(result=FakeRunResult("noted"))
+    ])
+
+    object.__setattr__(interviewer, "agent", first_agent)
+    asyncio.run(_collect(interviewer.respond("idea")))
+    object.__setattr__(interviewer, "agent", second_agent)
+    asyncio.run(_collect(interviewer.respond("CLI")))
+
+    assert len(second_agent.message_history) == 1
+    retained = cast("ModelResponse", second_agent.message_history[0])
+    part = cast("TextPart", retained.parts[0])
+    assert part.content == "Question (low): Which interface?"
 
 
 def test_interviewer_yields_ask_tool_call_choices(
@@ -830,6 +907,10 @@ def test_finalize_tool_retries_absolute_spec_path(tmp_path: Path) -> None:
 
 def test_finalize_tool_retries_without_trigger_phrase(tmp_path: Path) -> None:
     """The model must wait for an explicit trigger before finalization."""
+    specs = tmp_path / ".jri" / "specs"
+    specs.mkdir(parents=True)
+    product = specs / "product.md"
+    product.write_text("# Existing\n", encoding="utf-8")
     deps = InterviewerDeps(
         project_root=tmp_path,
         latest_user_message="not yet",
@@ -855,6 +936,7 @@ def test_finalize_tool_retries_without_trigger_phrase(tmp_path: Path) -> None:
     assert cast("dict[str, object]", failed["data"])["error_type"] == (
         "ModelRetry"
     )
+    assert product.read_text(encoding="utf-8") == "# Existing\n"
 
 
 def test_finalize_tool_rejects_known_blockers_without_writing_spec(
@@ -880,6 +962,40 @@ def test_finalize_tool_rejects_known_blockers_without_writing_spec(
         )
 
     assert not (tmp_path / ".jri" / "specs" / "product.md").exists()
+
+
+def test_finalize_tool_retries_core_finalization_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Core finalization errors are converted into model retry guidance."""
+    deps = InterviewerDeps(
+        project_root=tmp_path,
+        latest_user_message="just ralph it",
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        explorer=RecordingExplorer(),
+    )
+    ctx = cast("RunContext[InterviewerDeps]", FakeRunContext(deps))
+
+    async def fail_finalize(**kwargs: object) -> object:
+        _ = kwargs
+        msg = "git failed"
+        raise JustRalphItError(msg)
+
+    monkeypatch.setattr(
+        "jri.core.agents.interviewer.finalize_jri",
+        fail_finalize,
+    )
+
+    with pytest.raises(ModelRetry, match="git failed"):
+        asyncio.run(
+            finalize_tool(
+                ctx,
+                readiness_summary="Ready.",
+                spec_content="# Product\n",
+                known_blockers=[],
+            )
+        )
 
 
 def test_logged_tool_records_failure(tmp_path: Path) -> None:

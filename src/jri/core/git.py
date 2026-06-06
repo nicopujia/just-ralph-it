@@ -57,11 +57,37 @@ def _find_committable_paths(project_root: Path) -> list[str]:
         project_root / ".jri" / "scratchpad.md",
         *(project_root / ".jri" / "specs").glob("**/*.md"),
     ]
-    return [
+    existing = [
         str(path.relative_to(project_root))
         for path in candidates
         if path.exists()
     ]
+    return list(
+        dict.fromkeys([*existing, *_find_tracked_deleted_paths(project_root)])
+    )
+
+
+def _find_tracked_deleted_paths(project_root: Path) -> list[str]:
+    deleted = _run_git(
+        project_root,
+        "ls-files",
+        "--deleted",
+        "--",
+        ".jri/.gitignore",
+        ".jri/scratchpad.md",
+        ".jri/specs",
+    )
+    return [
+        path
+        for path in deleted.stdout.splitlines()
+        if _is_committable_jri_path(path)
+    ]
+
+
+def _is_committable_jri_path(path: str) -> bool:
+    return path in {".jri/.gitignore", ".jri/scratchpad.md"} or (
+        path.startswith(".jri/specs/") and path.endswith(".md")
+    )
 
 
 def _run_git(

@@ -1,7 +1,7 @@
 """Agent adapter test doubles."""
 
-from collections.abc import AsyncIterator
-from typing import Self
+from collections.abc import AsyncIterator, Iterable
+from typing import Self, cast
 
 
 class FakeRunContext:
@@ -28,10 +28,11 @@ class FakeRunResult:
         self.conversation_id: str = conversation_id
         self.usage: object | None = usage
         self.response: object | None = response
+        self.messages: list[object] = []
 
     def all_messages(self) -> list[object]:
         """Return fake model history."""
-        return []
+        return self.messages
 
 
 class FakeStreamAgent:
@@ -40,6 +41,7 @@ class FakeStreamAgent:
     def __init__(self, events: list[object]) -> None:
         self.events: list[object] = events
         self.instructions: str = ""
+        self.message_history: list[object] = []
 
     def run_stream_events(
         self, *args: object, **kwargs: object
@@ -47,6 +49,9 @@ class FakeStreamAgent:
         """Return a fake stream and record run instructions."""
         _ = args
         self.instructions = str(kwargs["instructions"])
+        self.message_history = list(
+            cast("Iterable[object]", kwargs["message_history"])
+        )
         return FakeStream(self.events)
 
 
