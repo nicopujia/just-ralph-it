@@ -8,6 +8,7 @@ from dotenv import dotenv_values
 
 from tests.env import INTERVIEWER_FACTORY_ENV
 from tests.support.cli_stdio import CliStdioHarness
+from tests.support.cli_tty import CliTtyHarness
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -66,6 +67,19 @@ def cli_stdio(
 ) -> CliStdioHarness:
     """Return a black-box stdio harness for CLI functional tests."""
     return CliStdioHarness(
+        command=_jri_path(),
+        env=cli_env,
+        timeout=cli_run_timeout,
+    )
+
+
+@pytest.fixture
+def cli_tty(
+    cli_env: dict[str, str],
+    cli_run_timeout: int,
+) -> CliTtyHarness:
+    """Return a black-box TTY harness for CLI functional tests."""
+    return CliTtyHarness(
         command=_jri_path(),
         env=cli_env,
         timeout=cli_run_timeout,

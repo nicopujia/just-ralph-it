@@ -55,6 +55,10 @@ async def _run_repl(
     while True:
         try:
             user_message = await reader.read()
+        except asyncio.CancelledError:
+            error_stream.write("Cancelled.\n")
+            logger.write("session_finished", {"reason": "keyboard_interrupt"})
+            return 130
         except EOFError:
             logger.write("session_finished", {"reason": "eof"})
             return 0
