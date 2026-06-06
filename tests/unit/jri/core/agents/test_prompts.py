@@ -16,7 +16,8 @@ def test_interviewer_prompt_defines_jri_and_tool_roles() -> None:
     assert "Ralph" in BASE_INTERVIEWER_PROMPT
     assert "confirmed requirements" in BASE_INTERVIEWER_PROMPT
     assert "pending questions" in BASE_INTERVIEWER_PROMPT
-    assert "must call just_ralph_it" in BASE_INTERVIEWER_PROMPT
+    assert "must call finalize_specs" in BASE_INTERVIEWER_PROMPT
+    assert "just_ralph_it" not in BASE_INTERVIEWER_PROMPT
 
 
 def test_interviewer_prompt_omits_tool_implementation_details() -> None:

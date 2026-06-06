@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import json
+import re
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +42,10 @@ from jri.core.agents.prompts import (
 )
 from jri.core.interview import InterviewEvent, InterviewQuestion
 from jri.core.logging import JsonlLogger, JsonValue
+from jri.core.readiness import (
+    check_mvp_readiness,
+    format_missing_mvp_readiness,
+)
 from jri.core.tools.ask import AskChoice, build_question
 from jri.core.tools.explore import ContextExplorer, explore_context
 from jri.core.tools.just_ralph_it import JustRalphItError, finalize_jri
@@ -280,6 +285,10 @@ class Interviewer:
         except Exception as exc:  # noqa: BLE001 - cross task error handoff
             queue.put_nowait(_ModelStreamError(exc))
         else:
+            pending_text_events = self._coerce_raw_question_text_events(
+                pending_text_events,
+                deps,
+            )
             _queue_events(queue, pending_text_events)
             queue.put_nowait(_MODEL_STREAM_FINISHED)
 
@@ -324,11 +333,7 @@ class Interviewer:
         if isinstance(event, FunctionToolCallEvent):
             return self._record_tool_call_event(event, buffer)
         if isinstance(event, FunctionToolResultEvent):
-            self.logger.write(
-                "model_tool_call_finished",
-                _serialize_model_tool_result(event),
-            )
-            return [], False
+            return self._record_tool_result_event(event, deps, buffer)
         if isinstance(event, PartDeltaEvent) and isinstance(
             event.delta,
             TextPartDelta,
@@ -365,20 +370,36 @@ class Interviewer:
         if event.part.tool_name != _ASK_TOOL_NAME:
             return visible_events, False
         question = _build_ask_tool_call_question(event.part.args)
-        visible_events.append(
-            InterviewEvent(
-                kind="question",
-                content=question,
-            )
-        )
-        buffer.events.append(
-            InterviewEvent(
-                kind="question",
-                content=question,
-            ),
-        )
+        question_event = InterviewEvent(kind="question", content=question)
+        visible_events.append(question_event)
+        buffer.events.append(question_event)
         self._append_question_to_history(question)
         return visible_events, True
+
+    def _record_tool_result_event(
+        self,
+        event: FunctionToolResultEvent,
+        deps: InterviewerDeps,
+        buffer: _TurnEventBuffer,
+    ) -> tuple[list[InterviewEvent], bool]:
+        self.logger.write(
+            "model_tool_call_finished",
+            _serialize_model_tool_result(event),
+        )
+        if not deps.finalized or not _is_finalize_tool_result_event(event):
+            return [], False
+        content = event.part.content
+        self._should_exit = True
+        if not isinstance(content, str):
+            return [], True
+        buffer.events = [
+            item
+            for item in buffer.events
+            if item.kind not in {"text", "text_delta"}
+        ]
+        visible_event = InterviewEvent(kind="text", content=content)
+        buffer.events.append(visible_event)
+        return [visible_event], True
 
     def _record_text_delta_event(
         self,
@@ -434,10 +455,41 @@ class Interviewer:
             ),
         )
         if not buffer.saw_text_delta:
+            question = _parse_raw_question_text(result.output)
+            if question is not None and not deps.finalized:
+                visible_events = [
+                    InterviewEvent(kind="tool_call", content=_ASK_TOOL_NAME),
+                    InterviewEvent(kind="question", content=question),
+                ]
+                buffer.events.extend(visible_events)
+                self._append_question_to_history(question)
+                return visible_events
             visible_event = InterviewEvent(kind="text", content=result.output)
             buffer.events.append(visible_event)
             return [visible_event]
         return []
+
+    def _coerce_raw_question_text_events(
+        self,
+        events: list[InterviewEvent],
+        deps: InterviewerDeps,
+    ) -> list[InterviewEvent]:
+        if deps.finalized:
+            return events
+        text = "".join(
+            event.content
+            for event in events
+            if event.kind in {"text", "text_delta"}
+            and isinstance(event.content, str)
+        )
+        question = _parse_raw_question_text(text)
+        if question is None:
+            return events
+        self._append_question_to_history(question)
+        return [
+            InterviewEvent(kind="tool_call", content=_ASK_TOOL_NAME),
+            InterviewEvent(kind="question", content=question),
+        ]
 
     def _append_question_to_history(self, question: InterviewQuestion) -> None:
         self._messages = [
@@ -460,6 +512,34 @@ class Interviewer:
                     "trigger_fallback_skipped",
                     {"reason": skip_reason},
                 )
+            return False
+
+        missing_readiness = _find_missing_persisted_mvp_readiness(
+            deps.project_root
+        )
+        if missing_readiness:
+            self.logger.write(
+                "trigger_fallback_skipped",
+                {
+                    "reason": "missing_mvp_readiness_facts",
+                    "missing": list(missing_readiness),
+                },
+            )
+            question = InterviewQuestion(
+                level="high",
+                question=(
+                    "What should we decide for "
+                    f"{missing_readiness[0]} before Ralph starts?"
+                ),
+            )
+            events.extend([
+                InterviewEvent(
+                    kind="text",
+                    content=format_missing_mvp_readiness(missing_readiness),
+                ),
+                InterviewEvent(kind="question", content=question),
+            ])
+            self._append_question_to_history(question)
             return False
 
         readiness_summary = (
@@ -490,6 +570,16 @@ def _should_drop_pending_text_events(event: object) -> bool:
     return (
         isinstance(event, FunctionToolCallEvent)
         and event.part.tool_name == _ASK_TOOL_NAME
+    ) or (
+        isinstance(event, FunctionToolResultEvent)
+        and _is_finalize_tool_result_event(event)
+    )
+
+
+def _is_finalize_tool_result_event(event: FunctionToolResultEvent) -> bool:
+    part = event.part
+    return (
+        isinstance(part, ToolReturnPart) and part.tool_name == "finalize_specs"
     )
 
 
@@ -514,9 +604,6 @@ def _queue_recorded_events(
     if _is_model_text_event(event):
         pending_text_events.extend(visible_events)
         return
-    if isinstance(event, AgentRunResultEvent):
-        _queue_events(queue, pending_text_events)
-        pending_text_events.clear()
     _queue_events(queue, visible_events)
 
 
@@ -595,11 +682,32 @@ async def record_notes_tool(
         ctx.deps,
         "record_notes",
         {"notes": notes},
-        lambda: replace_note(
-            project_root=ctx.deps.project_root,
-            content=notes,
-        ),
+        lambda: _record_merged_notes(ctx.deps, notes),
     )
+
+
+async def _record_merged_notes(
+    deps: InterviewerDeps,
+    notes: str,
+) -> str:
+    scratchpad = deps.project_root / ".jri" / "scratchpad.md"
+    existing = (
+        scratchpad.read_text(encoding="utf-8") if scratchpad.exists() else ""
+    )
+    return await replace_note(
+        project_root=deps.project_root,
+        content=_merge_notes(existing, notes),
+    )
+
+
+def _merge_notes(existing: str, notes: str) -> str:
+    current = existing.strip()
+    incoming = notes.strip()
+    if not current:
+        return f"{incoming}\n" if incoming else ""
+    if not incoming or incoming in current:
+        return f"{current}\n"
+    return f"{current}\n\n{incoming}\n"
 
 
 def build_interviewer_tools() -> list[Tool[InterviewerDeps]]:
@@ -694,6 +802,60 @@ def _format_question_history(question: InterviewQuestion) -> str:
     return "\n".join(parts)
 
 
+_RAW_QUESTION_PATTERN = re.compile(
+    r"^Question \((?P<level>high|low)\): (?P<question>.+)$",
+    re.IGNORECASE,
+)
+
+
+def _parse_raw_question_text(text: str) -> InterviewQuestion | None:
+    lines = [line.strip() for line in text.strip().splitlines()]
+    if not lines:
+        return None
+    match = _RAW_QUESTION_PATTERN.fullmatch(lines[0])
+    if match is None:
+        return None
+
+    choices: list[AskChoice] = []
+    default: str | None = None
+    for line in lines[1:]:
+        if not line:
+            continue
+        label, separator, body = line.partition(":")
+        if not separator:
+            return None
+        normalized_label = label.strip().lower()
+        if normalized_label == "choices":
+            choices = _parse_raw_question_choices(body)
+            continue
+        if normalized_label == "default":
+            default = body.strip() or None
+            continue
+        return None
+
+    return build_question(
+        level=cast("Literal['high', 'low']", match.group("level").lower()),
+        question=match.group("question").strip(),
+        choices=choices,
+        default=default,
+    )
+
+
+def _parse_raw_question_choices(value: str) -> list[AskChoice]:
+    choices: list[AskChoice] = []
+    for raw_choice in value.split(";"):
+        label, separator, description = raw_choice.strip().partition(" - ")
+        if not label:
+            continue
+        choices.append(
+            AskChoice(
+                label=label,
+                description=description if separator else None,
+            )
+        )
+    return choices
+
+
 def _coerce_tool_choices(value: object) -> list[object]:
     if isinstance(value, list):
         return cast("list[object]", value)
@@ -755,6 +917,13 @@ async def finalize_specs_tool(
         if known_blockers:
             raise ModelRetry(
                 _format_finalize_retry_message("\n".join(known_blockers))
+            )
+        readiness = check_mvp_readiness(spec_content)
+        if not readiness.is_ready:
+            raise ModelRetry(
+                _format_finalize_retry_message(
+                    format_missing_mvp_readiness(readiness.missing)
+                )
             )
         try:
             await replace_spec(
@@ -868,6 +1037,20 @@ async def _finalize_trigger_fallback(
 def _has_persisted_spec(project_root: Path) -> bool:
     specs_dir = project_root / ".jri" / "specs"
     return specs_dir.exists() and any(specs_dir.glob("**/*.md"))
+
+
+def _find_missing_persisted_mvp_readiness(
+    project_root: Path,
+) -> tuple[str, ...]:
+    return check_mvp_readiness(_read_persisted_specs(project_root)).missing
+
+
+def _read_persisted_specs(project_root: Path) -> str:
+    specs_dir = project_root / ".jri" / "specs"
+    return "\n\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(specs_dir.glob("**/*.md"))
+    )
 
 
 def _validate_patch_text(patch_text: str) -> None:

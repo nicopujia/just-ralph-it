@@ -7,6 +7,7 @@ import json
 import subprocess
 from collections.abc import AsyncIterator
 from pathlib import Path
+from textwrap import dedent
 from typing import Self, cast, override
 
 import pytest
@@ -42,7 +43,11 @@ from jri.core.agents.interviewer import (
     write_spec_tool,
 )
 from jri.core.agents.models import AgentModelConfig
-from jri.core.interview import InterviewQuestion, QuestionChoice
+from jri.core.interview import (
+    InterviewEvent,
+    InterviewQuestion,
+    QuestionChoice,
+)
 from jri.core.logging import JsonlLogger
 from jri.core.tools.just_ralph_it import JustRalphItError
 from tests.doubles.agents import (
@@ -553,7 +558,7 @@ def test_interviewer_finalizes_persisted_specs_on_trigger_fallback(
     specs = tmp_path / ".jri" / "specs"
     specs.mkdir(parents=True)
     (specs / "product.md").write_text(
-        "# Product\n\nA tiny CLI prints hello to stdout.\n",
+        _complete_spec(),
         encoding="utf-8",
     )
     interviewer = Interviewer(
@@ -633,6 +638,69 @@ def test_interviewer_trigger_fallback_requires_readiness_signal(
     skipped = _latest_event(_read_events(log_path), "trigger_fallback_skipped")
     assert cast("dict[str, object]", skipped["data"])["reason"] == (
         "no_readiness_signal"
+    )
+
+
+def test_interviewer_trigger_fallback_rejects_incomplete_specs(
+    tmp_path: Path,
+) -> None:
+    """Trigger fallback explains missing readiness facts."""
+    _configure_repo(tmp_path)
+    log_path = tmp_path / ".jri" / "logs" / "interview.jsonl"
+    (tmp_path / ".jri" / "logs").mkdir(parents=True)
+    (tmp_path / ".jri" / ".gitignore").write_text("logs/\n")
+    specs = tmp_path / ".jri" / "specs"
+    specs.mkdir(parents=True)
+    (specs / "product.md").write_text(
+        "# Product\n\n## Goal\n\nBuild a tiny CLI.\n",
+        encoding="utf-8",
+    )
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(log_path),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    object.__setattr__(
+        interviewer,
+        "agent",
+        FakeStreamAgent([
+            AgentRunResultEvent(result=FakeRunResult("Ready to hand off."))
+        ]),
+    )
+
+    events = asyncio.run(_collect(interviewer.respond("just ralph it")))
+
+    assert [(event.kind, event.content) for event in events[:2]] == [
+        ("text", "Ready to hand off."),
+        (
+            "text",
+            (
+                "Missing MVP readiness facts:\n"
+                "- target user\n"
+                "- workflows\n"
+                "- inputs\n"
+                "- outputs\n"
+                "- persistence\n"
+                "- integrations\n"
+                "- errors\n"
+                "- edge cases\n"
+                "- non-goals\n"
+                "- success criteria\n"
+                "Please answer these before Ralph starts."
+            ),
+        ),
+    ]
+    assert events[2].content == InterviewQuestion(
+        level="high",
+        question=(
+            "What should we decide for target user before Ralph starts?"
+        ),
+    )
+    assert not interviewer.should_exit
+    assert not _has_commit(tmp_path)
+    skipped = _latest_event(_read_events(log_path), "trigger_fallback_skipped")
+    assert cast("dict[str, object]", skipped["data"])["reason"] == (
+        "missing_mvp_readiness_facts"
     )
 
 
@@ -781,6 +849,78 @@ def test_interviewer_trigger_fallback_skips_after_model_finalizes(
     )
 
 
+def test_interviewer_suppresses_model_prose_after_finalization_tool(
+    tmp_path: Path,
+) -> None:
+    """Successful finalization shows the tool result, not later prose."""
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    final_message = (
+        "Specs finalized and committed. Ralph is coming soon to JRI."
+    )
+    object.__setattr__(
+        interviewer,
+        "agent",
+        FinalizedStreamAgent([
+            FunctionToolCallEvent(ToolCallPart("finalize_specs")),
+            FunctionToolResultEvent(
+                ToolReturnPart(
+                    tool_name="finalize_specs",
+                    content=final_message,
+                    tool_call_id="call-1",
+                )
+            ),
+            AgentRunResultEvent(
+                result=FakeRunResult("I can help implement this next.")
+            ),
+        ]),
+    )
+
+    events = asyncio.run(_collect(interviewer.respond("just ralph it")))
+
+    assert [(event.kind, event.content) for event in events] == [
+        ("tool_call", "finalize_specs"),
+        ("text", final_message),
+    ]
+    assert interviewer.should_exit
+
+
+def test_interviewer_exits_after_non_text_finalization_tool_result(
+    tmp_path: Path,
+) -> None:
+    """Finalization stops the turn even when provider wraps the result."""
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    object.__setattr__(
+        interviewer,
+        "agent",
+        FinalizedStreamAgent([
+            FunctionToolCallEvent(ToolCallPart("finalize_specs")),
+            FunctionToolResultEvent(
+                ToolReturnPart(
+                    tool_name="finalize_specs",
+                    content={"message": "done"},
+                    tool_call_id="call-1",
+                )
+            ),
+            AgentRunResultEvent(result=FakeRunResult("ignored")),
+        ]),
+    )
+
+    events = asyncio.run(_collect(interviewer.respond("just ralph it")))
+
+    assert [(event.kind, event.content) for event in events] == [
+        ("tool_call", "finalize_specs")
+    ]
+    assert interviewer.should_exit
+
+
 def test_interviewer_ignores_unknown_stream_events(tmp_path: Path) -> None:
     """Unknown Pydantic AI stream events do not become REPL events."""
     interviewer = Interviewer(
@@ -840,6 +980,143 @@ def test_interviewer_yields_ask_tool_call_question(
     assert _latest_event(_read_events(log_path), "model_text_delta")[
         "data"
     ] == {"content": "Preamble."}
+
+
+def test_interviewer_coerces_raw_question_text(
+    tmp_path: Path,
+) -> None:
+    """Raw question-format text becomes a structured question event."""
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    object.__setattr__(
+        interviewer,
+        "agent",
+        FakeStreamAgent([
+            AgentRunResultEvent(
+                result=FakeRunResult("Question (high): Who is this for?")
+            )
+        ]),
+    )
+
+    events = asyncio.run(_collect(interviewer.respond("idea")))
+
+    assert [(event.kind, event.content) for event in events] == [
+        ("tool_call", "ask_question"),
+        (
+            "question",
+            InterviewQuestion(level="high", question="Who is this for?"),
+        ),
+    ]
+
+
+def test_interviewer_coerces_streamed_raw_question_text(
+    tmp_path: Path,
+) -> None:
+    """Streamed raw question-format text becomes a structured question."""
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    object.__setattr__(
+        interviewer,
+        "agent",
+        FakeStreamAgent([
+            PartDeltaEvent(
+                index=0,
+                delta=TextPartDelta("Question (low): Which interface?"),
+            ),
+            AgentRunResultEvent(
+                result=FakeRunResult("Question (low): Which interface?")
+            ),
+        ]),
+    )
+
+    events = asyncio.run(_collect(interviewer.respond("idea")))
+
+    assert [(event.kind, event.content) for event in events] == [
+        ("tool_call", "ask_question"),
+        (
+            "question",
+            InterviewQuestion(level="low", question="Which interface?"),
+        ),
+    ]
+
+
+def test_interviewer_coerces_raw_question_choices_and_default(
+    tmp_path: Path,
+) -> None:
+    """Raw question text can include choices and a default."""
+    raw_text = dedent("""\
+        Question (low): Which interface?
+
+        Choices: ; CLI - Terminal command; Web
+        Default: CLI
+        """)
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    object.__setattr__(
+        interviewer,
+        "agent",
+        FakeStreamAgent([AgentRunResultEvent(result=FakeRunResult(raw_text))]),
+    )
+
+    events = asyncio.run(_collect(interviewer.respond("idea")))
+
+    assert events == [
+        InterviewEvent(kind="tool_call", content="ask_question"),
+        InterviewEvent(
+            kind="question",
+            content=InterviewQuestion(
+                level="low",
+                question="Which interface?",
+                choices=(
+                    QuestionChoice(
+                        label="CLI",
+                        description="Terminal command",
+                    ),
+                    QuestionChoice(label="Web"),
+                ),
+                default="CLI",
+            ),
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    "raw_text",
+    [
+        "Question (high): Who is this for?\nNot a labeled option",
+        "Question (high): Who is this for?\nPriority: highest",
+    ],
+)
+def test_interviewer_leaves_invalid_raw_question_text_visible(
+    tmp_path: Path,
+    raw_text: str,
+) -> None:
+    """Invalid raw question-like text remains normal assistant text."""
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    object.__setattr__(
+        interviewer,
+        "agent",
+        FakeStreamAgent([AgentRunResultEvent(result=FakeRunResult(raw_text))]),
+    )
+
+    events = asyncio.run(_collect(interviewer.respond("idea")))
+
+    assert [(event.kind, event.content) for event in events] == [
+        ("text", raw_text)
+    ]
 
 
 def test_interviewer_preserves_history_after_ask_tool_call(
@@ -975,7 +1252,7 @@ def test_interviewer_tools_mutate_jri_state_and_finalize(
         finalize_specs_tool(
             ctx,
             readiness_summary="Ready.",
-            spec_content="# Final Product\n",
+            spec_content=_complete_spec(),
             known_blockers=[],
         )
     )
@@ -984,7 +1261,7 @@ def test_interviewer_tools_mutate_jri_state_and_finalize(
     assert "scratchpad.md" in note_result
     assert (tmp_path / ".jri" / "specs" / "product.md").read_text(
         encoding="utf-8"
-    ) == "# Final Product\n"
+    ) == _complete_spec()
     assert (tmp_path / ".jri" / "scratchpad.md").read_text(
         encoding="utf-8"
     ) == "# Notes\n"
@@ -1003,6 +1280,58 @@ def test_interviewer_tools_mutate_jri_state_and_finalize(
         "explore_context",
         "finalize_specs",
     ]
+
+
+def test_record_notes_tool_preserves_earlier_notes(tmp_path: Path) -> None:
+    """Later note calls keep earlier confirmed interview facts."""
+    deps = InterviewerDeps(
+        project_root=tmp_path,
+        latest_user_message="idea",
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        explorer=RecordingExplorer(),
+    )
+    ctx = cast("RunContext[InterviewerDeps]", FakeRunContext(deps))
+
+    asyncio.run(
+        record_notes_tool(
+            ctx,
+            notes="# Scratchpad\n\n## Confirmed\n\n- Goal: print hello.\n",
+        )
+    )
+    asyncio.run(
+        record_notes_tool(
+            ctx,
+            notes="## Pending Questions\n\n- Who is the target user?\n",
+        )
+    )
+
+    scratchpad = (tmp_path / ".jri" / "scratchpad.md").read_text(
+        encoding="utf-8"
+    )
+    assert "Goal: print hello." in scratchpad
+    assert "Who is the target user?" in scratchpad
+
+
+def test_record_notes_tool_does_not_duplicate_existing_notes(
+    tmp_path: Path,
+) -> None:
+    """Repeated note calls leave the scratchpad stable."""
+    deps = InterviewerDeps(
+        project_root=tmp_path,
+        latest_user_message="idea",
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        explorer=RecordingExplorer(),
+    )
+    ctx = cast("RunContext[InterviewerDeps]", FakeRunContext(deps))
+    notes = "# Scratchpad\n\n## Confirmed\n\n- Goal: print hello.\n"
+
+    asyncio.run(record_notes_tool(ctx, notes=notes))
+    asyncio.run(record_notes_tool(ctx, notes=notes))
+
+    scratchpad = (tmp_path / ".jri" / "scratchpad.md").read_text(
+        encoding="utf-8"
+    )
+    assert scratchpad.count("Goal: print hello.") == 1
 
 
 def test_interviewer_tools_patch_jri_state(tmp_path: Path) -> None:
@@ -1163,7 +1492,7 @@ def test_finalize_specs_tool_retries_invalid_spec_name(
             finalize_specs_tool(
                 ctx,
                 readiness_summary="Ready.",
-                spec_content="# Product\n",
+                spec_content=_complete_spec(),
                 spec_name=str(tmp_path / "product.md"),
                 known_blockers=[],
             )
@@ -1197,7 +1526,7 @@ def test_finalize_specs_tool_retries_without_trigger_phrase(
             finalize_specs_tool(
                 ctx,
                 readiness_summary="Ready.",
-                spec_content="# Product\n",
+                spec_content=_complete_spec(),
                 known_blockers=[],
             )
         )
@@ -1237,6 +1566,34 @@ def test_finalize_specs_tool_rejects_known_blockers_without_writing_spec(
     assert not (tmp_path / ".jri" / "specs" / "product.md").exists()
 
 
+def test_finalize_specs_tool_rejects_incomplete_spec_without_writing(
+    tmp_path: Path,
+) -> None:
+    """Missing readiness facts prevent final spec replacement."""
+    product = tmp_path / ".jri" / "specs" / "product.md"
+    product.parent.mkdir(parents=True)
+    product.write_text("# Existing\n", encoding="utf-8")
+    deps = InterviewerDeps(
+        project_root=tmp_path,
+        latest_user_message="just ralph it",
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        explorer=RecordingExplorer(),
+    )
+    ctx = cast("RunContext[InterviewerDeps]", FakeRunContext(deps))
+
+    with pytest.raises(ModelRetry, match="Missing MVP readiness"):
+        asyncio.run(
+            finalize_specs_tool(
+                ctx,
+                readiness_summary="Ready.",
+                spec_content="# Product\n\n## Goal\n\nBuild a tiny CLI.\n",
+                known_blockers=[],
+            )
+        )
+
+    assert product.read_text(encoding="utf-8") == "# Existing\n"
+
+
 def test_finalize_specs_tool_retries_core_finalization_errors(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -1265,7 +1622,7 @@ def test_finalize_specs_tool_retries_core_finalization_errors(
             finalize_specs_tool(
                 ctx,
                 readiness_summary="Ready.",
-                spec_content="# Product\n",
+                spec_content=_complete_spec(),
                 known_blockers=[],
             )
         )
@@ -1442,3 +1799,31 @@ def _has_commit(path: Path) -> bool:
         capture_output=True,
     )
     return result.returncode == 0
+
+
+def _complete_spec() -> str:
+    return (
+        "# Product\n\n"
+        "## Goal\n\n"
+        "Build a tiny CLI that prints hello.\n\n"
+        "## Target User\n\n"
+        "Programmers trying JRI locally.\n\n"
+        "## Workflows\n\n"
+        "The user runs the CLI command once.\n\n"
+        "## Inputs\n\n"
+        "No user input is required.\n\n"
+        "## Outputs\n\n"
+        "The CLI prints hello to stdout.\n\n"
+        "## Persistence\n\n"
+        "No data is saved.\n\n"
+        "## Integrations\n\n"
+        "No external integrations are used.\n\n"
+        "## Errors\n\n"
+        "If the command fails, it exits non-zero.\n\n"
+        "## Edge Cases\n\n"
+        "Repeated runs print the same output.\n\n"
+        "## Non-goals\n\n"
+        "No interactive prompt in v1.\n\n"
+        "## Success Criteria\n\n"
+        "Running the command prints hello exactly once.\n"
+    )

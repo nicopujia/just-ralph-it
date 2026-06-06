@@ -56,6 +56,31 @@ def test_just_ralph_it_fails_without_persisted_specs(
         )
 
 
+def test_just_ralph_it_rejects_missing_mvp_readiness_facts(
+    tmp_path: Path,
+) -> None:
+    """Finalization refuses draft specs missing readiness decisions."""
+    project = _make_repo(tmp_path)
+    (project / ".jri" / "specs").mkdir(parents=True)
+    (project / ".jri" / ".gitignore").write_text("logs/\n")
+    (project / ".jri" / "scratchpad.md").write_text("# Scratchpad\n")
+    (project / ".jri" / "specs" / "product.md").write_text(
+        "# Product\n\n## Goal\n\nBuild a tiny CLI.\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(JustRalphItError, match="Missing MVP readiness"):
+        asyncio.run(
+            finalize_jri(
+                project_root=project,
+                latest_user_message="just ralph it",
+                readiness_summary="Ready.",
+            )
+        )
+
+    assert not _has_commit(project)
+
+
 def test_just_ralph_it_commits_only_committable_jri_files(
     tmp_path: Path,
 ) -> None:
@@ -65,7 +90,10 @@ def test_just_ralph_it_commits_only_committable_jri_files(
     (project / ".jri" / "logs").mkdir()
     (project / ".jri" / ".gitignore").write_text("logs/\n")
     (project / ".jri" / "scratchpad.md").write_text("# Scratchpad\n")
-    (project / ".jri" / "specs" / "product.md").write_text("# Product\n")
+    (project / ".jri" / "specs" / "product.md").write_text(
+        _complete_spec(),
+        encoding="utf-8",
+    )
     (project / ".jri" / "logs" / "interview.jsonl").write_text(
         '{"type": "user_message"}\n'
     )
@@ -110,7 +138,10 @@ def test_just_ralph_it_exits_successfully_without_empty_commit(
     (project / ".jri" / "specs").mkdir(parents=True)
     (project / ".jri" / ".gitignore").write_text("logs/\n")
     (project / ".jri" / "scratchpad.md").write_text("# Scratchpad\n")
-    (project / ".jri" / "specs" / "product.md").write_text("# Product\n")
+    (project / ".jri" / "specs" / "product.md").write_text(
+        _complete_spec(),
+        encoding="utf-8",
+    )
     subprocess.run(["git", "add", ".jri"], cwd=project, check=True)
     subprocess.run(
         ["git", "commit", "-m", "docs: capture JRI specs"],
@@ -155,3 +186,41 @@ def _make_repo(tmp_path: Path) -> Path:
         check=True,
     )
     return project
+
+
+def _complete_spec() -> str:
+    return (
+        "# Product\n\n"
+        "## Goal\n\n"
+        "Build a tiny CLI that prints hello.\n\n"
+        "## Target User\n\n"
+        "Programmers trying JRI locally.\n\n"
+        "## Workflows\n\n"
+        "The user runs the CLI command once.\n\n"
+        "## Inputs\n\n"
+        "No user input is required.\n\n"
+        "## Outputs\n\n"
+        "The CLI prints hello to stdout.\n\n"
+        "## Persistence\n\n"
+        "No data is saved.\n\n"
+        "## Integrations\n\n"
+        "No external integrations are used.\n\n"
+        "## Errors\n\n"
+        "If the command fails, it exits non-zero.\n\n"
+        "## Edge Cases\n\n"
+        "Repeated runs print the same output.\n\n"
+        "## Non-goals\n\n"
+        "No interactive prompt in v1.\n\n"
+        "## Success Criteria\n\n"
+        "Running the command prints hello exactly once.\n"
+    )
+
+
+def _has_commit(path: Path) -> bool:
+    result = subprocess.run(
+        ["git", "rev-parse", "--verify", "HEAD"],
+        cwd=path,
+        check=False,
+        capture_output=True,
+    )
+    return result.returncode == 0

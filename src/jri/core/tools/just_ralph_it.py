@@ -5,6 +5,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from jri.core.git import commit_jri_files
+from jri.core.readiness import (
+    check_mvp_readiness,
+    format_missing_mvp_readiness,
+)
 from jri.core.triggers import is_trigger_message
 
 
@@ -36,6 +40,9 @@ async def finalize_jri(
     if not _has_spec_files(project_root):
         msg = "just_ralph_it requires at least one persisted spec file."
         raise JustRalphItError(msg)
+    readiness = check_mvp_readiness(_read_spec_files(project_root))
+    if not readiness.is_ready:
+        raise JustRalphItError(format_missing_mvp_readiness(readiness.missing))
 
     commit = await asyncio.to_thread(commit_jri_files, project_root)
     detail = "committed" if commit.committed else "already up to date"
@@ -52,3 +59,11 @@ async def finalize_jri(
 def _has_spec_files(project_root: Path) -> bool:
     specs_dir = project_root / ".jri" / "specs"
     return specs_dir.exists() and any(specs_dir.glob("**/*.md"))
+
+
+def _read_spec_files(project_root: Path) -> str:
+    specs_dir = project_root / ".jri" / "specs"
+    return "\n\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(specs_dir.glob("**/*.md"))
+    )
