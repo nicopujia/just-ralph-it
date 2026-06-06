@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from jri.core.tools.markdown_write import MarkdownWriteError
 from jri.core.tools.note import write_note
+from jri.core.tools.write import WriteError
 
 
 def test_note_writes_scratchpad(tmp_path: Path) -> None:
@@ -50,10 +50,10 @@ def test_note_patches_scratchpad(tmp_path: Path) -> None:
 
 def test_note_requires_content_or_patch_text(tmp_path: Path) -> None:
     """Note writes require exactly one mutation payload."""
-    with pytest.raises(MarkdownWriteError, match="content or patch_text"):
+    with pytest.raises(WriteError, match="content or patch_text"):
         asyncio.run(write_note(project_root=tmp_path))
 
-    with pytest.raises(MarkdownWriteError, match="content or patch_text"):
+    with pytest.raises(WriteError, match="content or patch_text"):
         asyncio.run(
             write_note(
                 project_root=tmp_path,

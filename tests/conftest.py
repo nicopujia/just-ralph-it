@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 import pytest
+from dotenv import dotenv_values
 
 from tests.env import INTERVIEWER_FACTORY_ENV
 from tests.support.cli import CliHarness
@@ -30,7 +31,11 @@ def runtime_env(live: bool) -> dict[str, str]:
     """Return an environment for tests that use external providers."""
     env = os.environ.copy()
     if live:
-        env.update(_read_dotenv(Path.cwd() / ".env"))
+        env.update({
+            key: value
+            for key, value in dotenv_values(Path.cwd() / ".env").items()
+            if value is not None
+        })
     return env
 
 
@@ -129,16 +134,3 @@ def _prepend_pythonpath(path: Path, existing: str | None) -> str:
     if not existing:
         return str(path)
     return f"{path}{os.pathsep}{existing}"
-
-
-def _read_dotenv(path: Path) -> dict[str, str]:
-    if not path.exists():
-        return {}
-    values: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        values[key] = value.strip().strip("'\"")
-    return values

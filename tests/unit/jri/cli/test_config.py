@@ -34,12 +34,31 @@ def test_cli_environment_loads_pwd_dotenv(tmp_path: Path) -> None:
     assert env["JRI_MODEL_PRESET"] == "cheap"
 
 
+def test_cli_environment_uses_python_dotenv_semantics(
+    tmp_path: Path,
+) -> None:
+    """The cwd .env file follows python-dotenv parsing behavior."""
+    (tmp_path / ".env").write_text(
+        (
+            "TOKEN_PREFIX=local\n"
+            "OPENROUTER_API_KEY=${TOKEN_PREFIX}-token # local comment\n"
+            'BRAVE_SEARCH_API_KEY="${TOKEN_PREFIX}-brave"\n'
+        ),
+        encoding="utf-8",
+    )
+
+    env = load_cli_environment(cwd=tmp_path, environ={})
+
+    assert env["OPENROUTER_API_KEY"] == "local-token"
+    assert env["BRAVE_SEARCH_API_KEY"] == "local-brave"
+
+
 def test_cli_environment_supports_export_and_empty_dotenv_values(
     tmp_path: Path,
 ) -> None:
-    """The lightweight .env parser handles common shell-like lines."""
+    """Python-dotenv handles common shell-like lines."""
     (tmp_path / ".env").write_text(
-        "export JRI_MODEL_PROVIDER=openrouter\nEMPTY=\n=ignored\n",
+        "export JRI_MODEL_PROVIDER=openrouter\nEMPTY=\nNO_VALUE\n=ignored\n",
         encoding="utf-8",
     )
 
@@ -47,6 +66,7 @@ def test_cli_environment_supports_export_and_empty_dotenv_values(
 
     assert env["JRI_MODEL_PROVIDER"] == "openrouter"
     assert env["EMPTY"] == ""
+    assert "NO_VALUE" not in env
     assert "" not in env
 
 

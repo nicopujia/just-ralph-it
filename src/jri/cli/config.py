@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-_MIN_QUOTED_VALUE_LENGTH = 2
+from dotenv import dotenv_values
 
 
 @dataclass(frozen=True)
@@ -40,31 +40,7 @@ def load_cli_environment(
 ) -> dict[str, str]:
     """Return process environment plus values from the cwd .env file."""
     env = dict(os.environ if environ is None else environ)
-    for key, value in _read_dotenv(cwd / ".env").items():
-        env.setdefault(key, value)
+    for key, value in dotenv_values(cwd / ".env").items():
+        if value is not None:
+            env.setdefault(key, value)
     return env
-
-
-def _read_dotenv(path: Path) -> dict[str, str]:
-    if not path.exists():
-        return {}
-
-    values: dict[str, str] = {}
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        stripped = raw_line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        if stripped.startswith("export "):
-            stripped = stripped.removeprefix("export ").lstrip()
-        key, value = stripped.split("=", 1)
-        if key := key.strip():
-            values[key] = _strip_optional_quotes(value.strip())
-    return values
-
-
-def _strip_optional_quotes(value: str) -> str:
-    if len(value) < _MIN_QUOTED_VALUE_LENGTH:
-        return value
-    if value[0] == value[-1] and value[0] in {"'", '"'}:
-        return value[1:-1]
-    return value

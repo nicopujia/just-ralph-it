@@ -1,9 +1,11 @@
 """Tests for provider-agnostic runtime configuration."""
 
 from pathlib import Path
+from typing import cast
 
 import pytest
 
+from jri.core.agents import providers
 from jri.core.agents.models import AgentModelConfig
 from jri.core.config import (
     AgentRuntimeConfig,
@@ -39,6 +41,49 @@ def test_runtime_config_accepts_role_model_id_overrides() -> None:
         "openrouter:anthropic/claude-sonnet-4-5"
     )
     assert config.models.explorer == "openrouter:qwen/custom"
+
+
+def test_runtime_config_discovers_provider_registry_from_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """New provider modules work without editing global config maps."""
+    provider_dir = tmp_path / "providers"
+    provider_dir.mkdir()
+    (provider_dir / "acme.py").write_text(
+        """
+from jri.core.agents.models import AgentModelPreset, ProviderModelRegistry
+
+
+def format_acme_model(model_id: str) -> str:
+    return f"acme:{model_id}"
+
+
+ACME_REGISTRY = ProviderModelRegistry(
+    provider="acme",
+    api_key_env_var="ACME_API_KEY",
+    presets={
+        "small": AgentModelPreset(interviewer="interview", explorer="explore"),
+    },
+    format_model_id=format_acme_model,
+)
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        providers,
+        "__path__",
+        [*cast("list[str]", vars(providers)["__path__"]), str(provider_dir)],
+    )
+
+    config = load_agent_runtime_config({
+        "JRI_MODEL_PROVIDER": "acme",
+        "JRI_MODEL_PRESET": "small",
+    })
+
+    assert config.model_provider == "acme"
+    assert config.models.interviewer == "acme:interview"
+    assert config.models.explorer == "acme:explore"
 
 
 def test_runtime_config_rejects_unsupported_provider() -> None:

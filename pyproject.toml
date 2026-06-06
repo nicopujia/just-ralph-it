@@ -11,6 +11,7 @@ dependencies = [
     "httpx>=0.28.1",
     "prompt-toolkit>=3.0.52",
     "pydantic-ai-slim[openrouter]>=1.106.0",
+    "python-dotenv>=1.2.2",
 ]
 
 [dependency-groups]

@@ -1,25 +1,25 @@
-"""Tests for scoped Markdown writes used by JRI tools."""
+"""Tests for scoped writes used by JRI tools."""
 
 import asyncio
 from pathlib import Path
 
 import pytest
 
-from jri.core.tools.markdown_write import (
-    MarkdownWriteError,
-    patch_markdown_file,
-    patch_markdown_files,
-    write_markdown_file,
+from jri.core.tools.write import (
+    WriteError,
+    patch_file,
+    patch_files,
+    write_file,
 )
 
 
-def test_markdown_write_creates_parent_directories(tmp_path: Path) -> None:
-    """Markdown writes create parents and report bytes written."""
+def test_write_creates_parent_directories(tmp_path: Path) -> None:
+    """Scoped writes create parents and report bytes written."""
     allowed_root = tmp_path / "project" / ".jri" / "specs"
     target_path = allowed_root / "product" / "overview.md"
 
     result = asyncio.run(
-        write_markdown_file(
+        write_file(
             allowed_root=allowed_root,
             target_path=target_path,
             content="# Product\n",
@@ -31,16 +31,16 @@ def test_markdown_write_creates_parent_directories(tmp_path: Path) -> None:
     assert result.bytes_written == len(b"# Product\n")
 
 
-def test_markdown_write_rejects_targets_outside_allowed_root(
+def test_write_rejects_targets_outside_allowed_root(
     tmp_path: Path,
 ) -> None:
-    """Markdown writes cannot escape their allowed root."""
+    """Scoped writes cannot escape their allowed root."""
     allowed_root = tmp_path / "project" / ".jri" / "specs"
     target_path = tmp_path / "project" / "README.md"
 
-    with pytest.raises(MarkdownWriteError, match="allowed root"):
+    with pytest.raises(WriteError, match="allowed root"):
         asyncio.run(
-            write_markdown_file(
+            write_file(
                 allowed_root=allowed_root,
                 target_path=target_path,
                 content="# Escape\n",
@@ -50,7 +50,7 @@ def test_markdown_write_rejects_targets_outside_allowed_root(
     assert not target_path.exists()
 
 
-def test_markdown_write_serializes_same_file_writes(tmp_path: Path) -> None:
+def test_write_serializes_same_file_writes(tmp_path: Path) -> None:
     """Concurrent writes to the same file do not overlap."""
     allowed_root = tmp_path / "project" / ".jri" / "specs"
     target_path = allowed_root / "product.md"
@@ -58,13 +58,13 @@ def test_markdown_write_serializes_same_file_writes(tmp_path: Path) -> None:
 
     async def write_twice() -> None:
         await asyncio.gather(
-            write_markdown_file(
+            write_file(
                 allowed_root=allowed_root,
                 target_path=target_path,
                 content="first\n",
                 operations=operations,
             ),
-            write_markdown_file(
+            write_file(
                 allowed_root=allowed_root,
                 target_path=target_path,
                 content="second\n",
@@ -81,15 +81,15 @@ def test_markdown_write_serializes_same_file_writes(tmp_path: Path) -> None:
     }
 
 
-def test_markdown_patch_updates_existing_file(tmp_path: Path) -> None:
-    """Markdown patches can apply focused updates."""
+def test_patch_updates_existing_file(tmp_path: Path) -> None:
+    """Scoped patches can apply focused updates."""
     allowed_root = tmp_path / "project" / ".jri" / "specs"
     target_path = allowed_root / "product.md"
     target_path.parent.mkdir(parents=True)
     target_path.write_text("# Product\nold\n", encoding="utf-8")
 
     result = asyncio.run(
-        patch_markdown_files(
+        patch_files(
             allowed_root=allowed_root,
             patch_text=(
                 "*** Begin Patch\n"
@@ -106,15 +106,15 @@ def test_markdown_patch_updates_existing_file(tmp_path: Path) -> None:
     assert [change.operation for change in result.applied] == ["update"]
 
 
-def test_markdown_patch_adds_and_deletes_files(tmp_path: Path) -> None:
-    """Markdown patches can create and remove scoped files."""
+def test_patch_adds_and_deletes_files(tmp_path: Path) -> None:
+    """Scoped patches can create and remove scoped files."""
     allowed_root = tmp_path / "project" / ".jri" / "specs"
     remove_path = allowed_root / "remove.md"
     remove_path.parent.mkdir(parents=True)
     remove_path.write_text("remove\n", encoding="utf-8")
 
     result = asyncio.run(
-        patch_markdown_files(
+        patch_files(
             allowed_root=allowed_root,
             patch_text=(
                 "*** Begin Patch\n"
@@ -136,12 +136,12 @@ def test_markdown_patch_adds_and_deletes_files(tmp_path: Path) -> None:
     ]
 
 
-def test_markdown_patch_adds_empty_files(tmp_path: Path) -> None:
+def test_patch_adds_empty_files(tmp_path: Path) -> None:
     """Empty add hunks create empty files without adding a newline."""
     allowed_root = tmp_path / "project" / ".jri" / "specs"
 
     result = asyncio.run(
-        patch_markdown_files(
+        patch_files(
             allowed_root=allowed_root,
             patch_text=(
                 "*** Begin Patch\n*** Add File: empty.md\n*** End Patch"
@@ -153,7 +153,7 @@ def test_markdown_patch_adds_empty_files(tmp_path: Path) -> None:
     assert result.applied[0].bytes_written == 0
 
 
-def test_markdown_patch_accepts_absolute_targets_inside_root(
+def test_patch_accepts_absolute_targets_inside_root(
     tmp_path: Path,
 ) -> None:
     """Absolute patch paths are allowed only inside the allowed root."""
@@ -163,7 +163,7 @@ def test_markdown_patch_accepts_absolute_targets_inside_root(
     target_path.write_text("old\n", encoding="utf-8")
 
     result = asyncio.run(
-        patch_markdown_files(
+        patch_files(
             allowed_root=allowed_root,
             patch_text=(
                 "*** Begin Patch\n"
@@ -180,13 +180,13 @@ def test_markdown_patch_accepts_absolute_targets_inside_root(
     assert result.applied[0].operation == "update"
 
 
-def test_markdown_patch_file_rejects_other_targets(tmp_path: Path) -> None:
+def test_patch_file_rejects_other_targets(tmp_path: Path) -> None:
     """Single-file patches cannot mutate a different target."""
     allowed_root = tmp_path / "project" / ".jri" / "specs"
 
-    with pytest.raises(MarkdownWriteError, match="does not target"):
+    with pytest.raises(WriteError, match="does not target"):
         asyncio.run(
-            patch_markdown_file(
+            patch_file(
                 allowed_root=allowed_root,
                 target_path=allowed_root / "product.md",
                 patch_text=(
@@ -199,16 +199,16 @@ def test_markdown_patch_file_rejects_other_targets(tmp_path: Path) -> None:
         )
 
 
-def test_markdown_patch_rejects_escape_before_mutation(
+def test_patch_rejects_escape_before_mutation(
     tmp_path: Path,
 ) -> None:
     """Patch hunks cannot escape the allowed root."""
     allowed_root = tmp_path / "project" / ".jri" / "specs"
     escape_path = tmp_path / "project" / "README.md"
 
-    with pytest.raises(MarkdownWriteError, match="allowed root"):
+    with pytest.raises(WriteError, match="allowed root"):
         asyncio.run(
-            patch_markdown_files(
+            patch_files(
                 allowed_root=allowed_root,
                 patch_text=(
                     "*** Begin Patch\n"
@@ -222,15 +222,15 @@ def test_markdown_patch_rejects_escape_before_mutation(
     assert not escape_path.exists()
 
 
-def test_markdown_patch_validates_all_hunks_before_mutating(
+def test_patch_validates_all_hunks_before_mutating(
     tmp_path: Path,
 ) -> None:
     """A later invalid update prevents earlier add hunks."""
     allowed_root = tmp_path / "project" / ".jri" / "specs"
 
-    with pytest.raises(MarkdownWriteError, match=r"missing\.md"):
+    with pytest.raises(WriteError, match=r"missing\.md"):
         asyncio.run(
-            patch_markdown_files(
+            patch_files(
                 allowed_root=allowed_root,
                 patch_text=(
                     "*** Begin Patch\n"
@@ -248,44 +248,44 @@ def test_markdown_patch_validates_all_hunks_before_mutating(
     assert not (allowed_root / "created.md").exists()
 
 
-def test_markdown_patch_rejects_invalid_patch_text(tmp_path: Path) -> None:
-    """Invalid patch text is surfaced as a Markdown write error."""
+def test_patch_rejects_invalid_patch_text(tmp_path: Path) -> None:
+    """Invalid patch text is surfaced as a write error."""
     allowed_root = tmp_path / "project" / ".jri" / "specs"
 
-    with pytest.raises(MarkdownWriteError, match="missing Begin/End"):
+    with pytest.raises(WriteError, match="missing Begin/End"):
         asyncio.run(
-            patch_markdown_files(
+            patch_files(
                 allowed_root=allowed_root,
                 patch_text="not a patch",
             )
         )
 
 
-def test_markdown_patch_rejects_empty_patch(tmp_path: Path) -> None:
+def test_patch_rejects_empty_patch(tmp_path: Path) -> None:
     """Empty patches are invalid."""
     allowed_root = tmp_path / "project" / ".jri" / "specs"
 
-    with pytest.raises(MarkdownWriteError, match="empty patch"):
+    with pytest.raises(WriteError, match="empty patch"):
         asyncio.run(
-            patch_markdown_files(
+            patch_files(
                 allowed_root=allowed_root,
                 patch_text="*** Begin Patch\n*** End Patch",
             )
         )
 
 
-def test_markdown_patch_rejects_moves_before_mutation(
+def test_patch_rejects_moves_before_mutation(
     tmp_path: Path,
 ) -> None:
-    """Moves are parsed but not supported by scoped Markdown patches."""
+    """Moves are parsed but not supported by scoped patches."""
     allowed_root = tmp_path / "project" / ".jri" / "specs"
     target_path = allowed_root / "old.md"
     target_path.parent.mkdir(parents=True)
     target_path.write_text("old\n", encoding="utf-8")
 
-    with pytest.raises(MarkdownWriteError, match="moves"):
+    with pytest.raises(WriteError, match="moves"):
         asyncio.run(
-            patch_markdown_files(
+            patch_files(
                 allowed_root=allowed_root,
                 patch_text=(
                     "*** Begin Patch\n"
@@ -303,7 +303,7 @@ def test_markdown_patch_rejects_moves_before_mutation(
     assert target_path.read_text(encoding="utf-8") == "old\n"
 
 
-def test_markdown_patch_rejects_add_target_that_exists(
+def test_patch_rejects_add_target_that_exists(
     tmp_path: Path,
 ) -> None:
     """Add hunks do not replace existing files."""
@@ -312,9 +312,9 @@ def test_markdown_patch_rejects_add_target_that_exists(
     target_path.parent.mkdir(parents=True)
     target_path.write_text("sentinel\n", encoding="utf-8")
 
-    with pytest.raises(MarkdownWriteError, match="already exists"):
+    with pytest.raises(WriteError, match="already exists"):
         asyncio.run(
-            patch_markdown_files(
+            patch_files(
                 allowed_root=allowed_root,
                 patch_text=(
                     "*** Begin Patch\n"
@@ -328,15 +328,15 @@ def test_markdown_patch_rejects_add_target_that_exists(
     assert target_path.read_text(encoding="utf-8") == "sentinel\n"
 
 
-def test_markdown_patch_rejects_stale_updates(tmp_path: Path) -> None:
+def test_patch_rejects_stale_updates(tmp_path: Path) -> None:
     """Updates fail if content changes after patch derivation."""
     allowed_root = tmp_path / "project" / ".jri" / "specs"
     target_path = allowed_root / "product.md"
     operations = StaleUpdateOperations(target_path.resolve(), "before\n")
 
-    with pytest.raises(MarkdownWriteError, match="changed"):
+    with pytest.raises(WriteError, match="changed"):
         asyncio.run(
-            patch_markdown_files(
+            patch_files(
                 allowed_root=allowed_root,
                 patch_text=(
                     "*** Begin Patch\n"

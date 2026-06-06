@@ -2,7 +2,7 @@
 
 import pytest
 
-from jri.core.tools.patch import (
+from jri.core.tools.write import (
     AddHunk,
     DeleteHunk,
     UpdateChunk,

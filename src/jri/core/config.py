@@ -4,13 +4,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from jri.core.agents.models import AgentModelConfig
-from jri.core.agents.providers.openrouter import OPENROUTER_REGISTRY
+from jri.core.agents.providers import load_provider_registries
 
 DEFAULT_MODEL_PROVIDER = "openrouter"
 DEFAULT_MODEL_PRESET = "cheap"
-PROVIDER_REGISTRIES = {
-    OPENROUTER_REGISTRY.provider: OPENROUTER_REGISTRY,
-}
 
 
 @dataclass(frozen=True)
@@ -30,11 +27,12 @@ def load_agent_runtime_config(env: Mapping[str, str]) -> AgentRuntimeConfig:
     """Load provider-agnostic agent runtime configuration."""
     provider = _env_value(env, "JRI_MODEL_PROVIDER", DEFAULT_MODEL_PROVIDER)
     preset = _env_value(env, "JRI_MODEL_PRESET", DEFAULT_MODEL_PRESET)
+    registries = load_provider_registries()
 
     try:
-        registry = PROVIDER_REGISTRIES[provider]
+        registry = registries[provider]
     except KeyError as exc:
-        names = ", ".join(sorted(PROVIDER_REGISTRIES))
+        names = ", ".join(sorted(registries))
         msg = (
             "Unsupported JRI_MODEL_PROVIDER "
             f"{provider!r}. Supported providers: {names}."
@@ -57,8 +55,9 @@ def validate_agent_runtime_credentials(
     env: Mapping[str, str],
 ) -> None:
     """Validate credentials for the selected model provider."""
+    registries = load_provider_registries()
     try:
-        registry = PROVIDER_REGISTRIES[config.model_provider]
+        registry = registries[config.model_provider]
     except KeyError as exc:
         msg = f"Unsupported JRI_MODEL_PROVIDER {config.model_provider!r}."
         raise ConfigError(msg) from exc

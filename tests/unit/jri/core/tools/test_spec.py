@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from jri.core.tools.markdown_write import MarkdownWriteError
 from jri.core.tools.spec import write_spec
+from jri.core.tools.write import WriteError
 
 
 def test_spec_writes_markdown_under_specs_directory(tmp_path: Path) -> None:
@@ -52,10 +52,10 @@ def test_spec_patches_markdown_under_specs_directory(tmp_path: Path) -> None:
 
 def test_spec_requires_content_or_patch_text(tmp_path: Path) -> None:
     """Spec writes require exactly one mutation payload."""
-    with pytest.raises(MarkdownWriteError, match="content or patch_text"):
+    with pytest.raises(WriteError, match="content or patch_text"):
         asyncio.run(write_spec(project_root=tmp_path, path="product"))
 
-    with pytest.raises(MarkdownWriteError, match="content or patch_text"):
+    with pytest.raises(WriteError, match="content or patch_text"):
         asyncio.run(
             write_spec(
                 project_root=tmp_path,
@@ -76,7 +76,7 @@ def test_spec_rejects_paths_outside_specs_directory(
     if path_kind == "traversal":
         path = "../escape.md"
 
-    with pytest.raises(MarkdownWriteError):
+    with pytest.raises(WriteError):
         asyncio.run(
             write_spec(
                 project_root=tmp_path,
@@ -92,7 +92,7 @@ def test_spec_rejects_patch_targets_outside_requested_spec(
     """Spec patches cannot mutate a different file than requested."""
     (tmp_path / ".jri" / "specs").mkdir(parents=True)
 
-    with pytest.raises(MarkdownWriteError, match="does not target"):
+    with pytest.raises(WriteError, match="does not target"):
         asyncio.run(
             write_spec(
                 project_root=tmp_path,

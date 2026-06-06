@@ -2,11 +2,11 @@
 
 from pathlib import Path
 
-from .markdown_write import (
-    MarkdownPatchResult,
-    MarkdownWriteError,
-    patch_markdown_file,
-    write_markdown_file,
+from .write import (
+    PatchResult,
+    WriteError,
+    patch_file,
+    write_file,
 )
 
 
@@ -21,7 +21,7 @@ async def write_note(
     allowed_root = project_root / ".jri"
     target_path = project_root / ".jri" / "scratchpad.md"
     if patch_text is not None:
-        result = await patch_markdown_file(
+        result = await patch_file(
             allowed_root=allowed_root,
             target_path=target_path,
             patch_text=patch_text,
@@ -31,7 +31,7 @@ async def write_note(
             result=result,
         )
 
-    result = await write_markdown_file(
+    result = await write_file(
         allowed_root=allowed_root,
         target_path=target_path,
         content=content or "",
@@ -46,13 +46,13 @@ def _validate_payload(
 ) -> None:
     if (content is None) == (patch_text is None):
         msg = "Provide exactly one of content or patch_text."
-        raise MarkdownWriteError(msg)
+        raise WriteError(msg)
 
 
 def _format_patch_result(
     *,
     project_root: Path,
-    result: MarkdownPatchResult,
+    result: PatchResult,
 ) -> str:
     prefixes = {"add": "A", "update": "M", "delete": "D"}
     lines = ["Applied patch sequentially:"]
