@@ -1,0 +1,6 @@
+{"ts": "2026-06-06T19:06:41.958377Z", "type": "session_started", "data": {"project_root": "/private/var/folders/x9/qw3yjr_j50z1w152r8md3jp40000gn/T/pytest-of-nicopujia/pytest-0/test_first_interview_turn_reco0"}}
+{"ts": "2026-06-06T19:06:41.958880Z", "type": "user_message", "data": {"message": "I want a tiny CLI that prints hello to stdout."}}
+{"ts": "2026-06-06T19:06:41.959004Z", "type": "tool_call_rendered", "data": {"tool_name": "spec"}}
+{"ts": "2026-06-06T19:06:41.960452Z", "type": "tool_call_rendered", "data": {"tool_name": "note"}}
+{"ts": "2026-06-06T19:06:41.960942Z", "type": "assistant_message", "data": {"message": "High-level question:\nWho is the primary user, and what would count as success for the first version?"}}
+{"ts": "2026-06-06T19:06:41.961029Z", "type": "session_finished", "data": {"reason": "eof"}}

@@ -1,0 +1,9 @@
+[36mjri>[0m [90m⚙︎ spec[0m
+[90m⚙︎ note[0m
+High-level question:
+Who is the primary user, and what would count as success for the first version?
+[36mjri>[0m [90m⚙︎ spec[0m
+[90m⚙︎ note[0m
+I have enough for the first-version behavior. Say "just ralph it" to finalize the specs.
+[36mjri>[0m [90m⚙︎ just_ralph_it[0m
+Specs finalized for Ralph handoff and committed. Readiness: The scripted interview captured a goal, target user, and first-version success criteria.

@@ -1,3 +1,3 @@
-Read @README.md, specially the linked concept document, to know more about the project.
-Thoroughly study @CONTRIBUTING.md and its recommended TDD book before proposing or making changes, and stick to its guidelines.
-If you're already on a branch that isn't `main`, keep working there rather than creating a new one.
+- Read @README.md, specially the linked concept document, to know more about the project; to read the document, run `curl -Ls https://nicolaspujia.com/just-ralph-it.md` instead of using your web tool.
+- Thoroughly study @CONTRIBUTING.md and its recommended TDD book before proposing or making changes, and stick to the guidelines on both documents.
+- If you're already on a branch that isn't `main`, keep working there rather than creating a new one.
