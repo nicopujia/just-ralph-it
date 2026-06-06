@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 COMMIT_MESSAGE = "docs: capture JRI specs"
+COMMITTED_MESSAGE = "Committed .jri changes."
 
 
 @dataclass(frozen=True)
@@ -40,15 +41,16 @@ def commit_jri_files(project_root: Path) -> CommitResult:
         )
 
     _run_git(project_root, "add", "--", *pathspecs)
-    commit = _run_git(
+    _run_git(
         project_root,
         "commit",
+        "--quiet",
         "-m",
         COMMIT_MESSAGE,
         "--",
         *pathspecs,
     )
-    return CommitResult(committed=True, message=commit.stdout.strip())
+    return CommitResult(committed=True, message=COMMITTED_MESSAGE)
 
 
 def _find_committable_paths(project_root: Path) -> list[str]:

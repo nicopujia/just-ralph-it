@@ -1,7 +1,0 @@
-[36mjri>[0m [90m⚙︎ spec[0m
-[90m⚙︎ note[0m
-High-level question:
-Who is the primary user, and what would count as success for the first version?
-[36mjri>[0m I can't finalize specs for Ralph handoff yet.
-Missing: target user and success criteria.
-[36mjri>[0m 

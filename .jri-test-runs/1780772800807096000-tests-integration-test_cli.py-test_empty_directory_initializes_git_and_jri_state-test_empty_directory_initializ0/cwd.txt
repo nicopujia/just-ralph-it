@@ -1,1 +1,0 @@
-/private/var/folders/x9/qw3yjr_j50z1w152r8md3jp40000gn/T/pytest-of-nicopujia/pytest-0/test_empty_directory_initializ0

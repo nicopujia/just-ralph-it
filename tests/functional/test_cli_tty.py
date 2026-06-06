@@ -135,8 +135,8 @@ def _assert_successful_interview_log(
 
 def _assert_debug_logs_archived(result: CliRun) -> None:
     assert result.debug_log_dir is not None
-    assert result.debug_log_dir.is_relative_to(Path.cwd() / ".jri-test-runs")
+    assert result.debug_log_dir.is_relative_to(Path.cwd() / ".pytest_logs")
     assert (result.debug_log_dir / "logs" / "interview.jsonl").exists()
     assert (result.debug_log_dir / "stdout.txt").exists()
     assert (result.debug_log_dir / "stderr.txt").exists()
-    assert ".jri-test-runs/" in Path(".gitignore").read_text(encoding="utf-8")
+    assert ".pytest_logs/" in Path(".gitignore").read_text(encoding="utf-8")

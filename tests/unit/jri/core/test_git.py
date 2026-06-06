@@ -31,6 +31,29 @@ def test_commit_jri_files_raises_git_error_outside_repo(
         commit_jri_files(tmp_path)
 
 
+def test_commit_jri_files_returns_stable_message_without_git_summary(
+    tmp_path: Path,
+) -> None:
+    """Successful commits report app-level status, not raw git summary."""
+    project = _make_repo(tmp_path)
+    (project / ".jri" / "specs").mkdir(parents=True)
+    (project / ".jri" / ".gitignore").write_text("logs/\n", encoding="utf-8")
+    (project / ".jri" / "scratchpad.md").write_text(
+        "# Scratchpad\n",
+        encoding="utf-8",
+    )
+    (project / ".jri" / "specs" / "product.md").write_text(
+        "# Product\n",
+        encoding="utf-8",
+    )
+
+    result = commit_jri_files(project)
+
+    assert result.committed
+    assert result.message == "Committed .jri changes."
+    assert "create mode" not in result.message
+
+
 def test_commit_jri_files_includes_tracked_deleted_specs(
     tmp_path: Path,
 ) -> None:

@@ -145,7 +145,7 @@ def archive_debug_logs(
 
     test_name = os.environ.get("PYTEST_CURRENT_TEST", "manual").split(" ")[0]
     run_name = f"{time_ns()}-{_slug(test_name)}-{_slug(cwd.name)}"
-    archive_dir = Path.cwd() / ".jri-test-runs" / run_name
+    archive_dir = Path.cwd() / ".pytest_logs" / run_name
     archive_dir.mkdir(parents=True)
     shutil.copytree(logs, archive_dir / "logs")
     (archive_dir / "cwd.txt").write_text(f"{cwd}\n", encoding="utf-8")
