@@ -367,6 +367,37 @@ def test_patch_rejects_existing_add_before_writing_earlier_hunks(
     assert second_path.read_text(encoding="utf-8") == "sentinel\n"
 
 
+def test_patch_rejects_duplicate_targets_before_writing(
+    tmp_path: Path,
+) -> None:
+    """Duplicate target hunks fail before any prepared change commits."""
+    allowed_root = tmp_path / "project" / ".jri" / "specs"
+    target_path = allowed_root / "product.md"
+    target_path.parent.mkdir(parents=True)
+    target_path.write_text("old\n", encoding="utf-8")
+
+    with pytest.raises(WriteError, match="multiple hunks"):
+        asyncio.run(
+            patch_files(
+                allowed_root=allowed_root,
+                patch_text=(
+                    "*** Begin Patch\n"
+                    "*** Update File: product.md\n"
+                    "@@\n"
+                    "-old\n"
+                    "+first\n"
+                    "*** Update File: product.md\n"
+                    "@@\n"
+                    "-old\n"
+                    "+second\n"
+                    "*** End Patch"
+                ),
+            )
+        )
+
+    assert target_path.read_text(encoding="utf-8") == "old\n"
+
+
 def test_patch_rejects_add_race_during_commit(tmp_path: Path) -> None:
     """Add hunks still reject files created after preparation."""
     allowed_root = tmp_path / "project" / ".jri" / "specs"
@@ -761,6 +792,28 @@ def test_patch_derives_insert_only_chunks() -> None:
     )
 
     assert update.content == "base\nadded\n"
+
+
+def test_patch_derives_context_anchored_insert_only_chunks() -> None:
+    """Insert-only chunks with context insert at the matched anchor."""
+    update = derive_update(
+        path="scratchpad.md",
+        chunks=(
+            UpdateChunk(
+                old_lines=(),
+                new_lines=("- Who is the target user?",),
+                change_context="## Pending Questions",
+            ),
+        ),
+        original="# Scratchpad\n## Pending Questions\n## Notes\n",
+    )
+
+    assert update.content == (
+        "# Scratchpad\n"
+        "## Pending Questions\n"
+        "- Who is the target user?\n"
+        "## Notes\n"
+    )
 
 
 def test_patch_derives_updates_with_trailing_empty_line_fallback() -> None:

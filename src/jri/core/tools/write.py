@@ -337,6 +337,7 @@ async def _apply_patch_hunks(
         )
         for hunk in hunks
     ]
+    _validate_unique_targets(hunks=tuple(zip(hunks, targets, strict=True)))
     prepared = await _prepare_patch_hunks(
         writer=writer,
         hunks=tuple(zip(hunks, targets, strict=True)),
@@ -346,6 +347,18 @@ async def _apply_patch_hunks(
         await _commit_prepared_change(writer, change) for change in prepared
     ]
     return PatchResult(applied=tuple(applied))
+
+
+def _validate_unique_targets(
+    *,
+    hunks: tuple[tuple[PatchHunk, Path], ...],
+) -> None:
+    seen: set[Path] = set()
+    for hunk, target in hunks:
+        if target in seen:
+            msg = f"patch has multiple hunks for {hunk.path}"
+            raise WriteError(msg)
+        seen.add(target)
 
 
 async def _prepare_patch_hunks(
@@ -709,7 +722,8 @@ def _compute_replacements(
                 raise ValueError(msg)
             line_index = context + 1
         if not chunk.old_lines:
-            replacements.append((len(lines), 0, chunk.new_lines))
+            insert_at = line_index if chunk.change_context else len(lines)
+            replacements.append((insert_at, 0, chunk.new_lines))
             continue
         old_lines = chunk.old_lines
         new_lines = chunk.new_lines
