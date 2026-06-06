@@ -4,7 +4,7 @@ repos:
   - repo: local
     hooks:
       - id: validate-fast
-        name: commit validation (no tests)
+        name: fast validation
         entry: ./scripts/validate.py --mode fast
         language: system
         pass_filenames: false
