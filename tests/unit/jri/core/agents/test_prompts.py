@@ -16,6 +16,7 @@ def test_interviewer_prompt_defines_jri_and_tool_roles() -> None:
     assert "Ralph" in BASE_INTERVIEWER_PROMPT
     assert "confirmed requirements" in BASE_INTERVIEWER_PROMPT
     assert "pending questions" in BASE_INTERVIEWER_PROMPT
+    assert "update_scratchpad" in BASE_INTERVIEWER_PROMPT
     assert "must call finalize_specs" in BASE_INTERVIEWER_PROMPT
     assert "just_ralph_it" not in BASE_INTERVIEWER_PROMPT
 
@@ -56,6 +57,42 @@ def test_interviewer_prompt_prefers_simple_clear_language() -> None:
     prompt = BASE_INTERVIEWER_PROMPT.lower()
 
     assert "simple, clear, easy-to-understand language" in prompt
+
+
+def test_interviewer_prompt_records_intent_before_questions() -> None:
+    """The interviewer should use scratchpad memory before follow-ups."""
+    prompt = BASE_INTERVIEWER_PROMPT.lower()
+
+    assert "concisely note expressed user intent" in prompt
+    assert "before asking" in prompt
+    assert "ask_question" in prompt
+
+
+def test_interviewer_prompt_requires_ask_question_for_followups() -> None:
+    """User-facing interview questions should go through ask_question."""
+    prompt = BASE_INTERVIEWER_PROMPT.lower()
+
+    assert "do not ask user-facing follow-up questions as plain text" in prompt
+    assert "use ask_question" in prompt
+
+
+def test_prompt_supports_recommendations_without_acceptance() -> None:
+    """Opinions can be useful without becoming accepted requirements."""
+    prompt = BASE_INTERVIEWER_PROMPT.lower()
+
+    assert "concise recommendation" in prompt
+    assert "reasoning" in prompt
+    assert "tradeoffs" in prompt
+    assert "not confirmed specs" in prompt
+
+
+def test_prompt_handles_finalize_blockers_without_retrying() -> None:
+    """Semantic blockers should become a question path, not retry loops."""
+    prompt = BASE_INTERVIEWER_PROMPT.lower()
+
+    assert "do not retry finalize_specs" in prompt
+    assert "known blockers" in prompt
+    assert "missing readiness" in prompt
 
 
 def test_explorer_prompt_supports_jri_without_inferring_preferences() -> None:

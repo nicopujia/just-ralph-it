@@ -33,14 +33,6 @@ from pydantic_ai.usage import RequestUsage, RunUsage
 from jri.core.agents.interviewer import (
     Interviewer,
     InterviewerDeps,
-    ask_question_tool,
-    build_interviewer_tools,
-    explore_context_tool,
-    finalize_specs_tool,
-    record_notes_tool,
-    update_specs_tool,
-    write_note_tool,
-    write_spec_tool,
 )
 from jri.core.agents.models import AgentModelConfig
 from jri.core.interview import (
@@ -49,6 +41,17 @@ from jri.core.interview import (
     QuestionChoice,
 )
 from jri.core.logging import JsonlLogger
+from jri.core.tools.interviewer import (
+    ask_question_tool,
+    build_interviewer_tools,
+    explore_context_tool,
+    finalize_specs_tool,
+    record_notes_tool,
+    update_scratchpad_tool,
+    update_specs_tool,
+    write_note_tool,
+    write_spec_tool,
+)
 from jri.core.tools.just_ralph_it import JustRalphItError
 from tests.doubles.agents import (
     FakeRunContext,
@@ -519,24 +522,24 @@ def test_interviewer_registers_high_level_model_tools(
 
     assert set(tools) == {
         "ask_question",
-        "record_notes",
+        "update_scratchpad",
         "update_specs",
         "explore_context",
         "finalize_specs",
     }
     assert tools["update_specs"].strict is True
     assert tools["update_specs"].max_retries == 3
-    assert tools["record_notes"].strict is True
-    assert tools["record_notes"].max_retries == 3
+    assert tools["update_scratchpad"].strict is True
+    assert tools["update_scratchpad"].max_retries == 3
     assert tools["finalize_specs"].strict is True
     assert tools["finalize_specs"].max_retries == 3
     assert tools["update_specs"].function_schema.json_schema["required"] == [
         "spec_name",
         "content",
     ]
-    assert tools["record_notes"].function_schema.json_schema["required"] == [
-        "notes"
-    ]
+    assert tools["update_scratchpad"].function_schema.json_schema[
+        "required"
+    ] == ["notes"]
     assert tools["finalize_specs"].function_schema.json_schema["required"] == [
         "readiness_summary",
         "spec_content",
@@ -552,7 +555,6 @@ def test_interviewer_registers_high_level_model_tools(
         ".jri",
         ".jri/specs",
         "absolute path",
-        "scratchpad",
         "patch_text",
         "patch envelope",
         "*** begin patch",
@@ -1302,11 +1304,11 @@ def test_interviewer_tools_mutate_jri_state_and_finalize(
         update_specs_tool(
             ctx,
             spec_name="product",
-            content="# Product\n",
+            content="# Product\n\n## Goal\n\nBuild a tiny CLI.\n",
         )
     )
     note_result = asyncio.run(
-        record_notes_tool(
+        update_scratchpad_tool(
             ctx,
             notes="# Notes\n",
         )
@@ -1344,13 +1346,57 @@ def test_interviewer_tools_mutate_jri_state_and_finalize(
     ]
     assert tool_starts == [
         "update_specs",
-        "record_notes",
+        "update_scratchpad",
         "explore_context",
         "finalize_specs",
     ]
 
 
-def test_record_notes_tool_preserves_earlier_notes(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "content",
+    [
+        (
+            "Use Rust for this:\n\n"
+            "fn main() {\n"
+            '    println!("Hello, world!");\n'
+            "}\n"
+        ),
+        "The app should probably say hello when it runs.",
+    ],
+)
+def test_update_specs_tool_retries_non_spec_markdown_without_writing(
+    tmp_path: Path,
+    content: str,
+) -> None:
+    """Raw prose or code is not accepted as persisted spec content."""
+    product = tmp_path / ".jri" / "specs" / "product.md"
+    product.parent.mkdir(parents=True)
+    product.write_text("# Product\n\n## Goal\n\nExisting.\n", encoding="utf-8")
+    deps = InterviewerDeps(
+        project_root=tmp_path,
+        latest_user_message="idea",
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        explorer=RecordingExplorer(),
+    )
+    ctx = cast("RunContext[InterviewerDeps]", FakeRunContext(deps))
+
+    with pytest.raises(ModelRetry, match="spec-shaped Markdown"):
+        asyncio.run(
+            update_specs_tool(
+                ctx,
+                spec_name="product",
+                content=content,
+            )
+        )
+
+    assert product.read_text(encoding="utf-8") == (
+        "# Product\n\n## Goal\n\nExisting.\n"
+    )
+
+
+def test_update_scratchpad_tool_preserves_earlier_notes(
+    tmp_path: Path,
+) -> None:
     """Later note calls keep earlier confirmed interview facts."""
     deps = InterviewerDeps(
         project_root=tmp_path,
@@ -1361,13 +1407,13 @@ def test_record_notes_tool_preserves_earlier_notes(tmp_path: Path) -> None:
     ctx = cast("RunContext[InterviewerDeps]", FakeRunContext(deps))
 
     asyncio.run(
-        record_notes_tool(
+        update_scratchpad_tool(
             ctx,
             notes="# Scratchpad\n\n## Confirmed\n\n- Goal: print hello.\n",
         )
     )
     asyncio.run(
-        record_notes_tool(
+        update_scratchpad_tool(
             ctx,
             notes="## Pending Questions\n\n- Who is the target user?\n",
         )
@@ -1380,7 +1426,7 @@ def test_record_notes_tool_preserves_earlier_notes(tmp_path: Path) -> None:
     assert "Who is the target user?" in scratchpad
 
 
-def test_record_notes_tool_does_not_duplicate_existing_notes(
+def test_update_scratchpad_tool_does_not_duplicate_existing_notes(
     tmp_path: Path,
 ) -> None:
     """Repeated note calls leave the scratchpad stable."""
@@ -1393,13 +1439,33 @@ def test_record_notes_tool_does_not_duplicate_existing_notes(
     ctx = cast("RunContext[InterviewerDeps]", FakeRunContext(deps))
     notes = "# Scratchpad\n\n## Confirmed\n\n- Goal: print hello.\n"
 
-    asyncio.run(record_notes_tool(ctx, notes=notes))
-    asyncio.run(record_notes_tool(ctx, notes=notes))
+    asyncio.run(update_scratchpad_tool(ctx, notes=notes))
+    asyncio.run(update_scratchpad_tool(ctx, notes=notes))
 
     scratchpad = (tmp_path / ".jri" / "scratchpad.md").read_text(
         encoding="utf-8"
     )
     assert scratchpad.count("Goal: print hello.") == 1
+
+
+def test_record_notes_tool_remains_backward_compatible(
+    tmp_path: Path,
+) -> None:
+    """The old note wrapper still works for direct callers."""
+    deps = InterviewerDeps(
+        project_root=tmp_path,
+        latest_user_message="idea",
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        explorer=RecordingExplorer(),
+    )
+    ctx = cast("RunContext[InterviewerDeps]", FakeRunContext(deps))
+
+    result = asyncio.run(record_notes_tool(ctx, notes="# Notes\n"))
+
+    assert "scratchpad.md" in result
+    assert (tmp_path / ".jri" / "scratchpad.md").read_text(
+        encoding="utf-8"
+    ) == "# Notes\n"
 
 
 def test_interviewer_tools_patch_jri_state(tmp_path: Path) -> None:
@@ -1609,7 +1675,7 @@ def test_finalize_specs_tool_retries_without_trigger_phrase(
     assert product.read_text(encoding="utf-8") == "# Existing\n"
 
 
-def test_finalize_specs_tool_rejects_known_blockers_without_writing_spec(
+def test_finalize_specs_tool_reports_known_blockers_without_writing_spec(
     tmp_path: Path,
 ) -> None:
     """Known blockers prevent spec persistence and finalization."""
@@ -1621,20 +1687,21 @@ def test_finalize_specs_tool_rejects_known_blockers_without_writing_spec(
     )
     ctx = cast("RunContext[InterviewerDeps]", FakeRunContext(deps))
 
-    with pytest.raises(ModelRetry, match="Missing target user"):
-        asyncio.run(
-            finalize_specs_tool(
-                ctx,
-                readiness_summary="Not ready.",
-                spec_content="# Product\n",
-                known_blockers=["Missing target user"],
-            )
+    result = asyncio.run(
+        finalize_specs_tool(
+            ctx,
+            readiness_summary="Not ready.",
+            spec_content="# Product\n",
+            known_blockers=["Missing target user"],
         )
+    )
 
+    assert result == "Cannot finalize specs yet:\n- Missing target user"
     assert not (tmp_path / ".jri" / "specs" / "product.md").exists()
+    assert not deps.finalized
 
 
-def test_finalize_specs_tool_rejects_incomplete_spec_without_writing(
+def test_finalize_specs_tool_reports_incomplete_spec_without_writing(
     tmp_path: Path,
 ) -> None:
     """Missing readiness facts prevent final spec replacement."""
@@ -1649,17 +1716,18 @@ def test_finalize_specs_tool_rejects_incomplete_spec_without_writing(
     )
     ctx = cast("RunContext[InterviewerDeps]", FakeRunContext(deps))
 
-    with pytest.raises(ModelRetry, match="Missing MVP readiness"):
-        asyncio.run(
-            finalize_specs_tool(
-                ctx,
-                readiness_summary="Ready.",
-                spec_content="# Product\n\n## Goal\n\nBuild a tiny CLI.\n",
-                known_blockers=[],
-            )
+    result = asyncio.run(
+        finalize_specs_tool(
+            ctx,
+            readiness_summary="Ready.",
+            spec_content="# Product\n\n## Goal\n\nBuild a tiny CLI.\n",
+            known_blockers=[],
         )
+    )
 
+    assert result.startswith("Missing MVP readiness facts:")
     assert product.read_text(encoding="utf-8") == "# Existing\n"
+    assert not deps.finalized
 
 
 def test_finalize_specs_tool_retries_core_finalization_errors(
@@ -1681,7 +1749,7 @@ def test_finalize_specs_tool_retries_core_finalization_errors(
         raise JustRalphItError(msg)
 
     monkeypatch.setattr(
-        "jri.core.agents.interviewer.finalize_jri",
+        "jri.core.tools.interviewer.finalize_jri",
         fail_finalize,
     )
 

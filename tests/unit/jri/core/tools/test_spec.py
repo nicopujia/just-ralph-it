@@ -6,7 +6,12 @@ from pathlib import Path
 
 import pytest
 
-from jri.core.tools.spec import replace_spec, write_spec
+from jri.core.tools.spec import (
+    SpecValidationError,
+    replace_spec,
+    validate_spec_markdown,
+    write_spec,
+)
 from jri.core.tools.write import WriteError
 
 
@@ -24,6 +29,31 @@ def test_spec_replaces_markdown_under_specs_directory(tmp_path: Path) -> None:
     assert spec_path.read_text() == "# Product\n"
     assert "product.md" in result
     assert "10 bytes" in result
+
+
+def test_spec_markdown_validation_accepts_partial_confirmed_specs() -> None:
+    """Incremental specs may contain one confirmed readiness section."""
+    validate_spec_markdown(
+        "# Product\n\n## Goal\n\nBuild a tiny CLI that prints hello.\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "",
+        "The app should say hello.",
+        "# Product\n",
+        "# Product\n\nA nice Markdown note without a spec section.\n",
+        "# Product\n\n```rust\nfn main() {}\n```\n",
+    ],
+)
+def test_spec_markdown_validation_rejects_non_spec_content(
+    content: str,
+) -> None:
+    """Spec updates need headings and requirement text, not prose or code."""
+    with pytest.raises(SpecValidationError):
+        validate_spec_markdown(content)
 
 
 def test_spec_adds_markdown_with_patch_text(tmp_path: Path) -> None:
