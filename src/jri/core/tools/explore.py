@@ -1,9 +1,10 @@
 """Read-only exploration tool wrapper."""
 
 import re
+import socket
 from collections.abc import Mapping
 from dataclasses import dataclass
-from ipaddress import ip_address
+from ipaddress import IPv4Address, IPv6Address, ip_address
 from pathlib import Path
 from typing import Protocol, cast
 from urllib.parse import urljoin, urlsplit
@@ -18,6 +19,8 @@ _SECRET_FILE_NAMES = {
     ".env",
     ".envrc",
     ".netrc",
+    ".npmrc",
+    ".pypirc",
     "id_dsa",
     "id_ecdsa",
     "id_ed25519",
@@ -47,6 +50,14 @@ class ContextExplorer(Protocol):
 
     async def run(self, *, project_root: Path, request: str) -> str:
         """Run an exploration request."""
+        ...
+
+
+class _ExtraInfoProvider(Protocol):
+    """Network stream exposing socket metadata."""
+
+    def get_extra_info(self, info: str) -> object:
+        """Return socket metadata."""
         ...
 
 
@@ -127,7 +138,7 @@ async def fetch_url(url: str, *, request_timeout: float = 10.0) -> str:
         for _ in range(_FETCH_REDIRECT_LIMIT + 1):
             _reject_private_network_url(current_url)
             response = await client.get(current_url)
-            _reject_private_network_url(response.url)
+            _reject_private_network_response(response)
             next_url = _redirect_url(response)
             if next_url is None:
                 return _format_fetch_response(response)
@@ -138,7 +149,7 @@ async def fetch_url(url: str, *, request_timeout: float = 10.0) -> str:
 
 
 def _format_fetch_response(response: httpx.Response) -> str:
-    _reject_private_network_url(response.url)
+    _reject_private_network_response(response)
     content_type = cast(
         "str",
         response.headers.get("content-type", "unknown"),
@@ -168,13 +179,76 @@ def _reject_private_network_url(url: object) -> None:
     if _is_loopback_hostname(host):
         msg = "Explorer curl does not allow private network targets."
         raise ValueError(msg)
+    for address in _host_addresses(host):
+        if _is_private_network_address(address):
+            msg = "Explorer curl does not allow private network targets."
+            raise ValueError(msg)
+
+
+def _host_addresses(host: str) -> tuple[IPv4Address | IPv6Address, ...]:
     try:
-        address = ip_address(host)
+        return (ip_address(host),)
     except ValueError:
+        return _resolve_host_addresses(host)
+
+
+def _resolve_host_addresses(
+    host: str,
+) -> tuple[IPv4Address | IPv6Address, ...]:
+    try:
+        address_info = socket.getaddrinfo(
+            host,
+            None,
+            type=socket.SOCK_STREAM,
+        )
+    except socket.gaierror as exc:
+        msg = "Explorer curl could not resolve target host."
+        raise ValueError(msg) from exc
+
+    addresses: list[IPv4Address | IPv6Address] = []
+    for info in address_info:
+        socket_address = info[4]
+        address_text = cast("str", socket_address[0])
+        addresses.append(ip_address(address_text))
+
+    if not addresses:
+        msg = "Explorer curl could not resolve target host."
+        raise ValueError(msg)
+    return tuple(addresses)
+
+
+def _is_private_network_address(
+    address: IPv4Address | IPv6Address,
+) -> bool:
+    return address.is_loopback or address.is_link_local or address.is_private
+
+
+def _reject_private_network_response(response: httpx.Response) -> None:
+    _reject_private_network_url(response.url)
+    connected_address = _connected_address(response)
+    if connected_address is None:
         return
-    if address.is_loopback or address.is_link_local or address.is_private:
+    if _is_private_network_address(connected_address):
         msg = "Explorer curl does not allow private network targets."
         raise ValueError(msg)
+
+
+def _connected_address(
+    response: httpx.Response,
+) -> IPv4Address | IPv6Address | None:
+    extensions = cast(
+        "Mapping[str, object]",
+        getattr(response, "extensions", {}),
+    )
+    network_stream = extensions.get("network_stream")
+    if network_stream is None:
+        return None
+    extra_info_provider = cast("_ExtraInfoProvider", network_stream)
+    server_address = cast(
+        "tuple[str, int]",
+        extra_info_provider.get_extra_info("server_addr"),
+    )
+    return ip_address(server_address[0])
 
 
 def _is_loopback_hostname(host: str) -> bool:

@@ -2,7 +2,8 @@
 """Tests for read-only exploration."""
 
 import asyncio
-from dataclasses import dataclass
+import socket
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, Self
 
@@ -75,6 +76,8 @@ def test_explorer_file_tools_do_not_expose_secret_files(
     """Environment and key files are not readable by explorer helpers."""
     (tmp_path / ".env").write_text("OPENROUTER_API_KEY=secret\n")
     (tmp_path / ".env.local").write_text("BRAVE_SEARCH_API_KEY=secret\n")
+    (tmp_path / ".npmrc").write_text("//registry/:_authToken=secret\n")
+    (tmp_path / ".pypirc").write_text("password = secret\n")
     ssh_dir = tmp_path / ".ssh"
     ssh_dir.mkdir()
     private_key = ssh_dir / "id_ed25519"
@@ -87,6 +90,10 @@ def test_explorer_file_tools_do_not_expose_secret_files(
     assert grep_text(pattern="secret", root=tmp_path) == ""
     with pytest.raises(ValueError, match="secret files"):
         read_text(path=tmp_path / ".env", root=tmp_path)
+    with pytest.raises(ValueError, match="secret files"):
+        read_text(path=tmp_path / ".npmrc", root=tmp_path)
+    with pytest.raises(ValueError, match="secret files"):
+        read_text(path=tmp_path / ".pypirc", root=tmp_path)
     with pytest.raises(ValueError, match="secret files"):
         read_text(path=private_key, root=tmp_path)
 
@@ -213,6 +220,7 @@ def test_fetch_url_returns_bounded_response(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """URL fetching reports status, final URL, type, and bounded body."""
+    monkeypatch.setattr(socket, "getaddrinfo", public_address_info)
     monkeypatch.setattr("jri.core.tools.explore.httpx.AsyncClient", FakeClient)
 
     result = asyncio.run(fetch_url("https://example.com"))
@@ -227,6 +235,7 @@ def test_fetch_url_allows_public_ip_targets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Curl allows public IP targets through the normal fetch path."""
+    monkeypatch.setattr(socket, "getaddrinfo", public_address_info)
     monkeypatch.setattr("jri.core.tools.explore.httpx.AsyncClient", FakeClient)
 
     result = asyncio.run(fetch_url("https://93.184.216.34"))
@@ -235,10 +244,100 @@ def test_fetch_url_allows_public_ip_targets(
     assert "Final URL: https://example.com/final" in result
 
 
+def test_fetch_url_rejects_hostnames_resolving_to_private_addresses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curl resolves hostnames and rejects private network addresses."""
+
+    def private_address_info(
+        host: str,
+        port: int | str | None,
+        **kwargs: int,
+    ) -> list[tuple[int, int, int, str, tuple[str, int]]]:
+        _ = (host, port, kwargs)
+        return [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                ("10.0.0.1", 443),
+            )
+        ]
+
+    monkeypatch.setattr(socket, "getaddrinfo", private_address_info)
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        FailingFetchClient,
+    )
+
+    with pytest.raises(ValueError, match="private network"):
+        asyncio.run(fetch_url("https://metadata.example"))
+
+
+def test_fetch_url_rejects_connected_private_addresses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curl rejects private peer addresses before returning content."""
+    monkeypatch.setattr(socket, "getaddrinfo", public_address_info)
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        ConnectedPrivateClient,
+    )
+
+    with pytest.raises(ValueError, match="private network"):
+        asyncio.run(fetch_url("https://example.com"))
+
+
+def test_fetch_url_allows_connected_public_addresses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curl allows public peer addresses through the normal fetch path."""
+    monkeypatch.setattr(socket, "getaddrinfo", public_address_info)
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        ConnectedPublicClient,
+    )
+
+    result = asyncio.run(fetch_url("https://example.com"))
+
+    assert "Status: 200" in result
+    assert result.endswith("\n\npublic body")
+
+
+def test_fetch_url_rejects_unresolvable_hostnames(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curl rejects hostnames that DNS cannot resolve."""
+    monkeypatch.setattr(socket, "getaddrinfo", unresolvable_address_info)
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        FailingFetchClient,
+    )
+
+    with pytest.raises(ValueError, match="resolve"):
+        asyncio.run(fetch_url("https://missing.example"))
+
+
+def test_fetch_url_rejects_hostnames_without_resolved_addresses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curl rejects empty DNS answers before fetching."""
+    monkeypatch.setattr(socket, "getaddrinfo", empty_address_info)
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        FailingFetchClient,
+    )
+
+    with pytest.raises(ValueError, match="resolve"):
+        asyncio.run(fetch_url("https://empty.example"))
+
+
 def test_fetch_url_follows_public_redirects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Curl follows redirects when each target remains public."""
+    monkeypatch.setattr(socket, "getaddrinfo", public_address_info)
     monkeypatch.setattr(
         "jri.core.tools.explore.httpx.AsyncClient",
         PublicRedirectClient,
@@ -251,10 +350,25 @@ def test_fetch_url_follows_public_redirects(
     assert result.endswith("\n\npublic body")
 
 
+def test_fetch_url_rejects_redirects_to_private_hostnames(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curl resolves redirected hostnames before following them."""
+    monkeypatch.setattr(socket, "getaddrinfo", mixed_address_info)
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        RedirectToPrivateHostnameClient,
+    )
+
+    with pytest.raises(ValueError, match="private network"):
+        asyncio.run(fetch_url("https://example.com"))
+
+
 def test_fetch_url_returns_redirect_response_without_location(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Curl returns redirect responses that do not provide a Location."""
+    monkeypatch.setattr(socket, "getaddrinfo", public_address_info)
     monkeypatch.setattr(
         "jri.core.tools.explore.httpx.AsyncClient",
         RedirectWithoutLocationClient,
@@ -270,6 +384,7 @@ def test_fetch_url_limits_public_redirects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Curl rejects excessive public redirect chains."""
+    monkeypatch.setattr(socket, "getaddrinfo", public_address_info)
     monkeypatch.setattr(
         "jri.core.tools.explore.httpx.AsyncClient",
         LoopingRedirectClient,
@@ -283,6 +398,7 @@ def test_fetch_url_rejects_private_network_redirects(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Curl rejects responses redirected to private network targets."""
+    monkeypatch.setattr(socket, "getaddrinfo", public_address_info)
     monkeypatch.setattr(
         "jri.core.tools.explore.httpx.AsyncClient",
         RedirectToPrivateClient,
@@ -326,6 +442,78 @@ class FetchResponse:
     url: str
     headers: dict[str, str]
     text: str
+    extensions: dict[str, object] = field(default_factory=dict)
+
+
+def public_address_info(
+    host: str,
+    port: int | str | None,
+    **kwargs: int,
+) -> list[tuple[int, int, int, str, tuple[str, int]]]:
+    """Resolve any test hostname to a public address."""
+    _ = (host, port, kwargs)
+    return [
+        (
+            socket.AF_INET,
+            socket.SOCK_STREAM,
+            6,
+            "",
+            ("93.184.216.34", 443),
+        )
+    ]
+
+
+def mixed_address_info(
+    host: str,
+    port: int | str | None,
+    **kwargs: int,
+) -> list[tuple[int, int, int, str, tuple[str, int]]]:
+    """Resolve one test hostname privately and all others publicly."""
+    if host == "metadata.example":
+        _ = (port, kwargs)
+        return [
+            (
+                socket.AF_INET,
+                socket.SOCK_STREAM,
+                6,
+                "",
+                ("10.0.0.1", 443),
+            )
+        ]
+    return public_address_info(host, port, **kwargs)
+
+
+def unresolvable_address_info(
+    host: str,
+    port: int | str | None,
+    **kwargs: int,
+) -> list[tuple[int, int, int, str, tuple[str, int]]]:
+    """Fail DNS resolution for test hostnames."""
+    _ = (host, port, kwargs)
+    raise socket.gaierror(socket.EAI_NONAME, "not known")
+
+
+def empty_address_info(
+    host: str,
+    port: int | str | None,
+    **kwargs: int,
+) -> list[tuple[int, int, int, str, tuple[str, int]]]:
+    """Resolve test hostnames to no addresses."""
+    _ = (host, port, kwargs)
+    return []
+
+
+class FakeNetworkStream:
+    """Fake httpcore network stream exposing a peer address."""
+
+    def __init__(self, server_address: tuple[str, int]) -> None:
+        self._server_address = server_address
+
+    def get_extra_info(self, info: str) -> tuple[str, int] | None:
+        """Return the fake peer address."""
+        if info == "server_addr":
+            return self._server_address
+        return None
 
 
 class ScriptedFetchClient:
@@ -379,6 +567,57 @@ class RedirectToPrivateClient(ScriptedFetchClient):
                 "location": "http://169.254.169.254/latest/meta-data",
             },
             text="redirecting",
+        )
+    ]
+
+
+class RedirectToPrivateHostnameClient(ScriptedFetchClient):
+    """Fake client that redirects to a hostname with private DNS."""
+
+    expected_urls: ClassVar[list[str]] = ["https://example.com"]
+    responses: ClassVar[list[FetchResponse]] = [
+        FetchResponse(
+            status_code=302,
+            url="https://example.com",
+            headers={
+                "content-type": "text/plain",
+                "location": "https://metadata.example/latest",
+            },
+            text="redirecting",
+        )
+    ]
+
+
+class ConnectedPrivateClient(ScriptedFetchClient):
+    """Fake client connected to a private peer address."""
+
+    expected_urls: ClassVar[list[str]] = ["https://example.com"]
+    responses: ClassVar[list[FetchResponse]] = [
+        FetchResponse(
+            status_code=200,
+            url="https://example.com",
+            headers={"content-type": "text/plain"},
+            text="private body",
+            extensions={
+                "network_stream": FakeNetworkStream(("10.0.0.1", 443))
+            },
+        )
+    ]
+
+
+class ConnectedPublicClient(ScriptedFetchClient):
+    """Fake client connected to a public peer address."""
+
+    expected_urls: ClassVar[list[str]] = ["https://example.com"]
+    responses: ClassVar[list[FetchResponse]] = [
+        FetchResponse(
+            status_code=200,
+            url="https://example.com",
+            headers={"content-type": "text/plain"},
+            text="public body",
+            extensions={
+                "network_stream": FakeNetworkStream(("93.184.216.34", 443))
+            },
         )
     ]
 
