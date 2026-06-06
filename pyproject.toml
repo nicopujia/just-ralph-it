@@ -7,7 +7,11 @@ authors = [
     { name = "Nicolás Pujia", email = "nico@pujia.ar" }
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "httpx>=0.28.1",
+    "prompt-toolkit>=3.0.52",
+    "pydantic-ai-slim[openrouter]>=1.106.0",
+]
 
 [dependency-groups]
 dev = [
@@ -31,6 +35,7 @@ module-name = "jri"
 [tool.basedpyright]
 include = ["src", "tests"]
 typeCheckingMode = "all"
+reportUnusedCallResult = "none"
 
 [tool.ruff]
 line-length = 79
@@ -51,6 +56,11 @@ ignore = [
     "ISC003", # prefer explicit string concatenation so basedpyright can catch accidental implicit concat
     "S404", # allow importing subprocess library
     "S603", # allow running subprocesses
+    "S607", # allow PATH lookup for standard project subprocesses
+    "D107", # skip __init__ docstrings when class docstring is enough
+    "DOC201", # avoid noisy Returns sections for simple functions
+    "DOC402", # avoid noisy Yields sections for simple generators
+    "DOC501", # avoid noisy Raises sections for CLI exits
 ]
 
 [tool.ruff.lint.pycodestyle]
@@ -59,6 +69,16 @@ max-doc-length = 72
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
     "S101", # pytest uses assert statements for test expectations
+    "FBT001", # pytest boolean fixtures are dependency names, not API flags
+    "B903", # small test fakes do not need dataclass ceremony
+    "D105", # test magic methods often mirror protocols
+    "PLR2004", # literal values in assertions are readable in tests
+    "PLR6301", # test fakes often keep instance-shaped protocol methods
+    "PLC1901", # explicit empty-string comparisons can be clearer in tests
+    "PLC2801", # test fakes sometimes patch typed attributes through setattr
+    "RUF012", # simple fake class attributes are acceptable in tests
+    "RUF029", # async test fakes mirror async production interfaces
+    "W505", # test docstrings can be a little longer
 ]
 
 [tool.coverage.paths]
