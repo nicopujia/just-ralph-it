@@ -21,10 +21,12 @@ from pydantic_ai import (
     UnexpectedModelBehavior,
 )
 from pydantic_ai.messages import (
+    ModelRequest,
     ModelResponse,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
+    UserPromptPart,
 )
 from pydantic_ai.run import AgentRunResult
 from pydantic_ai.usage import RequestUsage, RunUsage
@@ -283,7 +285,7 @@ class Interviewer:
         buffer: _TurnEventBuffer,
     ) -> tuple[list[InterviewEvent], bool]:
         if isinstance(event, FunctionToolCallEvent):
-            return self._record_tool_call_event(event, buffer)
+            return self._record_tool_call_event(event, deps, buffer)
         if isinstance(event, FunctionToolResultEvent):
             return self._record_tool_result_event(event, deps, buffer)
         if isinstance(event, PartDeltaEvent) and isinstance(
@@ -303,6 +305,7 @@ class Interviewer:
     def _record_tool_call_event(
         self,
         event: FunctionToolCallEvent,
+        deps: InterviewerDeps,
         buffer: _TurnEventBuffer,
     ) -> tuple[list[InterviewEvent], bool]:
         self.logger.write(
@@ -325,7 +328,10 @@ class Interviewer:
         question_event = InterviewEvent(kind="question", content=question)
         visible_events.append(question_event)
         buffer.events.append(question_event)
-        self._append_question_to_history(question)
+        self._append_question_to_history(
+            question,
+            user_message=deps.latest_user_message,
+        )
         return visible_events, True
 
     def _record_tool_result_event(
@@ -443,9 +449,20 @@ class Interviewer:
             InterviewEvent(kind="question", content=question),
         ]
 
-    def _append_question_to_history(self, question: InterviewQuestion) -> None:
+    def _append_question_to_history(
+        self,
+        question: InterviewQuestion,
+        *,
+        user_message: str | None = None,
+    ) -> None:
+        current_turn_messages: list[ModelMessage] = []
+        if user_message is not None:
+            current_turn_messages.append(
+                ModelRequest(parts=[UserPromptPart(user_message)])
+            )
         self._messages = [
             *self._messages,
+            *current_turn_messages,
             ModelResponse(
                 parts=[TextPart(_format_question_history(question))]
             ),

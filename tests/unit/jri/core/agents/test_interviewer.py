@@ -23,10 +23,12 @@ from pydantic_ai import (
     UnexpectedModelBehavior,
 )
 from pydantic_ai.messages import (
+    ModelRequest,
     ModelResponse,
     TextPart,
     ToolCallPart,
     ToolReturnPart,
+    UserPromptPart,
 )
 from pydantic_ai.usage import RequestUsage, RunUsage
 
@@ -1192,7 +1194,7 @@ def test_interviewer_leaves_invalid_raw_question_text_visible(
 def test_interviewer_preserves_history_after_ask_tool_call(
     tmp_path: Path,
 ) -> None:
-    """Ask tool turns keep their model messages for the next reply."""
+    """Ask tool turns keep user and assistant messages for the next reply."""
     interviewer = Interviewer(
         project_root=tmp_path,
         logger=JsonlLogger(tmp_path / "events.jsonl"),
@@ -1216,9 +1218,12 @@ def test_interviewer_preserves_history_after_ask_tool_call(
     object.__setattr__(interviewer, "agent", second_agent)
     asyncio.run(_collect(interviewer.respond("CLI")))
 
-    assert len(second_agent.message_history) == 1
-    retained = cast("ModelResponse", second_agent.message_history[0])
+    assert len(second_agent.message_history) == 2
+    request = cast("ModelRequest", second_agent.message_history[0])
+    user_part = cast("UserPromptPart", request.parts[0])
+    retained = cast("ModelResponse", second_agent.message_history[1])
     part = cast("TextPart", retained.parts[0])
+    assert user_part.content == "idea"
     assert part.content == "Question (low): Which interface?"
 
 
