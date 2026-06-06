@@ -1,1 +1,1 @@
-"""Fake dependency replacements for non-live tests."""
+"""Reusable fake dependency replacements for JRI tests."""
