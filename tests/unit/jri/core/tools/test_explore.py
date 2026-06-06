@@ -2,7 +2,9 @@
 """Tests for read-only exploration."""
 
 import asyncio
+from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar, Self
 
 import pytest
 
@@ -219,3 +221,213 @@ def test_fetch_url_returns_bounded_response(
     assert "Final URL: https://example.com/final" in result
     assert "Content-Type: text/plain" in result
     assert len(result) < 20_200
+
+
+def test_fetch_url_allows_public_ip_targets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curl allows public IP targets through the normal fetch path."""
+    monkeypatch.setattr("jri.core.tools.explore.httpx.AsyncClient", FakeClient)
+
+    result = asyncio.run(fetch_url("https://93.184.216.34"))
+
+    assert "Status: 200" in result
+    assert "Final URL: https://example.com/final" in result
+
+
+def test_fetch_url_follows_public_redirects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curl follows redirects when each target remains public."""
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        PublicRedirectClient,
+    )
+
+    result = asyncio.run(fetch_url("https://example.com/start"))
+
+    assert "Status: 200" in result
+    assert "Final URL: https://example.com/final" in result
+    assert result.endswith("\n\npublic body")
+
+
+def test_fetch_url_returns_redirect_response_without_location(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curl returns redirect responses that do not provide a Location."""
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        RedirectWithoutLocationClient,
+    )
+
+    result = asyncio.run(fetch_url("https://example.com/start"))
+
+    assert "Status: 302" in result
+    assert "Final URL: https://example.com/start" in result
+
+
+def test_fetch_url_limits_public_redirects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curl rejects excessive public redirect chains."""
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        LoopingRedirectClient,
+    )
+
+    with pytest.raises(ValueError, match="maximum redirects"):
+        asyncio.run(fetch_url("https://example.com/start"))
+
+
+def test_fetch_url_rejects_private_network_redirects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curl rejects responses redirected to private network targets."""
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        RedirectToPrivateClient,
+    )
+
+    with pytest.raises(ValueError, match="private network"):
+        asyncio.run(fetch_url("https://example.com"))
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://[::1]",
+        "http://169.254.169.254",
+        "http://10.0.0.1",
+        "http://172.16.0.1",
+        "http://192.168.1.10",
+    ],
+)
+def test_fetch_url_rejects_direct_private_network_targets(
+    monkeypatch: pytest.MonkeyPatch,
+    url: str,
+) -> None:
+    """Curl rejects private network targets before making a request."""
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        FailingFetchClient,
+    )
+
+    with pytest.raises(ValueError, match="private network"):
+        asyncio.run(fetch_url(url))
+
+
+@dataclass(frozen=True)
+class FetchResponse:
+    """Fake HTTP response for scripted fetch tests."""
+
+    status_code: int
+    url: str
+    headers: dict[str, str]
+    text: str
+
+
+class ScriptedFetchClient:
+    """Fake client that returns preconfigured responses."""
+
+    responses: ClassVar[list[FetchResponse]] = []
+    expected_urls: ClassVar[list[str]] = []
+    expected_follow_redirects: ClassVar[bool | None] = False
+
+    def __init__(self, *, timeout: float, follow_redirects: bool) -> None:
+        _ = timeout
+        if type(self).expected_follow_redirects is not None:
+            assert follow_redirects is type(self).expected_follow_redirects
+        self._responses = list(type(self).responses)
+        self._expected_urls = list(type(self).expected_urls)
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        traceback: object,
+    ) -> None:
+        _ = (exc_type, exc, traceback)
+
+    async def get(self, url: str) -> FetchResponse:
+        """Return the next fake response."""
+        if self._expected_urls:
+            assert url == self._expected_urls.pop(0)
+        if not self._responses:
+            pytest.fail(f"unexpected fetch of {url}")
+        return self._responses.pop(0)
+
+
+class FailingFetchClient(ScriptedFetchClient):
+    """Fake client that fails if a request is made."""
+
+
+class RedirectToPrivateClient(ScriptedFetchClient):
+    """Fake client that fails if a private redirect is fetched."""
+
+    expected_urls: ClassVar[list[str]] = ["https://example.com"]
+    responses: ClassVar[list[FetchResponse]] = [
+        FetchResponse(
+            status_code=302,
+            url="https://example.com",
+            headers={
+                "content-type": "text/plain",
+                "location": "http://169.254.169.254/latest/meta-data",
+            },
+            text="redirecting",
+        )
+    ]
+
+
+class PublicRedirectClient(ScriptedFetchClient):
+    """Fake client that simulates a public redirect chain."""
+
+    expected_urls: ClassVar[list[str]] = [
+        "https://example.com/start",
+        "https://example.com/final",
+    ]
+    responses: ClassVar[list[FetchResponse]] = [
+        FetchResponse(
+            status_code=302,
+            url="https://example.com/start",
+            headers={"content-type": "text/plain", "location": "/final"},
+            text="redirecting",
+        ),
+        FetchResponse(
+            status_code=200,
+            url="https://example.com/final",
+            headers={"content-type": "text/plain"},
+            text="public body",
+        ),
+    ]
+
+
+class RedirectWithoutLocationClient(ScriptedFetchClient):
+    """Fake client that returns a redirect without a Location."""
+
+    expected_urls: ClassVar[list[str]] = ["https://example.com/start"]
+    responses: ClassVar[list[FetchResponse]] = [
+        FetchResponse(
+            status_code=302,
+            url="https://example.com/start",
+            headers={"content-type": "text/plain"},
+            text="redirect without location",
+        )
+    ]
+
+
+class LoopingRedirectClient(ScriptedFetchClient):
+    """Fake client that always redirects to another public URL."""
+
+    responses: ClassVar[list[FetchResponse]] = [
+        FetchResponse(
+            status_code=302,
+            url="https://example.com/start",
+            headers={"content-type": "text/plain", "location": "/start"},
+            text="redirect again",
+        )
+    ] * 21

@@ -3,12 +3,16 @@
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Protocol, cast
+from urllib.parse import urljoin, urlsplit
 
 import httpx
 
 BRAVE_WEB_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
+_FETCH_REDIRECT_LIMIT = 20
+_FETCH_REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 _JRI_LOG_PATH_PREFIX = (".jri", "logs")
 _SECRET_FILE_NAMES = {
     ".env",
@@ -115,11 +119,26 @@ def grep_text(
 
 async def fetch_url(url: str, *, request_timeout: float = 10.0) -> str:
     """Fetch bounded text context for a URL."""
+    current_url = url
     async with httpx.AsyncClient(
         timeout=request_timeout,
-        follow_redirects=True,
+        follow_redirects=False,
     ) as client:
-        response = await client.get(url)
+        for _ in range(_FETCH_REDIRECT_LIMIT + 1):
+            _reject_private_network_url(current_url)
+            response = await client.get(current_url)
+            _reject_private_network_url(response.url)
+            next_url = _redirect_url(response)
+            if next_url is None:
+                return _format_fetch_response(response)
+            current_url = next_url
+
+    msg = "Explorer curl exceeded maximum redirects."
+    raise ValueError(msg)
+
+
+def _format_fetch_response(response: httpx.Response) -> str:
+    _reject_private_network_url(response.url)
     content_type = cast(
         "str",
         response.headers.get("content-type", "unknown"),
@@ -131,6 +150,35 @@ async def fetch_url(url: str, *, request_timeout: float = 10.0) -> str:
         f"Content-Type: {content_type}\n\n"
         f"{body}"
     )
+
+
+def _redirect_url(response: httpx.Response) -> str | None:
+    if response.status_code not in _FETCH_REDIRECT_STATUS_CODES:
+        return None
+    location = cast("str | None", response.headers.get("location"))
+    if location is None:
+        return None
+    next_url = urljoin(str(response.url), location)
+    _reject_private_network_url(next_url)
+    return next_url
+
+
+def _reject_private_network_url(url: object) -> None:
+    host = urlsplit(str(url)).hostname or ""
+    if _is_loopback_hostname(host):
+        msg = "Explorer curl does not allow private network targets."
+        raise ValueError(msg)
+    try:
+        address = ip_address(host)
+    except ValueError:
+        return
+    if address.is_loopback or address.is_link_local or address.is_private:
+        msg = "Explorer curl does not allow private network targets."
+        raise ValueError(msg)
+
+
+def _is_loopback_hostname(host: str) -> bool:
+    return host.rstrip(".").lower().split(".")[-1] == "localhost"
 
 
 class BraveSearchError(RuntimeError):
