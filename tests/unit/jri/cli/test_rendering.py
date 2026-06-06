@@ -4,18 +4,21 @@ from jri.cli.rendering import render_question
 from jri.core.interview import InterviewQuestion, QuestionChoice
 
 
-def test_render_question_displays_high_level_question() -> None:
-    """High-level questions render as terminal text."""
-    assert render_question(
-        InterviewQuestion(
-            level="high",
-            question="What outcome would make this successful?",
+def test_render_question_displays_question_text_without_level_label() -> None:
+    """Questions render without exposing interview planning labels."""
+    assert (
+        render_question(
+            InterviewQuestion(
+                level="high",
+                question="What outcome would make this successful?",
+            )
         )
-    ) == ("High-level question:\nWhat outcome would make this successful?")
+        == "What outcome would make this successful?"
+    )
 
 
-def test_render_question_displays_low_level_choices_with_default() -> None:
-    """Low-level questions render multiple-choice options."""
+def test_render_question_displays_choices_without_level_label() -> None:
+    """Multiple-choice questions render only question and options."""
     assert render_question(
         InterviewQuestion(
             level="low",
@@ -30,7 +33,6 @@ def test_render_question_displays_low_level_choices_with_default() -> None:
             default="Retry for 30 seconds",
         )
     ) == (
-        "Low-level question:\n"
         "When the API is unavailable, what should happen?\n"
         "\n"
         "Options:\n"

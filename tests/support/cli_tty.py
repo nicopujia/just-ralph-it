@@ -103,6 +103,14 @@ class CliTtySession:
         self.child.send(text)
         self.child.send("\r")
 
+    def send(self, text: str) -> None:
+        """Send raw terminal input."""
+        self.child.send(text)
+
+    def send_enter(self) -> None:
+        """Send terminal Enter."""
+        self.child.send("\r")
+
     def send_eof(self) -> None:
         """Send terminal EOF."""
         self.child.send("\x04")

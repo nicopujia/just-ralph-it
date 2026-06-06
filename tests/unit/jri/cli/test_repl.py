@@ -163,7 +163,8 @@ def test_repl_renders_structured_questions(tmp_path: Path) -> None:
     )
 
     assert code == 0
-    assert "High-level question:\nWho is this for?\n" in out.getvalue()
+    assert "Who is this for?\n" in out.getvalue()
+    assert "High-level" not in out.getvalue()
 
 
 def test_repl_shows_finalization_feedback_for_trigger(

@@ -7,6 +7,12 @@ from tests.env import INTERVIEWER_FACTORY_ENV
 from tests.support.cli_result import CliRun
 from tests.support.cli_tty import CliTtyHarness
 
+SHIFT_ENTER = "\x1b[13;2u"
+SHIFT_UP = "\x1b[1;2A"
+SHIFT_DOWN = "\x1b[1;2B"
+SHIFT_RIGHT = "\x1b[1;2C"
+SHIFT_LEFT = "\x1b[1;2D"
+
 
 def test_initial_prompt_appears_in_real_tty(
     tmp_path: Path,
@@ -68,6 +74,74 @@ def test_tty_text_delta_first_token_is_printed_and_logged_once(
     assert logged.count("I'm") == 1
     assert "I'm checking the first token." in result.stdout
     assert "I'm checking the first token." in logged
+
+
+def test_shift_enter_inserts_repeated_newlines_before_tty_submit(
+    tmp_path: Path,
+    cli_tty: CliTtyHarness,
+) -> None:
+    """Shift+Enter inserts newlines until plain Enter submits the turn."""
+    session = cli_tty.spawn(cwd=tmp_path)
+
+    session.expect_prompt()
+    session.send("first")
+    session.send(SHIFT_ENTER)
+    session.send("second")
+    session.send(SHIFT_ENTER)
+    session.send("third")
+    session.send_enter()
+    session.expect_prompt()
+    session.send_eof()
+    result = session.expect_eof()
+
+    assert result.returncode == 0
+    assert result.user_messages()[0] == "first\nsecond\nthird"
+
+
+def test_modified_tty_horizontal_arrow_escapes_move_cursor_before_submit(
+    tmp_path: Path,
+    cli_tty: CliTtyHarness,
+) -> None:
+    """Modified horizontal arrows move the input cursor."""
+    session = cli_tty.spawn(cwd=tmp_path)
+
+    session.expect_prompt()
+    session.send("ac")
+    session.send(SHIFT_LEFT)
+    session.send("b")
+    session.send(SHIFT_RIGHT)
+    session.send("d")
+    session.send_enter()
+    session.expect_prompt()
+    session.send_eof()
+    result = session.expect_eof()
+
+    assert result.returncode == 0
+    assert result.user_messages()[0] == "abcd"
+
+
+def test_modified_tty_vertical_arrow_escapes_move_cursor_before_submit(
+    tmp_path: Path,
+    cli_tty: CliTtyHarness,
+) -> None:
+    """Modified vertical arrows move within multi-line input."""
+    session = cli_tty.spawn(cwd=tmp_path)
+
+    session.expect_prompt()
+    session.send("top")
+    session.send(SHIFT_ENTER)
+    session.send("bottom")
+    session.send(SHIFT_UP)
+    session.send("!")
+    session.send(SHIFT_DOWN)
+    session.send("?")
+    session.send_enter()
+    session.expect_prompt()
+    session.send_eof()
+    result = session.expect_eof()
+
+    assert result.returncode == 0
+    assert result.user_messages()[0] == "top!\nbott?om"
 
 
 def test_ctrl_d_exits_cleanly(

@@ -22,7 +22,6 @@ def render_tool_call(tool_name: str) -> str:
 def render_question(question: InterviewQuestion) -> str:
     """Render an interviewer question for the next REPL turn."""
     rendered = [
-        f"{question.level.title()}-level question:",
         question.question,
     ]
     if question.choices:

@@ -7,8 +7,10 @@ from typing import TextIO, cast
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
+from prompt_toolkit.keys import Keys
 from prompt_toolkit.styles import Style
 from pydantic_ai import UnexpectedModelBehavior
 
@@ -20,6 +22,7 @@ from jri.core.triggers import is_trigger_message
 
 FINALIZATION_STARTED_MESSAGE = "Finalizing specs..."
 MODEL_ERROR_RECOVERY_MESSAGE = "I hit a model/tool issue. Please try again."
+SHIFT_ENTER_SEQUENCES = ("\x1b[13;2u", "\x1b[27;2;13~")
 
 
 def run_repl(
@@ -131,16 +134,54 @@ class _InputReader:
 
 
 def _create_prompt_session() -> PromptSession[str]:
+    _install_terminal_sequences()
     bindings = KeyBindings()
 
     @bindings.add("c-j")
     def _insert_newline(event: KeyPressEvent) -> None:
-        event.current_buffer.insert_text("\n")  # pragma: no cover
+        event.current_buffer.insert_text("\n")
+
+    def _move_left(event: KeyPressEvent) -> None:
+        event.current_buffer.cursor_position += (
+            event.current_buffer.document.get_cursor_left_position(
+                count=event.arg
+            )
+        )
+
+    bindings.add("s-left")(_move_left)
+    bindings.add("c-s-left")(_move_left)
+
+    def _move_right(event: KeyPressEvent) -> None:
+        event.current_buffer.cursor_position += (
+            event.current_buffer.document.get_cursor_right_position(
+                count=event.arg
+            )
+        )
+
+    bindings.add("s-right")(_move_right)
+    bindings.add("c-s-right")(_move_right)
+
+    def _move_up(event: KeyPressEvent) -> None:
+        event.current_buffer.auto_up(count=event.arg)
+
+    bindings.add("s-up")(_move_up)
+    bindings.add("c-s-up")(_move_up)
+
+    def _move_down(event: KeyPressEvent) -> None:
+        event.current_buffer.auto_down(count=event.arg)
+
+    bindings.add("s-down")(_move_down)
+    bindings.add("c-s-down")(_move_down)
 
     with contextlib.suppress(ValueError):
         bindings.add("s-enter")(_insert_newline)
 
     return PromptSession(multiline=False, key_bindings=bindings)
+
+
+def _install_terminal_sequences() -> None:
+    for sequence in SHIFT_ENTER_SEQUENCES:
+        ANSI_SEQUENCES[sequence] = Keys.ControlJ
 
 
 def _write_assistant_text(output_stream: TextIO, content: str) -> None:
