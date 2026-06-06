@@ -1,17 +1,16 @@
-"""Black-box CLI harness for integration tests."""
+"""Shared result helpers for black-box CLI tests."""
 
 import json
 import os
 import re
 import shutil
 import subprocess
-from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from time import time_ns
 from typing import cast
 
-_ANSI_PATTERN = re.compile(rf"{re.escape(chr(27))}\[[0-9;]*m")
+_ANSI_PATTERN = re.compile(rf"{re.escape(chr(27))}\[[0-9;?]*[ -/]*[@-~]")
 
 
 @dataclass(frozen=True)
@@ -23,6 +22,11 @@ class CliRun:
     stdout: str
     stderr: str
     debug_log_dir: Path | None = None
+
+    @property
+    def output(self) -> str:
+        """Return combined process output."""
+        return self.stdout + self.stderr
 
     @property
     def jri_dir(self) -> Path:
@@ -61,10 +65,11 @@ class CliRun:
         ]
 
     def has_visible_assistant_output(self) -> bool:
-        """Return whether logged assistant text reached stdout."""
-        visible_stdout = _strip_ansi(self.stdout)
+        """Return whether logged assistant text reached process output."""
+        visible_output = _normalize_terminal_output(_strip_ansi(self.output))
         return any(
-            message.strip() and message.strip() in visible_stdout
+            message.strip()
+            and _normalize_terminal_output(message.strip()) in visible_output
             for message in self.assistant_messages()
         )
 
@@ -126,86 +131,14 @@ class CliRun:
         )
 
 
-@dataclass(frozen=True)
-class CliHarness:
-    """Subprocess runner for the installed JRI command."""
-
-    command: str
-    env: Mapping[str, str]
-    timeout: int
-
-    def run(
-        self,
-        *,
-        cwd: Path,
-        input_text: str = "",
-        args: tuple[str, ...] = (),
-    ) -> CliRun:
-        """Invoke the interactive CLI in a project directory."""
-        result = subprocess.run(
-            [self.command, *args],
-            check=False,
-            capture_output=True,
-            cwd=cwd,
-            input=input_text,
-            text=True,
-            env=dict(self.env),
-            timeout=self.timeout,
-        )
-        debug_log_dir = _archive_debug_logs(
-            cwd=cwd,
-            stdout=result.stdout,
-            stderr=result.stderr,
-            returncode=result.returncode,
-        )
-        return CliRun(
-            cwd=cwd,
-            returncode=result.returncode,
-            stdout=result.stdout,
-            stderr=result.stderr,
-            debug_log_dir=debug_log_dir,
-        )
-
-    def run_help(self) -> CliRun:
-        """Invoke CLI help."""
-        cwd = Path.cwd()
-        return self.run(cwd=cwd, args=("--help",))
-
-    def initialize_git_repo(self, path: Path) -> None:
-        """Initialize a test repository with commit identity configured."""
-        subprocess.run(
-            ["git", "init"],
-            cwd=path,
-            check=True,
-            capture_output=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.email", "jri@example.com"],
-            cwd=path,
-            check=True,
-        )
-        subprocess.run(
-            ["git", "config", "user.name", "JRI Tests"],
-            cwd=path,
-            check=True,
-        )
-
-
-def _event_data(event: dict[str, object]) -> dict[str, object]:
-    return cast("dict[str, object]", event["data"])
-
-
-def _strip_ansi(text: str) -> str:
-    return _ANSI_PATTERN.sub("", text)
-
-
-def _archive_debug_logs(
+def archive_debug_logs(
     *,
     cwd: Path,
     stdout: str,
     stderr: str,
     returncode: int,
 ) -> Path | None:
+    """Archive session logs and captured process output for debugging."""
     logs = cwd / ".jri" / "logs"
     if not logs.exists():
         return None
@@ -223,6 +156,18 @@ def _archive_debug_logs(
     (archive_dir / "stdout.txt").write_text(stdout, encoding="utf-8")
     (archive_dir / "stderr.txt").write_text(stderr, encoding="utf-8")
     return archive_dir
+
+
+def _event_data(event: dict[str, object]) -> dict[str, object]:
+    return cast("dict[str, object]", event["data"])
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_PATTERN.sub("", text)
+
+
+def _normalize_terminal_output(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _slug(value: str) -> str:

@@ -7,16 +7,16 @@ import pytest
 from dotenv import dotenv_values
 
 from tests.env import INTERVIEWER_FACTORY_ENV
-from tests.support.cli import CliHarness
+from tests.support.cli_stdio import CliStdioHarness
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
-    """Add integration-test options."""
+    """Add external-provider test options."""
     parser.addoption(
         "--live",
         action="store_true",
         default=False,
-        help="run integration tests with real model providers",
+        help="run tests with real external providers",
     )
 
 
@@ -41,7 +41,7 @@ def runtime_env(live: bool) -> dict[str, str]:
 
 @pytest.fixture
 def cli_env(live: bool, runtime_env: dict[str, str]) -> dict[str, str]:
-    """Return an environment for CLI integration tests."""
+    """Return an environment for black-box CLI tests."""
     env = runtime_env.copy()
     if live:
         env.pop(INTERVIEWER_FACTORY_ENV, None)
@@ -60,9 +60,12 @@ def cli_env(live: bool, runtime_env: dict[str, str]) -> dict[str, str]:
 
 
 @pytest.fixture
-def cli(cli_env: dict[str, str], cli_run_timeout: int) -> CliHarness:
-    """Return a black-box harness for CLI integration tests."""
-    return CliHarness(
+def cli_stdio(
+    cli_env: dict[str, str],
+    cli_run_timeout: int,
+) -> CliStdioHarness:
+    """Return a black-box stdio harness for CLI functional tests."""
+    return CliStdioHarness(
         command=_jri_path(),
         env=cli_env,
         timeout=cli_run_timeout,
@@ -70,17 +73,17 @@ def cli(cli_env: dict[str, str], cli_run_timeout: int) -> CliHarness:
 
 
 @pytest.fixture
-def credentialless_cli() -> CliHarness:
-    """Return a CLI harness without model credentials or test doubles."""
+def credentialless_cli_stdio() -> CliStdioHarness:
+    """Return a stdio CLI harness without credentials or test doubles."""
     env = os.environ.copy()
     env.pop("OPENROUTER_API_KEY", None)
     env.pop(INTERVIEWER_FACTORY_ENV, None)
-    return CliHarness(command=_jri_path(), env=env, timeout=30)
+    return CliStdioHarness(command=_jri_path(), env=env, timeout=30)
 
 
 @pytest.fixture
 def cli_run_timeout(live: bool) -> int:
-    """Return a subprocess timeout for CLI integration tests."""
+    """Return a subprocess timeout for black-box CLI tests."""
     return 180 if live else 30
 
 
