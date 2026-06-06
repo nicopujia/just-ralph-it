@@ -10,8 +10,8 @@ repos:
         pass_filenames: false
         stages: [pre-commit]
       - id: validate-full
-        name: full validation
-        entry: ./scripts/validate.py --mode full
+        name: smoke validation
+        entry: ./scripts/validate.py --mode smoke
         language: system
         pass_filenames: false
         stages: [pre-push]

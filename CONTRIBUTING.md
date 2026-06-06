@@ -24,7 +24,7 @@ Pre-commit runs formatting, linting, and type checking. Pre-push runs full valid
 2. frequently make [conventional](https://www.conventionalcommits.org/en/v1.0.0/), atomic commits;
 3. manually test your changes as a real user would use the product;
 3. once you think the work is done, create a pull request and request a review;
-4. after a successful review with another contributor, squash and merge;
+4. after a successful review with another contributor and running validation in full mode, squash and merge;
 5. delete the new remote branch afterwards.
 
 IMPORTANT:
