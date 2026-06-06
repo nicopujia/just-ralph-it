@@ -2,12 +2,14 @@
 """Tests for REPL control flow."""
 
 import asyncio
+from collections.abc import AsyncIterator
 from io import StringIO
 from pathlib import Path
 
 import pytest
 
 from jri.cli import repl
+from jri.core.interview import InterviewEvent
 from jri.core.project import ProjectState
 from tests.doubles.repl import (
     DeltaInterviewer,
@@ -54,21 +56,26 @@ def test_repl_recovers_from_interviewer_error(tmp_path: Path) -> None:
     assert "agent failed" in err.getvalue()
 
 
-def test_repl_logs_model_errors_without_stderr(tmp_path: Path) -> None:
-    """Unexpected model behavior is trace-only and the REPL continues."""
+def test_repl_shows_recovery_message_for_model_errors(
+    tmp_path: Path,
+) -> None:
+    """Unexpected model behavior is visible but raw details stay in logs."""
+    out = StringIO()
     err = StringIO()
 
     code = repl.run_repl(
         state=_state(tmp_path),
         interviewer=FailingModelInterviewer(),
         input_stream=FakeInput("idea\n"),
-        output_stream=StringIO(),
+        output_stream=out,
         error_stream=err,
     )
 
     log = (tmp_path / ".jri" / "logs" / "interview.jsonl").read_text()
     assert code == 0
     assert not err.getvalue()
+    assert "model/tool issue" in out.getvalue()
+    assert "max retries" not in out.getvalue()
     assert "model_error" in log
     assert "UnexpectedModelBehavior" in log
 
@@ -159,6 +166,26 @@ def test_repl_renders_structured_questions(tmp_path: Path) -> None:
     assert "High-level question:\nWho is this for?\n" in out.getvalue()
 
 
+def test_repl_shows_finalization_feedback_for_trigger(
+    tmp_path: Path,
+) -> None:
+    """Finalization trigger input gets immediate user-facing feedback."""
+    out = StringIO()
+
+    code = repl.run_repl(
+        state=_state(tmp_path),
+        interviewer=_FinalizingInterviewer(),
+        input_stream=FakeInput("just ralph it\n"),
+        output_stream=out,
+        error_stream=StringIO(),
+    )
+
+    output = out.getvalue()
+    assert code == 0
+    assert "Finalizing specs..." in output
+    assert output.index("Finalizing specs...") < output.index("done")
+
+
 def test_input_reader_uses_prompt_toolkit_for_tty(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -188,3 +215,22 @@ def test_create_prompt_session_returns_multiline_session() -> None:
 def _state(tmp_path: Path) -> ProjectState:
     (tmp_path / ".jri" / "logs").mkdir(parents=True)
     return ProjectState(root=tmp_path)
+
+
+class _FinalizingInterviewer(NoopInterviewer):
+    def __init__(self) -> None:
+        self._should_exit = False
+
+    @property
+    def should_exit(self) -> bool:
+        """Return whether the scripted finalization finished."""
+        return self._should_exit
+
+    async def respond(
+        self,
+        user_message: str,
+    ) -> AsyncIterator[InterviewEvent]:
+        """Yield a completion message after the REPL starts finalization."""
+        _ = user_message
+        yield InterviewEvent(kind="text", content="done")
+        self._should_exit = True

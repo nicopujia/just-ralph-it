@@ -1,7 +1,9 @@
 """TTY functional tests for the user-facing JRI CLI contract."""
 
+from dataclasses import replace
 from pathlib import Path
 
+from tests.env import INTERVIEWER_FACTORY_ENV
 from tests.support.cli_result import CliRun
 from tests.support.cli_tty import CliTtyHarness
 
@@ -43,6 +45,31 @@ def test_first_tty_turn_records_visible_response(
     _assert_successful_interview_log(result, assistant_messages=1)
 
 
+def test_tty_text_delta_first_token_is_printed_and_logged_once(
+    tmp_path: Path,
+    cli_tty: CliTtyHarness,
+) -> None:
+    """TTY streaming preserves a first-token contraction exactly once."""
+    harness = _with_interviewer_factory(
+        cli_tty,
+        "tests.doubles.interviewers:create_first_token_interviewer",
+    )
+    session = harness.spawn(cwd=tmp_path)
+
+    session.expect_prompt()
+    session.sendline("Start with deltas.")
+    session.expect_prompt()
+    session.send_eof()
+    result = session.expect_eof()
+
+    logged = "\n".join(result.assistant_messages())
+    assert result.returncode == 0
+    assert result.stdout.count("I'm") == 1
+    assert logged.count("I'm") == 1
+    assert "I'm checking the first token." in result.stdout
+    assert "I'm checking the first token." in logged
+
+
 def test_ctrl_d_exits_cleanly(
     tmp_path: Path,
     cli_tty: CliTtyHarness,
@@ -72,6 +99,7 @@ def test_ctrl_c_exits_with_interrupt_status(
     assert result.returncode == 130
     assert "Cancelled." in result.output
     assert result.finish_reason() == "keyboard_interrupt"
+    _assert_failure_debug_logs_archived(result)
 
 
 def test_tty_mvp_happy_path_finalizes_and_commits_jri_files(
@@ -97,6 +125,12 @@ def test_tty_mvp_happy_path_finalizes_and_commits_jri_files(
     assert result.returncode == 0
     assert result.has_visible_assistant_output()
     assert result.finish_reason() == "just_ralph_it"
+    assert "Finalizing specs..." in result.stdout
+    assert "finalize_specs" in result.output
+    assert "just_ralph_it" not in result.output
+    assert "Ralph is coming soon to JRI" in result.stdout
+    assert "handoff" not in result.output.lower()
+    assert "built" not in result.output.lower()
     assert result.has_commit()
     assert ".jri/.gitignore" in committed
     assert ".jri/scratchpad.md" in committed
@@ -140,3 +174,31 @@ def _assert_debug_logs_archived(result: CliRun) -> None:
     assert (result.debug_log_dir / "stdout.txt").exists()
     assert (result.debug_log_dir / "stderr.txt").exists()
     assert ".pytest_logs/" in Path(".gitignore").read_text(encoding="utf-8")
+
+
+def _assert_failure_debug_logs_archived(result: CliRun) -> None:
+    _assert_debug_logs_archived(result)
+    assert result.returncode != 0
+    assert result.debug_log_dir is not None
+    assert (result.debug_log_dir / "returncode.txt").read_text(
+        encoding="utf-8",
+    ) == f"{result.returncode}\n"
+    assert (
+        (result.debug_log_dir / "stdout.txt")
+        .read_bytes()
+        .decode(encoding="utf-8")
+    ) == result.stdout
+    assert (
+        (result.debug_log_dir / "stderr.txt")
+        .read_bytes()
+        .decode(encoding="utf-8")
+    ) == result.stderr
+
+
+def _with_interviewer_factory(
+    harness: CliTtyHarness,
+    factory: str,
+) -> CliTtyHarness:
+    env = dict(harness.env)
+    env[INTERVIEWER_FACTORY_ENV] = factory
+    return replace(harness, env=env)

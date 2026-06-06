@@ -16,6 +16,10 @@ from jri.cli.rendering import render_prompt, render_question, render_tool_call
 from jri.core.interview import InterviewQuestion, InterviewSession
 from jri.core.logging import JsonlLogger
 from jri.core.project import ProjectState
+from jri.core.triggers import is_trigger_message
+
+FINALIZATION_STARTED_MESSAGE = "Finalizing specs..."
+MODEL_ERROR_RECOVERY_MESSAGE = "I hit a model/tool issue. Please try again."
 
 
 def run_repl(
@@ -83,6 +87,12 @@ async def _run_repl(
                 "model_error",
                 {"message": str(exc), "error_type": type(exc).__name__},
             )
+            _write_assistant_text(output_stream, MODEL_ERROR_RECOVERY_MESSAGE)
+            logger.write(
+                "assistant_message",
+                {"message": MODEL_ERROR_RECOVERY_MESSAGE},
+            )
+            output_stream.flush()
             continue
         except Exception as exc:  # noqa: BLE001
             logger.write("error", {"message": str(exc)})
@@ -148,6 +158,10 @@ async def _run_turn(
 ) -> None:
     assistant_parts: list[str] = []
     streamed_text = False
+    if is_trigger_message(user_message):
+        _write_assistant_text(output_stream, FINALIZATION_STARTED_MESSAGE)
+        output_stream.flush()
+
     async for event in interviewer.respond(user_message):
         if event.kind == "tool_call":
             tool_name = cast("str", event.content)

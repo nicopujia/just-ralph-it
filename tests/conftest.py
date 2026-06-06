@@ -45,18 +45,18 @@ def cli_env(live: bool, runtime_env: dict[str, str]) -> dict[str, str]:
     """Return an environment for black-box CLI tests."""
     env = runtime_env.copy()
     if live:
-        env.pop(INTERVIEWER_FACTORY_ENV, None)
         if not env.get("OPENROUTER_API_KEY"):
             pytest.fail("OPENROUTER_API_KEY is required for --live")
     else:
         env.pop("OPENROUTER_API_KEY", None)
-        env[INTERVIEWER_FACTORY_ENV] = (
-            "tests.doubles.interviewers:create_scripted_interviewer"
-        )
-        env["PYTHONPATH"] = _prepend_pythonpath(
-            Path(__file__).resolve().parents[1],
-            env.get("PYTHONPATH"),
-        )
+    env.setdefault(
+        INTERVIEWER_FACTORY_ENV,
+        "tests.doubles.interviewers:create_scripted_interviewer",
+    )
+    env["PYTHONPATH"] = _prepend_pythonpath(
+        Path(__file__).resolve().parents[1],
+        env.get("PYTHONPATH"),
+    )
     return env
 
 

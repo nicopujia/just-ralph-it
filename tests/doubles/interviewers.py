@@ -10,6 +10,8 @@ from jri.core.tools.note import replace_note
 from jri.core.tools.spec import replace_spec
 from jri.core.triggers import is_trigger_message
 
+HIDDEN_SPEC_PHRASE = "unique hidden spec phrase: citrus ledger 7842"
+
 
 class ScriptedInterviewer:
     """Deterministic interviewer that mirrors the live CLI contract."""
@@ -42,7 +44,7 @@ class ScriptedInterviewer:
                 )
                 return
 
-            yield InterviewEvent(kind="tool_call", content="just_ralph_it")
+            yield InterviewEvent(kind="tool_call", content="finalize_specs")
             result = await finalize_jri(
                 project_root=self.project_root,
                 latest_user_message=user_message,
@@ -57,7 +59,7 @@ class ScriptedInterviewer:
 
         if not self._goal_seen:
             self._goal_seen = True
-            yield InterviewEvent(kind="tool_call", content="spec")
+            yield InterviewEvent(kind="tool_call", content="update_specs")
             await replace_spec(
                 project_root=self.project_root,
                 path="product",
@@ -65,7 +67,7 @@ class ScriptedInterviewer:
                     f"# Product\n\n## Confirmed Goal\n\n- {user_message}\n"
                 ),
             )
-            yield InterviewEvent(kind="tool_call", content="note")
+            yield InterviewEvent(kind="tool_call", content="record_notes")
             await replace_note(
                 project_root=self.project_root,
                 content=(
@@ -89,7 +91,7 @@ class ScriptedInterviewer:
             return
 
         self._ready = True
-        yield InterviewEvent(kind="tool_call", content="spec")
+        yield InterviewEvent(kind="tool_call", content="update_specs")
         await replace_spec(
             project_root=self.project_root,
             path="product",
@@ -99,11 +101,28 @@ class ScriptedInterviewer:
                 "- Build a tiny CLI that prints hello.\n\n"
                 "## Target User\n\n"
                 f"- {user_message}\n\n"
+                "## Workflows\n\n"
+                "- The user runs the CLI command once.\n\n"
+                "## Inputs\n\n"
+                "- No arguments and no stdin are required.\n\n"
+                "## Outputs\n\n"
+                "- The CLI prints hello to stdout.\n\n"
+                "## Persistence\n\n"
+                "- No data is persisted.\n\n"
+                "## Integrations\n\n"
+                "- No external services are used.\n\n"
+                "## Errors\n\n"
+                "- No custom error behavior is needed for v1.\n\n"
+                "## Edge Cases\n\n"
+                "- Extra arguments may be ignored.\n\n"
+                "## Non-Goals\n\n"
+                "- Packaging, colors, prompts, network, files, and "
+                "deployment are out of scope.\n\n"
                 "## Success Criteria\n\n"
                 "- Running the CLI prints hello to stdout.\n"
             ),
         )
-        yield InterviewEvent(kind="tool_call", content="note")
+        yield InterviewEvent(kind="tool_call", content="record_notes")
         await replace_note(
             project_root=self.project_root,
             content=(
@@ -129,3 +148,117 @@ def create_scripted_interviewer(
 ) -> ScriptedInterviewer:
     """Create the deterministic interviewer used by subprocess tests."""
     return ScriptedInterviewer(project_root=project_root, logger=logger)
+
+
+class FirstTokenInterviewer:
+    """Interviewer that streams a contraction as the first text delta."""
+
+    @property
+    def should_exit(self) -> bool:
+        """Return false so EOF controls the test session."""
+        return False
+
+    async def respond(
+        self,
+        user_message: str,
+    ) -> AsyncIterator[InterviewEvent]:
+        """Yield text deltas whose first token must not be dropped."""
+        _ = user_message
+        yield InterviewEvent(kind="text_delta", content="I'm")
+        yield InterviewEvent(kind="text_delta", content=" checking")
+        yield InterviewEvent(kind="text_delta", content=" the first token.")
+
+
+def create_first_token_interviewer(
+    project_root: Path,
+    logger: JsonlLogger,
+) -> FirstTokenInterviewer:
+    """Create a deterministic first-token regression interviewer."""
+    _ = (project_root, logger)
+    return FirstTokenInterviewer()
+
+
+class HiddenSpecInterviewer:
+    """Interviewer that persists exact specs without dumping them."""
+
+    def __init__(self, project_root: Path) -> None:
+        self.project_root: Path = project_root
+
+    @property
+    def should_exit(self) -> bool:
+        """Return false so EOF controls the test session."""
+        return False
+
+    async def respond(
+        self,
+        user_message: str,
+    ) -> AsyncIterator[InterviewEvent]:
+        """Persist exact spec text, revealing it only on direct request."""
+        if _asks_for_exact_specs(user_message):
+            spec_path = self.project_root / ".jri" / "specs" / "product.md"
+            yield InterviewEvent(
+                kind="text",
+                content=spec_path.read_text(encoding="utf-8"),
+            )
+            return
+
+        yield InterviewEvent(kind="tool_call", content="update_specs")
+        await replace_spec(
+            project_root=self.project_root,
+            path="product",
+            content=(
+                "# Product\n\n"
+                "## Confirmed Goal\n\n"
+                f"- Persist {HIDDEN_SPEC_PHRASE} for the product spec.\n"
+            ),
+        )
+        yield InterviewEvent(
+            kind="text",
+            content="I captured the exact wording without dumping the spec.",
+        )
+
+
+def create_hidden_spec_interviewer(
+    project_root: Path,
+    logger: JsonlLogger,
+) -> HiddenSpecInterviewer:
+    """Create a deterministic hidden-spec interviewer."""
+    _ = logger
+    return HiddenSpecInterviewer(project_root)
+
+
+def _asks_for_exact_specs(user_message: str) -> bool:
+    normalized = user_message.casefold()
+    return "exact" in normalized and "spec" in normalized
+
+
+class NonSoftwareInterviewer:
+    """Interviewer that keeps non-software input conversational."""
+
+    @property
+    def should_exit(self) -> bool:
+        """Return false so EOF controls the test session."""
+        return False
+
+    async def respond(
+        self,
+        user_message: str,
+    ) -> AsyncIterator[InterviewEvent]:
+        """Answer conversationally without writing specs."""
+        _ = user_message
+        yield InterviewEvent(
+            kind="text",
+            content=(
+                "That sounds conversational rather than a software project, "
+                "so I will not finalize specs from it."
+            ),
+        )
+
+
+def create_non_software_interviewer(
+    project_root: Path,
+    logger: JsonlLogger,
+) -> NonSoftwareInterviewer:
+    """Create a deterministic non-software interviewer."""
+    _ = (project_root, logger)
+    return NonSoftwareInterviewer()
