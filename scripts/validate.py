@@ -10,6 +10,7 @@ from typing import cast
 FULL_MODE = "full"
 SMOKE_MODE = "smoke"
 FAST_MODE = "fast"
+PYTEST_LOGS_DIR = ".pytest_logs"
 
 uv = shutil.which("uv")
 if uv is None:
@@ -30,6 +31,7 @@ _action = parser.add_argument(
     ),
 )
 mode = cast("str", parser.parse_args().mode)
+test_cmd: tuple[str, ...] | None = None
 
 commands: list[tuple[str, ...]] = [
     (uv, "run", "--locked", "ruff", "format", "-q"),
@@ -62,6 +64,9 @@ if mode in {SMOKE_MODE, FULL_MODE}:
 
 returncode = 0
 for cmd in commands:
+    if cmd == test_cmd:
+        shutil.rmtree(PYTEST_LOGS_DIR, ignore_errors=True)
+
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
         returncode = 1
