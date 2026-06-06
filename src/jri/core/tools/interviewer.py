@@ -358,11 +358,14 @@ async def _replace_validated_spec(
         raise ModelRetry(
             _format_spec_markdown_retry_message(str(exc))
         ) from exc
-    return await replace_spec(
-        project_root=deps.project_root,
-        path=spec_name,
-        content=content,
-    )
+    try:
+        return await replace_spec(
+            project_root=deps.project_root,
+            path=spec_name,
+            content=content,
+        )
+    except WriteError as exc:
+        raise ModelRetry(_format_spec_name_retry_message()) from exc
 
 
 async def _update_scratchpad_with_tool_name(
@@ -452,7 +455,11 @@ def _format_spec_markdown_retry_message(reason: str) -> str:
 
 
 def _format_spec_name_retry_message() -> str:
-    return "Invalid spec_name. Use a spec name such as product or product.md."
+    return (
+        "Invalid spec_name. Use a spec name such as product or product.md; "
+        "it must be relative, never an absolute path or a name with .. "
+        "segments."
+    )
 
 
 def _format_finalize_blocked_message(blockers: list[str]) -> str:

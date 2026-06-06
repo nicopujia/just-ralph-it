@@ -1358,6 +1358,50 @@ def test_interviewer_tools_mutate_jri_state_and_finalize(
 
 
 @pytest.mark.parametrize(
+    "path_kind",
+    [
+        "absolute",
+        "traversal",
+    ],
+)
+def test_update_specs_tool_retries_invalid_spec_name_without_writing(
+    tmp_path: Path,
+    path_kind: str,
+) -> None:
+    """Invalid spec names become model retry guidance."""
+    deps = InterviewerDeps(
+        project_root=tmp_path,
+        latest_user_message="idea",
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        explorer=RecordingExplorer(),
+    )
+    ctx = cast("RunContext[InterviewerDeps]", FakeRunContext(deps))
+    escaped_path = tmp_path / ".jri" / "escape.md"
+    spec_name = "../escape.md"
+    if path_kind == "absolute":
+        escaped_path = tmp_path.parent / f"{tmp_path.name}-escape.md"
+        spec_name = str(escaped_path)
+
+    with pytest.raises(ModelRetry, match="Use a spec name"):
+        asyncio.run(
+            update_specs_tool(
+                ctx,
+                spec_name=spec_name,
+                content="# Product\n\n## Goal\n\nBuild a tiny CLI.\n",
+            )
+        )
+
+    assert not escaped_path.exists()
+    assert not (tmp_path / ".jri" / "specs" / "escape.md").exists()
+    failed = _latest_event(
+        _read_events(tmp_path / "events.jsonl"), "tool_call_failed"
+    )
+    assert cast("dict[str, object]", failed["data"])["error_type"] == (
+        "ModelRetry"
+    )
+
+
+@pytest.mark.parametrize(
     "content",
     [
         (
