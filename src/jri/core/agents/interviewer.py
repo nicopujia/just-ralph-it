@@ -229,7 +229,15 @@ class Interviewer:
                 events.append(event)
                 yield event
         except UnexpectedModelBehavior:
-            await self._append_trigger_fallback_events(deps, events)
+            yielded_event_count = len(events)
+            finalized = await self._append_trigger_fallback_events(
+                deps,
+                events,
+            )
+            for event in events[yielded_event_count:]:
+                yield event
+            if finalized:
+                return
             raise
         else:
             yielded_event_count = len(events)

@@ -67,6 +67,28 @@ def test_explorer_file_tools_do_not_expose_jri_logs(
         read_text(path=logs / "interview.jsonl", root=tmp_path)
 
 
+def test_explorer_file_tools_do_not_expose_secret_files(
+    tmp_path: Path,
+) -> None:
+    """Environment and key files are not readable by explorer helpers."""
+    (tmp_path / ".env").write_text("OPENROUTER_API_KEY=secret\n")
+    (tmp_path / ".env.local").write_text("BRAVE_SEARCH_API_KEY=secret\n")
+    ssh_dir = tmp_path / ".ssh"
+    ssh_dir.mkdir()
+    private_key = ssh_dir / "id_ed25519"
+    private_key.write_text("private key\n")
+    source = tmp_path / "src" / "app.py"
+    source.parent.mkdir()
+    source.write_text("print('safe')\n")
+
+    assert glob_paths(pattern="**/*", root=tmp_path) == ["src/app.py"]
+    assert grep_text(pattern="secret", root=tmp_path) == ""
+    with pytest.raises(ValueError, match="secret files"):
+        read_text(path=tmp_path / ".env", root=tmp_path)
+    with pytest.raises(ValueError, match="secret files"):
+        read_text(path=private_key, root=tmp_path)
+
+
 def test_read_text_rejects_paths_outside_project_root(
     tmp_path: Path,
 ) -> None:

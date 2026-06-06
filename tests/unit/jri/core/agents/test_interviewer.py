@@ -115,6 +115,42 @@ class FailingStream:
         _ = (exc_type, exc, traceback)
 
 
+class ErrorAfterRunResultAgent:
+    """Fake stream agent that errors after a visible run result."""
+
+    def run_stream_events(
+        self,
+        *args: object,
+        **kwargs: object,
+    ) -> "ErrorAfterRunResultStream":
+        """Return a stream that emits readiness text, then errors."""
+        _ = (args, kwargs)
+        return ErrorAfterRunResultStream()
+
+
+class ErrorAfterRunResultStream:
+    """Async context manager that raises after a run result event."""
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        traceback: object,
+    ) -> None:
+        _ = (exc_type, exc, traceback)
+
+    def __aiter__(self) -> AsyncIterator[object]:
+        return self._iterate()
+
+    async def _iterate(self) -> AsyncIterator[object]:
+        yield AgentRunResultEvent(result=FakeRunResult("Ready to hand off."))
+        msg = "tool exceeded max retries"
+        raise UnexpectedModelBehavior(msg)
+
+
 class BlockingAfterFirstTextStreamAgent:
     """Fake stream agent that pauses after one provider text event."""
 
@@ -766,6 +802,38 @@ def test_interviewer_trigger_fallback_rejects_model_errors_without_readiness(
     assert cast("dict[str, object]", skipped["data"])["reason"] == (
         "no_readiness_signal"
     )
+
+
+def test_interviewer_exits_after_trigger_fallback_finalizes_on_model_error(
+    tmp_path: Path,
+) -> None:
+    """A successful trigger fallback is visible even if the model errors."""
+    _configure_repo(tmp_path)
+    log_path = tmp_path / ".jri" / "logs" / "interview.jsonl"
+    (tmp_path / ".jri" / "logs").mkdir(parents=True)
+    (tmp_path / ".jri" / ".gitignore").write_text("logs/\n")
+    specs = tmp_path / ".jri" / "specs"
+    specs.mkdir(parents=True)
+    (specs / "product.md").write_text(
+        _complete_spec(),
+        encoding="utf-8",
+    )
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(log_path),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    object.__setattr__(interviewer, "agent", ErrorAfterRunResultAgent())
+
+    events = asyncio.run(_collect(interviewer.respond("just ralph it")))
+
+    assert [(event.kind, event.content) for event in events[:2]] == [
+        ("text", "Ready to hand off."),
+        ("tool_call", "finalize_specs"),
+    ]
+    assert "Ralph is coming soon to JRI" in cast("str", events[2].content)
+    assert interviewer.should_exit
+    assert _has_commit(tmp_path)
 
 
 def test_interviewer_reraises_model_errors_without_fallback(

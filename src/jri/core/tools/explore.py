@@ -10,6 +10,22 @@ import httpx
 
 BRAVE_WEB_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 _JRI_LOG_PATH_PREFIX = (".jri", "logs")
+_SECRET_FILE_NAMES = {
+    ".env",
+    ".envrc",
+    ".netrc",
+    "id_dsa",
+    "id_ecdsa",
+    "id_ed25519",
+    "id_rsa",
+}
+_SECRET_FILE_PREFIXES = (".env.",)
+_SECRET_FILE_SUFFIXES = (
+    ".key",
+    ".pem",
+    ".p12",
+    ".pfx",
+)
 
 
 @dataclass(frozen=True)
@@ -48,7 +64,7 @@ def glob_paths(*, pattern: str, root: Path, limit: int = 100) -> list[str]:
         for path in root.glob(pattern)
         if path.is_file()
         and (relative := _project_relative(path, resolved_root)) is not None
-        and not _is_log_path(relative)
+        and not _is_blocked_file_path(relative)
     ]
     return sorted(paths)[:limit]
 
@@ -81,7 +97,7 @@ def grep_text(
         if not path.is_file():
             continue
         relative = _project_relative(path, resolved_root)
-        if relative is None or _is_log_path(relative):
+        if relative is None or _is_blocked_file_path(relative):
             continue
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
@@ -219,6 +235,9 @@ def _resolve_project_file(*, path: Path, root: Path) -> Path:
     if _is_log_path(relative):
         msg = "Explorer file tools do not expose .jri logs."
         raise ValueError(msg)
+    if _is_secret_path(relative):
+        msg = "Explorer file tools do not expose secret files."
+        raise ValueError(msg)
     return resolved_path
 
 
@@ -234,4 +253,17 @@ def _is_log_path(relative: Path) -> bool:
     return (
         len(relative.parts) >= len(_JRI_LOG_PATH_PREFIX)
         and relative.parts[: len(_JRI_LOG_PATH_PREFIX)] == _JRI_LOG_PATH_PREFIX
+    )
+
+
+def _is_blocked_file_path(relative: Path) -> bool:
+    return _is_log_path(relative) or _is_secret_path(relative)
+
+
+def _is_secret_path(relative: Path) -> bool:
+    name = relative.name
+    return (
+        name in _SECRET_FILE_NAMES
+        or name.startswith(_SECRET_FILE_PREFIXES)
+        or name.endswith(_SECRET_FILE_SUFFIXES)
     )
