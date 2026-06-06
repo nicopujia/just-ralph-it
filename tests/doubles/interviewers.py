@@ -6,8 +6,8 @@ from pathlib import Path
 from jri.core.interview import InterviewEvent, InterviewQuestion
 from jri.core.logging import JsonlLogger
 from jri.core.tools.just_ralph_it import finalize_jri
-from jri.core.tools.note import write_note
-from jri.core.tools.spec import write_spec
+from jri.core.tools.note import replace_note
+from jri.core.tools.spec import replace_spec
 from jri.core.triggers import is_trigger_message
 
 
@@ -58,7 +58,7 @@ class ScriptedInterviewer:
         if not self._goal_seen:
             self._goal_seen = True
             yield InterviewEvent(kind="tool_call", content="spec")
-            await write_spec(
+            await replace_spec(
                 project_root=self.project_root,
                 path="product",
                 content=(
@@ -66,7 +66,7 @@ class ScriptedInterviewer:
                 ),
             )
             yield InterviewEvent(kind="tool_call", content="note")
-            await write_note(
+            await replace_note(
                 project_root=self.project_root,
                 content=(
                     "# Scratchpad\n\n"
@@ -90,7 +90,7 @@ class ScriptedInterviewer:
 
         self._ready = True
         yield InterviewEvent(kind="tool_call", content="spec")
-        await write_spec(
+        await replace_spec(
             project_root=self.project_root,
             path="product",
             content=(
@@ -104,7 +104,7 @@ class ScriptedInterviewer:
             ),
         )
         yield InterviewEvent(kind="tool_call", content="note")
-        await write_note(
+        await replace_note(
             project_root=self.project_root,
             content=(
                 "# Scratchpad\n\n"

@@ -17,6 +17,7 @@ def test_interviewer_prompt_defines_jri_and_tool_roles() -> None:
     assert "confirmed requirements" in BASE_INTERVIEWER_PROMPT
     assert "pending questions" in BASE_INTERVIEWER_PROMPT
     assert "patch_text" in BASE_INTERVIEWER_PROMPT
+    assert "content or patch_text" not in BASE_INTERVIEWER_PROMPT
 
 
 def test_explorer_prompt_supports_jri_without_inferring_preferences() -> None:

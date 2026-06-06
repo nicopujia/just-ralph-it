@@ -221,9 +221,28 @@ def test_interviewer_tools_mutate_jri_state_and_finalize(
     _configure_repo(tmp_path)
 
     spec_result = asyncio.run(
-        write_spec_tool(ctx, path="product", content="# Product\n")
+        write_spec_tool(
+            ctx,
+            path="product",
+            patch_text=(
+                "*** Begin Patch\n"
+                "*** Add File: product.md\n"
+                "+# Product\n"
+                "*** End Patch"
+            ),
+        )
     )
-    note_result = asyncio.run(write_note_tool(ctx, content="# Scratchpad\n"))
+    note_result = asyncio.run(
+        write_note_tool(
+            ctx,
+            patch_text=(
+                "*** Begin Patch\n"
+                "*** Add File: scratchpad.md\n"
+                "+# Scratchpad\n"
+                "*** End Patch"
+            ),
+        )
+    )
     question = ask_question_tool(
         level="high",
         question="What should success look like?",
@@ -354,7 +373,16 @@ def test_logged_tool_records_failure(tmp_path: Path) -> None:
 
     with contextlib.suppress(ValueError):
         asyncio.run(
-            write_spec_tool(ctx, path="../escape.md", content="# Escape\n")
+            write_spec_tool(
+                ctx,
+                path="../escape.md",
+                patch_text=(
+                    "*** Begin Patch\n"
+                    "*** Add File: ../escape.md\n"
+                    "+# Escape\n"
+                    "*** End Patch"
+                ),
+            )
         )
 
     log = (tmp_path / "events.jsonl").read_text()

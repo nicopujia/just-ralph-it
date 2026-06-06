@@ -1,20 +1,21 @@
 """Tests for the spec tool wrapper."""
 
 import asyncio
+import inspect
 from pathlib import Path
 
 import pytest
 
-from jri.core.tools.spec import write_spec
+from jri.core.tools.spec import replace_spec, write_spec
 from jri.core.tools.write import WriteError
 
 
-def test_spec_writes_markdown_under_specs_directory(tmp_path: Path) -> None:
-    """Spec writes are scoped to .jri/specs."""
+def test_spec_replaces_markdown_under_specs_directory(tmp_path: Path) -> None:
+    """Spec replacements are scoped to .jri/specs."""
     result = asyncio.run(
-        write_spec(
+        replace_spec(
             project_root=tmp_path,
-            path="product",
+            path="product.md",
             content="# Product\n",
         )
     )
@@ -23,6 +24,26 @@ def test_spec_writes_markdown_under_specs_directory(tmp_path: Path) -> None:
     assert spec_path.read_text() == "# Product\n"
     assert "product.md" in result
     assert "10 bytes" in result
+
+
+def test_spec_adds_markdown_with_patch_text(tmp_path: Path) -> None:
+    """Spec tool calls create files through patch_text."""
+    result = asyncio.run(
+        write_spec(
+            project_root=tmp_path,
+            path="product",
+            patch_text=(
+                "*** Begin Patch\n"
+                "*** Add File: product.md\n"
+                "+# Product\n"
+                "*** End Patch"
+            ),
+        )
+    )
+
+    spec_path = tmp_path / ".jri" / "specs" / "product.md"
+    assert spec_path.read_text() == "# Product\n"
+    assert "A specs/product.md" in result
 
 
 def test_spec_patches_markdown_under_specs_directory(tmp_path: Path) -> None:
@@ -50,20 +71,13 @@ def test_spec_patches_markdown_under_specs_directory(tmp_path: Path) -> None:
     assert "M specs/product.md" in result
 
 
-def test_spec_requires_content_or_patch_text(tmp_path: Path) -> None:
-    """Spec writes require exactly one mutation payload."""
-    with pytest.raises(WriteError, match="content or patch_text"):
-        asyncio.run(write_spec(project_root=tmp_path, path="product"))
+def test_spec_tool_accepts_only_patch_text_payload() -> None:
+    """The model-facing spec tool requires patch_text."""
+    signature = inspect.signature(write_spec)
 
-    with pytest.raises(WriteError, match="content or patch_text"):
-        asyncio.run(
-            write_spec(
-                project_root=tmp_path,
-                path="product",
-                content="# Product\n",
-                patch_text="*** Begin Patch\n*** End Patch",
-            )
-        )
+    assert "content" not in signature.parameters
+    assert "patch_text: str" in str(signature)
+    assert "patch_text: str =" not in str(signature)
 
 
 @pytest.mark.parametrize("path_kind", ["absolute", "traversal"])
@@ -81,7 +95,12 @@ def test_spec_rejects_paths_outside_specs_directory(
             write_spec(
                 project_root=tmp_path,
                 path=path,
-                content="# Escape\n",
+                patch_text=(
+                    "*** Begin Patch\n"
+                    f"*** Add File: {path}\n"
+                    "+# Escape\n"
+                    "*** End Patch"
+                ),
             )
         )
 

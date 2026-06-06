@@ -1,18 +1,16 @@
 """Tests for the note tool wrapper."""
 
 import asyncio
+import inspect
 from pathlib import Path
 
-import pytest
-
-from jri.core.tools.note import write_note
-from jri.core.tools.write import WriteError
+from jri.core.tools.note import replace_note, write_note
 
 
-def test_note_writes_scratchpad(tmp_path: Path) -> None:
-    """Note writes replace only the project scratchpad."""
+def test_note_replaces_scratchpad(tmp_path: Path) -> None:
+    """Note replacements target only the project scratchpad."""
     result = asyncio.run(
-        write_note(
+        replace_note(
             project_root=tmp_path,
             content="# Scratchpad\n\n## Pending Questions\n",
         )
@@ -22,6 +20,25 @@ def test_note_writes_scratchpad(tmp_path: Path) -> None:
     assert scratchpad.read_text() == "# Scratchpad\n\n## Pending Questions\n"
     assert "scratchpad.md" in result
     assert "35 bytes" in result
+
+
+def test_note_adds_scratchpad_with_patch_text(tmp_path: Path) -> None:
+    """Note tool calls create the scratchpad through patch_text."""
+    result = asyncio.run(
+        write_note(
+            project_root=tmp_path,
+            patch_text=(
+                "*** Begin Patch\n"
+                "*** Add File: scratchpad.md\n"
+                "+# Scratchpad\n"
+                "*** End Patch"
+            ),
+        )
+    )
+
+    scratchpad = tmp_path / ".jri" / "scratchpad.md"
+    assert scratchpad.read_text() == "# Scratchpad\n"
+    assert "A scratchpad.md" in result
 
 
 def test_note_patches_scratchpad(tmp_path: Path) -> None:
@@ -48,16 +65,10 @@ def test_note_patches_scratchpad(tmp_path: Path) -> None:
     assert "M scratchpad.md" in result
 
 
-def test_note_requires_content_or_patch_text(tmp_path: Path) -> None:
-    """Note writes require exactly one mutation payload."""
-    with pytest.raises(WriteError, match="content or patch_text"):
-        asyncio.run(write_note(project_root=tmp_path))
+def test_note_tool_accepts_only_patch_text_payload() -> None:
+    """The model-facing note tool requires patch_text."""
+    signature = inspect.signature(write_note)
 
-    with pytest.raises(WriteError, match="content or patch_text"):
-        asyncio.run(
-            write_note(
-                project_root=tmp_path,
-                content="# Scratchpad\n",
-                patch_text="*** Begin Patch\n*** End Patch",
-            )
-        )
+    assert "content" not in signature.parameters
+    assert "patch_text: str" in str(signature)
+    assert "patch_text: str =" not in str(signature)

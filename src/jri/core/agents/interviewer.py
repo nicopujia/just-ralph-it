@@ -29,7 +29,7 @@ from jri.core.tools.ask import AskChoice, build_question
 from jri.core.tools.explore import ContextExplorer, explore_context
 from jri.core.tools.just_ralph_it import JustRalphItError, finalize_jri
 from jri.core.tools.note import write_note
-from jri.core.tools.spec import write_spec
+from jri.core.tools.spec import replace_spec, write_spec
 
 
 @dataclass
@@ -149,18 +149,16 @@ class Interviewer:
 async def write_spec_tool(
     ctx: RunContext[InterviewerDeps],
     path: str,
-    content: str | None = None,
-    patch_text: str | None = None,
+    patch_text: str,
 ) -> str:
-    """Create, replace, or patch a curated project spec file."""
+    """Patch a curated project spec file."""
     return await _run_logged_tool(
         ctx.deps,
         "spec",
-        {"path": path, "mode": "patch" if patch_text is not None else "write"},
+        {"path": path},
         lambda: write_spec(
             project_root=ctx.deps.project_root,
             path=path,
-            content=content,
             patch_text=patch_text,
         ),
     )
@@ -168,17 +166,15 @@ async def write_spec_tool(
 
 async def write_note_tool(
     ctx: RunContext[InterviewerDeps],
-    content: str | None = None,
-    patch_text: str | None = None,
+    patch_text: str,
 ) -> str:
-    """Create, replace, or patch the interviewer scratchpad."""
+    """Patch the interviewer scratchpad."""
     return await _run_logged_tool(
         ctx.deps,
         "note",
-        {"mode": "patch" if patch_text is not None else "write"},
+        {},
         lambda: write_note(
             project_root=ctx.deps.project_root,
-            content=content,
             patch_text=patch_text,
         ),
     )
@@ -273,7 +269,7 @@ async def finalize_tool(
             msg = "just_ralph_it requires non-empty final spec content."
             raise JustRalphItError(msg)
         if not known_blockers:
-            await write_spec(
+            await replace_spec(
                 project_root=ctx.deps.project_root,
                 path=spec_path,
                 content=spec_content,

@@ -15,9 +15,10 @@ Suggestions are not facts until the user explicitly accepts them.
 
 Use note for unresolved branches, pending questions, and assumptions.
 Use spec only for confirmed requirements.
-For note and spec, provide exactly one of content or patch_text. Use
-patch_text for focused edits to existing Markdown files; use content when
-creating or intentionally replacing the whole file.
+For note and spec, provide patch_text. Use Add File for missing spec files,
+Update File for focused edits, and Delete File plus Add File when intentionally
+replacing an existing Markdown file. The scratchpad usually already exists, so
+patch it with Update File or replace it with Delete File plus Add File.
 Use ask for the next highest-leverage question.
 Use explore for sourced factual or code context.
 Use just_ralph_it only to persist the final spec and finalize it for Ralph

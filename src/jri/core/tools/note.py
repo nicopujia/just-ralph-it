@@ -4,7 +4,6 @@ from pathlib import Path
 
 from .write import (
     PatchResult,
-    WriteError,
     patch_file,
     write_file,
 )
@@ -13,40 +12,36 @@ from .write import (
 async def write_note(
     *,
     project_root: Path,
-    content: str | None = None,
-    patch_text: str | None = None,
+    patch_text: str,
 ) -> str:
-    """Create, replace, or patch the interviewer scratchpad."""
-    _validate_payload(content=content, patch_text=patch_text)
+    """Patch the interviewer scratchpad."""
     allowed_root = project_root / ".jri"
     target_path = project_root / ".jri" / "scratchpad.md"
-    if patch_text is not None:
-        result = await patch_file(
-            allowed_root=allowed_root,
-            target_path=target_path,
-            patch_text=patch_text,
-        )
-        return _format_patch_result(
-            project_root=project_root,
-            result=result,
-        )
+    result = await patch_file(
+        allowed_root=allowed_root,
+        target_path=target_path,
+        patch_text=patch_text,
+    )
+    return _format_patch_result(
+        project_root=project_root,
+        result=result,
+    )
 
+
+async def replace_note(
+    *,
+    project_root: Path,
+    content: str,
+) -> str:
+    """Create or replace the interviewer scratchpad."""
+    allowed_root = project_root / ".jri"
+    target_path = project_root / ".jri" / "scratchpad.md"
     result = await write_file(
         allowed_root=allowed_root,
         target_path=target_path,
         content=content or "",
     )
     return f"{result.path.name} written ({result.bytes_written} bytes)"
-
-
-def _validate_payload(
-    *,
-    content: str | None,
-    patch_text: str | None,
-) -> None:
-    if (content is None) == (patch_text is None):
-        msg = "Provide exactly one of content or patch_text."
-        raise WriteError(msg)
 
 
 def _format_patch_result(
