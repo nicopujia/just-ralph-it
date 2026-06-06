@@ -372,11 +372,14 @@ async def _prepare_patch_hunks(
             )
             continue
 
-        update = derive_update(
-            path=hunk.path,
-            chunks=hunk.chunks,
-            original=source.decode("utf-8-sig"),
-        )
+        try:
+            update = derive_update(
+                path=hunk.path,
+                chunks=hunk.chunks,
+                original=source.decode("utf-8-sig"),
+            )
+        except ValueError as exc:
+            raise WriteError(str(exc)) from exc
         prepared.append(
             _PreparedUpdate(
                 hunk=hunk,

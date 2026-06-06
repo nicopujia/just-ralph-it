@@ -17,6 +17,12 @@ def test_interviewer_prompt_defines_jri_and_tool_roles() -> None:
     assert "confirmed requirements" in BASE_INTERVIEWER_PROMPT
     assert "pending questions" in BASE_INTERVIEWER_PROMPT
     assert "patch_text" in BASE_INTERVIEWER_PROMPT
+    assert "*** Begin Patch" in BASE_INTERVIEWER_PROMPT
+    assert "*** End Patch" in BASE_INTERVIEWER_PROMPT
+    assert "Never pass an absolute path" in BASE_INTERVIEWER_PROMPT
+    assert "every content line must start with +" in BASE_INTERVIEWER_PROMPT
+    assert "Do not send raw Markdown as patch_text" in BASE_INTERVIEWER_PROMPT
+    assert "must call just_ralph_it" in BASE_INTERVIEWER_PROMPT
     assert "content or patch_text" not in BASE_INTERVIEWER_PROMPT
 
 

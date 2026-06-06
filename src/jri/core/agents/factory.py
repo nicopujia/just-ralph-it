@@ -38,6 +38,15 @@ def create_interviewer(
 
     config = runtime_config or load_agent_runtime_config(env)
     validate_agent_runtime_credentials(config, env)
+    logger.write(
+        "session_config",
+        {
+            "model_provider": config.model_provider,
+            "model_preset": config.model_preset,
+            "interviewer_model": config.models.interviewer,
+            "explorer_model": config.models.explorer,
+        },
+    )
     return Interviewer(
         project_root=project_root,
         logger=logger,

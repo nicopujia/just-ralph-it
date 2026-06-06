@@ -4,6 +4,7 @@
 .venv/
 .ruff_cache/
 .pytest_cache/
+.jri-test-runs/
 __pycache__/
 htmlcov/
 dist/

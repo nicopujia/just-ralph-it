@@ -14,8 +14,20 @@ class FakeRunContext:
 class FakeRunResult:
     """Agent run result stand-in."""
 
-    def __init__(self, output: str) -> None:
+    def __init__(
+        self,
+        output: str,
+        *,
+        run_id: str = "fake-run",
+        conversation_id: str = "fake-conversation",
+        usage: object | None = None,
+        response: object | None = None,
+    ) -> None:
         self.output: str = output
+        self.run_id: str = run_id
+        self.conversation_id: str = conversation_id
+        self.usage: object | None = usage
+        self.response: object | None = response
 
     def all_messages(self) -> list[object]:
         """Return fake model history."""

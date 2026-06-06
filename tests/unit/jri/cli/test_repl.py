@@ -13,6 +13,7 @@ from tests.doubles.repl import (
     DeltaInterviewer,
     EchoInterviewer,
     FailingInterviewer,
+    FailingModelInterviewer,
     FakeInput,
     FakePromptSession,
     InterruptingInput,
@@ -51,6 +52,25 @@ def test_repl_recovers_from_interviewer_error(tmp_path: Path) -> None:
 
     assert code == 0
     assert "agent failed" in err.getvalue()
+
+
+def test_repl_logs_model_errors_without_stderr(tmp_path: Path) -> None:
+    """Unexpected model behavior is trace-only and the REPL continues."""
+    err = StringIO()
+
+    code = repl.run_repl(
+        state=_state(tmp_path),
+        interviewer=FailingModelInterviewer(),
+        input_stream=FakeInput("idea\n"),
+        output_stream=StringIO(),
+        error_stream=err,
+    )
+
+    log = (tmp_path / ".jri" / "logs" / "interview.jsonl").read_text()
+    assert code == 0
+    assert not err.getvalue()
+    assert "model_error" in log
+    assert "UnexpectedModelBehavior" in log
 
 
 def test_repl_skips_blank_input_then_handles_message(tmp_path: Path) -> None:

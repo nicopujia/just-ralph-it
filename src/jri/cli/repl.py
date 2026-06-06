@@ -10,6 +10,7 @@ from prompt_toolkit.formatted_text import FormattedText
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.key_binding.key_processor import KeyPressEvent
 from prompt_toolkit.styles import Style
+from pydantic_ai import UnexpectedModelBehavior
 
 from jri.cli.rendering import render_prompt, render_question, render_tool_call
 from jri.core.interview import InterviewQuestion, InterviewSession
@@ -73,6 +74,12 @@ async def _run_repl(
                 output_stream=output_stream,
                 user_message=user_message,
             )
+        except UnexpectedModelBehavior as exc:
+            logger.write(
+                "model_error",
+                {"message": str(exc), "error_type": type(exc).__name__},
+            )
+            continue
         except Exception as exc:  # noqa: BLE001
             logger.write("error", {"message": str(exc)})
             error_stream.write(f"{exc}\n")
@@ -141,7 +148,7 @@ async def _run_turn(
         if event.kind == "tool_call":
             tool_name = cast("str", event.content)
             output_stream.write(render_tool_call(tool_name))
-            logger.write("tool_call_started", {"tool_name": tool_name})
+            logger.write("tool_call_rendered", {"tool_name": tool_name})
         elif event.kind == "question":
             rendered = render_question(
                 cast("InterviewQuestion", event.content)

@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,6 +12,15 @@ type JsonValue = (
 )
 
 _SINGLE_SECRET_ENV_NAMES = ("OPENROUTER_API_KEY", "BRAVE_SEARCH_API_KEY")
+_SECRET_KEY_PATTERN = re.compile(
+    r"(^|[-_])(api[-_]?key|authorization|bearer|password|secret|"
+    + r"access[-_]?token|refresh[-_]?token|id[-_]?token|token)([-_]|$)",
+    re.IGNORECASE,
+)
+_BEARER_PATTERN = re.compile(
+    r"\bBearer\s+[A-Za-z0-9._~+/=-]+",
+    re.IGNORECASE,
+)
 
 
 class JsonlLogger:
@@ -36,14 +46,21 @@ def _redact(value: JsonValue) -> JsonValue:
     if isinstance(value, str):
         return _redact_string(value)
     if isinstance(value, Mapping):
-        return {str(key): _redact(item) for key, item in value.items()}
+        return {
+            str(key): (
+                "[redacted]"
+                if _SECRET_KEY_PATTERN.search(str(key))
+                else _redact(item)
+            )
+            for key, item in value.items()
+        }
     if isinstance(value, list):
         return [_redact(item) for item in value]
     return value
 
 
 def _redact_string(value: str) -> str:
-    redacted = value
+    redacted = _BEARER_PATTERN.sub("Bearer [redacted]", value)
     for name in _SINGLE_SECRET_ENV_NAMES:
         secret = os.environ.get(name)
         if secret:

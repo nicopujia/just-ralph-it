@@ -129,6 +129,7 @@ def test_first_interview_turn_records_visible_response(
     assert "jri>" in result.stdout
     assert result.has_visible_assistant_output()
     assert not result.has_commit()
+    _assert_debug_logs_archived(result)
     _assert_successful_interview_log(result, assistant_messages=1)
 
 
@@ -196,3 +197,12 @@ def _assert_successful_interview_log(
     assert "error" not in types
     assert len(messages) >= assistant_messages
     assert all(message.strip() for message in messages)
+
+
+def _assert_debug_logs_archived(result: CliRun) -> None:
+    assert result.debug_log_dir is not None
+    assert result.debug_log_dir.is_relative_to(Path.cwd() / ".jri-test-runs")
+    assert (result.debug_log_dir / "logs" / "interview.jsonl").exists()
+    assert (result.debug_log_dir / "stdout.txt").exists()
+    assert (result.debug_log_dir / "stderr.txt").exists()
+    assert ".jri-test-runs/" in Path(".gitignore").read_text(encoding="utf-8")

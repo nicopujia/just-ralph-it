@@ -1,6 +1,8 @@
 """Tests for interviewer construction."""
 
+import json
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -31,6 +33,35 @@ def test_factory_creates_interviewer_by_default(
     )
 
     assert isinstance(interviewer, Interviewer)
+
+
+def test_factory_logs_live_model_config(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Live sessions record the resolved model backend."""
+    monkeypatch.setenv("OPENROUTER_API_KEY", "fake")
+    log_path = tmp_path / "events.jsonl"
+
+    _ = create_interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(log_path),
+        env={
+            "OPENROUTER_API_KEY": "fake",
+            "JRI_INTERVIEWER_MODEL_ID": "interviewer-test",
+            "JRI_EXPLORER_MODEL_ID": "explorer-test",
+        },
+    )
+
+    events = [
+        cast("dict[str, object]", json.loads(line))
+        for line in log_path.read_text().splitlines()
+    ]
+    config = cast("dict[str, str]", events[-1]["data"])
+    assert events[-1]["type"] == "session_config"
+    assert config["model_provider"] == "openrouter"
+    assert config["interviewer_model"] == "openrouter:interviewer-test"
+    assert config["explorer_model"] == "openrouter:explorer-test"
 
 
 def test_factory_uses_custom_interviewer_factory_without_credentials(

@@ -5,6 +5,8 @@ from collections.abc import AsyncIterator
 from io import StringIO
 from typing import override
 
+from pydantic_ai import UnexpectedModelBehavior
+
 from jri.core.interview import InterviewEvent, InterviewQuestion
 
 
@@ -79,6 +81,22 @@ class FailingInterviewer(NoopInterviewer):
         _ = user_message
         msg = "agent failed"
         raise RuntimeError(msg)
+        if False:
+            yield InterviewEvent(kind="text", content="")
+
+
+class FailingModelInterviewer(NoopInterviewer):
+    """Interviewer that raises a provider/model behavior error once."""
+
+    @override
+    async def respond(
+        self,
+        user_message: str,
+    ) -> AsyncIterator[InterviewEvent]:
+        """Raise a recoverable model error."""
+        _ = user_message
+        msg = "Tool 'spec' exceeded max retries count of 3"
+        raise UnexpectedModelBehavior(msg)
         if False:
             yield InterviewEvent(kind="text", content="")
 

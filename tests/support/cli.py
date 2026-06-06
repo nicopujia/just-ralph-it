@@ -1,11 +1,14 @@
 """Black-box CLI harness for integration tests."""
 
 import json
+import os
 import re
+import shutil
 import subprocess
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from time import time_ns
 from typing import cast
 
 _ANSI_PATTERN = re.compile(rf"{re.escape(chr(27))}\[[0-9;]*m")
@@ -19,6 +22,7 @@ class CliRun:
     returncode: int
     stdout: str
     stderr: str
+    debug_log_dir: Path | None = None
 
     @property
     def jri_dir(self) -> Path:
@@ -148,11 +152,18 @@ class CliHarness:
             env=dict(self.env),
             timeout=self.timeout,
         )
+        debug_log_dir = _archive_debug_logs(
+            cwd=cwd,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            returncode=result.returncode,
+        )
         return CliRun(
             cwd=cwd,
             returncode=result.returncode,
             stdout=result.stdout,
             stderr=result.stderr,
+            debug_log_dir=debug_log_dir,
         )
 
     def run_help(self) -> CliRun:
@@ -186,3 +197,34 @@ def _event_data(event: dict[str, object]) -> dict[str, object]:
 
 def _strip_ansi(text: str) -> str:
     return _ANSI_PATTERN.sub("", text)
+
+
+def _archive_debug_logs(
+    *,
+    cwd: Path,
+    stdout: str,
+    stderr: str,
+    returncode: int,
+) -> Path | None:
+    logs = cwd / ".jri" / "logs"
+    if not logs.exists():
+        return None
+
+    test_name = os.environ.get("PYTEST_CURRENT_TEST", "manual").split(" ")[0]
+    run_name = f"{time_ns()}-{_slug(test_name)}-{_slug(cwd.name)}"
+    archive_dir = Path.cwd() / ".jri-test-runs" / run_name
+    archive_dir.mkdir(parents=True)
+    shutil.copytree(logs, archive_dir / "logs")
+    (archive_dir / "cwd.txt").write_text(f"{cwd}\n", encoding="utf-8")
+    (archive_dir / "returncode.txt").write_text(
+        f"{returncode}\n",
+        encoding="utf-8",
+    )
+    (archive_dir / "stdout.txt").write_text(stdout, encoding="utf-8")
+    (archive_dir / "stderr.txt").write_text(stderr, encoding="utf-8")
+    return archive_dir
+
+
+def _slug(value: str) -> str:
+    slug = re.sub(r"[^A-Za-z0-9_.-]+", "-", value).strip("-")
+    return slug[:120] or "run"

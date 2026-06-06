@@ -353,6 +353,33 @@ def test_patch_rejects_stale_updates(tmp_path: Path) -> None:
     assert operations.contents[target_path.resolve()] == b"winner\n"
 
 
+def test_patch_rejects_missing_update_context_as_write_error(
+    tmp_path: Path,
+) -> None:
+    """Patch derivation failures are surfaced as scoped write errors."""
+    allowed_root = tmp_path / "project" / ".jri" / "specs"
+    target_path = allowed_root / "product.md"
+    target_path.parent.mkdir(parents=True)
+    target_path.write_text("# Product\nold\n", encoding="utf-8")
+
+    with pytest.raises(WriteError, match="Failed to find context"):
+        asyncio.run(
+            patch_files(
+                allowed_root=allowed_root,
+                patch_text=(
+                    "*** Begin Patch\n"
+                    "*** Update File: product.md\n"
+                    "@@ -1,6 +1,6 @@\n"
+                    "-old\n"
+                    "+new\n"
+                    "*** End Patch"
+                ),
+            )
+        )
+
+    assert target_path.read_text(encoding="utf-8") == "# Product\nold\n"
+
+
 class RecordingOperations:
     """Fake filesystem operations that detect overlapping writes."""
 

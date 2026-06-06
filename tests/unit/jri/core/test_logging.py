@@ -46,6 +46,32 @@ def test_jsonl_logger_redacts_openrouter_api_key(
     assert "[redacted]" in log
 
 
+def test_jsonl_logger_redacts_secret_keys_and_bearer_values(
+    tmp_path: Path,
+) -> None:
+    """Raw trace payloads do not leak common secret fields."""
+    log_path = tmp_path / ".jri" / "logs" / "interview.jsonl"
+    logger = JsonlLogger(log_path)
+
+    logger.write(
+        "model_tool_call_started",
+        {
+            "api_key": "secret",
+            "headers": {"Authorization": "Bearer abc123"},
+            "usage": {"input_tokens": 10, "output_tokens": 2},
+            "message": "curl -H 'Authorization: Bearer xyz789'",
+        },
+    )
+
+    log = log_path.read_text()
+    assert "secret" not in log
+    assert "abc123" not in log
+    assert "xyz789" not in log
+    assert "Bearer [redacted]" in log
+    assert "input_tokens" in log
+    assert "10" in log
+
+
 def test_jsonl_logger_preserves_data_without_api_key(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
