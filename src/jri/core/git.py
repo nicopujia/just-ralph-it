@@ -6,6 +6,8 @@ from pathlib import Path
 
 COMMIT_MESSAGE = "docs: capture JRI specs"
 COMMITTED_MESSAGE = "Committed .jri changes."
+JRI_COMMIT_EMAIL = "jri@localhost"
+JRI_COMMIT_NAME = "Just Ralph It"
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,10 @@ def commit_jri_files(project_root: Path) -> CommitResult:
     _run_git(project_root, "add", "--", *pathspecs)
     _run_git(
         project_root,
+        "-c",
+        f"user.email={JRI_COMMIT_EMAIL}",
+        "-c",
+        f"user.name={JRI_COMMIT_NAME}",
         "commit",
         "--quiet",
         "-m",

@@ -54,6 +54,55 @@ def test_commit_jri_files_returns_stable_message_without_git_summary(
     assert "create mode" not in result.message
 
 
+def test_commit_jri_files_commits_for_fresh_user_without_git_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fresh users can finalize specs without global Git identity config."""
+    fresh_home = tmp_path / "fresh-home"
+    fresh_home.mkdir()
+    monkeypatch.setenv("HOME", str(fresh_home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(fresh_home / ".config"))
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    for name in [
+        "EMAIL",
+        "GIT_AUTHOR_EMAIL",
+        "GIT_AUTHOR_NAME",
+        "GIT_COMMITTER_EMAIL",
+        "GIT_COMMITTER_NAME",
+    ]:
+        monkeypatch.delenv(name, raising=False)
+    project = _make_repo_without_identity(tmp_path)
+    (project / ".jri" / "specs").mkdir(parents=True)
+    (project / ".jri" / ".gitignore").write_text("logs/\n", encoding="utf-8")
+    (project / ".jri" / "scratchpad.md").write_text(
+        "# Scratchpad\n",
+        encoding="utf-8",
+    )
+    (project / ".jri" / "specs" / "product.md").write_text(
+        "# Product\n",
+        encoding="utf-8",
+    )
+
+    result = commit_jri_files(project)
+
+    committed = subprocess.run(
+        ["git", "show", "--name-only", "--format=", "HEAD"],
+        cwd=project,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    assert result.committed
+    assert committed == [
+        ".jri/.gitignore",
+        ".jri/scratchpad.md",
+        ".jri/specs/product.md",
+    ]
+    assert not (fresh_home / ".gitconfig").exists()
+    assert not (fresh_home / ".config" / "git" / "config").exists()
+
+
 def test_commit_jri_files_includes_tracked_deleted_specs(
     tmp_path: Path,
 ) -> None:
@@ -108,5 +157,14 @@ def _make_repo(tmp_path: Path) -> Path:
         ["git", "config", "user.name", "JRI Tests"],
         cwd=project,
         check=True,
+    )
+    return project
+
+
+def _make_repo_without_identity(tmp_path: Path) -> Path:
+    project = tmp_path / "project"
+    project.mkdir()
+    subprocess.run(
+        ["git", "init"], cwd=project, check=True, capture_output=True
     )
     return project
