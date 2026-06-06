@@ -26,6 +26,24 @@ from tests.doubles.http import (
     PayloadBraveClient,
 )
 
+FORMERLY_BLOCKED_FILES = [
+    (".env", "TOKEN_DOTENV=secret"),
+    (".env.local", "TOKEN_ENV_PREFIX=secret"),
+    (".envrc", "TOKEN_ENVRC=secret"),
+    (".netrc", "machine example login user password secret"),
+    (".npmrc", "//registry/:_authToken=secret"),
+    (".pypirc", "password = secret"),
+    (".ssh/id_dsa", "TOKEN_DSA=secret"),
+    (".ssh/id_ecdsa", "TOKEN_ECDSA=secret"),
+    (".ssh/id_ed25519", "TOKEN_ED25519=secret"),
+    (".ssh/id_rsa", "TOKEN_RSA=secret"),
+    ("cert.key", "TOKEN_KEY=secret"),
+    ("cert.pem", "TOKEN_PEM=secret"),
+    ("bundle.p12", "TOKEN_P12=secret"),
+    ("bundle.pfx", "TOKEN_PFX=secret"),
+    (".jri/logs/interview.jsonl", '{"TOKEN_LOG":"secret"}'),
+]
+
 
 def test_explore_invokes_explorer_with_plain_language_request(
     tmp_path: Path,
@@ -56,46 +74,48 @@ def test_explorer_file_tools_are_read_only(tmp_path: Path) -> None:
     assert source.read_text() == "print('hi')\n"
 
 
-def test_explorer_file_tools_do_not_expose_jri_logs(
+@pytest.mark.parametrize(("relative_path", "contents"), FORMERLY_BLOCKED_FILES)
+def test_read_text_allows_formerly_blocked_project_files(
+    tmp_path: Path,
+    relative_path: str,
+    contents: str,
+) -> None:
+    """Explorer reads any in-project file requested by path."""
+    target = tmp_path / relative_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(f"{contents}\n")
+
+    assert read_text(path=target, root=tmp_path) == f"1: {contents}"
+
+
+def test_grep_text_allows_formerly_blocked_project_files(
     tmp_path: Path,
 ) -> None:
-    """Raw logs are telemetry, not interviewer working memory."""
-    logs = tmp_path / ".jri" / "logs"
-    logs.mkdir(parents=True)
-    (logs / "interview.jsonl").write_text('{"type": "secret"}\n')
+    """Explorer grep searches any in-project text file."""
+    for relative_path, contents in FORMERLY_BLOCKED_FILES:
+        target = tmp_path / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{contents}\n")
 
-    assert glob_paths(pattern="**/*", root=tmp_path) == []
-    assert grep_text(pattern="secret", root=tmp_path) == ""
-    with pytest.raises(ValueError, match="logs"):
-        read_text(path=logs / "interview.jsonl", root=tmp_path)
+    result = grep_text(pattern="secret", root=tmp_path, limit=100)
+
+    for relative_path, contents in FORMERLY_BLOCKED_FILES:
+        assert f"{relative_path}:1: {contents}" in result
 
 
-def test_explorer_file_tools_do_not_expose_secret_files(
+def test_glob_paths_allows_formerly_blocked_project_files(
     tmp_path: Path,
 ) -> None:
-    """Environment and key files are not readable by explorer helpers."""
-    (tmp_path / ".env").write_text("OPENROUTER_API_KEY=secret\n")
-    (tmp_path / ".env.local").write_text("BRAVE_SEARCH_API_KEY=secret\n")
-    (tmp_path / ".npmrc").write_text("//registry/:_authToken=secret\n")
-    (tmp_path / ".pypirc").write_text("password = secret\n")
-    ssh_dir = tmp_path / ".ssh"
-    ssh_dir.mkdir()
-    private_key = ssh_dir / "id_ed25519"
-    private_key.write_text("private key\n")
-    source = tmp_path / "src" / "app.py"
-    source.parent.mkdir()
-    source.write_text("print('safe')\n")
+    """Explorer glob returns any in-project file path."""
+    for relative_path, contents in FORMERLY_BLOCKED_FILES:
+        target = tmp_path / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"{contents}\n")
 
-    assert glob_paths(pattern="**/*", root=tmp_path) == ["src/app.py"]
-    assert grep_text(pattern="secret", root=tmp_path) == ""
-    with pytest.raises(ValueError, match="secret files"):
-        read_text(path=tmp_path / ".env", root=tmp_path)
-    with pytest.raises(ValueError, match="secret files"):
-        read_text(path=tmp_path / ".npmrc", root=tmp_path)
-    with pytest.raises(ValueError, match="secret files"):
-        read_text(path=tmp_path / ".pypirc", root=tmp_path)
-    with pytest.raises(ValueError, match="secret files"):
-        read_text(path=private_key, root=tmp_path)
+    result = set(glob_paths(pattern="**/*", root=tmp_path, limit=100))
+
+    for relative_path, _contents in FORMERLY_BLOCKED_FILES:
+        assert relative_path in result
 
 
 def test_read_text_rejects_paths_outside_project_root(
@@ -107,6 +127,18 @@ def test_read_text_rejects_paths_outside_project_root(
 
     with pytest.raises(ValueError, match="project root"):
         read_text(path=outside, root=tmp_path)
+
+
+def test_grep_text_skips_matches_outside_project_root(
+    tmp_path: Path,
+) -> None:
+    """Explorer grep does not follow traversal patterns outside the root."""
+    project = tmp_path / "project"
+    project.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("outside secret\n")
+
+    assert grep_text(pattern="secret", root=project, include="../*.txt") == ""
 
 
 def test_grep_text_limits_matches_and_skips_binary_files(
