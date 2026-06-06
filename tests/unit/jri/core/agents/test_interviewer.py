@@ -7,7 +7,7 @@ import json
 import subprocess
 from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import cast, override
+from typing import Self, cast, override
 
 import pytest
 from pydantic_ai import (
@@ -16,6 +16,7 @@ from pydantic_ai import (
     FunctionToolResultEvent,
     ModelRetry,
     PartDeltaEvent,
+    PartStartEvent,
     RunContext,
     TextPartDelta,
     UnexpectedModelBehavior,
@@ -33,8 +34,10 @@ from jri.core.agents.interviewer import (
     InterviewerDeps,
     ask_question_tool,
     build_interviewer_tools,
-    explore_tool,
-    finalize_tool,
+    explore_context_tool,
+    finalize_specs_tool,
+    record_notes_tool,
+    update_specs_tool,
     write_note_tool,
     write_spec_tool,
 )
@@ -107,6 +110,164 @@ class FailingStream:
         _ = (exc_type, exc, traceback)
 
 
+class BlockingAfterFirstTextStreamAgent:
+    """Fake stream agent that pauses after one provider text event."""
+
+    def __init__(self) -> None:
+        self.instructions: str = ""
+        self.message_history: list[object] = []
+        self.first_provider_event_seen: asyncio.Event = asyncio.Event()
+        self.allow_completion: asyncio.Event = asyncio.Event()
+        self.stream_completed: asyncio.Event = asyncio.Event()
+
+    def run_stream_events(
+        self,
+        *args: object,
+        **kwargs: object,
+    ) -> "BlockingAfterFirstTextStream":
+        """Return a controlled stream and record run instructions."""
+        _ = args
+        self.instructions = str(kwargs["instructions"])
+        self.message_history = list(
+            cast("list[object]", kwargs["message_history"])
+        )
+        return BlockingAfterFirstTextStream(self)
+
+
+class BlockingAfterFirstTextStream:
+    """Async context manager that blocks provider completion."""
+
+    def __init__(self, agent: BlockingAfterFirstTextStreamAgent) -> None:
+        self.agent: BlockingAfterFirstTextStreamAgent = agent
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        traceback: object,
+    ) -> None:
+        _ = (exc_type, exc, traceback)
+
+    def __aiter__(self) -> AsyncIterator[object]:
+        return self._iterate()
+
+    async def _iterate(self) -> AsyncIterator[object]:
+        self.agent.first_provider_event_seen.set()
+        yield PartStartEvent(index=0, part=TextPart("I'm"))
+        await self.agent.allow_completion.wait()
+        yield AgentRunResultEvent(result=FakeRunResult("ignored"))
+        self.agent.stream_completed.set()
+
+
+class BlockingBeforeAskStreamAgent:
+    """Fake stream agent that pauses between preamble text and ask."""
+
+    def __init__(self) -> None:
+        self.instructions: str = ""
+        self.message_history: list[object] = []
+        self.first_provider_event_seen: asyncio.Event = asyncio.Event()
+        self.allow_ask: asyncio.Event = asyncio.Event()
+
+    def run_stream_events(
+        self,
+        *args: object,
+        **kwargs: object,
+    ) -> "BlockingBeforeAskStream":
+        """Return a controlled stream and record run instructions."""
+        _ = args
+        self.instructions = str(kwargs["instructions"])
+        self.message_history = list(
+            cast("list[object]", kwargs["message_history"])
+        )
+        return BlockingBeforeAskStream(self)
+
+
+class BlockingBeforeAskStream:
+    """Async context manager that delays an ask after text."""
+
+    def __init__(self, agent: BlockingBeforeAskStreamAgent) -> None:
+        self.agent: BlockingBeforeAskStreamAgent = agent
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        traceback: object,
+    ) -> None:
+        _ = (exc_type, exc, traceback)
+
+    def __aiter__(self) -> AsyncIterator[object]:
+        return self._iterate()
+
+    async def _iterate(self) -> AsyncIterator[object]:
+        self.agent.first_provider_event_seen.set()
+        yield PartStartEvent(index=0, part=TextPart("Preamble."))
+        await self.agent.allow_ask.wait()
+        yield FunctionToolCallEvent(
+            ToolCallPart(
+                "ask_question",
+                args='{"level":"high","question":"Who is this for?"}',
+            )
+        )
+
+
+class BlockingAfterToolCallStreamAgent:
+    """Fake stream agent that blocks after a visible tool call."""
+
+    def __init__(self) -> None:
+        self.instructions: str = ""
+        self.message_history: list[object] = []
+        self.stream_closed: asyncio.Event = asyncio.Event()
+        self.never_finish: asyncio.Event = asyncio.Event()
+
+    def run_stream_events(
+        self,
+        *args: object,
+        **kwargs: object,
+    ) -> "BlockingAfterToolCallStream":
+        """Return a controlled stream and record run instructions."""
+        _ = args
+        self.instructions = str(kwargs["instructions"])
+        self.message_history = list(
+            cast("list[object]", kwargs["message_history"])
+        )
+        return BlockingAfterToolCallStream(self)
+
+
+class BlockingAfterToolCallStream:
+    """Async context manager that keeps the provider stream open."""
+
+    def __init__(self, agent: BlockingAfterToolCallStreamAgent) -> None:
+        self.agent: BlockingAfterToolCallStreamAgent = agent
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        traceback: object,
+    ) -> None:
+        _ = (exc_type, exc, traceback)
+
+    def __aiter__(self) -> AsyncIterator[object]:
+        return self._iterate()
+
+    async def _iterate(self) -> AsyncIterator[object]:
+        try:
+            yield FunctionToolCallEvent(ToolCallPart("update_specs"))
+            await self.agent.never_finish.wait()
+        finally:
+            self.agent.stream_closed.set()
+
+
 def test_interviewer_streams_tool_and_text_events(
     tmp_path: Path,
 ) -> None:
@@ -117,7 +278,7 @@ def test_interviewer_streams_tool_and_text_events(
         model_config=AgentModelConfig("test", "test"),
     )
     fake_agent = FakeStreamAgent([
-        FunctionToolCallEvent(ToolCallPart("spec")),
+        FunctionToolCallEvent(ToolCallPart("update_specs")),
         PartDeltaEvent(index=0, delta=TextPartDelta("hello")),
         AgentRunResultEvent(result=FakeRunResult("ignored")),
     ])
@@ -127,10 +288,86 @@ def test_interviewer_streams_tool_and_text_events(
 
     assert not interviewer.should_exit
     assert [(event.kind, event.content) for event in events] == [
-        ("tool_call", "spec"),
+        ("tool_call", "update_specs"),
         ("text_delta", "hello"),
     ]
     assert fake_agent.instructions
+
+
+def test_interviewer_joins_text_part_start_and_delta_chunks(
+    tmp_path: Path,
+) -> None:
+    """Interviewer exposes text that arrives in a part start event."""
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    object.__setattr__(
+        interviewer,
+        "agent",
+        FakeStreamAgent([
+            PartStartEvent(index=0, part=TextPart("I'm")),
+            PartDeltaEvent(index=0, delta=TextPartDelta(" here to help.")),
+            AgentRunResultEvent(result=FakeRunResult("ignored")),
+        ]),
+    )
+
+    events = asyncio.run(_collect(interviewer.respond("idea")))
+
+    assert (
+        "".join(
+            cast("str", event.content)
+            for event in events
+            if event.kind in {"text", "text_delta"}
+        )
+        == "I'm here to help."
+    )
+
+
+def test_interviewer_holds_text_until_stream_completion(
+    tmp_path: Path,
+) -> None:
+    """Interviewer holds text until it knows no question will replace it."""
+    first_event_was_progressive, first_event = asyncio.run(
+        _receive_first_event_before_stream_completion(tmp_path)
+    )
+
+    assert not first_event_was_progressive
+    assert (first_event.kind, first_event.content) == ("text_delta", "I'm")
+
+
+def test_interviewer_does_not_leak_delayed_preamble_before_question(
+    tmp_path: Path,
+) -> None:
+    """Text that precedes a delayed ask tool call is not user-visible."""
+    first_event_was_waiting, events = asyncio.run(
+        _collect_delayed_ask_events(tmp_path)
+    )
+
+    assert first_event_was_waiting
+    assert [(event.kind, event.content) for event in events] == [
+        ("tool_call", "ask_question"),
+        (
+            "question",
+            InterviewQuestion(level="high", question="Who is this for?"),
+        ),
+    ]
+
+
+def test_interviewer_cancels_provider_when_response_iterator_closes(
+    tmp_path: Path,
+) -> None:
+    """Closing the response iterator cancels the provider stream task."""
+    first_event, stream_closed = asyncio.run(
+        _close_iterator_after_first_event(tmp_path)
+    )
+
+    assert (first_event.kind, first_event.content) == (
+        "tool_call",
+        "update_specs",
+    )
+    assert stream_closed
 
 
 def test_interviewer_logs_raw_model_tool_calls_and_results(
@@ -149,21 +386,21 @@ def test_interviewer_logs_raw_model_tool_calls_and_results(
         FakeStreamAgent([
             FunctionToolCallEvent(
                 ToolCallPart(
-                    "spec",
-                    args={"path": "product", "patch_text": "not a patch"},
+                    "update_specs",
+                    args={"spec_name": "product", "content": "# Product"},
                     tool_call_id="call-1",
                 )
             ),
             FunctionToolCallEvent(
                 ToolCallPart(
-                    "note",
+                    "record_notes",
                     args={"items": ["value", ("tuple", StableRepr())]},
                     tool_call_id="call-2",
                 )
             ),
             FunctionToolResultEvent(
                 ToolReturnPart(
-                    tool_name="spec",
+                    tool_name="update_specs",
                     content="retry",
                     tool_call_id="call-1",
                 )
@@ -209,13 +446,13 @@ def test_interviewer_logs_raw_model_tool_calls_and_results(
     tool_result = _latest_event(events, "model_tool_call_finished")
     turn_finished = _latest_event(events, "model_turn_finished")
     assert tool_call["data"] == {
-        "tool_name": "spec",
+        "tool_name": "update_specs",
         "tool_call_id": "call-1",
-        "args": {"path": "product", "patch_text": "not a patch"},
-        "args_json": '{"path":"product","patch_text":"not a patch"}',
+        "args": {"spec_name": "product", "content": "# Product"},
+        "args_json": '{"spec_name":"product","content":"# Product"}',
     }
     assert tool_result["data"] == {
-        "tool_name": "spec",
+        "tool_name": "update_specs",
         "tool_call_id": "call-1",
         "part_kind": "tool-return",
         "content": "retry",
@@ -232,33 +469,55 @@ def test_interviewer_logs_raw_model_tool_calls_and_results(
     assert response["part_kinds"] == ["text"]
 
 
-def test_interviewer_registers_strict_patch_tools(tmp_path: Path) -> None:
-    """Provider schemas for mutation tools require strict arguments."""
+def test_interviewer_registers_high_level_model_tools(
+    tmp_path: Path,
+) -> None:
+    """Provider schemas expose verbs without storage or patch mechanics."""
     _ = tmp_path
     tools = {tool.name: tool for tool in build_interviewer_tools()}
 
-    assert tools["spec"].strict is True
-    assert tools["spec"].max_retries == 3
-    spec_schema = tools["spec"].function_schema.json_schema
-    note_schema = tools["note"].function_schema.json_schema
-    assert spec_schema["required"] == [
-        "path",
-        "patch_text",
+    assert set(tools) == {
+        "ask_question",
+        "record_notes",
+        "update_specs",
+        "explore_context",
+        "finalize_specs",
+    }
+    assert tools["update_specs"].strict is True
+    assert tools["update_specs"].max_retries == 3
+    assert tools["record_notes"].strict is True
+    assert tools["record_notes"].max_retries == 3
+    assert tools["finalize_specs"].strict is True
+    assert tools["finalize_specs"].max_retries == 3
+    assert tools["update_specs"].function_schema.json_schema["required"] == [
+        "spec_name",
+        "content",
     ]
-    path_description = cast(
-        "str",
-        spec_schema["properties"]["path"]["description"],
-    )
-    assert "relative" in path_description.lower()
-    assert (
-        "every body line must start with +"
-        in (spec_schema["properties"]["patch_text"]["description"])
-    )
-    assert tools["note"].strict is True
-    assert tools["note"].max_retries == 3
-    assert note_schema["required"] == ["patch_text"]
-    assert tools["just_ralph_it"].strict is True
-    assert tools["just_ralph_it"].max_retries == 3
+    assert tools["record_notes"].function_schema.json_schema["required"] == [
+        "notes"
+    ]
+    assert tools["finalize_specs"].function_schema.json_schema["required"] == [
+        "readiness_summary",
+        "spec_content",
+    ]
+    exposed_text = "\n".join(
+        "\n".join([
+            str(tool.description),
+            json.dumps(tool.function_schema.json_schema, sort_keys=True),
+        ])
+        for tool in tools.values()
+    ).lower()
+    for internal_term in [
+        ".jri",
+        ".jri/specs",
+        "absolute path",
+        "scratchpad",
+        "patch_text",
+        "patch envelope",
+        "*** begin patch",
+        "*** end patch",
+    ]:
+        assert internal_term not in exposed_text
 
 
 def test_interviewer_yields_final_output_without_text_delta(
@@ -314,11 +573,13 @@ def test_interviewer_finalizes_persisted_specs_on_trigger_fallback(
 
     assert [(event.kind, event.content) for event in events] == [
         ("text", "Ready to hand off."),
-        ("tool_call", "just_ralph_it"),
+        ("tool_call", "finalize_specs"),
         (
             "text",
             (
-                "Specs finalized for Ralph handoff and committed. Readiness: "
+                "Specs finalized and committed. Ralph is coming soon to JRI. "
+                "For now, you need to figure out how to implement the specs "
+                "yourself. Readiness: "
                 "Explicit trigger received after persisted specs were "
                 "captured."
             ),
@@ -396,7 +657,7 @@ def test_interviewer_trigger_fallback_defers_to_model_questions(
         FakeStreamAgent([
             FunctionToolCallEvent(
                 ToolCallPart(
-                    "ask",
+                    "ask_question",
                     args='{"level":"high","question":"Who is this for?"}',
                 )
             )
@@ -562,7 +823,7 @@ def test_interviewer_yields_ask_tool_call_question(
         "agent",
         FakeStreamAgent([
             PartDeltaEvent(index=0, delta=TextPartDelta("Preamble.")),
-            FunctionToolCallEvent(ToolCallPart("ask", args=ask_args)),
+            FunctionToolCallEvent(ToolCallPart("ask_question", args=ask_args)),
             AgentRunResultEvent(result=FakeRunResult("ignored")),
         ]),
     )
@@ -570,7 +831,7 @@ def test_interviewer_yields_ask_tool_call_question(
     events = asyncio.run(_collect(interviewer.respond("idea")))
 
     assert [(event.kind, event.content) for event in events] == [
-        ("tool_call", "ask"),
+        ("tool_call", "ask_question"),
         (
             "question",
             InterviewQuestion(level="high", question="Who is this for?"),
@@ -593,7 +854,7 @@ def test_interviewer_preserves_history_after_ask_tool_call(
     first_agent = FakeStreamAgent([
         FunctionToolCallEvent(
             ToolCallPart(
-                "ask",
+                "ask_question",
                 args='{"level":"low","question":"Which interface?"}',
             )
         ),
@@ -632,7 +893,7 @@ def test_interviewer_yields_ask_tool_call_choices(
         interviewer,
         "agent",
         FakeStreamAgent([
-            FunctionToolCallEvent(ToolCallPart("ask", args=ask_args)),
+            FunctionToolCallEvent(ToolCallPart("ask_question", args=ask_args)),
         ]),
     )
 
@@ -664,7 +925,7 @@ def test_interviewer_yields_invalid_ask_args_as_fallback(
         interviewer,
         "agent",
         FakeStreamAgent([
-            FunctionToolCallEvent(ToolCallPart("ask", args=args)),
+            FunctionToolCallEvent(ToolCallPart("ask_question", args=args)),
         ]),
     )
 
@@ -680,10 +941,11 @@ def test_interviewer_tools_mutate_jri_state_and_finalize(
     tmp_path: Path,
 ) -> None:
     """Tool wrappers call core tools and log their results."""
+    log_path = tmp_path / ".jri" / "logs" / "interview.jsonl"
     deps = InterviewerDeps(
         project_root=tmp_path,
         latest_user_message="just ralph it",
-        logger=JsonlLogger(tmp_path / ".jri" / "logs" / "interview.jsonl"),
+        logger=JsonlLogger(log_path),
         explorer=RecordingExplorer(),
     )
     ctx = cast("RunContext[InterviewerDeps]", FakeRunContext(deps))
@@ -692,48 +954,55 @@ def test_interviewer_tools_mutate_jri_state_and_finalize(
     _configure_repo(tmp_path)
 
     spec_result = asyncio.run(
-        write_spec_tool(
+        update_specs_tool(
             ctx,
-            path="product",
-            patch_text=(
-                "*** Begin Patch\n"
-                "*** Add File: product.md\n"
-                "+# Product\n"
-                "*** End Patch"
-            ),
+            spec_name="product",
+            content="# Product\n",
         )
     )
     note_result = asyncio.run(
-        write_note_tool(
+        record_notes_tool(
             ctx,
-            patch_text=(
-                "*** Begin Patch\n"
-                "*** Add File: scratchpad.md\n"
-                "+# Scratchpad\n"
-                "*** End Patch"
-            ),
+            notes="# Notes\n",
         )
     )
     question = ask_question_tool(
         level="high",
         question="What should success look like?",
     )
-    explore_result = asyncio.run(explore_tool(ctx, "Inspect README."))
+    explore_result = asyncio.run(explore_context_tool(ctx, "Inspect README."))
     finalize_result = asyncio.run(
-        finalize_tool(
+        finalize_specs_tool(
             ctx,
             readiness_summary="Ready.",
-            spec_content="# Product\n",
+            spec_content="# Final Product\n",
             known_blockers=[],
         )
     )
 
     assert "product.md" in spec_result
     assert "scratchpad.md" in note_result
+    assert (tmp_path / ".jri" / "specs" / "product.md").read_text(
+        encoding="utf-8"
+    ) == "# Final Product\n"
+    assert (tmp_path / ".jri" / "scratchpad.md").read_text(
+        encoding="utf-8"
+    ) == "# Notes\n"
     assert question == "Question recorded for the next user turn."
     assert explore_result == "Summary:\n- inspected"
-    assert "Ralph handoff" in finalize_result
+    assert "Ralph is coming soon to JRI" in finalize_result
     assert deps.finalized
+    tool_starts = [
+        cast("dict[str, object]", event["data"])["tool_name"]
+        for event in _read_events(log_path)
+        if event["type"] == "tool_call_started"
+    ]
+    assert tool_starts == [
+        "update_specs",
+        "record_notes",
+        "explore_context",
+        "finalize_specs",
+    ]
 
 
 def test_interviewer_tools_patch_jri_state(tmp_path: Path) -> None:
@@ -856,7 +1125,7 @@ def test_interviewer_write_tools_retry_failed_patch_context(
     )
 
 
-def test_finalize_tool_requires_spec_content(tmp_path: Path) -> None:
+def test_finalize_specs_tool_requires_spec_content(tmp_path: Path) -> None:
     """Finalization must persist concrete spec content."""
     deps = InterviewerDeps(
         project_root=tmp_path,
@@ -868,7 +1137,7 @@ def test_finalize_tool_requires_spec_content(tmp_path: Path) -> None:
 
     with pytest.raises(ModelRetry, match="non-empty"):
         asyncio.run(
-            finalize_tool(
+            finalize_specs_tool(
                 ctx,
                 readiness_summary="Ready.",
                 spec_content=" ",
@@ -877,8 +1146,10 @@ def test_finalize_tool_requires_spec_content(tmp_path: Path) -> None:
         )
 
 
-def test_finalize_tool_retries_absolute_spec_path(tmp_path: Path) -> None:
-    """Finalization tells the model to use relative spec paths."""
+def test_finalize_specs_tool_retries_invalid_spec_name(
+    tmp_path: Path,
+) -> None:
+    """Finalization tells the model to use a spec name."""
     deps = InterviewerDeps(
         project_root=tmp_path,
         latest_user_message="just ralph it",
@@ -887,13 +1158,13 @@ def test_finalize_tool_retries_absolute_spec_path(tmp_path: Path) -> None:
     )
     ctx = cast("RunContext[InterviewerDeps]", FakeRunContext(deps))
 
-    with pytest.raises(ModelRetry, match="Never pass an absolute path"):
+    with pytest.raises(ModelRetry, match="Use a spec name"):
         asyncio.run(
-            finalize_tool(
+            finalize_specs_tool(
                 ctx,
                 readiness_summary="Ready.",
                 spec_content="# Product\n",
-                spec_path=str(tmp_path / "product.md"),
+                spec_name=str(tmp_path / "product.md"),
                 known_blockers=[],
             )
         )
@@ -905,7 +1176,9 @@ def test_finalize_tool_retries_absolute_spec_path(tmp_path: Path) -> None:
     )
 
 
-def test_finalize_tool_retries_without_trigger_phrase(tmp_path: Path) -> None:
+def test_finalize_specs_tool_retries_without_trigger_phrase(
+    tmp_path: Path,
+) -> None:
     """The model must wait for an explicit trigger before finalization."""
     specs = tmp_path / ".jri" / "specs"
     specs.mkdir(parents=True)
@@ -921,7 +1194,7 @@ def test_finalize_tool_retries_without_trigger_phrase(tmp_path: Path) -> None:
 
     with pytest.raises(ModelRetry, match="trigger phrase"):
         asyncio.run(
-            finalize_tool(
+            finalize_specs_tool(
                 ctx,
                 readiness_summary="Ready.",
                 spec_content="# Product\n",
@@ -939,7 +1212,7 @@ def test_finalize_tool_retries_without_trigger_phrase(tmp_path: Path) -> None:
     assert product.read_text(encoding="utf-8") == "# Existing\n"
 
 
-def test_finalize_tool_rejects_known_blockers_without_writing_spec(
+def test_finalize_specs_tool_rejects_known_blockers_without_writing_spec(
     tmp_path: Path,
 ) -> None:
     """Known blockers prevent spec persistence and finalization."""
@@ -953,7 +1226,7 @@ def test_finalize_tool_rejects_known_blockers_without_writing_spec(
 
     with pytest.raises(ModelRetry, match="Missing target user"):
         asyncio.run(
-            finalize_tool(
+            finalize_specs_tool(
                 ctx,
                 readiness_summary="Not ready.",
                 spec_content="# Product\n",
@@ -964,7 +1237,7 @@ def test_finalize_tool_rejects_known_blockers_without_writing_spec(
     assert not (tmp_path / ".jri" / "specs" / "product.md").exists()
 
 
-def test_finalize_tool_retries_core_finalization_errors(
+def test_finalize_specs_tool_retries_core_finalization_errors(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -989,7 +1262,7 @@ def test_finalize_tool_retries_core_finalization_errors(
 
     with pytest.raises(ModelRetry, match="git failed"):
         asyncio.run(
-            finalize_tool(
+            finalize_specs_tool(
                 ctx,
                 readiness_summary="Ready.",
                 spec_content="# Product\n",
@@ -1059,6 +1332,92 @@ def _event_by_call_id(
 
 async def _collect(iterator: AsyncIterator[object]) -> list[object]:
     return [event async for event in iterator]
+
+
+async def _receive_first_event_before_stream_completion(
+    tmp_path: Path,
+) -> tuple[bool, object]:
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    fake_agent = BlockingAfterFirstTextStreamAgent()
+    object.__setattr__(interviewer, "agent", fake_agent)
+    iterator: AsyncIterator[object] = interviewer.respond("idea")
+    first_event_task: asyncio.Task[object] = asyncio.create_task(
+        _receive_next_item(iterator)
+    )
+
+    await asyncio.wait_for(
+        fake_agent.first_provider_event_seen.wait(),
+        timeout=1,
+    )
+    done: set[asyncio.Task[object]]
+    pending: set[asyncio.Task[object]]
+    done, pending = await asyncio.wait({first_event_task}, timeout=0.1)
+    _ = pending
+    first_event_was_progressive = first_event_task in done
+    stream_completed_before_first = fake_agent.stream_completed.is_set()
+
+    fake_agent.allow_completion.set()
+    first_event = await asyncio.wait_for(first_event_task, timeout=1)
+    _ = [event async for event in iterator]
+
+    assert not stream_completed_before_first
+    assert fake_agent.stream_completed.is_set()
+    return first_event_was_progressive, first_event
+
+
+async def _receive_next_item(iterator: AsyncIterator[object]) -> object:
+    return await anext(iterator)
+
+
+async def _collect_delayed_ask_events(
+    tmp_path: Path,
+) -> tuple[bool, list[object]]:
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    fake_agent = BlockingBeforeAskStreamAgent()
+    object.__setattr__(interviewer, "agent", fake_agent)
+    iterator: AsyncIterator[object] = interviewer.respond("idea")
+    first_event_task: asyncio.Task[object] = asyncio.create_task(
+        _receive_next_item(iterator)
+    )
+
+    await asyncio.wait_for(
+        fake_agent.first_provider_event_seen.wait(),
+        timeout=1,
+    )
+    done, pending = await asyncio.wait({first_event_task}, timeout=0.1)
+    _ = pending
+    first_event_was_waiting = first_event_task not in done
+
+    fake_agent.allow_ask.set()
+    first_event = await asyncio.wait_for(first_event_task, timeout=1)
+    remaining_events = [event async for event in iterator]
+    return first_event_was_waiting, [first_event, *remaining_events]
+
+
+async def _close_iterator_after_first_event(
+    tmp_path: Path,
+) -> tuple[object, bool]:
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    fake_agent = BlockingAfterToolCallStreamAgent()
+    object.__setattr__(interviewer, "agent", fake_agent)
+    iterator: AsyncIterator[object] = interviewer.respond("idea")
+
+    first_event = await asyncio.wait_for(anext(iterator), timeout=1)
+    await iterator.aclose()
+    await asyncio.wait_for(fake_agent.stream_closed.wait(), timeout=1)
+    return first_event, fake_agent.stream_closed.is_set()
 
 
 def _configure_repo(path: Path) -> None:

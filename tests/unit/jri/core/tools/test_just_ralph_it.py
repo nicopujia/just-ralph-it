@@ -87,7 +87,12 @@ def test_just_ralph_it_commits_only_committable_jri_files(
         text=True,
     ).stdout.splitlines()
     assert result.should_exit
-    assert "Ralph handoff" in result.message
+    assert "Ralph is coming soon to JRI" in result.message
+    assert (
+        "For now, you need to figure out how to implement the specs yourself"
+        in result.message
+    )
+    assert "handoff" not in result.message.lower()
     assert "built" not in result.message.lower()
     assert set(committed) == {
         ".jri/.gitignore",

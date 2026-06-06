@@ -1,5 +1,6 @@
 """Project-intent interviewer agent."""
 
+import asyncio
 import contextlib
 import json
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
@@ -17,6 +18,7 @@ from pydantic_ai import (
     ModelMessage,
     ModelRetry,
     PartDeltaEvent,
+    PartStartEvent,
     RunContext,
     TextPartDelta,
     Tool,
@@ -42,10 +44,12 @@ from jri.core.logging import JsonlLogger, JsonValue
 from jri.core.tools.ask import AskChoice, build_question
 from jri.core.tools.explore import ContextExplorer, explore_context
 from jri.core.tools.just_ralph_it import JustRalphItError, finalize_jri
-from jri.core.tools.note import write_note
+from jri.core.tools.note import replace_note, write_note
 from jri.core.tools.spec import replace_spec, write_spec
 from jri.core.tools.write import WriteError, parse_patch
 from jri.core.triggers import is_trigger_message
+
+_ASK_TOOL_NAME = "ask_question"
 
 SpecPath = Annotated[
     str,
@@ -55,6 +59,60 @@ SpecPath = Annotated[
             "directories. Use values like product or product.md."
         ),
     ),
+]
+SpecName = Annotated[
+    str,
+    Field(description="Name of the spec to update, such as product."),
+]
+SpecContent = Annotated[
+    str,
+    Field(description="Complete confirmed Markdown content for this spec."),
+]
+NotesContent = Annotated[
+    str,
+    Field(
+        description=(
+            "Markdown notes for unresolved branches, pending questions, "
+            "assumptions, or decisions."
+        ),
+    ),
+]
+ContextRequest = Annotated[
+    str,
+    Field(
+        description=(
+            "Specific context to gather before deciding what to ask or record."
+        ),
+    ),
+]
+QuestionLevel = Annotated[
+    Literal["high", "low"],
+    Field(
+        description=(
+            "Question scope: high for broad product direction, low for "
+            "specific behavior choices."
+        ),
+    ),
+]
+QuestionText = Annotated[
+    str,
+    Field(description="Question to ask the user next."),
+]
+DefaultChoice = Annotated[
+    str | None,
+    Field(description="Optional default choice label to preselect."),
+]
+ReadinessSummary = Annotated[
+    str,
+    Field(description="Why the confirmed specs are ready to finalize."),
+]
+FinalSpecContent = Annotated[
+    str,
+    Field(description="Complete final Markdown spec content to save."),
+]
+KnownBlockers = Annotated[
+    list[str] | None,
+    Field(description="Missing decisions that prevent finalization."),
 ]
 PatchText = Annotated[
     str,
@@ -85,6 +143,20 @@ class _TurnEventBuffer:
 
     events: list[InterviewEvent] = field(default_factory=list)
     saw_text_delta: bool = False
+
+
+@dataclass(frozen=True)
+class _ModelStreamError:
+    """Exception raised while consuming provider stream events."""
+
+    error: Exception
+
+
+class _ModelStreamFinished:
+    """Sentinel for provider stream completion."""
+
+
+_MODEL_STREAM_FINISHED = _ModelStreamFinished()
 
 
 class Interviewer:
@@ -144,27 +216,83 @@ class Interviewer:
         )
         events: list[InterviewEvent] = []
         try:
-            events = await self._collect_model_events(
+            async for event in self._iter_model_events(
                 user_message,
                 deps=deps,
                 turn_context=turn_context,
-            )
+            ):
+                events.append(event)
+                yield event
         except UnexpectedModelBehavior:
             await self._append_trigger_fallback_events(deps, events)
             raise
         else:
+            yielded_event_count = len(events)
             await self._append_trigger_fallback_events(deps, events)
-        for event in events:
-            yield event
+            for event in events[yielded_event_count:]:
+                yield event
 
-    async def _collect_model_events(
+    async def _iter_model_events(
         self,
         user_message: str,
         *,
         deps: InterviewerDeps,
         turn_context: str,
+    ) -> AsyncIterator[InterviewEvent]:
+        queue: asyncio.Queue[object] = asyncio.Queue()
+        producer = asyncio.create_task(
+            self._produce_model_events(
+                user_message,
+                deps=deps,
+                turn_context=turn_context,
+                queue=queue,
+            )
+        )
+        try:
+            while True:
+                item = await queue.get()
+                if item is _MODEL_STREAM_FINISHED:
+                    break
+                if isinstance(item, _ModelStreamError):
+                    raise item.error
+                yield cast("InterviewEvent", item)
+        finally:
+            if not producer.done():
+                producer.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await producer
+
+    async def _produce_model_events(
+        self,
+        user_message: str,
+        *,
+        deps: InterviewerDeps,
+        turn_context: str,
+        queue: asyncio.Queue[object],
+    ) -> None:
+        try:
+            pending_text_events = await self._consume_model_stream(
+                user_message,
+                deps=deps,
+                turn_context=turn_context,
+                queue=queue,
+            )
+        except Exception as exc:  # noqa: BLE001 - cross task error handoff
+            queue.put_nowait(_ModelStreamError(exc))
+        else:
+            _queue_events(queue, pending_text_events)
+            queue.put_nowait(_MODEL_STREAM_FINISHED)
+
+    async def _consume_model_stream(
+        self,
+        user_message: str,
+        *,
+        deps: InterviewerDeps,
+        turn_context: str,
+        queue: asyncio.Queue[object],
     ) -> list[InterviewEvent]:
         buffer = _TurnEventBuffer()
+        pending_text_events: list[InterviewEvent] = []
         async with self.agent.run_stream_events(
             user_message,
             message_history=self._messages,
@@ -172,53 +300,77 @@ class Interviewer:
             instructions=turn_context,
         ) as stream:
             async for event in stream:
-                if self._record_stream_event(event, deps, buffer):
+                visible_events, should_stop = self._record_stream_event(
+                    event,
+                    deps,
+                    buffer,
+                )
+                _queue_recorded_events(
+                    event,
+                    visible_events=visible_events,
+                    queue=queue,
+                    pending_text_events=pending_text_events,
+                )
+                if should_stop:
                     break
-        return buffer.events
+        return pending_text_events
 
     def _record_stream_event(
         self,
         event: object,
         deps: InterviewerDeps,
         buffer: _TurnEventBuffer,
-    ) -> bool:
+    ) -> tuple[list[InterviewEvent], bool]:
         if isinstance(event, FunctionToolCallEvent):
             return self._record_tool_call_event(event, buffer)
         if isinstance(event, FunctionToolResultEvent):
             self.logger.write(
                 "model_tool_call_finished",
-                _model_tool_result_data(event),
+                _serialize_model_tool_result(event),
             )
-        elif isinstance(event, PartDeltaEvent) and isinstance(
+            return [], False
+        if isinstance(event, PartDeltaEvent) and isinstance(
             event.delta,
             TextPartDelta,
         ):
-            self._record_text_delta_event(event, buffer)
-        elif isinstance(event, AgentRunResultEvent):
-            self._record_run_result_event(event, deps, buffer)
-        return False
+            return [self._record_text_delta_event(event, buffer)], False
+        if isinstance(event, PartStartEvent) and isinstance(
+            event.part,
+            TextPart,
+        ):
+            return [self._record_text_start_event(event, buffer)], False
+        if isinstance(event, AgentRunResultEvent):
+            return self._record_run_result_event(event, deps, buffer), False
+        return [], False
 
     def _record_tool_call_event(
         self,
         event: FunctionToolCallEvent,
         buffer: _TurnEventBuffer,
-    ) -> bool:
+    ) -> tuple[list[InterviewEvent], bool]:
         self.logger.write(
             "model_tool_call_started",
-            _model_tool_call_data(event.part),
+            _serialize_model_tool_call(event.part),
         )
-        if event.part.tool_name == "ask":
+        if event.part.tool_name == _ASK_TOOL_NAME:
             buffer.events = [
                 item
                 for item in buffer.events
                 if item.kind not in {"text", "text_delta"}
             ]
-        buffer.events.append(
+        visible_events = [
             InterviewEvent(kind="tool_call", content=event.part.tool_name)
-        )
-        if event.part.tool_name != "ask":
-            return False
+        ]
+        buffer.events.extend(visible_events)
+        if event.part.tool_name != _ASK_TOOL_NAME:
+            return visible_events, False
         question = _build_ask_tool_call_question(event.part.args)
+        visible_events.append(
+            InterviewEvent(
+                kind="question",
+                content=question,
+            )
+        )
         buffer.events.append(
             InterviewEvent(
                 kind="question",
@@ -226,52 +378,73 @@ class Interviewer:
             ),
         )
         self._append_question_to_history(question)
-        return True
+        return visible_events, True
 
     def _record_text_delta_event(
         self,
         event: PartDeltaEvent,
         buffer: _TurnEventBuffer,
-    ) -> None:
+    ) -> InterviewEvent:
         delta = cast("TextPartDelta", event.delta)
         buffer.saw_text_delta = True
         self.logger.write(
             "model_text_delta",
             {"content": delta.content_delta},
         )
-        buffer.events.append(
-            InterviewEvent(
-                kind="text_delta",
-                content=delta.content_delta,
-            )
+        visible_event = InterviewEvent(
+            kind="text_delta",
+            content=delta.content_delta,
         )
+        buffer.events.append(visible_event)
+        return visible_event
+
+    def _record_text_start_event(
+        self,
+        event: PartStartEvent,
+        buffer: _TurnEventBuffer,
+    ) -> InterviewEvent:
+        part = cast("TextPart", event.part)
+        buffer.saw_text_delta = True
+        self.logger.write(
+            "model_text_delta",
+            {"content": part.content},
+        )
+        visible_event = InterviewEvent(
+            kind="text_delta",
+            content=part.content,
+        )
+        buffer.events.append(visible_event)
+        return visible_event
 
     def _record_run_result_event(
         self,
         event: AgentRunResultEvent[object],
         deps: InterviewerDeps,
         buffer: _TurnEventBuffer,
-    ) -> None:
+    ) -> list[InterviewEvent]:
         result = cast("AgentRunResult[str]", event.result)
         self._messages = result.all_messages()[-12:]
         self._should_exit = deps.finalized
         self.logger.write(
             "model_turn_finished",
-            _model_turn_finished_data(
+            _serialize_model_turn_finished(
                 result,
                 finalized=deps.finalized,
                 retained_message_count=len(self._messages),
             ),
         )
         if not buffer.saw_text_delta:
-            buffer.events.append(
-                InterviewEvent(kind="text", content=result.output)
-            )
+            visible_event = InterviewEvent(kind="text", content=result.output)
+            buffer.events.append(visible_event)
+            return [visible_event]
+        return []
 
     def _append_question_to_history(self, question: InterviewQuestion) -> None:
         self._messages = [
             *self._messages,
-            ModelResponse(parts=[TextPart(_question_history_text(question))]),
+            ModelResponse(
+                parts=[TextPart(_format_question_history(question))]
+            ),
         ][-12:]
 
     async def _append_trigger_fallback_events(
@@ -280,7 +453,7 @@ class Interviewer:
         events: list[InterviewEvent],
     ) -> bool:
         """Finalize persisted specs after trigger turns."""
-        skip_reason = _trigger_fallback_skip_reason(deps, events)
+        skip_reason = _find_trigger_fallback_skip_reason(deps, events)
         if skip_reason is not None:
             if is_trigger_message(deps.latest_user_message):
                 self.logger.write(
@@ -294,7 +467,7 @@ class Interviewer:
         )
         result = await _run_logged_tool(
             deps,
-            "just_ralph_it",
+            "finalize_specs",
             {
                 "source": "trigger_fallback",
                 "readiness_summary": readiness_summary,
@@ -306,11 +479,53 @@ class Interviewer:
             ),
         )
         events.extend([
-            InterviewEvent(kind="tool_call", content="just_ralph_it"),
+            InterviewEvent(kind="tool_call", content="finalize_specs"),
             InterviewEvent(kind="text", content=result),
         ])
         self._should_exit = deps.finalized
         return True
+
+
+def _should_drop_pending_text_events(event: object) -> bool:
+    return (
+        isinstance(event, FunctionToolCallEvent)
+        and event.part.tool_name == _ASK_TOOL_NAME
+    )
+
+
+def _is_model_text_event(event: object) -> bool:
+    return (
+        isinstance(event, PartDeltaEvent)
+        and isinstance(event.delta, TextPartDelta)
+    ) or (
+        isinstance(event, PartStartEvent) and isinstance(event.part, TextPart)
+    )
+
+
+def _queue_recorded_events(
+    event: object,
+    *,
+    visible_events: list[InterviewEvent],
+    queue: asyncio.Queue[object],
+    pending_text_events: list[InterviewEvent],
+) -> None:
+    if _should_drop_pending_text_events(event):
+        pending_text_events.clear()
+    if _is_model_text_event(event):
+        pending_text_events.extend(visible_events)
+        return
+    if isinstance(event, AgentRunResultEvent):
+        _queue_events(queue, pending_text_events)
+        pending_text_events.clear()
+    _queue_events(queue, visible_events)
+
+
+def _queue_events(
+    queue: asyncio.Queue[object],
+    events: list[InterviewEvent],
+) -> None:
+    for event in events:
+        queue.put_nowait(event)
 
 
 async def write_spec_tool(
@@ -353,39 +568,73 @@ async def write_note_tool(
     )
 
 
+async def update_specs_tool(
+    ctx: RunContext[InterviewerDeps],
+    spec_name: SpecName,
+    content: SpecContent,
+) -> str:
+    """Create or replace a confirmed project spec by name."""
+    return await _run_logged_tool(
+        ctx.deps,
+        "update_specs",
+        {"spec_name": spec_name, "content": content},
+        lambda: replace_spec(
+            project_root=ctx.deps.project_root,
+            path=spec_name,
+            content=content,
+        ),
+    )
+
+
+async def record_notes_tool(
+    ctx: RunContext[InterviewerDeps],
+    notes: NotesContent,
+) -> str:
+    """Record interview notes for unresolved context."""
+    return await _run_logged_tool(
+        ctx.deps,
+        "record_notes",
+        {"notes": notes},
+        lambda: replace_note(
+            project_root=ctx.deps.project_root,
+            content=notes,
+        ),
+    )
+
+
 def build_interviewer_tools() -> list[Tool[InterviewerDeps]]:
     """Build the strict tool set exposed to the interviewer model."""
     return [
         Tool(
-            write_spec_tool,
-            takes_ctx=True,
-            name="spec",
-            max_retries=3,
-            strict=True,
-        ),
-        Tool(
-            write_note_tool,
-            takes_ctx=True,
-            name="note",
-            max_retries=3,
-            strict=True,
-        ),
-        Tool(
             ask_question_tool,
             takes_ctx=False,
-            name="ask",
+            name="ask_question",
             strict=True,
         ),
         Tool(
-            explore_tool,
+            record_notes_tool,
             takes_ctx=True,
-            name="explore",
+            name="record_notes",
+            max_retries=3,
             strict=True,
         ),
         Tool(
-            finalize_tool,
+            update_specs_tool,
             takes_ctx=True,
-            name="just_ralph_it",
+            name="update_specs",
+            max_retries=3,
+            strict=True,
+        ),
+        Tool(
+            explore_context_tool,
+            takes_ctx=True,
+            name="explore_context",
+            strict=True,
+        ),
+        Tool(
+            finalize_specs_tool,
+            takes_ctx=True,
+            name="finalize_specs",
             max_retries=3,
             strict=True,
         ),
@@ -393,12 +642,12 @@ def build_interviewer_tools() -> list[Tool[InterviewerDeps]]:
 
 
 def ask_question_tool(
-    level: Literal["high", "low"],
-    question: str,
+    level: QuestionLevel,
+    question: QuestionText,
     choices: list[AskChoice] | None = None,
-    default: str | None = None,
+    default: DefaultChoice = None,
 ) -> str:
-    """Record the question the interviewer wants answered next."""
+    """Ask the next high-leverage question for the user to answer."""
     _ = build_question(
         level=level, question=question, choices=choices, default=default
     )
@@ -411,7 +660,7 @@ def _build_ask_tool_call_question(
     parsed = _parse_tool_args(args)
     choices = [
         AskChoice.model_validate(choice)
-        for choice in _tool_choices(parsed.get("choices"))
+        for choice in _coerce_tool_choices(parsed.get("choices"))
     ]
     level = parsed.get("level", "high")
     if level not in {"high", "low"}:
@@ -428,7 +677,7 @@ def _build_ask_tool_call_question(
     )
 
 
-def _question_history_text(question: InterviewQuestion) -> str:
+def _format_question_history(question: InterviewQuestion) -> str:
     parts = [f"Question ({question.level}): {question.question}"]
     if question.choices:
         choices = "; ".join(
@@ -445,7 +694,7 @@ def _question_history_text(question: InterviewQuestion) -> str:
     return "\n".join(parts)
 
 
-def _tool_choices(value: object) -> list[object]:
+def _coerce_tool_choices(value: object) -> list[object]:
     if isinstance(value, list):
         return cast("list[object]", value)
     return []
@@ -466,14 +715,14 @@ def _parse_tool_args(
     return {}
 
 
-async def explore_tool(
+async def explore_context_tool(
     ctx: RunContext[InterviewerDeps],
-    request: str,
+    request: ContextRequest,
 ) -> str:
-    """Gather compact read-only context."""
+    """Explore read-only context before deciding."""
     return await _run_logged_tool(
         ctx.deps,
-        "explore",
+        "explore_context",
         {"request": request},
         lambda: explore_context(
             project_root=ctx.deps.project_root,
@@ -483,38 +732,38 @@ async def explore_tool(
     )
 
 
-async def finalize_tool(
+async def finalize_specs_tool(
     ctx: RunContext[InterviewerDeps],
-    readiness_summary: str,
-    spec_content: str,
-    spec_path: SpecPath = "product",
-    known_blockers: list[str] | None = None,
+    readiness_summary: ReadinessSummary,
+    spec_content: FinalSpecContent,
+    spec_name: SpecName = "product",
+    known_blockers: KnownBlockers = None,
 ) -> str:
-    """Persist the final spec, commit JRI files, and exit."""
+    """Finalize saved specs and finish the interview."""
     blocker_log: list[JsonValue] = list(known_blockers or [])
 
     async def finalize() -> str:
         if not spec_content.strip():
-            msg = "just_ralph_it requires non-empty final spec_content."
+            msg = "finalize_specs requires non-empty final spec_content."
             raise ModelRetry(msg)
         if not is_trigger_message(ctx.deps.latest_user_message):
             raise ModelRetry(
-                _finalize_retry_message(
-                    "just_ralph_it requires a trigger phrase."
+                _format_finalize_retry_message(
+                    "finalize_specs requires a trigger phrase."
                 )
             )
         if known_blockers:
             raise ModelRetry(
-                _finalize_retry_message("\n".join(known_blockers))
+                _format_finalize_retry_message("\n".join(known_blockers))
             )
         try:
             await replace_spec(
                 project_root=ctx.deps.project_root,
-                path=spec_path,
+                path=spec_name,
                 content=spec_content,
             )
         except WriteError as exc:
-            raise ModelRetry(_spec_path_retry_message(str(exc))) from exc
+            raise ModelRetry(_format_spec_name_retry_message()) from exc
         try:
             result = await finalize_jri(
                 project_root=ctx.deps.project_root,
@@ -523,14 +772,14 @@ async def finalize_tool(
                 known_blockers=known_blockers,
             )
         except JustRalphItError as exc:
-            raise ModelRetry(_finalize_retry_message(str(exc))) from exc
+            raise ModelRetry(_format_finalize_retry_message(str(exc))) from exc
         ctx.deps.finalized = result.should_exit
         return result.message
 
     return await _run_logged_tool(
         ctx.deps,
-        "just_ralph_it",
-        {"known_blockers": blocker_log, "spec_path": spec_path},
+        "finalize_specs",
+        {"known_blockers": blocker_log, "spec_name": spec_name},
         finalize,
     )
 
@@ -570,7 +819,7 @@ async def _run_logged_tool(
     return result
 
 
-def _trigger_fallback_skip_reason(
+def _find_trigger_fallback_skip_reason(
     deps: InterviewerDeps,
     events: list[InterviewEvent],
 ) -> str | None:
@@ -623,13 +872,15 @@ def _has_persisted_spec(project_root: Path) -> bool:
 
 def _validate_patch_text(patch_text: str) -> None:
     if not patch_text.strip():
-        raise ModelRetry(_patch_retry_message("patch_text is empty"))
+        raise ModelRetry(_format_patch_retry_message("patch_text is empty"))
     try:
         hunks = parse_patch(patch_text)
     except ValueError as exc:
-        raise ModelRetry(_patch_retry_message(str(exc))) from exc
+        raise ModelRetry(_format_patch_retry_message(str(exc))) from exc
     if not hunks:
-        raise ModelRetry(_patch_retry_message("patch_text has no file hunks"))
+        raise ModelRetry(
+            _format_patch_retry_message("patch_text has no file hunks")
+        )
 
 
 async def _run_patch_tool(
@@ -641,10 +892,10 @@ async def _run_patch_tool(
         _validate_patch_text(patch_text)
         return await action()
     except WriteError as exc:
-        raise ModelRetry(_patch_retry_message(str(exc))) from exc
+        raise ModelRetry(_format_patch_retry_message(str(exc))) from exc
 
 
-def _patch_retry_message(reason: str) -> str:
+def _format_patch_retry_message(reason: str) -> str:
     return (
         f"Invalid patch_text: {reason}. Send patch_text as a complete patch "
         "envelope. For Add File, every content line must start with +, and "
@@ -659,34 +910,30 @@ def _patch_retry_message(reason: str) -> str:
     )
 
 
-def _spec_path_retry_message(reason: str) -> str:
-    return (
-        f"Invalid spec_path: {reason}. Use a relative Markdown filename under "
-        ".jri/specs, for example product or product.md. Never pass an "
-        "absolute path."
-    )
+def _format_spec_name_retry_message() -> str:
+    return "Invalid spec_name. Use a spec name such as product or product.md."
 
 
-def _finalize_retry_message(reason: str) -> str:
+def _format_finalize_retry_message(reason: str) -> str:
     return (
-        f"Invalid just_ralph_it call: {reason} Call just_ralph_it only when "
+        f"Invalid finalize_specs call: {reason} Call finalize_specs only when "
         "the latest user message is the trigger phrase, and pass known "
         "blockers instead of finalizing when the spec is not ready."
     )
 
 
-def _model_tool_call_data(part: ToolCallPart) -> dict[str, JsonValue]:
+def _serialize_model_tool_call(part: ToolCallPart) -> dict[str, JsonValue]:
     payload: dict[str, JsonValue] = {
         "tool_name": part.tool_name,
         "tool_call_id": part.tool_call_id,
-        "args": _json_value(part.args),
+        "args": _coerce_json_value(part.args),
     }
     with contextlib.suppress(Exception):
         payload["args_json"] = part.args_as_json_str()
     return payload
 
 
-def _model_tool_result_data(
+def _serialize_model_tool_result(
     event: FunctionToolResultEvent,
 ) -> dict[str, JsonValue]:
     part = event.part
@@ -695,11 +942,11 @@ def _model_tool_result_data(
         "tool_name": tool_name,
         "tool_call_id": part.tool_call_id,
         "part_kind": part.part_kind,
-        "content": _json_value(part.content),
+        "content": _coerce_json_value(part.content),
     }
 
 
-def _model_turn_finished_data(
+def _serialize_model_turn_finished(
     result: AgentRunResult[str],
     *,
     finalized: bool,
@@ -715,13 +962,15 @@ def _model_turn_finished_data(
     with contextlib.suppress(Exception):
         data["conversation_id"] = result.conversation_id
     with contextlib.suppress(Exception):
-        data["usage"] = _usage_data(result.usage)
+        data["usage"] = _serialize_usage(result.usage)
     with contextlib.suppress(Exception):
-        data["response"] = _model_response_data(result.response)
+        data["response"] = _serialize_model_response(result.response)
     return data
 
 
-def _model_response_data(response: ModelResponse) -> dict[str, JsonValue]:
+def _serialize_model_response(
+    response: ModelResponse,
+) -> dict[str, JsonValue]:
     return {
         "model_name": response.model_name,
         "provider_name": response.provider_name,
@@ -729,13 +978,13 @@ def _model_response_data(response: ModelResponse) -> dict[str, JsonValue]:
         "finish_reason": response.finish_reason,
         "run_id": response.run_id,
         "conversation_id": response.conversation_id,
-        "usage": _usage_data(response.usage),
+        "usage": _serialize_usage(response.usage),
         "part_kinds": [part.part_kind for part in response.parts],
         "text": response.text,
     }
 
 
-def _usage_data(usage: RunUsage | RequestUsage) -> dict[str, JsonValue]:
+def _serialize_usage(usage: RunUsage | RequestUsage) -> dict[str, JsonValue]:
     data: dict[str, JsonValue] = {
         "input_tokens": usage.input_tokens,
         "cache_write_tokens": usage.cache_write_tokens,
@@ -745,7 +994,7 @@ def _usage_data(usage: RunUsage | RequestUsage) -> dict[str, JsonValue]:
         "cache_audio_read_tokens": usage.cache_audio_read_tokens,
         "output_audio_tokens": usage.output_audio_tokens,
         "total_tokens": usage.total_tokens,
-        "details": _json_value(usage.details),
+        "details": _coerce_json_value(usage.details),
     }
     if isinstance(usage, RunUsage):
         data["requests"] = usage.requests
@@ -753,18 +1002,21 @@ def _usage_data(usage: RunUsage | RequestUsage) -> dict[str, JsonValue]:
     return data
 
 
-def _json_value(value: object) -> JsonValue:
+def _coerce_json_value(value: object) -> JsonValue:
     if value is None or isinstance(value, bool | int | float | str):
         return value
     if isinstance(value, Mapping):
         return {
-            str(key): _json_value(item)
+            str(key): _coerce_json_value(item)
             for key, item in cast("Mapping[object, object]", value).items()
         }
     if isinstance(value, list):
-        return [_json_value(item) for item in cast("list[object]", value)]
+        return [
+            _coerce_json_value(item) for item in cast("list[object]", value)
+        ]
     if isinstance(value, tuple):
         return [
-            _json_value(item) for item in cast("tuple[object, ...]", value)
+            _coerce_json_value(item)
+            for item in cast("tuple[object, ...]", value)
         ]
     return repr(value)

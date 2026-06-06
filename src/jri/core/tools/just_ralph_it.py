@@ -42,8 +42,9 @@ async def finalize_jri(
     return JustRalphItResult(
         should_exit=True,
         message=(
-            "Specs finalized for Ralph handoff and "
-            f"{detail}. Readiness: {readiness_summary}"
+            f"Specs finalized and {detail}. Ralph is coming soon to JRI. "
+            "For now, you need to figure out how to implement the specs "
+            f"yourself. Readiness: {readiness_summary}"
         ),
     )
 

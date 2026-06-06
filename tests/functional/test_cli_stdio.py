@@ -153,6 +153,8 @@ def test_early_just_ralph_it_keeps_interview_open_without_commit(
     assert result.has_assistant_response_after_last_user_message()
     assert len(result.user_messages()) >= 2
     assert result.finish_reason() == "eof"
+    assert "I can't finalize specs yet." in result.stdout
+    assert "Ralph handoff" not in result.output
     assert not result.has_commit()
     _assert_successful_interview_log(result, assistant_messages=1)
 

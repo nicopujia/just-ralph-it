@@ -36,7 +36,7 @@ class ScriptedInterviewer:
                 yield InterviewEvent(
                     kind="text",
                     content=(
-                        "I can't finalize specs for Ralph handoff yet.\n"
+                        "I can't finalize specs yet.\n"
                         "Missing: target user and success criteria."
                     ),
                 )
@@ -111,7 +111,7 @@ class ScriptedInterviewer:
                 "## Open Topics\n\n"
                 "## Pending Questions\n\n"
                 "## Notes\n\n"
-                "- Ready for Ralph handoff after user trigger.\n"
+                "- Ready to finalize after user trigger.\n"
             ),
         )
         yield InterviewEvent(
