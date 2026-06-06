@@ -12,13 +12,14 @@ from jri.core.agents.factory import (
 )
 from jri.core.config import ConfigError
 from jri.core.logging import JsonlLogger
-from jri.core.project import initialize_project
+from jri.core.project import find_project_root, initialize_project
 
 
 def main(argv: list[str] | None = None) -> None:
     """Run the CLI."""
     args = parse_arguments(argv)
-    env = load_cli_environment(cwd=Path.cwd(), environ=os.environ)
+    project_root = find_project_root(Path.cwd())
+    env = load_cli_environment(cwd=project_root, environ=os.environ)
     os.environ.update(env)
     try:
         validate_interviewer_configuration(env)
@@ -27,7 +28,7 @@ def main(argv: list[str] | None = None) -> None:
         raise SystemExit(1) from exc
 
     try:
-        state = initialize_project(Path.cwd(), force=args.force)
+        state = initialize_project(project_root, force=args.force)
     except Exception as exc:
         sys.stderr.write(f"{exc}\n")
         raise SystemExit(1) from exc
