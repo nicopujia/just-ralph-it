@@ -52,6 +52,25 @@ def test_interactive_run_requires_selected_provider_credentials(
     assert not result.jri_dir.exists()
 
 
+def test_invalid_interviewer_factory_does_not_initialize_project(
+    tmp_path: Path,
+    credentialless_cli_stdio: CliStdioHarness,
+) -> None:
+    """Invalid custom interviewer factories fail before project mutation."""
+    env = dict(credentialless_cli_stdio.env)
+    env[INTERVIEWER_FACTORY_ENV] = (
+        "tests.doubles.missing_interviewers:create_interviewer"
+    )
+    harness = replace(credentialless_cli_stdio, env=env)
+
+    result = harness.run(cwd=tmp_path)
+
+    assert result.returncode != 0
+    assert INTERVIEWER_FACTORY_ENV in result.stderr
+    assert not (tmp_path / ".git").exists()
+    assert not result.jri_dir.exists()
+
+
 def test_interactive_run_loads_pwd_dotenv_credentials(
     tmp_path: Path,
     credentialless_cli_stdio: CliStdioHarness,

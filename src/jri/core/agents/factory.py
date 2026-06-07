@@ -56,7 +56,8 @@ def create_interviewer(
 
 def validate_interviewer_configuration(env: Mapping[str, str]) -> None:
     """Validate the configured interviewer before project mutation."""
-    if env.get(INTERVIEWER_FACTORY_ENV):
+    if factory_path := env.get(INTERVIEWER_FACTORY_ENV):
+        _load_interviewer_factory(factory_path)
         return
     config = load_agent_runtime_config(env)
     validate_agent_runtime_credentials(config, env)
@@ -70,7 +71,14 @@ def _load_interviewer_factory(path: str) -> InterviewerFactory:
         )
         raise ConfigError(msg)
 
-    module = importlib.import_module(module_name)
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as exc:
+        msg = (
+            f"{INTERVIEWER_FACTORY_ENV} could not import module "
+            f"{module_name!r}."
+        )
+        raise ConfigError(msg) from exc
     candidate = getattr(module, function_name, None)
     if not callable(candidate):
         msg = f"{INTERVIEWER_FACTORY_ENV} does not point to a callable."
