@@ -3,9 +3,7 @@ from typing import ClassVar
 from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-from .exceptions import (
-    JriConfigurationError,
-)
+from .exceptions import ConfigurationError
 
 
 class Settings(BaseSettings):
@@ -38,4 +36,4 @@ def get_settings() -> Settings:
     try:
         return Settings()
     except ValidationError as error:
-        raise JriConfigurationError(error) from error
+        raise ConfigurationError(error) from error

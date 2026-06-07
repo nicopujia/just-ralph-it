@@ -2,7 +2,7 @@ from rich.console import Console
 from rich.live import Live
 from rich.markdown import Markdown
 
-from jri.core.exceptions import JriConfigurationError
+from jri.core.exceptions import ConfigurationError
 from jri.core.service import Service
 
 from .constants import CONFIG_ERROR_MESSAGE, EXIT_MESSAGE, REPL_PROMPT
@@ -18,7 +18,7 @@ class App:
         self.console: Console = console or Console()
         try:
             self.service: Service = service or Service()
-        except JriConfigurationError as error:
+        except ConfigurationError as error:
             self.console.print(CONFIG_ERROR_MESSAGE)
             self.console.print(get_config_error_help_message(error))
             raise SystemExit(1) from error

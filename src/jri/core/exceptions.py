@@ -1,11 +1,11 @@
 from pydantic import ValidationError
 
 
-class JriError(Exception):
+class Error(Exception):
     """Common base class for all JRI exceptions."""
 
 
-class JriConfigurationError(JriError):
+class ConfigurationError(Error):
     """Application configuration is invalid."""
 
     def __init__(self, validation_error: ValidationError) -> None:

@@ -1,12 +1,12 @@
 from rich.markdown import Markdown
 
-from jri.core.exceptions import JriConfigurationError
+from jri.core.exceptions import ConfigurationError
 from jri.core.settings import Settings
 
 from .constants import CONFIG_ERROR_HELP_MESSAGE_TEMPLATE
 
 
-def get_config_error_help_message(error: JriConfigurationError) -> Markdown:
+def get_config_error_help_message(error: ConfigurationError) -> Markdown:
     error_lines: list[str] = []
     for issue in error.validation_error.errors():
         field_name = str(issue["loc"][0])
