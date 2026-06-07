@@ -2,9 +2,10 @@
 
 import asyncio
 import contextlib
+import importlib
 import json
 import re
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, cast
@@ -37,7 +38,17 @@ from jri.core.agents.prompts import (
     BASE_INTERVIEWER_PROMPT,
     build_interviewer_context,
 )
-from jri.core.interview import InterviewEvent, InterviewQuestion
+from jri.core.config import (
+    AgentRuntimeConfig,
+    ConfigError,
+    load_agent_runtime_config,
+    validate_agent_runtime_credentials,
+)
+from jri.core.interview import (
+    InterviewEvent,
+    InterviewQuestion,
+    InterviewSession,
+)
 from jri.core.logging import JsonlLogger, JsonValue
 from jri.core.readiness import (
     check_mvp_readiness,
@@ -61,17 +72,26 @@ from jri.core.tools.just_ralph_it import finalize_jri
 from jri.core.triggers import is_trigger_message
 
 _ASK_TOOL_NAME = "ask_question"
+INTERVIEWER_FACTORY_ENV = "JRI_INTERVIEWER_FACTORY"
+type InterviewerFactory = Callable[
+    [Path, JsonlLogger],
+    InterviewSession,
+]
 
 __all__ = [
+    "INTERVIEWER_FACTORY_ENV",
     "Interviewer",
     "InterviewerDeps",
+    "InterviewerFactory",
     "ask_question_tool",
     "build_interviewer_tools",
+    "create_interviewer",
     "explore_context_tool",
     "finalize_specs_tool",
     "record_notes_tool",
     "update_scratchpad_tool",
     "update_specs_tool",
+    "validate_interviewer_configuration",
     "write_note_tool",
     "write_spec_tool",
 ]
@@ -108,6 +128,70 @@ class _ModelStreamFinished:
 
 
 _MODEL_STREAM_FINISHED = _ModelStreamFinished()
+
+
+def create_interviewer(
+    *,
+    project_root: Path,
+    logger: JsonlLogger,
+    env: Mapping[str, str],
+    runtime_config: AgentRuntimeConfig | None = None,
+) -> InterviewSession:
+    """Create the configured interviewer session."""
+    if factory_path := env.get(INTERVIEWER_FACTORY_ENV):
+        # Subprocess tests need a deterministic interview outside src.
+        # Keep that boundary explicit and narrow.
+        factory = _load_interviewer_factory(factory_path)
+        return factory(project_root, logger)
+
+    config = runtime_config or load_agent_runtime_config(env)
+    validate_agent_runtime_credentials(config, env)
+    logger.write(
+        "session_config",
+        {
+            "model_provider": config.model_provider,
+            "model_preset": config.model_preset,
+            "interviewer_model": config.models.interviewer,
+            "explorer_model": config.models.explorer,
+        },
+    )
+    return Interviewer(
+        project_root=project_root,
+        logger=logger,
+        model_config=config.models,
+    )
+
+
+def validate_interviewer_configuration(env: Mapping[str, str]) -> None:
+    """Validate the configured interviewer before project mutation."""
+    if factory_path := env.get(INTERVIEWER_FACTORY_ENV):
+        _load_interviewer_factory(factory_path)
+        return
+    config = load_agent_runtime_config(env)
+    validate_agent_runtime_credentials(config, env)
+
+
+def _load_interviewer_factory(path: str) -> InterviewerFactory:
+    module_name, separator, function_name = path.partition(":")
+    if not module_name or separator != ":" or not function_name:
+        msg = (
+            f"{INTERVIEWER_FACTORY_ENV} must be formatted as module:function."
+        )
+        raise ConfigError(msg)
+
+    try:
+        module = importlib.import_module(module_name)
+    except ImportError as exc:
+        msg = (
+            f"{INTERVIEWER_FACTORY_ENV} could not import module "
+            f"{module_name!r}."
+        )
+        raise ConfigError(msg) from exc
+    candidate = getattr(module, function_name, None)
+    if not callable(candidate):
+        msg = f"{INTERVIEWER_FACTORY_ENV} does not point to a callable."
+        raise ConfigError(msg)
+    return cast("InterviewerFactory", candidate)
 
 
 class Interviewer:

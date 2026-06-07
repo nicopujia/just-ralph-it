@@ -34,8 +34,11 @@ from pydantic_ai.messages import (
 from pydantic_ai.usage import RequestUsage, RunUsage
 
 from jri.core.agents.interviewer import (
+    INTERVIEWER_FACTORY_ENV,
     Interviewer,
     InterviewerDeps,
+    create_interviewer,
+    validate_interviewer_configuration,
 )
 from jri.core.agents.models import AgentModelConfig
 from jri.core.interview import (
@@ -72,6 +75,16 @@ class StableRepr:
     def __repr__(self) -> str:
         """Return deterministic debug text."""
         return "stable-repr"
+
+
+def test_interviewer_module_exports_construction_helpers() -> None:
+    """Interviewer construction helpers live with the interviewer."""
+    assert INTERVIEWER_FACTORY_ENV == "JRI_INTERVIEWER_FACTORY"
+    assert create_interviewer.__module__ == "jri.core.agents.interviewer"
+    assert (
+        validate_interviewer_configuration.__module__
+        == "jri.core.agents.interviewer"
+    )
 
 
 class FinalizedStreamAgent(FakeStreamAgent):

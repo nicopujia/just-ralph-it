@@ -6,7 +6,7 @@ from pathlib import Path
 
 from jri.cli.config import load_cli_environment, parse_arguments
 from jri.cli.repl import run_repl
-from jri.core.agents.factory import (
+from jri.core.agents.interviewer import (
     create_interviewer,
     validate_interviewer_configuration,
 )
