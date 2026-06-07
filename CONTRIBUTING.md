@@ -18,15 +18,9 @@ uv run jri --help
 
 ### Workflow
 
-It's crucial that when you make changes, you stick to the following workflow:
-
-0. Besides existing codebase and documentation, study docstrings at `__init__.py` files before modifying a package because they contain relevant contributing information specific to that package.
-1. work on a branch;
-2. frequently make [conventional](https://www.conventionalcommits.org/en/v1.0.0/), atomic commits;
-3. manually test your changes as a real user would use the product;
-3. once you think the work is done, create a pull request and request a review;
-4. after a successful review with another contributor and running validation in full mode, squash and merge;
-5. delete the new remote branch afterwards.
+- Alongside existing codebase and documentation, study docstrings at `__init__.py` files before modifying a package because they contain relevant contributing information specific to that package.
+- Frequently make [conventional](https://www.conventionalcommits.org/en/v1.0.0/), atomic commits;
+- Manually test your changes as a real user would use the software in production.
 
 ### Style
 
