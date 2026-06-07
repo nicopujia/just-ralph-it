@@ -1,4 +1,4 @@
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from typing import TYPE_CHECKING
 
 from openai import OpenAI
@@ -8,6 +8,7 @@ if TYPE_CHECKING:
         EasyInputMessageParam,
     )
     from openai.types.responses.response_input_param import ResponseInputParam
+    from openai.types.responses.tool_param import ToolParam
 
 
 FIRST_MESSAGE = "What do you want to build?"
@@ -27,6 +28,11 @@ class Interviewer:
                 "content": FIRST_MESSAGE,
             },
         ]
+        self.tools: Iterable[ToolParam] = [
+            {
+                "type": "web_search",
+            },
+        ]
 
     def send_message(self, message: str) -> Generator[str]:
         user_message: EasyInputMessageParam = {
@@ -39,6 +45,7 @@ class Interviewer:
         stream = self.client.responses.create(
             model=self.model,
             input=self.messages,
+            tools=self.tools,
             stream=True,
         )
         for event in stream:
