@@ -4,7 +4,7 @@ PRIMARY_STYLE = "yellow"
 MUTED_STYLE = "bright_black"
 ERROR_STYLE = "red"
 
-REPL_PROMPT: Text = Text("jri>", style=PRIMARY_STYLE)
+REPL_PROMPT: Text = Text("jri> ", style=PRIMARY_STYLE)
 EXIT_MESSAGE: Text = Text("Bye!", style=MUTED_STYLE)
 CONFIG_ERROR_MESSAGE: Text = Text("Invalid configuration.", style=ERROR_STYLE)
 CONFIG_ERROR_HELP_MESSAGE_TEMPLATE: str = """
