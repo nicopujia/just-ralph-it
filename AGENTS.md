@@ -1,4 +1,4 @@
-- Read @README.md, specially the linked concept document, to know more about the project; to read the document, run `curl -Ls https://nicolaspujia.com/just-ralph-it.md` instead of using your web tool.
-- Thoroughly study @CONTRIBUTING.md before proposing or making changes, and stick to the guidelines on both documents.
-- If you're already on a branch that isn't `main`, keep working there rather than creating a new one.
+- Read @README.md, specially the linked concept document, to know more about the project (to read the document, run `curl -Ls https://nicolaspujia.com/just-ralph-it.md` instead of using your web tool).
+- Thoroughly study @CONTRIBUTING.md before proposing or making changes, and stick to its guidelines.
 - Don't add tests unless explicitely asked for.
+- To test changes manually and simulate user behavior, use `tmux`.
