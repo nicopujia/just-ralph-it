@@ -1,15 +1,18 @@
 from typing import ClassVar
 
-from pydantic import Field
+from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from .exceptions import (
+    JriConfigurationError,
+)
 
 
 class Settings(BaseSettings):
     llm_api_key: str = Field(
         description=(
-            "A valid API key compatible with JRI_LLM_PROVIDER_BASE_URL. "
-            "Default provider is OpenAI, so if you don't define base URL "
-            "this should be OPENAI_API_KEY."
+            "A valid API key for the LLM provider, which is defined by "
+            "JRI_LLM_PROVIDER_BASE_URL. Default provider is OpenAI."
         ),
     )
     llm_provider_base_url: str | None = Field(
@@ -32,4 +35,7 @@ class Settings(BaseSettings):
 
 
 def get_settings() -> Settings:
-    return Settings()  # pyright: ignore[reportCallIssue]
+    try:
+        return Settings()
+    except ValidationError as error:
+        raise JriConfigurationError(error) from error

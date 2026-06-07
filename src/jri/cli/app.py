@@ -1,22 +1,14 @@
 from rich.console import Console
 from rich.markdown import Markdown
 
-from jri.core.exceptions import JriUnauthenticatedError
+from jri.core.exceptions import JriConfigurationError
 from jri.core.service import Service
 
-from .styles import ERROR, MUTED, PRIMARY
+from .constants import CONFIG_ERROR_MESSAGE, EXIT_MESSAGE, REPL_PROMPT
+from .utils import get_config_error_help_message
 
 
 class App:
-    REPL_PROMPT: str = f"[{PRIMARY}]jri>[/{PRIMARY}] "
-    EXIT_MESSAGE: str = f"[{MUTED}]Bye![/{MUTED}]"
-    UNAUTHENTICATED_MESSAGE: str = (
-        f"[{ERROR}]"
-        "Please set JRI_API_KEY to an API key compatible with "
-        "JRI_PROVIDER_BASE_URL, which defaults to OpenAI as the provider."
-        f"[/{ERROR}]"
-    )
-
     def __init__(
         self,
         console: Console | None = None,
@@ -25,8 +17,10 @@ class App:
         self.console: Console = console or Console()
         try:
             self.service: Service = service or Service()
-        except JriUnauthenticatedError:
-            self.console.print(self.UNAUTHENTICATED_MESSAGE)
+        except JriConfigurationError as error:
+            self.console.print(CONFIG_ERROR_MESSAGE)
+            self.console.print(get_config_error_help_message(error))
+            raise SystemExit(1) from error
 
     def run(self) -> None:
         while True:
@@ -37,9 +31,10 @@ class App:
                 break
 
     def _run_turn(self) -> None:
-        user_message = self.console.input(self.REPL_PROMPT)
+        user_message = self.console.input(REPL_PROMPT)
         answer = self.service.send_message(user_message)
         self.console.print(Markdown(answer))
 
     def _tear_down(self) -> None:
-        self.console.print("\n", self.EXIT_MESSAGE)
+        self.console.print()
+        self.console.print(EXIT_MESSAGE)
