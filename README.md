@@ -20,7 +20,7 @@ uv sync
 uv tool install -e .
 
 # Run it!
-jri --help
+jri 
 ```
 
 ## Related resources
