@@ -346,6 +346,23 @@ def test_fetch_url_retries_legacy_tls_for_weak_dh(
     assert isinstance(WeakDhThenCompatClient.seen_verify[1], ssl.SSLContext)
 
 
+def test_fetch_url_reraises_non_weak_dh_connect_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curl only retries the legacy-DH TLS failure mode."""
+    monkeypatch.setattr(socket, "getaddrinfo", public_address_info)
+    NonWeakConnectErrorClient.seen_verify = []
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        NonWeakConnectErrorClient,
+    )
+
+    with pytest.raises(httpx.ConnectError, match="certificate verify failed"):
+        asyncio.run(fetch_url("https://broken.example"))
+
+    assert NonWeakConnectErrorClient.seen_verify == [True]
+
+
 def test_fetch_url_stops_reading_response_body_at_cap(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -919,6 +936,42 @@ class WeakDhThenCompatClient:
                 text="legacy body",
             )
         )
+
+
+class NonWeakConnectErrorClient:
+    """Fake client that fails with a non-retryable connect error."""
+
+    seen_verify: ClassVar[list[object]] = []
+
+    def __init__(
+        self,
+        *,
+        timeout: float,
+        follow_redirects: bool,
+        verify: object = True,
+    ) -> None:
+        _ = timeout
+        assert follow_redirects is False
+        self.verify = verify
+        type(self).seen_verify.append(verify)
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        traceback: object,
+    ) -> None:
+        _ = (exc_type, exc, traceback)
+
+    def stream(self, method: str, url: str) -> FetchResponseStream:
+        """Raise a connect error that must not be retried."""
+        assert method == "GET"
+        assert url == "https://broken.example"
+        msg = "certificate verify failed"
+        raise httpx.ConnectError(msg)
 
 
 class RedirectToPrivateClient(ScriptedFetchClient):
