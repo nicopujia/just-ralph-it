@@ -22,7 +22,7 @@ INTERVIEWER_THINKING_COPY = "_Thinking..._"
 
 MESSAGES_CONTAINER_ID: str = "messages"
 MESSAGE_INPUT_ID: str = "message-input"
-MESSAGE_INPUT_PLACEHOLDER_COPY = "What do you want to build?"
+MESSAGE_INPUT_PLACEHOLDER_COPY = interviewer.FIRST_MESSAGE
 
 TITLE_COPY = "Just Ralph It"
 

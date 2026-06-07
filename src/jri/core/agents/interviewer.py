@@ -1,21 +1,32 @@
 from collections.abc import Generator
-from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from openai import OpenAI
-from openai.types.responses.response_input_param import ResponseInputParam
 
 if TYPE_CHECKING:
     from openai.types.responses.easy_input_message_param import (
         EasyInputMessageParam,
     )
+    from openai.types.responses.response_input_param import ResponseInputParam
 
 
-@dataclass
+FIRST_MESSAGE = "What do you want to build?"
+
+
 class Interviewer:
-    client: OpenAI
-    model: str
-    messages: ResponseInputParam = field(default_factory=list)
+    def __init__(
+        self,
+        client: OpenAI,
+        model: str,
+    ) -> None:
+        self.client: OpenAI = client
+        self.model: str = model
+        self.messages: ResponseInputParam = [
+            {
+                "role": "assistant",
+                "content": FIRST_MESSAGE,
+            },
+        ]
 
     def send_message(self, message: str) -> Generator[str]:
         user_message: EasyInputMessageParam = {
