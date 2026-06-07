@@ -269,9 +269,6 @@ async def finalize_specs_tool(
     blocker_log: list[JsonValue] = list(known_blockers or [])
 
     async def finalize() -> str:
-        if not spec_content.strip():
-            msg = "finalize_specs requires non-empty final spec_content."
-            raise ModelRetry(msg)
         if not is_trigger_message(ctx.deps.latest_user_message):
             raise ModelRetry(
                 _format_finalize_retry_message(
@@ -280,6 +277,9 @@ async def finalize_specs_tool(
             )
         if known_blockers:
             return _format_finalize_blocked_message(known_blockers)
+        if not spec_content.strip():
+            msg = "finalize_specs requires non-empty final spec_content."
+            raise ModelRetry(msg)
         readiness = check_mvp_readiness(spec_content)
         if not readiness.is_ready:
             return format_missing_mvp_readiness(readiness.missing)

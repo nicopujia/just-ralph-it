@@ -1974,6 +1974,37 @@ def test_finalize_specs_tool_reports_known_blockers_without_writing_spec(
     assert not deps.finalized
 
 
+@pytest.mark.parametrize("spec_content", ["", " \n\t"])
+def test_finalize_specs_tool_reports_known_blockers_before_blank_content_retry(
+    tmp_path: Path,
+    spec_content: str,
+) -> None:
+    """Known blockers are returned before retrying missing final content."""
+    product = tmp_path / ".jri" / "specs" / "product.md"
+    product.parent.mkdir(parents=True)
+    product.write_text("# Existing\n", encoding="utf-8")
+    deps = InterviewerDeps(
+        project_root=tmp_path,
+        latest_user_message="just ralph it",
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        explorer=RecordingExplorer(),
+    )
+    ctx = cast("RunContext[InterviewerDeps]", FakeRunContext(deps))
+
+    result = asyncio.run(
+        finalize_specs_tool(
+            ctx,
+            readiness_summary="Not ready.",
+            spec_content=spec_content,
+            known_blockers=["Missing target user"],
+        )
+    )
+
+    assert result == "Cannot finalize specs yet:\n- Missing target user"
+    assert product.read_text(encoding="utf-8") == "# Existing\n"
+    assert not deps.finalized
+
+
 def test_finalize_specs_tool_reports_incomplete_spec_without_writing(
     tmp_path: Path,
 ) -> None:
