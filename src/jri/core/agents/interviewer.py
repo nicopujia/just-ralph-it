@@ -1,31 +1,34 @@
 from dataclasses import dataclass, field
-from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from openai import OpenAI
+from openai.types.responses.response_input_param import ResponseInputParam
 
-
-class MessageSource(StrEnum):
-    USER = "user"
-    AGENT = "agent"
+if TYPE_CHECKING:
+    from openai.types.responses.easy_input_message_param import (
+        EasyInputMessageParam,
+    )
 
 
 @dataclass
 class Interviewer:
     client: OpenAI
     model: str
-    messages: list[tuple[MessageSource, str]] = field(default_factory=list)
+    messages: ResponseInputParam = field(default_factory=list)
 
     def send_message(self, message: str) -> str:
-        self.messages.append((MessageSource.USER, message))
+        user_message: EasyInputMessageParam = {
+            "role": "user",
+            "content": message,
+        }
+        self.messages.append(user_message)
         response = self.client.responses.create(
             model=self.model,
-            input=self.get_context_window(),
+            input=self.messages,
         )
-        self.messages.append((MessageSource.AGENT, response.output_text))
+        agent_message: EasyInputMessageParam = {
+            "role": "assistant",
+            "content": response.output_text,
+        }
+        self.messages.append(agent_message)
         return response.output_text
-
-    def get_context_window(self) -> str:
-        return "\n".join([
-            f"<{source.value}>{content}</{source.value}>"
-            for source, content in self.messages
-        ])
