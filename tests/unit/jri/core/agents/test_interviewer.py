@@ -1332,6 +1332,7 @@ def test_interviewer_explores_user_supplied_urls_before_asking(
 
     assert [(event.kind, event.content) for event in events] == [
         ("tool_call", "explore_context"),
+        ("tool_call", "update_scratchpad"),
         ("tool_call", "ask_question"),
         (
             "question",
@@ -1369,7 +1370,72 @@ def test_interviewer_explores_user_supplied_urls_before_asking(
         for event in _read_events(log_path)
         if event["type"] == "tool_call_started"
     ]
-    assert tool_starts == ["explore_context"]
+    assert tool_starts == ["explore_context", "update_scratchpad"]
+
+
+def test_interviewer_records_uncaptured_turn_before_url_followup_question(
+    tmp_path: Path,
+) -> None:
+    """A URL-backed follow-up question still preserves interview memory."""
+    log_path = tmp_path / "events.jsonl"
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(log_path),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    explorer = RecordingExplorer(
+        "Summary:\n"
+        + "- Tripos is a 3x3 strategy game with colored pieces.\n\n"
+        + "Sources:\n"
+        + "- https://noticias.ulp.edu.ar/ciencia/tripos-5084"
+    )
+    object.__setattr__(interviewer, "explorer", explorer)
+    question = (
+        "Should the game grid strictly follow the 3x3 pattern from "
+        "the article?"
+    )
+    object.__setattr__(
+        interviewer,
+        "agent",
+        FakeStreamAgent([
+            FunctionToolCallEvent(
+                ToolCallPart(
+                    "ask_question",
+                    args=json.dumps({"level": "low", "question": question}),
+                )
+            )
+        ]),
+    )
+
+    events = asyncio.run(
+        _collect(
+            interviewer.respond(
+                "i wanna build tripos (explore "
+                + "https://noticias.ulp.edu.ar/ciencia/tripos-5084)"
+            )
+        )
+    )
+
+    assert [(event.kind, event.content) for event in events] == [
+        ("tool_call", "explore_context"),
+        ("tool_call", "update_scratchpad"),
+        ("tool_call", "ask_question"),
+        (
+            "question",
+            InterviewQuestion(level="low", question=question),
+        ),
+    ]
+    scratchpad = tmp_path / ".jri" / "scratchpad.md"
+    scratchpad_text = scratchpad.read_text(encoding="utf-8")
+    assert "i wanna build tripos" in scratchpad_text
+    assert "https://noticias.ulp.edu.ar/ciencia/tripos-5084" in scratchpad_text
+    assert question in scratchpad_text
+    tool_starts = [
+        cast("dict[str, object]", event["data"])["tool_name"]
+        for event in _read_events(log_path)
+        if event["type"] == "tool_call_started"
+    ]
+    assert tool_starts == ["explore_context", "update_scratchpad"]
 
 
 def test_interviewer_coerces_raw_question_text(

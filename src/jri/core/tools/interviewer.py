@@ -396,6 +396,14 @@ async def _record_merged_notes(
     )
 
 
+async def record_scratchpad_notes(
+    deps: InterviewerToolDeps,
+    notes: str,
+) -> str:
+    """Record interview notes outside the model tool adapter."""
+    return await _record_merged_notes(deps, notes)
+
+
 def _merge_notes(existing: str, notes: str) -> str:
     current = existing.strip()
     incoming = notes.strip()

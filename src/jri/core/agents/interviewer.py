@@ -62,6 +62,7 @@ from jri.core.tools.interviewer import (
     explore_context_tool,
     finalize_specs_tool,
     record_notes_tool,
+    record_scratchpad_notes,
     run_logged_tool,
     update_scratchpad_tool,
     update_specs_tool,
@@ -72,6 +73,14 @@ from jri.core.tools.just_ralph_it import finalize_jri
 from jri.core.triggers import is_trigger_message
 
 _ASK_TOOL_NAME = "ask_question"
+_PERSISTENT_STATE_TOOL_NAMES = frozenset({
+    "finalize_specs",
+    "record_notes",
+    "update_scratchpad",
+    "update_specs",
+    "write_note",
+    "write_spec",
+})
 INTERVIEWER_FACTORY_ENV = "JRI_INTERVIEWER_FACTORY"
 _URL_PATTERN = re.compile(r"https?://[^\s<>)\]]+")
 type InterviewerFactory = Callable[
@@ -107,6 +116,7 @@ class InterviewerDeps:
     logger: JsonlLogger
     explorer: ContextExplorer
     finalized: bool = False
+    pre_explored_context: str | None = None
 
 
 @dataclass
@@ -115,6 +125,7 @@ class _TurnEventBuffer:
 
     events: list[InterviewEvent] = field(default_factory=list)
     saw_text_delta: bool = False
+    saw_persistent_state_tool: bool = False
 
 
 @dataclass(frozen=True)
@@ -368,7 +379,7 @@ class Interviewer:
                     continue
                 if _is_non_ask_tool_call_event(event):
                     outstanding_non_ask_tool_results += 1
-                visible_events, should_stop = self._record_stream_event(
+                visible_events, should_stop = await self._record_stream_event(
                     event,
                     deps,
                     buffer,
@@ -414,14 +425,14 @@ class Interviewer:
             _queue_events(queue, pending_stop_events)
         return pending_text_events
 
-    def _record_stream_event(
+    async def _record_stream_event(
         self,
         event: object,
         deps: InterviewerDeps,
         buffer: _TurnEventBuffer,
     ) -> tuple[list[InterviewEvent], bool]:
         if isinstance(event, FunctionToolCallEvent):
-            return self._record_tool_call_event(event, deps, buffer)
+            return await self._record_tool_call_event(event, deps, buffer)
         if isinstance(event, FunctionToolResultEvent):
             return self._record_tool_result_event(event, deps, buffer)
         if isinstance(event, PartDeltaEvent) and isinstance(
@@ -438,7 +449,7 @@ class Interviewer:
             return self._record_run_result_event(event, deps, buffer), False
         return [], False
 
-    def _record_tool_call_event(
+    async def _record_tool_call_event(
         self,
         event: FunctionToolCallEvent,
         deps: InterviewerDeps,
@@ -448,6 +459,8 @@ class Interviewer:
             "model_tool_call_started",
             _serialize_model_tool_call(event.part),
         )
+        if event.part.tool_name in _PERSISTENT_STATE_TOOL_NAMES:
+            buffer.saw_persistent_state_tool = True
         if event.part.tool_name == _ASK_TOOL_NAME:
             buffer.events = [
                 item
@@ -461,9 +474,15 @@ class Interviewer:
         if event.part.tool_name != _ASK_TOOL_NAME:
             return visible_events, False
         question = _build_ask_tool_call_question(event.part.args)
+        memory_events = await _record_pre_explored_turn_if_uncaptured(
+            deps,
+            buffer,
+            question=question,
+        )
+        visible_events = [*memory_events, *visible_events]
         question_event = InterviewEvent(kind="question", content=question)
         visible_events.append(question_event)
-        buffer.events.append(question_event)
+        buffer.events.extend([*memory_events, question_event])
         self._append_question_to_history(
             question,
             user_message=deps.latest_user_message,
@@ -771,7 +790,47 @@ async def _pre_explore_user_urls(
             explorer=deps.explorer,
         ),
     )
+    deps.pre_explored_context = result
     return _append_pre_explored_context(turn_context, result)
+
+
+async def _record_pre_explored_turn_if_uncaptured(
+    deps: InterviewerDeps,
+    buffer: _TurnEventBuffer,
+    *,
+    question: InterviewQuestion,
+) -> list[InterviewEvent]:
+    if deps.pre_explored_context is None or buffer.saw_persistent_state_tool:
+        return []
+    notes = _format_pre_explored_turn_notes(
+        user_message=deps.latest_user_message,
+        pre_explored_context=deps.pre_explored_context,
+        question=question,
+    )
+    await run_logged_tool(
+        deps,
+        "update_scratchpad",
+        {"notes": notes},
+        lambda: record_scratchpad_notes(deps, notes),
+    )
+    buffer.saw_persistent_state_tool = True
+    return [InterviewEvent(kind="tool_call", content="update_scratchpad")]
+
+
+def _format_pre_explored_turn_notes(
+    *,
+    user_message: str,
+    pre_explored_context: str,
+    question: InterviewQuestion,
+) -> str:
+    return (
+        "Latest user message:\n"
+        + f"{user_message}\n\n"
+        + "Pre-explored context:\n"
+        + f"{pre_explored_context.strip()}\n\n"
+        + "Follow-up question:\n"
+        + question.question
+    )
 
 
 def _build_ask_tool_call_question(
