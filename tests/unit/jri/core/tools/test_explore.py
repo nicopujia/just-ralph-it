@@ -3,9 +3,10 @@
 
 import asyncio
 import socket
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import TracebackType
 from typing import ClassVar, Self
 
 import pytest
@@ -72,6 +73,39 @@ def test_explorer_file_tools_are_read_only(tmp_path: Path) -> None:
     assert glob_paths(pattern="**/*.py", root=tmp_path) == ["src/app.py"]
     assert read_text(path=source, root=tmp_path) == "1: print('hi')"
     assert source.read_text() == "print('hi')\n"
+
+
+def test_read_text_streams_only_requested_line_window(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explorer read stops after the requested line window."""
+    source = tmp_path / "large.txt"
+    source.write_text("placeholder\n")
+    resolved_source = source.resolve()
+    stream = GuardedLineStream(
+        lines=[f"line {number}\n" for number in range(1, 10)],
+        max_lines_read=4,
+    )
+
+    def open_guard(
+        self: Path,
+        *args: object,
+        **kwargs: object,
+    ) -> "GuardedLineStream":
+        """Return a stream that fails on unbounded reads."""
+        assert self == resolved_source
+        assert args == ()
+        assert kwargs.get("mode", "r") == "r"
+        assert kwargs.get("encoding") == "utf-8"
+        return stream
+
+    monkeypatch.setattr(Path, "open", open_guard)
+
+    result = read_text(path=source, root=tmp_path, offset=2, limit=2)
+
+    assert result == "3: line 3\n4: line 4"
+    assert stream.lines_read == 4
 
 
 @pytest.mark.parametrize(("relative_path", "contents"), FORMERLY_BLOCKED_FILES)
@@ -489,6 +523,50 @@ def test_fetch_url_rejects_direct_private_network_targets(
 
     with pytest.raises(ValueError, match="private network"):
         asyncio.run(fetch_url(url))
+
+
+class GuardedLineStream:
+    """Text stream that detects unbounded file reads."""
+
+    lines_read: int
+
+    def __init__(
+        self,
+        *,
+        lines: list[str],
+        max_lines_read: int,
+    ) -> None:
+        self._lines: Iterator[str] = iter(lines)
+        self._max_lines_read = max_lines_read
+        self.lines_read = 0
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        _ = (exc_type, exc, traceback)
+
+    def __iter__(self) -> Self:
+        return self
+
+    def __next__(self) -> str:
+        line = next(self._lines)
+        self.lines_read += 1
+        if self.lines_read > self._max_lines_read:
+            msg = "read past the requested line window"
+            raise AssertionError(msg)
+        return line
+
+    def read(self, size: int = -1) -> str:
+        """Fail if the caller tries to read the whole file."""
+        _ = size
+        msg = "read_text must stream lines"
+        raise AssertionError(msg)
 
 
 @dataclass(frozen=True)

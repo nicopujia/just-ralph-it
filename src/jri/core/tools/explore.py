@@ -5,6 +5,7 @@ import socket
 from collections.abc import Mapping
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv6Address, ip_address
+from itertools import islice
 from pathlib import Path
 from typing import Protocol, cast
 from urllib.parse import urljoin, urlsplit
@@ -16,6 +17,7 @@ _FETCH_REDIRECT_LIMIT = 20
 _FETCH_REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
 _FETCH_BODY_BYTE_LIMIT = 20_000
 _FETCH_BODY_CHARACTER_LIMIT = 20_000
+_TEXT_LINE_SEPARATOR = "\n"
 
 
 @dataclass(frozen=True)
@@ -71,12 +73,12 @@ def read_text(
 ) -> str:
     """Read bounded text with line numbers."""
     resolved_path = _resolve_project_file(path=path, root=root)
-    lines = resolved_path.read_text(encoding="utf-8").splitlines()
-    selected = lines[offset : offset + limit]
-    return "\n".join(
-        f"{line_number}: {line}"
-        for line_number, line in enumerate(selected, start=offset + 1)
-    )
+    with resolved_path.open(encoding="utf-8") as lines:
+        selected = islice(enumerate(lines, start=1), offset, offset + limit)
+        return "\n".join(
+            f"{line_number}: {line.removesuffix(_TEXT_LINE_SEPARATOR)}"
+            for line_number, line in selected
+        )
 
 
 def grep_text(
