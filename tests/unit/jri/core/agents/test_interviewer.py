@@ -6,6 +6,7 @@ import contextlib
 import json
 import subprocess
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
 from typing import Self, cast, override
@@ -314,6 +315,108 @@ class BlockingAfterToolCallStream:
             self.agent.stream_closed.set()
 
 
+@dataclass(frozen=True)
+class DelayedToolResultAfterAskConfig:
+    """Configuration for delayed post-ask tool result streams."""
+
+    event_after_ask: object | None = None
+    finalizes: bool = False
+    result_content: object = "Scratchpad updated."
+    tool_call_id: str = "call-notes"
+    tool_name: str = "update_scratchpad"
+    yield_tool_result: bool = True
+
+
+class DelayedToolResultAfterAskStreamAgent:
+    """Fake stream where an earlier tool result arrives after an ask."""
+
+    def __init__(
+        self,
+        project_root: Path,
+        *,
+        config: DelayedToolResultAfterAskConfig | None = None,
+    ) -> None:
+        resolved_config = config or DelayedToolResultAfterAskConfig()
+        self.project_root: Path = project_root
+        self.event_after_ask: object | None = resolved_config.event_after_ask
+        self.finalizes: bool = resolved_config.finalizes
+        self.instructions: str = ""
+        self.message_history: list[object] = []
+        self.result_content: object = resolved_config.result_content
+        self.allow_tool_result: asyncio.Event = asyncio.Event()
+        self.tool_call_id: str = resolved_config.tool_call_id
+        self.tool_name: str = resolved_config.tool_name
+        self.yield_tool_result: bool = resolved_config.yield_tool_result
+
+    def run_stream_events(
+        self,
+        *args: object,
+        **kwargs: object,
+    ) -> "DelayedToolResultAfterAskStream":
+        """Return a controlled stream and record run instructions."""
+        _ = args
+        deps = cast("InterviewerDeps", kwargs["deps"])
+        if self.finalizes:
+            deps.finalized = True
+        self.instructions = str(kwargs["instructions"])
+        self.message_history = list(
+            cast("list[object]", kwargs["message_history"])
+        )
+        return DelayedToolResultAfterAskStream(self)
+
+
+class DelayedToolResultAfterAskStream:
+    """Async context manager for delayed post-ask tool results."""
+
+    def __init__(self, agent: DelayedToolResultAfterAskStreamAgent) -> None:
+        self.agent: DelayedToolResultAfterAskStreamAgent = agent
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        traceback: object,
+    ) -> None:
+        _ = (exc_type, exc, traceback)
+
+    def __aiter__(self) -> AsyncIterator[object]:
+        return self._iterate()
+
+    async def _iterate(self) -> AsyncIterator[object]:
+        yield FunctionToolCallEvent(
+            ToolCallPart(
+                self.agent.tool_name,
+                tool_call_id=self.agent.tool_call_id,
+            )
+        )
+        yield FunctionToolCallEvent(
+            ToolCallPart(
+                "ask_question",
+                args='{"level":"high","question":"Who is this for?"}',
+                tool_call_id="call-ask",
+            )
+        )
+        if self.agent.event_after_ask is not None:
+            yield self.agent.event_after_ask
+        if not self.agent.yield_tool_result:
+            return
+        await self.agent.allow_tool_result.wait()
+        if self.agent.tool_name == "update_scratchpad":
+            scratchpad = self.agent.project_root / ".jri" / "scratchpad.md"
+            scratchpad.parent.mkdir(parents=True, exist_ok=True)
+            scratchpad.write_text("Captured target user.\n", encoding="utf-8")
+        yield FunctionToolResultEvent(
+            ToolReturnPart(
+                tool_name=self.agent.tool_name,
+                content=self.agent.result_content,
+                tool_call_id=self.agent.tool_call_id,
+            )
+        )
+
+
 def test_interviewer_streams_tool_and_text_events(
     tmp_path: Path,
 ) -> None:
@@ -414,6 +517,127 @@ def test_interviewer_cancels_provider_when_response_iterator_closes(
         "update_specs",
     )
     assert stream_closed
+
+
+def test_interviewer_waits_for_prior_tool_result_before_question(
+    tmp_path: Path,
+) -> None:
+    """Post-ask write results are consumed before yielding the question."""
+    question_was_visible_early, events = asyncio.run(
+        _collect_delayed_tool_result_after_ask(tmp_path)
+    )
+
+    assert not question_was_visible_early
+    assert [(event.kind, event.content) for event in events] == [
+        ("tool_call", "update_scratchpad"),
+        ("tool_call", "ask_question"),
+        (
+            "question",
+            InterviewQuestion(level="high", question="Who is this for?"),
+        ),
+    ]
+    scratchpad = tmp_path / ".jri" / "scratchpad.md"
+    assert scratchpad.read_text(encoding="utf-8") == (
+        "Captured target user.\n"
+    )
+    tool_result = _event_by_call_id(
+        _read_events(tmp_path / "events.jsonl"),
+        event_type="model_tool_call_finished",
+        tool_call_id="call-notes",
+    )
+    assert cast("dict[str, object]", tool_result["data"])["tool_name"] == (
+        "update_scratchpad"
+    )
+
+
+def test_interviewer_ignores_post_ask_noise_while_waiting_for_tool_result(
+    tmp_path: Path,
+) -> None:
+    """Buffered asks suppress later text until prior writes finish."""
+    fake_agent = DelayedToolResultAfterAskStreamAgent(
+        tmp_path,
+        config=DelayedToolResultAfterAskConfig(
+            event_after_ask=PartDeltaEvent(
+                index=0,
+                delta=TextPartDelta("Late prose."),
+            ),
+        ),
+    )
+    question_was_visible_early, events = asyncio.run(
+        _collect_delayed_tool_result_after_ask(
+            tmp_path,
+            fake_agent=fake_agent,
+        )
+    )
+
+    assert not question_was_visible_early
+    assert [(event.kind, event.content) for event in events] == [
+        ("tool_call", "update_scratchpad"),
+        ("tool_call", "ask_question"),
+        (
+            "question",
+            InterviewQuestion(level="high", question="Who is this for?"),
+        ),
+    ]
+
+
+def test_interviewer_yields_buffered_question_if_tool_result_never_arrives(
+    tmp_path: Path,
+) -> None:
+    """A closed provider stream still releases the buffered question."""
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    object.__setattr__(
+        interviewer,
+        "agent",
+        DelayedToolResultAfterAskStreamAgent(
+            tmp_path,
+            config=DelayedToolResultAfterAskConfig(yield_tool_result=False),
+        ),
+    )
+
+    events = asyncio.run(_collect(interviewer.respond("idea")))
+
+    assert [(event.kind, event.content) for event in events] == [
+        ("tool_call", "update_scratchpad"),
+        ("tool_call", "ask_question"),
+        (
+            "question",
+            InterviewQuestion(level="high", question="Who is this for?"),
+        ),
+    ]
+
+
+def test_interviewer_preserves_delayed_finalization_after_buffered_ask(
+    tmp_path: Path,
+) -> None:
+    """A finalization result still wins over a buffered ask question."""
+    final_message = "Specs finalized and committed."
+    fake_agent = DelayedToolResultAfterAskStreamAgent(
+        tmp_path,
+        config=DelayedToolResultAfterAskConfig(
+            finalizes=True,
+            result_content=final_message,
+            tool_call_id="call-finalize",
+            tool_name="finalize_specs",
+        ),
+    )
+
+    question_was_visible_early, events = asyncio.run(
+        _collect_delayed_tool_result_after_ask(
+            tmp_path,
+            fake_agent=fake_agent,
+        )
+    )
+
+    assert not question_was_visible_early
+    assert [(event.kind, event.content) for event in events] == [
+        ("tool_call", "finalize_specs"),
+        ("text", final_message),
+    ]
 
 
 def test_interviewer_logs_raw_model_tool_calls_and_results(
@@ -1960,6 +2184,42 @@ async def _close_iterator_after_first_event(
     await iterator.aclose()
     await asyncio.wait_for(fake_agent.stream_closed.wait(), timeout=1)
     return first_event, fake_agent.stream_closed.is_set()
+
+
+async def _collect_delayed_tool_result_after_ask(
+    tmp_path: Path,
+    *,
+    fake_agent: DelayedToolResultAfterAskStreamAgent | None = None,
+) -> tuple[bool, list[InterviewEvent]]:
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(tmp_path / "events.jsonl"),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    if fake_agent is None:
+        fake_agent = DelayedToolResultAfterAskStreamAgent(tmp_path)
+    object.__setattr__(interviewer, "agent", fake_agent)
+    iterator: AsyncIterator[InterviewEvent] = interviewer.respond("idea")
+
+    first_event = await asyncio.wait_for(anext(iterator), timeout=1)
+    next_event_task: asyncio.Task[object] = asyncio.create_task(
+        _receive_next_item(iterator)
+    )
+    done, pending = await asyncio.wait({next_event_task}, timeout=0.1)
+    _ = pending
+    question_was_visible_early = next_event_task in done
+    if question_was_visible_early:
+        early_event = cast("InterviewEvent", await next_event_task)
+        remaining_events = [event async for event in iterator]
+        return True, [first_event, early_event, *remaining_events]
+
+    fake_agent.allow_tool_result.set()
+    next_event = cast(
+        "InterviewEvent",
+        await asyncio.wait_for(next_event_task, timeout=1),
+    )
+    remaining_events = [event async for event in iterator]
+    return False, [first_event, next_event, *remaining_events]
 
 
 def _configure_repo(path: Path) -> None:

@@ -256,6 +256,8 @@ class Interviewer:
     ) -> list[InterviewEvent]:
         buffer = _TurnEventBuffer()
         pending_text_events: list[InterviewEvent] = []
+        outstanding_non_ask_tool_results = 0
+        pending_stop_events: list[InterviewEvent] | None = None
         async with self.agent.run_stream_events(
             user_message,
             message_history=self._messages,
@@ -263,11 +265,51 @@ class Interviewer:
             instructions=turn_context,
         ) as stream:
             async for event in stream:
+                waiting_for_tool_results = (
+                    pending_stop_events is not None
+                    and outstanding_non_ask_tool_results > 0
+                )
+                if waiting_for_tool_results and not isinstance(
+                    event,
+                    FunctionToolResultEvent,
+                ):
+                    continue
+                if _is_non_ask_tool_call_event(event):
+                    outstanding_non_ask_tool_results += 1
                 visible_events, should_stop = self._record_stream_event(
                     event,
                     deps,
                     buffer,
                 )
+                if _is_non_ask_tool_result_event(event):
+                    outstanding_non_ask_tool_results = max(
+                        0,
+                        outstanding_non_ask_tool_results - 1,
+                    )
+                if (
+                    pending_stop_events is not None
+                    and outstanding_non_ask_tool_results <= 0
+                ):
+                    if should_stop:
+                        _queue_recorded_events(
+                            event,
+                            visible_events=visible_events,
+                            queue=queue,
+                            pending_text_events=pending_text_events,
+                        )
+                        pending_stop_events = None
+                        break
+                    _queue_events(queue, pending_stop_events)
+                    pending_stop_events = None
+                    break
+                if (
+                    should_stop
+                    and _is_ask_tool_call_event(event)
+                    and outstanding_non_ask_tool_results > 0
+                ):
+                    pending_text_events.clear()
+                    pending_stop_events = visible_events
+                    continue
                 _queue_recorded_events(
                     event,
                     visible_events=visible_events,
@@ -276,6 +318,8 @@ class Interviewer:
                 )
                 if should_stop:
                     break
+        if pending_stop_events is not None:
+            _queue_events(queue, pending_stop_events)
         return pending_text_events
 
     def _record_stream_event(
@@ -542,6 +586,28 @@ def _should_drop_pending_text_events(event: object) -> bool:
     ) or (
         isinstance(event, FunctionToolResultEvent)
         and _is_finalize_tool_result_event(event)
+    )
+
+
+def _is_ask_tool_call_event(event: object) -> bool:
+    return (
+        isinstance(event, FunctionToolCallEvent)
+        and event.part.tool_name == _ASK_TOOL_NAME
+    )
+
+
+def _is_non_ask_tool_call_event(event: object) -> bool:
+    return (
+        isinstance(event, FunctionToolCallEvent)
+        and event.part.tool_name != _ASK_TOOL_NAME
+    )
+
+
+def _is_non_ask_tool_result_event(event: object) -> bool:
+    return (
+        isinstance(event, FunctionToolResultEvent)
+        and isinstance(event.part, ToolReturnPart)
+        and event.part.tool_name != _ASK_TOOL_NAME
     )
 
 
