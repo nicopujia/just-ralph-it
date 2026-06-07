@@ -23,9 +23,7 @@ def test_runtime_config_uses_default_provider_and_preset() -> None:
     assert config.model_preset == "cheap"
     assert isinstance(config.models, AgentModelConfig)
     assert config.models.interviewer == "openrouter:deepseek/deepseek-chat"
-    assert config.models.explorer == (
-        "openrouter:qwen/qwen2.5-vl-32b-instruct"
-    )
+    assert config.models.explorer == "openrouter:qwen/qwen3-vl-32b-instruct"
 
 
 def test_runtime_config_accepts_role_model_id_overrides() -> None:

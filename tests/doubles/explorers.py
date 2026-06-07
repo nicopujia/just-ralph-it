@@ -14,3 +14,13 @@ class RecordingExplorer:
         """Record the request and return compact fake context."""
         self.requests.append((project_root, request))
         return self.output
+
+
+class FailingExplorer:
+    """Explorer double that raises like a failing provider call."""
+
+    async def run(self, *, project_root: Path, request: str) -> str:
+        """Fail after accepting the exploration request."""
+        _ = (project_root, request)
+        msg = "status_code: 404, body: {'message': 'No endpoints found'}"
+        raise RuntimeError(msg)

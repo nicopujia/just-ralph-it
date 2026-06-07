@@ -55,7 +55,7 @@ from jri.core.readiness import (
     format_missing_mvp_readiness,
 )
 from jri.core.tools.ask import AskChoice, build_question
-from jri.core.tools.explore import ContextExplorer
+from jri.core.tools.explore import ContextExplorer, explore_context
 from jri.core.tools.interviewer import (
     ask_question_tool,
     build_interviewer_tools,
@@ -73,6 +73,7 @@ from jri.core.triggers import is_trigger_message
 
 _ASK_TOOL_NAME = "ask_question"
 INTERVIEWER_FACTORY_ENV = "JRI_INTERVIEWER_FACTORY"
+_URL_PATTERN = re.compile(r"https?://[^\s<>)\]]+")
 type InterviewerFactory = Callable[
     [Path, JsonlLogger],
     InterviewSession,
@@ -251,6 +252,13 @@ class Interviewer:
         )
         events: list[InterviewEvent] = []
         try:
+            turn_context = await _pre_explore_user_urls(
+                deps=deps,
+                events=events,
+                turn_context=turn_context,
+            )
+            for event in events:
+                yield event
             async for event in self._iter_model_events(
                 user_message,
                 deps=deps,
@@ -734,6 +742,38 @@ def _queue_events(
         queue.put_nowait(event)
 
 
+async def _pre_explore_user_urls(
+    *,
+    deps: InterviewerDeps,
+    events: list[InterviewEvent],
+    turn_context: str,
+) -> str:
+    urls = _extract_user_urls(deps.latest_user_message)
+    if not urls:
+        return turn_context
+    request = _build_url_exploration_request(
+        urls,
+        user_message=deps.latest_user_message,
+    )
+    events.append(
+        InterviewEvent(
+            kind="tool_call",
+            content="explore_context",
+        )
+    )
+    result = await run_logged_tool(
+        deps,
+        "explore_context",
+        {"request": request},
+        lambda: explore_context(
+            project_root=deps.project_root,
+            request=request,
+            explorer=deps.explorer,
+        ),
+    )
+    return _append_pre_explored_context(turn_context, result)
+
+
 def _build_ask_tool_call_question(
     args: str | dict[str, object] | None,
 ) -> InterviewQuestion:
@@ -832,6 +872,41 @@ def _coerce_tool_choices(value: object) -> list[object]:
     if isinstance(value, list):
         return cast("list[object]", value)
     return []
+
+
+def _extract_user_urls(text: str) -> tuple[str, ...]:
+    urls = (
+        match.group(0).rstrip(".,;:!?'\"")
+        for match in _URL_PATTERN.finditer(text)
+    )
+    return tuple(dict.fromkeys(url for url in urls if url))
+
+
+def _build_url_exploration_request(
+    urls: tuple[str, ...],
+    *,
+    user_message: str,
+) -> str:
+    return (
+        "Inspect the URL(s) from the latest user message before asking "
+        "follow-up product questions.\n"
+        f"URL(s): {', '.join(urls)}\n"
+        f"Latest user message: {user_message}"
+    )
+
+
+def _append_pre_explored_context(
+    turn_context: str,
+    pre_explored_context: str,
+) -> str:
+    return (
+        f"{turn_context}\n\n"
+        "Pre-explored context from the latest user message:\n"
+        f"{pre_explored_context}\n\n"
+        "Use this pre-explored context before asking follow-up product "
+        "questions. Treat it as sourced context, not a confirmed user "
+        "preference."
+    )
 
 
 def _parse_tool_args(

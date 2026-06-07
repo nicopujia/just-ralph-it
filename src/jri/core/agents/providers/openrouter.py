@@ -5,7 +5,7 @@ from jri.core.agents.models import AgentModelPreset, ProviderModelRegistry
 OPENROUTER_PRESETS = {
     "cheap": AgentModelPreset(
         interviewer="deepseek/deepseek-chat",
-        explorer="qwen/qwen2.5-vl-32b-instruct",
+        explorer="qwen/qwen3-vl-32b-instruct",
     ),
 }
 

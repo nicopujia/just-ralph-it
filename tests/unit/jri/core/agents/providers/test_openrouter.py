@@ -13,7 +13,7 @@ def test_openrouter_cheap_preset_formats_pydantic_ai_model_ids() -> None:
 
     assert isinstance(config, AgentModelConfig)
     assert config.interviewer == "openrouter:deepseek/deepseek-chat"
-    assert config.explorer == ("openrouter:qwen/qwen2.5-vl-32b-instruct")
+    assert config.explorer == "openrouter:qwen/qwen3-vl-32b-instruct"
 
 
 def test_openrouter_model_formatter_preserves_explicit_prefix() -> None:

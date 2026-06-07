@@ -76,6 +76,15 @@ def test_interviewer_prompt_requires_ask_question_for_followups() -> None:
     assert "use ask_question" in prompt
 
 
+def test_interviewer_prompt_uses_pre_explored_url_context() -> None:
+    """Pre-explored URL context should shape the next question."""
+    prompt = BASE_INTERVIEWER_PROMPT.lower()
+
+    assert "pre-explored url context" in prompt
+    assert "before asking follow-up" in prompt
+    assert "sourced evidence" in prompt
+
+
 def test_prompt_supports_recommendations_without_acceptance() -> None:
     """Opinions can be useful without becoming accepted requirements."""
     prompt = BASE_INTERVIEWER_PROMPT.lower()

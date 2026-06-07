@@ -1291,6 +1291,87 @@ def test_interviewer_yields_ask_tool_call_question(
     ] == {"content": "Preamble."}
 
 
+def test_interviewer_explores_user_supplied_urls_before_asking(
+    tmp_path: Path,
+) -> None:
+    """URL context is gathered before the first follow-up question."""
+    log_path = tmp_path / "events.jsonl"
+    interviewer = Interviewer(
+        project_root=tmp_path,
+        logger=JsonlLogger(log_path),
+        model_config=AgentModelConfig("test", "test"),
+    )
+    explorer_output = (
+        "Summary:\n"
+        + "- Tripos is a game similar to ta-te-ti.\n\n"
+        + "Sources:\n"
+        + "- https://noticias.ulp.edu.ar/ciencia/tripos-5084"
+    )
+    explorer = RecordingExplorer(explorer_output)
+    object.__setattr__(interviewer, "explorer", explorer)
+    object.__setattr__(
+        interviewer,
+        "agent",
+        FakeStreamAgent([
+            FunctionToolCallEvent(
+                ToolCallPart(
+                    "ask_question",
+                    args='{"level":"high","question":"Who uses Tripos?"}',
+                )
+            )
+        ]),
+    )
+
+    events = asyncio.run(
+        _collect(
+            interviewer.respond(
+                "tripos (see https://noticias.ulp.edu.ar/ciencia/tripos-5084)"
+            )
+        )
+    )
+
+    assert [(event.kind, event.content) for event in events] == [
+        ("tool_call", "explore_context"),
+        ("tool_call", "ask_question"),
+        (
+            "question",
+            InterviewQuestion(level="high", question="Who uses Tripos?"),
+        ),
+    ]
+    assert explorer.requests == [
+        (
+            tmp_path,
+            (
+                "Inspect the URL(s) from the latest user message before "
+                "asking follow-up product questions.\n"
+                "URL(s): https://noticias.ulp.edu.ar/ciencia/tripos-5084\n"
+                "Latest user message: tripos (see "
+                "https://noticias.ulp.edu.ar/ciencia/tripos-5084)"
+            ),
+        )
+    ]
+    assert (
+        "Pre-explored context from the latest user message"
+        in cast(
+            "FakeStreamAgent",
+            interviewer.agent,
+        ).instructions
+    )
+    assert (
+        "Tripos is a game similar to ta-te-ti"
+        in cast(
+            "FakeStreamAgent",
+            interviewer.agent,
+        ).instructions
+    )
+    tool_starts = [
+        cast("dict[str, object]", event["data"])["tool_name"]
+        for event in _read_events(log_path)
+        if event["type"] == "tool_call_started"
+    ]
+    assert tool_starts == ["explore_context"]
+
+
 def test_interviewer_coerces_raw_question_text(
     tmp_path: Path,
 ) -> None:

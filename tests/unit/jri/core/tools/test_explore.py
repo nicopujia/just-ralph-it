@@ -3,12 +3,14 @@
 
 import asyncio
 import socket
+import ssl
 from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
 from typing import ClassVar, Self
 
+import httpx
 import pytest
 
 from jri.core.tools.explore import (
@@ -21,7 +23,7 @@ from jri.core.tools.explore import (
     read_text,
     search_web,
 )
-from tests.doubles.explorers import RecordingExplorer
+from tests.doubles.explorers import FailingExplorer, RecordingExplorer
 from tests.doubles.http import (
     FakeBraveClient,
     PayloadBraveClient,
@@ -62,6 +64,31 @@ def test_explore_invokes_explorer_with_plain_language_request(
 
     assert result == "Summary:\n- Found the CLI entrypoint."
     assert explorer.requests == [(tmp_path, "Find the CLI entrypoint.")]
+
+
+def test_explore_returns_failure_summary_for_provider_errors(
+    tmp_path: Path,
+) -> None:
+    """Explorer provider errors become compact context, not raw crashes."""
+    result = asyncio.run(
+        explore_context(
+            project_root=tmp_path,
+            request="Inspect https://example.com.",
+            explorer=FailingExplorer(),
+        )
+    )
+
+    assert result == (
+        "Summary:\n"
+        "- Exploration failed before context could be gathered.\n\n"
+        "Useful facts:\n"
+        "- No sourced facts were collected.\n\n"
+        "Sources:\n"
+        "- None.\n\n"
+        "Unknowns:\n"
+        "- RuntimeError: status_code: 404, body: {'message': "
+        "'No endpoints found'}"
+    )
 
 
 def test_explorer_file_tools_are_read_only(tmp_path: Path) -> None:
@@ -298,6 +325,25 @@ def test_fetch_url_returns_bounded_response(
     assert "Final URL: https://example.com/final" in result
     assert "Content-Type: text/plain" in result
     assert len(result) < 20_200
+
+
+def test_fetch_url_retries_legacy_tls_for_weak_dh(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curl retries legacy-DH servers without disabling cert checks."""
+    monkeypatch.setattr(socket, "getaddrinfo", public_address_info)
+    WeakDhThenCompatClient.seen_verify = []
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        WeakDhThenCompatClient,
+    )
+
+    result = asyncio.run(fetch_url("https://legacy.example"))
+
+    assert "Status: 200" in result
+    assert "legacy body" in result
+    assert WeakDhThenCompatClient.seen_verify[0] is True
+    assert isinstance(WeakDhThenCompatClient.seen_verify[1], ssl.SSLContext)
 
 
 def test_fetch_url_stops_reading_response_body_at_cap(
@@ -827,6 +873,52 @@ class PublicLargeBodyClient(ScriptedFetchClient):
 
 class FailingFetchClient(ScriptedFetchClient):
     """Fake client that fails if a request is made."""
+
+
+class WeakDhThenCompatClient:
+    """Fake client that needs a legacy TLS context after the first try."""
+
+    seen_verify: ClassVar[list[object]] = []
+
+    def __init__(
+        self,
+        *,
+        timeout: float,
+        follow_redirects: bool,
+        verify: object = True,
+    ) -> None:
+        _ = timeout
+        assert follow_redirects is False
+        self.verify = verify
+        type(self).seen_verify.append(verify)
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        traceback: object,
+    ) -> None:
+        _ = (exc_type, exc, traceback)
+
+    def stream(self, method: str, url: str) -> FetchResponseStream:
+        """Fail once for default TLS, then return the legacy response."""
+        assert method == "GET"
+        assert url == "https://legacy.example"
+        if self.verify is True:
+            msg = "[SSL: DH_KEY_TOO_SMALL] dh key too small"
+            raise httpx.ConnectError(msg)
+        assert isinstance(self.verify, ssl.SSLContext)
+        return FetchResponseStream(
+            FetchResponse(
+                status_code=200,
+                url="https://legacy.example",
+                headers={"content-type": "text/plain"},
+                text="legacy body",
+            )
+        )
 
 
 class RedirectToPrivateClient(ScriptedFetchClient):

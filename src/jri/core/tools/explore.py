@@ -2,6 +2,7 @@
 
 import re
 import socket
+import ssl
 from collections.abc import Mapping
 from dataclasses import dataclass
 from ipaddress import IPv4Address, IPv6Address, ip_address
@@ -53,7 +54,23 @@ async def explore_context(
     explorer: ContextExplorer,
 ) -> str:
     """Ask the explorer subagent for compact context."""
-    return await explorer.run(project_root=project_root, request=request)
+    try:
+        return await explorer.run(project_root=project_root, request=request)
+    except Exception as exc:  # noqa: BLE001 - provider failures are context
+        return _format_exploration_failure(exc)
+
+
+def _format_exploration_failure(exc: Exception) -> str:
+    return (
+        "Summary:\n"
+        "- Exploration failed before context could be gathered.\n\n"
+        "Useful facts:\n"
+        "- No sourced facts were collected.\n\n"
+        "Sources:\n"
+        "- None.\n\n"
+        "Unknowns:\n"
+        f"- {type(exc).__name__}: {exc}"
+    )
 
 
 def glob_paths(*, pattern: str, root: Path, limit: int = 100) -> list[str]:
@@ -114,10 +131,32 @@ def grep_text(
 
 async def fetch_url(url: str, *, request_timeout: float = 10.0) -> str:
     """Fetch bounded text context for a URL."""
+    try:
+        return await _fetch_url(
+            url,
+            request_timeout=request_timeout,
+            tls_compatibility=False,
+        )
+    except httpx.ConnectError as exc:
+        if not _is_weak_dh_error(exc):
+            raise
+        return await _fetch_url(
+            url,
+            request_timeout=request_timeout,
+            tls_compatibility=True,
+        )
+
+
+async def _fetch_url(
+    url: str,
+    *,
+    request_timeout: float,
+    tls_compatibility: bool,
+) -> str:
     current_url = url
-    async with httpx.AsyncClient(
-        timeout=request_timeout,
-        follow_redirects=False,
+    async with _create_fetch_client(
+        request_timeout=request_timeout,
+        tls_compatibility=tls_compatibility,
     ) as client:
         for _ in range(_FETCH_REDIRECT_LIMIT + 1):
             _reject_private_network_url(current_url)
@@ -131,6 +170,39 @@ async def fetch_url(url: str, *, request_timeout: float = 10.0) -> str:
 
     msg = "Explorer curl exceeded maximum redirects."
     raise ValueError(msg)
+
+
+def _create_fetch_client(
+    *,
+    request_timeout: float,
+    tls_compatibility: bool,
+) -> httpx.AsyncClient:
+    if tls_compatibility:
+        return httpx.AsyncClient(
+            timeout=request_timeout,
+            follow_redirects=False,
+            verify=_create_legacy_tls_context(),
+        )
+    return httpx.AsyncClient(
+        timeout=request_timeout,
+        follow_redirects=False,
+    )
+
+
+def _create_legacy_tls_context() -> ssl.SSLContext:
+    context = ssl.create_default_context()
+    context.set_ciphers("DEFAULT:@SECLEVEL=1")
+    return context
+
+
+def _is_weak_dh_error(exc: BaseException) -> bool:
+    current: BaseException | None = exc
+    while current is not None:
+        message = str(current).casefold()
+        if "dh_key_too_small" in message or "dh key too small" in message:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
 
 
 async def _read_limited_response_text(response: httpx.Response) -> str:
