@@ -1,4 +1,6 @@
 from rich.console import Console
+from rich.live import Live
+from rich.markdown import Markdown
 
 from jri.core.exceptions import JriConfigurationError
 from jri.core.service import Service
@@ -31,9 +33,11 @@ class App:
 
     def _run_turn(self) -> None:
         user_message = self.console.input(REPL_PROMPT)
-        for answer_chunk in self.service.send_message(user_message):
-            self.console.out(answer_chunk, end="")
-        self.console.print()
+        answer = ""
+        with Live() as live:
+            for answer_chunk in self.service.send_message(user_message):
+                answer += answer_chunk
+                live.update(Markdown(answer))
 
     def _tear_down(self) -> None:
         self.console.print()
