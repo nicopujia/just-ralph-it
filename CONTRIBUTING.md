@@ -12,6 +12,15 @@ uv run jri --help
 # Run it frequently while you make changes
 # And also test your changes manually as a user would in production!!!
 ./scripts/validate.py
+
+# Add dependencies
+uv add [package name]
+
+# Add development-only dependencies
+uv add --dev [package name]
+
+# Remove dependencies
+uv remove [package name]
 ```
 
 ## Guidelines
