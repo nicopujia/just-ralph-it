@@ -14,6 +14,8 @@ import httpx
 BRAVE_WEB_SEARCH_URL = "https://api.search.brave.com/res/v1/web/search"
 _FETCH_REDIRECT_LIMIT = 20
 _FETCH_REDIRECT_STATUS_CODES = frozenset({301, 302, 303, 307, 308})
+_FETCH_BODY_BYTE_LIMIT = 20_000
+_FETCH_BODY_CHARACTER_LIMIT = 20_000
 
 
 @dataclass(frozen=True)
@@ -117,24 +119,35 @@ async def fetch_url(url: str, *, request_timeout: float = 10.0) -> str:
     ) as client:
         for _ in range(_FETCH_REDIRECT_LIMIT + 1):
             _reject_private_network_url(current_url)
-            response = await client.get(current_url)
-            _reject_private_network_response(response)
-            next_url = _redirect_url(response)
-            if next_url is None:
-                return _format_fetch_response(response)
-            current_url = next_url
+            async with client.stream("GET", current_url) as response:
+                _reject_private_network_response(response)
+                next_url = _redirect_url(response)
+                if next_url is None:
+                    body = await _read_limited_response_text(response)
+                    return _format_fetch_response(response, body)
+                current_url = next_url
 
     msg = "Explorer curl exceeded maximum redirects."
     raise ValueError(msg)
 
 
-def _format_fetch_response(response: httpx.Response) -> str:
+async def _read_limited_response_text(response: httpx.Response) -> str:
+    body = bytearray()
+    async for chunk in response.aiter_bytes(chunk_size=_FETCH_BODY_BYTE_LIMIT):
+        remaining = _FETCH_BODY_BYTE_LIMIT - len(body)
+        body.extend(chunk[:remaining])
+        if len(body) >= _FETCH_BODY_BYTE_LIMIT:
+            break
+    text = bytes(body).decode(response.encoding or "utf-8", errors="replace")
+    return text[:_FETCH_BODY_CHARACTER_LIMIT]
+
+
+def _format_fetch_response(response: httpx.Response, body: str) -> str:
     _reject_private_network_response(response)
     content_type = cast(
         "str",
         response.headers.get("content-type", "unknown"),
     )
-    body = response.text[:20_000]
     return (
         f"Status: {response.status_code}\n"
         f"Final URL: {response.url}\n"

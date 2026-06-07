@@ -3,6 +3,7 @@
 
 import asyncio
 import socket
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import ClassVar, Self
@@ -22,7 +23,6 @@ from jri.core.tools.explore import (
 from tests.doubles.explorers import RecordingExplorer
 from tests.doubles.http import (
     FakeBraveClient,
-    FakeClient,
     PayloadBraveClient,
 )
 
@@ -253,7 +253,10 @@ def test_fetch_url_returns_bounded_response(
 ) -> None:
     """URL fetching reports status, final URL, type, and bounded body."""
     monkeypatch.setattr(socket, "getaddrinfo", public_address_info)
-    monkeypatch.setattr("jri.core.tools.explore.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        PublicLargeBodyClient,
+    )
 
     result = asyncio.run(fetch_url("https://example.com"))
 
@@ -263,12 +266,34 @@ def test_fetch_url_returns_bounded_response(
     assert len(result) < 20_200
 
 
+def test_fetch_url_stops_reading_response_body_at_cap(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Curl stops downloading once the response body cap is reached."""
+    monkeypatch.setattr(socket, "getaddrinfo", public_address_info)
+    CountingLargeBodyClient.last_response = None
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        CountingLargeBodyClient,
+    )
+
+    result = asyncio.run(fetch_url("https://example.com/large"))
+
+    response = CountingLargeBodyClient.last_response
+    assert response is not None
+    assert result.endswith(f"\n\n{'x' * 20_000}")
+    assert response.bytes_read == 20_000
+
+
 def test_fetch_url_allows_public_ip_targets(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Curl allows public IP targets through the normal fetch path."""
     monkeypatch.setattr(socket, "getaddrinfo", public_address_info)
-    monkeypatch.setattr("jri.core.tools.explore.httpx.AsyncClient", FakeClient)
+    monkeypatch.setattr(
+        "jri.core.tools.explore.httpx.AsyncClient",
+        PublicLargeBodyClient,
+    )
 
     result = asyncio.run(fetch_url("https://93.184.216.34"))
 
@@ -474,7 +499,36 @@ class FetchResponse:
     url: str
     headers: dict[str, str]
     text: str
+    encoding: str = "utf-8"
     extensions: dict[str, object] = field(default_factory=dict)
+
+    async def aiter_bytes(
+        self,
+        chunk_size: int | None = None,
+    ) -> AsyncIterator[bytes]:
+        """Yield response body bytes."""
+        body = self.text.encode(self.encoding)
+        size = len(body) if chunk_size is None else max(chunk_size, 1)
+        for index in range(0, len(body), size):
+            yield body[index : index + size]
+
+
+class FetchResponseStream:
+    """Async context manager for scripted fetch responses."""
+
+    def __init__(self, response: FetchResponse) -> None:
+        self._response = response
+
+    async def __aenter__(self) -> FetchResponse:
+        return self._response
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        traceback: object,
+    ) -> None:
+        _ = (exc_type, exc, traceback)
 
 
 def public_address_info(
@@ -575,11 +629,122 @@ class ScriptedFetchClient:
 
     async def get(self, url: str) -> FetchResponse:
         """Return the next fake response."""
+        return self._next_response(url)
+
+    def stream(self, method: str, url: str) -> FetchResponseStream:
+        """Return the next fake response as a stream."""
+        assert method == "GET"
+        return FetchResponseStream(self._next_response(url))
+
+    def _next_response(self, url: str) -> FetchResponse:
         if self._expected_urls:
             assert url == self._expected_urls.pop(0)
         if not self._responses:
             pytest.fail(f"unexpected fetch of {url}")
         return self._responses.pop(0)
+
+
+class CountingLargeBodyResponse:
+    """Fake streaming response that tracks consumed bytes."""
+
+    status_code: int = 200
+    url: str = "https://example.com/large"
+    headers: dict[str, str] = {"content-type": "text/plain"}
+    encoding: str = "utf-8"
+    extensions: dict[str, object] = {}
+
+    def __init__(self) -> None:
+        self._body = b"x" * 25_000
+        self.bytes_read = 0
+
+    @property
+    def text(self) -> str:
+        """Expose a fully buffered body like httpx.Response.text."""
+        self.bytes_read = len(self._body)
+        return self._body.decode(self.encoding)
+
+    async def aiter_bytes(
+        self,
+        chunk_size: int | None = None,
+    ) -> AsyncIterator[bytes]:
+        """Yield body bytes and count how much the caller consumes."""
+        size = len(self._body) if chunk_size is None else max(chunk_size, 1)
+        while self.bytes_read < len(self._body):
+            end = min(self.bytes_read + size, len(self._body))
+            chunk = self._body[self.bytes_read : end]
+            self.bytes_read = end
+            yield chunk
+
+
+class CountingLargeBodyStream:
+    """Async context manager for the counting response."""
+
+    def __init__(self, response: CountingLargeBodyResponse) -> None:
+        self._response = response
+
+    async def __aenter__(self) -> CountingLargeBodyResponse:
+        return self._response
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        traceback: object,
+    ) -> None:
+        _ = (exc_type, exc, traceback)
+
+
+class CountingLargeBodyClient:
+    """Fake client that exposes both current and streaming fetch APIs."""
+
+    last_response: ClassVar[CountingLargeBodyResponse | None] = None
+
+    def __init__(self, *, timeout: float, follow_redirects: bool) -> None:
+        _ = timeout
+        assert follow_redirects is False
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: object,
+        exc: object,
+        traceback: object,
+    ) -> None:
+        _ = (exc_type, exc, traceback)
+
+    async def get(self, url: str) -> CountingLargeBodyResponse:
+        """Return a response whose text property buffers the full body."""
+        assert url == "https://example.com/large"
+        response = CountingLargeBodyResponse()
+        type(self).last_response = response
+        return response
+
+    def stream(
+        self,
+        method: str,
+        url: str,
+    ) -> CountingLargeBodyStream:
+        """Return a stream response for the large test body."""
+        assert method == "GET"
+        assert url == "https://example.com/large"
+        response = CountingLargeBodyResponse()
+        type(self).last_response = response
+        return CountingLargeBodyStream(response)
+
+
+class PublicLargeBodyClient(ScriptedFetchClient):
+    """Fake client that returns a large public response."""
+
+    responses: ClassVar[list[FetchResponse]] = [
+        FetchResponse(
+            status_code=200,
+            url="https://example.com/final",
+            headers={"content-type": "text/plain"},
+            text="x" * 25_000,
+        )
+    ]
 
 
 class FailingFetchClient(ScriptedFetchClient):
