@@ -87,12 +87,30 @@ _LABEL_PATTERN = re.compile(
 _PLACEHOLDERS = {
     "tbd",
     "todo",
+    "to be determined",
     "to do",
     "unknown",
     "pending",
     "not specified",
     "not decided",
     "unconfirmed",
+}
+_PLACEHOLDER_QUALIFIERS = (
+    "yet",
+    "later",
+    "for now",
+    "right now",
+    "currently",
+    "still",
+)
+_QUALIFIED_PLACEHOLDERS = _PLACEHOLDERS | {
+    candidate
+    for placeholder in _PLACEHOLDERS
+    for qualifier in _PLACEHOLDER_QUALIFIERS
+    for candidate in (
+        f"{placeholder} {qualifier}",
+        f"{qualifier} {placeholder}",
+    )
 }
 
 
@@ -149,4 +167,4 @@ def _bucket_for(label: str) -> str | None:
 
 def _has_fact(text: str) -> bool:
     normalized = _normalize(text)
-    return bool(normalized) and normalized not in _PLACEHOLDERS
+    return bool(normalized) and normalized not in _QUALIFIED_PLACEHOLDERS

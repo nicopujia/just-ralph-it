@@ -81,6 +81,34 @@ def test_just_ralph_it_rejects_missing_mvp_readiness_facts(
     assert not _has_commit(project)
 
 
+def test_just_ralph_it_rejects_qualified_readiness_placeholders(
+    tmp_path: Path,
+) -> None:
+    """Finalization refuses specs filled with qualified placeholders."""
+    project = _make_repo(tmp_path)
+    (project / ".jri" / "specs").mkdir(parents=True)
+    (project / ".jri" / ".gitignore").write_text("logs/\n")
+    (project / ".jri" / "scratchpad.md").write_text("# Scratchpad\n")
+    (project / ".jri" / "specs" / "product.md").write_text(
+        _complete_spec().replace(
+            "Programmers trying JRI locally.",
+            "Not specified yet.",
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(JustRalphItError, match="target user"):
+        asyncio.run(
+            finalize_jri(
+                project_root=project,
+                latest_user_message="just ralph it",
+                readiness_summary="Ready.",
+            )
+        )
+
+    assert not _has_commit(project)
+
+
 def test_just_ralph_it_commits_only_committable_jri_files(
     tmp_path: Path,
 ) -> None:
