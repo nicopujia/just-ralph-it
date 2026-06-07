@@ -1,3 +1,5 @@
+from jri.core.agents import interviewer
+
 # Maintain constants ordered alphabetically with one blank line between
 # different initial letter.
 
@@ -24,6 +26,10 @@ MESSAGES_CONTAINER_ID: str = "messages"
 MESSAGE_INPUT_ID: str = "message-input"
 MESSAGE_INPUT_PLACEHOLDER_COPY = interviewer.FIRST_MESSAGE
 
+THEME_DARK = "ansi-dark"
+THEME_DEFAULT = THEME_DARK
+THEME_LIGHT = "ansi-light"
+THEME_SYNC_INTERVAL_SECONDS = 5.0
 TITLE_COPY = "Just Ralph It"
 
 USER_MESSAGE_CLASSES = "user-message"

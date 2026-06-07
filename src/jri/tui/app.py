@@ -1,11 +1,13 @@
-from typing import TYPE_CHECKING, ClassVar, override
+from typing import ClassVar, override
 
 from openai import OpenAIError
 from textual import work
 from textual.app import App as TextualApp
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
-from textual.widgets import Footer, Header, Input, Markdown, Static
+from textual.reactive import Reactive
+from textual.widgets import Header, Input, Markdown, Static
+from textual.worker import Worker
 
 from jri.core.exceptions import ConfigurationError
 from jri.core.service import Service
@@ -19,13 +21,12 @@ from .constants import (
     MESSAGE_INPUT_PLACEHOLDER_COPY,
     MESSAGES_CONTAINER_ID,
     STYLESHEET,
+    THEME_DEFAULT,
+    THEME_SYNC_INTERVAL_SECONDS,
     TITLE_COPY,
     USER_MESSAGE_CLASSES,
 )
-from .utils import get_config_error_help_message
-
-if TYPE_CHECKING:
-    from textual.worker import Worker
+from .utils import detect_system_theme, get_config_error_help_message
 
 
 def main() -> None:
@@ -40,24 +41,31 @@ def main() -> None:
 class App(TextualApp[None]):
     TITLE: str | None = TITLE_COPY
     CSS: ClassVar[str] = STYLESHEET
+    theme: Reactive[str] = Reactive(THEME_DEFAULT)
+    worker: Worker[None] | None = None
 
     def __init__(self, service: Service | None = None) -> None:
         super().__init__()
+        self.theme = detect_system_theme()
         self.service: Service = service or Service()
-        self.worker: Worker[None] | None = None
 
     @override
     def compose(self) -> ComposeResult:
-        yield Header()
+        yield Header(show_clock=True)
         with VerticalScroll(id=MESSAGES_CONTAINER_ID):
             yield Static()
         yield Input(
             id=MESSAGE_INPUT_ID,
             placeholder=MESSAGE_INPUT_PLACEHOLDER_COPY,
         )
-        yield Footer()
+
+    # --- Event handlers --------------------------------------------- #
 
     async def on_mount(self) -> None:
+        _timer = self.set_interval(
+            THEME_SYNC_INTERVAL_SECONDS,
+            self.sync_system_theme,
+        )
         self.set_focus(self.query_one(f"#{MESSAGE_INPUT_ID}", Input))
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -93,6 +101,8 @@ class App(TextualApp[None]):
             interviewer_message_widget,
         )
 
+    # --- Workers ---------------------------------------------------- #
+
     @work(thread=True, exclusive=True)
     def send_message(
         self,
@@ -125,10 +135,17 @@ class App(TextualApp[None]):
                 )
             self.call_from_thread(self.focus_message_input)
 
+    # --- Callbacks -------------------------------------------------- #
+
     def focus_message_input(self) -> None:
         message_input_widget = self.query_one(f"#{MESSAGE_INPUT_ID}", Input)
         message_input_widget.disabled = False
         self.set_focus(message_input_widget)
+
+    def sync_system_theme(self) -> None:
+        system_theme = detect_system_theme()
+        if self.theme != system_theme:
+            self.theme = system_theme
 
     @staticmethod
     async def update_interviewer_message_widget(

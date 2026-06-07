@@ -1,7 +1,15 @@
+import platform
+import subprocess
+
 from jri.core.exceptions import ConfigurationError
 from jri.core.settings import Settings
 
-from .constants import CONFIG_ERROR_COPY
+from .constants import (
+    CONFIG_ERROR_COPY,
+    THEME_DARK,
+    THEME_DEFAULT,
+    THEME_LIGHT,
+)
 
 
 def get_config_error_help_message(error: ConfigurationError) -> str:
@@ -16,3 +24,17 @@ def get_config_error_help_message(error: ConfigurationError) -> str:
         line = f"- {env_prefix}{field_name.upper()}: {description}"
         error_lines.append(line)
     return CONFIG_ERROR_COPY % "\n".join(error_lines)
+
+
+def detect_system_theme() -> str:
+    if platform.system() != "Darwin":
+        return THEME_DEFAULT
+
+    result = subprocess.run(
+        ["/usr/bin/defaults", "read", "-g", "AppleInterfaceStyle"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    return THEME_DARK if result.stdout.strip() == "Dark" else THEME_LIGHT
