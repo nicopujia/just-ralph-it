@@ -1,9 +1,11 @@
 .DS_Store
 .env
 .coverage
+.coverage.*
 .venv/
 .ruff_cache/
 .pytest_cache/
+.jri-test-runs/
 .pytest_logs/
 __pycache__/
 htmlcov/
