@@ -10,4 +10,4 @@ class ConfigurationError(Error):
 
     def __init__(self, validation_error: ValidationError) -> None:
         super().__init__()
-        self.validation_error = validation_error
+        self.validation_error: ValidationError = validation_error

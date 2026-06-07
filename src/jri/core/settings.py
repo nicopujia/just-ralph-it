@@ -34,6 +34,6 @@ class Settings(BaseSettings):
 
 def get_settings() -> Settings:
     try:
-        return Settings()
+        return Settings()  # pyright: ignore[reportCallIssue]
     except ValidationError as error:
         raise ConfigurationError(error) from error
