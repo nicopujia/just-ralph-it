@@ -1,3 +1,0 @@
-{"ts": "2026-06-06T19:06:39.775116Z", "type": "session_config", "data": {"model_provider": "openrouter", "model_preset": "cheap", "interviewer_model": "openrouter:test", "explorer_model": "openrouter:test"}}
-{"ts": "2026-06-06T19:06:40.341038Z", "type": "session_started", "data": {"project_root": "/private/var/folders/x9/qw3yjr_j50z1w152r8md3jp40000gn/T/pytest-of-nicopujia/pytest-0/test_interactive_run_loads_pwd0"}}
-{"ts": "2026-06-06T19:06:40.341244Z", "type": "session_finished", "data": {"reason": "eof"}}
