@@ -1,3 +1,5 @@
+from collections.abc import Generator
+
 from openai import OpenAI
 
 from .agents import Interviewer
@@ -21,5 +23,5 @@ class Service:
             model=self.settings.interviewer_model,
         )
 
-    def send_message(self, message: str) -> str:
-        return self.interviewer.send_message(message)
+    def send_message(self, message: str) -> Generator[str]:
+        yield from self.interviewer.send_message(message)

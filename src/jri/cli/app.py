@@ -1,5 +1,4 @@
 from rich.console import Console
-from rich.markdown import Markdown
 
 from jri.core.exceptions import JriConfigurationError
 from jri.core.service import Service
@@ -32,8 +31,9 @@ class App:
 
     def _run_turn(self) -> None:
         user_message = self.console.input(REPL_PROMPT)
-        answer = self.service.send_message(user_message)
-        self.console.print(Markdown(answer))
+        for answer_chunk in self.service.send_message(user_message):
+            self.console.out(answer_chunk, end="")
+        self.console.print()
 
     def _tear_down(self) -> None:
         self.console.print()
