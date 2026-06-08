@@ -49,6 +49,7 @@ class App(TextualApp[None]):
         super().__init__()
         self.theme = detect_system_theme()
         self.service: Service = service or Service()
+        self.is_interviewer_generating: bool = False
 
     @override
     def compose(self) -> ComposeResult:
@@ -73,14 +74,17 @@ class App(TextualApp[None]):
         self,
         event: MessageInput.Submitted,
     ) -> None:
+        if self.is_interviewer_generating:
+            return
+
         user_message = event.value.strip()
 
         if not user_message:
             event.message_input.text = ""
             return
 
+        self.is_interviewer_generating = True
         event.message_input.text = ""
-        event.message_input.disabled = True
 
         messages_container = self.query_one(
             f"#{MESSAGES_CONTAINER_ID}",
@@ -137,7 +141,7 @@ class App(TextualApp[None]):
                     interviewer_message_widget,
                     INTERVIEWER_NO_RESPONSE_COPY,
                 )
-            self.call_from_thread(self.focus_message_input)
+            self.call_from_thread(self.reset_message_input)
 
     # --- Callbacks -------------------------------------------------- #
 
@@ -146,8 +150,12 @@ class App(TextualApp[None]):
             f"#{MESSAGE_INPUT_ID}",
             MessageInput,
         )
-        message_input_widget.disabled = False
         self.set_focus(message_input_widget)
+
+    def reset_message_input(self) -> None:
+        self.worker = None
+        self.is_interviewer_generating = False
+        self.focus_message_input()
 
     def sync_system_theme(self) -> None:
         system_theme = detect_system_theme()
