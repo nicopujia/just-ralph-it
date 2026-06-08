@@ -95,7 +95,7 @@ class App(TextualApp[None]):
         await messages_container.mount(user_message_widget)
         await messages_container.mount(interviewer_message_widget)
 
-        interviewer_message_widget.anchor()
+        messages_container.anchor()
         self.worker = self.send_message(
             user_message,
             interviewer_message_widget,
