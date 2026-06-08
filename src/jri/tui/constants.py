@@ -54,6 +54,8 @@ Header {{
 }}
 
 #{MESSAGE_INPUT_ID} {{
+    height: auto;
+    max-height: 16;
     margin-top: 0;
     margin-right: 2;
     margin-bottom: 1;

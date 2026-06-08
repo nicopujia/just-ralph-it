@@ -6,7 +6,7 @@ from textual.app import App as TextualApp
 from textual.app import ComposeResult
 from textual.containers import VerticalScroll
 from textual.reactive import Reactive
-from textual.widgets import Header, Input, Markdown, Static
+from textual.widgets import Header, Markdown, Static
 from textual.worker import Worker
 
 from jri.core.exceptions import ConfigurationError
@@ -27,6 +27,7 @@ from .constants import (
     USER_MESSAGE_CLASSES,
 )
 from .utils import detect_system_theme, get_config_error_help_message
+from .widgets import MessageInput
 
 
 def main() -> None:
@@ -54,7 +55,7 @@ class App(TextualApp[None]):
         yield Header(show_clock=True)
         with VerticalScroll(id=MESSAGES_CONTAINER_ID):
             yield Static()
-        yield Input(
+        yield MessageInput(
             id=MESSAGE_INPUT_ID,
             placeholder=MESSAGE_INPUT_PLACEHOLDER_COPY,
         )
@@ -66,17 +67,20 @@ class App(TextualApp[None]):
             THEME_SYNC_INTERVAL_SECONDS,
             self.sync_system_theme,
         )
-        self.set_focus(self.query_one(f"#{MESSAGE_INPUT_ID}", Input))
+        self.set_focus(self.query_one(f"#{MESSAGE_INPUT_ID}", MessageInput))
 
-    async def on_input_submitted(self, event: Input.Submitted) -> None:
+    async def on_message_input_submitted(
+        self,
+        event: MessageInput.Submitted,
+    ) -> None:
         user_message = event.value.strip()
 
         if not user_message:
-            event.input.clear()
+            event.message_input.text = ""
             return
 
-        event.input.clear()
-        event.input.disabled = True
+        event.message_input.text = ""
+        event.message_input.disabled = True
 
         messages_container = self.query_one(
             f"#{MESSAGES_CONTAINER_ID}",
@@ -138,7 +142,10 @@ class App(TextualApp[None]):
     # --- Callbacks -------------------------------------------------- #
 
     def focus_message_input(self) -> None:
-        message_input_widget = self.query_one(f"#{MESSAGE_INPUT_ID}", Input)
+        message_input_widget = self.query_one(
+            f"#{MESSAGE_INPUT_ID}",
+            MessageInput,
+        )
         message_input_widget.disabled = False
         self.set_focus(message_input_widget)
 
