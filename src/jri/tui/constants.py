@@ -1,9 +1,9 @@
-from jri.core.agents import interviewer
+from jri.core.agents.interviewer import FIRST_MESSAGE
 
 # Maintain constants ordered alphabetically with one blank line between
 # different initial letter.
 
-CONFIG_ERROR_COPY: str = """Invalid configuration.
+CONFIG_ERROR_COPY = """Invalid configuration.
 Set or fix these environment variables:
 
 %s
@@ -18,13 +18,13 @@ Something went wrong while talking to the interviewer:
 
 Please try again or contact Nico.
 """
-INTERVIEWER_MESSAGE_CLASSES: str = "interviewer-message"
+INTERVIEWER_MESSAGE_CLASSES = "interviewer-message"
 INTERVIEWER_NO_RESPONSE_COPY = "_No response received._"
 INTERVIEWER_THINKING_COPY = "_Thinking..._"
 
-MESSAGES_CONTAINER_ID: str = "messages"
-MESSAGE_INPUT_ID: str = "message-input"
-MESSAGE_INPUT_PLACEHOLDER_COPY = interviewer.FIRST_MESSAGE
+MESSAGES_CONTAINER_ID = "messages"
+MESSAGE_INPUT_ID = "message-input"
+MESSAGE_INPUT_PLACEHOLDER_COPY = FIRST_MESSAGE
 
 THEME_DARK = "ansi-dark"
 THEME_DEFAULT = THEME_DARK
