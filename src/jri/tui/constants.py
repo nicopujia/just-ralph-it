@@ -47,8 +47,6 @@ Header {{
 
 #{MESSAGES_CONTAINER_ID} {{
     height: 1fr;
-    padding-top: 1;
-    padding-bottom: 1;
     padding-right: 2;
     padding-left: 2;
 }}
@@ -56,19 +54,18 @@ Header {{
 #{MESSAGE_INPUT_ID} {{
     height: auto;
     max-height: 16;
-    margin-top: 0;
-    margin-right: 2;
-    margin-bottom: 1;
-    margin-left: 2;
+    margin: 1;
 }}
 
 .{USER_MESSAGE_CLASSES} {{
-    margin-top: 1;
     text-style: bold;
+    margin-bottom: 1;
+    margin-top: 1;
+    padding: 1;
+    border-left: heavy ansi_bright_magenta;
 }}
 
 .{INTERVIEWER_MESSAGE_CLASSES} {{
-    margin-top: 1;
-    margin-left: 1;
+    padding-top: 1;
 }}
 """
