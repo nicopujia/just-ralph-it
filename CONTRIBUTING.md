@@ -5,7 +5,7 @@
 uv sync --all-groups
 
 # Run CLI inside this repo
-uv run jri --help
+uv run jri
 
 # Validate changes
 # This command runs linter, formatter, and typechecker
