@@ -1,50 +1,35 @@
-from collections.abc import Generator, Iterable
-from typing import TYPE_CHECKING
+from collections.abc import Generator
+from typing import override
 
 from openai import OpenAI
 
-if TYPE_CHECKING:
-    from openai.types.responses.easy_input_message_param import (
-        EasyInputMessageParam,
-    )
-    from openai.types.responses.response_input_param import ResponseInputParam
-    from openai.types.responses.tool_param import ToolParam
-
+from .base import Agent
 
 FIRST_MESSAGE = "What do you want to build?"
 
 
-class Interviewer:
-    def __init__(
-        self,
-        client: OpenAI,
-        model: str,
-    ) -> None:
-        self.client: OpenAI = client
-        self.model: str = model
-        self.messages: ResponseInputParam = [
-            {
-                "role": "assistant",
-                "content": FIRST_MESSAGE,
-            },
-        ]
-        self.tools: Iterable[ToolParam] = [
-            {
-                "type": "web_search",
-            },
-        ]
+class Interviewer(Agent):
+    def __init__(self, client: OpenAI, model: str) -> None:
+        super().__init__(
+            model=model,
+            client=client,
+            initial_context_window=[
+                {"role": "assistant", "content": FIRST_MESSAGE},
+            ],
+            tools=[{"type": "web_search"}],
+        )
 
+    @override
     def send_message(self, message: str) -> Generator[str]:
-        user_message: EasyInputMessageParam = {
+        self.context_window.append({
             "role": "user",
             "content": message,
-        }
-        self.messages.append(user_message)
+        })
 
         chunks: list[str] = []
         stream = self.client.responses.create(
             model=self.model,
-            input=self.messages,
+            input=self.context_window,
             tools=self.tools,
             stream=True,
         )
@@ -53,8 +38,7 @@ class Interviewer:
                 chunks.append(event.delta)
                 yield event.delta
 
-        agent_message: EasyInputMessageParam = {
+        self.context_window.append({
             "role": "assistant",
             "content": "".join(chunks),
-        }
-        self.messages.append(agent_message)
+        })
