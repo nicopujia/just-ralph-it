@@ -22,7 +22,6 @@ from .constants import (
     MESSAGES_CONTAINER_ID,
     STYLESHEET,
     THEME_DEFAULT,
-    THEME_SYNC_INTERVAL_SECONDS,
     TITLE_COPY,
     USER_MESSAGE_CLASSES,
 )
@@ -47,7 +46,6 @@ class App(TextualApp[None]):
 
     def __init__(self, service: Service | None = None) -> None:
         super().__init__()
-        self.theme = detect_system_theme()
         self.service: Service = service or Service()
         self.is_interviewer_generating: bool = False
 
@@ -64,10 +62,7 @@ class App(TextualApp[None]):
     # --- Event handlers --------------------------------------------- #
 
     async def on_mount(self) -> None:
-        _timer = self.set_interval(
-            THEME_SYNC_INTERVAL_SECONDS,
-            self.sync_system_theme,
-        )
+        self.theme = detect_system_theme()
         self.set_focus(self.query_one(f"#{MESSAGE_INPUT_ID}", MessageInput))
 
     async def on_message_input_submitted(
@@ -156,11 +151,6 @@ class App(TextualApp[None]):
         self.worker = None
         self.is_interviewer_generating = False
         self.focus_message_input()
-
-    def sync_system_theme(self) -> None:
-        system_theme = detect_system_theme()
-        if self.theme != system_theme:
-            self.theme = system_theme
 
     @staticmethod
     async def update_interviewer_message_widget(
