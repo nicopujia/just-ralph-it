@@ -23,5 +23,5 @@ class Service:
             model=self.settings.interviewer_model,
         )
 
-    def send_message(self, message: str) -> Generator[str]:
+    def chat(self, message: str) -> Generator[str]:
         yield from self.interviewer.send_message(message)

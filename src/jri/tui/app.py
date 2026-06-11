@@ -115,7 +115,7 @@ class App(TextualApp[None]):
         answer = ""
         failed = False
         try:
-            for answer_chunk in self.service.send_message(user_message):
+            for answer_chunk in self.service.chat(user_message):
                 answer += answer_chunk
                 self.call_from_thread(
                     self.update_interviewer_message_widget,
