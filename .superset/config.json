@@ -1,0 +1,8 @@
+{
+  "setup": [
+    "uv sync --all-groups",
+    "if [ -f \"$SUPERSET_ROOT_PATH/.env\" ] && [ \"$SUPERSET_ROOT_PATH\" != \"$SUPERSET_WORKSPACE_PATH\" ]; then cp \"$SUPERSET_ROOT_PATH/.env\" .env; fi"
+  ],
+  "teardown": [],
+  "run": ["uv run jri"]
+}
