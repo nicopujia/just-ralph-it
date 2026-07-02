@@ -9,22 +9,16 @@
 ### Setup
 
 ```bash
-# Clone repo
-git clone https://github.com/nicopujia/just-ralph-it
-cd ./just-ralph-it
-
 # Install dependencies
 uv sync
 
-# Install CLI globally
+# Install JRI globally
 uv tool install -e .
 
-# Run it!
+# Run it on any project
 jri 
 ```
 
-## Related resources
+## Contributing
 
-- [Concept document](https://nicolaspujia.com/just-ralph-it), by the creator of JRI.
-- [Original article about the Ralph technique](https://ghuntley.com/ralph), by [G. Huntley](https://x.com/GeoffreyHuntley), creator of Ralph.
-- [The Ralph Playbook](https://claytonfarr.github.io/ralph-playbook/), backed by G. Huntley.
+Please refer to [AGENTS.md](./agents.md).
