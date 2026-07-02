@@ -1,4 +1,4 @@
-from jri.core.agents.interviewer import FIRST_MESSAGE
+from jri.core.agents.interviewer import Interviewer
 
 # Maintain constants ordered alphabetically with one blank line between
 # different initial letter.
@@ -24,7 +24,7 @@ INTERVIEWER_THINKING_COPY = "_Thinking..._"
 
 MESSAGES_CONTAINER_ID = "messages"
 MESSAGE_INPUT_ID = "message-input"
-MESSAGE_INPUT_PLACEHOLDER_COPY = FIRST_MESSAGE
+MESSAGE_INPUT_PLACEHOLDER_COPY = Interviewer.FIRST_MESSAGE
 
 THEME_DARK = "ansi-dark"
 THEME_DEFAULT = THEME_DARK

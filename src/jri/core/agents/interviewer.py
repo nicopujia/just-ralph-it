@@ -5,16 +5,16 @@ from openai import OpenAI
 
 from .base import Agent
 
-FIRST_MESSAGE = "What do you want to build?"
-
 
 class Interviewer(Agent):
+    FIRST_MESSAGE: str = "What do you want to build?"
+
     def __init__(self, client: OpenAI, model: str) -> None:
         super().__init__(
             model=model,
             client=client,
             initial_context_window=[
-                {"role": "assistant", "content": FIRST_MESSAGE},
+                {"role": "assistant", "content": self.FIRST_MESSAGE},
             ],
             tools=[{"type": "web_search"}],
         )
