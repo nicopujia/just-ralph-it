@@ -18,6 +18,7 @@ from .constants import (
     INTERVIEWER_NO_RESPONSE_COPY,
     INTERVIEWER_THINKING_COPY,
     MESSAGE_INPUT_ID,
+    MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY,
     MESSAGE_INPUT_PLACEHOLDER_COPY,
     MESSAGES_CONTAINER_ID,
     STYLESHEET,
@@ -56,7 +57,7 @@ class App(TextualApp[None]):
             yield Static()
         yield MessageInput(
             id=MESSAGE_INPUT_ID,
-            placeholder=MESSAGE_INPUT_PLACEHOLDER_COPY,
+            placeholder=MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY,
         )
 
     # --- Event handlers --------------------------------------------- #
@@ -80,6 +81,7 @@ class App(TextualApp[None]):
 
         self.is_interviewer_generating = True
         event.message_input.text = ""
+        event.message_input.placeholder = MESSAGE_INPUT_PLACEHOLDER_COPY
 
         messages_container = self.query_one(
             f"#{MESSAGES_CONTAINER_ID}",
