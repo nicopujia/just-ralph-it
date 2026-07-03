@@ -2,8 +2,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Generator, Iterable
 
 from openai import OpenAI
-from openai.types.responses.response_input_param import ResponseInputParam
-from openai.types.responses.tool_param import ToolParam
+from openai.types.responses import ResponseInputParam, ToolParam
 
 
 class Agent(ABC):
