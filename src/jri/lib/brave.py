@@ -5,15 +5,13 @@ https://api.search.brave.com/res/v1/llm/context
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, ClassVar, Literal, cast
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+
+import httpx
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from http.client import HTTPResponse
 
 __all__ = [
     "BraveError",
@@ -25,10 +23,13 @@ __all__ = [
     "ThresholdMode",
 ]
 
+
 # ── Types ───────────────────────────────────────────────────────────
+
 
 ThresholdMode = Literal["strict", "balanced", "lenient", "disabled"]
 Freshness = Literal["pd", "pw", "pm", "py"]
+
 
 # ── Response models ─────────────────────────────────────────────────
 
@@ -41,6 +42,15 @@ class SearchResult:
     title: str
     snippets: list[str]
 
+    @classmethod
+    def from_raw(cls, raw: object) -> SearchResult:
+        item = cast("dict[str, object]", raw)
+        return cls(
+            url=cast("str", item.get("url", "")),
+            title=cast("str", item.get("title", "")),
+            snippets=cast("list[str]", item.get("snippets", [])),
+        )
+
 
 @dataclass
 class SourceMetadata:
@@ -50,6 +60,24 @@ class SourceMetadata:
     title: str
     hostname: str
     age: list[str] | None = None
+
+    @classmethod
+    def from_raw(
+        cls,
+        url: str,
+        raw: object,
+    ) -> SourceMetadata:
+        item = cast("dict[str, object]", raw)
+        return cls(
+            url=url,
+            title=cast("str", item.get("title", "")),
+            hostname=cast("str", item.get("hostname", "")),
+            age=(
+                cast("list[str]", item["age"])
+                if item.get("age") is not None
+                else None
+            ),
+        )
 
 
 @dataclass
@@ -77,45 +105,6 @@ class BraveError(Exception):
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
-
-
-# ── Helpers ─────────────────────────────────────────────────────────
-
-
-def _as_dict(value: object) -> dict[str, object]:
-    """Cast a value to ``dict[str, object]``.
-
-    Returns:
-        The value cast to a dict.
-    """
-    return cast("dict[str, object]", value)
-
-
-def _as_list(value: object) -> list[object]:
-    """Cast a value to ``list[object]``.
-
-    Returns:
-        The value cast to a list.
-    """
-    return cast("list[object]", value)
-
-
-def _as_str(value: object) -> str:
-    """Cast a value to ``str``.
-
-    Returns:
-        The value cast to a string.
-    """
-    return cast("str", value)
-
-
-def _as_str_list(value: object) -> list[str]:
-    """Cast a value to ``list[str]``.
-
-    Returns:
-        The value cast to a list of strings.
-    """
-    return cast("list[str]", value)
 
 
 # ── Client ──────────────────────────────────────────────────────────
@@ -206,84 +195,47 @@ class BraveLLMContext:
             Parsed grounding data with extracted content and
             source metadata.
         """
-        body = self._build_body(
-            query=query,
-            country=country,
-            search_lang=search_lang,
-            count=count,
-            freshness=freshness,
-            maximum_number_of_urls=maximum_number_of_urls,
-            maximum_number_of_tokens=maximum_number_of_tokens,
-            maximum_number_of_snippets=maximum_number_of_snippets,
-            maximum_number_of_tokens_per_url=(
-                maximum_number_of_tokens_per_url
-            ),
-            maximum_number_of_snippets_per_url=(
-                maximum_number_of_snippets_per_url
-            ),
-            context_threshold_mode=context_threshold_mode,
-            enable_local=enable_local,
-            goggles=goggles,
-        )
-        headers = self._build_headers(
-            latitude=latitude,
-            longitude=longitude,
-            loc_city=loc_city,
-            loc_state=loc_state,
-            loc_state_name=loc_state_name,
-            loc_country=loc_country,
-            loc_postal_code=loc_postal_code,
-        )
-        raw = self._request(body, headers)
-        return self._parse(raw)
-
-    # ── Helpers ─────────────────────────────────────────────────
-
-    @staticmethod
-    def _build_body(**kwargs: object) -> dict[str, object]:
-        """Build the JSON request body.
-
-        Returns:
-            Dict with all non-None keyword arguments.
-        """
-        return {k: v for k, v in kwargs.items() if v is not None}
-
-    def _build_headers(  # noqa: PLR0913
-        self,
-        *,
-        latitude: float | None = None,
-        longitude: float | None = None,
-        loc_city: str | None = None,
-        loc_state: str | None = None,
-        loc_state_name: str | None = None,
-        loc_country: str | None = None,
-        loc_postal_code: str | None = None,
-    ) -> dict[str, str]:
-        """Build request headers including auth and location.
-
-        Returns:
-            HTTP headers dict with subscription token and
-            optional location values.
-        """
+        body: dict[str, object] = {
+            key: value
+            for key, value in {
+                "query": query,
+                "country": country,
+                "search_lang": search_lang,
+                "count": count,
+                "freshness": freshness,
+                "maximum_number_of_urls": maximum_number_of_urls,
+                "maximum_number_of_tokens": maximum_number_of_tokens,
+                "maximum_number_of_snippets": (maximum_number_of_snippets),
+                "maximum_number_of_tokens_per_url": (
+                    maximum_number_of_tokens_per_url
+                ),
+                "maximum_number_of_snippets_per_url": (
+                    maximum_number_of_snippets_per_url
+                ),
+                "context_threshold_mode": context_threshold_mode,
+                "enable_local": enable_local,
+                "goggles": goggles,
+            }.items()
+            if value is not None
+        }
         headers: dict[str, str] = {
             "Accept": "application/json",
-            "Accept-Encoding": "gzip",
-            "Content-Type": "application/json",
             "X-Subscription-Token": self._api_key,
         }
-        loc_map: dict[str, float | str | None] = {
-            "X-Loc-Lat": latitude,
-            "X-Loc-Long": longitude,
-            "X-Loc-City": loc_city,
-            "X-Loc-State": loc_state,
-            "X-Loc-State-Name": loc_state_name,
-            "X-Loc-Country": loc_country,
-            "X-Loc-Postal-Code": loc_postal_code,
-        }
-        for header, value in loc_map.items():
-            if value is not None:
-                headers[header] = str(value)
-        return headers
+        headers.update({
+            header: str(value)
+            for header, value in {
+                "X-Loc-Lat": latitude,
+                "X-Loc-Long": longitude,
+                "X-Loc-City": loc_city,
+                "X-Loc-State": loc_state,
+                "X-Loc-State-Name": loc_state_name,
+                "X-Loc-Country": loc_country,
+                "X-Loc-Postal-Code": loc_postal_code,
+            }.items()
+            if value is not None
+        })
+        return self._parse(self._request(body, headers))
 
     def _request(
         self,
@@ -298,44 +250,33 @@ class BraveLLMContext:
         Raises:
             BraveError: On HTTP errors or connection failures.
         """
-        data = json.dumps(body).encode("utf-8")
-        req = Request(  # noqa: S310
-            self._ENDPOINT,
-            data=data,
-            headers=headers,
-            method="POST",
-        )
         try:
-            with urlopen(req, timeout=self._timeout) as http_resp:  # noqa: S310  # pyright: ignore[reportAny]
-                resp = cast("HTTPResponse", http_resp)
-                raw = resp.read()
-                encoding = resp.headers.get_content_charset(
-                    "utf-8",
-                )
-                return _as_dict(
-                    cast(
-                        "dict[str, object]",
-                        json.loads(raw.decode(encoding)),
-                    ),
-                )
-        except HTTPError as exc:
-            try:
-                error_body = (
-                    exc.read().decode()  # type: ignore[union-attr]
-                )
-                error_json = cast(
-                    "dict[str, object]",
-                    json.loads(error_body),
-                )
-                detail = error_json.get("error", str(exc))
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                detail = str(exc)
+            response = httpx.post(
+                self._ENDPOINT,
+                json=body,
+                headers=headers,
+                timeout=self._timeout,
+            )
+            _ = response.raise_for_status()
+            return cast("dict[str, object]", response.json())
+        except httpx.HTTPError as exc:
+            detail = str(exc)
+            status_code: int | None = None
+            if isinstance(exc, httpx.HTTPStatusError):
+                status_code = exc.response.status_code
+                try:
+                    detail = str(
+                        cast(
+                            "dict[str, object]",
+                            exc.response.json(),
+                        ).get("error", detail),
+                    )
+                except (TypeError, ValueError):
+                    detail = exc.response.text or detail
             raise BraveError(
-                str(detail),
-                status_code=exc.code,
+                detail,
+                status_code=status_code,
             ) from exc
-        except URLError as exc:
-            raise BraveError(str(exc.reason)) from exc
 
     @staticmethod
     def _parse(raw: dict[str, object]) -> GroundingData:
@@ -344,94 +285,40 @@ class BraveLLMContext:
         Returns:
             GroundingData with extracted content and sources.
         """
-        grounding = _as_dict(raw.get("grounding", {}))
-
-        generic = [
-            SearchResult(
-                url=_as_str(
-                    cast("dict[str, object]", item).get("url", ""),
-                ),
-                title=_as_str(
-                    cast("dict[str, object]", item).get(
-                        "title",
-                        "",
-                    ),
-                ),
-                snippets=_as_str_list(
-                    cast("dict[str, object]", item).get(
-                        "snippets",
-                        [],
-                    ),
-                ),
-            )
-            for item in _as_list(grounding.get("generic", []))
-        ]
-
+        grounding = cast(
+            "dict[str, object]",
+            raw.get("grounding", {}),
+        )
         poi_raw = grounding.get("poi")
-        poi = (
-            SearchResult(
-                url=_as_str(
-                    cast("dict[str, object]", poi_raw).get(
-                        "url",
-                        "",
-                    ),
-                ),
-                title=_as_str(
-                    cast("dict[str, object]", poi_raw).get(
-                        "title",
-                        "",
-                    ),
-                ),
-                snippets=_as_str_list(
-                    cast("dict[str, object]", poi_raw).get(
-                        "snippets",
-                        [],
-                    ),
-                ),
-            )
-            if isinstance(poi_raw, dict)
-            else None
+        sources_raw = cast(
+            "dict[str, object]",
+            raw.get("sources", {}),
         )
 
-        map_results = [
-            SearchResult(
-                url=_as_str(
-                    cast("dict[str, object]", item).get("url", ""),
-                ),
-                title=_as_str(
-                    cast("dict[str, object]", item).get(
-                        "title",
-                        "",
-                    ),
-                ),
-                snippets=_as_str_list(
-                    cast("dict[str, object]", item).get(
-                        "snippets",
-                        [],
-                    ),
-                ),
-            )
-            for item in _as_list(grounding.get("map", []))
-        ]
-
-        sources: dict[str, SourceMetadata] = {}
-        sources_raw = _as_dict(raw.get("sources", {}))
-        for url in sources_raw:
-            meta_dict = _as_dict(sources_raw[url])
-            sources[url] = SourceMetadata(
-                url=url,
-                title=_as_str(meta_dict.get("title", "")),
-                hostname=_as_str(meta_dict.get("hostname", "")),
-                age=(
-                    _as_str_list(meta_dict["age"])
-                    if meta_dict.get("age") is not None
-                    else None
-                ),
-            )
-
         return GroundingData(
-            generic=generic,
-            poi=poi,
-            map=map_results,
-            sources=sources,
+            generic=[
+                SearchResult.from_raw(item)
+                for item in cast(
+                    "list[object]",
+                    grounding.get("generic", []),
+                )
+            ],
+            poi=(
+                SearchResult.from_raw(
+                    cast("dict[str, object]", poi_raw),
+                )
+                if isinstance(poi_raw, dict)
+                else None
+            ),
+            map=[
+                SearchResult.from_raw(item)
+                for item in cast(
+                    "list[object]",
+                    grounding.get("map", []),
+                )
+            ],
+            sources={
+                url: SourceMetadata.from_raw(url, item)
+                for url, item in sources_raw.items()
+            },
         )
