@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     interviewer_model: str = Field(
         description="Model ID for the Interviewer agent.",
     )
+    brave_api_key: str | None = Field(
+        default=None,
+        description="API key for Brave Search LLM Context API.",
+    )
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=".env",
