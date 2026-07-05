@@ -12,20 +12,7 @@ from textual.worker import Worker
 from jri.core.exceptions import ConfigurationError
 from jri.core.service import Service
 
-from .constants import (
-    INTERIVEWER_ERROR_COPY,
-    INTERVIEWER_MESSAGE_CLASSES,
-    INTERVIEWER_NO_RESPONSE_COPY,
-    INTERVIEWER_THINKING_COPY,
-    MESSAGE_INPUT_ID,
-    MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY,
-    MESSAGE_INPUT_PLACEHOLDER_COPY,
-    MESSAGES_CONTAINER_ID,
-    STYLESHEET,
-    THEME_DEFAULT,
-    TITLE_COPY,
-    USER_MESSAGE_CLASSES,
-)
+from . import constants as c
 from .utils import detect_system_theme, get_config_error_help_message
 from .widgets import MessageInput
 
@@ -40,9 +27,9 @@ def main() -> None:
 
 
 class App(TextualApp[None]):
-    TITLE: str | None = TITLE_COPY
-    CSS: ClassVar[str] = STYLESHEET
-    theme: Reactive[str] = Reactive(THEME_DEFAULT)
+    TITLE: str | None = c.TITLE_COPY
+    CSS: ClassVar[str] = c.STYLESHEET
+    theme: Reactive[str] = Reactive(c.THEME_DEFAULT)
     worker: Worker[None] | None = None
 
     def __init__(self, service: Service | None = None) -> None:
@@ -53,18 +40,18 @@ class App(TextualApp[None]):
     @override
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        with VerticalScroll(id=MESSAGES_CONTAINER_ID):
+        with VerticalScroll(id=c.MESSAGES_CONTAINER_ID):
             yield Static()
         yield MessageInput(
-            id=MESSAGE_INPUT_ID,
-            placeholder=MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY,
+            id=c.MESSAGE_INPUT_ID,
+            placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY,
         )
 
     # --- Event handlers --------------------------------------------- #
 
     async def on_mount(self) -> None:
         self.theme = detect_system_theme()
-        self.set_focus(self.query_one(f"#{MESSAGE_INPUT_ID}", MessageInput))
+        self.set_focus(self.query_one(f"#{c.MESSAGE_INPUT_ID}", MessageInput))
 
     async def on_message_input_submitted(
         self,
@@ -81,20 +68,20 @@ class App(TextualApp[None]):
 
         self.is_interviewer_generating = True
         event.message_input.text = ""
-        event.message_input.placeholder = MESSAGE_INPUT_PLACEHOLDER_COPY
+        event.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
 
         messages_container = self.query_one(
-            f"#{MESSAGES_CONTAINER_ID}",
+            f"#{c.MESSAGES_CONTAINER_ID}",
             VerticalScroll,
         )
 
         user_message_widget = Static(
             user_message,
-            classes=USER_MESSAGE_CLASSES,
+            classes=c.USER_MESSAGE_CLASSES,
         )
         interviewer_message_widget = Markdown(
-            INTERVIEWER_THINKING_COPY,
-            classes=INTERVIEWER_MESSAGE_CLASSES,
+            c.INTERVIEWER_THINKING_COPY,
+            classes=c.INTERVIEWER_MESSAGE_CLASSES,
         )
 
         await messages_container.mount(user_message_widget)
@@ -129,14 +116,14 @@ class App(TextualApp[None]):
             self.call_from_thread(
                 self.update_interviewer_message_widget,
                 interviewer_message_widget,
-                INTERIVEWER_ERROR_COPY % error,
+                c.INTERIVEWER_ERROR_COPY % error,
             )
         finally:
             if not answer and not failed:
                 self.call_from_thread(
                     self.update_interviewer_message_widget,
                     interviewer_message_widget,
-                    INTERVIEWER_NO_RESPONSE_COPY,
+                    c.INTERVIEWER_NO_RESPONSE_COPY,
                 )
             self.call_from_thread(self.reset_message_input)
 
@@ -144,7 +131,7 @@ class App(TextualApp[None]):
 
     def focus_message_input(self) -> None:
         message_input_widget = self.query_one(
-            f"#{MESSAGE_INPUT_ID}",
+            f"#{c.MESSAGE_INPUT_ID}",
             MessageInput,
         )
         self.set_focus(message_input_widget)
