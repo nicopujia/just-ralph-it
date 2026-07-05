@@ -1,5 +1,6 @@
 from typing import ClassVar
 
+from openai import OpenAI
 from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -23,6 +24,9 @@ class Settings(BaseSettings):
     interviewer_model: str = Field(
         description="Model ID for the Interviewer agent.",
     )
+    explorer_model: str = Field(
+        description="Model ID for the Explorer agent.",
+    )
     brave_api_key: str | None = Field(
         default=None,
         description="API key for Brave Search LLM Context API.",
@@ -33,6 +37,13 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    @property
+    def llm_client(self) -> OpenAI:
+        return OpenAI(
+            base_url=self.llm_provider_base_url,
+            api_key=self.llm_api_key,
+        )
 
 
 def get_settings() -> Settings:

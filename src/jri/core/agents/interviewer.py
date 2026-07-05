@@ -1,44 +1,36 @@
-from collections.abc import Generator
-from typing import override
+from jri.core.settings import Settings
 
-from openai import OpenAI
-
-from .base import Agent
+from .explorer import Explorer
+from .shared import Agent, tool
 
 
 class Interviewer(Agent):
     FIRST_MESSAGE: str = "What do you want to build?"
 
-    def __init__(self, client: OpenAI, model: str) -> None:
+    def __init__(self, settings: Settings) -> None:
+        self.settings: Settings = settings
         super().__init__(
-            model=model,
-            client=client,
-            initial_context_window=[
-                {"role": "assistant", "content": self.FIRST_MESSAGE},
-            ],
-            tools=[{"type": "web_search"}],
+            client=self.settings.llm_client,
+            model=self.settings.interviewer_model,
+            sys_prompt="""
+                You are the Interviewer of the Just Ralph It (JRI) system,
+                which is a tool to build any software project.
+
+                Your task is extract the full project idea that the user wants
+                to build out of their mind.
+
+                Rules:
+                - Prefer answering questions with `explore` tool when possible.
+            """,
+            initial_ctx=[{"role": "assistant", "content": self.FIRST_MESSAGE}],
         )
 
-    @override
-    def send_message(self, message: str) -> Generator[str]:
-        self.context_window.append({
-            "role": "user",
-            "content": message,
-        })
-
-        chunks: list[str] = []
-        stream = self.client.responses.create(
-            model=self.model,
-            input=self.context_window,
-            tools=self.tools,
-            stream=True,
-        )
-        for event in stream:
-            if event.type == "response.output_text.delta":
-                chunks.append(event.delta)
-                yield event.delta
-
-        self.context_window.append({
-            "role": "assistant",
-            "content": "".join(chunks),
-        })
+    @tool(
+        (
+            "Gather context through a natural language query, "
+            "including anything from the web or this computer."
+        ),
+    )
+    def explore(self, query: str) -> str:
+        explorer = Explorer(self.settings)
+        return "".join(explorer.send_message(query))

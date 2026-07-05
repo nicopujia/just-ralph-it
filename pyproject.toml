@@ -8,6 +8,8 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "httpx>=0.28.1",
+    "markdownify>=1.2.3",
     "openai>=2.41.0",
     "pydantic-settings>=2.14.1",
     "textual>=8.2.7",
