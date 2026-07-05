@@ -37,3 +37,4 @@ jri
 - Add section comments at large modules (>300 lines) to group closely-related code blocks.
 - Name normal functions and methods as verbs.
 - If two linting rules contradict themselves, pick the best one and configure [pyproject.toml](./pyproject.toml) accordingly.
+- Write higher-level functions above lower-level ones. For example, if `f()` calls `a()` and then `b()`, write them in that order on the module.
