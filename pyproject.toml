@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Easily define your own software project idea and then build entirely by just clicking a button."
 readme = "README.md"
 authors = [
-    { name = "Nicolás Pujia", email = "nico@pujia.ar" }
+    { name = "Nicolás Pujia", email = "contact@nicolaspujia.com" }
 ]
 requires-python = ">=3.13"
 dependencies = [
