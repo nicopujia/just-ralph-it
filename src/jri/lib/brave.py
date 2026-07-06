@@ -1,29 +1,25 @@
 """Thin wrapper for the Brave LLM Context API.
 
-https://api.search.brave.com/res/v1/llm/context
+[See docs](https://api-dashboard.search.brave.com/documentation/services/llm-context)
 """
 
-from __future__ import annotations
-
+from collections.abc import Sequence
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, ClassVar, Literal, cast
+from typing import ClassVar, Literal, Self, cast
 
 import httpx
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
 
 __all__ = ["Error", "Freshness", "GroundingData", "LLMContext", "SearchResult", "SourceMetadata", "ThresholdMode"]
 
 
-# ── Types ───────────────────────────────────────────────────────────
+# --- Types ---------------------------------------------------------- #
 
 
 ThresholdMode = Literal["strict", "balanced", "lenient", "disabled"]
 Freshness = Literal["pd", "pw", "pm", "py"]
 
 
-# ── Response models ─────────────────────────────────────────────────
+# --- Response models ------------------------------------------------ #
 
 
 @dataclass
@@ -35,7 +31,7 @@ class SearchResult:
     snippets: list[str]
 
     @classmethod
-    def from_raw(cls, raw: object) -> SearchResult:
+    def from_raw(cls, raw: object) -> Self:
         item = cast("dict[str, object]", raw)
         return cls(
             url=cast("str", item.get("url", "")),
@@ -54,7 +50,7 @@ class SourceMetadata:
     age: list[str] | None = None
 
     @classmethod
-    def from_raw(cls, url: str, raw: object) -> SourceMetadata:
+    def from_raw(cls, url: str, raw: object) -> Self:
         item = cast("dict[str, object]", raw)
         return cls(
             url=url,
@@ -74,20 +70,19 @@ class GroundingData:
     sources: dict[str, SourceMetadata] = field(default_factory=dict)
 
 
-# ── Error ───────────────────────────────────────────────────────────
+# --- Errors --------------------------------------------------------- #
 
 
+@dataclass
 class Error(Exception):
     """Raised when the Brave API returns an error."""
-
-    status_code: int | None
 
     def __init__(self, message: str, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
 
 
-# ── Client ──────────────────────────────────────────────────────────
+# --- Client --------------------------------------------------------- #
 
 
 class LLMContext:
@@ -108,7 +103,7 @@ class LLMContext:
         self._api_key = api_key
         self._timeout = timeout
 
-    # ── Public API ──────────────────────────────────────────────
+    # --- Public API ------------------------------------------------- #
 
     def search(  # noqa: PLR0913
         self,
@@ -201,7 +196,18 @@ class LLMContext:
             }.items()
             if value is not None
         })
-        return self._parse(self._request(body, headers))
+        raw = self._request(body, headers)
+        grounding = cast("dict[str, object]", raw.get("grounding", {}))
+        poi_raw = grounding.get("poi")
+        sources = cast("dict[str, object]", raw.get("sources", {}))
+        return GroundingData(
+            generic=[SearchResult.from_raw(item) for item in cast("list[object]", grounding.get("generic", []))],
+            poi=(SearchResult.from_raw(poi_raw) if isinstance(poi_raw, dict) else None),
+            map=[SearchResult.from_raw(item) for item in cast("list[object]", grounding.get("map", []))],
+            sources={url: SourceMetadata.from_raw(url, item) for url, item in sources.items()},
+        )
+
+    # --- Helpers ---------------------------------------------------- #
 
     def _request(self, body: dict[str, object], headers: dict[str, str]) -> dict[str, object]:
         """Make the HTTP POST request.
@@ -226,21 +232,3 @@ class LLMContext:
                 except (TypeError, ValueError):
                     detail = exc.response.text or detail
             raise Error(detail, status_code=status_code) from exc
-
-    @staticmethod
-    def _parse(raw: dict[str, object]) -> GroundingData:
-        """Parse the API response into domain models.
-
-        Returns:
-            GroundingData with extracted content and sources.
-        """
-        grounding = cast("dict[str, object]", raw.get("grounding", {}))
-        poi_raw = grounding.get("poi")
-        sources = cast("dict[str, object]", raw.get("sources", {}))
-
-        return GroundingData(
-            generic=[SearchResult.from_raw(item) for item in cast("list[object]", grounding.get("generic", []))],
-            poi=(SearchResult.from_raw(poi_raw) if isinstance(poi_raw, dict) else None),
-            map=[SearchResult.from_raw(item) for item in cast("list[object]", grounding.get("map", []))],
-            sources={url: SourceMetadata.from_raw(url, item) for url, item in sources.items()},
-        )

@@ -51,16 +51,16 @@ class Service:
         interview_json_str = f"{json.dumps(interview_json, indent=2)}\n"
         self.interview_file.write_text(interview_json_str)
 
-    def restore(self) -> list[InterviewItem] | None:
+    def restore(self) -> list[InterviewItem]:
         """Restore interview session if present.
 
         Returns:
-            List of interview items if present, or None otherwise.
+            List of interview items if present, which may be empty.
         """
         try:
             self.interviewer.ctx = json.loads(self.interview_file.read_text())
         except (OSError, ValueError):
-            return None
+            return []
         items: list[InterviewItem] = []
         for item in self.interviewer.ctx[1:]:
             if item.get("type") == "function_call":

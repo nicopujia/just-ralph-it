@@ -1,3 +1,5 @@
+"""String-only parsing utilities."""
+
 import re
 import textwrap
 

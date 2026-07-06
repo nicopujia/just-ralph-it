@@ -7,8 +7,7 @@ from openai import pydantic_function_tool
 from openai.types.responses import FunctionToolParam
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
-_META_ATTR = "__jri_tool_metadata__"
-"""Attribute name used to store tool descriptions on decorated funcs."""
+_DESCRIPTION_ATTR = "__jri_tool_description__"
 
 
 def tool(description: str) -> Callable[[Callable[..., str]], Callable[..., str]]:
@@ -23,7 +22,7 @@ def tool(description: str) -> Callable[[Callable[..., str]], Callable[..., str]]
     """
 
     def mark_as_tool(func: Callable[..., str]) -> Callable[..., str]:
-        setattr(func, _META_ATTR, description)
+        setattr(func, _DESCRIPTION_ATTR, description)
         return func
 
     return mark_as_tool
@@ -72,7 +71,7 @@ class Tool:
             return None
 
         wrapped = getattr(func, "__func__", func)
-        description = getattr(wrapped, _META_ATTR, None)
+        description = getattr(wrapped, _DESCRIPTION_ATTR, None)
         if not isinstance(description, str):
             return None
 

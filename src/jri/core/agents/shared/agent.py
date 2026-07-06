@@ -20,11 +20,11 @@ class Agent:
     def __init__(
         self, *, client: OpenAI, model: str, sys_prompt: str, initial_ctx: ResponseInputParam | None = None
     ) -> None:
-        self.client: OpenAI = client
-        self.model: str = model
-        self.tools: list[Tool] = Tool.get_list_from_owner(self)
-        self.sys_prompt: str = unwrap_prose(sys_prompt)
-        self.ctx: list[ResponseInputItemParam] = list(initial_ctx or [])
+        self.client = client
+        self.model = model
+        self.tools = Tool.get_list_from_owner(self)
+        self.sys_prompt = unwrap_prose(sys_prompt)
+        self.ctx = list(initial_ctx or [])
         self.ctx.insert(0, {"role": "system", "content": self.sys_prompt})
 
     def send_message(self, message: str) -> Generator[ChatEvent]:

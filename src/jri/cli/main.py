@@ -14,15 +14,18 @@ or pass them as CLI flags.
 
 
 def main() -> None:
-    try:
-        settings = get_settings()
-    except ConfigurationError as error:
-        print(_get_config_error_message(error))
-        raise SystemExit(1) from error
-
+    settings = _get_settings_or_print_error()
     service = Service(settings)
     app = App(service)
     app.run()
+
+
+def _get_settings_or_print_error() -> Settings:
+    try:
+        return get_settings()
+    except ConfigurationError as error:
+        print(_get_config_error_message(error))
+        raise SystemExit(1) from error
 
 
 def _get_config_error_message(error: ConfigurationError) -> str:

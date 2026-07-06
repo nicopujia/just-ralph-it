@@ -33,17 +33,6 @@ def fetch_transcript_from_url(url: str) -> str | None:
 
 
 def _get_video_id(url: str) -> str | None:
-    """Extract a video id from a supported URL.
-
-    Returns:
-        The resolved video id for supported video URLs, or `None`
-        for non-YouTube URLs.
-
-    Raises:
-        InvalidUrlError: The URL is a YouTube URL but does not point
-            to a supported video.
-    """
-
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower().removeprefix("www.")
     parts = [part for part in parsed.path.split("/") if part]
@@ -66,15 +55,6 @@ def _get_video_id(url: str) -> str | None:
 
 
 def _fetch_transcript(video_id: str) -> str:
-    """Fetch and normalize transcript text.
-
-    Returns:
-        Joined transcript text with blank snippets removed.
-
-    Raises:
-        TranscriptError: The transcript could not be loaded.
-    """
-
     try:
         transcripts = YouTubeTranscriptApi().list(video_id)
     except YouTubeTranscriptApiException as error:
