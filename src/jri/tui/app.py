@@ -57,6 +57,7 @@ class App(TextualApp[None]):
     # --- Event handlers --------------------------------------------- #
 
     async def on_mount(self) -> None:
+        await self.restore_history()
         self.theme = detect_system_theme()
         self.set_focus(self.query_one(f"#{c.MESSAGE_INPUT_ID}", MessageInput))
 
@@ -225,6 +226,30 @@ class App(TextualApp[None]):
             turn_state.active_markdown_text,
         )
         self.anchor_messages()
+
+    async def restore_history(self) -> None:
+        messages = self.query_one(
+            f"#{c.MESSAGES_CONTAINER_ID}",
+            VerticalScroll,
+        )
+        for item in self.service.restore() or []:
+            if item.type == "user":
+                await messages.mount(
+                    Static(item.text, classes=c.USER_MESSAGE_CLASSES),
+                )
+                continue
+
+            interviewer_turn = Vertical(classes=c.INTERVIEWER_TURN_CLASSES)
+            await messages.mount(interviewer_turn)
+            await interviewer_turn.mount(
+                ToolCallRow(item.text, is_complete=True)
+                if item.type == "tool"
+                else Markdown(
+                    item.text,
+                    classes=c.INTERVIEWER_MESSAGE_CLASSES,
+                ),
+            )
+        messages.scroll_end(animate=False)
 
 
 if __name__ == "__main__":

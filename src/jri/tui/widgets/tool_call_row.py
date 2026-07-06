@@ -22,15 +22,17 @@ class ToolCallRow(Static):
         "⠏",
     )
 
-    def __init__(self, tool_name: str) -> None:
+    def __init__(self, tool_name: str, *, is_complete: bool = False) -> None:
         super().__init__(classes=c.TOOL_CALL_ROW_CLASSES)
         self.tool_name: str = tool_name
         self.frame_idx: int = 0
-        self.is_complete: bool = False
+        self.is_complete: bool = is_complete
         self.spinner_timer: Timer | None = None
 
     def on_mount(self) -> None:
         self.update_copy()
+        if self.is_complete:
+            return
         self.spinner_timer = self.set_interval(0.08, self.advance_spinner)
 
     def on_unmount(self) -> None:
