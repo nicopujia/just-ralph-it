@@ -1,7 +1,7 @@
 import json
+import shutil
 import textwrap
 from collections.abc import Generator
-from pathlib import Path
 from typing import TYPE_CHECKING, Literal, NamedTuple, cast
 
 from openai import BaseModel as OpenAIModel
@@ -11,6 +11,8 @@ from .agents.shared import ChatEvent
 from .settings import Settings
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from openai.types.responses import ResponseInputItemParam
 
 
@@ -30,11 +32,15 @@ class Service:
                 interview.json
         ```
         """
-        self.settings: Settings = settings
-        self.interviewer: Interviewer = Interviewer(self.settings)
-        self.base_dir: Path = Path(self.settings.cwd / ".jri")
-        self.interview_file: Path = self.base_dir / "interview.json"
+        self.interviewer: Interviewer = Interviewer(settings)
+
+        self.base_dir: Path = settings.cwd / ".jri"
         self.gitignore_file: Path = self.base_dir / ".gitignore"
+        self.interview_file: Path = self.base_dir / "interview.json"
+
+        if settings.force:
+            shutil.rmtree(self.base_dir)
+
         self.base_dir.mkdir(exist_ok=True, parents=True)
         _chars_written = self.gitignore_file.write_text(
             textwrap.dedent(

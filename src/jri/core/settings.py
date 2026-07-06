@@ -9,6 +9,10 @@ from .exceptions import ConfigurationError
 
 
 class Settings(BaseSettings):
+    force: bool = Field(
+        description="Force re-creation of base directory.",
+        default=False,
+    )
     cwd: Path = Field(
         description="Current working directory.",
         default_factory=Path.cwd,
@@ -38,6 +42,10 @@ class Settings(BaseSettings):
     )
 
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
+        cli_kebab_case=True,
+        cli_parse_args=True,
+        cli_implicit_flags="toggle",
+        env_prefix="JRI_",
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
