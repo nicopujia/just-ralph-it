@@ -14,10 +14,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 __all__ = [
-    "BraveError",
-    "BraveLLMContext",
+    "Error",
     "Freshness",
     "GroundingData",
+    "LLMContext",
     "SearchResult",
     "SourceMetadata",
     "ThresholdMode",
@@ -93,7 +93,7 @@ class GroundingData:
 # ── Error ───────────────────────────────────────────────────────────
 
 
-class BraveError(Exception):
+class Error(Exception):
     """Raised when the Brave API returns an error."""
 
     status_code: int | None
@@ -110,11 +110,11 @@ class BraveError(Exception):
 # ── Client ──────────────────────────────────────────────────────────
 
 
-class BraveLLMContext:
+class LLMContext:
     """Thin wrapper around the Brave LLM Context API.
 
     Usage:
-        client = BraveLLMContext(api_key="...")
+        client = LLMContext(api_key="...")
         results = client.search("tallest mountains in the world")
         for r in results.generic:
             print(r.title, r.url)
@@ -248,7 +248,7 @@ class BraveLLMContext:
             Parsed JSON response body.
 
         Raises:
-            BraveError: On HTTP errors or connection failures.
+            Error: On HTTP errors or connection failures.
         """
         try:
             response = httpx.post(
@@ -273,7 +273,7 @@ class BraveLLMContext:
                     )
                 except (TypeError, ValueError):
                     detail = exc.response.text or detail
-            raise BraveError(
+            raise Error(
                 detail,
                 status_code=status_code,
             ) from exc

@@ -5,7 +5,7 @@ import httpx
 from markdownify import MarkdownConverter
 
 from jri.core.settings import Settings
-from jri.lib.brave import BraveLLMContext
+from jri.lib import brave, youtube
 
 from .shared import Agent, tool
 
@@ -27,13 +27,23 @@ class Explorer(Agent):
     def web_search(self, query: str) -> str:
         if not self.settings.brave_api_key:
             return "Web search not available."
-        client = BraveLLMContext(self.settings.brave_api_key)
+        client = brave.LLMContext(self.settings.brave_api_key)
         results = client.search(query)
         return "\n".join([f"- [{r.title}]({r.url})" for r in results.generic])
 
     @classmethod
     @tool("Fetch contents from a public web page given a URL.")
     def web_fetch(cls, url: str) -> str:
+        try:
+            video_transcript = youtube.fetch_transcript_from_url(url)
+        except youtube.InvalidUrlError:
+            return "Web fetch failed: invalid YouTube URL."
+        except youtube.TranscriptError:
+            return "Web fetch failed: could not retrieve YouTube transcript."
+
+        if video_transcript is not None:
+            return video_transcript
+
         try:
             response = httpx.get(url, follow_redirects=True, timeout=10.0)
         except httpx.HTTPError as error:
