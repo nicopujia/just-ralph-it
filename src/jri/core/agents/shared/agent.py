@@ -21,7 +21,7 @@ from .tool import Tool
 
 
 class Agent:
-    """LLM agent using the OpenAI Responses API.
+    """Minimal, customizable LLM agent.
 
     Subclass and decorate methods with ``@tool`` to expose them
     as function calls the LLM can invoke.
