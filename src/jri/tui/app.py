@@ -43,23 +43,27 @@ class App(TextualApp[None]):
         super().__init__()
         self.service: Service = service or Service()
         self.is_interviewer_generating: bool = False
+        self.messages_container: VerticalScroll = VerticalScroll(
+            id=c.MESSAGES_CONTAINER_ID,
+        )
+        self.message_input: MessageInput = MessageInput(
+            id=c.MESSAGE_INPUT_ID,
+            placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY,
+        )
 
     @override
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
-        with VerticalScroll(id=c.MESSAGES_CONTAINER_ID):
+        with self.messages_container:
             yield Static()
-        yield MessageInput(
-            id=c.MESSAGE_INPUT_ID,
-            placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY,
-        )
+        yield self.message_input
 
     # --- Event handlers --------------------------------------------- #
 
     async def on_mount(self) -> None:
         await self.restore_history()
         self.theme = detect_system_theme()
-        self.set_focus(self.query_one(f"#{c.MESSAGE_INPUT_ID}", MessageInput))
+        self.set_focus(self.message_input)
 
     async def on_message_input_submitted(
         self,
@@ -78,11 +82,6 @@ class App(TextualApp[None]):
         event.message_input.text = ""
         event.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
 
-        messages_container = self.query_one(
-            f"#{c.MESSAGES_CONTAINER_ID}",
-            VerticalScroll,
-        )
-
         user_message_widget = Static(
             user_message,
             classes=c.USER_MESSAGE_CLASSES,
@@ -97,11 +96,11 @@ class App(TextualApp[None]):
             placeholder=thinking_widget,
         )
 
-        await messages_container.mount(user_message_widget)
-        await messages_container.mount(interviewer_turn)
+        await self.messages_container.mount(user_message_widget)
+        await self.messages_container.mount(interviewer_turn)
         await interviewer_turn.mount(thinking_widget)
 
-        messages_container.anchor()
+        self.messages_container.anchor()
         self.worker = self.send_message(
             user_message,
             turn_state,
@@ -147,18 +146,10 @@ class App(TextualApp[None]):
     def reset_message_input(self) -> None:
         self.worker = None
         self.is_interviewer_generating = False
-        message_input_widget = self.query_one(
-            f"#{c.MESSAGE_INPUT_ID}",
-            MessageInput,
-        )
-        self.set_focus(message_input_widget)
+        self.set_focus(self.message_input)
 
     def anchor_messages(self) -> None:
-        messages_container = self.query_one(
-            f"#{c.MESSAGES_CONTAINER_ID}",
-            VerticalScroll,
-        )
-        messages_container.anchor()
+        self.messages_container.anchor()
 
     async def render_chat_event(
         self,
@@ -228,19 +219,15 @@ class App(TextualApp[None]):
         self.anchor_messages()
 
     async def restore_history(self) -> None:
-        messages = self.query_one(
-            f"#{c.MESSAGES_CONTAINER_ID}",
-            VerticalScroll,
-        )
         for item in self.service.restore() or []:
             if item.type == "user":
-                await messages.mount(
+                await self.messages_container.mount(
                     Static(item.text, classes=c.USER_MESSAGE_CLASSES),
                 )
                 continue
 
             interviewer_turn = Vertical(classes=c.INTERVIEWER_TURN_CLASSES)
-            await messages.mount(interviewer_turn)
+            await self.messages_container.mount(interviewer_turn)
             await interviewer_turn.mount(
                 ToolCallRow(item.text, is_complete=True)
                 if item.type == "tool"
@@ -249,7 +236,7 @@ class App(TextualApp[None]):
                     classes=c.INTERVIEWER_MESSAGE_CLASSES,
                 ),
             )
-        messages.scroll_end(animate=False)
+        self.messages_container.scroll_end(animate=False)
 
 
 if __name__ == "__main__":
