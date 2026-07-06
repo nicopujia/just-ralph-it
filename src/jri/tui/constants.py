@@ -21,6 +21,7 @@ Please try again or contact Nico.
 INTERVIEWER_MESSAGE_CLASSES = "interviewer-message"
 INTERVIEWER_NO_RESPONSE_COPY = "_No response received._"
 INTERVIEWER_THINKING_COPY = "_Thinking..._"
+INTERVIEWER_TURN_CLASSES = "interviewer-turn"
 
 MESSAGES_CONTAINER_ID = "messages"
 MESSAGE_INPUT_ID = "message-input"
@@ -31,6 +32,7 @@ THEME_DARK = "ansi-dark"
 THEME_DEFAULT = THEME_DARK
 THEME_LIGHT = "ansi-light"
 TITLE_COPY = "Just Ralph It"
+TOOL_CALL_ROW_CLASSES = "tool-call-row"
 
 USER_MESSAGE_CLASSES = "user-message"
 
@@ -65,7 +67,16 @@ Header {{
     border-left: heavy ansi_bright_magenta;
 }}
 
-.{INTERVIEWER_MESSAGE_CLASSES} {{
+.{INTERVIEWER_TURN_CLASSES} {{
+    height: auto;
     padding-top: 1;
+}}
+
+.{TOOL_CALL_ROW_CLASSES} {{
+    margin-bottom: 1;
+    padding-right: 2;
+    padding-left: 2;
+    text-opacity: 70%;
+    text-style: dim;
 }}
 """

@@ -16,6 +16,7 @@ from openai.types.responses import (
     ResponseInputItemParam,
 )
 
+from .events import ChatEvent, TextDelta, ToolCallFinished, ToolCallStarted
 from .tool import Tool
 
 
@@ -41,7 +42,7 @@ class Agent:
         self.ctx: list[ResponseInputItemParam] = list(initial_ctx or [])
         self.ctx.insert(0, {"role": "system", "content": self.sys_prompt})
 
-    def send_message(self, message: str) -> Generator[str]:
+    def send_message(self, message: str) -> Generator[ChatEvent]:
         """Send a user message and stream the response.
 
         Automatically handles tool-call loops: if the LLM requests
@@ -49,7 +50,7 @@ class Agent:
         until the model produces a final text reply.
 
         Yields:
-            Text deltas from the streamed LLM response.
+            Structured chat events from the streamed LLM response.
         """
         self.ctx.append({"role": "user", "content": message})
 
@@ -68,7 +69,7 @@ class Agent:
             ):
                 match event.type:
                     case "response.output_text.delta":
-                        yield event.delta
+                        yield TextDelta(event.delta)
                     case "response.output_item.done":
                         outputs_by_idx[event.output_index] = event.item
                     case _:
@@ -78,23 +79,28 @@ class Agent:
             self.ctx.extend(cast("list[ResponseInputItemParam]", outputs))
 
             # Process tool calls
-            has_tool_calls = False
+            tool_call = None
             for output in outputs:
                 if output.type != "function_call":
                     continue
-                has_tool_calls = True
-                tool = tools_by_name.get(output.name)
+                tool_call = output
+                yield ToolCallStarted(
+                    call_id=tool_call.call_id,
+                    tool_name=tool_call.name,
+                )
+                tool = tools_by_name.get(tool_call.name)
                 self.ctx.append({
                     "type": "function_call_output",
-                    "call_id": output.call_id,
+                    "call_id": tool_call.call_id,
                     "output": (
-                        tool.invoke(output.arguments)
-                        if tool is not None
-                        else f"Unknown tool `{output.name}`."
+                        tool.invoke(tool_call.arguments)
+                        if tool
+                        else f"Unknown tool `{tool_call.name}`."
                     ),
                 })
+                yield ToolCallFinished(call_id=tool_call.call_id)
 
-            if has_tool_calls:
+            if tool_call is not None:
                 continue
 
             return

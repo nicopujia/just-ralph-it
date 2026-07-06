@@ -1,7 +1,7 @@
 from jri.core.settings import Settings
 
 from .explorer import Explorer
-from .shared import Agent, tool
+from .shared import Agent, TextDelta, tool
 
 
 class Interviewer(Agent):
@@ -33,4 +33,8 @@ class Interviewer(Agent):
     )
     def explore(self, query: str) -> str:
         explorer = Explorer(self.settings)
-        return "".join(explorer.send_message(query))
+        return "".join(
+            event.text
+            for event in explorer.send_message(query)
+            if isinstance(event, TextDelta)
+        )

@@ -75,21 +75,19 @@ class ToolParameter:
             inspect.Parameter.POSITIONAL_OR_KEYWORD,
             inspect.Parameter.KEYWORD_ONLY,
         }:
-            msg = (
-                f"Tool `{tool_name}` parameter `{param.name}`"
-                " must be callable as a keyword argument."
+            raise TypeError(
+                f"Tool `{tool_name}` parameter `{param.name}` must be "
+                + "callable as a keyword argument.",
             )
-            raise TypeError(msg)
 
         annotation = cast("object", param.annotation)
         if annotation is inspect.Parameter.empty:
             annotation = str
         if annotation not in _JSON_TYPE_BY_RUNTIME_TYPE:
-            msg = (
-                f"Tool `{tool_name}` parameter `{param.name}`"
-                " must be annotated as str, int, float, or bool."
+            raise TypeError(
+                f"Tool `{tool_name}` parameter `{param.name}` must be "
+                + "annotated as str, int, float, or bool.",
             )
-            raise TypeError(msg)
 
         runtime_type = cast("RuntimeType", annotation)
         default = cast("object", param.default)
@@ -218,13 +216,29 @@ class Tool:
             arguments.
         """
         try:
-            obj = cast("object", json.loads(args))
-        except json.JSONDecodeError:
-            obj = None
-        if not isinstance(obj, dict):
-            return f"Invalid arguments for `{self.name}`."
+            kwargs = self._validate_args(args)
+            return self.func(**kwargs)
+        except (ValueError, RuntimeError) as error:
+            return f"Tool call failed: {error}"
 
-        payload = cast("dict[str, object]", obj)
+    def _validate_args(self, args: str) -> dict[str, object]:
+        """Parse JSON `args` and validate tool arguments.
+
+        Returns:
+            Validated keyword arguments.
+
+        Raises:
+            ValueError: If an argument is missing or unexpected.
+            TypeError: If an argument has an invalid type.
+        """
+        try:
+            payload = cast("object", json.loads(args))
+        except json.JSONDecodeError:
+            payload = None
+        if not isinstance(payload, dict):
+            raise TypeError(f"Invalid arguments for `{self.name}`.")
+
+        payload = cast("dict[str, object]", payload)
         expected_names = {param.name for param in self.parameters}
         unexpected_arg = next(
             (
@@ -235,21 +249,21 @@ class Tool:
             None,
         )
         if unexpected_arg is not None:
-            return f"Unexpected argument `{unexpected_arg}`."
+            raise ValueError(f"Unexpected argument `{unexpected_arg}`.")
 
         kwargs: dict[str, object] = {}
         for param in self.parameters:
             if param.name not in payload:
-                return f"Missing required argument `{param.name}`."
+                raise ValueError(f"Missing required argument `{param.name}`.")
 
             value = payload[param.name]
             if value is None:
                 if param.has_default:
                     continue
-                return f"Missing required argument `{param.name}`."
+                raise ValueError(f"Missing required argument `{param.name}`.")
 
-            error = param.validate(value)
-            if error is not None:
-                return error
+            if error := param.validate(value):
+                raise ValueError(error)
             kwargs[param.name] = value
-        return self.func(**kwargs)
+
+        return kwargs

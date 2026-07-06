@@ -51,9 +51,13 @@ ignore = [
     "CPY", # skip copyright notices
     "D203", # prefer no blank line before class docstrings
     "D213", # prefer docstring summary line to be on the first line
+    "EM101", # allow inline string literals in exceptions
+    "EM102", # allow inline f-strings in exceptions
+    "EM103", # allow inline .format() or concatenated exception messages
     "ISC003", # prefer explicit string concatenation
     "S404", # allow importing subprocess library
     "S603", # allow running subprocesses
+    "TRY003", # allow inline exception messages
     "D", # make docstrings optional
     "T20", # allow debug statements
 ]
