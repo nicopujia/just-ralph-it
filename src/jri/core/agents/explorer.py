@@ -12,7 +12,7 @@ from .shared import Agent, tool
 
 class Explorer(Agent):
     def __init__(self, settings: Settings) -> None:
-        self.settings: Settings = settings
+        self.settings = settings
         super().__init__(
             client=self.settings.llm_client,
             model=self.settings.explorer_model,
@@ -32,11 +32,11 @@ class Explorer(Agent):
             return "Web search not available."
         client = brave.LLMContext(self.settings.brave_api_key)
         results = client.search(query)
-        return "\n".join([f"- [{r.title}]({r.url})" for r in results.generic])
+        return "\n".join(f"- [{r.title}]({r.url})" for r in results.generic)
 
-    @classmethod
+    @staticmethod
     @tool("Fetch contents from a public web page given a URL.")
-    def web_fetch(cls, url: str) -> str:
+    def web_fetch(url: str) -> str:
         try:
             video_transcript = youtube.fetch_transcript_from_url(url)
         except youtube.InvalidUrlError:
@@ -48,14 +48,15 @@ class Explorer(Agent):
             return video_transcript
 
         try:
-            response = httpx.get(url, follow_redirects=True, timeout=10.0)
+            return MarkdownConverter().convert(
+                httpx.get(url, follow_redirects=True, timeout=10.0).text,
+            )
         except httpx.HTTPError as error:
             return f"Web fetch failed: {error}"
-        return MarkdownConverter().convert(response.text)
 
-    @classmethod
+    @staticmethod
     @tool(f"Run a shell command on this {platform.system()} machine.")
-    def shell(cls, cmd: str) -> str:
+    def shell(cmd: str) -> str:
         return subprocess.run(
             ["/bin/sh", "-lc", cmd],
             check=False,

@@ -1,6 +1,6 @@
 from .agent import Agent
 from .events import ChatEvent, TextDelta, ToolCallFinished, ToolCallStarted
-from .tool import Tool, ToolMetadata, tool
+from .tool import Tool, tool
 
 __all__ = [
     "Agent",
@@ -9,6 +9,5 @@ __all__ = [
     "Tool",
     "ToolCallFinished",
     "ToolCallStarted",
-    "ToolMetadata",
     "tool",
 ]

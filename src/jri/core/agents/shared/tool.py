@@ -1,16 +1,14 @@
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Self, cast, get_type_hints
+from typing import Self, get_type_hints
 
 from openai import pydantic_function_tool
 from openai.types.responses import FunctionToolParam
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
-type ToolArgsModel = type[BaseModel]
-
 _META_ATTR = "__jri_tool_metadata__"
-"""Attribute name used to store `ToolMetadata` on decorated funcs."""
+"""Attribute name used to store tool descriptions on decorated funcs."""
 
 
 def tool(
@@ -27,16 +25,10 @@ def tool(
     """
 
     def mark_as_tool(func: Callable[..., str]) -> Callable[..., str]:
-        meta = ToolMetadata(description=description)
-        setattr(func, _META_ATTR, meta)
+        setattr(func, _META_ATTR, description)
         return func
 
     return mark_as_tool
-
-
-@dataclass(frozen=True)
-class ToolMetadata:
-    description: str
 
 
 @dataclass(frozen=True)
@@ -45,8 +37,8 @@ class Tool:
 
     name: str
     description: str
-    func: Callable[..., str]
-    args_model: ToolArgsModel
+    func: Callable[..., object]
+    args_model: type[BaseModel]
 
     @classmethod
     def get_list_from_owner(cls, owner: object) -> list[Self]:
@@ -58,17 +50,14 @@ class Tool:
 
         tools: list[Self] = []
         seen: set[str] = set()
-        for owner_cls in type(owner).__mro__:
-            if owner_cls is object:
-                continue
+        for owner_cls in type(owner).__mro__[:-1]:
             for attr in owner_cls.__dict__:
                 if attr in seen:
                     continue
                 seen.add(attr)
-                tool_obj = cls.get_obj_from_callback(
+                if tool_obj := cls.get_obj_from_callback(
                     getattr(owner, attr, None),
-                )
-                if tool_obj:
+                ):
                     tools.append(tool_obj)
         return tools
 
@@ -90,70 +79,60 @@ class Tool:
             return None
 
         wrapped = getattr(func, "__func__", func)
-        meta = getattr(wrapped, _META_ATTR, None)
-        if not isinstance(meta, ToolMetadata):
+        description = getattr(wrapped, _META_ATTR, None)
+        if not isinstance(description, str):
             return None
 
-        tool_func = cast("Callable[..., str]", func)
         try:
-            annotations = cast(
-                "dict[str, object]",
-                get_type_hints(wrapped, include_extras=True),
-            )
+            annotations = get_type_hints(wrapped, include_extras=True)
         except Exception as error:
             raise TypeError(
                 "Tool "
-                + f"`{tool_func.__name__}` has unsupported parameter "
+                + f"`{func.__name__}` has unsupported parameter "
                 + f"annotations: {error}",
             ) from error
 
         fields: dict[str, tuple[object, object]] = {}
-        for param in inspect.signature(tool_func).parameters.values():
+        for param in inspect.signature(func).parameters.values():
             if param.kind not in {
                 inspect.Parameter.POSITIONAL_OR_KEYWORD,
                 inspect.Parameter.KEYWORD_ONLY,
             }:
                 raise TypeError(
-                    f"Tool `{tool_func.__name__}` parameter `{param.name}` "
+                    f"Tool `{func.__name__}` parameter `{param.name}` "
                     + "must be callable as a keyword argument.",
                 )
-            default = cast("object", param.default)
-            if default is not inspect.Parameter.empty:
+            if param.default is not inspect.Parameter.empty:
                 raise TypeError(
-                    f"Tool `{tool_func.__name__}` parameter `{param.name}` "
+                    f"Tool `{func.__name__}` parameter `{param.name}` "
                     + "must not define a Python default. Use `T | None` "
                     + "for nullable tool input.",
                 )
-            annotation = annotations.get(param.name)
-            if annotation is None:
-                annotation = cast("object", param.annotation)
+            annotation = annotations.get(param.name, param.annotation)
             fields[param.name] = (
                 str if annotation is inspect.Parameter.empty else annotation,
                 ...,
             )
 
         try:
-            args_model = cast(
-                "ToolArgsModel",
-                create_model(
-                    f"{tool_func.__name__.title()}Args",
-                    __config__=ConfigDict(extra="forbid"),
-                    # `create_model` accepts this dynamic field map at
-                    # runtime; pyright cannot type the unpacked shape.
-                    **fields,  # pyright: ignore[reportCallIssue, reportArgumentType]
-                ),
+            args_model = create_model(
+                f"{func.__name__.title()}Args",
+                __config__=ConfigDict(extra="forbid"),
+                # `create_model` accepts this dynamic field map at
+                # runtime; pyright cannot type the unpacked shape.
+                **fields,  # pyright: ignore[reportCallIssue, reportArgumentType]
             )
         except Exception as error:
             raise TypeError(
                 "Tool "
-                + f"`{tool_func.__name__}` has unsupported parameter "
+                + f"`{func.__name__}` has unsupported parameter "
                 + f"annotations: {error}",
             ) from error
 
         return cls(
-            name=tool_func.__name__,
-            description=meta.description,
-            func=tool_func,
+            name=func.__name__,
+            description=description,
+            func=func,
             args_model=args_model,
         )
 
@@ -170,8 +149,7 @@ class Tool:
             name=self.name,
             description=self.description,
         )["function"]
-        parameters = function.get("parameters")
-        if parameters is None:
+        if (parameters := function.get("parameters")) is None:
             raise TypeError(f"Tool `{self.name}` has no parameters schema.")
         return {
             "type": "function",
@@ -190,11 +168,11 @@ class Tool:
 
         try:
             payload = self.args_model.model_validate_json(args, strict=True)
-            return self.func(**payload.model_dump())
+            return str(self.func(**payload.model_dump()))
         except ValidationError as error:
             first = error.errors(include_url=False)[0]
             parts: list[str] = []
-            for part in cast("tuple[object, ...]", first["loc"]):
+            for part in first["loc"]:
                 if isinstance(part, int) and parts:
                     parts[-1] += f"[{part}]"
                 elif isinstance(part, int):
@@ -202,8 +180,7 @@ class Tool:
                 else:
                     parts.append(str(part))
 
-            location = ".".join(parts)
-            if location:
+            if location := ".".join(parts):
                 reason = f"Invalid argument `{location}`: {first['msg']}."
             else:
                 reason = (

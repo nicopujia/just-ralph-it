@@ -1,7 +1,5 @@
 """Helpers for parsing YouTube URLs and fetching transcripts."""
 
-from __future__ import annotations
-
 from urllib.parse import parse_qs, urlparse
 
 from youtube_transcript_api import (
@@ -11,24 +9,22 @@ from youtube_transcript_api import (
 )
 
 __all__ = [
+    "Error",
     "InvalidUrlError",
     "TranscriptError",
     "fetch_transcript_from_url",
 ]
 
-HOSTS = {
-    "m.youtube.com",
-    "music.youtube.com",
-    "youtube.com",
-    "youtube-nocookie.com",
-}
+
+class Error(Exception):
+    """Base Exception for YouTube-related errors."""
 
 
-class InvalidUrlError(Exception):
+class InvalidUrlError(Error):
     """Raised when a YouTube URL cannot be resolved to a video."""
 
 
-class TranscriptError(Exception):
+class TranscriptError(Error):
     """Raised when a video transcript cannot be retrieved."""
 
 
@@ -66,20 +62,20 @@ def _get_video_id(url: str) -> str | None:
             return parts[0]
         raise InvalidUrlError("Missing video id in YouTube URL.")
 
-    if host not in HOSTS:
+    if host not in {
+        "m.youtube.com",
+        "music.youtube.com",
+        "youtube.com",
+        "youtube-nocookie.com",
+    }:
         return None
 
-    match parts:
-        case ["watch", *_]:
-            if video_id := parse_qs(parsed.query).get("v", [None])[0]:
-                return video_id
-        case [("shorts" | "embed"), video_id, *_]:
+    if parts[:1] == ["watch"]:
+        if video_id := parse_qs(parsed.query).get("v", [None])[0]:
             return video_id
-        case _:
-            pass
-
-    if parts and parts[0] == "watch":
         raise InvalidUrlError("Missing video id in YouTube URL.")
+    if len(parts) > 1 and parts[0] in {"shorts", "embed"}:
+        return parts[1]
     raise InvalidUrlError("Unsupported YouTube URL format.")
 
 
@@ -100,11 +96,12 @@ def _fetch_transcript(video_id: str) -> str:
 
     try:
         transcript = transcripts.find_transcript(["en"])
-    except NoTranscriptFound:
+    except NoTranscriptFound as error:
         transcript = next(iter(transcripts), None)
-
-    if transcript is None:
-        raise TranscriptError("No transcript is available for this video.")
+        if transcript is None:
+            raise TranscriptError(
+                "No transcript is available for this video.",
+            ) from error
 
     try:
         snippets = transcript.fetch()

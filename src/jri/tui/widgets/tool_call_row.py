@@ -1,15 +1,10 @@
-from typing import TYPE_CHECKING, ClassVar
-
 from textual.widgets import Static
 
 from jri.tui import constants as c
 
-if TYPE_CHECKING:
-    from textual.timer import Timer
-
 
 class ToolCallRow(Static):
-    SPINNER_FRAMES: ClassVar[tuple[str, ...]] = (
+    SPINNER_FRAMES = (
         "⠋",
         "⠙",
         "⠹",
@@ -24,16 +19,15 @@ class ToolCallRow(Static):
 
     def __init__(self, tool_name: str, *, is_complete: bool = False) -> None:
         super().__init__(classes=c.TOOL_CALL_ROW_CLASSES)
-        self.tool_name: str = tool_name
-        self.frame_idx: int = 0
-        self.is_complete: bool = is_complete
-        self.spinner_timer: Timer | None = None
+        self.tool_name = tool_name
+        self.frame_idx = 0
+        self.is_complete = is_complete
+        self.spinner_timer = None
 
     def on_mount(self) -> None:
         self.update_copy()
-        if self.is_complete:
-            return
-        self.spinner_timer = self.set_interval(0.08, self.advance_spinner)
+        if not self.is_complete:
+            self.spinner_timer = self.set_interval(0.08, self.advance_spinner)
 
     def on_unmount(self) -> None:
         if self.spinner_timer is not None:

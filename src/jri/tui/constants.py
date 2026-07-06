@@ -6,7 +6,7 @@ from jri.core.agents.interviewer import Interviewer
 INTERIVEWER_ERROR_COPY = """
 Something went wrong while talking to the interviewer:
 
-%s
+{error}
 
 Please try again or contact Nico.
 """

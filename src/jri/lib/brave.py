@@ -145,11 +145,11 @@ class LLMContext:
         search_lang: str = "en",
         count: int = 20,
         freshness: Freshness | str | None = None,
-        maximum_number_of_urls: int = 20,
-        maximum_number_of_tokens: int = 8192,
-        maximum_number_of_snippets: int = 50,
-        maximum_number_of_tokens_per_url: int = 4096,
-        maximum_number_of_snippets_per_url: int = 50,
+        max_urls: int = 20,
+        max_tokens: int = 8192,
+        max_snippets: int = 50,
+        max_tokens_per_url: int = 4096,
+        max_snippets_per_url: int = 50,
         context_threshold_mode: ThresholdMode = "balanced",
         enable_local: bool | None = None,
         goggles: str | Sequence[str] | None = None,
@@ -171,13 +171,13 @@ class LLMContext:
             count: Max number of search results to consider (1-50).
             freshness: Filter by page age (pd/pw/pm/py or
                 custom range).
-            maximum_number_of_urls: Max URLs in response (1-50).
-            maximum_number_of_tokens: Approx max tokens
+            max_urls: Max URLs in response (1-50).
+            max_tokens: Approx max tokens
                 (1024-32768).
-            maximum_number_of_snippets: Max snippets across all
+            max_snippets: Max snippets across all
                 URLs.
-            maximum_number_of_tokens_per_url: Max tokens per URL.
-            maximum_number_of_snippets_per_url: Max snippets per
+            max_tokens_per_url: Max tokens per URL.
+            max_snippets_per_url: Max snippets per
                 URL.
             context_threshold_mode: Relevance threshold mode.
             enable_local: Force local recall on/off (None = auto).
@@ -203,15 +203,11 @@ class LLMContext:
                 "search_lang": search_lang,
                 "count": count,
                 "freshness": freshness,
-                "maximum_number_of_urls": maximum_number_of_urls,
-                "maximum_number_of_tokens": maximum_number_of_tokens,
-                "maximum_number_of_snippets": (maximum_number_of_snippets),
-                "maximum_number_of_tokens_per_url": (
-                    maximum_number_of_tokens_per_url
-                ),
-                "maximum_number_of_snippets_per_url": (
-                    maximum_number_of_snippets_per_url
-                ),
+                "maximum_number_of_urls": max_urls,
+                "maximum_number_of_tokens": max_tokens,
+                "maximum_number_of_snippets": max_snippets,
+                "maximum_number_of_tokens_per_url": max_tokens_per_url,
+                "maximum_number_of_snippets_per_url": max_snippets_per_url,
                 "context_threshold_mode": context_threshold_mode,
                 "enable_local": enable_local,
                 "goggles": goggles,
@@ -257,7 +253,7 @@ class LLMContext:
                 headers=headers,
                 timeout=self._timeout,
             )
-            _ = response.raise_for_status()
+            response.raise_for_status()
             return cast("dict[str, object]", response.json())
         except httpx.HTTPError as exc:
             detail = str(exc)
@@ -290,10 +286,7 @@ class LLMContext:
             raw.get("grounding", {}),
         )
         poi_raw = grounding.get("poi")
-        sources_raw = cast(
-            "dict[str, object]",
-            raw.get("sources", {}),
-        )
+        sources = cast("dict[str, object]", raw.get("sources", {}))
 
         return GroundingData(
             generic=[
@@ -304,9 +297,7 @@ class LLMContext:
                 )
             ],
             poi=(
-                SearchResult.from_raw(
-                    cast("dict[str, object]", poi_raw),
-                )
+                SearchResult.from_raw(poi_raw)
                 if isinstance(poi_raw, dict)
                 else None
             ),
@@ -319,6 +310,6 @@ class LLMContext:
             ],
             sources={
                 url: SourceMetadata.from_raw(url, item)
-                for url, item in sources_raw.items()
+                for url, item in sources.items()
             },
         )

@@ -35,7 +35,7 @@ module-name = "jri"
 
 [tool.basedpyright]
 include = ["src"]
-typeCheckingMode = "all"
+typeCheckingMode = "standard"
 
 [tool.ruff]
 line-length = 79

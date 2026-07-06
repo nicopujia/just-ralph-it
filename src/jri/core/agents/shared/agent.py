@@ -1,20 +1,14 @@
 from collections.abc import Generator
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 from openai import OpenAI
-from openai.types.responses import ResponseInputParam
-
-from jri.lib.text import unwrap_prose
-
-if TYPE_CHECKING:
-    from openai.types.responses import (
-        ResponseOutputItem,
-    )
-
-
 from openai.types.responses import (
     ResponseInputItemParam,
+    ResponseInputParam,
+    ResponseOutputItem,
 )
+
+from jri.lib.text import unwrap_prose
 
 from .events import ChatEvent, TextDelta, ToolCallFinished, ToolCallStarted
 from .tool import Tool
@@ -78,29 +72,25 @@ class Agent:
             outputs = [outputs_by_idx[i] for i in sorted(outputs_by_idx)]
             self.ctx.extend(cast("list[ResponseInputItemParam]", outputs))
 
-            # Process tool calls
-            tool_call = None
+            # Process tool calls, or return if none
+            if all(output.type != "function_call" for output in outputs):
+                return
+
             for output in outputs:
                 if output.type != "function_call":
                     continue
-                tool_call = output
                 yield ToolCallStarted(
-                    call_id=tool_call.call_id,
-                    tool_name=tool_call.name,
+                    call_id=output.call_id,
+                    tool_name=output.name,
                 )
-                tool = tools_by_name.get(tool_call.name)
+                tool = tools_by_name.get(output.name)
                 self.ctx.append({
                     "type": "function_call_output",
-                    "call_id": tool_call.call_id,
+                    "call_id": output.call_id,
                     "output": (
-                        tool.invoke(tool_call.arguments)
+                        tool.invoke(output.arguments)
                         if tool
-                        else f"Unknown tool `{tool_call.name}`."
+                        else f"Unknown tool `{output.name}`."
                     ),
                 })
-                yield ToolCallFinished(call_id=tool_call.call_id)
-
-            if tool_call is not None:
-                continue
-
-            return
+                yield ToolCallFinished(call_id=output.call_id)

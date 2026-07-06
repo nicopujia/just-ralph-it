@@ -1,5 +1,4 @@
 from pathlib import Path
-from typing import ClassVar
 
 from openai import OpenAI
 from pydantic import Field, ValidationError
@@ -41,7 +40,7 @@ class Settings(BaseSettings):
         description="API key for Brave Search LLM Context API.",
     )
 
-    model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
+    model_config = SettingsConfigDict(
         cli_kebab_case=True,
         cli_parse_args=True,
         cli_implicit_flags="toggle",

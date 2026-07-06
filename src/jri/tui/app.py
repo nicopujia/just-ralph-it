@@ -1,5 +1,3 @@
-from typing import ClassVar, override
-
 from openai import OpenAIError
 from textual import work
 from textual.app import App as TextualApp
@@ -7,7 +5,6 @@ from textual.app import ComposeResult
 from textual.containers import Vertical, VerticalScroll
 from textual.reactive import Reactive
 from textual.widgets import Header, Markdown, Static
-from textual.worker import Worker
 
 from jri.core.agents.shared import (
     ChatEvent,
@@ -24,24 +21,21 @@ from .widgets import MessageInput, ToolCallRow
 
 
 class App(TextualApp[None]):
-    TITLE: str | None = c.TITLE_COPY
-    CSS: ClassVar[str] = c.STYLESHEET
-    theme: Reactive[str] = Reactive(c.THEME_DEFAULT)
-    worker: Worker[None] | None = None
+    TITLE = c.TITLE_COPY
+    CSS = c.STYLESHEET
+    theme = Reactive(c.THEME_DEFAULT)
 
     def __init__(self, service: Service) -> None:
         super().__init__()
-        self.service: Service = service
-        self.is_interviewer_generating: bool = False
-        self.messages_container: VerticalScroll = VerticalScroll(
-            id=c.MESSAGES_CONTAINER_ID,
-        )
-        self.message_input: MessageInput = MessageInput(
+        self.service = service
+        self.is_interviewer_generating = False
+        self.worker = None
+        self.messages_container = VerticalScroll(id=c.MESSAGES_CONTAINER_ID)
+        self.message_input = MessageInput(
             id=c.MESSAGE_INPUT_ID,
             placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY,
         )
 
-    @override
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with self.messages_container:
@@ -72,29 +66,24 @@ class App(TextualApp[None]):
         event.message_input.text = ""
         event.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
 
-        user_message_widget = Static(
-            user_message,
-            classes=c.USER_MESSAGE_CLASSES,
-        )
         interviewer_turn = Vertical(classes=c.INTERVIEWER_TURN_CLASSES)
-        thinking_widget = Markdown(
+        placeholder = Markdown(
             c.INTERVIEWER_THINKING_COPY,
             classes=c.INTERVIEWER_MESSAGE_CLASSES,
         )
         turn_state = InterviewerTurnState(
             container=interviewer_turn,
-            placeholder=thinking_widget,
+            placeholder=placeholder,
         )
 
-        await self.messages_container.mount(user_message_widget)
+        await self.messages_container.mount(
+            Static(user_message, classes=c.USER_MESSAGE_CLASSES),
+        )
         await self.messages_container.mount(interviewer_turn)
-        await interviewer_turn.mount(thinking_widget)
+        await interviewer_turn.mount(placeholder)
 
         self.messages_container.anchor()
-        self.worker = self.send_message(
-            user_message,
-            turn_state,
-        )
+        self.worker = self.send_message(user_message, turn_state)
 
     # --- Workers ---------------------------------------------------- #
 
@@ -104,30 +93,24 @@ class App(TextualApp[None]):
         user_message: str,
         turn_state: InterviewerTurnState,
     ) -> None:
-        has_text_response = False
-        failed = False
+        status_copy = c.INTERVIEWER_NO_RESPONSE_COPY
         try:
             for chat_event in self.service.chat(user_message):
                 if isinstance(chat_event, TextDelta) and chat_event.text:
-                    has_text_response = True
+                    status_copy = None
                 self.call_from_thread(
                     self.render_chat_event,
                     turn_state,
                     chat_event,
                 )
         except (OpenAIError, RuntimeError) as error:
-            failed = True
-            self.call_from_thread(
-                self.render_interviewer_status,
-                turn_state,
-                c.INTERIVEWER_ERROR_COPY % error,
-            )
+            status_copy = c.INTERIVEWER_ERROR_COPY.format(error=error)
         finally:
-            if not has_text_response and not failed:
+            if status_copy is not None:
                 self.call_from_thread(
                     self.render_interviewer_status,
                     turn_state,
-                    c.INTERVIEWER_NO_RESPONSE_COPY,
+                    status_copy,
                 )
             self.call_from_thread(self.reset_message_input)
 
@@ -137,9 +120,6 @@ class App(TextualApp[None]):
         self.worker = None
         self.is_interviewer_generating = False
         self.set_focus(self.message_input)
-
-    def anchor_messages(self) -> None:
-        self.messages_container.anchor()
 
     async def render_chat_event(
         self,
@@ -158,31 +138,26 @@ class App(TextualApp[None]):
                 turn_state.active_markdown_text = ""
                 turn_state.tool_rows[call_id] = ToolCallRow(tool_name)
                 await turn_state.container.mount(turn_state.tool_rows[call_id])
-                self.anchor_messages()
+                self.messages_container.anchor()
             case ToolCallFinished(call_id=call_id):
-                tool_row = turn_state.tool_rows.get(call_id)
-                if tool_row is not None:
+                if (tool_row := turn_state.tool_rows.get(call_id)) is not None:
                     tool_row.mark_complete()
-                    self.anchor_messages()
+                    self.messages_container.anchor()
 
     async def render_interviewer_status(
         self,
         turn_state: InterviewerTurnState,
         content: str,
     ) -> None:
-        if turn_state.placeholder is not None:
+        if turn_state.placeholder is None:
+            turn_state.active_markdown = None
+            turn_state.active_markdown_text = ""
+            await turn_state.container.mount(
+                Markdown(content, classes=c.INTERVIEWER_MESSAGE_CLASSES),
+            )
+        else:
             await turn_state.placeholder.update(content)
-            self.anchor_messages()
-            return
-
-        turn_state.active_markdown = None
-        turn_state.active_markdown_text = ""
-        status_widget = Markdown(
-            content,
-            classes=c.INTERVIEWER_MESSAGE_CLASSES,
-        )
-        await turn_state.container.mount(status_widget)
-        self.anchor_messages()
+        self.messages_container.anchor()
 
     # --- Helpers ---------------------------------------------------- #
 
@@ -199,14 +174,13 @@ class App(TextualApp[None]):
                 "",
                 classes=c.INTERVIEWER_MESSAGE_CLASSES,
             )
-            turn_state.active_markdown_text = ""
             await turn_state.container.mount(turn_state.active_markdown)
 
         turn_state.active_markdown_text += text
         await turn_state.active_markdown.update(
             turn_state.active_markdown_text,
         )
-        self.anchor_messages()
+        self.messages_container.anchor()
 
     async def restore_history(self) -> None:
         for item in self.service.restore() or []:
