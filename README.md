@@ -15,8 +15,8 @@ uv sync
 # Install JRI globally
 uv tool install -e .
 
-# Run it on any project
-jri 
+# Run it
+jri --help
 ```
 
 ## Contributing

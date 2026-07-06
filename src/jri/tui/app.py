@@ -15,22 +15,12 @@ from jri.core.agents.shared import (
     ToolCallFinished,
     ToolCallStarted,
 )
-from jri.core.exceptions import ConfigurationError
 from jri.core.service import Service
 
 from . import constants as c
 from .states import InterviewerTurnState
-from .utils import detect_system_theme, get_config_error_help_message
+from .utils import detect_system_theme
 from .widgets import MessageInput, ToolCallRow
-
-
-def main() -> None:
-    try:
-        app = App()
-        app.run()
-    except ConfigurationError as error:
-        print(get_config_error_help_message(error))
-        raise SystemExit(1) from error
 
 
 class App(TextualApp[None]):
@@ -39,9 +29,9 @@ class App(TextualApp[None]):
     theme: Reactive[str] = Reactive(c.THEME_DEFAULT)
     worker: Worker[None] | None = None
 
-    def __init__(self, service: Service | None = None) -> None:
+    def __init__(self, service: Service) -> None:
         super().__init__()
-        self.service: Service = service or Service()
+        self.service: Service = service
         self.is_interviewer_generating: bool = False
         self.messages_container: VerticalScroll = VerticalScroll(
             id=c.MESSAGES_CONTAINER_ID,
@@ -237,7 +227,3 @@ class App(TextualApp[None]):
                 ),
             )
         self.messages_container.scroll_end(animate=False)
-
-
-if __name__ == "__main__":
-    main()

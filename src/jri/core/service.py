@@ -8,7 +8,7 @@ from openai import BaseModel as OpenAIModel
 
 from .agents import Interviewer
 from .agents.shared import ChatEvent
-from .settings import Settings, get_settings
+from .settings import Settings
 
 if TYPE_CHECKING:
     from openai.types.responses import ResponseInputItemParam
@@ -20,7 +20,7 @@ class InterviewItem(NamedTuple):
 
 
 class Service:
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(self, settings: Settings) -> None:
         """Load settings and set base directory up.
 
         Directory structure:
@@ -30,7 +30,7 @@ class Service:
                 interview.json
         ```
         """
-        self.settings: Settings = settings or get_settings()
+        self.settings: Settings = settings
         self.interviewer: Interviewer = Interviewer(self.settings)
         self.base_dir: Path = Path(self.settings.cwd / ".jri")
         self.interview_file: Path = self.base_dir / "interview.json"
