@@ -2,18 +2,9 @@
 
 from urllib.parse import parse_qs, urlparse
 
-from youtube_transcript_api import (
-    NoTranscriptFound,
-    YouTubeTranscriptApi,
-    YouTubeTranscriptApiException,
-)
+from youtube_transcript_api import NoTranscriptFound, YouTubeTranscriptApi, YouTubeTranscriptApiException
 
-__all__ = [
-    "Error",
-    "InvalidUrlError",
-    "TranscriptError",
-    "fetch_transcript_from_url",
-]
+__all__ = ["Error", "InvalidUrlError", "TranscriptError", "fetch_transcript_from_url"]
 
 
 class Error(Exception):
@@ -62,12 +53,7 @@ def _get_video_id(url: str) -> str | None:
             return parts[0]
         raise InvalidUrlError("Missing video id in YouTube URL.")
 
-    if host not in {
-        "m.youtube.com",
-        "music.youtube.com",
-        "youtube.com",
-        "youtube-nocookie.com",
-    }:
+    if host not in {"m.youtube.com", "music.youtube.com", "youtube.com", "youtube-nocookie.com"}:
         return None
 
     if parts[:1] == ["watch"]:
@@ -99,16 +85,12 @@ def _fetch_transcript(video_id: str) -> str:
     except NoTranscriptFound as error:
         transcript = next(iter(transcripts), None)
         if transcript is None:
-            raise TranscriptError(
-                "No transcript is available for this video.",
-            ) from error
+            raise TranscriptError("No transcript is available for this video.") from error
 
     try:
         snippets = transcript.fetch()
     except YouTubeTranscriptApiException as error:
-        raise TranscriptError(
-            "Failed to fetch transcript contents.",
-        ) from error
+        raise TranscriptError("Failed to fetch transcript contents.") from error
 
     lines = [text for snippet in snippets if (text := snippet.text.strip())]
     if not lines:

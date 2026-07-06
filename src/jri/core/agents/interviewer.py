@@ -25,10 +25,7 @@ class Interviewer(Agent):
             initial_ctx=[{"role": "assistant", "content": self.FIRST_MESSAGE}],
         )
 
-    @tool(
-        "Gather context through a natural language query, "
-        "including anything from the web or this computer.",
-    )
+    @tool("Gather context through a natural language query, including anything from the web or this computer.")
     def explore(self, query: str) -> str:
         latest_output: list[str] = []
         for event in Explorer(self.settings).send_message(query):

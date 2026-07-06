@@ -38,17 +38,21 @@ include = ["src"]
 typeCheckingMode = "standard"
 
 [tool.ruff]
-line-length = 79
+line-length = 120
 indent-width = 4
 preview = true
 show-fixes = true
 unsafe-fixes = true
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
 
 [tool.ruff.lint]
 select = ["ALL"]
 fixable = ["ALL"]
 unfixable = []
 ignore = [
+    "COM812", # mandatory trailing comma
     "CPY", # skip copyright notices
     "D203", # prefer no blank line before class docstrings
     "D213", # prefer docstring summary line to be on the first line

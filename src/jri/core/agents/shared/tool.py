@@ -11,9 +11,7 @@ _META_ATTR = "__jri_tool_metadata__"
 """Attribute name used to store tool descriptions on decorated funcs."""
 
 
-def tool(
-    description: str,
-) -> Callable[[Callable[..., str]], Callable[..., str]]:
+def tool(description: str) -> Callable[[Callable[..., str]], Callable[..., str]]:
     """Mark a method as an agent tool.
 
     The tool name is inferred from the decorated function name.
@@ -55,17 +53,12 @@ class Tool:
                 if attr in seen:
                     continue
                 seen.add(attr)
-                if tool_obj := cls.get_obj_from_callback(
-                    getattr(owner, attr, None),
-                ):
+                if tool_obj := cls.get_obj_from_callback(getattr(owner, attr, None)):
                     tools.append(tool_obj)
         return tools
 
     @classmethod
-    def get_obj_from_callback(
-        cls,
-        func: Callable[..., object] | object,
-    ) -> Self | None:
+    def get_obj_from_callback(cls, func: Callable[..., object] | object) -> Self | None:
         """Build a `Tool` from a ``@tool``-decorated callable.
 
         Returns:
@@ -86,33 +79,22 @@ class Tool:
         try:
             annotations = get_type_hints(wrapped, include_extras=True)
         except Exception as error:
-            raise TypeError(
-                "Tool "
-                + f"`{func.__name__}` has unsupported parameter "
-                + f"annotations: {error}",
-            ) from error
+            raise TypeError(f"Tool `{func.__name__}` has unsupported parameter annotations: {error}") from error
 
         fields: dict[str, tuple[object, object]] = {}
         for param in inspect.signature(func).parameters.values():
-            if param.kind not in {
-                inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                inspect.Parameter.KEYWORD_ONLY,
-            }:
+            if param.kind not in {inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY}:
                 raise TypeError(
-                    f"Tool `{func.__name__}` parameter `{param.name}` "
-                    + "must be callable as a keyword argument.",
+                    f"Tool `{func.__name__}` parameter `{param.name}` must be callable as a keyword argument."
                 )
             if param.default is not inspect.Parameter.empty:
                 raise TypeError(
                     f"Tool `{func.__name__}` parameter `{param.name}` "
-                    + "must not define a Python default. Use `T | None` "
-                    + "for nullable tool input.",
+                    "must not define a Python default. Use `T | None` "
+                    "for nullable tool input."
                 )
             annotation = annotations.get(param.name, param.annotation)
-            fields[param.name] = (
-                str if annotation is inspect.Parameter.empty else annotation,
-                ...,
-            )
+            fields[param.name] = (str if annotation is inspect.Parameter.empty else annotation, ...)
 
         try:
             args_model = create_model(
@@ -123,18 +105,9 @@ class Tool:
                 **fields,  # pyright: ignore[reportCallIssue, reportArgumentType]
             )
         except Exception as error:
-            raise TypeError(
-                "Tool "
-                + f"`{func.__name__}` has unsupported parameter "
-                + f"annotations: {error}",
-            ) from error
+            raise TypeError(f"Tool `{func.__name__}` has unsupported parameter annotations: {error}") from error
 
-        return cls(
-            name=func.__name__,
-            description=description,
-            func=func,
-            args_model=args_model,
-        )
+        return cls(name=func.__name__, description=description, func=func, args_model=args_model)
 
     @property
     def definition(self) -> FunctionToolParam:
@@ -144,11 +117,7 @@ class Tool:
             TypeError: If the SDK omits the generated parameters schema.
         """
 
-        function = pydantic_function_tool(
-            self.args_model,
-            name=self.name,
-            description=self.description,
-        )["function"]
+        function = pydantic_function_tool(self.args_model, name=self.name, description=self.description)["function"]
         if (parameters := function.get("parameters")) is None:
             raise TypeError(f"Tool `{self.name}` has no parameters schema.")
         return {
@@ -183,10 +152,7 @@ class Tool:
             if location := ".".join(parts):
                 reason = f"Invalid argument `{location}`: {first['msg']}."
             else:
-                reason = (
-                    f"Invalid arguments for `{self.name}`: "
-                    + f"{first['msg']}."
-                )
+                reason = f"Invalid arguments for `{self.name}`: " + f"{first['msg']}."
             return f"Tool call failed: {reason}"
         except (RuntimeError, TypeError, ValueError) as error:
             return f"Tool call failed: {error}"

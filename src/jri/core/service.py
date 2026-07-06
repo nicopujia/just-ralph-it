@@ -46,10 +46,7 @@ class Service:
         """
         yield from self.interviewer.send_message(message)
         interview_json = [
-            item.model_dump(mode="json")
-            if isinstance(item, OpenAIModel)
-            else item
-            for item in self.interviewer.ctx
+            (item.model_dump(mode="json") if isinstance(item, OpenAIModel) else item) for item in self.interviewer.ctx
         ]
         interview_json_str = f"{json.dumps(interview_json, indent=2)}\n"
         self.interview_file.write_text(interview_json_str)

@@ -33,12 +33,9 @@ def _get_config_error_message(error: ConfigurationError) -> str:
         field_name = str(issue["loc"][0])
         if not (field := Settings.model_fields.get(field_name)):
             continue
-        cli_name = (
-            field_name.replace("_", "-") if use_cli_kebab_case else field_name
-        )
+        cli_name = field_name.replace("_", "-") if use_cli_kebab_case else field_name
         error_lines.append(
-            f"- {env_prefix}{field_name.upper()} or --{cli_name}: "
-            f"{field.description or '<no description available>'}",
+            f"- {env_prefix}{field_name.upper()} or --{cli_name}: {field.description or '<no description available>'}"
         )
     return CONFIG_ERROR_COPY.format(errors="\n".join(error_lines))
 

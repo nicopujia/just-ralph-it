@@ -9,7 +9,7 @@ Something went wrong while talking to the interviewer:
 {error}
 
 Please try again or contact Nico.
-"""
+""".strip()
 INTERVIEWER_MESSAGE_CLASSES = "interviewer-message"
 INTERVIEWER_NO_RESPONSE_COPY = "_No response received._"
 INTERVIEWER_THINKING_COPY = "_Thinking..._"
@@ -71,4 +71,4 @@ Header {{
     text-opacity: 70%;
     text-style: dim;
 }}
-"""
+""".strip()

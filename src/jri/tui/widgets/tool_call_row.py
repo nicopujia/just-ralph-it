@@ -4,18 +4,7 @@ from jri.tui import constants as c
 
 
 class ToolCallRow(Static):
-    SPINNER_FRAMES = (
-        "⠋",
-        "⠙",
-        "⠹",
-        "⠸",
-        "⠼",
-        "⠴",
-        "⠦",
-        "⠧",
-        "⠇",
-        "⠏",
-    )
+    SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
     def __init__(self, tool_name: str, *, is_complete: bool = False) -> None:
         super().__init__(classes=c.TOOL_CALL_ROW_CLASSES)
@@ -47,7 +36,5 @@ class ToolCallRow(Static):
         self.update_copy()
 
     def update_copy(self) -> None:
-        prefix = (
-            "⚙︎" if self.is_complete else self.SPINNER_FRAMES[self.frame_idx]
-        )
+        prefix = "⚙︎" if self.is_complete else self.SPINNER_FRAMES[self.frame_idx]
         self.update(f"{prefix} {self.tool_name}")

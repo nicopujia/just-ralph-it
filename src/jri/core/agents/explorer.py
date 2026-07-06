@@ -48,18 +48,11 @@ class Explorer(Agent):
             return video_transcript
 
         try:
-            return MarkdownConverter().convert(
-                httpx.get(url, follow_redirects=True, timeout=10.0).text,
-            )
+            return MarkdownConverter().convert(httpx.get(url, follow_redirects=True, timeout=10.0).text)
         except httpx.HTTPError as error:
             return f"Web fetch failed: {error}"
 
     @staticmethod
     @tool(f"Run a shell command on this {platform.system()} machine.")
     def shell(cmd: str) -> str:
-        return subprocess.run(
-            ["/bin/sh", "-lc", cmd],
-            check=False,
-            capture_output=True,
-            text=True,
-        ).stdout
+        return subprocess.run(["/bin/sh", "-lc", cmd], check=False, capture_output=True, text=True).stdout

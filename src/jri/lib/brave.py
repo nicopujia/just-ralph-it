@@ -13,15 +13,7 @@ import httpx
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-__all__ = [
-    "Error",
-    "Freshness",
-    "GroundingData",
-    "LLMContext",
-    "SearchResult",
-    "SourceMetadata",
-    "ThresholdMode",
-]
+__all__ = ["Error", "Freshness", "GroundingData", "LLMContext", "SearchResult", "SourceMetadata", "ThresholdMode"]
 
 
 # ── Types ───────────────────────────────────────────────────────────
@@ -62,21 +54,13 @@ class SourceMetadata:
     age: list[str] | None = None
 
     @classmethod
-    def from_raw(
-        cls,
-        url: str,
-        raw: object,
-    ) -> SourceMetadata:
+    def from_raw(cls, url: str, raw: object) -> SourceMetadata:
         item = cast("dict[str, object]", raw)
         return cls(
             url=url,
             title=cast("str", item.get("title", "")),
             hostname=cast("str", item.get("hostname", "")),
-            age=(
-                cast("list[str]", item["age"])
-                if item.get("age") is not None
-                else None
-            ),
+            age=(cast("list[str]", item["age"]) if item.get("age") is not None else None),
         )
 
 
@@ -98,11 +82,7 @@ class Error(Exception):
 
     status_code: int | None
 
-    def __init__(
-        self,
-        message: str,
-        status_code: int | None = None,
-    ) -> None:
+    def __init__(self, message: str, status_code: int | None = None) -> None:
         super().__init__(message)
         self.status_code = status_code
 
@@ -120,18 +100,11 @@ class LLMContext:
             print(r.title, r.url)
     """
 
-    _ENDPOINT: ClassVar[str] = (
-        "https://api.search.brave.com/res/v1/llm/context"
-    )
+    _ENDPOINT: ClassVar[str] = "https://api.search.brave.com/res/v1/llm/context"
     _api_key: str
     _timeout: float
 
-    def __init__(
-        self,
-        api_key: str,
-        *,
-        timeout: float = 30.0,
-    ) -> None:
+    def __init__(self, api_key: str, *, timeout: float = 30.0) -> None:
         self._api_key = api_key
         self._timeout = timeout
 
@@ -214,10 +187,7 @@ class LLMContext:
             }.items()
             if value is not None
         }
-        headers: dict[str, str] = {
-            "Accept": "application/json",
-            "X-Subscription-Token": self._api_key,
-        }
+        headers: dict[str, str] = {"Accept": "application/json", "X-Subscription-Token": self._api_key}
         headers.update({
             header: str(value)
             for header, value in {
@@ -233,11 +203,7 @@ class LLMContext:
         })
         return self._parse(self._request(body, headers))
 
-    def _request(
-        self,
-        body: dict[str, object],
-        headers: dict[str, str],
-    ) -> dict[str, object]:
+    def _request(self, body: dict[str, object], headers: dict[str, str]) -> dict[str, object]:
         """Make the HTTP POST request.
 
         Returns:
@@ -247,12 +213,7 @@ class LLMContext:
             Error: On HTTP errors or connection failures.
         """
         try:
-            response = httpx.post(
-                self._ENDPOINT,
-                json=body,
-                headers=headers,
-                timeout=self._timeout,
-            )
+            response = httpx.post(self._ENDPOINT, json=body, headers=headers, timeout=self._timeout)
             response.raise_for_status()
             return cast("dict[str, object]", response.json())
         except httpx.HTTPError as exc:
@@ -261,18 +222,10 @@ class LLMContext:
             if isinstance(exc, httpx.HTTPStatusError):
                 status_code = exc.response.status_code
                 try:
-                    detail = str(
-                        cast(
-                            "dict[str, object]",
-                            exc.response.json(),
-                        ).get("error", detail),
-                    )
+                    detail = str(cast("dict[str, object]", exc.response.json()).get("error", detail))
                 except (TypeError, ValueError):
                     detail = exc.response.text or detail
-            raise Error(
-                detail,
-                status_code=status_code,
-            ) from exc
+            raise Error(detail, status_code=status_code) from exc
 
     @staticmethod
     def _parse(raw: dict[str, object]) -> GroundingData:
@@ -281,35 +234,13 @@ class LLMContext:
         Returns:
             GroundingData with extracted content and sources.
         """
-        grounding = cast(
-            "dict[str, object]",
-            raw.get("grounding", {}),
-        )
+        grounding = cast("dict[str, object]", raw.get("grounding", {}))
         poi_raw = grounding.get("poi")
         sources = cast("dict[str, object]", raw.get("sources", {}))
 
         return GroundingData(
-            generic=[
-                SearchResult.from_raw(item)
-                for item in cast(
-                    "list[object]",
-                    grounding.get("generic", []),
-                )
-            ],
-            poi=(
-                SearchResult.from_raw(poi_raw)
-                if isinstance(poi_raw, dict)
-                else None
-            ),
-            map=[
-                SearchResult.from_raw(item)
-                for item in cast(
-                    "list[object]",
-                    grounding.get("map", []),
-                )
-            ],
-            sources={
-                url: SourceMetadata.from_raw(url, item)
-                for url, item in sources.items()
-            },
+            generic=[SearchResult.from_raw(item) for item in cast("list[object]", grounding.get("generic", []))],
+            poi=(SearchResult.from_raw(poi_raw) if isinstance(poi_raw, dict) else None),
+            map=[SearchResult.from_raw(item) for item in cast("list[object]", grounding.get("map", []))],
+            sources={url: SourceMetadata.from_raw(url, item) for url, item in sources.items()},
         )

@@ -34,9 +34,7 @@ def unwrap_prose(raw: str) -> str:
     """
     item_re = re.compile(r"^((?:\d+[.)]|[-*+•])\s+)(.*)$")
     rule_re = re.compile(r"^[-*_]{3,}\s*$")
-    table_re = re.compile(
-        r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$",
-    )
+    table_re = re.compile(r"^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*:?-{3,}:?\s*\|?\s*$")
     out: list[str] = []
 
     for block in textwrap.dedent(raw).split("\n\n"):
@@ -44,11 +42,7 @@ def unwrap_prose(raw: str) -> str:
         if not lines:
             out.append("")
             continue
-        if (
-            len(lines) > 1
-            and table_re.match(lines[1])
-            and all("|" in line for line in lines)
-        ):
+        if len(lines) > 1 and table_re.match(lines[1]) and all("|" in line for line in lines):
             out.append(block)
             continue
         if item_re.match(lines[0]) and all(
