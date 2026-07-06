@@ -20,6 +20,9 @@ class Explorer(Agent):
                 Given a query, use your tools to gather relevant context
                 and respond with a dense, concise, and purely factual report
                 based exclusively on tool outputs.
+
+                **CRITICAL**: NEVER use `shell` tool to mutate machine state.
+                You may only use it for exploration purposes.
             """,
         )
 
@@ -53,12 +56,9 @@ class Explorer(Agent):
     @classmethod
     @tool(f"Run a shell command on this {platform.system()} machine.")
     def shell(cls, cmd: str) -> str:
-        if cmd.startswith("rm"):
-            return "Data deletion is forbidden."
-        proc = subprocess.run(
+        return subprocess.run(
             ["/bin/sh", "-lc", cmd],
             check=False,
             capture_output=True,
             text=True,
-        )
-        return proc.stdout
+        ).stdout
