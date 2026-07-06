@@ -21,7 +21,7 @@ uv remove [package]
 jri
 
 # Run after making changes
-./scripts/check.py
+./scripts/check.sh
 ```
 
 ## Guidelines
