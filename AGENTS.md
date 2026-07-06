@@ -1,10 +1,10 @@
-# Just Ralph It (JRI) 
+# Just Ralph It (JRI)
 
-## Context
+## Overview
 
-To know more about this project and related knowledge, refer to the following documents:
+This is a pure Python monorepo. To know more about this project and related knowledge, refer to the following documents:
 
-- [Project concept document and vision](https://nicolaspujia.com/just-ralph-it.md)
+- [Project concept document and vision](https://nicolaspujia.com/just-ralph-it.md) — **TL;DR**: Easily define your own software project idea and then build it entirely by just clicking a button.
 - [Ralph technique playbook](https://raw.githubusercontent.com/ClaytonFarr/ralph-playbook/refs/heads/main/README.md)
 - [Original article about the Ralph technique](https://ghuntley.com/ralph/)
 
@@ -17,7 +17,10 @@ uv add [package]
 uv add --dev [package]
 uv remove [package]
 
-# Run TUI
+# Install CLI globally
+uv tool install -e .
+
+# Run CLI anywhere
 jri
 
 # Run after making changes
@@ -26,15 +29,15 @@ jri
 
 ## Guidelines
 
-### Workflow
-
-- Study docstrings at `__init__.py` files before modifying a package, as they contain relevant contributing information specific to that package.
-- When asked to commit, frequently make [**conventional**](https://raw.githubusercontent.com/conventional-commits/conventionalcommits.org/refs/heads/master/content/v1.0.0/index.md) and **atomic** commits.
-- Manually test your changes as a real user would use the software in production (e.g. via `tmux`). Don't add automated tests unless explicitely asked for.
-
 ### Code style
 
-- Add section comments at large modules (>300 lines) to group closely-related code blocks.
-- Name normal functions and methods as verbs.
-- If two linting rules contradict themselves, pick the best one and configure [pyproject.toml](./pyproject.toml) accordingly.
+- Follow Domain-Driven Development principles. For example, if a class about agents is on the `core` package and uses the OpenAI SDK, name it `Agent`, NOT `CoreAgent` or `OpenAIAgent`.
+- Name functions and methods as verbs unless they are of a special kind (e.g. decorators, event handlers, etc).
 - Write higher-level functions above lower-level ones. For example, if `f()` calls `a()` and then `b()`, write them in that order on the module.
+- Prefer defining logic inline instead of splitting into several helper functions unless the logic repeats itself.
+
+### Workflow
+
+- Spin a subagent to manually test (e.g. via `tmux`) your changes as a real user would use JRI in production.
+- Spin a subagent to reduce LOCs of your diff (only logic-wise, not docs-wise) as much as possible while preserving behavior.
+- Don't add automated tests unless explicitely asked for.
