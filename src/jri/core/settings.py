@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import ClassVar
 
 from openai import OpenAI
@@ -8,6 +9,10 @@ from .exceptions import ConfigurationError
 
 
 class Settings(BaseSettings):
+    cwd: Path = Field(
+        description="Current working directory.",
+        default_factory=Path.cwd,
+    )
     llm_api_key: str = Field(
         description=(
             "A valid API key for the LLM provider, which is defined by "
