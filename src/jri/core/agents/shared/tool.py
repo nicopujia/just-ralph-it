@@ -1,37 +1,29 @@
 import inspect
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Literal, Self, cast
+from typing import Self, cast, get_type_hints
 
+from openai import pydantic_function_tool
 from openai.types.responses import FunctionToolParam
+from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
-type JsonSchemaType = Literal["string", "integer", "number", "boolean"]
-type RuntimeType = type[str | int | float | bool]
+type ToolArgsModel = type[BaseModel]
 
-_JSON_TYPE_BY_RUNTIME_TYPE: dict[RuntimeType, JsonSchemaType] = {
-    str: "string",
-    int: "integer",
-    float: "number",
-    bool: "boolean",
-}
-
-# Attribute name used to store `ToolMetadata` on decorated funcs.
-_META_ATTR: str = "__jri_tool_metadata__"
+_META_ATTR = "__jri_tool_metadata__"
+"""Attribute name used to store `ToolMetadata` on decorated funcs."""
 
 
 def tool(
     description: str,
 ) -> Callable[[Callable[..., str]], Callable[..., str]]:
-    """Decorator that marks a method as an agent tool.
+    """Mark a method as an agent tool.
 
-    The tool name is always inferred from the decorated function name.
-
-    Tools are discovered automatically by `Tool.from_owner` on
-    `Agent` subclasses via the `TOOL_META_ATTR` attribute.
+    The tool name is inferred from the decorated function name.
+    `Tool.get_list_from_owner` discovers these methods on `Agent`
+    subclasses.
 
     Returns:
-        A decorator that attaches `ToolMetadata` to the function.
+        A decorator that attaches tool metadata to the function.
     """
 
     def mark_as_tool(func: Callable[..., str]) -> Callable[..., str]:
@@ -48,222 +40,176 @@ class ToolMetadata:
 
 
 @dataclass(frozen=True)
-class ToolParameter:
-    name: str
-    schema_type: JsonSchemaType
-    runtime_type: RuntimeType
-    has_default: bool
-
-    @classmethod
-    def from_signature_parameter(
-        cls,
-        tool_name: str,
-        param: inspect.Parameter,
-    ) -> Self:
-        """Build tool metadata from a callable signature parameter.
-
-        If a parameter has no annotation, it defaults to `str`.
-
-        Returns:
-            Parsed tool parameter metadata.
-
-        Raises:
-            TypeError: If the parameter kind or annotation is
-                unsupported.
-        """
-        if param.kind not in {
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-            inspect.Parameter.KEYWORD_ONLY,
-        }:
-            raise TypeError(
-                f"Tool `{tool_name}` parameter `{param.name}` must be "
-                + "callable as a keyword argument.",
-            )
-
-        annotation = cast("object", param.annotation)
-        if annotation is inspect.Parameter.empty:
-            annotation = str
-        if annotation not in _JSON_TYPE_BY_RUNTIME_TYPE:
-            raise TypeError(
-                f"Tool `{tool_name}` parameter `{param.name}` must be "
-                + "annotated as str, int, float, or bool.",
-            )
-
-        runtime_type = cast("RuntimeType", annotation)
-        default = cast("object", param.default)
-        return cls(
-            name=param.name,
-            schema_type=_JSON_TYPE_BY_RUNTIME_TYPE[runtime_type],
-            runtime_type=runtime_type,
-            has_default=default is not inspect.Parameter.empty,
-        )
-
-    def validate(self, value: object) -> str | None:
-        if self.runtime_type is str:
-            if isinstance(value, str) and value.strip():
-                return None
-            return f"Missing required string argument `{self.name}`."
-
-        if self.runtime_type is int:
-            if isinstance(value, int) and not isinstance(value, bool):
-                return None
-
-        elif self.runtime_type is float:
-            if isinstance(value, (int, float)) and not isinstance(value, bool):
-                return None
-
-        elif self.runtime_type is bool and isinstance(value, bool):
-            return None
-
-        return (
-            f"Invalid type for argument `{self.name}`; "
-            f"expected {self.runtime_type.__name__}."
-        )
-
-    @property
-    def definition(self) -> dict[str, object]:
-        schema_type: object = self.schema_type
-        if self.has_default:
-            schema_type = [self.schema_type, "null"]
-        return {"type": schema_type}
-
-
-@dataclass(frozen=True)
 class Tool:
+    """Runtime wrapper for an `@tool`-decorated callable."""
+
     name: str
     description: str
-    parameters: tuple[ToolParameter, ...]
     func: Callable[..., str]
+    args_model: ToolArgsModel
 
     @classmethod
     def get_list_from_owner(cls, owner: object) -> list[Self]:
-        """Discover tools from an object's ``@tool``-decorated methods.
-
-        Walks the MRO to collect every method tagged with ``@tool``.
+        """Discover every `@tool` method available on `owner`.
 
         Returns:
-            List of `Tool` instances found on the owner.
+            Tools found on the owner and its base classes.
         """
+
         tools: list[Self] = []
-        seen_attr_names: set[str] = set()
+        seen: set[str] = set()
         for owner_cls in type(owner).__mro__:
             if owner_cls is object:
                 continue
-            for attr_name in owner_cls.__dict__:
-                if attr_name in seen_attr_names:
+            for attr in owner_cls.__dict__:
+                if attr in seen:
                     continue
-                seen_attr_names.add(attr_name)
-                func = getattr(owner, attr_name, None)
-                if not callable(func):
-                    continue
-                tool = cls.get_obj_from_callback(func)
-                if tool is not None:
-                    tools.append(tool)
+                seen.add(attr)
+                tool_obj = cls.get_obj_from_callback(
+                    getattr(owner, attr, None),
+                )
+                if tool_obj:
+                    tools.append(tool_obj)
         return tools
 
     @classmethod
     def get_obj_from_callback(
         cls,
-        func: Callable[..., object],
+        func: Callable[..., object] | object,
     ) -> Self | None:
         """Build a `Tool` from a ``@tool``-decorated callable.
 
         Returns:
-            A `Tool` instance, or `None` if the callable lacks
-            `ToolMetadata`.
+            A tool instance, or `None` for undecorated callbacks.
+
+        Raises:
+            TypeError: If tool parameter annotations are unsupported.
         """
+
+        if not callable(func):
+            return None
+
         wrapped = getattr(func, "__func__", func)
         meta = getattr(wrapped, _META_ATTR, None)
         if not isinstance(meta, ToolMetadata):
             return None
+
         tool_func = cast("Callable[..., str]", func)
-        parameters = tuple(
-            ToolParameter.from_signature_parameter(tool_func.__name__, param)
-            for param in inspect.signature(tool_func).parameters.values()
-        )
+        try:
+            annotations = cast(
+                "dict[str, object]",
+                get_type_hints(wrapped, include_extras=True),
+            )
+        except Exception as error:
+            raise TypeError(
+                "Tool "
+                + f"`{tool_func.__name__}` has unsupported parameter "
+                + f"annotations: {error}",
+            ) from error
+
+        fields: dict[str, tuple[object, object]] = {}
+        for param in inspect.signature(tool_func).parameters.values():
+            if param.kind not in {
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            }:
+                raise TypeError(
+                    f"Tool `{tool_func.__name__}` parameter `{param.name}` "
+                    + "must be callable as a keyword argument.",
+                )
+            default = cast("object", param.default)
+            if default is not inspect.Parameter.empty:
+                raise TypeError(
+                    f"Tool `{tool_func.__name__}` parameter `{param.name}` "
+                    + "must not define a Python default. Use `T | None` "
+                    + "for nullable tool input.",
+                )
+            annotation = annotations.get(param.name)
+            if annotation is None:
+                annotation = cast("object", param.annotation)
+            fields[param.name] = (
+                str if annotation is inspect.Parameter.empty else annotation,
+                ...,
+            )
+
+        try:
+            args_model = cast(
+                "ToolArgsModel",
+                create_model(
+                    f"{tool_func.__name__.title()}Args",
+                    __config__=ConfigDict(extra="forbid"),
+                    # `create_model` accepts this dynamic field map at
+                    # runtime; pyright cannot type the unpacked shape.
+                    **fields,  # pyright: ignore[reportCallIssue, reportArgumentType]
+                ),
+            )
+        except Exception as error:
+            raise TypeError(
+                "Tool "
+                + f"`{tool_func.__name__}` has unsupported parameter "
+                + f"annotations: {error}",
+            ) from error
+
         return cls(
             name=tool_func.__name__,
             description=meta.description,
-            parameters=parameters,
             func=tool_func,
+            args_model=args_model,
         )
 
     @property
     def definition(self) -> FunctionToolParam:
-        """OpenAI function-tool definition for the Responses API."""
-        properties: dict[str, object] = {
-            param.name: param.definition for param in self.parameters
-        }
-        required = [param.name for param in self.parameters]
+        """OpenAI Responses API function-tool definition.
+
+        Raises:
+            TypeError: If the SDK omits the generated parameters schema.
+        """
+
+        function = pydantic_function_tool(
+            self.args_model,
+            name=self.name,
+            description=self.description,
+        )["function"]
+        parameters = function.get("parameters")
+        if parameters is None:
+            raise TypeError(f"Tool `{self.name}` has no parameters schema.")
         return {
             "type": "function",
             "name": self.name,
             "description": self.description,
-            "parameters": {
-                "type": "object",
-                "properties": properties,
-                "required": required,
-                "additionalProperties": False,
-            },
+            "parameters": parameters,
             "strict": True,
         }
 
     def invoke(self, args: str) -> str:
-        """Parse JSON `args` and call the underlying function.
+        """Validate JSON args and call the tool.
 
         Returns:
-            The function result, or an error string on invalid/missing
-            arguments.
+            The tool result, or a user-facing error string.
         """
+
         try:
-            kwargs = self._validate_args(args)
-            return self.func(**kwargs)
-        except (ValueError, RuntimeError) as error:
+            payload = self.args_model.model_validate_json(args, strict=True)
+            return self.func(**payload.model_dump())
+        except ValidationError as error:
+            first = error.errors(include_url=False)[0]
+            parts: list[str] = []
+            for part in cast("tuple[object, ...]", first["loc"]):
+                if isinstance(part, int) and parts:
+                    parts[-1] += f"[{part}]"
+                elif isinstance(part, int):
+                    parts.append(f"[{part}]")
+                else:
+                    parts.append(str(part))
+
+            location = ".".join(parts)
+            if location:
+                reason = f"Invalid argument `{location}`: {first['msg']}."
+            else:
+                reason = (
+                    f"Invalid arguments for `{self.name}`: "
+                    + f"{first['msg']}."
+                )
+            return f"Tool call failed: {reason}"
+        except (RuntimeError, TypeError, ValueError) as error:
             return f"Tool call failed: {error}"
-
-    def _validate_args(self, args: str) -> dict[str, object]:
-        """Parse JSON `args` and validate tool arguments.
-
-        Returns:
-            Validated keyword arguments.
-
-        Raises:
-            ValueError: If an argument is missing or unexpected.
-            TypeError: If an argument has an invalid type.
-        """
-        try:
-            payload = cast("object", json.loads(args))
-        except json.JSONDecodeError:
-            payload = None
-        if not isinstance(payload, dict):
-            raise TypeError(f"Invalid arguments for `{self.name}`.")
-
-        payload = cast("dict[str, object]", payload)
-        expected_names = {param.name for param in self.parameters}
-        unexpected_arg = next(
-            (
-                arg_name
-                for arg_name in payload
-                if arg_name not in expected_names
-            ),
-            None,
-        )
-        if unexpected_arg is not None:
-            raise ValueError(f"Unexpected argument `{unexpected_arg}`.")
-
-        kwargs: dict[str, object] = {}
-        for param in self.parameters:
-            if param.name not in payload:
-                raise ValueError(f"Missing required argument `{param.name}`.")
-
-            value = payload[param.name]
-            if value is None:
-                if param.has_default:
-                    continue
-                raise ValueError(f"Missing required argument `{param.name}`.")
-
-            if error := param.validate(value):
-                raise ValueError(error)
-            kwargs[param.name] = value
-
-        return kwargs
