@@ -10,6 +10,8 @@ from .settings import Settings
 
 
 class Service:
+    """Coordinate JRI runtime files and interviewer turns."""
+
     def __init__(self, settings: Settings) -> None:
         """Load settings and set base directory up.
 
@@ -66,7 +68,11 @@ class Service:
         if text := "".join(assistant_text):
             turn_items.append(InterviewItem(type="assistant", text=text))
         self.interview_items.extend(turn_items)
-        self._save_interview()
+        payload = [item.model_dump(mode="json") for item in self.interview_items]
+        self.notes.state.interview.context = self.interviewer.dump_context()
+        self.notes.save_state()
+        self.logs_dir.mkdir(exist_ok=True, parents=True)
+        self.interview_log_file.write_text(f"{json.dumps(payload, indent=2)}\n", encoding="utf-8")
 
     def restore(self) -> list[InterviewItem]:
         """Restore interview session if present.
@@ -79,10 +85,3 @@ class Service:
         else:
             self.interviewer.rebuild_context()
         return list(self.interview_items)
-
-    def _save_interview(self) -> None:
-        payload = [item.model_dump(mode="json") for item in self.interview_items]
-        self.notes.state.interview.context = self.interviewer.dump_context()
-        self.notes.save_state()
-        self.logs_dir.mkdir(exist_ok=True, parents=True)
-        self.interview_log_file.write_text(f"{json.dumps(payload, indent=2)}\n", encoding="utf-8")
