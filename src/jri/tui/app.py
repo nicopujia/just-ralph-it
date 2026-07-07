@@ -6,8 +6,8 @@ from textual.containers import Vertical, VerticalScroll
 from textual.reactive import Reactive
 from textual.widgets import Header, Markdown, Static
 
-from jri.core.agents.shared import ChatEvent, TextDelta, ToolCallFinished, ToolCallStarted
-from jri.core.service import Service
+from jri.core import Service
+from jri.core.agents import ChatEvent, TextDelta, ToolCallFinished, ToolCallStarted
 
 from . import constants as c
 from .states import InterviewerTurnState

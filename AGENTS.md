@@ -54,7 +54,7 @@ jri --help
 
 # TUI manual smoke example
 smoke_dir="$(mktemp -d)"
-cp .env $(smoke_dir)/.env
+cp .env "$smoke_dir/.env"
 tmux new-window -t jri -n smoke "jri"
 sleep 4
 tmux send-keys -t jri:smoke "I want to build a small app for tracking books I read." Enter

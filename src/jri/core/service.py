@@ -2,10 +2,8 @@ import json
 import shutil
 from collections.abc import Generator
 
-from .agents import Interviewer
-from .agents.shared import ChatEvent, TextDelta, ToolCallStarted
-from .notes import Notes
-from .notes.models import InterviewItem
+from .agents import ChatEvent, Interviewer, TextDelta, ToolCallStarted
+from .notes import InterviewItem, Notes
 from .settings import Settings
 
 

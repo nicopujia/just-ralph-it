@@ -1,6 +1,4 @@
-from jri.core.exceptions import ConfigurationError
-from jri.core.service import Service
-from jri.core.settings import Settings, get_settings
+from jri.core import ConfigurationError, Service, Settings, get_settings
 from jri.tui.app import App
 
 CONFIG_ERROR_COPY = """Invalid configuration.
