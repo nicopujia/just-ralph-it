@@ -8,9 +8,13 @@ from openai.types.responses import FunctionToolParam
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
 _DESCRIPTION_ATTR = "__jri_tool_description__"
+_RUNNING_LABEL_ATTR = "__jri_tool_running_label__"
+_FINISHED_LABEL_ATTR = "__jri_tool_finished_label__"
 
 
-def tool(description: str) -> Callable[[Callable[..., str]], Callable[..., str]]:
+def tool(
+    description: str, *, running_label: str, finished_label: str
+) -> Callable[[Callable[..., str]], Callable[..., str]]:
     """Mark a method as an agent tool.
 
     The tool name is inferred from the decorated function name.
@@ -23,6 +27,8 @@ def tool(description: str) -> Callable[[Callable[..., str]], Callable[..., str]]
 
     def mark_as_tool(func: Callable[..., str]) -> Callable[..., str]:
         setattr(func, _DESCRIPTION_ATTR, description)
+        setattr(func, _RUNNING_LABEL_ATTR, running_label)
+        setattr(func, _FINISHED_LABEL_ATTR, finished_label)
         return func
 
     return mark_as_tool
@@ -34,6 +40,8 @@ class Tool:
 
     name: str
     description: str
+    running_label: str
+    finished_label: str
     func: Callable[..., object]
     args_model: type[BaseModel]
 
@@ -74,6 +82,10 @@ class Tool:
         description = getattr(wrapped, _DESCRIPTION_ATTR, None)
         if not isinstance(description, str):
             return None
+        running_label = getattr(wrapped, _RUNNING_LABEL_ATTR, None)
+        finished_label = getattr(wrapped, _FINISHED_LABEL_ATTR, None)
+        if not isinstance(running_label, str) or not isinstance(finished_label, str):
+            raise TypeError(f"Tool `{func.__name__}` is missing display labels.")
 
         try:
             annotations = get_type_hints(wrapped, include_extras=True)
@@ -106,7 +118,14 @@ class Tool:
         except Exception as error:
             raise TypeError(f"Tool `{func.__name__}` has unsupported parameter annotations: {error}") from error
 
-        return cls(name=func.__name__, description=description, func=func, args_model=args_model)
+        return cls(
+            name=func.__name__,
+            description=description,
+            running_label=running_label,
+            finished_label=finished_label,
+            func=func,
+            args_model=args_model,
+        )
 
     @property
     def definition(self) -> FunctionToolParam:

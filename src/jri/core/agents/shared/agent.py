@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from collections.abc import Generator
 from typing import cast
 
@@ -10,7 +11,7 @@ from .events import ChatEvent, TextDelta, ToolCallFinished, ToolCallStarted
 from .tool import Tool
 
 
-class Agent:
+class Agent(ABC):
     """Minimal, customizable LLM agent.
 
     Subclass and decorate methods with ``@tool`` to expose them
@@ -73,8 +74,13 @@ class Agent:
             for output in outputs:
                 if output.type != "function_call":
                     continue
-                yield ToolCallStarted(call_id=output.call_id, tool_name=output.name)
                 tool = tools_by_name.get(output.name)
+                yield ToolCallStarted(
+                    call_id=output.call_id,
+                    tool_name=output.name,
+                    running_label=tool.running_label if tool else output.name,
+                    finished_label=tool.finished_label if tool else output.name,
+                )
                 call_output: ResponseInputItemParam = {
                     "type": "function_call_output",
                     "call_id": output.call_id,
@@ -85,5 +91,6 @@ class Agent:
                 self.after_tool_call(output.name, turn_items)
                 yield ToolCallFinished(call_id=output.call_id)
 
+    @abstractmethod
     def after_tool_call(self, _tool_name: str, _turn_items: list[ResponseInputItemParam]) -> None:
         """Allow subclasses to react after tool results."""

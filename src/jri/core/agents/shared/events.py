@@ -10,6 +10,8 @@ class TextDelta:
 class ToolCallStarted:
     call_id: str
     tool_name: str
+    running_label: str
+    finished_label: str
 
 
 @dataclass(frozen=True)

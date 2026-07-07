@@ -1,5 +1,3 @@
-from typing import ClassVar
-
 from textual.widgets import Static
 
 from jri.tui import constants as c
@@ -7,22 +5,11 @@ from jri.tui import constants as c
 
 class ToolCallRow(Static):
     SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
-    TOOL_LABELS: ClassVar[dict[str, str]] = dict.fromkeys(
-        (
-            "add_feature",
-            "add_note",
-            "archive_note",
-            "resolve_question",
-            "revise_note",
-            "set_feature_brief",
-            "set_project_brief",
-        ),
-        "Updating notes",
-    ) | {"explore": "Exploring", "read_notes": "Checking notes", "switch_focus": "Organizing notes"}
 
-    def __init__(self, tool_name: str, *, is_complete: bool = False) -> None:
+    def __init__(self, running_label: str, finished_label: str, *, is_complete: bool = False) -> None:
         super().__init__(classes=c.TOOL_CALL_ROW_CLASSES)
-        self.tool_name = tool_name
+        self.running_label = running_label
+        self.finished_label = finished_label
         self.frame_idx = 0
         self.is_complete = is_complete
         self.spinner_timer = None
@@ -51,4 +38,5 @@ class ToolCallRow(Static):
 
     def update_copy(self) -> None:
         prefix = "⚙︎" if self.is_complete else self.SPINNER_FRAMES[self.frame_idx]
-        self.update(f"{prefix} {self.TOOL_LABELS.get(self.tool_name, self.tool_name)}")
+        label = self.finished_label if self.is_complete else self.running_label
+        self.update(f"{prefix} {label}")

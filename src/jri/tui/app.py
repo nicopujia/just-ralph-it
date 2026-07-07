@@ -98,10 +98,10 @@ class App(TextualApp[None]):
         match chat_event:
             case TextDelta(text=text):
                 await self.append_interviewer_text(turn_state, text)
-            case ToolCallStarted(call_id=call_id, tool_name=tool_name):
+            case ToolCallStarted(call_id=call_id, running_label=running_label, finished_label=finished_label):
                 turn_state.active_markdown = None
                 turn_state.active_markdown_text = ""
-                turn_state.tool_rows[call_id] = ToolCallRow(tool_name)
+                turn_state.tool_rows[call_id] = ToolCallRow(running_label, finished_label)
                 await turn_state.container.mount(turn_state.tool_rows[call_id])
                 self.messages_container.anchor()
             case ToolCallFinished(call_id=call_id):
@@ -145,7 +145,7 @@ class App(TextualApp[None]):
             interviewer_turn = Vertical(classes=c.INTERVIEWER_TURN_CLASSES)
             await self.messages_container.mount(interviewer_turn)
             await interviewer_turn.mount(
-                ToolCallRow(item.text, is_complete=True)
+                ToolCallRow(item.text, item.text, is_complete=True)
                 if item.type == "tool"
                 else Markdown(item.text, classes=c.INTERVIEWER_MESSAGE_CLASSES)
             )

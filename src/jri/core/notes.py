@@ -1,6 +1,5 @@
 import json
 import re
-from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, Literal, NamedTuple, Self, cast
 
@@ -13,6 +12,7 @@ NoteKind = Literal["requirement", "constraint", "question", "decision"]
 ReadScope = Literal["all", "project", "global", "feature"]
 ReadKind = Literal["all", "brief", "requirements", "constraints", "questions", "decisions", "features"]
 FocusScope = Literal["project", "global", "feature"]
+type NoteListAttr = Literal["requirements", "constraints", "questions", "decisions"]
 
 _FEATURE_ID_PATTERN = re.compile(r"f([1-9][0-9]*)")
 _GLOBAL_ID_PATTERNS = {
@@ -22,10 +22,24 @@ _GLOBAL_ID_PATTERNS = {
     "decision": re.compile(r"d([1-9][0-9]*)"),
 }
 _NOTE_PREFIXES: dict[NoteKind, str] = {"requirement": "r", "constraint": "c", "question": "q", "decision": "d"}
+_NOTE_LIST_ATTRS: dict[NoteKind, NoteListAttr] = {
+    "requirement": "requirements",
+    "constraint": "constraints",
+    "question": "questions",
+    "decision": "decisions",
+}
+_READ_NOTE_KINDS: dict[ReadKind, NoteKind] = {
+    "requirements": "requirement",
+    "constraints": "constraint",
+    "questions": "question",
+    "decisions": "decision",
+}
 _USER_CONTROL_PREFERENCE_MARKER = "user control preference"
 
 
 class ProjectBrief(BaseModel):
+    """Top-level project framing stored in notes YAML."""
+
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = None
@@ -38,6 +52,8 @@ class ProjectBrief(BaseModel):
 
 
 class TrackedNote(BaseModel):
+    """Durable requirement, constraint, or decision note."""
+
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -55,6 +71,8 @@ class TrackedNote(BaseModel):
 
 
 class QuestionNote(BaseModel):
+    """Question note that can stay open or link to a decision."""
+
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -77,6 +95,8 @@ class QuestionNote(BaseModel):
 
 
 class NotesSection(BaseModel):
+    """Reusable group of project or feature notes."""
+
     model_config = ConfigDict(extra="forbid")
 
     requirements: list[TrackedNote] = Field(default_factory=list)
@@ -86,6 +106,8 @@ class NotesSection(BaseModel):
 
 
 class FeatureNotes(BaseModel):
+    """Feature-local brief plus its scoped notes."""
+
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -98,6 +120,8 @@ class FeatureNotes(BaseModel):
 
 
 class NotesDocument(BaseModel):
+    """Complete notes YAML document."""
+
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     project: ProjectBrief = Field(default_factory=ProjectBrief)
@@ -106,6 +130,8 @@ class NotesDocument(BaseModel):
 
 
 class FocusState(BaseModel):
+    """Current interview focus and carried context IDs."""
+
     model_config = ConfigDict(extra="forbid")
 
     scope: FocusScope = "project"
@@ -123,6 +149,8 @@ class FocusState(BaseModel):
 
 
 class RuntimeState(BaseModel):
+    """Runtime-only state persisted outside notes YAML."""
+
     model_config = ConfigDict(extra="forbid")
 
     focus: FocusState = Field(default_factory=FocusState)
@@ -133,12 +161,30 @@ type AnySection = NotesSection | FeatureNotes
 
 
 class NoteRef(NamedTuple):
+    """Located note and the feature scope it belongs to."""
+
     kind: NoteKind
     note: AnyNote
     feature: FeatureNotes | None
 
 
+class QuestionRef(NamedTuple):
+    """Typed question lookup result."""
+
+    note: QuestionNote
+    feature: FeatureNotes | None
+
+
+class DecisionRef(NamedTuple):
+    """Typed decision lookup result."""
+
+    note: TrackedNote
+    feature: FeatureNotes | None
+
+
 class Notes:
+    """Domain service for structured project notes and focus state."""
+
     def __init__(self, notes_file: Path, state_file: Path) -> None:
         self.notes_file = notes_file
         self.state_file = state_file
@@ -147,7 +193,7 @@ class Notes:
         self.document = self._load_notes()
         self.state = self._load_state()
 
-    def read_notes(  # noqa: C901
+    def read_notes(
         self,
         scope: ReadScope | None,
         kind: ReadKind | None,
@@ -156,6 +202,14 @@ class Notes:
         *,
         include_archived: bool | None,
     ) -> str:
+        """Render selected notes as compact text for agents.
+
+        Returns:
+            The selected notes as compact text, or a not-found message.
+
+        Raises:
+            ValueError: If feature scope inputs are inconsistent.
+        """
         include = include_archived is True
         selected_kind = kind or "all"
 
@@ -167,34 +221,24 @@ class Notes:
             raise ValueError("feature_id is only valid when scope is `feature`.")
 
         lines: list[str] = []
-        match selected_scope:
-            case "all":
-                if selected_kind in {"all", "brief"}:
-                    self._render_project_brief(lines)
-                if selected_kind in {"all", "requirements", "constraints", "questions", "decisions"}:
-                    self._render_section(
-                        lines, "Global", self.document.global_notes, selected_kind, include_archived=include
-                    )
-                if selected_kind in {"all", "features"}:
-                    self._render_features(lines)
-            case "project":
-                if selected_kind in {"all", "brief"}:
-                    self._render_project_brief(lines)
-            case "global":
-                self._render_section(
-                    lines, "Global", self.document.global_notes, selected_kind, include_archived=include
-                )
-            case "feature":
-                if feature_id is None:
-                    raise ValueError("feature_id is required when scope is `feature`.")
-                feature = self._get_feature(feature_id)
-                if selected_kind in {"all", "brief"}:
-                    lines.append(f"Feature {feature.id}: {feature.name}. {feature.summary}")
-                self._render_section(lines, f"Feature {feature.id}", feature, selected_kind, include_archived=include)
+        if selected_scope == "all":
+            self._render_all_scope(lines, selected_kind, include_archived=include)
+        elif selected_scope == "project":
+            if selected_kind in {"all", "brief"}:
+                self._render_project_brief(lines)
+        elif selected_scope == "global":
+            self._render_section(lines, "Global", self.document.global_notes, selected_kind, include_archived=include)
+        else:
+            self._render_feature_scope(lines, selected_kind, feature_id, include_archived=include)
 
         return "\n".join(lines).strip() or "No notes found."
 
     def get_user_control_preference_state(self) -> Literal["absent", "open", "resolved"]:
+        """Return user-control guidance status.
+
+        Returns:
+            Whether the preference marker is absent, open, or resolved.
+        """
         if any(
             decision.status == "active" and _USER_CONTROL_PREFERENCE_MARKER in decision.text.casefold()
             for decision in self.document.global_notes.decisions
@@ -208,7 +252,7 @@ class Notes:
 
         return "absent"
 
-    def set_project_brief(  # noqa: PLR0913, PLR0917
+    def set_project_brief(
         self,
         name: str | None,
         tldr: str | None,
@@ -218,6 +262,11 @@ class Notes:
         software_type: str | None,
         codebase_status: str | None,
     ) -> str:
+        """Update non-empty project brief fields.
+
+        Returns:
+            A user-facing summary of changed fields.
+        """
         updates = {
             "name": name,
             "tldr": tldr,
@@ -241,6 +290,14 @@ class Notes:
         return f"Updated project brief: {', '.join(changed)}."
 
     def add_feature(self, name: str, summary: str) -> str:
+        """Add a feature notes container.
+
+        Returns:
+            A user-facing creation summary.
+
+        Raises:
+            ValueError: If the name or summary is blank.
+        """
         if not name.strip():
             raise ValueError("Feature name is required.")
         if not summary.strip():
@@ -252,6 +309,14 @@ class Notes:
         return f"Added feature {feature.id}: {feature.name}"
 
     def set_feature_brief(self, feature_id: str, name: str | None, summary: str | None) -> str:
+        """Update a feature's name and summary fields.
+
+        Returns:
+            A user-facing summary of changed fields.
+
+        Raises:
+            ValueError: If the feature or replacement text is invalid.
+        """
         feature = self._get_feature(feature_id)
         changed: list[str] = []
         if name is not None:
@@ -271,6 +336,14 @@ class Notes:
         return f"Updated feature {feature.id}: {', '.join(changed)}."
 
     def add_note(self, kind: NoteKind, text: str, feature_id: str | None) -> str:
+        """Add one note to the global scope or a feature scope.
+
+        Returns:
+            A user-facing creation summary.
+
+        Raises:
+            ValueError: If the note text or feature scope is invalid.
+        """
         if not text.strip():
             raise ValueError("Note text is required.")
 
@@ -278,32 +351,35 @@ class Notes:
         note_id = self._next_note_id(kind, section, feature_id)
         if kind == "question":
             note = QuestionNote(id=note_id, text=text)
-            section.questions.append(note)
             label = "open question"
         else:
             note = TrackedNote(id=note_id, text=text)
-            self._notes_for_kind(section, kind).append(note)
             label = kind
+        self._notes(section, kind).append(note)
 
         self.save_notes()
         return f"Added {label} {note_id}: {text}"
 
     def resolve_question(self, question_id: str, decision_id: str | None, decision_text: str | None) -> str:
+        """Resolve an open question with an existing or new decision.
+
+        Returns:
+            A user-facing resolution summary.
+
+        Raises:
+            ValueError: If the question or decision inputs are invalid.
+        """
         if (decision_id is None) == (decision_text is None):
             raise ValueError("Provide exactly one of decision_id or decision_text.")
 
-        question_ref = self._find_note(question_id)
-        if question_ref.kind != "question" or not isinstance(question_ref.note, QuestionNote):
-            raise ValueError(f"`{question_id}` is not a question ID.")
+        question_ref = self._find_question(question_id)
         question = question_ref.note
         if question.status != "open":
             raise ValueError(f"Question `{question_id}` must be open to resolve.")
 
         section: AnySection = self.document.global_notes if question_ref.feature is None else question_ref.feature
         if decision_id is not None:
-            decision_ref = self._find_note(decision_id)
-            if decision_ref.kind != "decision" or not isinstance(decision_ref.note, TrackedNote):
-                raise ValueError(f"`{decision_id}` is not a decision ID.")
+            decision_ref = self._find_decision(decision_id)
             if decision_ref.feature is not question_ref.feature:
                 raise ValueError("Resolved questions must link to a decision in the same scope.")
             if decision_ref.note.status != "active":
@@ -314,7 +390,7 @@ class Notes:
                 raise ValueError("decision_text is required when decision_id is not provided.")
             decision_feature_id = question_ref.feature.id if question_ref.feature else None
             decision = TrackedNote(id=self._next_note_id("decision", section, decision_feature_id), text=decision_text)
-            section.decisions.append(decision)
+            self._notes(section, "decision").append(decision)
 
         question.status = "resolved"
         question.decision = decision.id
@@ -322,6 +398,14 @@ class Notes:
         return f"Resolved question {question.id} with decision {decision.id}: {decision.text}"
 
     def revise_note(self, note_id: str, text: str) -> str:
+        """Revise note text without changing its ID.
+
+        Returns:
+            A user-facing revision summary.
+
+        Raises:
+            ValueError: If the note ID or replacement text is invalid.
+        """
         if not text.strip():
             raise ValueError("Note text is required.")
         ref = self._find_note(note_id)
@@ -330,6 +414,14 @@ class Notes:
         return f"Revised {ref.kind} {ref.note.id}: {text}"
 
     def archive_note(self, note_id: str, reason: str) -> str:
+        """Archive a note and remove it from carried focus if needed.
+
+        Returns:
+            A user-facing archive summary.
+
+        Raises:
+            ValueError: If the note ID or archive reason is invalid.
+        """
         if not reason.strip():
             raise ValueError("Archive reason is required.")
         ref = self._find_note(note_id)
@@ -345,6 +437,14 @@ class Notes:
         return f"Archived {ref.kind} {ref.note.id}: {reason}"
 
     def switch_focus(self, scope: FocusScope, feature_id: str | None, carry_ids: list[str] | None, reason: str) -> str:
+        """Persist the active interview focus.
+
+        Returns:
+            A user-facing focus summary.
+
+        Raises:
+            ValueError: If focus inputs are invalid.
+        """
         if not reason.strip():
             raise ValueError("Focus switch reason is required.")
         if scope == "feature":
@@ -368,14 +468,37 @@ class Notes:
         return f"Switched focus to {target}. Carrying: {carried}."
 
     def save_notes(self) -> None:
+        """Validate and write notes YAML."""
         self._validate_document(self.document)
         data = self.document.model_dump(by_alias=True, mode="json", exclude_none=True)
         data["project"] = self.document.project.model_dump(mode="json")
         self.notes_file.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True))
 
     def save_state(self) -> None:
+        """Validate and write runtime state JSON."""
         self._validate_state(self.state)
         self.state_file.write_text(f"{json.dumps(self.state.model_dump(mode='json'), indent=2)}\n")
+
+    def _render_all_scope(self, lines: list[str], kind: ReadKind, *, include_archived: bool) -> None:
+        if kind in {"all", "brief"}:
+            self._render_project_brief(lines)
+        if kind in {"all", "requirements", "constraints", "questions", "decisions"}:
+            self._render_section(lines, "Global", self.document.global_notes, kind, include_archived=include_archived)
+        if kind in {"all", "features"} and self.document.features:
+            if lines:
+                lines.append("")
+            lines.append("Features")
+            lines.extend(f"- {feature.id}: {feature.name} - {feature.summary}" for feature in self.document.features)
+
+    def _render_feature_scope(
+        self, lines: list[str], kind: ReadKind, feature_id: str | None, *, include_archived: bool
+    ) -> None:
+        if feature_id is None:
+            raise ValueError("feature_id is required when scope is `feature`.")
+        feature = self._get_feature(feature_id)
+        if kind in {"all", "brief"}:
+            lines.append(f"Feature {feature.id}: {feature.name}. {feature.summary}")
+        self._render_section(lines, f"Feature {feature.id}", feature, kind, include_archived=include_archived)
 
     def _load_notes(self) -> NotesDocument:
         if not self.notes_file.exists() or not self.notes_file.read_text().strip():
@@ -451,13 +574,16 @@ class Notes:
                 raise RuntimeError(f"Malformed notes.yaml: duplicate note ID `{note.id}`.")
             seen_ids.add(note.id)
             self._validate_note_id(kind, note.id, feature_id)
-            if isinstance(note, QuestionNote) and note.status == "resolved":
-                if note.decision not in decisions:
+            if kind == "question":
+                question = cast("QuestionNote", note)
+                if question.status != "resolved":
+                    continue
+                if question.decision not in decisions:
                     raise RuntimeError(
-                        f"Malformed notes.yaml: resolved question `{note.id}` links to missing "
-                        f"decision `{note.decision}`."
+                        f"Malformed notes.yaml: resolved question `{question.id}` links to missing "
+                        f"decision `{question.decision}`."
                     )
-                self._validate_note_id("decision", cast("str", note.decision), feature_id)
+                self._validate_note_id("decision", cast("str", question.decision), feature_id)
 
     @staticmethod
     def _validate_note_id(kind: NoteKind, note_id: str, feature_id: str | None) -> None:
@@ -503,26 +629,25 @@ class Notes:
                     return NoteRef(kind, note, feature)
         raise ValueError(f"Unknown note ID `{note_id}`.")
 
-    @staticmethod
-    def _iter_section_notes(section: AnySection) -> list[tuple[NoteKind, AnyNote]]:
-        return [
-            *(("requirement", note) for note in section.requirements),
-            *(("constraint", note) for note in section.constraints),
-            *(("question", note) for note in section.questions),
-            *(("decision", note) for note in section.decisions),
-        ]
+    def _find_question(self, question_id: str) -> QuestionRef:
+        ref = self._find_note(question_id)
+        if ref.kind != "question":
+            raise ValueError(f"`{question_id}` is not a question ID.")
+        return QuestionRef(cast("QuestionNote", ref.note), ref.feature)
+
+    def _find_decision(self, decision_id: str) -> DecisionRef:
+        ref = self._find_note(decision_id)
+        if ref.kind != "decision":
+            raise ValueError(f"`{decision_id}` is not a decision ID.")
+        return DecisionRef(cast("TrackedNote", ref.note), ref.feature)
 
     @staticmethod
-    def _notes_for_kind(
-        section: AnySection, kind: Literal["requirement", "constraint", "decision"]
-    ) -> list[TrackedNote]:
-        match kind:
-            case "requirement":
-                return section.requirements
-            case "constraint":
-                return section.constraints
-            case "decision":
-                return section.decisions
+    def _iter_section_notes(section: AnySection) -> list[tuple[NoteKind, AnyNote]]:
+        return [(kind, note) for kind in _NOTE_LIST_ATTRS for note in Notes._notes(section, kind)]
+
+    @staticmethod
+    def _notes(section: AnySection, kind: NoteKind) -> list[AnyNote]:
+        return cast("list[AnyNote]", getattr(section, _NOTE_LIST_ATTRS[kind]))
 
     def _next_feature_id(self) -> str:
         highest = 0
@@ -534,24 +659,12 @@ class Notes:
     def _next_note_id(self, kind: NoteKind, section: AnySection, feature_id: str | None) -> str:
         prefix = _NOTE_PREFIXES[kind]
         highest = 0
-        for note in self._notes_for_allocated_kind(section, kind):
+        for note in self._notes(section, kind):
             local_id = note.id.removeprefix(f"{feature_id}/") if feature_id is not None else note.id
             if match := re.fullmatch(rf"{prefix}([1-9][0-9]*)", local_id):
                 highest = max(highest, int(match.group(1)))
         note_id = f"{prefix}{highest + 1}"
         return f"{feature_id}/{note_id}" if feature_id is not None else note_id
-
-    @staticmethod
-    def _notes_for_allocated_kind(section: AnySection, kind: NoteKind) -> Sequence[AnyNote]:
-        match kind:
-            case "requirement":
-                return section.requirements
-            case "constraint":
-                return section.constraints
-            case "question":
-                return section.questions
-            case "decision":
-                return section.decisions
 
     def _render_ids(self, ids: list[str], *, include_archived: bool) -> str:
         lines: list[str] = []
@@ -589,50 +702,22 @@ class Notes:
         if len(lines) == 1 and title == "Untitled project":
             lines.append("Project brief: not set.")
 
-    def _render_features(self, lines: list[str]) -> None:
-        if not self.document.features:
-            return
-        if lines:
-            lines.append("")
-        lines.append("Features")
-        lines.extend(f"- {feature.id}: {feature.name} - {feature.summary}" for feature in self.document.features)
-
     def _render_section(
         self, lines: list[str], scope_label: str, section: AnySection, kind: ReadKind, *, include_archived: bool
     ) -> None:
-        if kind in {"all", "requirements"}:
+        for read_kind, note_kind in _READ_NOTE_KINDS.items():
+            if kind not in {"all", read_kind}:
+                continue
             self._render_note_group(
                 lines,
-                f"{scope_label} requirements",
-                "requirement",
-                section.requirements,
+                f"{scope_label} {read_kind}",
+                note_kind,
+                self._notes(section, note_kind),
                 include_archived=include_archived,
-            )
-        if kind in {"all", "constraints"}:
-            self._render_note_group(
-                lines,
-                f"{scope_label} constraints",
-                "constraint",
-                section.constraints,
-                include_archived=include_archived,
-            )
-        if kind in {"all", "questions"}:
-            self._render_note_group(
-                lines, f"{scope_label} questions", "question", section.questions, include_archived=include_archived
-            )
-        if kind in {"all", "decisions"}:
-            self._render_note_group(
-                lines, f"{scope_label} decisions", "decision", section.decisions, include_archived=include_archived
             )
 
     def _render_note_group(
-        self,
-        lines: list[str],
-        title: str,
-        kind: NoteKind,
-        notes: list[TrackedNote] | list[QuestionNote],
-        *,
-        include_archived: bool,
+        self, lines: list[str], title: str, kind: NoteKind, notes: list[AnyNote], *, include_archived: bool
     ) -> None:
         visible_notes = [note for note in notes if include_archived or note.status != "archived"]
         if not visible_notes:
@@ -645,10 +730,11 @@ class Notes:
     @staticmethod
     def _render_note(kind: NoteKind, note: AnyNote) -> str:
         rendered = f"{note.id}: {note.text}"
-        if kind == "question" and isinstance(note, QuestionNote):
-            rendered += f" ({note.status}"
-            if note.decision:
-                rendered += f", decision: {note.decision}"
+        if kind == "question":
+            question = cast("QuestionNote", note)
+            rendered += f" ({question.status}"
+            if question.decision:
+                rendered += f", decision: {question.decision}"
             rendered += ")"
         elif note.status != "active":
             rendered += f" ({note.status})"

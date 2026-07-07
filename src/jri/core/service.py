@@ -1,4 +1,5 @@
 import json
+import shutil
 from collections.abc import Generator
 from typing import Any, Literal, NamedTuple
 
@@ -32,14 +33,18 @@ class Service:
         self.state_file = self.base_dir / "state.json"
         self.interview_file = self.base_dir / "interview.json"
 
-        self.base_dir.mkdir(exist_ok=True, parents=True)
         if settings.force:
-            self.interview_file.unlink(missing_ok=True)
-            self.state_file.unlink(missing_ok=True)
+            if self.base_dir.is_dir() and not self.base_dir.is_symlink():
+                shutil.rmtree(self.base_dir)
+            else:
+                self.base_dir.unlink(missing_ok=True)
+
+        self.base_dir.mkdir(exist_ok=True, parents=True)
 
         self.gitignore_file.write_text("interview.json\nstate.json\n")
         self.notes = Notes(self.notes_file, self.state_file)
         self.interviewer = Interviewer(settings, self.notes)
+        self.tool_finished_labels = {tool.name: tool.finished_label for tool in self.interviewer.tools}
         self.interview_items = self._load_interview_items()
 
     def chat(self, message: str) -> Generator[ChatEvent]:
@@ -56,7 +61,7 @@ class Service:
                 assistant_text.append(chat_event.text)
             elif isinstance(chat_event, ToolCallStarted):
                 self._flush_assistant_text(assistant_text, turn_items)
-                turn_items.append(InterviewItem("tool", chat_event.tool_name))
+                turn_items.append(InterviewItem("tool", chat_event.finished_label))
             yield chat_event
 
         self._flush_assistant_text(assistant_text, turn_items)
@@ -90,7 +95,9 @@ class Service:
             if not isinstance(text, str):
                 continue
             match item_type:
-                case "user" | "assistant" | "tool":
+                case "tool":
+                    items.append(InterviewItem(item_type, self.tool_finished_labels.get(text, text)))
+                case "user" | "assistant":
                     items.append(InterviewItem(item_type, text))
         return items
 
