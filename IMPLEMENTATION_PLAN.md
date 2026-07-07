@@ -2,25 +2,26 @@
 
 ## Confirmed Context
 
-- `.jri/specs/interviewer-notes.md` still defines the target shape: root-level `notes.yaml`, runtime-only `.jri/state.json`, and git-ignored `.jri/interview.json`.
-- `src/jri/core/notes.py` now exists with typed models and semantic note operations.
-- `pyproject.toml` now includes `PyYAML`.
-- `src/jri/core/service.py` now creates the `notes.yaml` and `.jri/state.json` paths, passes `Notes` into `Interviewer`, persists `.jri/interview.json` as visible transcript only, and no longer reloads it into `interviewer.ctx`.
-- `.jri/.gitignore` now includes `interview.json` and `state.json`.
-- `--force` now clears only runtime interview/state files and leaves `.jri/specs` and root `notes.yaml` intact.
-- `src/jri/core/notes.py` saves `notes.yaml` after every semantic note mutation and saves `.jri/state.json` after `switch_focus`.
-- `src/jri/core/agents/shared/tool.py` still provides strict `@tool` discovery with Pydantic schemas. Tool parameters must not use Python default values; nullable inputs should be typed as `T | None`.
-- `src/jri/core/agents/interviewer.py` now has the full notes tool surface, a notes-aware system prompt, and `switch_focus`-driven context rebuild support.
-- `src/jri/core/agents/shared/agent.py` now has a reset hook plus an `after_tool_call` hook so subclasses can rebuild context after control operations.
-- `src/jri/tui/app.py` and `src/jri/tui/widgets/tool_call_row.py` now use non-technical tool labels and the restore placeholder no longer stays on the initial empty-state copy after history exists.
-- `scripts/check.sh` still runs `ruff format`, `ruff check --fix`, and `basedpyright`.
-- Verification passed: `./scripts/check.sh`; smoke checks for tool schema, note mutations, focus rebuild, and transcript restore; `git check-ignore` confirmed `.jri/state.json` and `.jri/interview.json` are ignored while `notes.yaml` is not; independent `tmux` TUI smoke passed.
+- Canonical notes live at `.jri/notes.yaml`; runtime state stays in `.jri/state.json` and `.jri/interview.json`.
+- `src/jri/core/service.py` uses `.jri/notes.yaml`, `.jri/state.json`, and `.jri/interview.json`.
+- `src/jri/core/notes.py` persists note mutations to `notes.yaml`, persists focus changes to `state.json`, and removes archived carried note IDs before saving state.
+- `src/jri/core/agents/interviewer.py` has the notes tool surface and focus rebuild support.
+- `src/jri/tui/app.py` and `src/jri/tui/widgets/tool_call_row.py` already carry the current UI updates.
+
+## Verification
+
+- `uv run --locked ruff format --check src/jri/core src/jri/tui src/jri/cli`
+- `uv run --locked ruff check src/jri/core src/jri/tui src/jri/cli`
+- `uv run --locked basedpyright src/jri/core src/jri/tui src/jri/cli`
+- Temp-dir smoke for `.jri/notes.yaml` path alignment and archived carried-note reload passed.
+- `tmux` TUI startup smoke: `uv run --locked jri` passed and restored the interviewer prompt.
+- `./scripts/check.sh` passed.
 
 ## Prioritized Remaining Work
 
-No remaining implementation follow-ups are identified for this increment.
+- None.
 
 ## TL;DR
 
-- The notes handoff, context rebuild, visible-transcript restore, and UI labeling work are done and verified.
-- There are no remaining follow-up items from this increment.
+- `.jri/notes.yaml` path alignment and the archived carried-note reload fix are resolved.
+- Focused lint, typecheck, temp-dir smoke, tmux TUI startup smoke, and `./scripts/check.sh` all passed.

@@ -322,7 +322,13 @@ class Notes:
         ref = self._find_note(note_id)
         ref.note.status = "archived"
         ref.note.archive_reason = reason
+        removed_from_focus = note_id in self.state.focus.carry_ids
+        if removed_from_focus:
+            self.state.focus.carry_ids = [carry_id for carry_id in self.state.focus.carry_ids if carry_id != note_id]
         self.save_notes()
+        if removed_from_focus:
+            self.save_state()
+            return f"Archived {ref.kind} {ref.note.id}: {reason}. Removed from carried focus context."
         return f"Archived {ref.kind} {ref.note.id}: {reason}"
 
     def switch_focus(self, scope: FocusScope, feature_id: str | None, carry_ids: list[str] | None, reason: str) -> str:

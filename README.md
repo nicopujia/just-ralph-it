@@ -21,4 +21,4 @@ jri --help
 
 ## Contributing
 
-Please refer to [AGENTS.md](./agents.md).
+Please refer to [AGENTS.md](./AGENTS.md).

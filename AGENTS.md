@@ -23,7 +23,12 @@ uv tool install -e .
 # Run CLI anywhere
 jri
 
-# Run after making changes
+# Verify small core/interviewer changes
+uv run --locked ruff format --check src/jri/core src/jri/tui src/jri/cli
+uv run --locked ruff check src/jri/core src/jri/tui src/jri/cli
+uv run --locked basedpyright src/jri/core src/jri/tui src/jri/cli
+
+# Run full cleanup after broader changes; this mutates files
 ./scripts/check.sh
 ```
 

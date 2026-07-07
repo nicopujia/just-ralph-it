@@ -19,17 +19,16 @@ class Service:
 
         Directory structure:
         ```
-            $CWD/
-                notes.yaml
             $CWD/.jri/
                 .gitignore
+                notes.yaml
                 interview.json
                 state.json
         ```
         """
         self.base_dir = settings.cwd / ".jri"
         self.gitignore_file = self.base_dir / ".gitignore"
-        self.notes_file = settings.cwd / "notes.yaml"
+        self.notes_file = self.base_dir / "notes.yaml"
         self.state_file = self.base_dir / "state.json"
         self.interview_file = self.base_dir / "interview.json"
 
