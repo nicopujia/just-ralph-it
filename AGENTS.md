@@ -24,6 +24,7 @@ uv tool install -e .
 jri
 
 # TUI startup smoke; do not send a chat message
+# In zsh, `status` is readonly; use another variable name like `exit_code`, or run the wrapper under `bash -lc`.
 smoke_dir="$(mktemp -d)"
 tmux new-session -d -s jri-smoke "env JRI_CWD=\"$smoke_dir\" JRI_LLM_API_KEY=fake JRI_INTERVIEWER_MODEL=fake JRI_EXPLORER_MODEL=fake uv run --locked jri"
 sleep 4

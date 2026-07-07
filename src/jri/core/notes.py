@@ -22,6 +22,7 @@ _GLOBAL_ID_PATTERNS = {
     "decision": re.compile(r"d([1-9][0-9]*)"),
 }
 _NOTE_PREFIXES: dict[NoteKind, str] = {"requirement": "r", "constraint": "c", "question": "q", "decision": "d"}
+_USER_CONTROL_PREFERENCE_MARKER = "user control preference"
 
 
 class ProjectBrief(BaseModel):
@@ -192,6 +193,20 @@ class Notes:
                 self._render_section(lines, f"Feature {feature.id}", feature, selected_kind, include_archived=include)
 
         return "\n".join(lines).strip() or "No notes found."
+
+    def get_user_control_preference_state(self) -> Literal["absent", "open", "resolved"]:
+        if any(
+            decision.status == "active" and _USER_CONTROL_PREFERENCE_MARKER in decision.text.casefold()
+            for decision in self.document.global_notes.decisions
+        ):
+            return "resolved"
+        if any(
+            question.status == "open" and _USER_CONTROL_PREFERENCE_MARKER in question.text.casefold()
+            for question in self.document.global_notes.questions
+        ):
+            return "open"
+
+        return "absent"
 
     def set_project_brief(  # noqa: PLR0913, PLR0917
         self,

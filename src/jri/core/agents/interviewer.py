@@ -160,6 +160,24 @@ class Interviewer(Agent):
                 "Carried context\n" + self.notes.read_notes(None, None, None, focus.carry_ids, include_archived=False),
             )
 
+        match self.notes.get_user_control_preference_state():
+            case "resolved":
+                pass
+            case "open":
+                sections.append(
+                    "User control preference guidance\n"
+                    "A global question marked `User control preference:` is open. Ask one lightweight question "
+                    "when natural, then resolve it into a global decision before treating stack, architecture, "
+                    "or question-depth preferences as settled."
+                )
+            case "absent":
+                sections.append(
+                    "User control preference guidance\n"
+                    "No global question or decision marked `User control preference:` exists. Early in discovery, "
+                    "create that global open question, ask whether the user wants to choose technical details, "
+                    "approve proposals, or delegate those choices to JRI, then resolve it into a global decision."
+                )
+
         return "\n\n".join(sections)
 
     @staticmethod
@@ -183,7 +201,9 @@ class Interviewer(Agent):
             Rules:
             - Keep the user experience as normal chat. Never ask the user to manage notes, files, or context.
             - Record durable project facts, requirements, constraints, questions,
-              decisions, and user control/detail preferences in notes.
+              decisions, and user control/detail preferences in notes. Establish
+              `User control preference:` early when it is not already present, then
+              adapt question depth from that recorded answer.
             - Treat missing technical detail as unresolved. Do not invent stack,
               architecture, or implementation decisions.
             - If the user delegates implementation choices, store the delegation boundary as a decision.
