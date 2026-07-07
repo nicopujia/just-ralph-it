@@ -435,6 +435,16 @@ class Notes:
         if not reason.strip():
             raise ValueError("Archive reason is required.")
         ref = self._find_note(note_id)
+        if ref.kind == "decision":
+            section: AnySection = self.document.global_notes if ref.feature is None else ref.feature
+            blocking_question_ids = [
+                question.id
+                for question in section.questions
+                if question.status == "resolved" and question.decision == note_id
+            ]
+            if blocking_question_ids:
+                question_ids = ", ".join(blocking_question_ids)
+                raise ValueError(f"Decision `{note_id}` resolves active question(s): {question_ids}.")
         ref.note.status = "archived"
         ref.note.archive_reason = reason
         removed_from_focus = note_id in self.state.focus.carry_ids
