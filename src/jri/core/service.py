@@ -1,12 +1,15 @@
 import json
 import shutil
 from collections.abc import Generator
-from typing import Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from .agents import Interviewer
 from .agents.shared import ChatEvent, TextDelta, ToolCallStarted
 from .notes import Notes
 from .settings import Settings
+
+if TYPE_CHECKING:
+    from openai.types.responses import ResponseInputItemParam as InputItem
 
 
 class InterviewItem(NamedTuple):
@@ -74,7 +77,8 @@ class Service:
         Returns:
             List of interview items if present, which may be empty.
         """
-        self.interviewer.rebuild_context()
+        tail: list[InputItem] = [{"role": i.type, "content": i.text} for i in self.interview_items if i.type != "tool"]
+        self.interviewer.rebuild_context(recent_tail=tail[-8:])
         return list(self.interview_items)
 
     def _load_interview_items(self) -> list[InterviewItem]:
