@@ -244,6 +244,16 @@ class Notes:
             for decision in self.document.global_notes.decisions
         ):
             return "resolved"
+        active_global_decision_ids = {
+            decision.id for decision in self.document.global_notes.decisions if decision.status == "active"
+        }
+        if any(
+            question.status == "resolved"
+            and question.decision in active_global_decision_ids
+            and _USER_CONTROL_PREFERENCE_MARKER in question.text.casefold()
+            for question in self.document.global_notes.questions
+        ):
+            return "resolved"
         if any(
             question.status == "open" and _USER_CONTROL_PREFERENCE_MARKER in question.text.casefold()
             for question in self.document.global_notes.questions
