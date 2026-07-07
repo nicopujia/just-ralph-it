@@ -11,6 +11,7 @@ from .shared import Agent, TextDelta, ToolCallStarted, tool
 
 class Interviewer(Agent):
     FIRST_MESSAGE = "What do you want to build?"
+    RECENT_TAIL_ITEM_LIMIT = 8
 
     def __init__(self, settings: Settings, notes: Notes) -> None:
         self.settings = settings
@@ -104,7 +105,12 @@ class Interviewer(Agent):
 
     def after_tool_call(self, tool_name: str, turn_items: list[ResponseInputItemParam]) -> None:
         if tool_name == "switch_focus":
-            self.rebuild_context(recent_tail=turn_items)
+            recent_tail = (
+                turn_items[:1] + turn_items[-(self.RECENT_TAIL_ITEM_LIMIT - 1) :]
+                if len(turn_items) > self.RECENT_TAIL_ITEM_LIMIT
+                else turn_items
+            )
+            self.rebuild_context(recent_tail=recent_tail)
 
     def rebuild_context(self, recent_tail: list[ResponseInputItemParam] | None = None) -> None:
         self.reset_context([*self._build_context(), *(recent_tail or [])])
