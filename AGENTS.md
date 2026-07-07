@@ -23,21 +23,18 @@ uv tool install -e .
 # Run CLI anywhere
 jri
 
-# TUI startup smoke; do not send a chat message
+# TUI manual smoke; launch in tmux and send real user messages
 # In zsh, `status` is readonly; use another variable name like `exit_code`, or run the wrapper under `bash -lc`.
 smoke_dir="$(mktemp -d)"
 tmux new-session -d -s jri-smoke "env JRI_CWD=\"$smoke_dir\" JRI_LLM_API_KEY=fake JRI_INTERVIEWER_MODEL=fake JRI_EXPLORER_MODEL=fake uv run --locked jri"
+sleep 4
+tmux send-keys -t jri-smoke:0 "I want to build a small app for tracking books I lend to friends." Enter
 sleep 4
 tmux capture-pane -pt jri-smoke:0
 tmux kill-session -t jri-smoke
 rm -rf "$smoke_dir"
 
-# Verify small core/interviewer changes
-uv run --locked ruff format --check src/jri/core src/jri/tui src/jri/cli
-uv run --locked ruff check src/jri/core src/jri/tui src/jri/cli
-uv run --locked basedpyright src/jri/core src/jri/tui src/jri/cli
-
-# Run full cleanup after broader changes; this mutates files
+# Run formatting, linting, and typechecking; this mutates files
 ./scripts/check.sh
 ```
 
@@ -53,5 +50,6 @@ uv run --locked basedpyright src/jri/core src/jri/tui src/jri/cli
 ### Workflow
 
 - Spin a subagent to manually test (e.g. via `tmux`) your changes as a real user would use JRI in production.
+- Manual and smoke testing must launch the TUI inside `tmux` and send real user messages.
 - Spin a subagent to reduce LOCs of your diff (only logic-wise, not docs-wise) as much as possible while preserving behavior.
 - Don't add automated tests unless explicitely asked for.

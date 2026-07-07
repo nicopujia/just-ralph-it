@@ -53,6 +53,7 @@ select = ["ALL"]
 fixable = ["ALL"]
 unfixable = []
 ignore = [
+    "C901", # allow complex functions
     "COM812", # mandatory trailing comma
     "CPY", # skip copyright notices
     "D203", # prefer no blank line before class docstrings
@@ -61,6 +62,8 @@ ignore = [
     "EM102", # allow inline f-strings in exceptions
     "EM103", # allow inline .format() or concatenated exception messages
     "ISC003", # prefer explicit string concatenation
+    "PLR0913", # allow many arguments
+    "PLR0917", # allow many positional arguments
     "S404", # allow importing subprocess library
     "S603", # allow running subprocesses
     "TRY003", # allow inline exception messages

@@ -105,7 +105,7 @@ class LLMContext:
 
     # --- Public API ------------------------------------------------- #
 
-    def search(  # noqa: PLR0913
+    def search(
         self,
         query: str,
         *,
