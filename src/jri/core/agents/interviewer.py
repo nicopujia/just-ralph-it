@@ -243,16 +243,16 @@ class Interviewer(Agent):
             sections, self.notes.read_notes("project", "all", None, None, include_archived=False)
         )
 
-        if focus.scope == "global":
-            self._append_context_section(
-                sections, self.notes.read_notes("global", "all", None, None, include_archived=False)
-            )
-        else:
+        if focus.scope == "feature":
             self._append_context_section(
                 sections, self.notes.read_notes("global", "constraints", None, None, include_archived=False)
             )
             self._append_context_section(
                 sections, self.notes.read_notes("global", "decisions", None, None, include_archived=False)
+            )
+        else:
+            self._append_context_section(
+                sections, self.notes.read_notes("global", "all", None, None, include_archived=False)
             )
 
         if focus.scope == "feature" and focus.feature_id is not None:
