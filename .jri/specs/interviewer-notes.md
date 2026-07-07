@@ -67,7 +67,7 @@ global:
   requirements:
     - id: r1
       text: Multi-platform support
-      status: archive
+      status: archived
       archive_reason: Scope narrowed
   constraints:
     - id: c1
@@ -95,7 +95,7 @@ features:
       - id: f1/q1
         text: Should search be barcode-first or text-first?
         status: open
-      - id: f1/q1
+      - id: f1/q2
         text: Should search have auto-completions?
         status: resolved
         decision: f1/d1
@@ -187,6 +187,9 @@ For MVP:
 
 Resolved open questions link to a decision.
 
+There is no separate free-form "answer" field in MVP. A resolved question is
+closed by linking to a decision and optionally upserting it.
+
 Archived notes store a reason, for example:
 
 ```yaml
@@ -214,7 +217,8 @@ Parameters:
 
 ```python
 read_notes(
-    section: Literal["all", "project", "global", "feature", "requirements", "constraints", "questions", "decisions"] | None,
+    scope: Literal["all", "project", "global", "feature"] | None,
+    kind: Literal["all", "brief", "requirements", "constraints", "questions", "decisions", "features"] | None,
     feature_id: str | None,
     ids: list[str] | None,
     include_archived: bool | None,
@@ -224,7 +228,9 @@ read_notes(
 Rules:
 
 - Returns compact human-readable summaries, not raw YAML.
-- `feature_id` scopes feature-local reads.
+- `scope` selects where to read from.
+- `kind` selects which note class to render inside that scope.
+- `feature_id` scopes feature-local reads and is required when `scope="feature"`.
 - `ids` supports targeted reads like `["q2", "d1"]`.
 - `include_archived` defaults to false in implementation.
 
@@ -247,12 +253,12 @@ Parameters:
 ```python
 set_project_brief(
     name: str | None,
-    one_liner: str | None,
+    tldr: str | None,
     goal: str | None,
     target_user: str | None,
     success_outcome: str | None,
     software_type: str | None,
-    codebase_kind: str | None,
+    codebase_status: str | None,
 ) -> str
 ```
 
@@ -311,21 +317,35 @@ Rules:
 - `feature_id=None` means the note belongs in `global`.
 - otherwise the note belongs to the given feature.
 
-### 6. `resolve_open_question`
+### 6. `resolve_question`
 
 Purpose:
 
-- mark a question resolved and attach its answer.
+- mark a question resolved by linking an existing decision or creating a new one.
 
 Parameters:
 
 ```python
-resolve_open_question(question_id: str, answer: str) -> str
+resolve_question(
+    question_id: str,
+    decision_id: str | None,
+    decision_text: str | None,
+) -> str
 ```
 
-Rule:
+Rules:
 
-- resolving a question does not automatically create a decision.
+- exactly one of `decision_id` or `decision_text` must be provided.
+- if `decision_id` is provided, the question is resolved by linking that existing decision.
+- if `decision_text` is provided, JRI creates a new decision in the same scope and links it.
+- the resolved question stores the linked decision ID.
+- tool results should echo both the resolved question ID and the linked decision ID.
+
+Example result:
+
+```text
+Resolved question f1/q1 with decision f1/d2: Search should be barcode-first.
+```
 
 ### 7. `revise_note`
 
@@ -379,6 +399,8 @@ Rules:
 - This is internal only.
 - The user never sees or manages this concept directly.
 - `carry_ids` exists for cross-feature context that should stay in scope.
+- The host runtime must handle this as a control operation, not a normal note-edit tool call.
+- Calling `switch_focus` must rebuild active context from notes + state instead of continuing to append to the old full-session context.
 
 Example result:
 
@@ -400,6 +422,8 @@ Implementation rule:
 - Python applies semantic mutation,
 - Python rewrites the full `notes.yaml`.
 - Interviewer only knows about the concept of taking notes
+- `switch_focus` is special: the runtime updates `.jri/state.json` and rebuilds the interviewer's active context from structured notes.
+- `switch_focus` must not merely append a tool result to the existing conversation state.
 
 This keeps the interviewer in the notes domain instead of the file-edit domain.
 
@@ -418,7 +442,8 @@ Suggested state shape:
   "focus": {
     "scope": "feature",
     "feature_id": "f2",
-    "carry_ids": ["c1", "d1"]
+    "carry_ids": ["c1", "d1"],
+    "reason": "User moved from food search to saved foods."
   }
 }
 ```
@@ -453,14 +478,15 @@ Rules:
 Full compact example:
 
 ```text
-Project
-- Name: MealMind
-- One-liner: Personal nutrition coach for people with celiac disease
+# MealMind
+
+**TL;DR**: Personal nutrition coach for people with celiac disease
+
 - Goal: Help users decide what they can safely eat
 - Target user: People with celiac disease
 - Success outcome: User can quickly check a food and trust the result
 - Software type: Mobile app
-- Codebase kind: Greenfield
+- Codebase status: Greenfield
 
 Global constraints
 - c1: Start iPhone-first
@@ -494,14 +520,12 @@ This feature is complete for MVP when:
 - note identities use short typed IDs,
 - `read_notes` can return compact targeted summaries,
 - the interviewer can add/revise/archive notes incrementally,
-- the interviewer can resolve open questions by ID,
+- the interviewer can resolve open questions into decisions by ID,
 - the interviewer can switch focus across scopes,
-- JRI rebuilds active context from notes + state on focus changes,
+- JRI rebuilds active context from notes + state on focus changes instead of keeping the full prior session in active context,
 - the user experience remains pure chat with no file/context management burden.
 
 ## Future Extensions
 
-- Generate a human-facing `NOTES.md` projection from `notes.yaml`.
-- Add stronger automatic focus-switch heuristics in the host runtime.
+- Add stronger automatic focus-switch heuristics in the runtime.
 - Add merge operations for duplicated features or notes.
-- Add derived "current unknowns" and "current decisions" summaries.
