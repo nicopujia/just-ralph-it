@@ -24,6 +24,9 @@ class Agent:
         self.model = model
         self.tools = Tool.get_list_from_owner(self)
         self.sys_prompt = unwrap_prose(sys_prompt)
+        self.reset_context(initial_ctx)
+
+    def reset_context(self, initial_ctx: ResponseInputParam | None = None) -> None:
         self.ctx = list(initial_ctx or [])
         self.ctx.insert(0, {"role": "system", "content": self.sys_prompt})
 
@@ -37,7 +40,9 @@ class Agent:
         Yields:
             Structured chat events from the streamed LLM response.
         """
-        self.ctx.append({"role": "user", "content": message})
+        user_item: ResponseInputItemParam = {"role": "user", "content": message}
+        turn_items: list[ResponseInputItemParam] = [user_item]
+        self.ctx.append(user_item)
 
         tool_definitions = [tool.definition for tool in self.tools]
         tools_by_name = {tool.name: tool for tool in self.tools}
@@ -57,7 +62,9 @@ class Agent:
                         pass
 
             outputs = [outputs_by_idx[i] for i in sorted(outputs_by_idx)]
-            self.ctx.extend(cast("list[ResponseInputItemParam]", outputs))
+            output_items = cast("list[ResponseInputItemParam]", outputs)
+            self.ctx.extend(output_items)
+            turn_items.extend(output_items)
 
             # Process tool calls, or return if none
             if all(output.type != "function_call" for output in outputs):
@@ -68,9 +75,15 @@ class Agent:
                     continue
                 yield ToolCallStarted(call_id=output.call_id, tool_name=output.name)
                 tool = tools_by_name.get(output.name)
-                self.ctx.append({
+                call_output: ResponseInputItemParam = {
                     "type": "function_call_output",
                     "call_id": output.call_id,
                     "output": (tool.invoke(output.arguments) if tool else f"Unknown tool `{output.name}`."),
-                })
+                }
+                self.ctx.append(call_output)
+                turn_items.append(call_output)
+                self.after_tool_call(output.name, turn_items)
                 yield ToolCallFinished(call_id=output.call_id)
+
+    def after_tool_call(self, _tool_name: str, _turn_items: list[ResponseInputItemParam]) -> None:
+        """Allow subclasses to react after tool results."""

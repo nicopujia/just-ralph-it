@@ -133,7 +133,11 @@ class App(TextualApp[None]):
         self.messages_container.anchor()
 
     async def restore_history(self) -> None:
-        for item in self.service.restore():
+        history = self.service.restore()
+        if history:
+            self.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
+
+        for item in history:
             if item.type == "user":
                 await self.messages_container.mount(Static(item.text, classes=c.USER_MESSAGE_CLASSES))
                 continue

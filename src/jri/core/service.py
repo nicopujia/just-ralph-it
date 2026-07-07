@@ -1,11 +1,9 @@
 import json
 from collections.abc import Generator
-from typing import Literal, NamedTuple
-
-from openai import BaseModel as OpenAIModel
+from typing import Any, Literal, NamedTuple
 
 from .agents import Interviewer
-from .agents.shared import ChatEvent
+from .agents.shared import ChatEvent, TextDelta, ToolCallStarted
 from .notes import Notes
 from .settings import Settings
 
@@ -42,20 +40,29 @@ class Service:
 
         self.gitignore_file.write_text("interview.json\nstate.json\n")
         self.notes = Notes(self.notes_file, self.state_file)
-        self.interviewer = Interviewer(settings)
+        self.interviewer = Interviewer(settings, self.notes)
+        self.interview_items = self._load_interview_items()
 
     def chat(self, message: str) -> Generator[ChatEvent]:
-        """Send a message and persist the full interview context.
+        """Send a message and persist the visible interview transcript.
 
         Yields:
             Streamed chat events from the interviewer.
         """
-        yield from self.interviewer.send_message(message)
-        interview_json = [
-            (item.model_dump(mode="json") if isinstance(item, OpenAIModel) else item) for item in self.interviewer.ctx
-        ]
-        interview_json_str = f"{json.dumps(interview_json, indent=2)}\n"
-        self.interview_file.write_text(interview_json_str)
+        turn_items = [InterviewItem("user", message)]
+        assistant_text: list[str] = []
+
+        for chat_event in self.interviewer.send_message(message):
+            if isinstance(chat_event, TextDelta):
+                assistant_text.append(chat_event.text)
+            elif isinstance(chat_event, ToolCallStarted):
+                self._flush_assistant_text(assistant_text, turn_items)
+                turn_items.append(InterviewItem("tool", chat_event.tool_name))
+            yield chat_event
+
+        self._flush_assistant_text(assistant_text, turn_items)
+        self.interview_items.extend(turn_items)
+        self._save_interview_items()
 
     def restore(self) -> list[InterviewItem]:
         """Restore interview session if present.
@@ -63,27 +70,38 @@ class Service:
         Returns:
             List of interview items if present, which may be empty.
         """
+        self.interviewer.rebuild_context()
+        return list(self.interview_items)
+
+    def _load_interview_items(self) -> list[InterviewItem]:
         try:
-            self.interviewer.ctx = json.loads(self.interview_file.read_text())
+            data: Any = json.loads(self.interview_file.read_text())
         except (OSError, ValueError):
             return []
+
+        if not isinstance(data, list):
+            return []
+
         items: list[InterviewItem] = []
-        for item in self.interviewer.ctx[1:]:
-            if item.get("type") == "function_call":
-                name = item.get("name")
-                text = name if isinstance(name, str) else "tool"
-                items.append(InterviewItem("tool", text))
+        for item in data:
+            if not isinstance(item, dict):
                 continue
-            if (content := item.get("content")) and (role := item.get("role")):
-                content = "".join(
-                    text
-                    for part in content
-                    if (
-                        isinstance(part, dict)
-                        and part.get("type") == "output_text"
-                        and isinstance((text := part.get("text")), str)
-                    )
-                )
-                if role == "user" or role == "assistant":  # noqa: PLR1714
-                    items.append(InterviewItem(role, content))
+            item_type = item.get("type")
+            text = item.get("text")
+            if not isinstance(text, str):
+                continue
+            match item_type:
+                case "user" | "assistant" | "tool":
+                    items.append(InterviewItem(item_type, text))
         return items
+
+    def _save_interview_items(self) -> None:
+        payload = [{"type": item.type, "text": item.text} for item in self.interview_items]
+        self.interview_file.write_text(f"{json.dumps(payload, indent=2)}\n")
+
+    @staticmethod
+    def _flush_assistant_text(assistant_text: list[str], turn_items: list[InterviewItem]) -> None:
+        text = "".join(assistant_text)
+        assistant_text.clear()
+        if text:
+            turn_items.append(InterviewItem("assistant", text))
