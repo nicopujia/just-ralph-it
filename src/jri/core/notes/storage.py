@@ -57,13 +57,10 @@ class Storage:
         self.document_file.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
 
     def load_state(self, document: Document) -> RuntimeState:
-        """Load runtime state and repair stale focus IDs.
+        """Load runtime state and repair invalid focus data.
 
         Returns:
             The loaded runtime state.
-
-        Raises:
-            RuntimeError: If the JSON cannot be parsed or validated.
         """
         if not self.state_file.exists() or not self.state_file.read_text(encoding="utf-8").strip():
             state = RuntimeState()
@@ -72,13 +69,17 @@ class Storage:
 
         try:
             data: Any = json.loads(self.state_file.read_text(encoding="utf-8"))
-        except json.JSONDecodeError as error:
-            raise RuntimeError(f"Malformed .jri/state.json: {error}") from error
+        except json.JSONDecodeError:
+            state = RuntimeState()
+            self.save_state(document, state)
+            return state
 
         try:
             state = RuntimeState.model_validate(data)
-        except ValidationError as error:
-            raise RuntimeError(f"Malformed .jri/state.json: {error}") from error
+        except ValidationError:
+            state = RuntimeState()
+            self.save_state(document, state)
+            return state
 
         active_carry_ids: list[str] = []
         for carry_id in state.focus.carry_ids:
