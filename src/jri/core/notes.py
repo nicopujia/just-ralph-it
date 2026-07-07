@@ -555,8 +555,16 @@ class Notes:
             for carry_id in state.focus.carry_ids
             if _FEATURE_ID_PATTERN.fullmatch(carry_id) or self._find_note(carry_id).note.status != "archived"
         ]
+        state_changed = False
         if active_carry_ids != state.focus.carry_ids:
             state.focus.carry_ids = active_carry_ids
+            state_changed = True
+        if state.focus.feature_id is not None and all(
+            feature.id != state.focus.feature_id for feature in self.document.features
+        ):
+            state.focus = FocusState()
+            state_changed = True
+        if state_changed:
             self.state = state
             self.save_state()
         self._validate_state(state)
