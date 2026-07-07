@@ -31,7 +31,7 @@ The user-facing mental model must stay unchanged:
 
 ## Files
 
-- `notes.yaml`
+- `.jri/notes.yaml`
   - Canonical structured project notes.
   - Human-readable, but machine-owned.
   - Git-tracked.
