@@ -78,7 +78,8 @@ class Service:
             List of interview items if present, which may be empty.
         """
         tail: list[InputItem] = [{"role": i.type, "content": i.text} for i in self.interview_items if i.type != "tool"]
-        self.interviewer.rebuild_context(recent_tail=tail[-8:])
+        recent_tail = None if self.notes.state.focus.scope == "feature" else tail[-8:]
+        self.interviewer.rebuild_context(recent_tail=recent_tail)
         return list(self.interview_items)
 
     def _load_interview_items(self) -> list[InterviewItem]:
