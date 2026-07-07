@@ -53,6 +53,7 @@ select = ["ALL"]
 fixable = ["ALL"]
 unfixable = []
 ignore = [
+    "PLR0912", # too many branches
     "C901", # allow complex functions
     "COM812", # mandatory trailing comma
     "CPY", # skip copyright notices

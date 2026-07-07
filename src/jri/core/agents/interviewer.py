@@ -94,7 +94,7 @@ class Interviewer(Agent):
         Returns:
             The rendered notes selected by the inputs.
         """
-        return self.notes.read_notes(scope, kind, feature_id, ids, include_archived=include_archived)
+        return self.notes.read(scope, kind, feature_id, ids, include_archived=include_archived)
 
     @tool(
         "Update the top-level project framing fields.", running_label="Updating notes", finished_label="Updated notes"
@@ -114,7 +114,7 @@ class Interviewer(Agent):
         Returns:
             A user-facing summary of changed fields.
         """
-        return self.notes.set_project_brief(
+        return self.notes.set_project(
             name=name,
             tldr=tldr,
             goal=goal,
@@ -144,7 +144,7 @@ class Interviewer(Agent):
         Returns:
             A user-facing summary of changed fields.
         """
-        return self.notes.set_feature_brief(feature_id, name, summary)
+        return self.notes.set_feature(feature_id, name, summary)
 
     @tool(
         "Add one semantic project note without rewriting whole note sections.",
@@ -159,7 +159,7 @@ class Interviewer(Agent):
         Returns:
             A user-facing creation summary.
         """
-        return self.notes.add_note(kind, text, feature_id)
+        return self.notes.add(kind, text, feature_id)
 
     @tool(
         "Mark a question resolved by linking it to an existing or newly created decision.",
@@ -172,7 +172,7 @@ class Interviewer(Agent):
         Returns:
             A user-facing resolution summary.
         """
-        return self.notes.resolve_question(question_id, decision_id, decision_text)
+        return self.notes.resolve(question_id, decision_id, decision_text)
 
     @tool(
         "Revise the text of an existing note without changing its identity.",
@@ -185,7 +185,7 @@ class Interviewer(Agent):
         Returns:
             A user-facing revision summary.
         """
-        return self.notes.revise_note(note_id, text)
+        return self.notes.revise(note_id, text)
 
     @tool(
         "Archive an obsolete note with a reason instead of deleting it.",
@@ -198,7 +198,7 @@ class Interviewer(Agent):
         Returns:
             A user-facing archive summary.
         """
-        return self.notes.archive_note(note_id, reason)
+        return self.notes.archive(note_id, reason)
 
     @tool(
         "Change the active discussion focus and rebuild context from structured notes.",
@@ -264,31 +264,27 @@ class Interviewer(Agent):
             + f". Reason: {focus.reason}",
         ]
 
-        self._append_context_section(
-            sections, self.notes.read_notes("project", "all", None, None, include_archived=False)
-        )
+        self._append_context_section(sections, self.notes.read("project", "all", None, None, include_archived=False))
 
         if focus.scope == "feature":
             self._append_context_section(
-                sections, self.notes.read_notes("global", "constraints", None, None, include_archived=False)
+                sections, self.notes.read("global", "constraints", None, None, include_archived=False)
             )
             self._append_context_section(
-                sections, self.notes.read_notes("global", "decisions", None, None, include_archived=False)
+                sections, self.notes.read("global", "decisions", None, None, include_archived=False)
             )
         else:
-            self._append_context_section(
-                sections, self.notes.read_notes("global", "all", None, None, include_archived=False)
-            )
+            self._append_context_section(sections, self.notes.read("global", "all", None, None, include_archived=False))
 
         if focus.scope == "feature" and focus.feature_id is not None:
             self._append_context_section(
-                sections, self.notes.read_notes("feature", "all", focus.feature_id, None, include_archived=False)
+                sections, self.notes.read("feature", "all", focus.feature_id, None, include_archived=False)
             )
 
         if focus.carry_ids:
             self._append_context_section(
                 sections,
-                "Carried context\n" + self.notes.read_notes(None, None, None, focus.carry_ids, include_archived=False),
+                "Carried context\n" + self.notes.read(None, None, None, focus.carry_ids, include_archived=False),
             )
 
         return "\n\n".join(sections)
