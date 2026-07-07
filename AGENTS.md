@@ -23,6 +23,14 @@ uv tool install -e .
 # Run CLI anywhere
 jri
 
+# TUI startup smoke; do not send a chat message
+smoke_dir="$(mktemp -d)"
+tmux new-session -d -s jri-smoke "env JRI_CWD=\"$smoke_dir\" JRI_LLM_API_KEY=fake JRI_INTERVIEWER_MODEL=fake JRI_EXPLORER_MODEL=fake uv run --locked jri"
+sleep 4
+tmux capture-pane -pt jri-smoke:0
+tmux kill-session -t jri-smoke
+rm -rf "$smoke_dir"
+
 # Verify small core/interviewer changes
 uv run --locked ruff format --check src/jri/core src/jri/tui src/jri/cli
 uv run --locked ruff check src/jri/core src/jri/tui src/jri/cli
