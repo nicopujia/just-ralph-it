@@ -16,6 +16,7 @@ This is a pure Python monorepo. To know more about this project and related know
 - Name functions and methods as verbs unless they are of a special kind (e.g. decorators, event handlers, etc).
 - Write higher-level functions above lower-level ones. For example, if `f()` calls `a()` and then `b()`, write them in that order on the module.
 - Prefer defining logic inline instead of splitting into several helper functions unless the logic repeats itself.
+- Don't write, and wipe out immediately if existing, all code related to handling states of previous versions. Anything legacy or related to backwards compatibility must be outright deleted.
 
 ### Workflow
 
