@@ -5,8 +5,8 @@
 Add structured project notes for JRI's interviewer-first flow so the interviewer can:
 
 - keep durable project understanding,
-- discover how much project detail the user wants to control,
-- adapt questioning depth to that preference,
+- learn how much project detail the user wants to control,
+- use that preference as ordinary interviewer judgment,
 - isolate feature discussions from each other,
 - safely change focus without carrying the full prior chat forever,
 - preserve only surfaced truth so later agents do not invent unapproved architecture or stack choices.
@@ -17,6 +17,8 @@ The user-facing mental model must stay unchanged:
 - the user does not manage files,
 - the user does not manage context,
 - the user does not have to think about switching topics,
+- the user never needs to manage focus,
+- generic tool progress may be visible while JRI works,
 - JRI + the interviewer handle note-taking and topic changes automatically.
 
 ## Core Principles
@@ -25,13 +27,13 @@ The user-facing mental model must stay unchanged:
 2. The interviewer must never think in terms of file editing, patches, diffs, or paths.
 3. Structured notes are the source of truth for project understanding.
 4. Feature-level independence is required so feature A can be safely forgotten while discussing feature B.
-5. Topic switching is an internal operation that rebuilds active context from structured notes.
-6. The interviewer must learn how much detail the user wants to control and adapt its questions accordingly.
+5. Topic switching is a runtime-managed operation that rebuilds active context from structured notes.
+6. The interviewer should learn how much detail the user wants to control and use that as soft guidance.
 7. Missing technical detail is unresolved, not permission to invent.
 
 ## Files
 
-- `.jri/notes.yaml`
+- Persisted structured notes
   - Canonical structured project notes.
   - Human-readable, but machine-owned.
   - Git-tracked.
@@ -48,7 +50,7 @@ The user-facing mental model must stay unchanged:
 ## Non-Goals
 
 - No user-facing commands for notes or context.
-- No raw YAML shown to the interviewer by default.
+- No storage-format data shown to the interviewer by default.
 - No generic file-edit tool for the interviewer.
 - No exact-text patching or diff-hunk patching for notes.
 - No hard deletion of note history in MVP.
@@ -56,11 +58,11 @@ The user-facing mental model must stay unchanged:
 
 ## Canonical Notes Shape
 
-`notes.yaml` is the source of truth.
+Persisted structured notes are the source of truth.
 
 Example:
 
-```yaml
+```text
 project:
   name: MealMind
   tldr: Personal nutrition coach for people with celiac disease
@@ -170,11 +172,11 @@ Examples:
 - budget constraints,
 - project-wide risks,
 - product-wide questions.
-- user detail/control preferences,
+- project-wide decision-involvement guidance,
 - delegation boundaries for technical decisions.
 
-Global questions and decisions are also where the interviewer stores how much
-project detail the user wants to control.
+When decision-involvement guidance applies across the whole project, the
+interviewer can store it as ordinary global questions and decisions.
 
 Examples:
 
@@ -205,7 +207,7 @@ The interviewer must be able to discuss one feature deeply without dragging unre
 
 ### Questions And Decisions
 
-Questions and decisions cover both project facts and user control preferences.
+Questions and decisions cover surfaced uncertainty and settled guidance.
 
 Rules:
 
@@ -227,13 +229,14 @@ Resolved open questions link to a decision.
 There is no separate free-form "answer" field in MVP. A resolved question is
 closed by linking to a decision and optionally upserting it.
 
-The same question/decision flow applies to user detail preference. For example,
-the interviewer may ask whether the user wants to choose the stack, approve
-proposals, or delegate technical choices, then store the answer as a decision.
+The same question/decision flow can capture how much detail the user wants to
+control. For example, the interviewer may ask whether the user wants to choose
+the stack, approve proposals, or delegate technical choices, then store the
+answer as an ordinary decision.
 
 Archived notes store a reason, for example:
 
-```yaml
+```text
 - id: d4
   text: Start with web first
   status: archived
@@ -268,7 +271,7 @@ read_notes(
 
 Rules:
 
-- Returns compact human-readable summaries, not raw YAML.
+- Returns compact human-readable summaries rather than storage-format data.
 - `scope` selects where to read from.
 - `kind` selects which note class to render inside that scope.
 - `feature_id` scopes feature-local reads and is required when `scope="feature"`.
@@ -421,7 +424,7 @@ Rule:
 Purpose:
 
 - change the active discussion topic,
-- trigger internal context rebuilding,
+- trigger context rebuilding,
 - let the interviewer safely forget unrelated details during focused feature work.
 
 Parameters:
@@ -437,8 +440,8 @@ switch_focus(
 
 Rules:
 
-- This is internal only.
-- The user never sees or manages this concept directly.
+- The user never needs to manage focus directly.
+- Generic tool progress may be visible while JRI organizes notes.
 - `carry_ids` exists for cross-feature context that should stay in scope.
 - The host runtime must handle this as a control operation, not a normal note-edit tool call.
 - Calling `switch_focus` must rebuild active context from notes + state instead of continuing to append to the old full-session context.
@@ -457,11 +460,11 @@ The runtime owns rendering and persistence.
 
 Implementation rule:
 
-- tools are not for patching YAML directly,
+- tools are not for patching persisted notes directly,
 - tools are not for sending raw diffs,
 - Python loads structured state,
 - Python applies semantic mutation,
-- Python rewrites the full `notes.yaml`.
+- Python writes the full persisted structured notes.
 - Interviewer only knows about the concept of taking notes
 - `switch_focus` is special: the runtime updates `.jri/state.json` and rebuilds the interviewer's active context from structured notes.
 - `switch_focus` must not merely append a tool result to the existing conversation state.
@@ -503,15 +506,18 @@ On focus switch, JRI should rebuild the active context from scratch with:
 Rules:
 
 - Feature A should not remain in active context while discussing feature B unless explicitly carried.
-- The bounded recent tail must stay small.
-- The exact recent-tail policy is internal and not part of the user model.
+- After note-mutating tools, active context should contain rebuilt structured notes plus only the current tool call and result needed to continue the response.
+- Earlier same-turn tool calls, especially large exploration outputs, must not be carried through context rebuilds.
+- Restore may include a small visible transcript tail for project/global focus.
+- Restore omits the transcript tail for feature focus.
+- The exact recent-tail policy is not part of the user model.
 
 ## User Experience Rules
 
 - The user only talks to the interviewer.
 - The user never has to say "switch topic".
 - The user never has to say "summarize context".
-- The user never has to know that `notes.yaml` or `.jri/state.json` exist.
+- The user never has to know that persisted notes or runtime state exist.
 - The interviewer and JRI infer topic shifts from normal conversation and manage notes/focus automatically.
 
 ## `read_notes` Example
@@ -562,7 +568,7 @@ This feature is complete for MVP when:
 - `read_notes` can return compact targeted summaries,
 - the interviewer can add/revise/archive notes incrementally,
 - the interviewer can resolve open questions into decisions by ID,
-- the interviewer can capture the user's desired level of detail/control as global questions and decisions,
+- the interviewer can capture the user's desired level of detail/control as ordinary notes,
 - the interviewer can switch focus across scopes,
 - JRI rebuilds active context from notes + state on focus changes instead of keeping the full prior session in active context,
 - later agents treat missing technical detail as unresolved instead of inventing architecture or stack choices,

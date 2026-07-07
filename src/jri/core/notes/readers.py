@@ -1,4 +1,4 @@
-from typing import Literal, cast
+from typing import cast
 
 from .finders import find_note, get_feature, list_notes
 from .ids import is_feature_id
@@ -10,7 +10,6 @@ READ_NOTE_KINDS: dict[ReadKind, NoteKind] = {
     "questions": "question",
     "decisions": "decision",
 }
-USER_CONTROL_PREFERENCE_MARKER = "user control preference"
 
 
 def read_notes(
@@ -44,32 +43,6 @@ def read_notes(
         render_feature_scope(document, lines, selected_kind, feature_id, include_archived=include)
 
     return "\n".join(lines).strip() or "No notes found."
-
-
-def get_user_control_preference_state(document: NotesDocument) -> Literal["absent", "open", "resolved"]:
-    if any(
-        decision.status == "active" and USER_CONTROL_PREFERENCE_MARKER in decision.text.casefold()
-        for decision in document.global_notes.decisions
-    ):
-        return "resolved"
-
-    active_global_decision_ids = {
-        decision.id for decision in document.global_notes.decisions if decision.status == "active"
-    }
-    if any(
-        question.status == "resolved"
-        and question.decision in active_global_decision_ids
-        and USER_CONTROL_PREFERENCE_MARKER in question.text.casefold()
-        for question in document.global_notes.questions
-    ):
-        return "resolved"
-    if any(
-        question.status == "open" and USER_CONTROL_PREFERENCE_MARKER in question.text.casefold()
-        for question in document.global_notes.questions
-    ):
-        return "open"
-
-    return "absent"
 
 
 def render_all_scope(document: NotesDocument, lines: list[str], kind: ReadKind, *, include_archived: bool) -> None:

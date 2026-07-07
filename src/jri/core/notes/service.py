@@ -16,7 +16,6 @@ from .models import (
 from .persistence import load_notes, load_state
 from .persistence import save_notes as persist_notes
 from .persistence import save_state as persist_state
-from .readers import get_user_control_preference_state as query_user_control_preference_state
 from .readers import read_notes as query_read_notes
 from .validation import validate_carry_id
 
@@ -47,14 +46,6 @@ class Notes:
             The selected notes as compact text, or a not-found message.
         """
         return query_read_notes(self.document, scope, kind, feature_id, ids, include_archived=include_archived)
-
-    def get_user_control_preference_state(self) -> str:
-        """Return user-control guidance status.
-
-        Returns:
-            Whether the preference marker is absent, open, or resolved.
-        """
-        return query_user_control_preference_state(self.document)
 
     def set_project_brief(
         self,

@@ -34,15 +34,16 @@ class Interviewer(Agent):
                 Rules:
                 - Keep the user experience as normal chat. Never ask the user to manage notes, files, or context.
                 - Record durable project facts, requirements, constraints, questions,
-                  decisions, and user control/detail preferences in notes. Establish
-                  `User control preference:` early when it is not already present, then
-                  adapt question depth from that recorded answer.
+                  decisions, and useful guidance in notes.
+                - Learn how much the user wants to control decisions. Record that as
+                  ordinary notes when useful, and use it as soft guidance for how much
+                  detail to ask about.
                 - Treat missing technical detail as unresolved. Do not invent stack,
                   architecture, or implementation decisions.
                 - If the user delegates implementation choices, store the delegation boundary as a decision.
-                - Use feature-local notes for feature-specific requirements, constraints, questions, and decisions.
-                - Infer topic changes and call `switch_focus` internally when a different project area becomes active.
-                - Prefer asking one focused question at a time unless the user asks for a broader pass.
+                - Use global notes only for project-wide facts. Create or use feature scopes
+                  for feature-specific requirements, constraints, questions, and decisions.
+                - Infer topic changes and call `switch_focus` when a different project area becomes active.
             """,
             initial_ctx=self._build_context(),
         )
@@ -68,7 +69,7 @@ class Interviewer(Agent):
         return "".join(latest_output)
 
     @tool(
-        "Read compact structured project notes. Returns human-readable summaries, not raw YAML.",
+        "Read compact structured project notes. Returns human-readable summaries.",
         running_label="Checking notes",
         finished_label="Checked notes",
     )
@@ -193,7 +194,7 @@ class Interviewer(Agent):
         return self.notes.archive_note(note_id, reason)
 
     @tool(
-        "Internally change the active discussion focus and rebuild context from structured notes.",
+        "Change the active discussion focus and rebuild context from structured notes.",
         running_label="Organizing notes",
         finished_label="Organized notes",
     )
@@ -214,8 +215,25 @@ class Interviewer(Agent):
     @override
     def after_tool_call(self, tool_name: str, turn_items: list[ResponseInputItemParam]) -> None:
         """Refresh surfaced notes context after note-mutating tools."""
-        if tool_name not in {"explore", "read_notes"}:
-            self.rebuild_context(recent_tail=turn_items)
+        if tool_name in {"explore", "read_notes"}:
+            return
+
+        tool_output = turn_items[-1:]
+        if not tool_output:
+            self.rebuild_context()
+            return
+
+        def read_field(item: ResponseInputItemParam, field_name: str) -> object:
+            if isinstance(item, dict):
+                return item.get(field_name)
+            return getattr(item, field_name, None)
+
+        call_id = read_field(tool_output[0], "call_id")
+        for item in reversed(turn_items[:-1]):
+            if read_field(item, "type") == "function_call" and read_field(item, "call_id") == call_id:
+                tool_output.insert(0, item)
+                break
+        self.rebuild_context(recent_tail=tool_output)
 
     def rebuild_context(self, recent_tail: list[ResponseInputItemParam] | None = None) -> None:
         """Rebuild the active model context from durable notes."""
@@ -265,24 +283,6 @@ class Interviewer(Agent):
                 sections,
                 "Carried context\n" + self.notes.read_notes(None, None, None, focus.carry_ids, include_archived=False),
             )
-
-        match self.notes.get_user_control_preference_state():
-            case "resolved":
-                pass
-            case "open":
-                sections.append(
-                    "User control preference guidance\n"
-                    "A global question marked `User control preference:` is open. Ask one lightweight question "
-                    "when natural, then resolve it into a global decision before treating stack, architecture, "
-                    "or question-depth preferences as settled."
-                )
-            case "absent":
-                sections.append(
-                    "User control preference guidance\n"
-                    "No global question or decision marked `User control preference:` exists. Early in discovery, "
-                    "create that global open question, ask whether the user wants to choose technical details, "
-                    "approve proposals, or delegate those choices to JRI, then resolve it into a global decision."
-                )
 
         return "\n\n".join(sections)
 
