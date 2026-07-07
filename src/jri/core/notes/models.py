@@ -1,4 +1,4 @@
-from typing import Literal, NamedTuple, Self
+from typing import Any, Literal, NamedTuple, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -122,12 +122,31 @@ class FocusState(BaseModel):
         return self
 
 
+class InterviewItem(BaseModel):
+    """Visible interview transcript item."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["user", "assistant", "tool"]
+    text: str
+
+
+class InterviewState(BaseModel):
+    """Runtime-only interview transcript and active model context."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[InterviewItem] = Field(default_factory=list)
+    context: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class RuntimeState(BaseModel):
     """Runtime-only state persisted outside notes YAML."""
 
     model_config = ConfigDict(extra="forbid")
 
     focus: FocusState = Field(default_factory=FocusState)
+    interview: InterviewState = Field(default_factory=InterviewState)
 
 
 type AnyNote = TrackedNote | QuestionNote

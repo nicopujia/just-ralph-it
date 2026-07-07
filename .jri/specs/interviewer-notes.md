@@ -7,6 +7,8 @@ Add structured project notes for JRI's interviewer-first flow so the interviewer
 - keep durable project understanding,
 - learn how much project detail the user wants to control,
 - use that preference as ordinary interviewer judgment,
+- capture open questions whenever a user answer reveals new unresolved branches,
+- check existing notes or exploration before asking questions,
 - isolate feature discussions from each other,
 - safely change focus without carrying the full prior chat forever,
 - preserve only surfaced truth so later agents do not invent unapproved architecture or stack choices.
@@ -29,7 +31,8 @@ The user-facing mental model must stay unchanged:
 4. Feature-level independence is required so feature A can be safely forgotten while discussing feature B.
 5. Topic switching is a runtime-managed operation that rebuilds active context from structured notes.
 6. The interviewer should learn how much detail the user wants to control and use that as soft guidance.
-7. Missing technical detail is unresolved, not permission to invent.
+7. Missing product or technical detail is unresolved, not permission to invent.
+8. Product and technical decisions belong to the user unless the user delegates a bounded decision area.
 
 ## Files
 
@@ -38,14 +41,12 @@ The user-facing mental model must stay unchanged:
   - Human-readable, but machine-owned.
   - Git-tracked.
 - `.jri/state.json`
-  - Runtime-only focus and context-management state.
+  - Runtime-only focus, visible interview items, and active model context.
   - Not part of the user mental model.
   - Git-ignored.
-- `.jri/interview.json`
-  - Compact visible interview transcript persistence for current-format workspaces.
-  - Remains separate from structured notes.
+- `.jri/logs/interview.json`
+  - Full visible interview transcript mirror.
   - Git-ignored.
-  - Legacy raw Responses-format files are not migrated in MVP.
 
 ## Non-Goals
 
@@ -488,6 +489,13 @@ Suggested state shape:
     "feature_id": "f2",
     "carry_ids": ["c1", "d1"],
     "reason": "User moved from food search to saved foods."
+  },
+  "interview": {
+    "items": [
+      {"type": "user", "text": "I want to build a food app."},
+      {"type": "assistant", "text": "What should the first version do?"}
+    ],
+    "context": []
   }
 }
 ```
@@ -508,8 +516,7 @@ Rules:
 - Feature A should not remain in active context while discussing feature B unless explicitly carried.
 - After note-mutating tools, active context should contain rebuilt structured notes plus only the current tool call and result needed to continue the response.
 - Earlier same-turn tool calls, especially large exploration outputs, must not be carried through context rebuilds.
-- Restore may include a small visible transcript tail for project/global focus.
-- Restore omits the transcript tail for feature focus.
+- Restore should use the saved active model context from state when present.
 - The exact recent-tail policy is not part of the user model.
 
 ## User Experience Rules
@@ -569,9 +576,13 @@ This feature is complete for MVP when:
 - the interviewer can add/revise/archive notes incrementally,
 - the interviewer can resolve open questions into decisions by ID,
 - the interviewer can capture the user's desired level of detail/control as ordinary notes,
+- the interviewer checks notes or explores before asking when existing context can answer,
+- the interviewer suggests product and technical options without making decisions unless delegated,
 - the interviewer can switch focus across scopes,
 - JRI rebuilds active context from notes + state on focus changes instead of keeping the full prior session in active context,
-- later agents treat missing technical detail as unresolved instead of inventing architecture or stack choices,
+- JRI restores the saved active model context from state after restart,
+- JRI mirrors the full visible interview transcript under `.jri/logs/`,
+- later agents treat missing product or technical detail as unresolved instead of inventing architecture or stack choices,
 - the user experience remains pure chat with no file/context management burden.
 
 ## Future Extensions

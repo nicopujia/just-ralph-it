@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 from collections.abc import Generator
-from typing import cast
+from typing import Any, cast
 
 from openai import OpenAI
 from openai.types.responses import ResponseInputItemParam, ResponseInputParam, ResponseOutputItem
@@ -30,6 +30,18 @@ class Agent(ABC):
     def reset_context(self, initial_ctx: ResponseInputParam | None = None) -> None:
         self.ctx = list(initial_ctx or [])
         self.ctx.insert(0, {"role": "system", "content": self.sys_prompt})
+
+    def restore_context(self, ctx: list[dict[str, Any]]) -> None:
+        """Restore a JSON-safe Responses API context."""
+        self.ctx = cast("list[ResponseInputItemParam]", [dict(item) for item in ctx])
+
+    def dump_context(self) -> list[dict[str, Any]]:
+        """Return the active Responses API context as JSON-safe data.
+
+        Returns:
+            JSON-safe context items.
+        """
+        return [self._dump_context_item(item) for item in self.ctx]
 
     def send_message(self, message: str) -> Generator[ChatEvent]:
         """Send a user message and stream the response.
@@ -94,3 +106,15 @@ class Agent(ABC):
     @abstractmethod
     def after_tool_call(self, _tool_name: str, _turn_items: list[ResponseInputItemParam]) -> None:
         """Allow subclasses to react after tool results."""
+
+    @staticmethod
+    def _dump_context_item(item: ResponseInputItemParam) -> dict[str, Any]:
+        if isinstance(item, dict):
+            return dict(item)
+        dump = getattr(item, "model_dump", None)
+        if not callable(dump):
+            raise TypeError("Responses context items must be JSON objects or SDK models.")
+        data = dump(mode="json")
+        if not isinstance(data, dict):
+            raise TypeError("Responses context items must serialize to objects.")
+        return data
