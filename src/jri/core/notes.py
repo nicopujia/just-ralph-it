@@ -550,11 +550,18 @@ class Notes:
         except ValidationError as error:
             raise RuntimeError(f"Malformed .jri/state.json: {error}") from error
 
-        active_carry_ids = [
-            carry_id
-            for carry_id in state.focus.carry_ids
-            if _FEATURE_ID_PATTERN.fullmatch(carry_id) or self._find_note(carry_id).note.status != "archived"
-        ]
+        active_carry_ids: list[str] = []
+        for carry_id in state.focus.carry_ids:
+            if _FEATURE_ID_PATTERN.fullmatch(carry_id):
+                if any(feature.id == carry_id for feature in self.document.features):
+                    active_carry_ids.append(carry_id)
+                continue
+            try:
+                ref = self._find_note(carry_id)
+            except ValueError:
+                continue
+            if ref.note.status != "archived":
+                active_carry_ids.append(carry_id)
         state_changed = False
         if active_carry_ids != state.focus.carry_ids:
             state.focus.carry_ids = active_carry_ids
