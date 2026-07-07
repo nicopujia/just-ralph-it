@@ -12,7 +12,9 @@ This is a pure Python monorepo. To know more about this project and related know
 
 ### Code style
 
-- Follow Domain-Driven Development principles. For example, if a class about agents is on the `core` package and uses the OpenAI SDK, name it `Agent`, NOT `CoreAgent` or `OpenAIAgent`.
+- Follow Domain-Driven Development principles. Examples:
+    - If a class about agents is on the `core` package and uses the OpenAI SDK, name it `Agent`, NOT `CoreAgent` or `OpenAIAgent`.
+    - If a class about Notes has methods for managing notes, don't include the word "note" in those methods.
 - Name functions and methods as verbs unless they are of a special kind (e.g. decorators, event handlers, etc).
 - Write higher-level functions above lower-level ones. For example, if `f()` calls `a()` and then `b()`, write them in that order on the module.
 - Prefer defining logic inline instead of splitting into several helper functions unless the logic repeats itself.
