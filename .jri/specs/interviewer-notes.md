@@ -40,9 +40,10 @@ The user-facing mental model must stay unchanged:
   - Not part of the user mental model.
   - Git-ignored.
 - `.jri/interview.json`
-  - Existing raw interview transcript persistence.
+  - Compact visible interview transcript persistence for current-format workspaces.
   - Remains separate from structured notes.
   - Git-ignored.
+  - Legacy raw Responses-format files are not migrated in MVP.
 
 ## Non-Goals
 
