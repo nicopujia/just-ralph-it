@@ -5,8 +5,11 @@
 Add structured project notes for JRI's interviewer-first flow so the interviewer can:
 
 - keep durable project understanding,
+- discover how much project detail the user wants to control,
+- adapt questioning depth to that preference,
 - isolate feature discussions from each other,
-- safely change focus without carrying the full prior chat forever.
+- safely change focus without carrying the full prior chat forever,
+- preserve only surfaced truth so later agents do not invent unapproved architecture or stack choices.
 
 The user-facing mental model must stay unchanged:
 
@@ -23,6 +26,8 @@ The user-facing mental model must stay unchanged:
 3. Structured notes are the source of truth for project understanding.
 4. Feature-level independence is required so feature A can be safely forgotten while discussing feature B.
 5. Topic switching is an internal operation that rebuilds active context from structured notes.
+6. The interviewer must learn how much detail the user wants to control and adapt its questions accordingly.
+7. Missing technical detail is unresolved, not permission to invent.
 
 ## Files
 
@@ -46,6 +51,7 @@ The user-facing mental model must stay unchanged:
 - No generic file-edit tool for the interviewer.
 - No exact-text patching or diff-hunk patching for notes.
 - No hard deletion of note history in MVP.
+- No hidden persisted question tree for details JRI might ask later.
 
 ## Canonical Notes Shape
 
@@ -73,10 +79,17 @@ global:
     - id: c1
       text: Start iPhone-first
       status: active
-  questions: []
+  questions:
+    - id: q1
+      text: Does the user want to choose the stack directly, approve proposals, or delegate it?
+      status: resolved
+      decision: d2
   decisions:
     - id: d1
       text: First release is mobile-only
+      status: active
+    - id: d2
+      text: User is non-technical. We are allowed to make technical decisions ourselves.
       status: active
 
 features:
@@ -156,6 +169,17 @@ Examples:
 - budget constraints,
 - project-wide risks,
 - product-wide questions.
+- user detail/control preferences,
+- delegation boundaries for technical decisions.
+
+Global questions and decisions are also where the interviewer stores how much
+project detail the user wants to control.
+
+Examples:
+
+- a global question asking whether the user wants to choose the stack directly, approve proposals, or delegate it.
+- a global decision saying the user only cares about product behavior right now, so JRI should not force architecture discussion.
+- a global decision saying the user wants to review stack choices before they are treated as settled.
 
 ### Features
 
@@ -178,6 +202,18 @@ This split exists for two reasons:
 
 The interviewer must be able to discuss one feature deeply without dragging unrelated feature details into active context.
 
+### Questions And Decisions
+
+Questions and decisions cover both project facts and user control preferences.
+
+Rules:
+
+- only surfaced uncertainties become questions.
+- only user-approved guidance becomes decisions.
+- silent interviewer guesses are not stored as decisions.
+- if a technical detail is missing from notes, later agents must treat it as unresolved.
+- if the user delegates implementation choice, store that delegation boundary as a decision, not an invented stack or architecture decision.
+
 ## Status Rules
 
 For MVP:
@@ -189,6 +225,10 @@ Resolved open questions link to a decision.
 
 There is no separate free-form "answer" field in MVP. A resolved question is
 closed by linking to a decision and optionally upserting it.
+
+The same question/decision flow applies to user detail preference. For example,
+the interviewer may ask whether the user wants to choose the stack, approve
+proposals, or delegate technical choices, then store the answer as a decision.
 
 Archived notes store a reason, for example:
 
@@ -521,8 +561,10 @@ This feature is complete for MVP when:
 - `read_notes` can return compact targeted summaries,
 - the interviewer can add/revise/archive notes incrementally,
 - the interviewer can resolve open questions into decisions by ID,
+- the interviewer can capture the user's desired level of detail/control as global questions and decisions,
 - the interviewer can switch focus across scopes,
 - JRI rebuilds active context from notes + state on focus changes instead of keeping the full prior session in active context,
+- later agents treat missing technical detail as unresolved instead of inventing architecture or stack choices,
 - the user experience remains pure chat with no file/context management burden.
 
 ## Future Extensions
