@@ -1,0 +1,14 @@
+project:
+  name: null
+  tldr: null
+  goal: null
+  target_user: null
+  success_outcome: null
+  software_type: null
+  codebase_status: null
+global:
+  requirements: []
+  constraints: []
+  questions: []
+  decisions: []
+features: []

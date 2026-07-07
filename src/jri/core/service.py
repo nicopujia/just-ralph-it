@@ -1,5 +1,4 @@
 import json
-import shutil
 from collections.abc import Generator
 from typing import Literal, NamedTuple
 
@@ -7,6 +6,7 @@ from openai import BaseModel as OpenAIModel
 
 from .agents import Interviewer
 from .agents.shared import ChatEvent
+from .notes import Notes
 from .settings import Settings
 
 
@@ -21,22 +21,28 @@ class Service:
 
         Directory structure:
         ```
+            $CWD/
+                notes.yaml
             $CWD/.jri/
                 .gitignore
                 interview.json
+                state.json
         ```
         """
-        self.interviewer = Interviewer(settings)
-
         self.base_dir = settings.cwd / ".jri"
         self.gitignore_file = self.base_dir / ".gitignore"
+        self.notes_file = settings.cwd / "notes.yaml"
+        self.state_file = self.base_dir / "state.json"
         self.interview_file = self.base_dir / "interview.json"
 
-        if settings.force:
-            shutil.rmtree(self.base_dir)
-
         self.base_dir.mkdir(exist_ok=True, parents=True)
-        self.gitignore_file.write_text("interview.json")
+        if settings.force:
+            self.interview_file.unlink(missing_ok=True)
+            self.state_file.unlink(missing_ok=True)
+
+        self.gitignore_file.write_text("interview.json\nstate.json\n")
+        self.notes = Notes(self.notes_file, self.state_file)
+        self.interviewer = Interviewer(settings)
 
     def chat(self, message: str) -> Generator[ChatEvent]:
         """Send a message and persist the full interview context.

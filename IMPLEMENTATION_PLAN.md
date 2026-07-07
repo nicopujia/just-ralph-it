@@ -2,56 +2,27 @@
 
 ## Confirmed Context
 
-- `IMPLEMENTATION_PLAN.md` was absent in the workspace before this draft.
-- `.jri/specs/interviewer-notes.md` requires root-level, git-tracked `notes.yaml`; runtime-only `.jri/state.json`; and existing git-ignored `.jri/interview.json` as a separate transcript.
-- `src/jri/core/agents/shared/tool.py` already provides strict `@tool` discovery with Pydantic schemas. Tool parameters must not use Python default values; nullable inputs should be typed as `T | None`.
-- `src/jri/core/agents/interviewer.py` currently exposes only `explore`.
-- `src/jri/core/service.py` currently creates `.jri`, writes `.jri/.gitignore`, persists full `interviewer.ctx` to `.jri/interview.json`, and restores that full context.
-- `src/jri/core/agents/shared/agent.py` currently grows one context list by appending user, model, and tool output items. It has no context rebuild hook.
-- `src/jri/tui/app.py` and `src/jri/cli/main.py` are pure chat surfaces with no note or context commands.
-- There is no YAML dependency in `pyproject.toml`, no `tests/` directory, and `scripts/check.sh` runs `ruff format`, `ruff check --fix`, and `basedpyright`.
+- `.jri/specs/interviewer-notes.md` still defines the target shape: root-level `notes.yaml`, runtime-only `.jri/state.json`, and git-ignored `.jri/interview.json`.
+- `src/jri/core/notes.py` now exists with typed models and semantic note operations.
+- `pyproject.toml` now includes `PyYAML`.
+- `src/jri/core/service.py` now creates the `notes.yaml` and `.jri/state.json` paths.
+- `.jri/.gitignore` now includes `interview.json` and `state.json`.
+- `--force` now clears only runtime interview/state files and leaves `.jri/specs` and root `notes.yaml` intact.
+- `src/jri/core/notes.py` saves `notes.yaml` after every semantic note mutation and saves `.jri/state.json` after `switch_focus`.
+- `src/jri/core/agents/shared/tool.py` still provides strict `@tool` discovery with Pydantic schemas. Tool parameters must not use Python default values; nullable inputs should be typed as `T | None`.
+- `src/jri/core/agents/interviewer.py` still exposes only `explore`.
+- `src/jri/core/service.py` still restores the old full interview context; notes/state rebuild is not wired yet.
+- `src/jri/core/agents/shared/agent.py` still grows one context list by appending user, model, and tool output items. It has no context rebuild hook.
+- `src/jri/tui/app.py` and `src/jri/cli/main.py` are still pure chat surfaces with no note or context commands.
+- `scripts/check.sh` still runs `ruff format`, `ruff check --fix`, and `basedpyright`.
 
 ## Prioritized Remaining Work
 
-- **P0: Add the canonical notes/state domain and YAML dependency.**
-  - Targets: `pyproject.toml`, `uv.lock`, and a new domain module such as `src/jri/core/notes.py` or `src/jri/core/notes/__init__.py`.
-  - Add a YAML parser dependency with `uv add pyyaml`; add type support only if `basedpyright` requires it.
-  - Define typed in-memory models for:
-    - `project` brief fields: `name`, `tldr`, `goal`, `target_user`, `success_outcome`, `software_type`, `codebase_status`.
-    - `global` sections: `requirements`, `constraints`, `questions`, `decisions`.
-    - `features`: `id`, `name`, `summary`, and feature-local `requirements`, `constraints`, `questions`, `decisions`.
-    - runtime focus state for `.jri/state.json`: `scope`, `feature_id`, `carry_ids`, `reason`.
-  - Implement load/save for root `notes.yaml` with stable key ordering and full-file semantic rewrites. Do not patch YAML text directly.
-  - Initialize a missing or empty `notes.yaml` with the canonical empty shape, but never put it under `.jri`.
-  - Treat malformed notes/state as a clear runtime error instead of silently discarding user project knowledge.
-
-- **P1: Implement semantic note operations before wiring them to LLM tools.**
-  - Target: the notes domain module from P0.
-  - Implement ID allocation by scanning existing active, resolved, and archived items:
-    - features: `f1`, `f2`, ...
-    - global requirements/constraints/questions/decisions: `r1`, `c1`, `q1`, `d1`, ...
-    - feature-local IDs: `f1/r1`, `f1/c1`, `f1/q1`, `f1/d1`, with counters independent per feature.
-  - Implement operations matching the spec: `read_notes`, `set_project_brief`, `add_feature`, `set_feature_brief`, `add_note`, `resolve_question`, `revise_note`, `archive_note`, and `switch_focus` state mutation.
-  - Enforce statuses:
-    - requirements, constraints, decisions: `active` or `archived`.
-    - questions: `open`, `resolved`, or `archived`.
-    - resolved questions must link to a decision ID in the same scope.
-    - archived notes must store `archive_reason`.
-  - Make `read_notes` return compact human-readable summaries only, never raw YAML. Support `scope`, `kind`, `feature_id`, `ids`, and `include_archived` as specified.
-  - Return concise tool-result strings that echo both IDs and human text, for example `Added feature f2: saved foods`.
-  - Raise `ValueError` for invalid IDs, wrong scopes, unresolved references, or invalid `resolve_question` inputs.
-
-- **P2: Move runtime file ownership into `Service` without deleting tracked project files.**
-  - Target: `src/jri/core/service.py`.
-  - Create and hold paths for:
-    - root `notes.yaml`.
-    - `.jri/state.json`.
-    - `.jri/interview.json`.
-    - `.jri/.gitignore`.
-  - Update `.jri/.gitignore` to include exactly runtime files needed for this feature, at minimum `interview.json` and `state.json`; keep `notes.yaml` git-trackable.
-  - Change `settings.force` handling so it does not remove tracked `.jri/specs` or root `notes.yaml`. It should clear only runtime files such as `.jri/interview.json` and `.jri/state.json`.
-  - Construct the notes runtime before constructing `Interviewer`, then pass it into `Interviewer`.
-  - Persist notes after every note mutation and persist state after `switch_focus`.
+- **P2: Finish the notes runtime handoff from `Service` to `Interviewer`.**
+  - Target: `src/jri/core/service.py` and `src/jri/core/agents/interviewer.py`.
+  - Pass the existing `Service.notes` runtime into `Interviewer` when adding note tools.
+  - Keep `Service` as the owner of root `notes.yaml`, `.jri/state.json`, `.jri/interview.json`, and `.jri/.gitignore`.
+  - Do not reintroduce broad `.jri` deletion for `settings.force`; it must keep preserving `.jri/specs` and root `notes.yaml`.
 
 - **P3: Decouple UI transcript restore from active model context.**
   - Targets: `src/jri/core/service.py` and, if helpful, a small helper module such as `src/jri/core/interview.py`.
@@ -109,6 +80,6 @@
 
 ## TL;DR
 
-- Build `notes.yaml` and `.jri/state.json` as first-class domain/runtime state, then expose only semantic note tools to `Interviewer`.
-- The main risk is context management: `switch_focus` must rebuild active context from notes/state and must not keep appending to the old full transcript.
+- The canonical notes domain, YAML support, and semantic note operations are done.
+- The remaining work is the service/tool wiring and context rebuild path: `Interviewer` still only has `explore`, and `switch_focus` / notes-state reconstruction are not wired yet.
 - Keep the user experience pure chat, keep `notes.yaml` tracked, keep `.jri/state.json` and `.jri/interview.json` ignored, and verify manually plus `./scripts/check.sh`.
