@@ -97,7 +97,9 @@ class Interviewer(Agent):
         return self.notes.read(scope, kind, feature_id, ids, include_archived=include_archived)
 
     @tool(
-        "Update the top-level project framing fields.", running_label="Updating notes", finished_label="Updated notes"
+        "Update the top-level project framing fields.",
+        running_label="Updating project brief",
+        finished_label="Updated project brief",
     )
     def set_project_brief(
         self,
@@ -126,8 +128,8 @@ class Interviewer(Agent):
 
     @tool(
         "Create a new feature container for feature-local requirements, constraints, questions, and decisions.",
-        running_label="Updating notes",
-        finished_label="Updated notes",
+        running_label="Adding feature",
+        finished_label="Added feature",
     )
     def add_feature(self, name: str, summary: str) -> str:
         """Create a feature scope for local notes.
@@ -137,7 +139,9 @@ class Interviewer(Agent):
         """
         return self.notes.add_feature(name, summary)
 
-    @tool("Rename or resummarize an existing feature.", running_label="Updating notes", finished_label="Updated notes")
+    @tool(
+        "Rename or resummarize an existing feature.", running_label="Updating feature", finished_label="Updated feature"
+    )
     def set_feature_brief(self, feature_id: str, name: str | None, summary: str | None) -> str:
         """Update a feature name or summary.
 
@@ -148,8 +152,8 @@ class Interviewer(Agent):
 
     @tool(
         "Add one semantic project note without rewriting whole note sections.",
-        running_label="Updating notes",
-        finished_label="Updated notes",
+        running_label="Adding note",
+        finished_label="Added note",
     )
     def add_note(
         self, kind: Literal["requirement", "constraint", "question", "decision"], text: str, feature_id: str | None
@@ -163,8 +167,8 @@ class Interviewer(Agent):
 
     @tool(
         "Mark a question resolved by linking it to an existing or newly created decision.",
-        running_label="Updating notes",
-        finished_label="Updated notes",
+        running_label="Resolving question",
+        finished_label="Resolved question",
     )
     def resolve_question(self, question_id: str, decision_id: str | None, decision_text: str | None) -> str:
         """Resolve an open question with a decision.
@@ -176,8 +180,8 @@ class Interviewer(Agent):
 
     @tool(
         "Revise the text of an existing note without changing its identity.",
-        running_label="Updating notes",
-        finished_label="Updated notes",
+        running_label="Revising note",
+        finished_label="Revised note",
     )
     def revise_note(self, note_id: str, text: str) -> str:
         """Revise an existing note while preserving its ID.
@@ -189,8 +193,8 @@ class Interviewer(Agent):
 
     @tool(
         "Archive an obsolete note with a reason instead of deleting it.",
-        running_label="Updating notes",
-        finished_label="Updated notes",
+        running_label="Archiving note",
+        finished_label="Archived note",
     )
     def archive_note(self, note_id: str, reason: str) -> str:
         """Archive a stale note and keep its history.
