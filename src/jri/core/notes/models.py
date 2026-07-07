@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-from typing import Any, Literal, NamedTuple, Self, cast
+from typing import Literal, NamedTuple, Self, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -285,12 +285,11 @@ class InterviewItem(BaseModel):
 
 
 class InterviewState(BaseModel):
-    """Runtime-only interview transcript and active model context."""
+    """Runtime-only visible interview transcript."""
 
     model_config = ConfigDict(extra="forbid")
 
     items: list[InterviewItem] = Field(default_factory=list)
-    context: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class RuntimeState(BaseModel):

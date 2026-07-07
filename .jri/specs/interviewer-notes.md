@@ -41,7 +41,7 @@ The user-facing mental model must stay unchanged:
   - Human-readable, but machine-owned.
   - Git-tracked.
 - `.jri/state.json`
-  - Runtime-only focus, visible interview items, and active model context.
+  - Runtime-only focus and visible interview items.
   - Not part of the user mental model.
   - Git-ignored.
 - `.jri/logs/interview.json`
@@ -494,8 +494,7 @@ Suggested state shape:
     "items": [
       {"type": "user", "text": "I want to build a food app."},
       {"type": "assistant", "text": "What should the first version do?"}
-    ],
-    "context": []
+    ]
   }
 }
 ```
@@ -516,7 +515,7 @@ Rules:
 - Feature A should not remain in active context while discussing feature B unless explicitly carried.
 - After note-mutating tools, active context should contain rebuilt structured notes plus only the current tool call and result needed to continue the response.
 - Earlier same-turn tool calls, especially large exploration outputs, must not be carried through context rebuilds.
-- Restore should use the saved active model context from state when present.
+- Restore should rebuild active model context from notes and focus state, not from a saved Responses transcript.
 - The exact recent-tail policy is not part of the user model.
 
 ## User Experience Rules
@@ -580,7 +579,7 @@ This feature is complete for MVP when:
 - the interviewer suggests product and technical options without making decisions unless delegated,
 - the interviewer can switch focus across scopes,
 - JRI rebuilds active context from notes + state on focus changes instead of keeping the full prior session in active context,
-- JRI restores the saved active model context from state after restart,
+- JRI rebuilds active context from notes + focus state after restart,
 - JRI mirrors the full visible interview transcript under `.jri/logs/`,
 - later agents treat missing product or technical detail as unresolved instead of inventing architecture or stack choices,
 - the user experience remains pure chat with no file/context management burden.
