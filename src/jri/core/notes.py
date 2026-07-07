@@ -146,7 +146,7 @@ class Notes:
         self.document = self._load_notes()
         self.state = self._load_state()
 
-    def read_notes(  # noqa: C901, PLR0912
+    def read_notes(  # noqa: C901
         self,
         scope: ReadScope | None,
         kind: ReadKind | None,
@@ -179,8 +179,6 @@ class Notes:
             case "project":
                 if selected_kind in {"all", "brief"}:
                     self._render_project_brief(lines)
-                if selected_kind in {"all", "features"}:
-                    self._render_features(lines)
             case "global":
                 self._render_section(
                     lines, "Global", self.document.global_notes, selected_kind, include_archived=include
@@ -404,6 +402,15 @@ class Notes:
         except ValidationError as error:
             raise RuntimeError(f"Malformed .jri/state.json: {error}") from error
 
+        active_carry_ids = [
+            carry_id
+            for carry_id in state.focus.carry_ids
+            if _FEATURE_ID_PATTERN.fullmatch(carry_id) or self._find_note(carry_id).note.status != "archived"
+        ]
+        if active_carry_ids != state.focus.carry_ids:
+            state.focus.carry_ids = active_carry_ids
+            self.state = state
+            self.save_state()
         self._validate_state(state)
         return state
 

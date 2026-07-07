@@ -13,9 +13,9 @@
 - `uv run --locked ruff format --check src/jri/core src/jri/tui src/jri/cli`
 - `uv run --locked ruff check src/jri/core src/jri/tui src/jri/cli`
 - `uv run --locked basedpyright src/jri/core src/jri/tui src/jri/cli`
-- Temp-dir smoke for `.jri/notes.yaml` path alignment and archived carried-note reload passed.
-- `tmux` TUI startup smoke: `uv run --locked jri` passed and restored the interviewer prompt.
-- `./scripts/check.sh` passed.
+- Archived carried IDs are pruned and persisted on reload.
+- `read_notes('project', 'all')` excludes `Features`, while `read_notes('all', 'features')` still renders them.
+- Focused `ruff format`, `ruff check`, and `basedpyright` passed.
 
 ## Prioritized Remaining Work
 
