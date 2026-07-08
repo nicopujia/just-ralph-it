@@ -1,26 +1,14 @@
+import platform
+import subprocess
+
 from jri.core.exceptions import ConfigurationError
-from jri.core.service import Service
 from jri.core.settings import Settings, get_settings
-from jri.tui.app import App
 
-CONFIG_ERROR_COPY = """Invalid configuration.
-Set or fix these settings:
-
-{errors}
-
-You can define them in your shell, in a .env file in this directory,
-or pass them as CLI flags.
-"""
+from . import constants as c
+from .constants import CONFIG_ERROR_COPY
 
 
-def main() -> None:
-    settings = _get_settings_or_print_error()
-    service = Service(settings)
-    app = App(service)
-    app.run()
-
-
-def _get_settings_or_print_error() -> Settings:
+def get_settings_or_print_error() -> Settings:
     try:
         return get_settings()
     except ConfigurationError as error:
@@ -43,5 +31,9 @@ def _get_config_error_message(error: ConfigurationError) -> str:
     return CONFIG_ERROR_COPY.format(errors="\n".join(error_lines))
 
 
-if __name__ == "__main__":
-    main()
+def detect_system_theme() -> str:
+    if platform.system() != "Darwin":
+        return c.THEME_DEFAULT
+    cmd = ["/usr/bin/defaults", "read", "-g", "AppleInterfaceStyle"]
+    result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    return c.THEME_DARK if result.stdout.strip() == "Dark" else c.THEME_LIGHT

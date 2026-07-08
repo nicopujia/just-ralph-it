@@ -1,6 +1,6 @@
 from textual.widgets import Static
 
-from jri.tui import constants as c
+from jri.frontend.terminal import constants as c
 
 
 class ToolCallRow(Static):

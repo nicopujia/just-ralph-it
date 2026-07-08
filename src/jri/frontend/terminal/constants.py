@@ -3,6 +3,15 @@ from jri.core.agents import Interviewer
 # Maintain constants ordered alphabetically with one blank line between
 # different initial letter.
 
+CONFIG_ERROR_COPY = """Invalid configuration.
+Set or fix these settings:
+
+{errors}
+
+You can define them in your shell, in a .env file in this directory,
+or pass them as CLI flags.
+"""
+
 INTERIVEWER_ERROR_COPY = """
 Something went wrong while talking to the interviewer:
 
