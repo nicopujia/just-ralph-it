@@ -61,7 +61,7 @@ class Service:
         except (OSError, ValueError):
             return []
         items: list[InterviewItem] = []
-        for item in self.interviewer.ctx[1:]:
+        for item in self.interviewer.ctx[1:]:  # Skip system prompt
             if item.get("type") == "function_call":
                 name = item.get("name")
                 text = name if isinstance(name, str) else "tool"
