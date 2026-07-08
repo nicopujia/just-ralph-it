@@ -8,6 +8,24 @@ This is a pure Python monorepo. To know more about this project and related know
 - [Ralph technique playbook](https://raw.githubusercontent.com/ClaytonFarr/ralph-playbook/refs/heads/main/README.md)
 - [Original article about the Ralph technique](https://ghuntley.com/ralph/)
 
+## Guidelines
+
+### Code style
+
+- Follow DDD principles, especially for naming conventions. For example:
+    - If a class about agents is on the `core` package and uses the OpenAI SDK, name it `Agent`, NOT `CoreAgent` or `OpenAIAgent`.
+    - If a class about Notes has methods for managing notes, don't include the word "note" in those methods.
+- Name functions and methods as verbs unless they are of a special kind (e.g. decorators, event handlers, etc).
+- Write docstrings, but only for public members.
+- Write higher-level functions above lower-level ones. For example:
+    - If `f()` calls `a()` and then `b()`, write them in that order on the module.
+- Define logic inline instead of splitting into multiple helper functions unless the logic repeats itself.
+
+### Avoid (unless explicitely asked for the opposite)
+
+- Do NOT write automated tests.
+- Do NOT write, and wipe out immediately if existing, all code related to handling states of previous versions. Anything legacy or related to backwards compatibility must be outright deleted.
+
 ## Commands
 
 ```bash
@@ -21,23 +39,9 @@ uv remove [package]
 uv tool install -e .
 
 # Run CLI anywhere
-jri
+jri --help
 
-# Run after making changes
+# Run formatting, linting, and typechecking
+# Use it always after making changes
 ./scripts/check.sh
 ```
-
-## Guidelines
-
-### Code style
-
-- Follow Domain-Driven Development principles. For example, if a class about agents is on the `core` package and uses the OpenAI SDK, name it `Agent`, NOT `CoreAgent` or `OpenAIAgent`.
-- Name functions and methods as verbs unless they are of a special kind (e.g. decorators, event handlers, etc).
-- Write higher-level functions above lower-level ones. For example, if `f()` calls `a()` and then `b()`, write them in that order on the module.
-- Prefer defining logic inline instead of splitting into several helper functions unless the logic repeats itself.
-
-### Workflow
-
-- Spin a subagent to manually test (e.g. via `tmux`) your changes as a real user would use JRI in production.
-- Spin a subagent to reduce LOCs of your diff (only logic-wise, not docs-wise) as much as possible while preserving behavior.
-- Don't add automated tests unless explicitely asked for.
