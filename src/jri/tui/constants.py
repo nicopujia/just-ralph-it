@@ -1,4 +1,4 @@
-from jri.core.agents.interviewer import Interviewer
+from jri.core.agents import Interviewer
 
 # Maintain constants ordered alphabetically with one blank line between
 # different initial letter.

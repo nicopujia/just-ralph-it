@@ -5,8 +5,7 @@ from typing import Literal, NamedTuple
 
 from openai import BaseModel as OpenAIModel
 
-from .agents import Interviewer
-from .agents.shared import ChatEvent
+from .agents import ChatEvent, Interviewer
 from .settings import Settings
 
 
