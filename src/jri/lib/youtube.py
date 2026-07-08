@@ -1,5 +1,6 @@
 """Helpers for parsing YouTube URLs and fetching transcripts."""
 
+from contextlib import suppress
 from urllib.parse import parse_qs, urlparse
 
 from youtube_transcript_api import NoTranscriptFound, YouTubeTranscriptApi, YouTubeTranscriptApiException
@@ -25,47 +26,41 @@ def fetch_transcript_from_url(url: str) -> str | None:
     Returns:
         Transcript text for supported YouTube video URLs, or `None`
         for non-YouTube URLs.
+
+    Raises:
+        InvalidUrlError: Raised when the YouTube URL is malformed.
+        TranscriptError: Raised when transcript retrieval fails.
     """
 
-    if (video_id := _get_video_id(url)) is None:
-        return None
-    return _fetch_transcript(video_id)
-
-
-def _get_video_id(url: str) -> str | None:
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower().removeprefix("www.")
     parts = [part for part in parsed.path.split("/") if part]
+    video_id: str | None = None
 
     if host == "youtu.be":
-        if parts:
-            return parts[0]
-        raise InvalidUrlError("Missing video id in YouTube URL.")
-
-    if host not in {"m.youtube.com", "music.youtube.com", "youtube.com", "youtube-nocookie.com"}:
+        video_id = next(iter(parts), None)
+    elif host not in {"m.youtube.com", "music.youtube.com", "youtube.com", "youtube-nocookie.com"}:
         return None
+    elif parts[:1] == ["watch"]:
+        video_id = parse_qs(parsed.query).get("v", [None])[0]
+    elif len(parts) > 1 and parts[0] in {"shorts", "embed"}:
+        video_id = parts[1]
+    else:
+        raise InvalidUrlError("Unsupported YouTube URL format.")
 
-    if parts[:1] == ["watch"]:
-        if video_id := parse_qs(parsed.query).get("v", [None])[0]:
-            return video_id
+    if video_id is None:
         raise InvalidUrlError("Missing video id in YouTube URL.")
-    if len(parts) > 1 and parts[0] in {"shorts", "embed"}:
-        return parts[1]
-    raise InvalidUrlError("Unsupported YouTube URL format.")
 
-
-def _fetch_transcript(video_id: str) -> str:
     try:
         transcripts = YouTubeTranscriptApi().list(video_id)
     except YouTubeTranscriptApiException as error:
         raise TranscriptError("Failed to load transcript metadata.") from error
 
-    try:
+    transcript = next(iter(transcripts), None)
+    with suppress(NoTranscriptFound):
         transcript = transcripts.find_transcript(["en"])
-    except NoTranscriptFound as error:
-        transcript = next(iter(transcripts), None)
-        if transcript is None:
-            raise TranscriptError("No transcript is available for this video.") from error
+    if transcript is None:
+        raise TranscriptError("No transcript is available for this video.")
 
     try:
         snippets = transcript.fetch()

@@ -8,6 +8,8 @@ from .exceptions import ConfigurationError
 
 
 class Settings(BaseSettings):
+    """Application settings loaded from the CLI and environment."""
+
     force: bool = Field(description="Force re-creation of base directory.", default=False)
     cwd: Path = Field(description="Current working directory.", default_factory=Path.cwd)
     llm_api_key: str = Field(
@@ -35,10 +37,21 @@ class Settings(BaseSettings):
 
     @property
     def llm_client(self) -> OpenAI:
+        """Build an LLM client from the configured provider settings."""
+
         return OpenAI(base_url=self.llm_provider_base_url, api_key=self.llm_api_key)
 
 
 def get_settings() -> Settings:
+    """Return validated application settings.
+
+    Returns:
+        The validated application settings.
+
+    Raises:
+        ConfigurationError: Raised when the settings are invalid.
+    """
+
     try:
         return Settings()  # pyright: ignore[reportCallIssue]
     except ValidationError as error:

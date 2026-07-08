@@ -5,6 +5,8 @@ from .shared import Agent, TextDelta, ToolCallStarted, tool
 
 
 class Interviewer(Agent):
+    """Agent that interviews the user to extract a project idea."""
+
     FIRST_MESSAGE = "What do you want to build?"
 
     def __init__(self, settings: Settings) -> None:
@@ -27,6 +29,12 @@ class Interviewer(Agent):
 
     @tool("Gather context through a natural language query, including anything from the web or this computer.")
     def explore(self, query: str) -> str:
+        """Gather extra context for the user request.
+
+        Returns:
+            The latest text emitted by the `Explorer` agent.
+        """
+
         latest_output: list[str] = []
         for event in Explorer(self.settings).send_message(query):
             match event:

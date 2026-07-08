@@ -16,6 +16,8 @@ from .widgets import MessageInput, ToolCallRow
 
 
 class App(TextualApp[None]):
+    """Render the terminal UI for the interviewer chat."""
+
     TITLE = c.TITLE_COPY
     CSS = c.STYLESHEET
     theme = Reactive(c.THEME_DEFAULT)
@@ -29,6 +31,12 @@ class App(TextualApp[None]):
         self.message_input = MessageInput(id=c.MESSAGE_INPUT_ID, placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY)
 
     def compose(self) -> ComposeResult:
+        """Compose the terminal layout.
+
+        Yields:
+            The widgets that make up the terminal UI.
+        """
+
         yield Header(show_clock=True)
         with self.messages_container:
             yield Static()
@@ -37,11 +45,15 @@ class App(TextualApp[None]):
     # --- Event handlers --------------------------------------------- #
 
     async def on_mount(self) -> None:
+        """Restore history and initialize the app state."""
+
         await self.restore_history()
         self.theme = detect_system_theme()
         self.set_focus(self.message_input)
 
     async def on_message_input_submitted(self, event: MessageInput.Submitted) -> None:
+        """Send a submitted user message to the interviewer."""
+
         if self.is_interviewer_generating:
             return
 
@@ -70,6 +82,8 @@ class App(TextualApp[None]):
 
     @work(thread=True, exclusive=True)
     def send_message(self, user_message: str, turn_state: InterviewerTurnState) -> None:
+        """Stream interviewer events for a user message."""
+
         status_copy = c.INTERVIEWER_NO_RESPONSE_COPY
         try:
             for chat_event in self.service.chat(user_message):
@@ -77,7 +91,7 @@ class App(TextualApp[None]):
                     status_copy = None
                 self.call_from_thread(self.render_chat_event, turn_state, chat_event)
         except (OpenAIError, RuntimeError) as error:
-            status_copy = c.INTERIVEWER_ERROR_COPY.format(error=error)
+            status_copy = c.INTERVIEWER_ERROR_COPY.format(error=error)
         finally:
             if status_copy is not None:
                 self.call_from_thread(self.render_interviewer_status, turn_state, status_copy)
@@ -86,11 +100,15 @@ class App(TextualApp[None]):
     # --- Callbacks -------------------------------------------------- #
 
     def reset_message_input(self) -> None:
+        """Reset the input state after a worker finishes."""
+
         self.worker = None
         self.is_interviewer_generating = False
         self.set_focus(self.message_input)
 
     async def render_chat_event(self, turn_state: InterviewerTurnState, chat_event: ChatEvent) -> None:
+        """Render one streamed event into the current turn."""
+
         if turn_state.placeholder is not None:
             await turn_state.placeholder.remove()
             turn_state.placeholder = None
@@ -110,6 +128,8 @@ class App(TextualApp[None]):
                     self.messages_container.anchor()
 
     async def render_interviewer_status(self, turn_state: InterviewerTurnState, content: str) -> None:
+        """Render a status message for the interviewer turn."""
+
         if turn_state.placeholder is None:
             turn_state.active_markdown = None
             turn_state.active_markdown_text = ""
@@ -121,6 +141,8 @@ class App(TextualApp[None]):
     # --- Helpers ---------------------------------------------------- #
 
     async def append_interviewer_text(self, turn_state: InterviewerTurnState, text: str) -> None:
+        """Append streamed text to the active message block."""
+
         if not text:
             return
 
@@ -133,6 +155,8 @@ class App(TextualApp[None]):
         self.messages_container.anchor()
 
     async def restore_history(self) -> None:
+        """Rebuild the visible chat history from persisted items."""
+
         for item in self.service.restore():
             if item.type == "user":
                 await self.messages_container.mount(Static(item.text, classes=c.USER_MESSAGE_CLASSES))

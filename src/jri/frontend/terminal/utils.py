@@ -9,6 +9,18 @@ from .constants import CONFIG_ERROR_COPY
 
 
 def get_settings_or_print_error() -> Settings:
+    """Get validated settings or exit on configuration failure.
+
+    If it fails, it prints a useful help message for the user
+    and then it exi
+
+    Returns:
+        The validated application settings.
+
+    Raises:
+        SystemExit: Raised after printing the configuration error.
+    """
+
     try:
         return get_settings()
     except ConfigurationError as error:
@@ -32,6 +44,12 @@ def _get_config_error_message(error: ConfigurationError) -> str:
 
 
 def detect_system_theme() -> str:
+    """Detect the preferred theme for the current system.
+
+    Returns:
+        The theme name to use in the terminal app.
+    """
+
     if platform.system() != "Darwin":
         return c.THEME_DEFAULT
     cmd = ["/usr/bin/defaults", "read", "-g", "AppleInterfaceStyle"]
