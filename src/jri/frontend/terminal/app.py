@@ -157,7 +157,11 @@ class App(TextualApp[None]):
     async def restore_history(self) -> None:
         """Rebuild the visible chat history from persisted items."""
 
-        for item in self.service.restore():
+        items = self.service.restore()
+        if items:
+            self.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
+
+        for item in items:
             if item.type == "user":
                 await self.messages_container.mount(Static(item.text, classes=c.USER_MESSAGE_CLASSES))
                 continue
