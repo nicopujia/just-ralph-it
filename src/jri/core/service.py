@@ -68,15 +68,16 @@ class Service:
                 items.append(InterviewItem("tool", text))
                 continue
             if (content := item.get("content")) and (role := item.get("role")):
-                content = "".join(
-                    text
-                    for part in content
-                    if (
-                        isinstance(part, dict)
-                        and part.get("type") == "output_text"
-                        and isinstance((text := part.get("text")), str)
+                if isinstance(content, list):
+                    content = "".join(
+                        text
+                        for part in content
+                        if (
+                            isinstance(part, dict)
+                            and part.get("type") == "output_text"
+                            and isinstance((text := part.get("text")), str)
+                        )
                     )
-                )
                 if role == "user" or role == "assistant":  # noqa: PLR1714
                     items.append(InterviewItem(role, content))
         return items
