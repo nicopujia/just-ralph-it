@@ -75,4 +75,8 @@ class Explorer(Agent):
     @staticmethod
     @tool(f"Run a shell command on this {platform.system()} machine.")
     def shell(cmd: str) -> str:
-        return subprocess.run(["/bin/sh", "-lc", cmd], check=False, capture_output=True, text=True).stdout
+        result = subprocess.run(["/bin/sh", "-lc", cmd], check=False, capture_output=True, text=True)
+        output = result.stdout + result.stderr
+        if result.returncode != 0:
+            raise RuntimeError(f"Command exited with status {result.returncode}:\n{output}".rstrip())
+        return output
