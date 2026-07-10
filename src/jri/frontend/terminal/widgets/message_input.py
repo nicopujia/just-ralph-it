@@ -25,3 +25,6 @@ class MessageInput(TextArea):
 
     def action_submit(self) -> None:
         self.post_message(self.Submitted(self, self.text))
+
+    def on_blur(self) -> None:
+        self.focus()
