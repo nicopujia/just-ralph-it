@@ -29,6 +29,21 @@ class Interviewer(Agent):
             """,
             initial_ctx=[{"role": "assistant", "content": self.FIRST_MESSAGE}],
         )
+        self.active_explorer: Explorer | None = None
+
+    def cancel(self) -> None:
+        """Cancel the active response and any nested exploration."""
+
+        super().cancel()
+        if explorer := self.active_explorer:
+            explorer.cancel()
+
+    def close(self) -> None:
+        """Close active response and nested exploration resources."""
+
+        super().close()
+        if explorer := self.active_explorer:
+            explorer.close()
 
     @tool(
         "Gather context through a natural language query, including anything from the web or this computer.",
@@ -44,7 +59,9 @@ class Interviewer(Agent):
         """
 
         latest_output: list[str] = []
-        for event in Explorer(self.settings).send_message(query):
+        explorer = Explorer(self.settings, self.cancellation_event)
+        self.active_explorer = explorer
+        for event in explorer.send_message(query):
             match event:
                 case ToolCallStarted():
                     latest_output.clear()
@@ -53,4 +70,5 @@ class Interviewer(Agent):
                     yield event
                 case TextDelta():
                     latest_output.append(event.text)
+        self.active_explorer = None
         yield ToolOutput("".join(latest_output))

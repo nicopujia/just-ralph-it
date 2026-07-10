@@ -3,6 +3,7 @@ import mimetypes
 import platform
 import subprocess
 from pathlib import Path
+from threading import Event
 
 import httpx
 from markdownify import MarkdownConverter
@@ -15,7 +16,7 @@ from .shared import Agent, tool
 
 
 class Explorer(Agent):
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, cancellation_event: Event | None = None) -> None:
         self.settings = settings
         super().__init__(
             client=self.settings.llm_client,
@@ -30,12 +31,14 @@ class Explorer(Agent):
                 You may only use it for exploration purposes.
             """,
         )
+        self.cancellation_event = cancellation_event or self.cancellation_event
 
     @tool(
         "Explore the web with a search engine.",
         started_label='Searching the web for "{query}"...',
         finished_label='Searched the web for "{query}"',
         symbol="🔎",
+        timeout=300,
     )
     def web_search(self, query: str) -> str:
         if not self.settings.brave_api_key:
@@ -49,6 +52,7 @@ class Explorer(Agent):
         started_label="Fetching {url}...",
         finished_label="Fetched {url}",
         symbol="🌐",
+        timeout=300,
     )
     def web_fetch(url: str) -> str:
         if (video_transcript := youtube.fetch_transcript_from_url(url)) is not None:
@@ -66,6 +70,7 @@ class Explorer(Agent):
         started_label="Reading {paths}...",
         finished_label="Read {paths}",
         symbol="📄",
+        timeout=300,
     )
     def read_files(paths: list[str]) -> ResponseFunctionCallOutputItemListParam:
         output: ResponseFunctionCallOutputItemListParam = []
@@ -99,6 +104,7 @@ class Explorer(Agent):
         started_label="Running {cmd}...",
         finished_label="Ran {cmd}",
         symbol="💻",
+        timeout=300,
     )
     def shell(cmd: str) -> str:
         result = subprocess.run(["/bin/sh", "-lc", cmd], check=False, capture_output=True, text=True)

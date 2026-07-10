@@ -34,4 +34,9 @@ class ToolCallFinished:
     depth: int = 0
 
 
+@dataclass(frozen=True)
+class ModelIterationCompleted:
+    """Signal that one model response was added to the agent context."""
+
+
 type ChatEvent = ReasoningDelta | TextDelta | ToolCallStarted | ToolCallFinished
