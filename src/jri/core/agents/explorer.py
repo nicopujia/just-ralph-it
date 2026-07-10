@@ -1,8 +1,12 @@
+import base64
+import mimetypes
 import platform
 import subprocess
+from pathlib import Path
 
 import httpx
 from markdownify import MarkdownConverter
+from openai.types.responses import ResponseFunctionCallOutputItemListParam
 
 from jri.core.settings import Settings
 from jri.lib import brave, youtube
@@ -39,6 +43,34 @@ class Explorer(Agent):
         if (video_transcript := youtube.fetch_transcript_from_url(url)) is not None:
             return video_transcript
         return MarkdownConverter().convert(httpx.get(url, follow_redirects=True, timeout=10.0).text)
+
+    @staticmethod
+    @tool("Read text, image, and binary file(s) from the machine given their paths.")
+    def read_files(paths: list[str]) -> ResponseFunctionCallOutputItemListParam:
+        output: ResponseFunctionCallOutputItemListParam = []
+        for raw_path in paths:
+            path = Path(raw_path).expanduser()
+            try:
+                data = path.read_bytes()
+            except OSError as error:
+                raise RuntimeError(f"Could not read {path}: {error.strerror}") from error
+
+            output.append({"type": "input_text", "text": f"File: {path}"})
+            media_type = mimetypes.guess_type(path.name)[0]
+            if media_type and media_type.startswith("image/"):
+                encoded = base64.b64encode(data).decode("ascii")
+                output.append({"type": "input_image", "image_url": f"data:{media_type};base64,{encoded}"})
+                continue
+
+            try:
+                output.append({"type": "input_text", "text": data.decode()})
+            except UnicodeDecodeError:
+                output.append({
+                    "type": "input_file",
+                    "filename": path.name,
+                    "file_data": base64.b64encode(data).decode("ascii"),
+                })
+        return output
 
     @staticmethod
     @tool(f"Run a shell command on this {platform.system()} machine.")

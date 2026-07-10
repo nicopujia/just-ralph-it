@@ -1,16 +1,20 @@
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Self, cast, get_type_hints
+from typing import ParamSpec, Self, TypeVar, cast, get_type_hints
 
 from openai import pydantic_function_tool
-from openai.types.responses import FunctionToolParam
+from openai.types.responses import FunctionToolParam, ResponseFunctionCallOutputItemListParam
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
+
+Params = ParamSpec("Params")
+Return = TypeVar("Return")
+Output = str | ResponseFunctionCallOutputItemListParam
 
 _DESCRIPTION_ATTR = "__jri_tool_description__"
 
 
-def tool(description: str) -> Callable[[Callable[..., str]], Callable[..., str]]:
+def tool(description: str) -> Callable[[Callable[Params, Return]], Callable[Params, Return]]:
     """Mark a method as an agent tool.
 
     The tool name is inferred from the decorated function name.
@@ -21,7 +25,7 @@ def tool(description: str) -> Callable[[Callable[..., str]], Callable[..., str]]
         A decorator that attaches tool metadata to the function.
     """
 
-    def mark_as_tool(func: Callable[..., str]) -> Callable[..., str]:
+    def mark_as_tool(func: Callable[Params, Return]) -> Callable[Params, Return]:
         setattr(func, _DESCRIPTION_ATTR, description)
         return func
 
@@ -34,7 +38,7 @@ class Tool:
 
     name: str
     description: str
-    func: Callable[..., object]
+    func: Callable[..., Output]
     args_model: type[BaseModel]
 
     @classmethod
@@ -78,7 +82,7 @@ class Tool:
             "strict": True,
         }
 
-    def invoke(self, args: str) -> str:
+    def invoke(self, args: str) -> Output:
         """Validate JSON args and call the tool.
 
         Returns:
@@ -87,7 +91,7 @@ class Tool:
 
         try:
             payload = self.args_model.model_validate_json(args, strict=True)
-            return str(self.func(**payload.model_dump()))
+            return self.func(**payload.model_dump())
         except ValidationError as error:
             first = error.errors(include_url=False)[0]
             return f"Tool call failed: {first['msg']}."
