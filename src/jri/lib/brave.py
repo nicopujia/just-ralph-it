@@ -5,7 +5,7 @@ from typing import cast
 
 import httpx
 
-__all__ = ["Error", "SearchResult", "search"]
+__all__ = ["SearchResult", "search"]
 
 _ENDPOINT = "https://api.search.brave.com/res/v1/llm/context"
 
@@ -18,10 +18,6 @@ class SearchResult:
     title: str
 
 
-class Error(Exception):
-    """Raised when the Brave API returns an error."""
-
-
 def search(api_key: str, query: str) -> list[SearchResult]:
     """Search the web and return generic results.
 
@@ -29,7 +25,7 @@ def search(api_key: str, query: str) -> list[SearchResult]:
         Generic web search results.
 
     Raises:
-        Error: If the Brave request fails.
+        RuntimeError: If the Brave request fails.
     """
 
     try:
@@ -48,7 +44,7 @@ def search(api_key: str, query: str) -> list[SearchResult]:
                 detail = error.response.text or str(error)
         else:
             detail = str(error)
-        raise Error(detail) from error
+        raise RuntimeError(detail) from error
 
     raw = cast("dict[str, object]", response.json())
     grounding = cast("dict[str, object]", raw["grounding"])

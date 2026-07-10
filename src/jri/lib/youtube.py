@@ -5,19 +5,7 @@ from urllib.parse import parse_qs, urlparse
 
 from youtube_transcript_api import NoTranscriptFound, YouTubeTranscriptApi, YouTubeTranscriptApiException
 
-__all__ = ["Error", "InvalidUrlError", "TranscriptError", "fetch_transcript_from_url"]
-
-
-class Error(Exception):
-    """Base Exception for YouTube-related errors."""
-
-
-class InvalidUrlError(Error):
-    """Raised when a YouTube URL cannot be resolved to a video."""
-
-
-class TranscriptError(Error):
-    """Raised when a video transcript cannot be retrieved."""
+__all__ = ["fetch_transcript_from_url"]
 
 
 def fetch_transcript_from_url(url: str) -> str | None:
@@ -28,8 +16,8 @@ def fetch_transcript_from_url(url: str) -> str | None:
         for non-YouTube URLs.
 
     Raises:
-        InvalidUrlError: Raised when the YouTube URL is malformed.
-        TranscriptError: Raised when transcript retrieval fails.
+        RuntimeError: Raised when the URL is malformed or transcript
+            retrieval fails.
     """
 
     parsed = urlparse(url)
@@ -46,29 +34,29 @@ def fetch_transcript_from_url(url: str) -> str | None:
     elif len(parts) > 1 and parts[0] in {"shorts", "embed"}:
         video_id = parts[1]
     else:
-        raise InvalidUrlError("Unsupported YouTube URL format.")
+        raise RuntimeError("Unsupported YouTube URL format.")
 
     if video_id is None:
-        raise InvalidUrlError("Missing video id in YouTube URL.")
+        raise RuntimeError("Missing video id in YouTube URL.")
 
     try:
         transcripts = YouTubeTranscriptApi().list(video_id)
     except YouTubeTranscriptApiException as error:
-        raise TranscriptError("Failed to load transcript metadata.") from error
+        raise RuntimeError("Failed to load transcript metadata.") from error
 
     transcript = next(iter(transcripts), None)
     with suppress(NoTranscriptFound):
         transcript = transcripts.find_transcript(["en"])
     if transcript is None:
-        raise TranscriptError("No transcript is available for this video.")
+        raise RuntimeError("No transcript is available for this video.")
 
     try:
         snippets = transcript.fetch()
     except YouTubeTranscriptApiException as error:
-        raise TranscriptError("Failed to fetch transcript contents.") from error
+        raise RuntimeError("Failed to fetch transcript contents.") from error
 
     lines = [text for snippet in snippets if (text := snippet.text.strip())]
     if not lines:
-        raise TranscriptError("Transcript did not contain any text.")
+        raise RuntimeError("Transcript did not contain any text.")
 
     return "\n".join(lines)

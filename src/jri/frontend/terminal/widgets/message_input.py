@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import override
 
 from textual.binding import Binding
 from textual.message import Message
@@ -17,6 +18,7 @@ class MessageInput(TextArea):
         value: str
 
         @property
+        @override
         def control(self) -> "MessageInput":
             return self.message_input
 

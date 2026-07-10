@@ -16,5 +16,4 @@ class InterviewerTurnState:
     active_markdown_text: str = ""
     active_reasoning: Markdown | None = None
     active_reasoning_text: str = ""
-    is_halted: bool = False
     tool_rows: dict[str, ToolCallRow] = field(default_factory=dict)

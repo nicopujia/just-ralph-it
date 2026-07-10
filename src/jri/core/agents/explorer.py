@@ -1,9 +1,11 @@
 import base64
+import contextlib
 import mimetypes
+import os
 import platform
+import signal
 import subprocess
 from pathlib import Path
-from threading import Event
 
 import httpx
 from markdownify import MarkdownConverter
@@ -16,7 +18,7 @@ from .shared import Agent, tool
 
 
 class Explorer(Agent):
-    def __init__(self, settings: Settings, cancellation_event: Event | None = None) -> None:
+    def __init__(self, settings: Settings) -> None:
         self.settings = settings
         super().__init__(
             client=self.settings.llm_client,
@@ -27,18 +29,19 @@ class Explorer(Agent):
                 and respond with a dense, concise, and purely factual report
                 based exclusively on tool outputs.
 
-                **CRITICAL**: NEVER use `shell` tool to mutate machine state.
-                You may only use it for exploration purposes.
+                **CRITICAL RULES**:
+                - NEVER use `shell` tool to mutate machine state. You may only use it for exploration purposes.
+                - Only run servers, watchers, interactive programs, and background jobs when the shell command enforces
+                a time bound of at most 30 seconds, stops every process it starts before returning, and leaves none
+                behind.
             """,
         )
-        self.cancellation_event = cancellation_event or self.cancellation_event
 
     @tool(
         "Explore the web with a search engine.",
         started_label='Searching the web for "{query}"...',
         finished_label='Searched the web for "{query}"',
         symbol="🔎",
-        timeout=300,
     )
     def web_search(self, query: str) -> str:
         if not self.settings.brave_api_key:
@@ -52,7 +55,6 @@ class Explorer(Agent):
         started_label="Fetching {url}...",
         finished_label="Fetched {url}",
         symbol="🌐",
-        timeout=300,
     )
     def web_fetch(url: str) -> str:
         if (video_transcript := youtube.fetch_transcript_from_url(url)) is not None:
@@ -70,7 +72,6 @@ class Explorer(Agent):
         started_label="Reading {paths}...",
         finished_label="Read {paths}",
         symbol="📄",
-        timeout=300,
     )
     def read_files(paths: list[str]) -> ResponseFunctionCallOutputItemListParam:
         output: ResponseFunctionCallOutputItemListParam = []
@@ -104,11 +105,20 @@ class Explorer(Agent):
         started_label="Running {cmd}...",
         finished_label="Ran {cmd}",
         symbol="💻",
-        timeout=300,
     )
     def shell(cmd: str) -> str:
-        result = subprocess.run(["/bin/sh", "-lc", cmd], check=False, capture_output=True, text=True)
-        output = result.stdout + result.stderr
-        if result.returncode != 0:
-            raise RuntimeError(f"Command exited with status {result.returncode}:\n{output}".rstrip())
+        process = subprocess.Popen(
+            ["/bin/sh", "-lc", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True
+        )
+        try:
+            stdout, stderr = process.communicate(timeout=30)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            stdout, stderr = process.communicate()
+            raise RuntimeError(f"Command timed out after 30 seconds:\n{stdout + stderr}".rstrip()) from None
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGKILL)
+        output = stdout + stderr
+        if process.returncode != 0:
+            raise RuntimeError(f"Command exited with status {process.returncode}:\n{output}".rstrip())
         return output

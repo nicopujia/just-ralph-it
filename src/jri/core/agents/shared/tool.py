@@ -1,10 +1,7 @@
 import inspect
 from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass, replace
-from queue import Empty, Queue
-from threading import Event, Thread
-from time import monotonic
-from typing import Any, ParamSpec, Self, TypeVar, cast, get_type_hints
+from typing import ParamSpec, Self, TypeVar, cast, get_type_hints
 
 from openai import pydantic_function_tool
 from openai.types.responses import FunctionToolParam, ResponseFunctionCallOutputItemListParam
@@ -21,7 +18,6 @@ class _Metadata:
     started_label: str
     finished_label: str
     symbol: str
-    timeout: float | None
 
 
 @dataclass(frozen=True)
@@ -37,13 +33,12 @@ Return = TypeVar("Return")
 
 
 def tool(
-    description: str, *, started_label: str, finished_label: str, symbol: str = "⚙︎", timeout: float | None = None
+    description: str, *, started_label: str, finished_label: str, symbol: str = "⚙︎"
 ) -> Callable[[Callable[Params, Return]], Callable[Params, Return]]:
     """Mark a method as an agent tool.
 
     The tool name is inferred from the decorated function name. Labels
-    may interpolate tool arguments. A timeout limits the callable's
-    execution time in seconds.
+    may interpolate tool arguments.
     `Tool.discover` discovers these methods on `Agent`
     subclasses.
 
@@ -52,7 +47,7 @@ def tool(
     """
 
     def mark_as_tool(func: Callable[Params, Return]) -> Callable[Params, Return]:
-        setattr(func, _METADATA_ATTR, _Metadata(description, started_label, finished_label, symbol, timeout))
+        setattr(func, _METADATA_ATTR, _Metadata(description, started_label, finished_label, symbol))
         return func
 
     return mark_as_tool
@@ -97,7 +92,6 @@ class Tool:
     started_label: str
     finished_label: str
     symbol: str
-    timeout: float | None
     func: Callable[..., str | ResponseFunctionCallOutputItemListParam | Stream]
     args_model: type[BaseModel]
 
@@ -132,7 +126,6 @@ class Tool:
                     started_label=metadata.started_label,
                     finished_label=metadata.finished_label,
                     symbol=metadata.symbol,
-                    timeout=metadata.timeout,
                     func=func,
                     args_model=args_model,
                 )
@@ -166,7 +159,7 @@ class Tool:
             "strict": True,
         }
 
-    def invoke(self, args: str, cancellation_event: Event | None = None) -> Invocation:
+    def invoke(self, args: str) -> Invocation:
         """Validate JSON args and call the tool.
 
         Returns:
@@ -175,41 +168,10 @@ class Tool:
 
         try:
             payload = self.args_model.model_validate_json(args, strict=True)
-            output = (
-                self.func(**payload.model_dump())
-                if self.timeout is None
-                else self._invoke_with_timeout(payload.model_dump(), self.timeout, cancellation_event)
-            )
+            output = self.func(**payload.model_dump())
         except ValidationError as error:
             first = error.errors(include_url=False)[0]
             output = f"Tool call failed: {first['msg']}."
         except (RuntimeError, TypeError, ValueError) as error:
             output = f"Tool call failed: {error}"
         return Invocation(output)
-
-    def _invoke_with_timeout(
-        self, kwargs: dict[str, Any], timeout: float, cancellation_event: Event | None
-    ) -> str | ResponseFunctionCallOutputItemListParam | Stream:
-        results: Queue[str | ResponseFunctionCallOutputItemListParam | Stream | Exception] = Queue(maxsize=1)
-
-        def invoke() -> None:
-            try:
-                results.put(self.func(**kwargs))
-            except Exception as error:  # noqa: BLE001
-                results.put(error)
-
-        Thread(target=invoke, name=f"tool {self.name}", daemon=True).start()
-        deadline = monotonic() + timeout
-        while True:
-            if cancellation_event and cancellation_event.is_set():
-                return "Tool call cancelled."
-            remaining = deadline - monotonic()
-            if remaining <= 0:
-                return f"Tool call failed: timed out after {timeout:g} seconds."
-            try:
-                result = results.get(timeout=min(remaining, 0.1))
-            except Empty:
-                continue
-            if isinstance(result, Exception):
-                raise result
-            return result

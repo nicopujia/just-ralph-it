@@ -1,7 +1,6 @@
 from collections.abc import Callable, Iterable
 from threading import Thread
-from time import monotonic
-from typing import Any, ClassVar
+from typing import Any, ClassVar, override
 
 from openai import OpenAIError
 from textual.app import App as TextualApp
@@ -40,7 +39,6 @@ class App(TextualApp[None]):
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("ctrl+k", "toggle_keymap_panel", "Show/hide keymap", show=False, priority=True),
         Binding("ctrl+t", "toggle_reasoning", "Show/hide thinking blocks", show=False, priority=True),
-        Binding("escape", "halt_agent", "Stop agent", show=False, priority=True),
     ]
     TITLE = c.TITLE_COPY
     CSS = c.STYLESHEET
@@ -49,13 +47,12 @@ class App(TextualApp[None]):
     def __init__(self, service: Service) -> None:
         super().__init__()
         self.service = service
-        self.is_interviewer_generating = False
         self.is_reasoning_visible = False
-        self.last_escape_time: float | None = None
         self.active_turn_state: InterviewerTurnState | None = None
         self.messages_container = VerticalScroll(id=c.MESSAGES_CONTAINER_ID)
         self.message_input = MessageInput(id=c.MESSAGE_INPUT_ID, placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY)
 
+    @override
     def compose(self) -> ComposeResult:
         """Compose the terminal layout.
 
@@ -80,7 +77,7 @@ class App(TextualApp[None]):
     async def on_message_input_submitted(self, event: MessageInput.Submitted) -> None:
         """Send a submitted user message to the interviewer."""
 
-        if self.is_interviewer_generating:
+        if self.active_turn_state is not None:
             return
 
         user_message = event.value.strip()
@@ -89,7 +86,6 @@ class App(TextualApp[None]):
             event.message_input.text = ""
             return
 
-        self.is_interviewer_generating = True
         event.message_input.text = ""
         event.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
 
@@ -105,6 +101,7 @@ class App(TextualApp[None]):
         self.messages_container.anchor()
         Thread(target=self.send_message, args=(user_message, turn_state), name="interviewer", daemon=True).start()
 
+    @override
     def action_command_palette(self) -> None:
         """Show the command palette."""
 
@@ -113,6 +110,7 @@ class App(TextualApp[None]):
         elif self.use_command_palette:
             self.push_screen(CommandPalette(id="--command-palette"))
 
+    @override
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
         """Return application commands available in the palette.
 
@@ -143,7 +141,7 @@ class App(TextualApp[None]):
         except (OpenAIError, RuntimeError) as error:
             status_copy = c.INTERVIEWER_ERROR_COPY.format(error=error)
         finally:
-            if status_copy is not None and not turn_state.is_halted:
+            if status_copy is not None and self.active_turn_state is turn_state:
                 self._call_from_thread(self.render_interviewer_status, turn_state, status_copy)
             self._call_from_thread(self.reset_message_input, turn_state)
 
@@ -164,14 +162,12 @@ class App(TextualApp[None]):
         if self.active_turn_state is not turn_state:
             return
         self.active_turn_state = None
-        self.last_escape_time = None
-        self.is_interviewer_generating = False
         self.set_focus(self.message_input)
 
     async def render_chat_event(self, turn_state: InterviewerTurnState, chat_event: ChatEvent) -> None:
         """Render one streamed event into the current turn."""
 
-        if turn_state.is_halted:
+        if self.active_turn_state is not turn_state:
             return
         if turn_state.placeholder is not None:
             await turn_state.placeholder.remove()
@@ -213,41 +209,6 @@ class App(TextualApp[None]):
 
     # --- Helpers ---------------------------------------------------- #
 
-    def action_halt_agent(self) -> None:
-        """Stop the active agent loop after a second Escape press."""
-
-        now = monotonic()
-        if self.last_escape_time is None or now - self.last_escape_time > 1:
-            self.last_escape_time = now
-            self.notify("Press Esc again to stop", timeout=1)
-            return
-
-        self.last_escape_time = None
-        turn_state = self.active_turn_state
-        if turn_state is None:
-            return
-        interviewer = self.service.cancel()
-        if interviewer is None:
-            return
-        turn_state.is_halted = True
-        for tool_row in turn_state.tool_rows.values():
-            if not tool_row.is_complete:
-                tool_row.mark_complete(f"{tool_row.label} (stopped)")
-        self.call_later(self.render_interviewer_status, turn_state, c.INTERVIEWER_HALTED_COPY)
-        Thread(target=interviewer.close, name="cancel agent", daemon=True).start()
-        self.reset_message_input(turn_state)
-
-    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        """Enable agent halt only while a turn is active.
-
-        Returns:
-            Whether the action is currently available.
-        """
-
-        if action == "halt_agent":
-            return self.is_interviewer_generating and not isinstance(self.screen, CommandPalette)
-        return super().check_action(action, parameters)
-
     def action_toggle_keymap_panel(self) -> None:
         """Show or hide the keymap panel."""
 
@@ -260,7 +221,7 @@ class App(TextualApp[None]):
         """Show or hide reasoning summaries in this session."""
 
         self.is_reasoning_visible = not self.is_reasoning_visible
-        self.service.set_show_thinking_blocks(show=self.is_reasoning_visible)
+        self.service.update_state(show_thinking_blocks=self.is_reasoning_visible)
         for reasoning_block in self.query(Markdown):
             if reasoning_block.has_class(c.INTERVIEWER_REASONING_CLASSES):
                 reasoning_block.display = self.is_reasoning_visible

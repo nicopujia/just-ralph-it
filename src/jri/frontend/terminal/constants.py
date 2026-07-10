@@ -19,7 +19,6 @@ Something went wrong while talking to the interviewer:
 
 Please try again or contact Nico.
 """.strip()
-INTERVIEWER_HALTED_COPY = "_Stopped._"
 INTERVIEWER_MESSAGE_CLASSES = "interviewer-message"
 INTERVIEWER_NO_RESPONSE_COPY = "_No response received._"
 INTERVIEWER_REASONING_CLASSES = "interviewer-reasoning"
