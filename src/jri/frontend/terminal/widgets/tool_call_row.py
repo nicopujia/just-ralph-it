@@ -8,9 +8,10 @@ class ToolCallRow(Static):
 
     SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
-    def __init__(self, tool_name: str, *, is_complete: bool = False) -> None:
+    def __init__(self, label: str, *, symbol: str = "⚙︎", is_complete: bool = False) -> None:
         super().__init__(classes=c.TOOL_CALL_ROW_CLASSES)
-        self.tool_name = tool_name
+        self.label = label
+        self.symbol = symbol
         self.frame_idx = 0
         self.is_complete = is_complete
         self.spinner_timer = None
@@ -28,10 +29,11 @@ class ToolCallRow(Static):
         if self.spinner_timer is not None:
             self.spinner_timer.stop()
 
-    def mark_complete(self) -> None:
+    def mark_complete(self, label: str) -> None:
         """Mark the tool call as complete."""
 
         self.is_complete = True
+        self.label = label
         if self.spinner_timer is not None:
             self.spinner_timer.stop()
             self.spinner_timer = None
@@ -48,5 +50,5 @@ class ToolCallRow(Static):
     def update_copy(self) -> None:
         """Refresh the rendered row text."""
 
-        prefix = "⚙︎" if self.is_complete else self.SPINNER_FRAMES[self.frame_idx]
-        self.update(f"{prefix} {self.tool_name}")
+        prefix = self.symbol if self.is_complete else self.SPINNER_FRAMES[self.frame_idx]
+        self.update(f"{prefix} {self.label}")

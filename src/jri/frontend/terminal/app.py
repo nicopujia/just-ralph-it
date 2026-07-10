@@ -116,14 +116,14 @@ class App(TextualApp[None]):
         match chat_event:
             case TextDelta(text=text):
                 await self.append_interviewer_text(turn_state, text)
-            case ToolCallStarted(call_id=call_id, tool_name=tool_name):
+            case ToolCallStarted(call_id=call_id, label=label, symbol=symbol):
                 turn_state.active_markdown = None
                 turn_state.active_markdown_text = ""
-                turn_state.tool_rows[call_id] = ToolCallRow(tool_name)
+                turn_state.tool_rows[call_id] = ToolCallRow(label, symbol=symbol)
                 await turn_state.container.mount(turn_state.tool_rows[call_id])
                 self.messages_container.anchor()
-            case ToolCallFinished(call_id=call_id):
-                turn_state.tool_rows[call_id].mark_complete()
+            case ToolCallFinished(call_id=call_id, label=label):
+                turn_state.tool_rows[call_id].mark_complete(label)
                 self.messages_container.anchor()
 
     async def render_interviewer_status(self, turn_state: InterviewerTurnState, content: str) -> None:
@@ -157,15 +157,18 @@ class App(TextualApp[None]):
         if items:
             self.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
 
+        interviewer_turn = None
         for item in items:
             if item.type == "user":
                 await self.messages_container.mount(Static(item.text, classes=c.USER_MESSAGE_CLASSES))
+                interviewer_turn = None
                 continue
 
-            interviewer_turn = Vertical(classes=c.INTERVIEWER_TURN_CLASSES)
-            await self.messages_container.mount(interviewer_turn)
+            if interviewer_turn is None:
+                interviewer_turn = Vertical(classes=c.INTERVIEWER_TURN_CLASSES)
+                await self.messages_container.mount(interviewer_turn)
             await interviewer_turn.mount(
-                ToolCallRow(item.text, is_complete=True)
+                ToolCallRow(item.text, symbol=item.symbol or "⚙︎", is_complete=True)
                 if item.type == "tool"
                 else Markdown(item.text, classes=c.INTERVIEWER_MESSAGE_CLASSES)
             )

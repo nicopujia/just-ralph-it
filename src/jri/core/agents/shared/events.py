@@ -13,7 +13,8 @@ class ToolCallStarted:
     """Represents the start of a tool call."""
 
     call_id: str
-    tool_name: str
+    label: str
+    symbol: str
 
 
 @dataclass(frozen=True)
@@ -21,6 +22,7 @@ class ToolCallFinished:
     """Represents the end of a tool call."""
 
     call_id: str
+    label: str
 
 
 type ChatEvent = TextDelta | ToolCallStarted | ToolCallFinished

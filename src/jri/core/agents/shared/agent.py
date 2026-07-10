@@ -65,11 +65,18 @@ class Agent:
             for output in outputs:
                 if output.type != "function_call":
                     continue
-                yield ToolCallStarted(call_id=output.call_id, tool_name=output.name)
                 tool = tools_by_name.get(output.name)
+                yield ToolCallStarted(
+                    call_id=output.call_id,
+                    label=tool.format_label(tool.started_label, output.arguments) if tool else output.name,
+                    symbol=tool.symbol if tool else "⚙︎",
+                )
                 self.ctx.append({
                     "type": "function_call_output",
                     "call_id": output.call_id,
                     "output": (tool.invoke(output.arguments) if tool else f"Unknown tool `{output.name}`."),
                 })
-                yield ToolCallFinished(call_id=output.call_id)
+                yield ToolCallFinished(
+                    call_id=output.call_id,
+                    label=tool.format_label(tool.finished_label, output.arguments) if tool else output.name,
+                )

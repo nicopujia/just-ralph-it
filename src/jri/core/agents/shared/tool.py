@@ -11,13 +11,24 @@ Params = ParamSpec("Params")
 Return = TypeVar("Return")
 Output = str | ResponseFunctionCallOutputItemListParam
 
-_DESCRIPTION_ATTR = "__jri_tool_description__"
+_METADATA_ATTR = "__jri_tool_metadata__"
 
 
-def tool(description: str) -> Callable[[Callable[Params, Return]], Callable[Params, Return]]:
+@dataclass(frozen=True)
+class _Metadata:
+    description: str
+    started_label: str
+    finished_label: str
+    symbol: str
+
+
+def tool(
+    description: str, *, started_label: str, finished_label: str, symbol: str = "⚙︎"
+) -> Callable[[Callable[Params, Return]], Callable[Params, Return]]:
     """Mark a method as an agent tool.
 
-    The tool name is inferred from the decorated function name.
+    The tool name is inferred from the decorated function name. Labels
+    may interpolate tool arguments.
     `Tool.discover` discovers these methods on `Agent`
     subclasses.
 
@@ -26,7 +37,7 @@ def tool(description: str) -> Callable[[Callable[Params, Return]], Callable[Para
     """
 
     def mark_as_tool(func: Callable[Params, Return]) -> Callable[Params, Return]:
-        setattr(func, _DESCRIPTION_ATTR, description)
+        setattr(func, _METADATA_ATTR, _Metadata(description, started_label, finished_label, symbol))
         return func
 
     return mark_as_tool
@@ -38,6 +49,9 @@ class Tool:
 
     name: str
     description: str
+    started_label: str
+    finished_label: str
+    symbol: str
     func: Callable[..., Output]
     args_model: type[BaseModel]
 
@@ -53,7 +67,7 @@ class Tool:
         for name in type(owner).__dict__:
             func = getattr(owner, name)
             wrapped = getattr(func, "__func__", func)
-            if not (description := getattr(wrapped, _DESCRIPTION_ATTR, None)):
+            if not (metadata := getattr(wrapped, _METADATA_ATTR, None)):
                 continue
             annotations = get_type_hints(wrapped, include_extras=True)
             fields = {
@@ -65,8 +79,31 @@ class Tool:
                 __config__=ConfigDict(extra="forbid"),
                 **fields,  # pyright: ignore[reportCallIssue, reportArgumentType]
             )
-            tools.append(cls(name=func.__name__, description=description, func=func, args_model=args_model))
+            tools.append(
+                cls(
+                    name=func.__name__,
+                    description=metadata.description,
+                    started_label=metadata.started_label,
+                    finished_label=metadata.finished_label,
+                    symbol=metadata.symbol,
+                    func=func,
+                    args_model=args_model,
+                )
+            )
         return tools
+
+    def format_label(self, label: str, args: str) -> str:
+        """Format a user-facing label with the tool arguments.
+
+        Returns:
+            The label formatted with the tool arguments.
+        """
+
+        try:
+            payload = self.args_model.model_validate_json(args, strict=True)
+        except ValidationError:
+            return self.name
+        return label.format(**payload.model_dump())
 
     @property
     def definition(self) -> FunctionToolParam:

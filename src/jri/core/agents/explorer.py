@@ -30,7 +30,12 @@ class Explorer(Agent):
             """,
         )
 
-    @tool("Explore the web with a search engine.")
+    @tool(
+        "Explore the web with a search engine.",
+        started_label='Searching the web for "{query}"...',
+        finished_label='Searched the web for "{query}"',
+        symbol="🔎",
+    )
     def web_search(self, query: str) -> str:
         if not self.settings.brave_api_key:
             return "Web search not available."
@@ -38,14 +43,29 @@ class Explorer(Agent):
         return "\n".join(f"- [{result.title}]({result.url})" for result in results)
 
     @staticmethod
-    @tool("Fetch contents from a public web page given a URL.")
+    @tool(
+        "Fetch contents from a public web page given a URL.",
+        started_label="Fetching {url}...",
+        finished_label="Fetched {url}",
+        symbol="🌐",
+    )
     def web_fetch(url: str) -> str:
         if (video_transcript := youtube.fetch_transcript_from_url(url)) is not None:
             return video_transcript
-        return MarkdownConverter().convert(httpx.get(url, follow_redirects=True, timeout=10.0).text)
+        try:
+            response = httpx.get(url, follow_redirects=True, timeout=10.0)
+            response.raise_for_status()
+        except httpx.HTTPError as error:
+            raise RuntimeError(f"Could not fetch {url}: {error}") from error
+        return MarkdownConverter().convert(response.text)
 
     @staticmethod
-    @tool("Read text, image, and binary file(s) from the machine given their paths.")
+    @tool(
+        "Read text, image, and binary file(s) from the machine given their paths.",
+        started_label="Reading {paths}...",
+        finished_label="Read {paths}",
+        symbol="📄",
+    )
     def read_files(paths: list[str]) -> ResponseFunctionCallOutputItemListParam:
         output: ResponseFunctionCallOutputItemListParam = []
         for raw_path in paths:
@@ -73,7 +93,12 @@ class Explorer(Agent):
         return output
 
     @staticmethod
-    @tool(f"Run a shell command on this {platform.system()} machine.")
+    @tool(
+        f"Run a shell command on this {platform.system()} machine.",
+        started_label="Running {cmd}...",
+        finished_label="Ran {cmd}",
+        symbol="💻",
+    )
     def shell(cmd: str) -> str:
         result = subprocess.run(["/bin/sh", "-lc", cmd], check=False, capture_output=True, text=True)
         output = result.stdout + result.stderr

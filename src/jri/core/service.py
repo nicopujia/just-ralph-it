@@ -12,6 +12,7 @@ from .settings import Settings
 class InterviewItem(NamedTuple):
     type: Literal["user", "assistant", "tool"]
     text: str
+    symbol: str | None = None
 
 
 class Service:
@@ -59,11 +60,15 @@ class Service:
         if not self.interview_file.exists():
             return []
         self.interviewer.ctx = json.loads(self.interview_file.read_text())
+        tools_by_name = {tool.name: tool for tool in self.interviewer.tools}
         items: list[InterviewItem] = []
         for item in self.interviewer.ctx[1:]:  # Skip system prompt
             item_type = item.get("type")
             if item_type == "function_call":
-                items.append(InterviewItem("tool", item["name"]))
+                tool = tools_by_name[item["name"]]
+                items.append(
+                    InterviewItem("tool", tool.format_label(tool.finished_label, item["arguments"]), tool.symbol)
+                )
                 continue
             if item_type not in {None, "message"}:
                 continue

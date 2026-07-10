@@ -27,7 +27,12 @@ class Interviewer(Agent):
             initial_ctx=[{"role": "assistant", "content": self.FIRST_MESSAGE}],
         )
 
-    @tool("Gather context through a natural language query, including anything from the web or this computer.")
+    @tool(
+        "Gather context through a natural language query, including anything from the web or this computer.",
+        started_label='Exploring "{query}"',
+        finished_label='Explored "{query}"',
+        symbol="🔍",
+    )
     def explore(self, query: str) -> str:
         """Gather extra context for the user request.
 
