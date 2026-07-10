@@ -14,4 +14,6 @@ class InterviewerTurnState:
     placeholder: Markdown | None
     active_markdown: Markdown | None = None
     active_markdown_text: str = ""
+    active_reasoning: Markdown | None = None
+    active_reasoning_text: str = ""
     tool_rows: dict[str, ToolCallRow] = field(default_factory=dict)

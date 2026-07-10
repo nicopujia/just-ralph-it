@@ -10,7 +10,7 @@ from .settings import Settings
 
 
 class InterviewItem(NamedTuple):
-    type: Literal["user", "assistant", "tool"]
+    type: Literal["user", "assistant", "reasoning", "tool"]
     text: str
     symbol: str | None = None
 
@@ -69,6 +69,14 @@ class Service:
                 items.append(
                     InterviewItem("tool", tool.format_label(tool.finished_label, item["arguments"]), tool.symbol)
                 )
+                continue
+            if item_type == "reasoning":
+                summary = "".join(part["text"] for part in item["summary"] if part["type"] == "summary_text")
+                reasoning = "".join(
+                    part["text"] for part in item.get("content", []) if part["type"] == "reasoning_text"
+                )
+                if summary or reasoning:
+                    items.append(InterviewItem("reasoning", summary or reasoning))
                 continue
             if item_type not in {None, "message"}:
                 continue

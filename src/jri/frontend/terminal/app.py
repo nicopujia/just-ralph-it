@@ -1,12 +1,17 @@
+from collections.abc import Iterable
+from typing import ClassVar
+
 from openai import OpenAIError
 from textual import work
 from textual.app import App as TextualApp
-from textual.app import ComposeResult
+from textual.app import ComposeResult, SystemCommand
+from textual.binding import Binding, BindingType
 from textual.containers import Vertical, VerticalScroll
 from textual.reactive import Reactive
+from textual.screen import Screen
 from textual.widgets import Header, Markdown, Static
 
-from jri.core.agents import ChatEvent, TextDelta, ToolCallFinished, ToolCallStarted
+from jri.core.agents import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
 from jri.core.service import Service
 
 from . import constants as c
@@ -18,6 +23,9 @@ from .widgets import MessageInput, ToolCallRow
 class App(TextualApp[None]):
     """Render the terminal UI for the interviewer chat."""
 
+    BINDINGS: ClassVar[list[BindingType]] = [
+        Binding("ctrl+t", "toggle_reasoning", "Show/hide thinking blocks", show=False, priority=True)
+    ]
     TITLE = c.TITLE_COPY
     CSS = c.STYLESHEET
     theme = Reactive(c.THEME_DEFAULT)
@@ -26,6 +34,7 @@ class App(TextualApp[None]):
         super().__init__()
         self.service = service
         self.is_interviewer_generating = False
+        self.is_reasoning_visible = False
         self.worker = None
         self.messages_container = VerticalScroll(id=c.MESSAGES_CONTAINER_ID)
         self.message_input = MessageInput(id=c.MESSAGE_INPUT_ID, placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY)
@@ -78,6 +87,20 @@ class App(TextualApp[None]):
         self.messages_container.anchor()
         self.worker = self.send_message(user_message, turn_state)
 
+    def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
+        """Return application commands available in the palette.
+
+        Yields:
+            Commands available in the command palette.
+        """
+
+        yield from super().get_system_commands(screen)
+        yield SystemCommand(
+            "Hide thinking blocks" if self.is_reasoning_visible else "Show thinking blocks",
+            "Toggle model's chain-of-thought (reasoning) text blocks.",
+            self.action_toggle_reasoning,
+        )
+
     # --- Workers ---------------------------------------------------- #
 
     @work(thread=True, exclusive=True)
@@ -114,11 +137,17 @@ class App(TextualApp[None]):
             turn_state.placeholder = None
 
         match chat_event:
+            case ReasoningDelta(text=text):
+                await self.append_reasoning_text(turn_state, text)
             case TextDelta(text=text):
+                turn_state.active_reasoning = None
+                turn_state.active_reasoning_text = ""
                 await self.append_interviewer_text(turn_state, text)
             case ToolCallStarted(call_id=call_id, label=label, symbol=symbol, depth=depth):
                 turn_state.active_markdown = None
                 turn_state.active_markdown_text = ""
+                turn_state.active_reasoning = None
+                turn_state.active_reasoning_text = ""
                 turn_state.tool_rows[call_id] = ToolCallRow(label, symbol=symbol, depth=depth)
                 await turn_state.container.mount(turn_state.tool_rows[call_id])
                 self.messages_container.anchor()
@@ -142,6 +171,28 @@ class App(TextualApp[None]):
         self.messages_container.anchor()
 
     # --- Helpers ---------------------------------------------------- #
+
+    def action_toggle_reasoning(self) -> None:
+        """Show or hide reasoning summaries in this session."""
+
+        self.is_reasoning_visible = not self.is_reasoning_visible
+        for reasoning_block in self.query(Markdown):
+            if reasoning_block.has_class(c.INTERVIEWER_REASONING_CLASSES):
+                reasoning_block.display = self.is_reasoning_visible
+
+    async def append_reasoning_text(self, turn_state: InterviewerTurnState, text: str) -> None:
+        """Append streamed text to the active reasoning block."""
+
+        if turn_state.active_reasoning is None:
+            turn_state.active_markdown = None
+            turn_state.active_markdown_text = ""
+            turn_state.active_reasoning = Markdown("", classes=c.INTERVIEWER_REASONING_CLASSES)
+            turn_state.active_reasoning.display = self.is_reasoning_visible
+            await turn_state.container.mount(turn_state.active_reasoning)
+
+        turn_state.active_reasoning_text += text
+        await turn_state.active_reasoning.update(turn_state.active_reasoning_text)
+        self.messages_container.anchor()
 
     async def append_interviewer_text(self, turn_state: InterviewerTurnState, text: str) -> None:
         """Append streamed text to the active message block."""
@@ -171,6 +222,11 @@ class App(TextualApp[None]):
             if interviewer_turn is None:
                 interviewer_turn = Vertical(classes=c.INTERVIEWER_TURN_CLASSES)
                 await self.messages_container.mount(interviewer_turn)
+            if item.type == "reasoning":
+                reasoning_block = Markdown(item.text, classes=c.INTERVIEWER_REASONING_CLASSES)
+                reasoning_block.display = self.is_reasoning_visible
+                await interviewer_turn.mount(reasoning_block)
+                continue
             await interviewer_turn.mount(
                 ToolCallRow(item.text, symbol=item.symbol or "⚙︎", is_complete=True)
                 if item.type == "tool"

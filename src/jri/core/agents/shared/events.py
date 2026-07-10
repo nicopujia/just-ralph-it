@@ -2,6 +2,13 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class ReasoningDelta:
+    """Represents streamed reasoning summary text."""
+
+    text: str
+
+
+@dataclass(frozen=True)
 class TextDelta:
     """Represents streamed text emitted by an agent."""
 
@@ -27,4 +34,4 @@ class ToolCallFinished:
     depth: int = 0
 
 
-type ChatEvent = TextDelta | ToolCallStarted | ToolCallFinished
+type ChatEvent = ReasoningDelta | TextDelta | ToolCallStarted | ToolCallFinished

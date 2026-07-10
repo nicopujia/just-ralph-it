@@ -3,13 +3,13 @@ import json
 from collections.abc import Generator
 from typing import Any, cast
 
-from openai import OpenAI, omit
+from openai import OpenAI
 from openai.types.responses import FunctionToolParam, ResponseInputItemParam, ResponseInputParam
 from openai.types.shared import ReasoningEffort
 from openai.types.shared_params import Reasoning
 from websocket import WebSocket, create_connection
 
-from .events import ChatEvent, TextDelta, ToolCallFinished, ToolCallStarted
+from .events import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
 from .tool import Invocation, Tool
 
 
@@ -95,9 +95,15 @@ class Agent:
         inputs: list[ResponseInputItemParam],
         tools: list[FunctionToolParam],
         outputs_by_idx: dict[int, dict[str, Any]],
-    ) -> Generator[TextDelta]:
+    ) -> Generator[ReasoningDelta | TextDelta]:
         for event in self._receive_events(inputs, tools):
             match event["type"]:
+                case (
+                    "response.reasoning.delta"
+                    | "response.reasoning_text.delta"
+                    | "response.reasoning_summary_text.delta"
+                ):
+                    yield ReasoningDelta(event["delta"])
                 case "response.output_text.delta":
                     yield TextDelta(event["delta"])
                 case "response.output_item.done":
@@ -115,14 +121,10 @@ class Agent:
     def _receive_events(
         self, inputs: list[ResponseInputItemParam], tools: list[FunctionToolParam]
     ) -> Generator[dict[str, Any]]:
-        reasoning = Reasoning(effort=self.reasoning_effort)
+        reasoning = Reasoning(effort=self.reasoning_effort, summary="auto")
         if self.client.base_url.host != "api.openai.com":
             for event in self.client.responses.create(
-                model=self.model,
-                input=self.ctx,
-                tools=tools,
-                reasoning=reasoning if self.reasoning_effort else omit,
-                stream=True,
+                model=self.model, input=self.ctx, tools=tools, reasoning=reasoning, stream=True
             ):
                 yield cast("dict[str, Any]", event.to_dict())
             return
@@ -142,7 +144,7 @@ class Agent:
                     "input": inputs if self.previous_response_id else self.ctx,
                     "tools": tools,
                     "previous_response_id": self.previous_response_id,
-                    **({"reasoning": reasoning} if self.reasoning_effort else {}),
+                    "reasoning": reasoning,
                 })
             )
 

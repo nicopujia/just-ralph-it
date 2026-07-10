@@ -21,6 +21,7 @@ Please try again or contact Nico.
 """.strip()
 INTERVIEWER_MESSAGE_CLASSES = "interviewer-message"
 INTERVIEWER_NO_RESPONSE_COPY = "_No response received._"
+INTERVIEWER_REASONING_CLASSES = "interviewer-reasoning"
 INTERVIEWER_THINKING_COPY = "_Thinking..._"
 INTERVIEWER_TURN_CLASSES = "interviewer-turn"
 
@@ -71,6 +72,13 @@ Header {{
 .{INTERVIEWER_TURN_CLASSES} {{
     height: auto;
     padding-top: 1;
+}}
+
+.{INTERVIEWER_REASONING_CLASSES} {{
+    padding-right: 2;
+    padding-left: 2;
+    text-opacity: 70%;
+    text-style: dim italic;
 }}
 
 .{TOOL_CALL_ROW_CLASSES} {{
