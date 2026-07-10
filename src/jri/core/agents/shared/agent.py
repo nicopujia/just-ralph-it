@@ -1,10 +1,9 @@
+import inspect
 from collections.abc import Generator
 from typing import cast
 
 from openai import OpenAI
 from openai.types.responses import ResponseInputItemParam, ResponseInputParam, ResponseOutputItem
-
-from jri.lib.text import unwrap_prose
 
 from .events import ChatEvent, TextDelta, ToolCallFinished, ToolCallStarted
 from .tool import Tool
@@ -22,8 +21,8 @@ class Agent:
     ) -> None:
         self.client = client
         self.model = model
-        self.tools = Tool.get_list_from_owner(self)
-        self.sys_prompt = unwrap_prose(sys_prompt)
+        self.tools = Tool.discover(self)
+        self.sys_prompt = inspect.cleandoc(sys_prompt)
         self.ctx = list(initial_ctx or [])
         self.ctx.insert(0, {"role": "system", "content": self.sys_prompt})
 

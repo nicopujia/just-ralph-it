@@ -56,28 +56,20 @@ class Service:
         Returns:
             List of interview items if present, which may be empty.
         """
-        try:
-            self.interviewer.ctx = json.loads(self.interview_file.read_text())
-        except (OSError, ValueError):
+        if not self.interview_file.exists():
             return []
+        self.interviewer.ctx = json.loads(self.interview_file.read_text())
         items: list[InterviewItem] = []
         for item in self.interviewer.ctx[1:]:  # Skip system prompt
-            if item.get("type") == "function_call":
-                name = item.get("name")
-                text = name if isinstance(name, str) else "tool"
-                items.append(InterviewItem("tool", text))
+            item_type = item.get("type")
+            if item_type == "function_call":
+                items.append(InterviewItem("tool", item["name"]))
                 continue
-            if (content := item.get("content")) and (role := item.get("role")):
-                if isinstance(content, list):
-                    content = "".join(
-                        text
-                        for part in content
-                        if (
-                            isinstance(part, dict)
-                            and part.get("type") == "output_text"
-                            and isinstance((text := part.get("text")), str)
-                        )
-                    )
-                if role == "user" or role == "assistant":  # noqa: PLR1714
-                    items.append(InterviewItem(role, content))
+            if item_type not in {None, "message"}:
+                continue
+            content = item["content"]
+            if isinstance(content, list):
+                content = "".join(part["text"] for part in content if part["type"] == "output_text")
+            if content:
+                items.append(InterviewItem(item["role"], content))
         return items

@@ -123,9 +123,8 @@ class App(TextualApp[None]):
                 await turn_state.container.mount(turn_state.tool_rows[call_id])
                 self.messages_container.anchor()
             case ToolCallFinished(call_id=call_id):
-                if (tool_row := turn_state.tool_rows.get(call_id)) is not None:
-                    tool_row.mark_complete()
-                    self.messages_container.anchor()
+                turn_state.tool_rows[call_id].mark_complete()
+                self.messages_container.anchor()
 
     async def render_interviewer_status(self, turn_state: InterviewerTurnState, content: str) -> None:
         """Render a status message for the interviewer turn."""
@@ -142,9 +141,6 @@ class App(TextualApp[None]):
 
     async def append_interviewer_text(self, turn_state: InterviewerTurnState, text: str) -> None:
         """Append streamed text to the active message block."""
-
-        if not text:
-            return
 
         if turn_state.active_markdown is None:
             turn_state.active_markdown = Markdown("", classes=c.INTERVIEWER_MESSAGE_CLASSES)

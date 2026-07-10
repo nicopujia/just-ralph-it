@@ -30,27 +30,15 @@ class Explorer(Agent):
     def web_search(self, query: str) -> str:
         if not self.settings.brave_api_key:
             return "Web search not available."
-        client = brave.LLMContext(self.settings.brave_api_key)
-        results = client.search(query)
-        return "\n".join(f"- [{r.title}]({r.url})" for r in results.generic)
+        results = brave.search(self.settings.brave_api_key, query)
+        return "\n".join(f"- [{result.title}]({result.url})" for result in results)
 
     @staticmethod
     @tool("Fetch contents from a public web page given a URL.")
     def web_fetch(url: str) -> str:
-        try:
-            video_transcript = youtube.fetch_transcript_from_url(url)
-        except youtube.InvalidUrlError:
-            return "Web fetch failed: invalid YouTube URL."
-        except youtube.TranscriptError:
-            return "Web fetch failed: could not retrieve YouTube transcript."
-
-        if video_transcript is not None:
+        if (video_transcript := youtube.fetch_transcript_from_url(url)) is not None:
             return video_transcript
-
-        try:
-            return MarkdownConverter().convert(httpx.get(url, follow_redirects=True, timeout=10.0).text)
-        except httpx.HTTPError as error:
-            return f"Web fetch failed: {error}"
+        return MarkdownConverter().convert(httpx.get(url, follow_redirects=True, timeout=10.0).text)
 
     @staticmethod
     @tool(f"Run a shell command on this {platform.system()} machine.")

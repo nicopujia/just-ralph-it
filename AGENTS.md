@@ -2,7 +2,7 @@
 
 ## Overview
 
-This is a pure Python monorepo. To know more about this project and related knowledge, refer to the following documents:
+This is a pure Python project. To know more about it and related knowledge, refer to the following documents:
 
 - [Project concept document and vision](https://nicolaspujia.com/just-ralph-it.md) — **TL;DR**: Easily define your own software project idea and then build it entirely by just clicking a button.
 - [Ralph technique playbook](https://raw.githubusercontent.com/ClaytonFarr/ralph-playbook/refs/heads/main/README.md)
@@ -25,6 +25,7 @@ This is a pure Python monorepo. To know more about this project and related know
 
 - Do NOT write automated tests.
 - Do NOT write, and wipe out immediately if existing, all code related to handling states of previous versions. Anything legacy or related to backwards compatibility must be outright deleted.
+- Do NOT write defensive code for hypothetical situations. Do NOT handle edge cases unless asked for. Keep the happy path direct and trust internal types, invariants, and required data.
 
 ## Commands
 
