@@ -15,6 +15,7 @@ class ToolCallStarted:
     call_id: str
     label: str
     symbol: str
+    depth: int = 0
 
 
 @dataclass(frozen=True)
@@ -23,6 +24,7 @@ class ToolCallFinished:
 
     call_id: str
     label: str
+    depth: int = 0
 
 
 type ChatEvent = TextDelta | ToolCallStarted | ToolCallFinished

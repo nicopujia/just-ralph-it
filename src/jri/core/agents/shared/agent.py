@@ -6,7 +6,7 @@ from openai import OpenAI
 from openai.types.responses import ResponseInputItemParam, ResponseInputParam, ResponseOutputItem
 
 from .events import ChatEvent, TextDelta, ToolCallFinished, ToolCallStarted
-from .tool import Tool
+from .tool import Invocation, Tool
 
 
 class Agent:
@@ -71,10 +71,12 @@ class Agent:
                     label=tool.format_label(tool.started_label, output.arguments) if tool else output.name,
                     symbol=tool.symbol if tool else "⚙︎",
                 )
+                invocation = tool.invoke(output.arguments) if tool else Invocation(f"Unknown tool `{output.name}`.")
+                yield from invocation
                 self.ctx.append({
                     "type": "function_call_output",
                     "call_id": output.call_id,
-                    "output": (tool.invoke(output.arguments) if tool else f"Unknown tool `{output.name}`."),
+                    "output": invocation.output,
                 })
                 yield ToolCallFinished(
                     call_id=output.call_id,

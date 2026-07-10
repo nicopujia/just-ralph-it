@@ -1,7 +1,9 @@
+from collections.abc import Generator
+
 from jri.core.settings import Settings
 
 from .explorer import Explorer
-from .shared import Agent, TextDelta, ToolCallStarted, tool
+from .shared import Agent, TextDelta, ToolCallFinished, ToolCallStarted, ToolOutput, tool
 
 
 class Interviewer(Agent):
@@ -33,11 +35,11 @@ class Interviewer(Agent):
         finished_label='Explored "{query}"',
         symbol="🔍",
     )
-    def explore(self, query: str) -> str:
+    def explore(self, query: str) -> Generator[ToolCallStarted | ToolCallFinished | ToolOutput]:
         """Gather extra context for the user request.
 
-        Returns:
-            The latest text emitted by the `Explorer` agent.
+        Yields:
+            Explorer tool events followed by its final text output.
         """
 
         latest_output: list[str] = []
@@ -45,6 +47,9 @@ class Interviewer(Agent):
             match event:
                 case ToolCallStarted():
                     latest_output.clear()
+                    yield event
+                case ToolCallFinished():
+                    yield event
                 case TextDelta():
                     latest_output.append(event.text)
-        return "".join(latest_output)
+        yield ToolOutput("".join(latest_output))

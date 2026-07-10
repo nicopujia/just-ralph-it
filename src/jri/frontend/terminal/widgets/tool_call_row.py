@@ -8,10 +8,12 @@ class ToolCallRow(Static):
 
     SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
 
-    def __init__(self, label: str, *, symbol: str = "⚙︎", is_complete: bool = False) -> None:
+    def __init__(self, label: str, *, symbol: str = "⚙︎", is_complete: bool = False, depth: int = 0) -> None:
         super().__init__(classes=c.TOOL_CALL_ROW_CLASSES)
+        self.styles.padding = (0, 2, 0, 2 + depth * 2)
         self.label = label
         self.symbol = symbol
+        self.depth = depth
         self.frame_idx = 0
         self.is_complete = is_complete
         self.spinner_timer = None

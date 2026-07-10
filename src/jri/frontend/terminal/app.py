@@ -116,13 +116,17 @@ class App(TextualApp[None]):
         match chat_event:
             case TextDelta(text=text):
                 await self.append_interviewer_text(turn_state, text)
-            case ToolCallStarted(call_id=call_id, label=label, symbol=symbol):
+            case ToolCallStarted(call_id=call_id, label=label, symbol=symbol, depth=depth):
                 turn_state.active_markdown = None
                 turn_state.active_markdown_text = ""
-                turn_state.tool_rows[call_id] = ToolCallRow(label, symbol=symbol)
+                turn_state.tool_rows[call_id] = ToolCallRow(label, symbol=symbol, depth=depth)
                 await turn_state.container.mount(turn_state.tool_rows[call_id])
                 self.messages_container.anchor()
-            case ToolCallFinished(call_id=call_id, label=label):
+            case ToolCallFinished(call_id=call_id, label=label, depth=depth):
+                for nested_call_id, nested_row in list(turn_state.tool_rows.items()):
+                    if nested_row.depth > depth:
+                        await nested_row.remove()
+                        del turn_state.tool_rows[nested_call_id]
                 turn_state.tool_rows[call_id].mark_complete(label)
                 self.messages_container.anchor()
 

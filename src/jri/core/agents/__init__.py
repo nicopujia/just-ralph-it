@@ -1,6 +1,6 @@
 from .explorer import Explorer
 from .interviewer import Interviewer
-from .shared import Agent, ChatEvent, TextDelta, Tool, ToolCallFinished, ToolCallStarted, tool
+from .shared import Agent, ChatEvent, TextDelta, Tool, ToolCallFinished, ToolCallStarted, ToolOutput, tool
 
 __all__ = [
     "Agent",
@@ -11,5 +11,6 @@ __all__ = [
     "Tool",
     "ToolCallFinished",
     "ToolCallStarted",
+    "ToolOutput",
     "tool",
 ]

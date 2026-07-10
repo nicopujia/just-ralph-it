@@ -1,15 +1,13 @@
 import inspect
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Generator, Iterator
+from dataclasses import dataclass, replace
 from typing import ParamSpec, Self, TypeVar, cast, get_type_hints
 
 from openai import pydantic_function_tool
 from openai.types.responses import FunctionToolParam, ResponseFunctionCallOutputItemListParam
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
-Params = ParamSpec("Params")
-Return = TypeVar("Return")
-Output = str | ResponseFunctionCallOutputItemListParam
+from .events import ChatEvent, ToolCallFinished, ToolCallStarted
 
 _METADATA_ATTR = "__jri_tool_metadata__"
 
@@ -20,6 +18,18 @@ class _Metadata:
     started_label: str
     finished_label: str
     symbol: str
+
+
+@dataclass(frozen=True)
+class Output:
+    """Represent the final output emitted by a streaming tool."""
+
+    value: str | ResponseFunctionCallOutputItemListParam
+
+
+Stream = Generator[ToolCallStarted | ToolCallFinished | Output]
+Params = ParamSpec("Params")
+Return = TypeVar("Return")
 
 
 def tool(
@@ -43,6 +53,36 @@ def tool(
     return mark_as_tool
 
 
+class Invocation:
+    """Stream nested tool events and retain the tool's final output."""
+
+    def __init__(self, output: str | ResponseFunctionCallOutputItemListParam | Stream) -> None:
+        self.stream = output if isinstance(output, Iterator) else iter((Output(output),))
+        self._output: str | ResponseFunctionCallOutputItemListParam | None = None
+
+    def __iter__(self) -> Generator[ChatEvent]:
+        """Resolve the final tool output.
+
+        Yields:
+            Nested tool events.
+        """
+
+        try:
+            for item in self.stream:
+                if isinstance(item, Output):
+                    self._output = item.value
+                else:
+                    yield replace(item, depth=item.depth + 1)
+        except (RuntimeError, TypeError, ValueError) as error:
+            self._output = f"Tool call failed: {error}"
+
+    @property
+    def output(self) -> str | ResponseFunctionCallOutputItemListParam:
+        """Return the resolved tool output."""
+
+        return self._output if self._output is not None else "Tool call failed: streaming tool returned no output."
+
+
 @dataclass(frozen=True)
 class Tool:
     """Runtime wrapper for an `@tool`-decorated callable."""
@@ -52,7 +92,7 @@ class Tool:
     started_label: str
     finished_label: str
     symbol: str
-    func: Callable[..., Output]
+    func: Callable[..., str | ResponseFunctionCallOutputItemListParam | Stream]
     args_model: type[BaseModel]
 
     @classmethod
@@ -119,18 +159,19 @@ class Tool:
             "strict": True,
         }
 
-    def invoke(self, args: str) -> Output:
+    def invoke(self, args: str) -> Invocation:
         """Validate JSON args and call the tool.
 
         Returns:
-            The tool result, or a user-facing error string.
+            An invocation that streams events and retains the result.
         """
 
         try:
             payload = self.args_model.model_validate_json(args, strict=True)
-            return self.func(**payload.model_dump())
+            output = self.func(**payload.model_dump())
         except ValidationError as error:
             first = error.errors(include_url=False)[0]
-            return f"Tool call failed: {first['msg']}."
+            output = f"Tool call failed: {first['msg']}."
         except (RuntimeError, TypeError, ValueError) as error:
-            return f"Tool call failed: {error}"
+            output = f"Tool call failed: {error}"
+        return Invocation(output)
