@@ -20,6 +20,7 @@ class Explorer(Agent):
         super().__init__(
             client=self.settings.llm_client,
             model=self.settings.explorer_model,
+            reasoning_effort=self.settings.explorer_reasoning_effort,
             sys_prompt="""
                 Given a query, use your tools to gather relevant context
                 and respond with a dense, concise, and purely factual report

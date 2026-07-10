@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from openai import OpenAI
+from openai.types.shared import ReasoningEffort
 from pydantic import Field, ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,6 +14,7 @@ class Settings(BaseSettings):
     cwd: Path = Field(description="Current working directory.", default_factory=Path.cwd)
     brave_api_key: str | None = Field(default=None, description="API key for Brave Search LLM Context API.")
     explorer_model: str = Field(description="Model ID for the Explorer agent.")
+    explorer_reasoning_effort: ReasoningEffort = Field(default=None, description="Explorer model reasoning effort.")
     force: bool = Field(description="Force re-creation of base directory.", default=False)
     llm_api_key: str = Field(
         description=(
@@ -24,6 +26,9 @@ class Settings(BaseSettings):
         default=None, description=("Any OpenAI-compatible provider base URL. Defaults to OpenAI as the provider.")
     )
     interviewer_model: str = Field(description="Model ID for the Interviewer agent.")
+    interviewer_reasoning_effort: ReasoningEffort = Field(
+        default=None, description="Interviewer model reasoning effort."
+    )
 
     model_config = SettingsConfigDict(
         cli_kebab_case=True,
