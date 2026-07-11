@@ -102,7 +102,7 @@ class App(TextualApp[None]):
         turn_state = InterviewerTurnState(container=interviewer_turn, placeholder=placeholder)
         self.active_turn_state = turn_state
 
-        await self.messages_container.mount(Static(user_message, classes=c.USER_MESSAGE_CLASSES))
+        await self.messages_container.mount(Markdown(user_message, classes=c.USER_MESSAGE_CLASSES))
         await self.messages_container.mount(interviewer_turn)
         await interviewer_turn.mount(placeholder)
 
@@ -278,7 +278,7 @@ class App(TextualApp[None]):
         interviewer_turn = None
         for item in items:
             if item.type == "user":
-                await self.messages_container.mount(Static(item.text, classes=c.USER_MESSAGE_CLASSES))
+                await self.messages_container.mount(Markdown(item.text, classes=c.USER_MESSAGE_CLASSES))
                 interviewer_turn = None
                 continue
 
