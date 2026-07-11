@@ -1,11 +1,14 @@
 from collections.abc import Generator
-from typing import Literal
+from typing import TYPE_CHECKING, Literal, override
 
 from jri.core.notes import ConnectionInput, Notes
 from jri.core.settings import Settings
 
 from .explorer import Explorer
 from .shared import Agent, TextDelta, ToolCallFinished, ToolCallStarted, ToolOutput, tool
+
+if TYPE_CHECKING:
+    from openai.types.responses import ResponseInputItemParam
 
 
 class Interviewer(Agent):
@@ -16,6 +19,8 @@ class Interviewer(Agent):
     def __init__(self, settings: Settings, notes: Notes) -> None:
         self.settings = settings
         self.notes = notes
+        self.explorer: Explorer
+        self.explorations: dict[str, list[ResponseInputItemParam]] = {}
         super().__init__(
             client=settings.llm_client,
             model=settings.interviewer_model,
@@ -51,8 +56,9 @@ class Interviewer(Agent):
             Explorer tool events followed by its final text output.
         """
 
+        self.explorer = Explorer(self.settings)
         latest_output: list[str] = []
-        for event in Explorer(self.settings).send_message(query):
+        for event in self.explorer.send_message(query):
             match event:
                 case ToolCallStarted():
                     latest_output.clear()
@@ -166,3 +172,8 @@ class Interviewer(Agent):
         """
         count = self.notes.disconnect(connections)
         return f"Disconnected {count} relationship(s)."
+
+    @override
+    def _after_tool_call(self, call_id: str, name: str) -> None:
+        if name == "explore":
+            self.explorations[call_id] = self.explorer.ctx

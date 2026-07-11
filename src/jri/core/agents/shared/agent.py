@@ -105,6 +105,7 @@ class Agent:
                 )
                 invocation = tool.invoke(output["arguments"]) if tool else Invocation(f"Unknown tool `{name}`.")
                 yield from invocation
+                self._after_tool_call(output["call_id"], name)
                 self.ctx.append({
                     "type": "function_call_output",
                     "call_id": output["call_id"],
@@ -114,3 +115,6 @@ class Agent:
                     call_id=output["call_id"],
                     label=tool.format_label(tool.finished_label, output["arguments"]) if tool else name,
                 )
+
+    def _after_tool_call(self, call_id: str, name: str) -> None:
+        pass

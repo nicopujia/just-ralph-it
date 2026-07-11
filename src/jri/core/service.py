@@ -41,7 +41,7 @@ class Service:
         self.state_file = self.base_dir / "state.json"
 
         self.state_lock = Lock()
-        self.state: dict[str, Any] = {"interview": [], "show_thinking_blocks": False}
+        self.state: dict[str, Any] = {"interview": [], "explorations": {}, "show_thinking_blocks": False}
 
         if settings.force:
             shutil.rmtree(self.base_dir)
@@ -74,7 +74,11 @@ class Service:
         interview = [
             (item.model_dump(mode="json") if isinstance(item, OpenAIModel) else item) for item in self.interviewer.ctx
         ]
-        self.update_state(interview=interview)
+        explorations = {
+            call_id: [(item.model_dump(mode="json") if isinstance(item, OpenAIModel) else item) for item in context]
+            for call_id, context in self.interviewer.explorations.items()
+        }
+        self.update_state(interview=interview, explorations=explorations)
         self.logger.info("chat_finished interview_items=%d", len(interview))
 
     def restore(self) -> tuple[list[InterviewItem], bool]:
@@ -89,6 +93,7 @@ class Service:
         self.state = json.loads(self.state_file.read_text())
         self.logger.info("restored interview_items=%d", len(self.state["interview"]))
         self.interviewer.ctx = self.state["interview"]
+        self.interviewer.explorations = self.state["explorations"]
         tools_by_name = {tool.name: tool for tool in self.interviewer.tools}
         items: list[InterviewItem] = []
         for item in self.interviewer.ctx:
