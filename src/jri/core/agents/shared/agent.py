@@ -82,6 +82,13 @@ class Agent:
                         case "response.output_item.done":
                             outputs_by_index[response["output_index"]] = response["item"]
                         case "response.completed" | "response.incomplete":
+                            usage = response["response"]["usage"]
+                            logger.info(
+                                "context_usage agent=%s input_tokens=%d percentage=%.2f%%",
+                                type(self).__name__,
+                                usage["input_tokens"],
+                                usage["input_tokens"] / self.context_window * 100,
+                            )
                             break
                         case "response.failed" | "error":
                             raise RuntimeError((response.get("error") or response["response"]["error"])["message"])
