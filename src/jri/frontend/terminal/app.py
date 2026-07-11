@@ -174,7 +174,9 @@ class App(TextualApp[None]):
         self.set_focus(self.message_input)
         logger.debug("message_input_reset")
 
-    async def render_chat_event(self, turn_state: InterviewerTurnState, chat_event: ChatEvent) -> None:
+    async def render_chat_event(  # noqa: C901
+        self, turn_state: InterviewerTurnState, chat_event: ChatEvent
+    ) -> None:
         """Render one streamed event into the current turn."""
 
         if self.active_turn_state is not turn_state:
@@ -208,6 +210,11 @@ class App(TextualApp[None]):
                         await nested_row.remove()
                         del turn_state.tool_rows[nested_call_id]
                 turn_state.tool_rows[call_id].mark_complete(label)
+                if depth == 0:
+                    turn_state.placeholder = Markdown(
+                        c.INTERVIEWER_THINKING_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES
+                    )
+                    await turn_state.container.mount(turn_state.placeholder)
                 self.messages_container.anchor()
 
     async def render_interviewer_status(self, turn_state: InterviewerTurnState, content: str) -> None:
