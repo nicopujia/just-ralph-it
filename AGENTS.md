@@ -44,5 +44,5 @@ jri --help
 
 # Run formatting, linting, and typechecking
 # Use it always after making changes
-./scripts/check.sh
+./scripts/check.py
 ```
