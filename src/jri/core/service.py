@@ -38,6 +38,7 @@ class Service:
         self.logs_dir = self.base_dir / "logs"
         self.gitignore_file = self.base_dir / ".gitignore"
         self.graph_file = self.base_dir / "graph.json"
+        self.graph_visualization_file = self.base_dir / "graph.html"
         self.state_file = self.base_dir / "state.json"
 
         self.state_lock = Lock()
@@ -48,8 +49,8 @@ class Service:
 
         self.base_dir.mkdir(exist_ok=True, parents=True)
         self.logs_dir.mkdir(exist_ok=True, parents=True)
-        ignored_paths = [self.state_file, self.logs_dir]
-        self.gitignore_file.write_text("\n".join([p.name for p in ignored_paths]))
+        ignored_paths = [self.state_file, self.logs_dir, self.graph_visualization_file]
+        self.gitignore_file.write_text("\n".join([p.name for p in ignored_paths]) + "\n")
 
         log_file = self.logs_dir / f"{datetime.now().astimezone().strftime('%Y-%m-%d_%H-%M-%S')}.log"
         application_logger = logging.getLogger("jri")
