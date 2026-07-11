@@ -111,7 +111,10 @@ class Tool:
                 continue
             annotations = get_type_hints(wrapped, include_extras=True)
             fields = {
-                param.name: (annotations.get(param.name, str), ...)
+                param.name: (
+                    annotations.get(param.name, str),
+                    ... if param.default is inspect.Parameter.empty else param.default,
+                )
                 for param in inspect.signature(func).parameters.values()
             }
             args_model = create_model(

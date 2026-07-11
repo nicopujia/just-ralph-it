@@ -1,5 +1,7 @@
 from collections.abc import Generator
+from typing import Literal
 
+from jri.core.notes import ConnectionInput, Notes
 from jri.core.settings import Settings
 
 from .explorer import Explorer
@@ -11,8 +13,9 @@ class Interviewer(Agent):
 
     FIRST_MESSAGE = "What do you want to build?"
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, notes: Notes) -> None:
         self.settings = settings
+        self.notes = notes
         super().__init__(
             client=settings.llm_client,
             model=settings.interviewer_model,
@@ -26,6 +29,11 @@ class Interviewer(Agent):
 
                 Rules:
                 - Prefer answering questions with `explore` tool when possible.
+                - Manage project knowledge proactively with the note tools.
+                - Each note must contain one independently meaningful idea.
+                - Read existing notes before asking about information that may already be known.
+                - Connect notes to express hierarchy and relationships; do not encode structure in note text.
+                - Do not ask the user to manage notes, IDs, connections, or files.
             """,
             initial_ctx=[{"role": "assistant", "content": self.FIRST_MESSAGE}],
         )
@@ -54,3 +62,105 @@ class Interviewer(Agent):
                 case TextDelta():
                     latest_output.append(event.text)
         yield ToolOutput("".join(latest_output))
+
+    @tool(
+        "Fuzzy search notes, read notes by ID, or traverse connections from notes.",
+        started_label="Reading notes",
+        finished_label="Read notes",
+        symbol="◉",
+    )
+    def read_notes(
+        self,
+        query: str | None = None,
+        ids: list[str] | None = None,
+        traverse_from: list[str] | None = None,
+        direction: Literal["outgoing", "incoming", "both"] | None = None,
+        depth: int | None = None,
+    ) -> str:
+        """Read relevant project notes.
+
+        Returns:
+            Matching notes and connections.
+        """
+        notes, connections = self.notes.read(query, ids, traverse_from, direction, depth)
+        if not notes:
+            return "No notes found."
+        lines = [f"- {note.id}: {note.text}" for note in notes]
+        if connections:
+            lines.extend(["", "Connections"])
+            lines.extend(f"- {item.source_id} --{item.label}--> {item.target_id}" for item in connections)
+        return "\n".join(lines)
+
+    @tool(
+        "Create one or more independently meaningful notes atomically.",
+        started_label="Adding notes",
+        finished_label="Added notes",
+        symbol="+",
+    )
+    def add_notes(self, texts: list[str]) -> str:
+        """Add project notes.
+
+        Returns:
+            A summary containing the new IDs.
+        """
+        return "\n".join(f"Added {note.id}: {note.text}" for note in self.notes.add(texts))
+
+    @tool(
+        "Edit one note's text without changing its connections.",
+        started_label="Editing note {note_id}",
+        finished_label="Edited note {note_id}",
+        symbol="✎",
+    )
+    def edit_note(self, note_id: str, text: str) -> str:
+        """Edit a project note.
+
+        Returns:
+            A summary of the edited note.
+        """
+        note = self.notes.edit(note_id, text)
+        return f"Edited {note.id}: {note.text}"
+
+    @tool(
+        "Delete notes and every connection touching them atomically.",
+        started_label="Deleting notes",
+        finished_label="Deleted notes",
+        symbol="-",
+    )
+    def delete_notes(self, note_ids: list[str]) -> str:
+        """Delete project notes.
+
+        Returns:
+            A summary of the deleted notes.
+        """
+        deleted_ids = self.notes.delete(note_ids)
+        return f"Deleted notes: {', '.join(deleted_ids)}."
+
+    @tool(
+        "Create directed, labeled connections between notes atomically.",
+        started_label="Connecting notes",
+        finished_label="Connected notes",
+        symbol="↗",
+    )
+    def connect_notes(self, connections: list[ConnectionInput]) -> str:
+        """Connect project notes.
+
+        Returns:
+            The number of relationships created.
+        """
+        count = self.notes.connect(connections)
+        return f"Connected {count} relationship(s)."
+
+    @tool(
+        "Remove directed, labeled connections between notes atomically.",
+        started_label="Disconnecting notes",
+        finished_label="Disconnected notes",
+        symbol="↛",
+    )
+    def disconnect_notes(self, connections: list[ConnectionInput]) -> str:
+        """Disconnect project notes.
+
+        Returns:
+            The number of relationships removed.
+        """
+        count = self.notes.disconnect(connections)
+        return f"Disconnected {count} relationship(s)."

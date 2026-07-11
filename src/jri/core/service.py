@@ -7,6 +7,7 @@ from typing import Any, Literal, NamedTuple
 from openai import BaseModel as OpenAIModel
 
 from .agents import ChatEvent, Interviewer
+from .notes import Notes
 from .settings import Settings
 
 
@@ -27,10 +28,9 @@ class Service:
                 state.json
         ```
         """
-        self.interviewer = Interviewer(settings)
-
         self.base_dir = settings.cwd / ".jri"
         self.gitignore_file = self.base_dir / ".gitignore"
+        self.graph_file = self.base_dir / "graph.json"
         self.state_file = self.base_dir / "state.json"
         self.state_lock = Lock()
         self.state: dict[str, Any] = {"interview": [], "show_thinking_blocks": False}
@@ -40,6 +40,7 @@ class Service:
 
         self.base_dir.mkdir(exist_ok=True, parents=True)
         self.gitignore_file.write_text(self.state_file.name)
+        self.interviewer = Interviewer(settings, Notes(self.graph_file))
 
     def chat(self, message: str) -> Generator[ChatEvent]:
         """Send a message and persist the full interview context.
