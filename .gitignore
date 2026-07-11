@@ -5,6 +5,7 @@
 .ruff_cache/
 .uv-cache/
 .pytest_cache/
+.tmp/
 __pycache__/
 htmlcov/
 dist/
