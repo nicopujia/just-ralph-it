@@ -177,7 +177,7 @@ class Tool:
 
         try:
             payload = self.args_model.model_validate_json(args, strict=True)
-            output = self.func(**payload.model_dump())
+            output = self.func(**{name: getattr(payload, name) for name in self.args_model.model_fields})
         except ValidationError as error:
             first = error.errors(include_url=False)[0]
             output = f"Tool call failed: {first['msg']}."
