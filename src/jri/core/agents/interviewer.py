@@ -26,28 +26,53 @@ class Interviewer(Agent):
             model=settings.interviewer_model,
             reasoning_effort=settings.interviewer_reasoning_effort,
             sys_prompt="""
-                You are the Interviewer of the Just Ralph It (JRI) system,
-                which is a tool to build any software project.
+                Role: Interviewer of the Just Ralph It (JRI) system, a tool to build any software project.
 
-                Your task is extract the full project idea that the user wants
-                to build out of their mind.
+                Goals:
+                    1. Help the user realize what they _actually_ want and need.
+                    2. Extract the user's project idea out of their mind into distilled, interconnected notes.
 
-                Rules:
-                - Prefer answering questions with `explore` tool when possible.
-                - Manage project knowledge proactively with the note tools.
-                - Each note must contain one independently meaningful idea.
-                - Read existing notes before asking about information that may already be known.
-                - Connect notes to express hierarchy and relationships; do not encode structure in note text.
-                - Do not ask the user to manage notes, IDs, connections, or files.
+                Success criteria is one of the following:
+                    - The notes describe a project such that if a competent engineer built the project based solely on
+                    the those notes, there would not be more than one plausible interpretation regarding behavior,
+                    therefore making the result inevitably match the user's expectations.
+                    - The user decided that they don't really want to build any project.
+
+                Personality:
+                    - Often share your own understanding of the user's intent.
+                    - Challenge the user's ideas, helping them to discover their blind spots, and trying to find the
+                    true problem they have beyond the surface of their words.
+                    - Make direct questions.
+
+                Collaboration style:
+                    - Ask either one open-ended question at a time or a topic-based batch of multiple-choice questions.
+                    - Although the user might state a handful of ideas all together, organize the conversation to
+                    discuss one topic at a time. Also take note of the questions you can think of after the user shares
+                    their ideas, so you can make them later.
+                    - If the user is not sure about a decision, state alternatives and their trade-offs, not opinions.
+                    - Don't make assumptions.
+
+                Tools:
+                    - Manage project knowledge and open questions proactively with the note tools.
+                    - Assume you may forget any relevant fact unless you take notes of it.
+                    - Prefer answering your own questions with `explore` and/or `read_notes` when possible.
+
+                Constraints:
+                    - Don't ask the user to manage notes, IDs, connections, or files.
+                    - Each note must contain one independently meaningful idea.
+                    - Connect notes to express hierarchy and relationships; do not encode structure in note text.
+                    - You don't build. Ralph does, and it does so only after the project is properly defined.
+
+                Stop rule: both you and the user agree that there is nothing relevant left to discuss.
             """,
             initial_ctx=[{"role": "assistant", "content": self.FIRST_MESSAGE}],
         )
 
     @tool(
-        "Gather context through a natural language query, including anything from the web or this computer.",
-        started_label='Exploring "{query}"',
-        finished_label='Explored "{query}"',
-        symbol="🔍",
+        "Gather context through a free-form query, including anything from the web or this computer.",
+        started_label="Exploring {query}",
+        finished_label="Explored {query}",
+        symbol="🔎",
     )
     def explore(self, query: str) -> Generator[ToolCallStarted | ToolCallFinished | ToolOutput]:
         """Gather extra context for the user request.
@@ -70,11 +95,11 @@ class Interviewer(Agent):
         yield ToolOutput("".join(latest_output))
 
     @tool(
-        "Read all notes when called without arguments. Set query for fuzzy search, ids for exact "
-        "lookup, or traverse_from with direction and depth for graph traversal.",
+        "Read all notes when called without arguments. Set `query` for fuzzy search, `ids` for exact "
+        "lookup, or `traverse_from` with `direction` and `depth` for graph traversal.",
         started_label="Reading notes",
         finished_label="Read notes",
-        symbol="◉",
+        symbol="📖",
         strict=False,
     )
     def read_notes(
@@ -100,10 +125,10 @@ class Interviewer(Agent):
         return "\n".join(lines)
 
     @tool(
-        "Create one or more independently meaningful notes atomically.",
-        started_label="Adding notes",
-        finished_label="Added notes",
-        symbol="+",
+        "Create one or more independently meaningful notes.",
+        started_label="Taking notes",
+        finished_label="Took notes",
+        symbol="📝",
     )
     def add_notes(self, texts: list[str]) -> str:
         """Add project notes.
@@ -117,7 +142,7 @@ class Interviewer(Agent):
         "Edit one note's text without changing its connections.",
         started_label="Editing note {note_id}",
         finished_label="Edited note {note_id}",
-        symbol="✎",
+        symbol="✏️",
     )
     def edit_note(self, note_id: str, text: str) -> str:
         """Edit a project note.
@@ -129,10 +154,10 @@ class Interviewer(Agent):
         return f"Edited {note.id}: {note.text}"
 
     @tool(
-        "Delete notes and every connection touching them atomically.",
-        started_label="Deleting notes",
-        finished_label="Deleted notes",
-        symbol="-",
+        "Delete notes and every connection touching them.",
+        started_label="Discarding notes",
+        finished_label="Discarded notes",
+        symbol="🗑️",
     )
     def delete_notes(self, note_ids: list[str]) -> str:
         """Delete project notes.
@@ -144,10 +169,10 @@ class Interviewer(Agent):
         return f"Deleted notes: {', '.join(deleted_ids)}."
 
     @tool(
-        "Create directed, labeled connections between notes atomically.",
-        started_label="Connecting notes",
-        finished_label="Connected notes",
-        symbol="↗",
+        "Create directed, labeled connections between notes.",
+        started_label="Organizing notes",
+        finished_label="Organized notes",
+        symbol="🖇️",
     )
     def connect_notes(self, connections: list[ConnectionInput]) -> str:
         """Connect project notes.
@@ -160,9 +185,9 @@ class Interviewer(Agent):
 
     @tool(
         "Remove directed, labeled connections between notes atomically.",
-        started_label="Disconnecting notes",
-        finished_label="Disconnected notes",
-        symbol="↛",
+        started_label="Reorganizing notes",
+        finished_label="Reorganized notes",
+        symbol="📎",
     )
     def disconnect_notes(self, connections: list[ConnectionInput]) -> str:
         """Disconnect project notes.

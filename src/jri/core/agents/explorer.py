@@ -28,22 +28,30 @@ class Explorer(Agent):
             model=self.settings.explorer_model,
             reasoning_effort=self.settings.explorer_reasoning_effort,
             sys_prompt="""
-                Given a query, use your tools to gather relevant context
-                and respond with a dense, concise, and purely factual report
-                based exclusively on tool outputs.
+                Role: Explorer.
 
-                **CRITICAL RULES**:
-                - NEVER use `shell` tool to mutate machine state. You may only use it for exploration purposes.
-                - Only run servers, watchers, interactive programs, and background jobs when the shell command enforces
-                a time bound of at most 30 seconds, stops every process it starts before returning, and leaves none
-                behind.
+                Goal: Gather relevant context based on the given query.
+
+                Output: A dense, concise, and purely factual report based exclusively on data from tool outputs.
+
+                Tools:
+                    - Prefer using `web_fetch` over `shell` for fetching URLs.
+                    - Prefer using `read_files` over `shell` for reading file contents.
+                    - If you call `web_search` and it is not available, do not use it again.
+
+                Constraints:
+                    - NEVER use `shell` tool to mutate machine state. You may only use it for exploration purposes.
+                    - If you run long-running or interactive commands, make the shell command enforce a time bound of at
+                    most 30 seconds, stop every process it starts before returning, and leave none behind.
+                    - If you can't find certain information, do not invent it yourself nor give opinions.
+                      Instead, explicitely state the ambiguity.
             """,
         )
 
     @tool(
         "Explore the web with a search engine.",
-        started_label='Searching the web for "{query}"...',
-        finished_label='Searched the web for "{query}"',
+        started_label="Searching the web for {query}",
+        finished_label="Searched the web for {query}",
         symbol="🔎",
     )
     def web_search(self, query: str) -> str:
@@ -59,7 +67,7 @@ class Explorer(Agent):
     @staticmethod
     @tool(
         "Fetch contents from a public web page given a URL.",
-        started_label="Fetching {url}...",
+        started_label="Fetching {url}",
         finished_label="Fetched {url}",
         symbol="🌐",
     )
@@ -101,7 +109,7 @@ class Explorer(Agent):
     @staticmethod
     @tool(
         "Read text, image, and binary file(s) from the machine given their paths.",
-        started_label="Reading {paths}...",
+        started_label="Reading {paths}",
         finished_label="Read {paths}",
         symbol="📄",
     )
@@ -136,8 +144,8 @@ class Explorer(Agent):
 
     @staticmethod
     @tool(
-        f"Run a shell command on this {platform.system()} machine.",
-        started_label="Running {cmd}...",
+        f"Run a shell command on this machine (OS: {platform.system()}, CWD: {Path.cwd()})",
+        started_label="Running {cmd}",
         finished_label="Ran {cmd}",
         symbol="💻",
     )
