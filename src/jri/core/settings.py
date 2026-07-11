@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
+from dotenv import find_dotenv
 from openai import OpenAI
 from openai.types.shared import ReasoningEffort
 from pydantic import Field, ValidationError
@@ -39,7 +40,7 @@ class Settings(BaseSettings):
         cli_parse_args=True,
         cli_implicit_flags="toggle",
         env_prefix="JRI_",
-        env_file=".env",
+        env_file=find_dotenv(usecwd=True),
         env_file_encoding="utf-8",
         extra="ignore",
     )
