@@ -69,6 +69,10 @@ Header {{
     border-left: heavy ansi_bright_magenta;
 }}
 
+.{USER_MESSAGE_CLASSES} MarkdownBlock:last-child {{
+    margin-bottom: 0;
+}}
+
 .{INTERVIEWER_TURN_CLASSES} {{
     height: auto;
     padding-top: 1;
