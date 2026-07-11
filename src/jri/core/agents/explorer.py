@@ -26,6 +26,7 @@ class Explorer(Agent):
         super().__init__(
             client=self.settings.llm_client,
             model=self.settings.explorer_model,
+            temperature=settings.explorer_temperature,
             reasoning_effort=self.settings.explorer_reasoning_effort,
             sys_prompt="""
                 Role: Explorer.

@@ -24,6 +24,7 @@ class Interviewer(Agent):
         super().__init__(
             client=settings.llm_client,
             model=settings.interviewer_model,
+            temperature=settings.interviewer_temperature,
             reasoning_effort=settings.interviewer_reasoning_effort,
             sys_prompt="""
                 Role: Interviewer of the Just Ralph It (JRI) system, a tool to build any software project.

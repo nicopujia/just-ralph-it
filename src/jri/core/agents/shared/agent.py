@@ -21,7 +21,7 @@ class Agent:
     as function calls the LLM can invoke.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         *,
         client: OpenAI,
@@ -29,9 +29,11 @@ class Agent:
         sys_prompt: str,
         reasoning_effort: ReasoningEffort = None,
         initial_ctx: ResponseInputParam | None = None,
+        temperature: float | None = None,
     ) -> None:
         self.client = client
         self.model = model
+        self.temperature = temperature
         self.reasoning_effort: ReasoningEffort = reasoning_effort
         self.tools = Tool.discover(self)
         self.sys_prompt = inspect.cleandoc(sys_prompt)
@@ -66,6 +68,7 @@ class Agent:
                 input=self.ctx,
                 tools=tool_definitions,
                 reasoning=Reasoning(effort=self.reasoning_effort, summary="auto"),
+                temperature=self.temperature,
                 stream=True,
             ) as stream:
                 for response_event in stream:
@@ -84,10 +87,7 @@ class Agent:
                         case "response.completed" | "response.incomplete":
                             usage = response["response"]["usage"]
                             logger.info(
-                                "context_usage agent=%s input_tokens=%d percentage=%.2f%%",
-                                type(self).__name__,
-                                usage["input_tokens"],
-                                usage["input_tokens"] / self.context_window * 100,
+                                "context_usage agent=%s input_tokens=%d", type(self).__name__, usage["input_tokens"]
                             )
                             break
                         case "response.failed" | "error":
