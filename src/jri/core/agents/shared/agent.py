@@ -1,4 +1,5 @@
 import inspect
+import logging
 from collections.abc import Generator
 from typing import Any, cast
 
@@ -9,6 +10,8 @@ from openai.types.shared_params import Reasoning
 
 from .events import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
 from .tool import Invocation, Tool
+
+logger = logging.getLogger(__name__)
 
 
 class Agent:
@@ -50,12 +53,14 @@ class Agent:
 
         """
         self.ctx.append({"role": "user", "content": message})
+        logger.info("message_started agent=%s model=%s", type(self).__name__, self.model)
 
         tool_definitions = [tool.definition for tool in self.tools]
         tools_by_name = {tool.name: tool for tool in self.tools}
 
         while True:
             outputs_by_index: dict[int, dict[str, Any]] = {}
+            logger.info("request_started agent=%s input_items=%d", type(self).__name__, len(self.ctx))
             with self.client.responses.create(
                 model=self.model,
                 input=self.ctx,
@@ -64,26 +69,30 @@ class Agent:
                 stream=True,
             ) as stream:
                 for response_event in stream:
-                    event = cast("dict[str, Any]", response_event.to_dict())
-                    match event["type"]:
+                    response = cast("dict[str, Any]", response_event.to_dict())
+                    match response["type"]:
                         case (
                             "response.reasoning.delta"
                             | "response.reasoning_text.delta"
                             | "response.reasoning_summary_text.delta"
                         ):
-                            yield ReasoningDelta(event["delta"])
+                            yield ReasoningDelta(response["delta"])
                         case "response.output_text.delta":
-                            yield TextDelta(event["delta"])
+                            yield TextDelta(response["delta"])
                         case "response.output_item.done":
-                            outputs_by_index[event["output_index"]] = event["item"]
+                            outputs_by_index[response["output_index"]] = response["item"]
                         case "response.completed" | "response.incomplete":
                             break
                         case "response.failed" | "error":
-                            raise RuntimeError((event.get("error") or event["response"]["error"])["message"])
+                            raise RuntimeError((response.get("error") or response["response"]["error"])["message"])
             outputs = [outputs_by_index[index] for index in sorted(outputs_by_index)]
             self.ctx.extend(cast("list[ResponseInputItemParam]", outputs))
+            logger.info("request_finished agent=%s output_items=%d", type(self).__name__, len(outputs))
+            response_outputs = [output for output in outputs if output["type"] != "function_call"]
+            logger.debug("response outputs=%r", response_outputs)
 
             if all(output["type"] != "function_call" for output in outputs):
+                logger.info("message_finished agent=%s", type(self).__name__)
                 return
 
             for output in (output for output in outputs if output["type"] == "function_call"):

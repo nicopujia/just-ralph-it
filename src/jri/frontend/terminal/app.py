@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable, Iterable
 from threading import Thread
 from typing import Any, ClassVar, override
@@ -19,6 +20,8 @@ from . import constants as c
 from .states import InterviewerTurnState
 from .utils import detect_system_theme
 from .widgets import MessageInput, ToolCallRow
+
+logger = logging.getLogger(__name__)
 
 
 class CommandPalette(TextualCommandPalette):
@@ -73,18 +76,23 @@ class App(TextualApp[None]):
         await self.restore_history()
         self.theme = detect_system_theme()
         self.set_focus(self.message_input)
+        logger.info("mounted theme=%s", self.theme)
 
     async def on_message_input_submitted(self, event: MessageInput.Submitted) -> None:
         """Send a submitted user message to the interviewer."""
 
         if self.active_turn_state is not None:
+            logger.info("message_submission_ignored reason=turn_active")
             return
 
         user_message = event.value.strip()
 
         if not user_message:
             event.message_input.text = ""
+            logger.info("message_submission_ignored reason=blank_message")
             return
+
+        logger.info("message_submitted characters=%d", len(user_message))
 
         event.message_input.text = ""
         event.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
@@ -139,6 +147,7 @@ class App(TextualApp[None]):
                     status_copy = None
                 self._call_from_thread(self.render_chat_event, turn_state, chat_event)
         except (OpenAIError, RuntimeError) as error:
+            logger.exception("interviewer_worker_failed")
             status_copy = c.INTERVIEWER_ERROR_COPY.format(error=error)
         finally:
             if status_copy is not None and self.active_turn_state is turn_state:
@@ -163,11 +172,13 @@ class App(TextualApp[None]):
             return
         self.active_turn_state = None
         self.set_focus(self.message_input)
+        logger.debug("message_input_reset")
 
     async def render_chat_event(self, turn_state: InterviewerTurnState, chat_event: ChatEvent) -> None:
         """Render one streamed event into the current turn."""
 
         if self.active_turn_state is not turn_state:
+            logger.debug("chat_event_render_skipped type=%s", type(chat_event).__name__)
             return
 
         match chat_event:
@@ -217,13 +228,16 @@ class App(TextualApp[None]):
 
         if self.screen.query("HelpPanel"):
             self.action_hide_help_panel()
+            logger.info("keymap_panel_toggled visible=False")
         else:
             self.action_show_help_panel()
+            logger.info("keymap_panel_toggled visible=True")
 
     def action_toggle_reasoning(self) -> None:
         """Show or hide reasoning summaries in this session."""
 
         self.is_reasoning_visible = not self.is_reasoning_visible
+        logger.info("reasoning_visibility_toggled visible=%r", self.is_reasoning_visible)
         self.service.update_state(show_thinking_blocks=self.is_reasoning_visible)
         for reasoning_block in self.query(Markdown):
             if reasoning_block.has_class(c.INTERVIEWER_REASONING_CLASSES):
@@ -282,3 +296,4 @@ class App(TextualApp[None]):
                 else Markdown(item.text, classes=c.INTERVIEWER_MESSAGE_CLASSES)
             )
         self.messages_container.scroll_end(animate=False)
+        logger.info("history_restored items=%d reasoning_visible=%r", len(items), self.is_reasoning_visible)

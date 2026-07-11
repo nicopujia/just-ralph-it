@@ -1,4 +1,5 @@
 import inspect
+import logging
 from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass, replace
 from typing import ParamSpec, Self, TypeVar, cast, get_type_hints
@@ -10,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 from .events import ChatEvent, ToolCallFinished, ToolCallStarted
 
 _METADATA_ATTR = "__jri_tool_metadata__"
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -68,13 +70,16 @@ class Invocation:
             Nested tool events.
         """
 
-        try:
+        try:  # noqa: PLW0717
             for item in self.stream:
                 if isinstance(item, Output):
                     self._output = item.value
+                    logger.debug("stream_output output=%r", item.value)
                 else:
+                    logger.debug("stream_event value=%r", item)
                     yield replace(item, depth=item.depth + 1)
         except (RuntimeError, TypeError, ValueError) as error:
+            logger.exception("stream_failed")
             self._output = f"Tool call failed: {error}"
 
     @property
@@ -175,12 +180,18 @@ class Tool:
             An invocation that streams events and retains the result.
         """
 
+        logger.info("invocation_started name=%s", self.name)
+        logger.debug("arguments name=%s arguments=%r", self.name, args)
         try:
             payload = self.args_model.model_validate_json(args, strict=True)
             output = self.func(**{name: getattr(payload, name) for name in self.args_model.model_fields})
         except ValidationError as error:
+            logger.exception("validation_failed name=%s", self.name)
             first = error.errors(include_url=False)[0]
             output = f"Tool call failed: {first['msg']}."
         except (RuntimeError, TypeError, ValueError) as error:
+            logger.exception("invocation_failed name=%s", self.name)
             output = f"Tool call failed: {error}"
+        logger.info("invocation_finished name=%s", self.name)
+        logger.debug("output name=%s output=%r", self.name, output)
         return Invocation(output)

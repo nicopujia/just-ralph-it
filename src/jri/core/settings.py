@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Literal
 
 from openai import OpenAI
 from openai.types.shared import ReasoningEffort
@@ -24,6 +25,9 @@ class Settings(BaseSettings):
     )
     llm_base_url: str | None = Field(
         default=None, description=("Any OpenAI-compatible provider base URL. Defaults to OpenAI as the provider.")
+    )
+    logging_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
+        default="INFO", description="Minimum logging level for logs saved under .jri/logs/."
     )
     interviewer_model: str = Field(description="Model ID for the Interviewer agent.")
     interviewer_reasoning_effort: ReasoningEffort = Field(

@@ -1,11 +1,13 @@
 """Helpers for parsing YouTube URLs and fetching transcripts."""
 
+import logging
 from contextlib import suppress
 from urllib.parse import parse_qs, urlparse
 
 from youtube_transcript_api import NoTranscriptFound, YouTubeTranscriptApi, YouTubeTranscriptApiException
 
 __all__ = ["fetch_transcript_from_url"]
+logger = logging.getLogger(__name__)
 
 
 def fetch_transcript_from_url(url: str) -> str | None:
@@ -42,6 +44,7 @@ def fetch_transcript_from_url(url: str) -> str | None:
     try:
         transcripts = YouTubeTranscriptApi().list(video_id)
     except YouTubeTranscriptApiException as error:
+        logger.exception("transcripts_load_failed url=%r video_id=%r", url, video_id)
         raise RuntimeError("Failed to load transcript metadata.") from error
 
     transcript = next(iter(transcripts), None)
@@ -53,10 +56,13 @@ def fetch_transcript_from_url(url: str) -> str | None:
     try:
         snippets = transcript.fetch()
     except YouTubeTranscriptApiException as error:
+        logger.exception("transcript_fetch_failed url=%r video_id=%r", url, video_id)
         raise RuntimeError("Failed to fetch transcript contents.") from error
 
     lines = [text for snippet in snippets if (text := snippet.text.strip())]
     if not lines:
         raise RuntimeError("Transcript did not contain any text.")
 
-    return "\n".join(lines)
+    output = "\n".join(lines)
+    logger.info("transcript_fetched video_id=%s characters=%d", video_id, len(output))
+    return output

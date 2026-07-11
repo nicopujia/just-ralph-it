@@ -1,10 +1,13 @@
 import json
+import logging
 from difflib import SequenceMatcher
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from typing import Literal
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
+
+logger = logging.getLogger(__name__)
 
 
 class Note(BaseModel):
@@ -60,6 +63,7 @@ class Notes:
     def __init__(self, path: Path) -> None:
         self.path = path
         self.graph = self._load()
+        logger.info("initialized notes=%d connections=%d", len(self.graph.notes), len(self.graph.connections))
 
     def read(  # noqa: C901
         self,
@@ -122,12 +126,15 @@ class Notes:
             frontier = next_frontier
 
         if not selected:
+            logger.info("read_finished notes=0 connections=0")
             return [], []
         selected_ids = selected.keys()
         connections = [
             item for item in self.graph.connections if item.source_id in selected_ids and item.target_id in selected_ids
         ]
-        return list(selected.values()), connections
+        notes = list(selected.values())
+        logger.info("read_finished notes=%d connections=%d", len(notes), len(connections))
+        return notes, connections
 
     def add(self, texts: list[str]) -> list[Note]:
         """Add multiple notes atomically.
@@ -146,6 +153,7 @@ class Notes:
         added = [Note(id=f"n{next_number + index}", text=text) for index, text in enumerate(texts)]
         graph.notes.extend(added)
         self._save(graph)
+        logger.info("add_finished ids=%r", [note.id for note in added])
         return added
 
     def edit(self, note_id: str, text: str) -> Note:
@@ -163,6 +171,7 @@ class Notes:
         note = self._find(graph, note_id)
         note.text = text
         self._save(graph)
+        logger.info("edit_finished note_id=%s", note.id)
         return note
 
     def delete(self, note_ids: list[str]) -> list[str]:
@@ -185,6 +194,7 @@ class Notes:
             item for item in graph.connections if item.source_id not in deleted and item.target_id not in deleted
         ]
         self._save(graph)
+        logger.info("delete_finished note_ids=%r", note_ids)
         return note_ids
 
     def connect(self, connections: list[ConnectionInput]) -> int:
@@ -213,7 +223,9 @@ class Notes:
             if tuple(connection.model_dump().values()) not in existing:
                 graph.connections.append(Connection(**connection.model_dump()))
         self._save(graph)
-        return len(set(requested) - existing)
+        count = len(set(requested) - existing)
+        logger.info("connect_finished count=%d", count)
+        return count
 
     def disconnect(self, connections: list[ConnectionInput]) -> int:
         """Disconnect notes atomically.
@@ -242,22 +254,30 @@ class Notes:
             item for item in graph.connections if (item.source_id, item.target_id, item.label) not in requested
         ]
         self._save(graph)
-        return before - len(graph.connections)
+        count = before - len(graph.connections)
+        logger.info("disconnect_finished count=%d", count)
+        return count
 
     def _load(self) -> Graph:
         if not self.path.exists():
             graph = Graph()
             self._write(graph)
+            logger.debug("file_created")
             return graph
         try:
-            return Graph.model_validate_json(self.path.read_text(encoding="utf-8"))
+            graph = Graph.model_validate_json(self.path.read_text(encoding="utf-8"))
+            logger.debug("file_loaded notes=%d connections=%d", len(graph.notes), len(graph.connections))
         except (OSError, ValidationError) as error:
+            logger.exception("file_load_failed path=%r", self.path)
             raise RuntimeError(f"Invalid graph file: {error}") from error
+        else:
+            return graph
 
     def _save(self, graph: Graph) -> None:
         graph = Graph.model_validate(graph)
         self._write(graph)
         self.graph = graph
+        logger.debug("saved notes=%d connections=%d", len(graph.notes), len(graph.connections))
 
     def _write(self, graph: Graph) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
