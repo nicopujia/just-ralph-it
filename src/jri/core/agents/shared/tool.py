@@ -18,6 +18,7 @@ class _Metadata:
     started_label: str
     finished_label: str
     symbol: str
+    strict: bool
 
 
 @dataclass(frozen=True)
@@ -33,7 +34,7 @@ Return = TypeVar("Return")
 
 
 def tool(
-    description: str, *, started_label: str, finished_label: str, symbol: str = "⚙︎"
+    description: str, *, started_label: str, finished_label: str, symbol: str = "⚙︎", strict: bool = True
 ) -> Callable[[Callable[Params, Return]], Callable[Params, Return]]:
     """Mark a method as an agent tool.
 
@@ -47,7 +48,7 @@ def tool(
     """
 
     def mark_as_tool(func: Callable[Params, Return]) -> Callable[Params, Return]:
-        setattr(func, _METADATA_ATTR, _Metadata(description, started_label, finished_label, symbol))
+        setattr(func, _METADATA_ATTR, _Metadata(description, started_label, finished_label, symbol, strict))
         return func
 
     return mark_as_tool
@@ -92,6 +93,7 @@ class Tool:
     started_label: str
     finished_label: str
     symbol: str
+    strict: bool
     func: Callable[..., str | ResponseFunctionCallOutputItemListParam | Stream]
     args_model: type[BaseModel]
 
@@ -129,6 +131,7 @@ class Tool:
                     started_label=metadata.started_label,
                     finished_label=metadata.finished_label,
                     symbol=metadata.symbol,
+                    strict=metadata.strict,
                     func=func,
                     args_model=args_model,
                 )
@@ -152,14 +155,17 @@ class Tool:
     def definition(self) -> FunctionToolParam:
         """OpenAI Responses API function-tool definition."""
 
-        function = pydantic_function_tool(self.args_model, name=self.name, description=self.description)["function"]
-        parameters = cast("dict[str, object]", function.get("parameters"))
+        if self.strict:
+            function = pydantic_function_tool(self.args_model, name=self.name, description=self.description)["function"]
+            parameters = cast("dict[str, object]", function.get("parameters"))
+        else:
+            parameters = self.args_model.model_json_schema()
         return {
             "type": "function",
             "name": self.name,
             "description": self.description,
             "parameters": parameters,
-            "strict": True,
+            "strict": self.strict,
         }
 
     def invoke(self, args: str) -> Invocation:

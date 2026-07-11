@@ -61,7 +61,7 @@ class Notes:
         self.path = path
         self.graph = self._load()
 
-    def read(  # noqa: C901, PLR0912
+    def read(  # noqa: C901
         self,
         query: str | None,
         ids: list[str] | None,
@@ -77,13 +77,11 @@ class Notes:
         Raises:
             ValueError: If selectors or traversal arguments are invalid.
         """
-        if query is None and not ids and not traverse_from:
-            raise ValueError("Provide query, ids, or traverse_from.")
         if depth is not None and depth < 1:
             raise ValueError("Traversal depth must be at least 1.")
 
         by_id = {note.id: note for note in self.graph.notes}
-        selected: dict[str, Note] = {}
+        selected = dict(by_id) if query is None and not ids and not traverse_from else {}
         for note_id in ids or []:
             if note_id not in by_id:
                 raise ValueError(f"Unknown note `{note_id}`.")

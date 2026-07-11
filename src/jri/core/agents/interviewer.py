@@ -64,10 +64,12 @@ class Interviewer(Agent):
         yield ToolOutput("".join(latest_output))
 
     @tool(
-        "Fuzzy search notes, read notes by ID, or traverse connections from notes.",
+        "Read all notes when called without arguments. Set query for fuzzy search, ids for exact "
+        "lookup, or traverse_from with direction and depth for graph traversal.",
         started_label="Reading notes",
         finished_label="Read notes",
         symbol="◉",
+        strict=False,
     )
     def read_notes(
         self,
