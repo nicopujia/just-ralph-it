@@ -21,7 +21,7 @@ class InterviewItem(NamedTuple):
 
 class Service:
     def __init__(self, settings: Settings) -> None:
-        """Load settings, configures logging, and set base directory up.
+        """Load settings, configure logging, and set base directory up.
 
         Directory structure:
         ```
