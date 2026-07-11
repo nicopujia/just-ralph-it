@@ -12,7 +12,13 @@ from pathlib import Path
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("graph", type=Path, help="Path to the JRI graph JSON file.")
+    parser.add_argument(
+        "graph",
+        type=Path,
+        nargs="?",
+        default=Path.cwd() / ".jri" / "graph.json",
+        help="Path to the JRI graph JSON file. Defaults to $PWD/.jri/graph.json.",
+    )
     parser.add_argument(
         "output",
         type=Path,
