@@ -169,18 +169,21 @@ class App(TextualApp[None]):
 
         if self.active_turn_state is not turn_state:
             return
-        if turn_state.placeholder is not None:
-            await turn_state.placeholder.remove()
-            turn_state.placeholder = None
 
         match chat_event:
             case ReasoningDelta(text=text):
                 await self.append_reasoning_text(turn_state, text)
             case TextDelta(text=text):
+                if turn_state.placeholder is not None:
+                    await turn_state.placeholder.remove()
+                    turn_state.placeholder = None
                 turn_state.active_reasoning = None
                 turn_state.active_reasoning_text = ""
                 await self.append_interviewer_text(turn_state, text)
             case ToolCallStarted(call_id=call_id, label=label, symbol=symbol, depth=depth):
+                if turn_state.placeholder is not None:
+                    await turn_state.placeholder.remove()
+                    turn_state.placeholder = None
                 turn_state.active_markdown = None
                 turn_state.active_markdown_text = ""
                 turn_state.active_reasoning = None
