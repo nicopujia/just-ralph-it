@@ -70,17 +70,21 @@ class Invocation:
             Nested tool events.
         """
 
-        try:  # noqa: PLW0717
-            for item in self.stream:
-                if isinstance(item, Output):
-                    self._output = item.value
-                    logger.debug("stream_output output=%r", item.value)
-                else:
-                    logger.debug("stream_event value=%r", item)
-                    yield replace(item, depth=item.depth + 1)
-        except (RuntimeError, TypeError, ValueError) as error:
-            logger.exception("stream_failed")
-            self._output = f"Tool call failed: {error}"
+        while True:
+            try:
+                item = next(self.stream)
+            except StopIteration:
+                return
+            except (RuntimeError, TypeError, ValueError) as error:
+                logger.exception("stream_failed")
+                self._output = f"Tool call failed: {error}"
+                return
+            if isinstance(item, Output):
+                self._output = item.value
+                logger.debug("stream_output output=%r", item.value)
+            else:
+                logger.debug("stream_event value=%r", item)
+                yield replace(item, depth=item.depth + 1)
 
     @property
     def output(self) -> str | ResponseFunctionCallOutputItemListParam:

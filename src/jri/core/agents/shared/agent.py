@@ -1,6 +1,7 @@
 import inspect
 import logging
 from collections.abc import Generator
+from dataclasses import InitVar, dataclass, field
 from typing import Any, cast
 
 from openai import OpenAI
@@ -14,6 +15,7 @@ from .tool import Invocation, Tool
 logger = logging.getLogger(__name__)
 
 
+@dataclass(kw_only=True)
 class Agent:
     """Minimal, customizable LLM agent.
 
@@ -21,22 +23,20 @@ class Agent:
     as function calls the LLM can invoke.
     """
 
-    def __init__(  # noqa: PLR0913
-        self,
-        *,
-        client: OpenAI,
-        model: str,
-        sys_prompt: str,
-        reasoning_effort: ReasoningEffort = None,
-        initial_ctx: ResponseInputParam | None = None,
-        temperature: float | None = None,
-    ) -> None:
-        self.client = client
-        self.model = model
-        self.temperature = temperature
-        self.reasoning_effort: ReasoningEffort = reasoning_effort
+    initial_ctx: InitVar[ResponseInputParam | None] = None
+
+    client: OpenAI
+    model: str
+    sys_prompt: str
+    reasoning_effort: ReasoningEffort = None
+    temperature: float | None = None
+
+    tools: list[Tool] = field(init=False)
+    ctx: list[Any] = field(init=False)
+
+    def __post_init__(self, initial_ctx: ResponseInputParam | None) -> None:
         self.tools = Tool.discover(self)
-        self.sys_prompt = inspect.cleandoc(sys_prompt)
+        self.sys_prompt = inspect.cleandoc(self.sys_prompt)
         self.ctx = list(initial_ctx or [])
         self.ctx.insert(0, {"role": "system", "content": self.sys_prompt})
 

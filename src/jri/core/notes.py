@@ -3,7 +3,7 @@ import logging
 from difflib import SequenceMatcher
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Literal
+from typing import Literal, Self
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
@@ -57,6 +57,24 @@ class ConnectionInput(BaseModel):
     label: str
 
 
+class ReadQuery(BaseModel):
+    """Select notes by text, ID, or graph traversal."""
+
+    text: str | None = None
+    ids: list[str] | None = None
+    traverse_from: list[str] | None = None
+    direction: Literal["outgoing", "incoming", "both"] | None = None
+    depth: int | None = None
+
+    @model_validator(mode="after")
+    def validate_query(self) -> Self:
+        if self.depth is not None and self.depth < 1:
+            raise ValueError("Traversal depth must be at least 1.")
+        if self.text is not None and not self.text.strip():
+            raise ValueError("Search query cannot be blank.")
+        return self
+
+
 class Notes:
     """Query and mutate the persisted interviewer note graph."""
 
@@ -65,14 +83,7 @@ class Notes:
         self.graph = self._load()
         logger.info("initialized notes=%d connections=%d", len(self.graph.notes), len(self.graph.connections))
 
-    def read(  # noqa: C901
-        self,
-        query: str | None,
-        ids: list[str] | None,
-        traverse_from: list[str] | None,
-        direction: Literal["outgoing", "incoming", "both"] | None,
-        depth: int | None,
-    ) -> tuple[list[Note], list[Connection]]:
+    def read(self, query: ReadQuery) -> tuple[list[Note], list[Connection]]:
         """Read notes by fuzzy text, ID, or graph traversal.
 
         Returns:
@@ -81,20 +92,15 @@ class Notes:
         Raises:
             ValueError: If selectors or traversal arguments are invalid.
         """
-        if depth is not None and depth < 1:
-            raise ValueError("Traversal depth must be at least 1.")
-
         by_id = {note.id: note for note in self.graph.notes}
-        selected = dict(by_id) if query is None and not ids and not traverse_from else {}
-        for note_id in ids or []:
+        selected = dict(by_id) if query.text is None and not query.ids and not query.traverse_from else {}
+        for note_id in query.ids or []:
             if note_id not in by_id:
                 raise ValueError(f"Unknown note `{note_id}`.")
             selected[note_id] = by_id[note_id]
 
-        if query is not None:
-            normalized_query = query.casefold().strip()
-            if not normalized_query:
-                raise ValueError("Search query cannot be blank.")
+        if query.text is not None:
+            normalized_query = query.text.casefold().strip()
             ranked = sorted(
                 self.graph.notes,
                 key=lambda note: (
@@ -106,14 +112,14 @@ class Notes:
             for note in ranked[:10]:
                 selected[note.id] = note
 
-        frontier = set(traverse_from or [])
+        frontier = set(query.traverse_from or [])
         unknown = frontier - by_id.keys()
         if unknown:
             raise ValueError(f"Unknown note `{min(unknown)}`.")
         selected.update((note_id, by_id[note_id]) for note_id in frontier)
         visited = set(frontier)
-        traversal_direction = direction or "both"
-        for _ in range(depth or 1):
+        traversal_direction = query.direction or "both"
+        for _ in range(query.depth or 1):
             next_frontier: set[str] = set()
             for connection in self.graph.connections:
                 if traversal_direction in {"outgoing", "both"} and connection.source_id in frontier:
@@ -125,9 +131,6 @@ class Notes:
             visited |= next_frontier
             frontier = next_frontier
 
-        if not selected:
-            logger.info("read_finished notes=0 connections=0")
-            return [], []
         selected_ids = selected.keys()
         connections = [
             item for item in self.graph.connections if item.source_id in selected_ids and item.target_id in selected_ids

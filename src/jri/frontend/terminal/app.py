@@ -182,9 +182,7 @@ class App(TextualApp[None]):
         self.set_focus(self.message_input)
         logger.debug("message_input_reset")
 
-    async def render_chat_event(  # noqa: C901
-        self, turn_state: InterviewerTurnState, chat_event: ChatEvent
-    ) -> None:
+    async def render_chat_event(self, turn_state: InterviewerTurnState, chat_event: ChatEvent) -> None:
         """Render one streamed event into the current turn."""
 
         if self.active_turn_state is not turn_state:
@@ -192,38 +190,48 @@ class App(TextualApp[None]):
             return
 
         match chat_event:
-            case ReasoningDelta(text=text):
-                await self.append_reasoning_text(turn_state, text)
-            case TextDelta(text=text):
-                if turn_state.placeholder is not None:
-                    await turn_state.placeholder.remove()
-                    turn_state.placeholder = None
-                turn_state.active_reasoning = None
-                turn_state.active_reasoning_text = ""
-                await self.append_interviewer_text(turn_state, text)
-            case ToolCallStarted(call_id=call_id, label=label, symbol=symbol, depth=depth):
-                if turn_state.placeholder is not None:
-                    await turn_state.placeholder.remove()
-                    turn_state.placeholder = None
-                turn_state.active_markdown = None
-                turn_state.active_markdown_text = ""
-                turn_state.active_reasoning = None
-                turn_state.active_reasoning_text = ""
-                turn_state.tool_rows[call_id] = ToolCallRow(label, symbol=symbol, depth=depth)
-                await turn_state.container.mount(turn_state.tool_rows[call_id])
-                self.follow_bottom(turn_state)
-            case ToolCallFinished(call_id=call_id, label=label, depth=depth):
-                for nested_call_id, nested_row in list(turn_state.tool_rows.items()):
-                    if nested_row.depth > depth:
-                        await nested_row.remove()
-                        del turn_state.tool_rows[nested_call_id]
-                turn_state.tool_rows[call_id].mark_complete(label)
-                if depth == 0:
-                    turn_state.placeholder = Markdown(
-                        c.INTERVIEWER_THINKING_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES
-                    )
-                    await turn_state.container.mount(turn_state.placeholder)
-                self.follow_bottom(turn_state)
+            case ReasoningDelta():
+                await self._render_reasoning_delta(turn_state, chat_event)
+            case TextDelta():
+                await self._render_text_delta(turn_state, chat_event)
+            case ToolCallStarted():
+                await self._render_tool_call_started(turn_state, chat_event)
+            case ToolCallFinished():
+                await self._render_tool_call_finished(turn_state, chat_event)
+
+    async def _render_reasoning_delta(self, turn_state: InterviewerTurnState, event: ReasoningDelta) -> None:
+        await self.append_reasoning_text(turn_state, event.text)
+
+    async def _render_text_delta(self, turn_state: InterviewerTurnState, event: TextDelta) -> None:
+        if turn_state.placeholder is not None:
+            await turn_state.placeholder.remove()
+            turn_state.placeholder = None
+        turn_state.active_reasoning = None
+        turn_state.active_reasoning_text = ""
+        await self.append_interviewer_text(turn_state, event.text)
+
+    async def _render_tool_call_started(self, turn_state: InterviewerTurnState, event: ToolCallStarted) -> None:
+        if turn_state.placeholder is not None:
+            await turn_state.placeholder.remove()
+            turn_state.placeholder = None
+        turn_state.active_markdown = None
+        turn_state.active_markdown_text = ""
+        turn_state.active_reasoning = None
+        turn_state.active_reasoning_text = ""
+        turn_state.tool_rows[event.call_id] = ToolCallRow(event.label, symbol=event.symbol, depth=event.depth)
+        await turn_state.container.mount(turn_state.tool_rows[event.call_id])
+        self.follow_bottom(turn_state)
+
+    async def _render_tool_call_finished(self, turn_state: InterviewerTurnState, event: ToolCallFinished) -> None:
+        for nested_call_id, nested_row in list(turn_state.tool_rows.items()):
+            if nested_row.depth > event.depth:
+                await nested_row.remove()
+                del turn_state.tool_rows[nested_call_id]
+        turn_state.tool_rows[event.call_id].mark_complete(event.label)
+        if event.depth == 0:
+            turn_state.placeholder = Markdown(c.INTERVIEWER_THINKING_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES)
+            await turn_state.container.mount(turn_state.placeholder)
+        self.follow_bottom(turn_state)
 
     async def render_interviewer_status(self, turn_state: InterviewerTurnState, content: str) -> None:
         """Render a status message for the interviewer turn."""

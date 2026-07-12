@@ -1,7 +1,7 @@
 from collections.abc import Generator
-from typing import TYPE_CHECKING, Literal, override
+from typing import TYPE_CHECKING, override
 
-from jri.core.notes import ConnectionInput, Notes
+from jri.core.notes import ConnectionInput, Notes, ReadQuery
 from jri.core.settings import Settings
 
 from .explorer import Explorer
@@ -99,27 +99,22 @@ class Interviewer(Agent):
         yield ToolOutput("".join(latest_output))
 
     @tool(
-        "Read all notes when called without arguments. Set `query` for fuzzy search, `ids` for exact "
-        "lookup, or `traverse_from` with `direction` and `depth` for graph traversal.",
+        (
+            "Read all notes when called without arguments. Set `text` for fuzzy search, `ids` for exact "
+            "lookup, or `traverse_from` with `direction` and `depth` for graph traversal."
+        ),
         started_label="Reading notes",
         finished_label="Read notes",
         symbol="📖",
         strict=False,
     )
-    def read_notes(
-        self,
-        query: str | None = None,
-        ids: list[str] | None = None,
-        traverse_from: list[str] | None = None,
-        direction: Literal["outgoing", "incoming", "both"] | None = None,
-        depth: int | None = None,
-    ) -> str:
+    def read_notes(self, query: ReadQuery | None = None) -> str:
         """Read relevant project notes.
 
         Returns:
             Matching notes and connections.
         """
-        notes, connections = self.notes.read(query, ids, traverse_from, direction, depth)
+        notes, connections = self.notes.read(query or ReadQuery())
         if not notes:
             return "No notes found."
         lines = [f"- {note.id}: {note.text}" for note in notes]
