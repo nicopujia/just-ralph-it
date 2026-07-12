@@ -8,7 +8,7 @@ from textual.app import App as TextualApp
 from textual.app import ComposeResult, SystemCommand
 from textual.binding import Binding, BindingType
 from textual.command import CommandPalette as TextualCommandPalette
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Vertical
 from textual.reactive import Reactive
 from textual.screen import Screen
 from textual.widgets import Header, Markdown, Static
@@ -19,7 +19,7 @@ from jri.core.service import Service
 from . import constants as c
 from .states import InterviewerTurnState
 from .utils import detect_system_theme
-from .widgets import MessageInput, ToolCallRow
+from .widgets import MessageInput, MessagesContainer, ToolCallRow
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ class App(TextualApp[None]):
         self.service = service
         self.is_reasoning_visible = False
         self.active_turn_state: InterviewerTurnState | None = None
-        self.messages_container = VerticalScroll(id=c.MESSAGES_CONTAINER_ID)
+        self.messages_container = MessagesContainer(self.stop_following_bottom)
         self.message_input = MessageInput(id=c.MESSAGE_INPUT_ID, placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY)
 
     @override
@@ -211,7 +211,7 @@ class App(TextualApp[None]):
                 turn_state.active_reasoning_text = ""
                 turn_state.tool_rows[call_id] = ToolCallRow(label, symbol=symbol, depth=depth)
                 await turn_state.container.mount(turn_state.tool_rows[call_id])
-                self.messages_container.anchor()
+                self.follow_bottom(turn_state)
             case ToolCallFinished(call_id=call_id, label=label, depth=depth):
                 for nested_call_id, nested_row in list(turn_state.tool_rows.items()):
                     if nested_row.depth > depth:
@@ -223,7 +223,7 @@ class App(TextualApp[None]):
                         c.INTERVIEWER_THINKING_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES
                     )
                     await turn_state.container.mount(turn_state.placeholder)
-                self.messages_container.anchor()
+                self.follow_bottom(turn_state)
 
     async def render_interviewer_status(self, turn_state: InterviewerTurnState, content: str) -> None:
         """Render a status message for the interviewer turn."""
@@ -234,9 +234,21 @@ class App(TextualApp[None]):
             await turn_state.container.mount(Markdown(content, classes=c.INTERVIEWER_MESSAGE_CLASSES))
         else:
             await turn_state.placeholder.update(content)
-        self.messages_container.anchor()
+        self.follow_bottom(turn_state)
 
     # --- Helpers ---------------------------------------------------- #
+
+    def stop_following_bottom(self) -> None:
+        """Stop following streamed content after the user scrolls."""
+
+        if self.active_turn_state is not None:
+            self.active_turn_state.follow_bottom = False
+
+    def follow_bottom(self, turn_state: InterviewerTurnState) -> None:
+        """Follow a generating turn to the bottom when enabled."""
+
+        if turn_state.follow_bottom:
+            self.messages_container.anchor()
 
     def action_toggle_keymap_panel(self) -> None:
         """Show or hide the keymap panel."""
@@ -270,7 +282,7 @@ class App(TextualApp[None]):
 
         turn_state.active_reasoning_text += text
         await turn_state.active_reasoning.update(turn_state.active_reasoning_text)
-        self.messages_container.anchor()
+        self.follow_bottom(turn_state)
 
     async def append_interviewer_text(self, turn_state: InterviewerTurnState, text: str) -> None:
         """Append streamed text to the active message block."""
@@ -281,7 +293,7 @@ class App(TextualApp[None]):
 
         turn_state.active_markdown_text += text
         await turn_state.active_markdown.update(turn_state.active_markdown_text)
-        self.messages_container.anchor()
+        self.follow_bottom(turn_state)
 
     async def restore_history(self) -> None:
         """Rebuild the visible chat history from persisted items."""
