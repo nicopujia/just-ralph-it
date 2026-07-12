@@ -114,3 +114,7 @@ uv tool uninstall just-ralph-it
 # Remove JRI from a repo
 rm -fr /path/to/your-project/.jri
 ```
+
+## Contributing
+
+Please refer to [AGENTS.md](./AGENTS.md).

@@ -1,6 +1,6 @@
 [project]
 name = "just-ralph-it"
-version = "0.1.2"
+version = "0.1.3"
 description = "Easily define your own software project idea and then build entirely by just clicking a button."
 readme = "README.md"
 authors = [
@@ -19,6 +19,8 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://justralph.it"
+Repository = "https://github.com/nicopujia/just-ralph-it"
+Issues = "https://github.com/nicopujia/just-ralph-it/issues"
 
 [dependency-groups]
 dev = [
