@@ -93,6 +93,16 @@ JRI_EXPLORER_MODEL=qwen/qwen3.5-9b
 JRI_BRAVE_SEARCH_API_KEY=...
 ```
 
+## Upgrading
+
+```bash
+python -m pip install --upgrade just-ralph-it
+# or
+uv tool upgrade just-ralph-it
+```
+
+Be careful: until JRI reaches a stable version (>=1.0.0), anything could break from one version to another.
+
 ## Uninstalling
 
 ```bash
