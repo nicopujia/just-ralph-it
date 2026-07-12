@@ -70,7 +70,10 @@ class Interviewer(Agent):
         )
 
     @tool(
-        "Gather context through a free-form query, including anything from the web or this computer.",
+        (
+            "Gather context through a free-form query, including anything from the web or this computer."
+            "Queries can be as broad as needed, so unify all your inquiries in a single call."
+        ),
         started_label="Exploring {query}",
         finished_label="Explored {query}",
         symbol="🔎",
