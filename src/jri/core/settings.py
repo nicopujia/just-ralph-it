@@ -4,8 +4,10 @@ from typing import Literal
 from dotenv import find_dotenv
 from openai import OpenAI
 from openai.types.shared import ReasoningEffort
-from pydantic import Field, ValidationError
+from pydantic import Field, ValidationError, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from jri.lib.providers import codex
 
 from .exceptions import ConfigurationError
 
@@ -19,15 +21,21 @@ class Settings(BaseSettings):
     explorer_reasoning_effort: ReasoningEffort = Field(default="low", description="Explorer model reasoning effort.")
     explorer_temperature: float = Field(default=0, ge=0, le=2, description="Explorer model sampling temperature.")
     force: bool = Field(description="Force re-creation of base directory.", default=False)
-    llm_api_key: str = Field(
+    llm_provider: str | None = Field(
+        default=None,
         description=(
-            "A valid API key for the LLM provider, which is defined by JRI_LLM_PROVIDER_BASE_URL. "
-            "Default provider is OpenAI."
-        )
+            "Set to openai-codex to use an existing Codex ChatGPT login, set to an OpenAI-compatible base URL "
+            "to use that provider with llm_api_key, or leave unset to use OpenAI with llm_api_key."
+        ),
     )
-    llm_base_url: str | None = Field(
-        default=None, description=("Any OpenAI-compatible provider base URL. Defaults to OpenAI as the provider.")
+    llm_api_key: str | None = Field(
+        default=None,
+        validate_default=True,
+        description=(
+            "A valid API key for the configured LLM provider. Not required when llm_provider is openai-codex."
+        ),
     )
+
     logging_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
         default="INFO", description="Minimum logging level for logs saved under .jri/logs/."
     )
@@ -49,11 +57,35 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    @field_validator("llm_api_key")
+    @classmethod
+    def validate_llm_authentication(cls, value: str | None, info: ValidationInfo) -> str | None:
+        """Require an API key for providers other than ChatGPT Codex.
+
+        Returns:
+            The validated API key.
+
+        Raises:
+            ValueError: Raised when an API key is required.
+        """
+
+        if info.data.get("llm_provider") != "openai-codex" and not value:
+            raise ValueError("llm_api_key is required unless llm_provider is openai-codex")
+        return value
+
     @property
     def llm_client(self) -> OpenAI:
         """Build an LLM client from the configured provider settings."""
 
-        return OpenAI(base_url=self.llm_base_url, api_key=self.llm_api_key)
+        if self.llm_provider == "openai-codex":
+            return codex.Client()
+        return OpenAI(base_url=self.llm_provider, api_key=self.llm_api_key)
+
+    def validate_authentication(self) -> None:
+        """Validate authentication for the configured provider."""
+
+        if self.llm_provider == "openai-codex":
+            codex.Auth().validate()
 
 
 def get_settings() -> Settings:

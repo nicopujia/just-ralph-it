@@ -25,6 +25,8 @@ INTERVIEWER_REASONING_CLASSES = "interviewer-reasoning"
 INTERVIEWER_THINKING_COPY = "_Thinking..._"
 INTERVIEWER_TURN_CLASSES = "interviewer-turn"
 
+LLM_USAGE_LIMIT_COPY = "Your ChatGPT or API usage limit has been reached. Check your plan and try again later."
+
 MESSAGES_CONTAINER_ID = "messages"
 MESSAGE_INPUT_ID = "message-input"
 MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY = Interviewer.FIRST_MESSAGE

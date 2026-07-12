@@ -5,7 +5,9 @@ import sys
 import textwrap
 import webbrowser
 
+from jri.core.exceptions import AuthError
 from jri.core.service import Service
+from jri.core.settings import Settings
 
 from .app import App
 from .utils import get_settings_or_print_error
@@ -14,19 +16,24 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    handlers = {"view": _view}
+    handlers = {"view": _view, None: _run}
     command = sys.argv[1] if len(sys.argv) > 1 and sys.argv[1] in handlers else None
     if command:
         parser = argparse.ArgumentParser(prog=f"jri {command}")
         parser.parse_args(sys.argv[2:])
         del sys.argv[1:]
 
-    service = Service(get_settings_or_print_error())
-    handler = handlers[command] if command else _run
-    handler(service)
+    settings = get_settings_or_print_error()
+    try:
+        handlers[command](settings)
+    except AuthError as error:
+        print(f"Authentication failed: {error}")
+        raise SystemExit(1) from error
 
 
-def _run(service: Service) -> None:
+def _run(settings: Settings) -> None:
+    settings.validate_authentication()
+    service = Service(settings)
     app = App(service)
     logger.info("started")
     try:
@@ -39,7 +46,8 @@ def _run(service: Service) -> None:
         logging.shutdown()
 
 
-def _view(service: Service) -> None:
+def _view(settings: Settings) -> None:
+    service = Service(settings)
     graph = json.loads(service.graph_file.read_text())
     diagram = ["flowchart TD"]
 

@@ -20,6 +20,40 @@ uv sync
 uv tool install -e .
 ```
 
+### Authentication
+
+You can authenticate with an API key or reuse an existing ChatGPT Codex subscription.
+
+To use an API key:
+
+```bash
+# Use OpenAI
+export JRI_LLM_API_KEY=...
+
+# Or use any OpenAI-compatible provider
+export JRI_LLM_PROVIDER=https://provider.example/v1
+export JRI_LLM_API_KEY=...
+```
+
+You can also use a `.env` file or CLI arguments.
+
+To use a ChatGPT subscription, configure Codex to store credentials in a file:
+
+```toml
+# ~/.codex/config.toml
+cli_auth_credentials_store = "file"
+```
+
+Then run:
+
+```bash
+# Log in with ChatGPT
+codex login
+
+# Configure JRI to reuse the Codex login
+export JRI_LLM_PROVIDER=openai-codex
+```
+
 ### Usage
 
 ```bash

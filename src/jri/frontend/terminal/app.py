@@ -146,7 +146,15 @@ class App(TextualApp[None]):
                 if isinstance(chat_event, TextDelta) and chat_event.text:
                     status_copy = None
                 self._call_from_thread(self.render_chat_event, turn_state, chat_event)
-        except (OpenAIError, RuntimeError) as error:
+        except OpenAIError as error:
+            logger.exception("interviewer_provider_failed")
+            error_text = str(error).lower()
+            status_copy = (
+                c.LLM_USAGE_LIMIT_COPY
+                if any(term in error_text for term in ("usage limit", "quota", "available balance", "out of budget"))
+                else c.INTERVIEWER_ERROR_COPY.format(error=error)
+            )
+        except RuntimeError as error:
             logger.exception("interviewer_worker_failed")
             status_copy = c.INTERVIEWER_ERROR_COPY.format(error=error)
         finally:
