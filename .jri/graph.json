@@ -1,4 +1,296 @@
 {
-  "notes": [],
-  "connections": []
+  "notes": [
+    {
+      "id": "n1",
+      "text": "Problem: For large projects with multiple independent topics, the Interviewer holds all conversation history in a single context window, degrading performance and increasing cost."
+    },
+    {
+      "id": "n2",
+      "text": "Solution: Topic-based context management. The conversation is segmented by topics, and the context window is adaptively trimmed \u2014 keeping recent turns (potentially across multiple topics) until a degradation threshold is reached, then trimming oldest turns first."
+    },
+    {
+      "id": "n3",
+      "text": "User experience constraint: The user interacts with JRI the same way as now \u2014 a single seamless chat. No sessions, no topic declarations, no context management UI."
+    },
+    {
+      "id": "n4",
+      "text": "Topics live in the note graph as regular notes \u2014 no kind field. The switch_topic tool creates a note if it doesn't exist. Topics are identified by switch_topic calls in conversation history, cross-referenced with the note graph. Notes are associated with topics by conversation segment (scanning add_notes calls between switch_topic boundaries), not by graph traversal. The Mermaid graph and read_notes remain available as-is."
+    },
+    {
+      "id": "n5",
+      "text": "No note model change. Note stays (id, text). Topics are regular notes \u2014 the system identifies which notes are topics by scanning switch_topic calls in the full stored conversation history. No kind field needed."
+    },
+    {
+      "id": "n6",
+      "text": "Conversation history is implicitly segmented by switch_topic tool calls \u2014 no separate sidecar storage. Everything between two switch_topic calls belongs to that topic. When switching to a topic, scan the full stored conversation (not just what's in the context window) for the segment after the last switch_topic(topic_name) call and take the last few messages. Trimming only affects what goes into the API call \u2014 the full history is always stored and available to the runtime."
+    },
+    {
+      "id": "n7",
+      "text": "Topic index is always injected into the Interviewer's context window so the Interviewer always knows what topics exist and their status. This prevents the 'alzheimer' effect of forgetting topics."
+    },
+    {
+      "id": "n8",
+      "text": "Context window management lives in the Interviewer agent, not the Service layer."
+    },
+    {
+      "id": "n9",
+      "text": "switch_topic tool: The Interviewer calls it when the conversation moves to a new or existing area. It creates a topic note if it doesn't exist, then switches to it. Internally, it loads the target topic's last few conversation turns and returns notes created during that topic's conversation segment (by scanning add_notes calls between switch_topic boundaries)."
+    },
+    {
+      "id": "n10",
+      "text": "Topic completion: A topic is marked as done when both the Interviewer and user agree it's complete, similar to the current success criteria for the overall project."
+    },
+    {
+      "id": "n11",
+      "text": "No API change to add_notes. Topics are created via switch_topic, not add_notes. add_notes remains unchanged."
+    },
+    {
+      "id": "n12",
+      "text": "No kind filter needed for read_notes. Topics are identified by switch_topic calls in conversation history, not by a kind field on notes."
+    },
+    {
+      "id": "n13",
+      "text": "The system prompt needs to be updated to: (1) describe desired outcomes \u2014 maintain topic awareness, switch when conversation moves to a different area, ensure no topic is left unexplored; (2) instruct the Interviewer to switch to the relevant topic before adding notes that belong to it (\"switch to the page before writing on it\"); (3) instruct the Interviewer to capture open questions as notes before switching away from a topic; (4) instruct the Interviewer to update topic note text when a topic is complete. No how-to prescriptions \u2014 OpenAI recommends explaining desired outcomes, not prescribing process."
+    },
+    {
+      "id": "n14",
+      "text": "Decision: Topic index is injected as a pinned context message \u2014 derived fresh each turn by scanning the full stored conversation history for all switch_topic calls, cross-referenced with the note graph for topic note text (which includes status). Inserted at a fixed position in the context window. Not stored in conversation history, never stale."
+    },
+    {
+      "id": "n15",
+      "text": "Decision: The first/default topic is 'Project overview' \u2014 a persistent topic that captures high-level project intent. The Interviewer starts here, branches into specific topics, and returns to it for overall completion checks. No special-casing for 'no active topic'."
+    },
+    {
+      "id": "n16",
+      "text": "Decision: Context assembly via a @property 'context' on Agent that defaults to self._ctx (raw conversation). Interviewer overrides it to inject pinned topic index + current topic's trimmed conversation turns. The streaming/tool-call loop reads from 'context' instead of self._ctx."
+    },
+    {
+      "id": "n17",
+      "text": "Decision: switch_topic accepts either a human-readable topic name (e.g., \"authentication\") or a note ID (e.g., \"n14\"). If a note ID, it switches to that existing topic. If a name, it creates a topic note if it doesn't exist, then switches to it. The Interviewer thinks of it as \"turning a page\" \u2014 it's unaware that switch_topic alters its context window."
+    },
+    {
+      "id": "n18",
+      "text": "Decision: switch_topic tool output includes: topic name, notes created during that topic's conversation segment (scanning add_notes calls between switch_topic boundaries), and last few conversation turns for that topic. This prevents the model from waking up disoriented ('alzheimer') when forking into a topic. The Interviewer is unaware of context management \u2014 it just sees the tool result as orientation for the new page."
+    },
+    {
+      "id": "n19",
+      "text": "Decision: Adaptive trimming \u2014 keep all conversation turns until the current topic's context approaches a degradation threshold (e.g., 40% of available context window), then trim older turns. No fixed N."
+    },
+    {
+      "id": "n20",
+      "text": "Decision: Open questions are reinforced via a line in the system prompt \u2014 the Interviewer must capture open questions as notes before switching away from a topic. No new note kind needed."
+    },
+    {
+      "id": "n21",
+      "text": "Key principle: The Interviewer is completely unaware of context management. switch_topic is like 'turning a page' for a functional analyst \u2014 preparing blank pages to take more notes. The conversation simply goes on. The system transparently handles trimming, loading, and the pinned topic index. The Interviewer never sees or thinks about context windows, token counts, or message management."
+    },
+    {
+      "id": "n22",
+      "text": "Resolved: Topic status is encoded in the topic note's text (e.g., 'Authentication: open topic' \u2192 'Authentication: done'). The Interviewer updates it via edit_note. See n26."
+    },
+    {
+      "id": "n23",
+      "text": "Decision: switch_topic accepts either a note ID (e.g., 'n14') or a topic name (e.g., 'Authentication'). If the input matches an existing note ID, it switches to that topic. If not, it creates a new note with that text as the topic name and returns the note ID to the Interviewer. The Interviewer can use the returned ID to return to a topic later."
+    },
+    {
+      "id": "n24",
+      "text": "Decision: Adaptive trimming threshold is a const in the code. If threshold > 0 (e.g., 0.4), keep all turns until the current context reaches that fraction of the context window, then trim oldest turns first. If threshold = 0, always trim to only the current topic's turns \u2014 switch_topic becomes a hard context boundary. Default is 0.4."
+    },
+    {
+      "id": "n25",
+      "text": "Decision: switch_topic only marks the topic boundary; it does not immediately trim other topics' turns. Trimming happens when the threshold is exceeded, removing oldest turns first regardless of which topic they belong to."
+    },
+    {
+      "id": "n26",
+      "text": "Decision: Topic status is encoded in the topic note's text. switch_topic('Authentication') creates a note with text 'Authentication: open topic'. The Interviewer edits the note text (e.g., to 'Authentication: done') using the existing edit_note tool. The topic index shows note text, so the Interviewer sees status. The system prompt instructs the Interviewer to update topic notes when a topic is complete. No new fields or concepts needed."
+    },
+    {
+      "id": "n27",
+      "text": "Decision: Only one topic is active at a time. Context window contains: system prompt + pinned topic index + adaptively trimmed conversation turns (regardless of topic). switch_topic to an existing topic surfaces its notes + last few turns in the tool output, bridging the gap if those turns were already trimmed."
+    },
+    {
+      "id": "n28",
+      "text": "Decision: The explorations dict is a dev convenience, not part of the Interviewer's context management. No changes needed \u2014 exploration results live in conversation turns and get trimmed naturally with the topic's turns."
+    },
+    {
+      "id": "n29",
+      "text": "Decision: 'Project overview' is the implicit first topic, present before any switch_topic call. The first explicit switch_topic overwrites it as the active topic."
+    },
+    {
+      "id": "n30",
+      "text": "Decision: Notes are associated with topics by conversation segment, not by graph connections. switch_topic returns notes created during that topic's conversation segment by scanning for add_notes tool calls between switch_topic boundaries. The system prompt instructs the Interviewer to switch to the relevant topic before adding notes that belong to it. No auto-connect, no manual connect, no traversal needed for topic-note association."
+    }
+  ],
+  "connections": [
+    {
+      "source_id": "n2",
+      "target_id": "n1",
+      "label": "solves"
+    },
+    {
+      "source_id": "n3",
+      "target_id": "n2",
+      "label": "constrains"
+    },
+    {
+      "source_id": "n4",
+      "target_id": "n2",
+      "label": "foundation of"
+    },
+    {
+      "source_id": "n5",
+      "target_id": "n4",
+      "label": "enables"
+    },
+    {
+      "source_id": "n6",
+      "target_id": "n2",
+      "label": "mechanism for"
+    },
+    {
+      "source_id": "n7",
+      "target_id": "n2",
+      "label": "key to preventing context loss"
+    },
+    {
+      "source_id": "n8",
+      "target_id": "n2",
+      "label": "lives in"
+    },
+    {
+      "source_id": "n9",
+      "target_id": "n6",
+      "label": "creates delimiters for"
+    },
+    {
+      "source_id": "n9",
+      "target_id": "n4",
+      "label": "creates and switches between"
+    },
+    {
+      "source_id": "n10",
+      "target_id": "n9",
+      "label": "extends with completion"
+    },
+    {
+      "source_id": "n11",
+      "target_id": "n5",
+      "label": "updates API for"
+    },
+    {
+      "source_id": "n12",
+      "target_id": "n5",
+      "label": "updates API for"
+    },
+    {
+      "source_id": "n13",
+      "target_id": "n2",
+      "label": "instructs implementation of"
+    },
+    {
+      "source_id": "n14",
+      "target_id": "n7",
+      "label": "decision for"
+    },
+    {
+      "source_id": "n15",
+      "target_id": "n2",
+      "label": "decision for first topic"
+    },
+    {
+      "source_id": "n16",
+      "target_id": "n8",
+      "label": "implements"
+    },
+    {
+      "source_id": "n16",
+      "target_id": "n14",
+      "label": "injects"
+    },
+    {
+      "source_id": "n17",
+      "target_id": "n9",
+      "label": "simplifies"
+    },
+    {
+      "source_id": "n18",
+      "target_id": "n9",
+      "label": "defines output of"
+    },
+    {
+      "source_id": "n18",
+      "target_id": "n7",
+      "label": "prevents alzheimer on switch"
+    },
+    {
+      "source_id": "n19",
+      "target_id": "n6",
+      "label": "refines trimming of"
+    },
+    {
+      "source_id": "n20",
+      "target_id": "n13",
+      "label": "adds to"
+    },
+    {
+      "source_id": "n21",
+      "target_id": "n3",
+      "label": "extends to interviewer perspective"
+    },
+    {
+      "source_id": "n21",
+      "target_id": "n17",
+      "label": "shapes design of"
+    },
+    {
+      "source_id": "n22",
+      "target_id": "n18",
+      "label": "open question in"
+    },
+    {
+      "source_id": "n23",
+      "target_id": "n17",
+      "label": "refines"
+    },
+    {
+      "source_id": "n24",
+      "target_id": "n19",
+      "label": "refines"
+    },
+    {
+      "source_id": "n25",
+      "target_id": "n19",
+      "label": "refines"
+    },
+    {
+      "source_id": "n26",
+      "target_id": "n22",
+      "label": "resolves"
+    },
+    {
+      "source_id": "n27",
+      "target_id": "n2",
+      "label": "simplifies"
+    },
+    {
+      "source_id": "n28",
+      "target_id": "n2",
+      "label": "clarifies exploration in"
+    },
+    {
+      "source_id": "n29",
+      "target_id": "n15",
+      "label": "refines"
+    },
+    {
+      "source_id": "n30",
+      "target_id": "n18",
+      "label": "simplifies output of"
+    },
+    {
+      "source_id": "n30",
+      "target_id": "n21",
+      "label": "consistent with"
+    }
+  ]
 }
