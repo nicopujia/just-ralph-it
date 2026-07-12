@@ -2,22 +2,15 @@
 
 ## Getting started
 
-### Prerrequisites
+### Prerequisites
 
 - [uv](https://docs.astral.sh/uv/)
+- Python 3.13 or newer
 
-### Setup
+### Installation
 
 ```bash
-# Clone the repo
-git clone https://github.com/nicopujia/just-ralph-it
-cd just-ralph-it
-
-# Install dependencies
-uv sync
-
-# Install JRI globally
-uv tool install -e .
+uv tool install just-ralph-it
 ```
 
 ### Authentication
@@ -84,7 +77,3 @@ uv tool uninstall just-ralph-it
 cd /path/to/your-project/.jri
 rm -fr .jri/
 ```
-
-## Contributing
-
-Please refer to [AGENTS.md](./AGENTS.md).
