@@ -1,10 +1,10 @@
 [project]
 name = "just-ralph-it"
-version = "0.1.4"
+version = "0.1.5"
 description = "Easily define your own software project idea and then build entirely by just clicking a button."
 readme = "README.md"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE"]
 authors = [
     { name = "Nicolás Pujia", email = "contact@nicolaspujia.com" }
 ]
