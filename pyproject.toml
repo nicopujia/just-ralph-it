@@ -1,6 +1,6 @@
 [project]
 name = "just-ralph-it"
-version = "0.1.0"
+version = "0.1.1"
 description = "Easily define your own software project idea and then build entirely by just clicking a button."
 readme = "README.md"
 authors = [
