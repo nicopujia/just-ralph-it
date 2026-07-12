@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     cwd: Path = Field(description="Current working directory.", default_factory=Path.cwd)
     brave_api_key: str | None = Field(default=None, description="API key for Brave Search LLM Context API.")
     explorer_model: str = Field(description="Model ID for the Explorer agent.")
-    explorer_reasoning_effort: ReasoningEffort = Field(default=None, description="Explorer model reasoning effort.")
+    explorer_reasoning_effort: ReasoningEffort = Field(default="low", description="Explorer model reasoning effort.")
     explorer_temperature: float = Field(default=0, ge=0, le=2, description="Explorer model sampling temperature.")
     force: bool = Field(description="Force re-creation of base directory.", default=False)
     llm_api_key: str = Field(
@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     )
     interviewer_model: str = Field(description="Model ID for the Interviewer agent.")
     interviewer_reasoning_effort: ReasoningEffort = Field(
-        default=None, description="Interviewer model reasoning effort."
+        default="high", description="Interviewer model reasoning effort."
     )
     interviewer_temperature: float = Field(
         default=0.7, ge=0, le=2, description="Interviewer model sampling temperature."
