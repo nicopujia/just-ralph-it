@@ -1,26 +1,37 @@
 from collections.abc import Generator
-from typing import TYPE_CHECKING, override
+from typing import Any, cast, override
 
-from jri.core.notes import ConnectionInput, Notes, ReadQuery
+from openai.types.responses import ResponseInputItemParam, ResponseInputParam
+
+from jri.core.notes import ConnectionInput, Note, Notes, ReadQuery
 from jri.core.settings import Settings
+from jri.lib.models import estimate_tokens, get_context_limit
 
 from .explorer import Explorer
 from .shared import Agent, TextDelta, ToolCallFinished, ToolCallStarted, ToolOutput, tool
-
-if TYPE_CHECKING:
-    from openai.types.responses import ResponseInputItemParam
 
 
 class Interviewer(Agent):
     """Agent that interviews the user to extract a project idea."""
 
+    CONTEXT_THRESHOLD = 0.4
+    INITIAL_TOPIC_NAME = "Project overview"
     FIRST_MESSAGE = "What do you want to build?"
 
     def __init__(self, settings: Settings, notes: Notes) -> None:
         self.settings = settings
         self.notes = notes
         self.explorer: Explorer
-        self.explorations: dict[str, list[ResponseInputItemParam]] = {}
+        self.explorations: dict[str, ResponseInputParam] = {}
+        initial_topic_note = next(
+            (
+                note
+                for note in self.notes.graph.notes
+                if self._extract_topic_name(note.text).casefold() == self.INITIAL_TOPIC_NAME.casefold()
+            ),
+            None,
+        )
+        self.initial_topic = initial_topic_note or self.notes.add([f"{self.INITIAL_TOPIC_NAME}: open topic"])[0]
         super().__init__(
             client=settings.llm_client,
             model=settings.interviewer_model,
@@ -32,6 +43,7 @@ class Interviewer(Agent):
                 Goals:
                     1. Help the user realize what they _actually_ want and need.
                     2. Extract the user's project idea out of their mind into distilled, interconnected notes.
+                    3. Maintain awareness of every project topic and ensure none is left unexplored.
 
                 Success criteria is one of the following:
                     - The notes describe a project such that if a competent engineer built the project based solely on
@@ -57,6 +69,9 @@ class Interviewer(Agent):
                     - Manage project knowledge and open questions proactively with the note tools.
                     - Assume you may forget any relevant fact unless you take notes of it.
                     - Prefer answering your own questions with `explore` and/or `read_notes` when possible.
+                    - Switch to the relevant topic before adding notes that belong to it.
+                    - Capture unresolved unknowns as notes before switching away from a topic.
+                    - When you and the user agree a topic is complete, edit its topic note accordingly.
 
                 Constraints:
                     - Don't ask the user to manage notes, IDs, connections, or files.
@@ -68,6 +83,58 @@ class Interviewer(Agent):
             """,
             initial_ctx=[{"role": "assistant", "content": self.FIRST_MESSAGE}],
         )
+
+    @override
+    def get_context(self) -> ResponseInputParam:
+        """Return the topic-aware context sent to the model.
+
+        Returns:
+            The topic-aware conversation context.
+
+        """
+
+        history = self.history
+        switches = self._collect_switches()
+        topics = [note for note in self.notes.graph.notes if note.text.endswith((": open topic", ": done"))]
+        active = switches[-1][1] if switches else self.initial_topic
+        by_id = {note.id: note for note in self.notes.graph.notes}
+        lines = [
+            f"- {topic.id}: {by_id[topic.id].text}{' (active)' if topic.id == active.id else ''}"
+            for topic in topics
+            if topic.id in by_id
+        ]
+        pinned_topics = [self.initial_topic]
+        if active.id != self.initial_topic.id:
+            pinned_topics.append(active)
+        for topic in pinned_topics:
+            note_ids = {
+                connection.target_id
+                for connection in self.notes.graph.connections
+                if connection.source_id == topic.id and connection.label == "contains"
+            }
+            notes = [note for note in self.notes.graph.notes if note.id in note_ids]
+            if notes:
+                lines.extend(["", f"{self._extract_topic_name(topic.text)} notes"])
+                lines.extend(f"- {note.id}: {note.text}" for note in notes)
+        pinned: ResponseInputItemParam = {"role": "system", "content": "Topic index:\n" + "\n".join(lines)}
+        turns: list[ResponseInputParam] = []
+        for raw_item in history[1:]:
+            item = cast("dict[str, Any]", raw_item)
+            if ("role" in item and item["role"] == "user") or not turns:
+                turns.append([])
+            turns[-1].append(raw_item)
+        tools = [tool.definition for tool in self.tools]
+        context: ResponseInputParam = [history[0], pinned, *(item for turn in turns for item in turn)]
+        budget = get_context_limit(self.model) * self.CONTEXT_THRESHOLD
+        while len(turns) > 1 and estimate_tokens(context, tools) > budget:
+            turns.pop(0)
+            context = [history[0], pinned, *(item for turn in turns for item in turn)]
+        return context
+
+    @override
+    def _after_tool_call(self, call_id: str, name: str) -> None:
+        if name == "explore":
+            self.explorations[call_id] = self.explorer.history
 
     @tool(
         (
@@ -99,10 +166,39 @@ class Interviewer(Agent):
         yield ToolOutput("".join(latest_output))
 
     @tool(
-        (
-            "Read all notes when called without arguments. Set `text` for fuzzy search, `ids` for exact "
-            "lookup, or `traverse_from` with `direction` and `depth` for graph traversal."
-        ),
+        "Turn to a project topic by its name or existing topic note ID.",
+        started_label="Switching to {topic}",
+        finished_label="Switched to {topic}",
+        symbol="📑",
+    )
+    def switch_topic(self, topic: str) -> str:
+        """Switch to a project topic.
+
+        Returns:
+            The resolved topic ID and text.
+        """
+
+        value = topic.strip()
+        by_id = {note.id: note for note in self.notes.graph.notes}
+        if value in by_id:
+            resolved = by_id[value]
+        else:
+            resolved = next(
+                (
+                    item
+                    for item in self.notes.graph.notes
+                    if item.text.endswith((": open topic", ": done"))
+                    and self._extract_topic_name(item.text).casefold() == value.casefold()
+                ),
+                None,
+            )
+            if resolved is None:
+                resolved = self.notes.add([f"{value}: open topic"])[0]
+        return f"Switched to {resolved.id}: {resolved.text}"
+
+    @tool(
+        "Read all notes when called without a query. Set `query.text` for fuzzy search, `query.ids` for exact "
+        "lookup, or `query.traverse_from` with `direction` and `depth` for graph traversal.",
         started_label="Reading notes",
         finished_label="Read notes",
         symbol="📖",
@@ -124,18 +220,22 @@ class Interviewer(Agent):
         return "\n".join(lines)
 
     @tool(
-        "Create one or more independently meaningful notes.",
+        "Create one or more independently meaningful notes under the active topic.",
         started_label="Taking notes",
         finished_label="Took notes",
         symbol="📝",
     )
     def add_notes(self, texts: list[str]) -> str:
-        """Add project notes.
+        """Add project notes under the active topic.
 
         Returns:
             A summary containing the new IDs.
         """
-        return "\n".join(f"Added {note.id}: {note.text}" for note in self.notes.add(texts))
+        notes = self.notes.add(texts)
+        switches = self._collect_switches()
+        topic = switches[-1][1] if switches else self.initial_topic
+        self.notes.connect([ConnectionInput(source_id=topic.id, target_id=note.id, label="contains") for note in notes])
+        return "\n".join(f"Added {note.id}: {note.text}" for note in notes)
 
     @tool(
         "Edit one note's text without changing its connections.",
@@ -197,7 +297,24 @@ class Interviewer(Agent):
         count = self.notes.disconnect(connections)
         return f"Disconnected {count} relationship(s)."
 
-    @override
-    def _after_tool_call(self, call_id: str, name: str) -> None:
-        if name == "explore":
-            self.explorations[call_id] = self.explorer.ctx
+    def _collect_switches(self) -> list[tuple[int, Note]]:
+        outputs: dict[str, str] = {}
+        for raw_item in self.history:
+            item = cast("dict[str, Any]", raw_item)
+            if item.get("type") == "function_call_output" and isinstance(item["output"], str):
+                outputs[item["call_id"]] = item["output"]
+        switches: list[tuple[int, Note]] = []
+        by_id = {note.id: note for note in self.notes.graph.notes}
+        for index, raw_item in enumerate(self.history):
+            item = cast("dict[str, Any]", raw_item)
+            if item.get("type") == "function_call" and item["name"] == "switch_topic" and item["call_id"] in outputs:
+                topic_id = outputs[item["call_id"]].partition(":")[0].removeprefix("Switched to ")
+                switches.append((index, by_id[topic_id]))
+        return switches
+
+    @staticmethod
+    def _extract_topic_name(text: str) -> str:
+        for suffix in (": open topic", ": done"):
+            if text.endswith(suffix):
+                return text[: -len(suffix)]
+        return text

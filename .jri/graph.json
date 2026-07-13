@@ -118,7 +118,11 @@
     },
     {
       "id": "n30",
-      "text": "Decision: Notes are associated with topics by conversation segment, not by graph connections. switch_topic returns notes created during that topic's conversation segment by scanning for add_notes tool calls between switch_topic boundaries. The system prompt instructs the Interviewer to switch to the relevant topic before adding notes that belong to it. No auto-connect, no manual connect, no traversal needed for topic-note association."
+      "text": "Decision: Notes created through add_notes are automatically connected from the active topic with a contains edge. Topic context reads these durable graph connections directly instead of reconstructing note ownership from conversation history."
+    },
+    {
+      "id": "n31",
+      "text": "Project overview: open topic"
     }
   ],
   "connections": [

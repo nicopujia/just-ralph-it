@@ -32,13 +32,22 @@ class Agent:
     temperature: float | None = None
 
     tools: list[Tool] = field(init=False)
-    ctx: list[Any] = field(init=False)
+    history: ResponseInputParam = field(init=False)
 
     def __post_init__(self, initial_ctx: ResponseInputParam | None) -> None:
         self.tools = Tool.discover(self)
         self.sys_prompt = inspect.cleandoc(self.sys_prompt)
-        self.ctx = list(initial_ctx or [])
-        self.ctx.insert(0, {"role": "system", "content": self.sys_prompt})
+        self.history = list(initial_ctx or [])
+        self.history.insert(0, {"role": "system", "content": self.sys_prompt})
+
+    def get_context(self) -> ResponseInputParam:
+        """Get the conversation context sent to the model.
+
+        Returns:
+            The conversation items as an ordered list.
+        """
+
+        return self.history
 
     def send_message(self, message: str) -> Generator[ChatEvent]:
         """Send a user message and stream the response.
@@ -54,7 +63,7 @@ class Agent:
             RuntimeError: If the model reports a failed response.
 
         """
-        self.ctx.append({"role": "user", "content": message})
+        self.history.append({"role": "user", "content": message})
         logger.info("message_started agent=%s model=%s", type(self).__name__, self.model)
 
         tool_definitions = [tool.definition for tool in self.tools]
@@ -62,10 +71,11 @@ class Agent:
 
         while True:
             outputs_by_index: dict[int, dict[str, Any]] = {}
-            logger.info("request_started agent=%s input_items=%d", type(self).__name__, len(self.ctx))
+            context = self.get_context()
+            logger.info("request_started agent=%s input_items=%d", type(self).__name__, len(context))
             with self.client.responses.create(
                 model=self.model,
-                input=self.ctx,
+                input=context,
                 tools=tool_definitions,
                 reasoning=Reasoning(effort=self.reasoning_effort, summary="auto"),
                 temperature=self.temperature,
@@ -92,17 +102,19 @@ class Agent:
                             break
                         case "response.failed" | "error":
                             raise RuntimeError((response.get("error") or response["response"]["error"])["message"])
+
             outputs = [outputs_by_index[index] for index in sorted(outputs_by_index)]
-            self.ctx.extend(cast("list[ResponseInputItemParam]", outputs))
+            self.history.extend(cast("list[ResponseInputItemParam]", outputs))
             logger.info("request_finished agent=%s output_items=%d", type(self).__name__, len(outputs))
-            response_outputs = [output for output in outputs if output["type"] != "function_call"]
+            function_calls = [output for output in outputs if output.get("type") == "function_call"]
+            response_outputs = [output for output in outputs if output.get("type") != "function_call"]
             logger.debug("response outputs=%r", response_outputs)
 
-            if all(output["type"] != "function_call" for output in outputs):
+            if not function_calls:
                 logger.info("message_finished agent=%s", type(self).__name__)
                 return
 
-            for output in (output for output in outputs if output["type"] == "function_call"):
+            for output in function_calls:
                 name = output["name"]
                 tool = tools_by_name.get(name)
                 yield ToolCallStarted(
@@ -113,7 +125,7 @@ class Agent:
                 invocation = tool.invoke(output["arguments"]) if tool else Invocation(f"Unknown tool `{name}`.")
                 yield from invocation
                 self._after_tool_call(output["call_id"], name)
-                self.ctx.append({
+                self.history.append({
                     "type": "function_call_output",
                     "call_id": output["call_id"],
                     "output": invocation.output,

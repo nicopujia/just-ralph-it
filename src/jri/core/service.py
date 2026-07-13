@@ -4,9 +4,7 @@ import shutil
 from collections.abc import Generator
 from datetime import datetime
 from threading import Lock
-from typing import Any, Literal, NamedTuple
-
-from openai import BaseModel as OpenAIModel
+from typing import Any, Literal, NamedTuple, cast
 
 from .agents import ChatEvent, Interviewer
 from .notes import Notes
@@ -72,15 +70,8 @@ class Service:
         self.logger.info("chat_started")
         self.logger.debug("chat_message message=%r", message)
         yield from self.interviewer.send_message(message)
-        interview = [
-            (item.model_dump(mode="json") if isinstance(item, OpenAIModel) else item) for item in self.interviewer.ctx
-        ]
-        explorations = {
-            call_id: [(item.model_dump(mode="json") if isinstance(item, OpenAIModel) else item) for item in context]
-            for call_id, context in self.interviewer.explorations.items()
-        }
-        self.update_state(interview=interview, explorations=explorations)
-        self.logger.info("chat_finished interview_items=%d", len(interview))
+        self.update_state(interview=self.interviewer.history, explorations=self.interviewer.explorations)
+        self.logger.info("chat_finished interview_items=%d", len(self.interviewer.history))
 
     def restore(self) -> tuple[list[InterviewItem], bool]:
         """Restore interview session if present.
@@ -93,21 +84,19 @@ class Service:
             return [], False
         self.state = json.loads(self.state_file.read_text())
         self.logger.info("restored interview_items=%d", len(self.state["interview"]))
-        self.interviewer.ctx = self.state["interview"]
+        self.interviewer.history = list(self.state["interview"])
         self.interviewer.explorations = self.state["explorations"]
         tools_by_name = {tool.name: tool for tool in self.interviewer.tools}
         items: list[InterviewItem] = []
-        for item in self.interviewer.ctx:
-            if item.get("role") == "system":
-                continue
-            item_type = item.get("type")
-            if item_type == "function_call":
+        for raw_item in self.interviewer.history:
+            item = cast("dict[str, Any]", raw_item)
+            if item.get("type") == "function_call":
                 tool = tools_by_name[item["name"]]
                 items.append(
                     InterviewItem("tool", tool.format_label(tool.finished_label, item["arguments"]), tool.symbol)
                 )
                 continue
-            if item_type == "reasoning":
+            if item.get("type") == "reasoning":
                 summary = "".join(part["text"] for part in item["summary"] if part["type"] == "summary_text")
                 reasoning = "".join(
                     part["text"] for part in item.get("content", []) if part["type"] == "reasoning_text"
@@ -115,13 +104,19 @@ class Service:
                 if summary or reasoning:
                     items.append(InterviewItem("reasoning", summary or reasoning))
                 continue
-            if item_type not in {None, "message"}:
+            if "role" not in item or "content" not in item:
+                continue
+            role = item["role"]
+            if role not in {"user", "assistant"}:
                 continue
             content = item["content"]
-            if isinstance(content, list):
-                content = "".join(part["text"] for part in content if part["type"] == "output_text")
-            if content:
-                items.append(InterviewItem(item["role"], content))
+            text = (
+                content
+                if isinstance(content, str)
+                else "".join(part["text"] for part in content if part["type"] == "output_text")
+            )
+            if text:
+                items.append(InterviewItem(role, text))
         return items, bool(self.state["show_thinking_blocks"])
 
     def update_state(self, **values: object) -> None:
