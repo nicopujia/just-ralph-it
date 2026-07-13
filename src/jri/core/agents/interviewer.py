@@ -239,8 +239,8 @@ class Interviewer(Agent):
 
     @tool(
         "Edit one note's text without changing its connections.",
-        started_label="Editing note {note_id}",
-        finished_label="Edited note {note_id}",
+        started_label="Editing note",
+        finished_label="Edited note",
         symbol="✏️",
     )
     def edit_note(self, note_id: str, text: str) -> str:
