@@ -57,10 +57,10 @@ class Explorer(Agent):
     )
     def web_search(self, query: str) -> str:
         logger.debug("search_query query=%r", query)
-        if not self.settings.brave_api_key:
+        if not self.settings.brave_search_api_key:
             logger.info("search_finished available=False")
             return "Web search not available."
-        results = brave.search(self.settings.brave_api_key, query)
+        results = brave.search(self.settings.brave_search_api_key, query)
         output = "\n".join(f"- [{result['title']}]({result['url']})" for result in results)
         logger.info("search_finished results=%d", len(results))
         return output

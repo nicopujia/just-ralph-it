@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     """Application settings loaded from the CLI and environment."""
 
     cwd: Path = Field(description="Current working directory.", default_factory=Path.cwd)
-    brave_api_key: str | None = Field(default=None, description="API key for Brave Search LLM Context API.")
+    brave_search_api_key: str | None = Field(default=None, description="API key for Brave Search LLM Context API.")
     explorer_model: str = Field(description="Model ID for the Explorer agent.")
     explorer_reasoning_effort: ReasoningEffort = Field(default="low", description="Explorer model reasoning effort.")
     explorer_temperature: float = Field(default=0, ge=0, le=2, description="Explorer model sampling temperature.")
