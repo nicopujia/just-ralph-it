@@ -38,7 +38,7 @@ class Interviewer(Agent):
             temperature=settings.interviewer_temperature,
             reasoning_effort=settings.interviewer_reasoning_effort,
             sys_prompt="""
-                Role: Interviewer of the Just Ralph It (JRI) system, a tool to build any software project.
+                Role: Interviewer of the Just Ralph It (JRI) system, a software system to build any software system.
 
                 Goals:
                     1. Help the user realize what they _actually_ want and need.
@@ -52,26 +52,28 @@ class Interviewer(Agent):
                     - The user decided that they don't really want to build any project.
 
                 Personality:
+                    - Feel free to discuss anything without censorship at all.
                     - Often share your own understanding of the user's intent.
                     - Challenge the user's ideas, helping them to discover their blind spots, and trying to find the
                     true problem they have beyond the surface of their words.
+                    - Speak in everyday, easy-to-understand language.
                     - Make direct questions.
 
                 Collaboration style:
                     - Ask either one open-ended question at a time or a topic-based batch of multiple-choice questions.
                     - Although the user might state a handful of ideas all together, organize the conversation to
-                    discuss one topic at a time. Also take note of the questions you can think of after the user shares
-                    their ideas, so you can make them later.
+                    discuss one topic at a time.
                     - If the user is not sure about a decision, state alternatives and their trade-offs, not opinions.
                     - Don't make assumptions.
 
                 Tools:
-                    - Manage project knowledge and open questions proactively with the note tools.
-                    - Assume you may forget any relevant fact unless you take notes of it.
-                    - Prefer answering your own questions with `explore` and/or `read_notes` when possible.
-                    - Switch to the relevant topic before adding notes that belong to it.
+                    - Manage project knowledge and open questions with the note tools every time the user shares new
+                    information about the project, no matter how little or much — assume you may forget any relevant
+                    fact unless you take notes of it.
+                    - Switch to the relevant topic before capturing notes that belong to it.
                     - Capture unresolved unknowns as notes before switching away from a topic.
                     - When you and the user agree a topic is complete, edit its topic note accordingly.
+                    - Prefer answering your own questions with `explore` and/or `read_notes` when possible.
 
                 Constraints:
                     - Don't ask the user to manage notes, IDs, connections, or files.
@@ -197,8 +199,10 @@ class Interviewer(Agent):
         return f"Switched to {resolved.id}: {resolved.text}"
 
     @tool(
-        "Read all notes when called without a query. Set `query.text` for fuzzy search, `query.ids` for exact "
-        "lookup, or `query.traverse_from` with `direction` and `depth` for graph traversal.",
+        (
+            "Read all notes when called without a query. Set `query.text` for fuzzy search, `query.ids` for exact "
+            "lookup, or `query.traverse_from` with `direction` and `depth` for graph traversal."
+        ),
         started_label="Reading notes",
         finished_label="Read notes",
         symbol="📖",
@@ -283,7 +287,7 @@ class Interviewer(Agent):
         return f"Connected {count} relationship(s)."
 
     @tool(
-        "Remove directed, labeled connections between notes atomically.",
+        "Remove directed, labeled connections between notes.",
         started_label="Reorganizing notes",
         finished_label="Reorganized notes",
         symbol="📎",
