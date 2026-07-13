@@ -61,7 +61,7 @@ class Explorer(Agent):
             logger.info("search_finished available=False")
             return "Web search not available."
         results = brave.search(self.settings.brave_api_key, query)
-        output = "\n".join(f"- [{result.title}]({result.url})" for result in results)
+        output = "\n".join(f"- [{result['title']}]({result['url']})" for result in results)
         logger.info("search_finished results=%d", len(results))
         return output
 

@@ -63,6 +63,5 @@ def fetch_transcript_from_url(url: str) -> str | None:
     if not lines:
         raise RuntimeError("Transcript did not contain any text.")
 
-    output = "\n".join(lines)
-    logger.info("transcript_fetched video_id=%s characters=%d", video_id, len(output))
+    logger.info("transcript_fetched video_id=%s characters=%d", video_id, len(output := "\n".join(lines)))
     return output

@@ -1,26 +1,17 @@
 """Search the web with the Brave LLM Context API."""
 
 import logging
-from dataclasses import dataclass
 from typing import cast
 
 import httpx
 
-__all__ = ["SearchResult", "search"]
+__all__ = ["search"]
 
 _ENDPOINT = "https://api.search.brave.com/res/v1/llm/context"
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class SearchResult:
-    """A web search result."""
-
-    url: str
-    title: str
-
-
-def search(api_key: str, query: str) -> list[SearchResult]:
+def search(api_key: str, query: str) -> list[dict[str, str]]:
     """Search the web and return generic results.
 
     Returns:
@@ -64,10 +55,7 @@ def search(api_key: str, query: str) -> list[SearchResult]:
 
     raw = cast("dict[str, object]", response.json())
     grounding = cast("dict[str, object]", raw["grounding"])
-    results = [
-        SearchResult(url=cast("str", item["url"]), title=cast("str", item["title"]))
-        for item in cast("list[dict[str, object]]", grounding["generic"])
-    ]
+    results = cast("list[dict[str, str]]", grounding["generic"])
     logger.info("search_finished results=%d", len(results))
     logger.debug(
         "search_response url=%r status_code=%r headers=%r response_body=%r",

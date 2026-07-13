@@ -3,7 +3,7 @@ from typing import Any, cast, override
 
 from openai.types.responses import ResponseInputItemParam, ResponseInputParam
 
-from jri.core.notes import ConnectionInput, Note, Notes, ReadQuery
+from jri.core.notes import Connection, Note, Notes, ReadQuery
 from jri.core.settings import Settings
 from jri.lib.models import estimate_tokens, get_context_limit
 
@@ -234,7 +234,7 @@ class Interviewer(Agent):
         notes = self.notes.add(texts)
         switches = self._collect_switches()
         topic = switches[-1][1] if switches else self.initial_topic
-        self.notes.connect([ConnectionInput(source_id=topic.id, target_id=note.id, label="contains") for note in notes])
+        self.notes.connect([Connection(source_id=topic.id, target_id=note.id, label="contains") for note in notes])
         return "\n".join(f"Added {note.id}: {note.text}" for note in notes)
 
     @tool(
@@ -273,7 +273,7 @@ class Interviewer(Agent):
         finished_label="Organized notes",
         symbol="🖇️",
     )
-    def connect_notes(self, connections: list[ConnectionInput]) -> str:
+    def connect_notes(self, connections: list[Connection]) -> str:
         """Connect project notes.
 
         Returns:
@@ -288,7 +288,7 @@ class Interviewer(Agent):
         finished_label="Reorganized notes",
         symbol="📎",
     )
-    def disconnect_notes(self, connections: list[ConnectionInput]) -> str:
+    def disconnect_notes(self, connections: list[Connection]) -> str:
         """Disconnect project notes.
 
         Returns:

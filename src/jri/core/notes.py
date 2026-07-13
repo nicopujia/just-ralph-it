@@ -49,14 +49,6 @@ class Graph(BaseModel):
         return self
 
 
-class ConnectionInput(BaseModel):
-    """A connection requested by the interviewer."""
-
-    source_id: str
-    target_id: str
-    label: str
-
-
 class ReadQuery(BaseModel):
     """Select notes by text, ID, or graph traversal."""
 
@@ -200,7 +192,7 @@ class Notes:
         logger.info("delete_finished note_ids=%r", note_ids)
         return note_ids
 
-    def connect(self, connections: list[ConnectionInput]) -> int:
+    def connect(self, connections: list[Connection]) -> int:
         """Connect notes atomically.
 
         Existing connections are no-ops.
@@ -224,13 +216,13 @@ class Notes:
             if not connection.label.strip():
                 raise ValueError("Connection labels cannot be blank.")
             if tuple(connection.model_dump().values()) not in existing:
-                graph.connections.append(Connection(**connection.model_dump()))
+                graph.connections.append(connection)
         self._save(graph)
         count = len(set(requested) - existing)
         logger.info("connect_finished count=%d", count)
         return count
 
-    def disconnect(self, connections: list[ConnectionInput]) -> int:
+    def disconnect(self, connections: list[Connection]) -> int:
         """Disconnect notes atomically.
 
         Missing connections are no-ops.
