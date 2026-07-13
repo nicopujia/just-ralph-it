@@ -9,7 +9,7 @@ from textual.widgets import TextArea
 class MessageInput(TextArea):
     BINDINGS = (
         Binding("enter", "submit", "Send message", show=False, priority=True),
-        Binding("shift+enter", "insert_newline", "Insert newline", show=False, priority=True),
+        Binding("shift+enter,ctrl+j", "insert_newline", "Insert newline", show=False, priority=True),
     )
 
     @dataclass
