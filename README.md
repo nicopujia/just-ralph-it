@@ -11,10 +11,10 @@ Just Ralph It is a software system that aims to help you easily define your soft
   - [x] Exploration
   - [x] Note taking
   - [x] Topic-based context management
-- [x] Notes graph visualization
 - [ ] Project implementation
 - [ ] Remote execution
 - [ ] Web UI
+  - [x] Notes graph visualization
 - [ ] Hosted platform
 
 ## Getting Started
