@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 from .events import ChatEvent, ToolCallFinished, ToolCallStarted
 
 _METADATA_ATTR = "__jri_tool_metadata__"
+_MAX_OUTPUT_LENGTH = 100_000
 logger = logging.getLogger(__name__)
 
 
@@ -90,6 +91,8 @@ class Invocation:
     def output(self) -> str | ResponseFunctionCallOutputItemListParam:
         """Return the resolved tool output."""
 
+        if isinstance(self._output, str) and len(self._output) > _MAX_OUTPUT_LENGTH:
+            return self._output[:_MAX_OUTPUT_LENGTH] + "\n\n[Output truncated. Try splitting into more targeted calls.]"
         return self._output if self._output is not None else "Tool call failed: streaming tool returned no output."
 
 
