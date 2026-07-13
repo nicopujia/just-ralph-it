@@ -4,12 +4,10 @@ from typing import Literal
 from dotenv import find_dotenv
 from openai import OpenAI
 from openai.types.shared import ReasoningEffort
-from pydantic import Field, ValidationError, ValidationInfo, field_validator
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from jri.lib.providers import codex
-
-from .exceptions import ConfigurationError
 
 
 class Settings(BaseSettings):
@@ -35,7 +33,6 @@ class Settings(BaseSettings):
             "A valid API key for the configured LLM provider. Not required when llm_provider is openai-codex."
         ),
     )
-
     logging_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
         default="INFO", description="Minimum logging level for logs saved under .jri/logs/."
     )
@@ -86,19 +83,3 @@ class Settings(BaseSettings):
 
         if self.llm_provider == "openai-codex":
             codex.Auth().validate()
-
-
-def get_settings() -> Settings:
-    """Return validated application settings.
-
-    Returns:
-        The validated application settings.
-
-    Raises:
-        ConfigurationError: Raised when the settings are invalid.
-    """
-
-    try:
-        return Settings()  # pyright: ignore[reportCallIssue]
-    except ValidationError as error:
-        raise ConfigurationError(error) from error
