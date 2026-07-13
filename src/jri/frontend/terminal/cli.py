@@ -1,4 +1,5 @@
 import argparse
+import html
 import json
 import logging
 import webbrowser
@@ -72,11 +73,11 @@ def _view(settings: Settings) -> None:
     indentation = "    " * 3
 
     for note in graph["notes"]:
-        text = note["text"].replace('"', "#quot;").replace("\n", "<br/>")
+        text = html.escape(note["text"], quote=False).replace('"', "&quot;").replace("\n", "<br/>")
         diagram.append(f'{indentation}{note["id"]}["{text}"]')
 
     for connection in graph["connections"]:
-        label = connection["label"].replace('"', "#quot;").replace("\n", "<br/>")
+        label = html.escape(connection["label"], quote=False).replace('"', "&quot;").replace("\n", "<br/>")
         diagram.append(f'{indentation}{connection["source_id"]} -->|"{label}"| {connection["target_id"]}')
 
     diagram_content = "\n".join(diagram)
@@ -85,9 +86,23 @@ def _view(settings: Settings) -> None:
 <html lang="en">
 <head>
     <meta charset="utf-8">
+    <style>
+        html, body, .mermaid, .mermaid svg {{
+            width: 100%;
+            height: 100%;
+            margin: 0;
+        }}
+
+        body {{
+            overflow: hidden;
+        }}
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
     <script type="module">
         import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-        mermaid.initialize({{ startOnLoad: true }});
+        mermaid.initialize({{ startOnLoad: false }});
+        await mermaid.run();
+        svgPanZoom(document.querySelector(".mermaid svg"), {{ controlIconsEnabled: true }});
     </script>
 </head>
 <body>
