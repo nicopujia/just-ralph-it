@@ -115,11 +115,12 @@ class Tool:
         """
 
         tools: list[Self] = []
-        for name, member in type(owner).__dict__.items():
-            if not (metadata := getattr(member, _METADATA_ATTR, None)):
-                continue
+        for name in type(owner).__dict__:
             func = getattr(owner, name)
-            annotations = get_type_hints(member, include_extras=True)
+            wrapped = getattr(func, "__func__", func)
+            if not (metadata := getattr(wrapped, _METADATA_ATTR, None)):
+                continue
+            annotations = get_type_hints(wrapped, include_extras=True)
             fields = {
                 param.name: (
                     annotations.get(param.name, str),
