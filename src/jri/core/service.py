@@ -7,7 +7,7 @@ from threading import Lock
 from typing import Any, Literal, NamedTuple, cast
 
 from .agents import ChatEvent, Interviewer
-from .notes import Notes
+from .notes import Notebook
 from .settings import Settings
 
 
@@ -59,7 +59,7 @@ class Service:
         application_logger.propagate = False
         self.logger = logging.getLogger(__name__)
         self.logger.info("initialized cwd=%r force=%r", settings.cwd, settings.force)
-        self.interviewer = Interviewer(settings, Notes(self.graph_file))
+        self.interviewer = Interviewer(settings, Notebook(self.graph_file))
 
     def chat(self, message: str) -> Generator[ChatEvent]:
         """Send a message and persist the full interview context.

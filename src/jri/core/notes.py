@@ -67,7 +67,7 @@ class ReadQuery(BaseModel):
         return self
 
 
-class Notes:
+class Notebook:
     """Query and mutate the persisted interviewer note graph."""
 
     def __init__(self, path: Path) -> None:

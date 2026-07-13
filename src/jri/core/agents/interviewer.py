@@ -3,7 +3,7 @@ from typing import Any, cast, override
 
 from openai.types.responses import ResponseInputItemParam, ResponseInputParam
 
-from jri.core.notes import Connection, Note, Notes, ReadQuery
+from jri.core.notes import Connection, Note, Notebook, ReadQuery
 from jri.core.settings import Settings
 from jri.lib.models import estimate_tokens, get_context_limit
 
@@ -18,20 +18,20 @@ class Interviewer(Agent):
     INITIAL_TOPIC_NAME = "Project overview"
     FIRST_MESSAGE = "What do you want to build?"
 
-    def __init__(self, settings: Settings, notes: Notes) -> None:
+    def __init__(self, settings: Settings, notebook: Notebook) -> None:
         self.settings = settings
-        self.notes = notes
+        self.notebook = notebook
         self.explorer: Explorer
         self.explorations: dict[str, ResponseInputParam] = {}
         initial_topic_note = next(
             (
                 note
-                for note in self.notes.graph.notes
+                for note in self.notebook.graph.notes
                 if self._extract_topic_name(note.text).casefold() == self.INITIAL_TOPIC_NAME.casefold()
             ),
             None,
         )
-        self.initial_topic = initial_topic_note or self.notes.add([f"{self.INITIAL_TOPIC_NAME}: open topic"])[0]
+        self.initial_topic = initial_topic_note or self.notebook.add([f"{self.INITIAL_TOPIC_NAME}: open topic"])[0]
         super().__init__(
             client=settings.llm_client,
             model=settings.interviewer_model,
@@ -95,9 +95,9 @@ class Interviewer(Agent):
 
         history = self.history
         switches = self._collect_switches()
-        topics = [note for note in self.notes.graph.notes if note.text.endswith((": open topic", ": done"))]
+        topics = [note for note in self.notebook.graph.notes if note.text.endswith((": open topic", ": done"))]
         active = switches[-1][1] if switches else self.initial_topic
-        by_id = {note.id: note for note in self.notes.graph.notes}
+        by_id = {note.id: note for note in self.notebook.graph.notes}
         lines = [
             f"- {topic.id}: {by_id[topic.id].text}{' (active)' if topic.id == active.id else ''}"
             for topic in topics
@@ -109,10 +109,10 @@ class Interviewer(Agent):
         for topic in pinned_topics:
             note_ids = {
                 connection.target_id
-                for connection in self.notes.graph.connections
+                for connection in self.notebook.graph.connections
                 if connection.source_id == topic.id and connection.label == "contains"
             }
-            notes = [note for note in self.notes.graph.notes if note.id in note_ids]
+            notes = [note for note in self.notebook.graph.notes if note.id in note_ids]
             if notes:
                 lines.extend(["", f"{self._extract_topic_name(topic.text)} notes"])
                 lines.extend(f"- {note.id}: {note.text}" for note in notes)
@@ -179,21 +179,21 @@ class Interviewer(Agent):
         """
 
         value = topic.strip()
-        by_id = {note.id: note for note in self.notes.graph.notes}
+        by_id = {note.id: note for note in self.notebook.graph.notes}
         if value in by_id:
             resolved = by_id[value]
         else:
             resolved = next(
                 (
                     item
-                    for item in self.notes.graph.notes
+                    for item in self.notebook.graph.notes
                     if item.text.endswith((": open topic", ": done"))
                     and self._extract_topic_name(item.text).casefold() == value.casefold()
                 ),
                 None,
             )
             if resolved is None:
-                resolved = self.notes.add([f"{value}: open topic"])[0]
+                resolved = self.notebook.add([f"{value}: open topic"])[0]
         return f"Switched to {resolved.id}: {resolved.text}"
 
     @tool(
@@ -210,7 +210,7 @@ class Interviewer(Agent):
         Returns:
             Matching notes and connections.
         """
-        notes, connections = self.notes.read(query or ReadQuery())
+        notes, connections = self.notebook.read(query or ReadQuery())
         if not notes:
             return "No notes found."
         lines = [f"- {note.id}: {note.text}" for note in notes]
@@ -231,10 +231,10 @@ class Interviewer(Agent):
         Returns:
             A summary containing the new IDs.
         """
-        notes = self.notes.add(texts)
+        notes = self.notebook.add(texts)
         switches = self._collect_switches()
         topic = switches[-1][1] if switches else self.initial_topic
-        self.notes.connect([Connection(source_id=topic.id, target_id=note.id, label="contains") for note in notes])
+        self.notebook.connect([Connection(source_id=topic.id, target_id=note.id, label="contains") for note in notes])
         return "\n".join(f"Added {note.id}: {note.text}" for note in notes)
 
     @tool(
@@ -249,7 +249,7 @@ class Interviewer(Agent):
         Returns:
             A summary of the edited note.
         """
-        note = self.notes.edit(note_id, text)
+        note = self.notebook.edit(note_id, text)
         return f"Edited {note.id}: {note.text}"
 
     @tool(
@@ -264,7 +264,7 @@ class Interviewer(Agent):
         Returns:
             A summary of the deleted notes.
         """
-        deleted_ids = self.notes.delete(note_ids)
+        deleted_ids = self.notebook.delete(note_ids)
         return f"Deleted notes: {', '.join(deleted_ids)}."
 
     @tool(
@@ -279,7 +279,7 @@ class Interviewer(Agent):
         Returns:
             The number of relationships created.
         """
-        count = self.notes.connect(connections)
+        count = self.notebook.connect(connections)
         return f"Connected {count} relationship(s)."
 
     @tool(
@@ -294,7 +294,7 @@ class Interviewer(Agent):
         Returns:
             The number of relationships removed.
         """
-        count = self.notes.disconnect(connections)
+        count = self.notebook.disconnect(connections)
         return f"Disconnected {count} relationship(s)."
 
     def _collect_switches(self) -> list[tuple[int, Note]]:
@@ -304,7 +304,7 @@ class Interviewer(Agent):
             if item.get("type") == "function_call_output" and isinstance(item["output"], str):
                 outputs[item["call_id"]] = item["output"]
         switches: list[tuple[int, Note]] = []
-        by_id = {note.id: note for note in self.notes.graph.notes}
+        by_id = {note.id: note for note in self.notebook.graph.notes}
         for index, raw_item in enumerate(self.history):
             item = cast("dict[str, Any]", raw_item)
             if item.get("type") == "function_call" and item["name"] == "switch_topic" and item["call_id"] in outputs:
