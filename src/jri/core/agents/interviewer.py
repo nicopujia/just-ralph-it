@@ -220,13 +220,13 @@ class Interviewer(Agent):
         return "\n".join(lines)
 
     @tool(
-        "Create one or more independently meaningful notes under the active topic.",
+        "Capture one or more independently meaningful notes under the active topic.",
         started_label="Taking notes",
         finished_label="Took notes",
         symbol="📝",
     )
-    def add_notes(self, texts: list[str]) -> str:
-        """Add project notes under the active topic.
+    def capture_notes(self, texts: list[str]) -> str:
+        """Capture project notes under the active topic.
 
         Returns:
             A summary containing the new IDs.
