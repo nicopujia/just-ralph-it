@@ -1,4 +1,6 @@
 import logging
+import platform
+import subprocess
 from collections.abc import Callable, Iterable
 from threading import Thread
 from typing import Any, ClassVar, override
@@ -18,7 +20,6 @@ from jri.core.service import Service
 
 from . import constants as c
 from .states import InterviewerTurnState
-from .utils import detect_system_theme
 from .widgets import MessageInput, MessagesContainer, ToolCallRow
 
 logger = logging.getLogger(__name__)
@@ -45,10 +46,15 @@ class App(TextualApp[None]):
     ]
     TITLE = c.TITLE_COPY
     CSS = c.STYLESHEET
-    theme = Reactive(c.THEME_DEFAULT)
+    theme = Reactive(c.THEME_DARK)
 
     def __init__(self, service: Service) -> None:
         super().__init__()
+        if platform.system() == "Darwin":
+            result = subprocess.run(
+                ["/usr/bin/defaults", "read", "-g", "AppleInterfaceStyle"], capture_output=True, text=True, check=False
+            )
+            self.theme = c.THEME_DARK if result.stdout.strip() == "Dark" else c.THEME_LIGHT
         self.service = service
         self.is_reasoning_visible = False
         self.active_turn_state: InterviewerTurnState | None = None
@@ -74,7 +80,6 @@ class App(TextualApp[None]):
         """Restore history and initialize the app state."""
 
         await self.restore_history()
-        self.theme = detect_system_theme()
         self.set_focus(self.message_input)
         logger.info("mounted theme=%s", self.theme)
 
@@ -198,31 +203,43 @@ class App(TextualApp[None]):
                 await self._render_tool_call_started(turn_state, chat_event)
             case ToolCallFinished():
                 await self._render_tool_call_finished(turn_state, chat_event)
-
-    async def _render_reasoning_delta(self, turn_state: InterviewerTurnState, event: ReasoningDelta) -> None:
-        await self.append_reasoning_text(turn_state, event.text)
-
-    async def _render_text_delta(self, turn_state: InterviewerTurnState, event: TextDelta) -> None:
-        if turn_state.placeholder is not None:
-            await turn_state.placeholder.remove()
-            turn_state.placeholder = None
-        turn_state.active_reasoning = None
-        turn_state.active_reasoning_text = ""
-        await self.append_interviewer_text(turn_state, event.text)
-
-    async def _render_tool_call_started(self, turn_state: InterviewerTurnState, event: ToolCallStarted) -> None:
-        if turn_state.placeholder is not None:
-            await turn_state.placeholder.remove()
-            turn_state.placeholder = None
-        turn_state.active_markdown = None
-        turn_state.active_markdown_text = ""
-        turn_state.active_reasoning = None
-        turn_state.active_reasoning_text = ""
-        turn_state.tool_rows[event.call_id] = ToolCallRow(event.label, symbol=event.symbol, depth=event.depth)
-        await turn_state.container.mount(turn_state.tool_rows[event.call_id])
         self.follow_bottom(turn_state)
 
-    async def _render_tool_call_finished(self, turn_state: InterviewerTurnState, event: ToolCallFinished) -> None:
+    async def _render_reasoning_delta(self, turn_state: InterviewerTurnState, event: ReasoningDelta) -> None:
+        if turn_state.active_reasoning is None:
+            turn_state.active_markdown, turn_state.active_markdown_text = None, ""
+            turn_state.active_reasoning = Markdown("", classes=c.INTERVIEWER_REASONING_CLASSES)
+            turn_state.active_reasoning.display = self.is_reasoning_visible
+            await turn_state.container.mount(turn_state.active_reasoning)
+
+        turn_state.active_reasoning_text += event.text
+        await turn_state.active_reasoning.update(turn_state.active_reasoning_text)
+
+    @staticmethod
+    async def _render_text_delta(turn_state: InterviewerTurnState, event: TextDelta) -> None:
+        if turn_state.placeholder is not None:
+            await turn_state.placeholder.remove()
+            turn_state.placeholder = None
+        turn_state.active_reasoning, turn_state.active_reasoning_text = None, ""
+        if turn_state.active_markdown is None:
+            turn_state.active_markdown = Markdown("", classes=c.INTERVIEWER_MESSAGE_CLASSES)
+            await turn_state.container.mount(turn_state.active_markdown)
+
+        turn_state.active_markdown_text += event.text
+        await turn_state.active_markdown.update(turn_state.active_markdown_text)
+
+    @staticmethod
+    async def _render_tool_call_started(turn_state: InterviewerTurnState, event: ToolCallStarted) -> None:
+        if turn_state.placeholder is not None:
+            await turn_state.placeholder.remove()
+            turn_state.placeholder = None
+        turn_state.active_markdown, turn_state.active_markdown_text = None, ""
+        turn_state.active_reasoning, turn_state.active_reasoning_text = None, ""
+        turn_state.tool_rows[event.call_id] = ToolCallRow(event.label, symbol=event.symbol, depth=event.depth)
+        await turn_state.container.mount(turn_state.tool_rows[event.call_id])
+
+    @staticmethod
+    async def _render_tool_call_finished(turn_state: InterviewerTurnState, event: ToolCallFinished) -> None:
         for nested_call_id, nested_row in list(turn_state.tool_rows.items()):
             if nested_row.depth > event.depth:
                 await nested_row.remove()
@@ -231,7 +248,6 @@ class App(TextualApp[None]):
         if event.depth == 0:
             turn_state.placeholder = Markdown(c.INTERVIEWER_THINKING_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES)
             await turn_state.container.mount(turn_state.placeholder)
-        self.follow_bottom(turn_state)
 
     async def render_interviewer_status(self, turn_state: InterviewerTurnState, content: str) -> None:
         """Render a status message for the interviewer turn."""
@@ -277,31 +293,6 @@ class App(TextualApp[None]):
         for reasoning_block in self.query(Markdown):
             if reasoning_block.has_class(c.INTERVIEWER_REASONING_CLASSES):
                 reasoning_block.display = self.is_reasoning_visible
-
-    async def append_reasoning_text(self, turn_state: InterviewerTurnState, text: str) -> None:
-        """Append streamed text to the active reasoning block."""
-
-        if turn_state.active_reasoning is None:
-            turn_state.active_markdown = None
-            turn_state.active_markdown_text = ""
-            turn_state.active_reasoning = Markdown("", classes=c.INTERVIEWER_REASONING_CLASSES)
-            turn_state.active_reasoning.display = self.is_reasoning_visible
-            await turn_state.container.mount(turn_state.active_reasoning)
-
-        turn_state.active_reasoning_text += text
-        await turn_state.active_reasoning.update(turn_state.active_reasoning_text)
-        self.follow_bottom(turn_state)
-
-    async def append_interviewer_text(self, turn_state: InterviewerTurnState, text: str) -> None:
-        """Append streamed text to the active message block."""
-
-        if turn_state.active_markdown is None:
-            turn_state.active_markdown = Markdown("", classes=c.INTERVIEWER_MESSAGE_CLASSES)
-            await turn_state.container.mount(turn_state.active_markdown)
-
-        turn_state.active_markdown_text += text
-        await turn_state.active_markdown.update(turn_state.active_markdown_text)
-        self.follow_bottom(turn_state)
 
     async def restore_history(self) -> None:
         """Rebuild the visible chat history from persisted items."""

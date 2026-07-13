@@ -1,4 +1,3 @@
-import json
 import logging
 from difflib import SequenceMatcher
 from pathlib import Path
@@ -277,7 +276,7 @@ class Notebook:
     def _write(self, graph: Graph) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with NamedTemporaryFile("w", dir=self.path.parent, delete=False, encoding="utf-8") as file:
-            file.write(f"{json.dumps(graph.model_dump(mode='json'), indent=2)}\n")
+            file.write(f"{graph.model_dump_json(indent=2)}\n")
             temporary_path = file.name
         try:
             Path(temporary_path).replace(self.path)

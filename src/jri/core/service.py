@@ -40,7 +40,7 @@ class Service:
         self.state_file = self.base_dir / "state.json"
 
         self.state_lock = Lock()
-        self.state: dict[str, Any] = {"interview": [], "explorations": {}, "show_thinking_blocks": False}
+        self.state: dict[str, Any] = {"interview": [], "show_thinking_blocks": False}
 
         if settings.force:
             shutil.rmtree(self.base_dir)
@@ -70,7 +70,7 @@ class Service:
         self.logger.info("chat_started")
         self.logger.debug("chat_message message=%r", message)
         yield from self.interviewer.send_message(message)
-        self.update_state(interview=self.interviewer.history, explorations=self.interviewer.explorations)
+        self.update_state(interview=self.interviewer.history)
         self.logger.info("chat_finished interview_items=%d", len(self.interviewer.history))
 
     def restore(self) -> tuple[list[InterviewItem], bool]:
@@ -85,7 +85,6 @@ class Service:
         self.state = json.loads(self.state_file.read_text())
         self.logger.info("restored interview_items=%d", len(self.state["interview"]))
         self.interviewer.history = list(self.state["interview"])
-        self.interviewer.explorations = self.state["explorations"]
         tools_by_name = {tool.name: tool for tool in self.interviewer.tools}
         items: list[InterviewItem] = []
         for raw_item in self.interviewer.history:

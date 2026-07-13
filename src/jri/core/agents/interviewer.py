@@ -22,7 +22,6 @@ class Interviewer(Agent):
         self.settings = settings
         self.notebook = notebook
         self.explorer: Explorer
-        self.explorations: dict[str, ResponseInputParam] = {}
         initial_topic_note = next(
             (
                 note
@@ -132,11 +131,6 @@ class Interviewer(Agent):
             turns.pop(0)
             context = [history[0], pinned, *(item for turn in turns for item in turn)]
         return context
-
-    @override
-    def _after_tool_call(self, call_id: str, name: str) -> None:
-        if name == "explore":
-            self.explorations[call_id] = self.explorer.history
 
     @tool(
         (
