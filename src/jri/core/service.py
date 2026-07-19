@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .agents import ChatEvent, Interviewer
 from .exceptions import PersistenceError
-from .notes import Graph, Notebook
+from .notes import Graph, Notebook, TopicId
 from .settings import Settings
 
 if TYPE_CHECKING:
@@ -27,7 +27,7 @@ class InterviewItem(NamedTuple):
 class State(BaseModel):
     """Persisted terminal session state."""
 
-    active_topic_id: str
+    active_topic_id: TopicId
     interview: list[dict[str, Any]] = Field(default_factory=list)
     show_thinking_blocks: bool = False
 

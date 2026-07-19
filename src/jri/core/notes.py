@@ -2,7 +2,7 @@ import logging
 from difflib import SequenceMatcher
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
@@ -10,11 +10,15 @@ from .exceptions import PersistenceError
 
 logger = logging.getLogger(__name__)
 
+type TopicId = Annotated[str, Field(pattern=r"^t\d+$")]
+type NoteId = Annotated[str, Field(pattern=r"^n\d+$")]
+type NodeId = Annotated[str, Field(pattern=r"^[nt]\d+$")]
+
 
 class Topic(BaseModel):
     """A named area of the project definition."""
 
-    id: str
+    id: TopicId
     name: str
     status: Literal["open", "done", "trashed"]
     summary: str | None = None
@@ -23,23 +27,23 @@ class Topic(BaseModel):
 class Note(BaseModel):
     """A single independently meaningful idea."""
 
-    id: str
-    topic_id: str
+    id: NoteId
+    topic_id: TopicId
     text: str
 
 
 class Connection(BaseModel):
     """A directed, labeled relationship between two graph nodes."""
 
-    source_id: str
-    target_id: str
+    source_id: NodeId
+    target_id: NodeId
     label: str
 
 
 class Graph(BaseModel):
     """The persisted note graph."""
 
-    overview_topic_id: str = "t1"
+    overview_topic_id: TopicId = "t1"
     topics: list[Topic] = Field(default_factory=lambda: [Topic(id="t1", name="Project overview", status="open")])
     notes: list[Note] = Field(default_factory=list)
     connections: list[Connection] = Field(default_factory=list)
@@ -80,9 +84,9 @@ class ReadQuery(BaseModel):
     """Select notes by text, ID, or graph traversal."""
 
     text: str | None = None
-    ids: list[str] | None = None
-    topic_ids: list[str] | None = None
-    traverse_from: list[str] | None = None
+    ids: list[NoteId] | None = None
+    topic_ids: list[TopicId] | None = None
+    traverse_from: list[NodeId] | None = None
     direction: Literal["outgoing", "incoming", "both"] | None = None
     depth: int | None = None
 
@@ -191,9 +195,7 @@ class Notebook:
             raise ValueError("Provide one or more non-blank note texts.")
         graph = self.graph.model_copy(deep=True)
         self._find_topic(graph, topic_id)
-        nodes = [*graph.topics, *graph.notes]
-        numbers = [int(node.id[1:]) for node in nodes if node.id.startswith("n") and node.id[1:].isdigit()]
-        next_number = max(numbers, default=0) + 1
+        next_number = max((int(note.id[1:]) for note in graph.notes), default=0) + 1
         added = [Note(id=f"n{next_number + index}", topic_id=topic_id, text=text) for index, text in enumerate(texts)]
         graph.notes.extend(added)
         self._save(graph)
@@ -215,9 +217,8 @@ class Notebook:
         graph = self.graph.model_copy(deep=True)
         if any(topic.name.strip().casefold() == name.strip().casefold() for topic in graph.topics):
             raise ValueError(f"Topic `{name.strip()}` already exists.")
-        nodes = [*graph.topics, *graph.notes]
-        numbers = [int(node.id[1:]) for node in nodes if node.id.startswith("t") and node.id[1:].isdigit()]
-        topic = Topic(id=f"t{max(numbers, default=0) + 1}", name=name.strip(), status="open")
+        next_number = max((int(topic.id[1:]) for topic in graph.topics), default=0) + 1
+        topic = Topic(id=f"t{next_number}", name=name.strip(), status="open")
         graph.topics.append(topic)
         self._save(graph)
         logger.info("add_topic_finished topic_id=%s", topic.id)

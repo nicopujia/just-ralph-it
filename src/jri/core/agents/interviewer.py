@@ -3,7 +3,7 @@ from typing import Any, Literal, cast, override
 
 from openai.types.responses import ResponseInputItemParam, ResponseInputParam
 
-from jri.core.notes import Connection, Notebook, ReadQuery
+from jri.core.notes import Connection, Notebook, NoteId, ReadQuery, TopicId
 from jri.core.settings import Settings
 from jri.lib.models import estimate_tokens, get_context_limit
 
@@ -184,7 +184,7 @@ class Interviewer(Agent):
         symbol="📑",
     )
     def update_topic(
-        self, topic_id: str, status: Literal["open", "done", "trashed"], summary: str | None = None
+        self, topic_id: TopicId, status: Literal["open", "done", "trashed"], summary: str | None = None
     ) -> str:
         """Update a topic's status and optional summary.
 
@@ -248,7 +248,7 @@ class Interviewer(Agent):
         finished_label="Edited note",
         symbol="✏️",
     )
-    def edit_note(self, note_id: str, text: str) -> str:
+    def edit_note(self, note_id: NoteId, text: str) -> str:
         """Edit a project note.
 
         Returns:
@@ -263,7 +263,7 @@ class Interviewer(Agent):
         finished_label="Discarded notes",
         symbol="🗑️",
     )
-    def delete_notes(self, note_ids: list[str]) -> str:
+    def delete_notes(self, note_ids: list[NoteId]) -> str:
         """Delete project notes.
 
         Returns:
@@ -272,7 +272,7 @@ class Interviewer(Agent):
         return f"Deleted notes: {', '.join(self.notebook.delete(note_ids))}."
 
     @tool(
-        "Create directed, labeled semantic connections between notes and topics.",
+        "Create directed, labeled semantic connections between notes and/or topics.",
         started_label="Organizing notes",
         finished_label="Organized notes",
         symbol="🖇️",
@@ -286,7 +286,7 @@ class Interviewer(Agent):
         return f"Connected {self.notebook.connect(connections)} relationship(s)."
 
     @tool(
-        "Remove directed, labeled semantic connections between notes and topics.",
+        "Remove directed, labeled semantic connections between notes and/or topics.",
         started_label="Reorganizing notes",
         finished_label="Reorganized notes",
         symbol="📎",
