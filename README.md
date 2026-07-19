@@ -98,7 +98,7 @@ jri view
 ## Upgrading
 
 ```bash
-python -m pip install --upgrade just-ralph-it
+pip install --upgrade just-ralph-it
 # or
 uv tool upgrade just-ralph-it
 ```
