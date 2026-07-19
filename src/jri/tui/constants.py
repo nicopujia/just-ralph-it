@@ -13,6 +13,8 @@ or pass them as CLI flags.
 All commands, including `jri view`, use this configuration.
 """
 
+HISTORY_BATCH_SIZE = 15
+
 INTERVIEWER_ERROR_COPY = """
 Something went wrong while talking to the interviewer:
 
@@ -57,6 +59,10 @@ Header {{
     height: 1fr;
     padding-right: 2;
     padding-left: 2;
+}}
+
+#{MESSAGES_CONTAINER_ID} > Static {{
+    height: 1fr;
 }}
 
 #{MESSAGE_INPUT_ID} {{

@@ -149,7 +149,7 @@ class Service:
     def _get_items(self) -> list[InterviewItem]:
         tools_by_name = {tool.name: tool for tool in self.interviewer.tools}
         items: list[InterviewItem] = []
-        for raw_item in self.interviewer.history:
+        for raw_item in self.interviewer.history[2:]:
             item = cast("dict[str, Any]", raw_item)
             if item.get("type") == "function_call":
                 tool = tools_by_name[item["name"]]

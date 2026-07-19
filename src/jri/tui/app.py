@@ -60,10 +60,12 @@ class App(TextualApp[None]):
             self.theme = c.THEME_DARK if result.stdout.strip() == "Dark" else c.THEME_LIGHT
         self.service = service
         self.restored_items, self.is_reasoning_visible = service.restore()
+        self.restored_item_index = len(self.restored_items)
+        self.is_restoring_history = False
         self.active_turn_state: InterviewerTurnState | None = None
         self.current_turns: list[tuple[Markdown, Vertical]] = []
         self.last_escape_at = 0.0
-        self.messages_container = MessagesContainer(self.stop_following_bottom)
+        self.messages_container = MessagesContainer(self.stop_following_bottom, self.load_older_history)
         self.message_input = MessageInput(id_=c.MESSAGE_INPUT_ID, placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY)
 
     @override
@@ -371,29 +373,62 @@ class App(TextualApp[None]):
     async def restore_history(self) -> None:
         """Rebuild the visible chat history from persisted items."""
 
-        items = self.restored_items
-        if items:
+        if self.restored_items:
             self.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
+            await self.load_older_history()
+        logger.info(
+            "history_restored items=%d remaining=%d reasoning_visible=%r",
+            len(self.restored_items) - self.restored_item_index,
+            self.restored_item_index,
+            self.is_reasoning_visible,
+        )
 
-        interviewer_turn = None
-        for item in items:
+    async def load_older_history(self) -> None:
+        """Prepend the next batch of restored conversation turns."""
+
+        if self.is_restoring_history or self.restored_item_index == 0:
+            return
+        self.is_restoring_history = True
+        end = self.restored_item_index
+        start = end
+        turns = 0
+        while start > 0:
+            start -= 1
+            if self.restored_items[start].type == "user":
+                turns += 1
+                if turns == c.HISTORY_BATCH_SIZE:
+                    break
+
+        widgets: list[Markdown | Vertical] = []
+        interviewer_items: list[Markdown | ToolCallRow] = []
+        for item in self.restored_items[start:end]:
             if item.type == "user":
-                await self.messages_container.mount(Markdown(item.text, classes=c.USER_MESSAGE_CLASSES))
-                interviewer_turn = None
+                if interviewer_items:
+                    widgets.append(Vertical(*interviewer_items, classes=c.INTERVIEWER_TURN_CLASSES))
+                    interviewer_items = []
+                widgets.append(Markdown(item.text, classes=c.USER_MESSAGE_CLASSES))
                 continue
-
-            if interviewer_turn is None:
-                interviewer_turn = Vertical(classes=c.INTERVIEWER_TURN_CLASSES)
-                await self.messages_container.mount(interviewer_turn)
             if item.type == "reasoning":
                 reasoning_block = Markdown(item.text, classes=c.INTERVIEWER_REASONING_CLASSES)
                 reasoning_block.display = self.is_reasoning_visible
-                await interviewer_turn.mount(reasoning_block)
+                interviewer_items.append(reasoning_block)
                 continue
-            await interviewer_turn.mount(
+            interviewer_items.append(
                 ToolCallRow(item.text, symbol=item.symbol or "⚙︎", is_complete=True)
                 if item.type == "tool"
                 else Markdown(item.text, classes=c.INTERVIEWER_MESSAGE_CLASSES)
             )
-        self.messages_container.scroll_end(animate=False)
-        logger.info("history_restored items=%d reasoning_visible=%r", len(items), self.is_reasoning_visible)
+        if interviewer_items:
+            widgets.append(Vertical(*interviewer_items, classes=c.INTERVIEWER_TURN_CLASSES))
+
+        old_scroll_y = self.messages_container.scroll_y
+        old_max_scroll_y = self.messages_container.max_scroll_y
+        await self.messages_container.mount_all(widgets, before=1 if end < len(self.restored_items) else None)
+        self.restored_item_index = start
+        self.call_after_refresh(self._finish_restoring_history, old_scroll_y, old_max_scroll_y)
+
+    def _finish_restoring_history(self, old_scroll_y: float, old_max_scroll_y: int) -> None:
+        self.messages_container.scroll_to(
+            y=old_scroll_y + self.messages_container.max_scroll_y - old_max_scroll_y, animate=False, immediate=True
+        )
+        self.is_restoring_history = False
