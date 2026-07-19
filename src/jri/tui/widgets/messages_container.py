@@ -4,7 +4,7 @@ from typing import override
 from textual import events
 from textual.containers import VerticalScroll
 
-from jri.frontend.terminal import constants as c
+from jri.tui import constants as c
 
 
 class MessagesContainer(VerticalScroll):
