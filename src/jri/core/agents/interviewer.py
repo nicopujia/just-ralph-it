@@ -122,7 +122,7 @@ class Interviewer(Agent):
         (
             "Gather context through a telegraphic query, including anything from the web or this computer. "
             "Queries can be as broad as needed, so unify all your inquiries in a single call. "
-            "Always use lowercase except for proper nouns or acronyms."
+            'Format query so it reads well after "Exploring [...]" text'
         ),
         started_label="Exploring {query}",
         finished_label="Explored {query}",
