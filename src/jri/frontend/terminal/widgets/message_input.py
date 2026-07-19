@@ -10,6 +10,7 @@ class MessageInput(TextArea):
     BINDINGS = (
         Binding("enter", "submit", "Send message", show=False, priority=True),
         Binding("shift+enter,ctrl+j", "insert_newline", "Insert newline", show=False, priority=True),
+        Binding("ctrl+shift+z", "redo", "Redo", show=False),
     )
 
     @dataclass
