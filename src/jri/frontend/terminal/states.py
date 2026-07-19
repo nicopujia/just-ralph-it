@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from threading import Event
 
 from textual.containers import Vertical
 from textual.widgets import Markdown
@@ -18,3 +19,4 @@ class InterviewerTurnState:
     active_reasoning_text: str = ""
     tool_rows: dict[str, ToolCallRow] = field(default_factory=dict)
     follow_bottom: bool = True
+    cancelled: Event = field(default_factory=Event)

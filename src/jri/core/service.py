@@ -7,7 +7,7 @@ from threading import Lock
 from typing import Any, Literal, NamedTuple, cast
 
 from .agents import ChatEvent, Interviewer
-from .notes import Notebook
+from .notes import Graph, Notebook
 from .settings import Settings
 
 
@@ -60,6 +60,7 @@ class Service:
         self.logger = logging.getLogger(__name__)
         self.logger.info("initialized cwd=%r force=%r", settings.cwd, settings.force)
         self.interviewer = Interviewer(settings, Notebook(self.graph_file))
+        self.checkpoints: list[tuple[int, Graph]] = []
 
     def chat(self, message: str) -> Generator[ChatEvent]:
         """Send a message and persist the full interview context.
@@ -69,9 +70,20 @@ class Service:
         """
         self.logger.info("chat_started")
         self.logger.debug("chat_message message=%r", message)
+        self.checkpoints.append((len(self.interviewer.history), self.interviewer.notebook.graph.model_copy(deep=True)))
         yield from self.interviewer.send_message(message)
         self.update_state(interview=self.interviewer.history)
         self.logger.info("chat_finished interview_items=%d", len(self.interviewer.history))
+
+    def rewind(self, checkpoint_index: int) -> None:
+        """Rewind conversation and notes to a current-run checkpoint."""
+
+        history_index, graph = self.checkpoints[checkpoint_index]
+        self.interviewer.history = self.interviewer.history[:history_index]
+        self.interviewer.notebook.restore(graph)
+        del self.checkpoints[checkpoint_index:]
+        self.update_state(interview=self.interviewer.history)
+        self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
     def restore(self) -> tuple[list[InterviewItem], bool]:
         """Restore interview session if present.

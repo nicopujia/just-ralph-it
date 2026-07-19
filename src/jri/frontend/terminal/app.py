@@ -3,6 +3,7 @@ import platform
 import subprocess
 from collections.abc import Callable, Iterable
 from threading import Thread
+from time import monotonic
 from typing import Any, ClassVar, override
 
 from openai import OpenAIError
@@ -42,6 +43,7 @@ class App(TextualApp[None]):
 
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("ctrl+k", "toggle_keymap_panel", "Show/hide keymap", show=False, priority=True),
+        Binding("escape", "cancel_turn", "Cancel response", show=False),
         Binding("ctrl+t", "toggle_reasoning", "Show/hide thinking blocks", show=False, priority=True),
     ]
     TITLE = c.TITLE_COPY
@@ -58,8 +60,10 @@ class App(TextualApp[None]):
         self.service = service
         self.is_reasoning_visible = False
         self.active_turn_state: InterviewerTurnState | None = None
+        self.current_turns: list[tuple[Markdown, Vertical]] = []
+        self.last_escape_at = 0.0
         self.messages_container = MessagesContainer(self.stop_following_bottom)
-        self.message_input = MessageInput(id=c.MESSAGE_INPUT_ID, placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY)
+        self.message_input = MessageInput(id_=c.MESSAGE_INPUT_ID, placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY)
 
     @override
     def compose(self) -> ComposeResult:
@@ -99,20 +103,39 @@ class App(TextualApp[None]):
 
         logger.info("message_submitted characters=%d", len(user_message))
 
-        event.message_input.text = ""
+        if event.history_index is not None:
+            self.service.rewind(event.history_index)
+            await self._remove_turns(event.history_index)
+        event.message_input.remember(user_message)
         event.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
+        self.last_escape_at = 0.0
 
+        user_message_widget = Markdown(user_message, classes=c.USER_MESSAGE_CLASSES)
         interviewer_turn = Vertical(classes=c.INTERVIEWER_TURN_CLASSES)
         placeholder = Markdown(c.INTERVIEWER_THINKING_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES)
         turn_state = InterviewerTurnState(container=interviewer_turn, placeholder=placeholder)
         self.active_turn_state = turn_state
+        self.current_turns.append((user_message_widget, interviewer_turn))
 
-        await self.messages_container.mount(Markdown(user_message, classes=c.USER_MESSAGE_CLASSES))
+        await self.messages_container.mount(user_message_widget)
         await self.messages_container.mount(interviewer_turn)
         await interviewer_turn.mount(placeholder)
 
         self.messages_container.anchor()
         Thread(target=self.send_message, args=(user_message, turn_state), name="interviewer", daemon=True).start()
+
+    def on_message_input_history_requested(self, event: MessageInput.HistoryRequested) -> None:
+        """Preview message history or cancel the active turn."""
+
+        if event.direction == "previous":
+            if self.active_turn_state is not None:
+                self._request_cancellation()
+                return
+            event.message_input.select_previous()
+            self._preview_history()
+        elif self.active_turn_state is None:
+            event.message_input.select_next()
+            self._preview_history()
 
     @override
     def action_command_palette(self) -> None:
@@ -146,8 +169,11 @@ class App(TextualApp[None]):
         """Stream interviewer events for a user message."""
 
         status_copy = c.INTERVIEWER_NO_RESPONSE_COPY
+        chat_events = self.service.chat(user_message)
         try:
-            for chat_event in self.service.chat(user_message):
+            for chat_event in chat_events:
+                if turn_state.cancelled.is_set():
+                    break
                 if isinstance(chat_event, TextDelta) and chat_event.text:
                     status_copy = None
                 self._call_from_thread(self.render_chat_event, turn_state, chat_event)
@@ -163,9 +189,13 @@ class App(TextualApp[None]):
             logger.exception("interviewer_worker_failed")
             status_copy = c.INTERVIEWER_ERROR_COPY.format(error=error)
         finally:
-            if status_copy is not None and self.active_turn_state is turn_state:
+            chat_events.close()
+            if turn_state.cancelled.is_set():
+                self._call_from_thread(self._cancel_active_turn, turn_state)
+            elif status_copy is not None and self.active_turn_state is turn_state:
                 self._call_from_thread(self.render_interviewer_status, turn_state, status_copy)
-            self._call_from_thread(self.reset_message_input, turn_state)
+            if not turn_state.cancelled.is_set():
+                self._call_from_thread(self.reset_message_input, turn_state)
 
     def _call_from_thread(self, callback: Callable[..., Any], *args: object) -> None:
         if not self.is_running:
@@ -186,6 +216,17 @@ class App(TextualApp[None]):
         self.active_turn_state = None
         self.set_focus(self.message_input)
         logger.debug("message_input_reset")
+
+    async def _cancel_active_turn(self, turn_state: InterviewerTurnState) -> None:
+        if self.active_turn_state is not turn_state:
+            return
+        checkpoint_index = len(self.current_turns) - 1
+        self.service.rewind(checkpoint_index)
+        await self._remove_turns(checkpoint_index)
+        self.message_input.cancel_latest()
+        self.reset_message_input(turn_state)
+        self.messages_container.scroll_end(animate=False)
+        logger.info("interviewer_turn_cancelled checkpoint=%d", checkpoint_index)
 
     async def render_chat_event(self, turn_state: InterviewerTurnState, chat_event: ChatEvent) -> None:
         """Render one streamed event into the current turn."""
@@ -273,6 +314,35 @@ class App(TextualApp[None]):
 
         if turn_state.follow_bottom:
             self.messages_container.anchor()
+
+    def action_cancel_turn(self) -> None:
+        """Cancel an active turn after two Escape presses."""
+
+        if self.active_turn_state is None:
+            return
+        now = monotonic()
+        if now - self.last_escape_at <= 1:
+            self._request_cancellation()
+            return
+        self.last_escape_at = now
+        self.notify("Press Esc again to stop", timeout=1)
+
+    def _request_cancellation(self) -> None:
+        if self.active_turn_state is not None and not self.active_turn_state.cancelled.is_set():
+            self.active_turn_state.cancelled.set()
+            self.notify("Stopping response…", timeout=1)
+            logger.info("interviewer_turn_cancellation_requested")
+
+    def _preview_history(self) -> None:
+        for index, (user_message, interviewer_turn) in enumerate(self.current_turns):
+            user_message.display = interviewer_turn.display = index < self.message_input.history_index
+        self.messages_container.scroll_end(animate=False)
+
+    async def _remove_turns(self, start: int) -> None:
+        for user_message, interviewer_turn in self.current_turns[start:]:
+            await user_message.remove()
+            await interviewer_turn.remove()
+        del self.current_turns[start:]
 
     def action_toggle_keymap_panel(self) -> None:
         """Show or hide the keymap panel."""

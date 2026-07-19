@@ -252,6 +252,11 @@ class Notebook:
         logger.info("disconnect_finished count=%d", count)
         return count
 
+    def restore(self, graph: Graph) -> None:
+        """Restore a previous graph snapshot."""
+
+        self._save(graph)
+
     def _load(self) -> Graph:
         if not self.path.exists():
             graph = Graph()

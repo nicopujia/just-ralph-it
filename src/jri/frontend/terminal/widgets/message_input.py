@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import override
+from time import monotonic
+from typing import Literal, override
 
 from textual.binding import Binding
 from textual.message import Message
@@ -10,24 +11,101 @@ class MessageInput(TextArea):
     BINDINGS = (
         Binding("enter", "submit", "Send message", show=False, priority=True),
         Binding("shift+enter,ctrl+j", "insert_newline", "Insert newline", show=False, priority=True),
+        Binding("ctrl+x", "message_history", "Message history", show=False, priority=True),
+        Binding("u", "previous_message", "Undo message", show=False, priority=True),
+        Binding("r", "next_message", "Redo message", show=False, priority=True),
         Binding("ctrl+shift+z", "redo", "Redo", show=False),
     )
+
+    def __init__(self, *, id_: str | None = None, placeholder: str = "") -> None:
+        super().__init__(id=id_, placeholder=placeholder)
+        self._messages: list[str] = []
+        self._message_index = 0
+        self._draft = ""
+        self._message_history_at = 0.0
 
     @dataclass
     class Submitted(Message):
         message_input: "MessageInput"
         value: str
+        history_index: int | None
 
         @property
         @override
         def control(self) -> "MessageInput":
             return self.message_input
 
+    @dataclass
+    class HistoryRequested(Message):
+        message_input: "MessageInput"
+        direction: Literal["previous", "next"]
+
     def action_insert_newline(self) -> None:
         self.insert("\n")
 
+    def action_message_history(self) -> None:
+        self._message_history_at = monotonic()
+
+    def action_previous_message(self) -> None:
+        if monotonic() - self._message_history_at > 1:
+            self.insert("u")
+            return
+        self._message_history_at = 0.0
+        self.post_message(self.HistoryRequested(self, "previous"))
+
+    def action_next_message(self) -> None:
+        if monotonic() - self._message_history_at > 1:
+            self.insert("r")
+            return
+        self._message_history_at = 0.0
+        self.post_message(self.HistoryRequested(self, "next"))
+
+    @property
+    def history_index(self) -> int:
+        """Return the selected current-run message position."""
+
+        return self._message_index
+
+    def select_previous(self) -> None:
+        """Select the previous current-run message."""
+
+        if self._message_index == len(self._messages):
+            self._draft = self.text
+        if self._message_index > 0:
+            self._message_index -= 1
+            self._load(self._messages[self._message_index])
+
+    def select_next(self) -> None:
+        """Select the next current-run message or saved draft."""
+
+        if self._message_index < len(self._messages):
+            self._message_index += 1
+            self._load(
+                self._messages[self._message_index] if self._message_index < len(self._messages) else self._draft
+            )
+
     def action_submit(self) -> None:
-        self.post_message(self.Submitted(self, self.text))
+        history_index = self._message_index if self._message_index < len(self._messages) else None
+        self.post_message(self.Submitted(self, self.text, history_index))
+
+    def remember(self, value: str) -> None:
+        """Remember one accepted message and clear the input."""
+
+        del self._messages[self._message_index :]
+        self._messages.append(value)
+        self._message_index = len(self._messages)
+        self.text = ""
+
+    def cancel_latest(self) -> None:
+        """Remove the latest message and restore it as the draft."""
+
+        value = self._messages.pop()
+        self._message_index = len(self._messages)
+        self._load(value)
+
+    def _load(self, value: str) -> None:
+        self.text = value
+        self.move_cursor(self.document.end)
 
     def on_blur(self) -> None:
         self.focus()
