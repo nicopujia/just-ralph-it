@@ -50,7 +50,7 @@ uv tool install -e .
 # Run CLI anywhere
 jri --help
 
-# Run formatting, linting, typechecking, and tests
+# Run project's automated checks
 # Use it always after making changes
 ./scripts/check.py
 ```

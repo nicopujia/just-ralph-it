@@ -1,6 +1,7 @@
 .DS_Store
 .env
 .coverage
+.dist/
 .venv/
 .ruff_cache/
 .uv-cache/
