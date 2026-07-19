@@ -23,11 +23,17 @@ This is a pure Python project. To know more about it and related knowledge, refe
 - Internal import paths must not exceed three levels, including `jri` (for example, `jri.core.agents`). Expose deeper
   members from a package entry point instead of importing their implementation module directly.
 
+### Automated testing
+
+- Follow the 80/20 rule.
+- Keep tests deterministic. Do not access live models or networks.
+- Functional tests must be black-box style — they shouldn't know how JRI is implemented. Use real temporary files and replace only external boundaries such as LLMs, HTTP services, and clocks.
+
 ### Avoid (unless explicitely asked for the opposite)
 
-- Do NOT write automated tests.
 - Do NOT write, and wipe out immediately if existing, all code related to handling states of previous versions. Anything legacy or related to backwards compatibility must be outright deleted.
 - Do NOT write defensive code for hypothetical situations. Do NOT handle edge cases unless asked for. Keep the happy path direct and trust internal types, invariants, and required data.
+- Do NOT write tests for private methods, internal call sequences, configurations, documentation, prompts, model responses, or dependency behavior.
 
 ## Commands
 
@@ -44,7 +50,7 @@ uv tool install -e .
 # Run CLI anywhere
 jri --help
 
-# Run formatting, linting, and typechecking
+# Run formatting, linting, typechecking, and tests
 # Use it always after making changes
 ./scripts/check.py
 ```

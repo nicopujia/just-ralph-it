@@ -28,9 +28,9 @@ Once you implement anything into codebase, the work is not done yet. You must te
 
 ## Stage 2: Ruthless Refactoring
 
-Reduce diff LOC additions (only logic-wise, not docs-wise) as much as possible while preserving behavior and spec intent. For that, perform various subagents rounds using the following prompt:
+Reduce diff LOC additions (only logic-wise, not docs-wise) as much as possible while preserving expected behavior and code style. For that, perform various subagents rounds using the following prompt:
 ```md
-Based on @AGENTS.md guidelines, how can the diff or diff-related code be simplified?
+Based on @AGENTS.md guidelines, how can the diff or diff-related code be simplified? Review for over-engineering.
 ```
 The subagent will suggest some simplification approaches. You have to judge which ones make sense and which ones are not aligned with the original intent. Tell the subagent to apply the ones that make sense.
 

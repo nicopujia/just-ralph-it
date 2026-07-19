@@ -27,6 +27,7 @@ Issues = "https://github.com/nicopujia/just-ralph-it/issues"
 [dependency-groups]
 dev = [
     "basedpyright>=1.39.6",
+    "pytest>=9.1.1",
     "ruff>=0.15.15",
     "textual-dev>=1.8.0",
 ]
@@ -78,3 +79,6 @@ ignore = [
 
 [tool.ruff.lint.pycodestyle]
 max-doc-length = 72
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
