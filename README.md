@@ -82,7 +82,28 @@ To support web search, provide a [Brave Search API](https://brave.com/search/api
 JRI_BRAVE_SEARCH_API_KEY=...
 ```
 
-### 3. Usage
+### 3. Model selection
+
+For now, there are no built-in model defaults, so you have to set them yourself:
+
+```bash
+# .env
+
+# Recommended OpenAI preset
+JRI_INTERVIEWER_MODEL=gpt-5.6-sol
+JRI_EXPLORER_MODEL=gpt-5.6-terra
+
+# Recommended cheap Chinese alternative (e.g. works with OpenRouter)
+JRI_INTERVIEWER_MODEL=z-ai/glm-5.2
+JRI_EXPLORER_MODEL=qwen/qwen3.5-9b
+```
+
+Note that there are default reasoning levels when available for the models:
+
+- Interviewer: `high`
+- Explorer: `low`
+
+### 4. Usage
 
 ```bash
 # Run the TUI and start chatting!
