@@ -27,6 +27,7 @@ class InterviewItem(NamedTuple):
 class State(BaseModel):
     """Persisted terminal session state."""
 
+    active_topic_id: str
     interview: list[dict[str, Any]] = Field(default_factory=list)
     show_thinking_blocks: bool = False
 
@@ -56,7 +57,6 @@ class Service:
         self.state_file = self.base_dir / "state.json"
 
         self.state_lock = Lock()
-        self.state = State()
 
         if settings.force and self.base_dir.exists():
             shutil.rmtree(self.base_dir)
@@ -76,7 +76,8 @@ class Service:
         self.logger = logging.getLogger(__name__)
         self.logger.info("initialized cwd=%r force=%r", settings.cwd, settings.force)
         self.interviewer = Interviewer(settings, Notebook(self.graph_file))
-        self.checkpoints: list[tuple[int, Graph]] = []
+        self.state = State(active_topic_id=self.interviewer.active_topic_id)
+        self.checkpoints: list[tuple[int, Graph, str]] = []
 
     def chat(self, message: str) -> Generator[ChatEvent]:
         """Send a message and persist the full interview context.
@@ -86,14 +87,19 @@ class Service:
         """
         self.logger.info("chat_started")
         self.logger.debug("chat_message message=%r", message)
-        checkpoint = (len(self.interviewer.history), self.interviewer.notebook.graph.model_copy(deep=True))
+        checkpoint = (
+            len(self.interviewer.history),
+            self.interviewer.notebook.graph.model_copy(deep=True),
+            self.interviewer.active_topic_id,
+        )
         self.checkpoints.append(checkpoint)
         try:
             yield from self.interviewer.send_message(message)
-            self.update_state(interview=self.interviewer.history)
+            self.update_state(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
         except Exception:
             self.interviewer.history = self.interviewer.history[: checkpoint[0]]
             self.interviewer.notebook.restore(checkpoint[1])
+            self.interviewer.active_topic_id = checkpoint[2]
             self.logger.exception("chat_rolled_back")
             raise
         self.logger.info("chat_finished interview_items=%d", len(self.interviewer.history))
@@ -101,11 +107,12 @@ class Service:
     def rewind(self, checkpoint_index: int) -> None:
         """Rewind conversation and notes to a current-run checkpoint."""
 
-        history_index, graph = self.checkpoints[checkpoint_index]
+        history_index, graph, active_topic_id = self.checkpoints[checkpoint_index]
         self.interviewer.history = self.interviewer.history[:history_index]
         self.interviewer.notebook.restore(graph)
+        self.interviewer.active_topic_id = active_topic_id
         del self.checkpoints[checkpoint_index:]
-        self.update_state(interview=self.interviewer.history)
+        self.update_state(active_topic_id=active_topic_id, interview=self.interviewer.history)
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
     def restore(self) -> tuple[list[InterviewItem], bool]:
@@ -122,9 +129,17 @@ class Service:
             return [], False
         try:
             self.state = State.model_validate_json(self.state_file.read_text())
-            self.interviewer.history = cast("ResponseInputParam", list(self.state.interview))
+            topics = {topic.id: topic for topic in self.interviewer.notebook.graph.topics if topic.status != "trashed"}
+            topics[self.state.active_topic_id]
+            self.interviewer.history, self.interviewer.active_topic_id = (
+                cast(
+                    "ResponseInputParam",
+                    [{"role": "system", "content": self.interviewer.sys_prompt}, *self.state.interview[1:]],
+                ),
+                self.state.active_topic_id,
+            )
             items = self._get_items()
-        except (OSError, ValidationError, KeyError, TypeError) as error:
+        except (OSError, ValidationError, LookupError, TypeError) as error:
             raise PersistenceError(
                 f"Invalid state file `{self.state_file}`. Run JRI with --force to reset it."
             ) from error

@@ -1,6 +1,5 @@
 import argparse
 import html
-import json
 import logging
 import webbrowser
 
@@ -73,17 +72,30 @@ def _run(settings: Settings) -> None:
 
 def _view(settings: Settings) -> None:
     service = Service(settings)
-    graph = json.loads(service.graph_file.read_text())
-    diagram = ["flowchart TD"]
+    graph = service.interviewer.notebook.graph
+    diagram = ["flowchart TD", "    classDef topic fill:#fff3cd,stroke:#856404,stroke-width:2px"]
     indentation = "    " * 3
 
-    for note in graph["notes"]:
-        text = html.escape(note["text"], quote=False).replace('"', "&quot;").replace("\n", "<br/>")
-        diagram.append(f'{indentation}{note["id"]}["{text}"]')
+    for topic in graph.topics:
+        summary = topic.summary
+        label = f"{_escape(topic.name)}<br/>[{topic.status}]"
+        if summary:
+            label += f"<br/>{_escape(summary)}"
+        diagram.append(f'{indentation}{topic.id}(["{label}"]):::topic')
 
-    for connection in graph["connections"]:
-        label = html.escape(connection["label"], quote=False).replace('"', "&quot;").replace("\n", "<br/>")
-        diagram.append(f'{indentation}{connection["source_id"]} -->|"{label}"| {connection["target_id"]}')
+    diagram.extend(f'{indentation}{note.id}["{_escape(note.text)}"]' for note in graph.notes)
+
+    connected_pairs = {(connection.source_id, connection.target_id) for connection in graph.connections}
+    diagram.extend(
+        f'{indentation}{note.topic_id} -->|"contains"| {note.id}'
+        for note in graph.notes
+        if (note.topic_id, note.id) not in connected_pairs
+    )
+
+    diagram.extend(
+        f'{indentation}{connection.source_id} -->|"{_escape(connection.label)}"| {connection.target_id}'
+        for connection in graph.connections
+    )
 
     diagram_content = "\n".join(diagram)
     service.graph_visualization_file.write_text(f"""\
@@ -126,6 +138,10 @@ def _view(settings: Settings) -> None:
 
     print(service.graph_visualization_file)
     webbrowser.open(service.graph_visualization_file.resolve().as_uri())
+
+
+def _escape(value: str) -> str:
+    return html.escape(value, quote=True).replace("\n", "<br/>")
 
 
 if __name__ == "__main__":

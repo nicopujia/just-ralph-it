@@ -11,15 +11,25 @@ from .exceptions import PersistenceError
 logger = logging.getLogger(__name__)
 
 
+class Topic(BaseModel):
+    """A named area of the project definition."""
+
+    id: str
+    name: str
+    status: Literal["open", "done", "trashed"]
+    summary: str | None = None
+
+
 class Note(BaseModel):
     """A single independently meaningful idea."""
 
     id: str
+    topic_id: str
     text: str
 
 
 class Connection(BaseModel):
-    """A directed, labeled relationship between two notes."""
+    """A directed, labeled relationship between two graph nodes."""
 
     source_id: str
     target_id: str
@@ -29,24 +39,40 @@ class Connection(BaseModel):
 class Graph(BaseModel):
     """The persisted note graph."""
 
+    overview_topic_id: str = "t1"
+    topics: list[Topic] = Field(default_factory=lambda: [Topic(id="t1", name="Project overview", status="open")])
     notes: list[Note] = Field(default_factory=list)
     connections: list[Connection] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_graph(self) -> "Graph":
-        ids = [note.id for note in self.notes]
+        topic_ids = [topic.id for topic in self.topics]
+        ids = topic_ids + [note.id for note in self.notes]
         if len(ids) != len(set(ids)):
-            raise ValueError("Note IDs must be unique.")
-        if any(not note.text.strip() for note in self.notes):
-            raise ValueError("Note text cannot be blank.")
+            raise ValueError("Topic and note IDs must be unique.")
+        content = [
+            self.overview_topic_id,
+            *ids,
+            *(topic.name for topic in self.topics),
+            *(topic.summary for topic in self.topics if topic.summary is not None),
+            *(note.text for note in self.notes),
+            *(connection.label for connection in self.connections),
+        ]
+        if any(not value.strip() for value in content):
+            raise ValueError("Graph content cannot be blank.")
+        if self.overview_topic_id not in topic_ids:
+            raise ValueError("The overview topic must reference an existing topic.")
+        names = [topic.name.strip().casefold() for topic in self.topics]
+        if len(names) != len(set(names)):
+            raise ValueError("Topic names must be unique.")
+        if any(note.topic_id not in topic_ids for note in self.notes):
+            raise ValueError("Every note must reference an existing topic.")
         triples = [(item.source_id, item.target_id, item.label) for item in self.connections]
         if len(triples) != len(set(triples)):
             raise ValueError("Connections must be unique.")
         for connection in self.connections:
-            if not connection.label.strip():
-                raise ValueError("Connection labels cannot be blank.")
             if connection.source_id not in ids or connection.target_id not in ids:
-                raise ValueError("Connection endpoints must reference existing notes.")
+                raise ValueError("Connection endpoints must reference existing topics or notes.")
         return self
 
 
@@ -55,6 +81,7 @@ class ReadQuery(BaseModel):
 
     text: str | None = None
     ids: list[str] | None = None
+    topic_ids: list[str] | None = None
     traverse_from: list[str] | None = None
     direction: Literal["outgoing", "incoming", "both"] | None = None
     depth: int | None = None
@@ -85,17 +112,25 @@ class Notebook:
         Raises:
             ValueError: If selectors or traversal arguments are invalid.
         """
+        topic_ids = {topic.id for topic in self.graph.topics}
+        if not set(query.topic_ids or []) <= topic_ids:
+            raise ValueError(f"Unknown topic `{min(set(query.topic_ids or []) - topic_ids)}`.")
+        allowed_topics = (
+            set(query.topic_ids)
+            if query.topic_ids is not None
+            else {topic.id for topic in self.graph.topics if topic.status != "trashed"}
+        )
         by_id = {note.id: note for note in self.graph.notes}
-        selected = dict(by_id) if query.text is None and not query.ids and not query.traverse_from else {}
-        for note_id in query.ids or []:
-            if note_id not in by_id:
-                raise ValueError(f"Unknown note `{note_id}`.")
-            selected[note_id] = by_id[note_id]
+        candidates = {note.id: note for note in self.graph.notes if note.topic_id in allowed_topics}
+        selected = dict(candidates) if query.text is None and not query.ids and not query.traverse_from else {}
+        if not set(query.ids or []) <= by_id.keys():
+            raise ValueError(f"Unknown note `{min(set(query.ids or []) - by_id.keys())}`.")
+        selected.update((note_id, by_id[note_id]) for note_id in query.ids or [])
 
         if query.text is not None:
             normalized_query = query.text.casefold().strip()
             ranked = sorted(
-                self.graph.notes,
+                candidates.values(),
                 key=lambda note: (
                     normalized_query in note.text.casefold(),
                     SequenceMatcher(None, normalized_query, note.text.casefold()).ratio(),
@@ -106,10 +141,10 @@ class Notebook:
                 selected[note.id] = note
 
         frontier = set(query.traverse_from or [])
-        unknown = frontier - by_id.keys()
+        unknown = frontier - (by_id.keys() | topic_ids)
         if unknown:
-            raise ValueError(f"Unknown note `{min(unknown)}`.")
-        selected.update((note_id, by_id[note_id]) for note_id in frontier)
+            raise ValueError(f"Unknown topic or note `{min(unknown)}`.")
+        selected.update((note_id, by_id[note_id]) for note_id in frontier & by_id.keys())
         visited = set(frontier)
         traversal_direction = query.direction or "both"
         for _ in range(query.depth or 1):
@@ -120,37 +155,109 @@ class Notebook:
                 if traversal_direction in {"incoming", "both"} and connection.target_id in frontier:
                     next_frontier.add(connection.source_id)
             next_frontier -= visited
-            selected.update((note_id, by_id[note_id]) for note_id in next_frontier)
+            selected.update((note_id, by_id[note_id]) for note_id in next_frontier & by_id.keys())
             visited |= next_frontier
             frontier = next_frontier
 
-        selected_ids = selected.keys()
+        selected = {note_id: note for note_id, note in selected.items() if note.topic_id in allowed_topics}
+        selected_ids = set(selected)
+        visible_ids = selected_ids | allowed_topics
         connections = [
-            item for item in self.graph.connections if item.source_id in selected_ids and item.target_id in selected_ids
+            item
+            for item in self.graph.connections
+            if item.source_id in visible_ids
+            and item.target_id in visible_ids
+            and (
+                item.source_id in selected_ids
+                or item.target_id in selected_ids
+                or (item.source_id in visited and item.target_id in visited)
+                or (not query.traverse_from and query.text is None and not query.ids)
+            )
         ]
-        notes = list(selected.values())
-        logger.info("read_finished notes=%d connections=%d", len(notes), len(connections))
-        return notes, connections
+        logger.info("read_finished notes=%d connections=%d", len(selected), len(connections))
+        return list(selected.values()), connections
 
-    def add(self, texts: list[str]) -> list[Note]:
+    def add(self, texts: list[str], topic_id: str) -> list[Note]:
         """Add multiple notes atomically.
 
         Returns:
             The added notes.
 
         Raises:
-            ValueError: If the batch is empty or contains blank text.
+            ValueError: If the topic is unknown or the batch contains no
+                usable text.
         """
         if not texts or any(not text.strip() for text in texts):
             raise ValueError("Provide one or more non-blank note texts.")
         graph = self.graph.model_copy(deep=True)
-        numbers = [int(note.id[1:]) for note in graph.notes if note.id.startswith("n") and note.id[1:].isdigit()]
+        self._find_topic(graph, topic_id)
+        nodes = [*graph.topics, *graph.notes]
+        numbers = [int(node.id[1:]) for node in nodes if node.id.startswith("n") and node.id[1:].isdigit()]
         next_number = max(numbers, default=0) + 1
-        added = [Note(id=f"n{next_number + index}", text=text) for index, text in enumerate(texts)]
+        added = [Note(id=f"n{next_number + index}", topic_id=topic_id, text=text) for index, text in enumerate(texts)]
         graph.notes.extend(added)
         self._save(graph)
         logger.info("add_finished ids=%r", [note.id for note in added])
         return added
+
+    def add_topic(self, name: str) -> Topic:
+        """Add an open topic.
+
+        Returns:
+            The added topic.
+
+        Raises:
+            ValueError: If the name is blank or already used.
+        """
+
+        if not name.strip():
+            raise ValueError("Topic name cannot be blank.")
+        graph = self.graph.model_copy(deep=True)
+        if any(topic.name.strip().casefold() == name.strip().casefold() for topic in graph.topics):
+            raise ValueError(f"Topic `{name.strip()}` already exists.")
+        nodes = [*graph.topics, *graph.notes]
+        numbers = [int(node.id[1:]) for node in nodes if node.id.startswith("t") and node.id[1:].isdigit()]
+        topic = Topic(id=f"t{max(numbers, default=0) + 1}", name=name.strip(), status="open")
+        graph.topics.append(topic)
+        self._save(graph)
+        logger.info("add_topic_finished topic_id=%s", topic.id)
+        return topic
+
+    def find_topic(self, value: str) -> Topic | None:
+        """Find a topic by ID or case-insensitive name.
+
+        Returns:
+            The matching topic, if one exists.
+        """
+
+        for topic in self.graph.topics:
+            if topic.id == value or topic.name.strip().casefold() == value.strip().casefold():
+                return topic
+        return None
+
+    def update_topic(
+        self, topic_id: str, status: Literal["open", "done", "trashed"], summary: str | None = None
+    ) -> Topic:
+        """Update a topic's status and optionally its summary.
+
+        Returns:
+            The updated topic.
+
+        Raises:
+            ValueError: If the topic is unknown or the update is
+                invalid.
+        """
+
+        graph = self.graph.model_copy(deep=True)
+        if summary is not None and not summary.strip():
+            raise ValueError("Topic summary cannot be blank.")
+        topic = self._find_topic(graph, topic_id)
+        topic.status = status
+        if summary is not None:
+            topic.summary = summary
+        self._save(graph)
+        logger.info("update_topic_finished topic_id=%s status=%s", topic.id, topic.status)
+        return topic
 
     def edit(self, note_id: str, text: str) -> Note:
         """Edit a note without changing its connections.
@@ -164,7 +271,7 @@ class Notebook:
         if not text.strip():
             raise ValueError("Note text cannot be blank.")
         graph = self.graph.model_copy(deep=True)
-        note = self._find(graph, note_id)
+        note = self._find_note(graph, note_id)
         note.text = text
         self._save(graph)
         logger.info("edit_finished note_id=%s", note.id)
@@ -183,7 +290,7 @@ class Notebook:
             raise ValueError("Provide one or more unique note IDs.")
         graph = self.graph.model_copy(deep=True)
         for note_id in note_ids:
-            self._find(graph, note_id)
+            self._find_note(graph, note_id)
         deleted = set(note_ids)
         graph.notes = [note for note in graph.notes if note.id not in deleted]
         graph.connections = [
@@ -212,8 +319,8 @@ class Notebook:
         if len(requested) != len(set(requested)):
             raise ValueError("Connections in a request must be unique.")
         for connection in connections:
-            self._find(graph, connection.source_id)
-            self._find(graph, connection.target_id)
+            self._find_node(graph, connection.source_id)
+            self._find_node(graph, connection.target_id)
             if not connection.label.strip():
                 raise ValueError("Connection labels cannot be blank.")
             if tuple(connection.model_dump().values()) not in existing:
@@ -241,8 +348,8 @@ class Notebook:
         if len(requested) != len(connections):
             raise ValueError("Connections in a request must be unique.")
         for connection in connections:
-            self._find(graph, connection.source_id)
-            self._find(graph, connection.target_id)
+            self._find_node(graph, connection.source_id)
+            self._find_node(graph, connection.target_id)
             if not connection.label.strip():
                 raise ValueError("Connection labels cannot be blank.")
         before = len(graph.connections)
@@ -292,8 +399,22 @@ class Notebook:
             raise
 
     @staticmethod
-    def _find(graph: Graph, note_id: str) -> Note:
+    def _find_note(graph: Graph, note_id: str) -> Note:
         for note in graph.notes:
             if note.id == note_id:
                 return note
         raise ValueError(f"Unknown note `{note_id}`.")
+
+    @staticmethod
+    def _find_topic(graph: Graph, topic_id: str) -> Topic:
+        for topic in graph.topics:
+            if topic.id == topic_id:
+                return topic
+        raise ValueError(f"Unknown topic `{topic_id}`.")
+
+    @staticmethod
+    def _find_node(graph: Graph, node_id: str) -> Topic | Note:
+        for node in [*graph.topics, *graph.notes]:
+            if node.id == node_id:
+                return node
+        raise ValueError(f"Unknown topic or note `{node_id}`.")
