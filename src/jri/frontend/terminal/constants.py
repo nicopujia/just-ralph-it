@@ -10,6 +10,7 @@ Set or fix these settings:
 
 You can define them in your shell, in a .env file in this directory,
 or pass them as CLI flags.
+All commands, including `jri view`, use this configuration.
 """
 
 INTERVIEWER_ERROR_COPY = """
@@ -24,6 +25,8 @@ INTERVIEWER_NO_RESPONSE_COPY = "_No response received._"
 INTERVIEWER_REASONING_CLASSES = "interviewer-reasoning"
 INTERVIEWER_THINKING_COPY = "_Thinking..._"
 INTERVIEWER_TURN_CLASSES = "interviewer-turn"
+
+INTERNAL_ERROR_COPY = "Something unexpected went wrong. Check the JRI log for details and try again."
 
 LLM_USAGE_LIMIT_COPY = "Your ChatGPT or API usage limit has been reached. Check your plan and try again later."
 

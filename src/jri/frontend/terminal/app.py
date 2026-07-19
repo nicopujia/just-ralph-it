@@ -17,6 +17,7 @@ from textual.screen import Screen
 from textual.widgets import Header, Markdown, Static
 
 from jri.core.agents import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
+from jri.core.exceptions import AuthError
 from jri.core.service import Service
 
 from . import constants as c
@@ -58,7 +59,7 @@ class App(TextualApp[None]):
             )
             self.theme = c.THEME_DARK if result.stdout.strip() == "Dark" else c.THEME_LIGHT
         self.service = service
-        self.is_reasoning_visible = False
+        self.restored_items, self.is_reasoning_visible = service.restore()
         self.active_turn_state: InterviewerTurnState | None = None
         self.current_turns: list[tuple[Markdown, Vertical]] = []
         self.last_escape_at = 0.0
@@ -185,9 +186,12 @@ class App(TextualApp[None]):
                 if any(term in error_text for term in ("usage limit", "quota", "available balance", "out of budget"))
                 else c.INTERVIEWER_ERROR_COPY.format(error=error)
             )
-        except RuntimeError as error:
+        except (AuthError, RuntimeError) as error:
             logger.exception("interviewer_worker_failed")
             status_copy = c.INTERVIEWER_ERROR_COPY.format(error=error)
+        except Exception:
+            logger.exception("interviewer_worker_failed_unexpectedly")
+            status_copy = c.INTERNAL_ERROR_COPY
         finally:
             chat_events.close()
             if turn_state.cancelled.is_set():
@@ -367,7 +371,7 @@ class App(TextualApp[None]):
     async def restore_history(self) -> None:
         """Rebuild the visible chat history from persisted items."""
 
-        items, self.is_reasoning_visible = self.service.restore()
+        items = self.restored_items
         if items:
             self.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
 

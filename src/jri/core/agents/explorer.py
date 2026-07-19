@@ -7,6 +7,7 @@ import platform
 import signal
 import subprocess
 from pathlib import Path
+from tempfile import TemporaryFile
 
 import httpx
 from markdownify import MarkdownConverter
@@ -15,9 +16,10 @@ from openai.types.responses import ResponseFunctionCallOutputItemListParam
 from jri.core.settings import Settings
 from jri.lib import brave, youtube
 
-from .shared import Agent, tool
+from .shared import MAX_OUTPUT_LENGTH, Agent, tool
 
 logger = logging.getLogger(__name__)
+MAX_INPUT_SIZE = 10 * 1024 * 1024
 
 
 class Explorer(Agent):
@@ -77,16 +79,20 @@ class Explorer(Agent):
         if (video_transcript := youtube.fetch_transcript_from_url(url)) is not None:
             logger.info("fetch_finished source=youtube characters=%d", len(video_transcript))
             return video_transcript
+        data = bytearray()
         try:
-            response = httpx.get(url, follow_redirects=True, timeout=10.0)
-            response.raise_for_status()
+            with httpx.stream("GET", url, follow_redirects=True, timeout=10.0) as response:
+                response.raise_for_status()
+                for chunk in response.iter_bytes():
+                    data.extend(chunk[: MAX_INPUT_SIZE - len(data)])
+                    if len(data) == MAX_INPUT_SIZE:
+                        break
         except httpx.HTTPError as error:
             if isinstance(error, httpx.HTTPStatusError):
                 logger.debug(
-                    "fetch_error_response final_url=%r headers=%r response_body=%r",
+                    "fetch_error_response final_url=%r headers=%r",
                     str(error.response.url),
                     dict(error.response.headers),
-                    error.response.text,
                 )
                 logger.exception(
                     "fetch_failed url=%r final_url=%r status_code=%r",
@@ -97,13 +103,14 @@ class Explorer(Agent):
             else:
                 logger.exception("fetch_failed url=%r", url)
             raise RuntimeError(f"Could not fetch {url}: {error}") from error
-        output = MarkdownConverter().convert(response.text)
+        response_body = data.decode(response.encoding or "utf-8", errors="replace")
+        output = MarkdownConverter().convert(response_body)
         logger.info("fetch_finished status_code=%d characters=%d", response.status_code, len(output))
         logger.debug(
             "fetch_response final_url=%r headers=%r response_body=%r",
             str(response.url),
             dict(response.headers),
-            response.text,
+            response_body,
         )
         return output
 
@@ -120,6 +127,8 @@ class Explorer(Agent):
         for raw_path in paths:
             path = Path(raw_path).expanduser()
             try:
+                if path.stat().st_size > MAX_INPUT_SIZE:
+                    raise RuntimeError(f"Could not read {path}: file exceeds 10 MiB.")
                 data = path.read_bytes()
             except OSError as error:
                 logger.exception("read_failed path=%r", path)
@@ -152,19 +161,23 @@ class Explorer(Agent):
     )
     def shell(cmd: str) -> str:
         logger.debug("shell_command command=%r", cmd)
-        process = subprocess.Popen(
-            ["/bin/sh", "-lc", cmd], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True
-        )
-        try:
-            stdout, stderr = process.communicate(timeout=30)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            stdout, stderr = process.communicate()
-            logger.exception("shell_timed_out command=%r output=%r", cmd, stdout + stderr)
-            raise RuntimeError(f"Command timed out after 30 seconds:\n{stdout + stderr}".rstrip()) from None
+        with TemporaryFile("w+", encoding="utf-8", errors="replace") as output_file:
+            process = subprocess.Popen(
+                ["/bin/sh", "-lc", cmd], stdout=output_file, stderr=subprocess.STDOUT, start_new_session=True
+            )
+            try:
+                process.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.wait()
+                output_file.seek(0)
+                output = output_file.read(MAX_OUTPUT_LENGTH)
+                logger.exception("shell_timed_out command=%r output=%r", cmd, output)
+                raise RuntimeError(f"Command timed out after 30 seconds:\n{output}".rstrip()) from None
+            output_file.seek(0)
+            output = output_file.read(MAX_OUTPUT_LENGTH)
         with contextlib.suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
-        output = stdout + stderr
         if process.returncode != 0:
             logger.error("shell_failed return_code=%d output_characters=%d", process.returncode, len(output))
             raise RuntimeError(f"Command exited with status {process.returncode}:\n{output}".rstrip())

@@ -2,11 +2,11 @@ import base64
 import fcntl
 import json
 import os
-import tempfile
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from threading import Lock
 from typing import Any, cast, override
 
@@ -137,14 +137,12 @@ class Auth(httpx.Auth):
     def _write(self, data: dict[str, Any]) -> None:
         try:
             self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-            descriptor, temp_path = tempfile.mkstemp(dir=self.path.parent)
-        except OSError as error:
+            with NamedTemporaryFile("w", encoding="utf-8", dir=self.path.parent, delete=False) as file:
+                file.write(f"{json.dumps(data, indent=2)}\n")
+            Path(file.name).chmod(0o600)
+            Path(file.name).replace(self.path)
+        except (OSError, TypeError, ValueError) as error:
             raise AuthError("The refreshed Codex login could not be saved.") from error
-        with os.fdopen(descriptor, "w") as file:
-            json.dump(data, file, indent=2)
-            file.write("\n")
-        Path(temp_path).chmod(0o600)
-        Path(temp_path).replace(self.path)
 
 
 class Client(OpenAI):

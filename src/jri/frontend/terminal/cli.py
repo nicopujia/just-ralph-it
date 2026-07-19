@@ -7,7 +7,7 @@ import webbrowser
 from pydantic import ValidationError
 from pydantic_settings import CliSettingsSource
 
-from jri.core.exceptions import AuthError
+from jri.core.exceptions import AuthError, PersistenceError
 from jri.core.service import Service
 from jri.core.settings import Settings
 
@@ -19,7 +19,9 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Just Ralph It")
-    parser.add_subparsers(dest="command").add_parser("view", help="Visualize the notes graph.")
+    parser.add_subparsers(dest="command").add_parser(
+        "view", help="Visualize the notes graph using the standard JRI configuration."
+    )
 
     settings_source = CliSettingsSource(Settings, root_parser=parser, parse_args_method=parser.parse_args)
 
@@ -48,6 +50,9 @@ def main() -> None:
         handlers[args.command](settings)
     except AuthError as error:
         print(f"Authentication failed: {error}")
+        raise SystemExit(1) from error
+    except PersistenceError as error:
+        print(f"Persistence failed: {error}")
         raise SystemExit(1) from error
 
 
@@ -99,10 +104,17 @@ def _view(settings: Settings) -> None:
     </style>
     <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
     <script type="module">
-        import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-        mermaid.initialize({{ startOnLoad: false }});
-        await mermaid.run();
-        svgPanZoom(document.querySelector(".mermaid svg"), {{ controlIconsEnabled: true }});
+        try {{
+            const {{ default: mermaid }} = await import(
+                "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"
+            );
+            mermaid.initialize({{ startOnLoad: false }});
+            await mermaid.run();
+            window.svgPanZoom(document.querySelector(".mermaid svg"), {{ controlIconsEnabled: true }});
+        }} catch {{
+            document.body.textContent = "The graph viewer could not load its CDN resources. "
+                + "Check your internet connection.";
+        }}
     </script>
 </head>
 <body>

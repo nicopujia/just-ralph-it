@@ -1,11 +1,11 @@
 import inspect
 import logging
-from collections.abc import Generator
+from collections.abc import Generator, Iterable
 from dataclasses import InitVar, dataclass, field
 from typing import Any, cast
 
 from openai import OpenAI
-from openai.types.responses import ResponseInputItemParam, ResponseInputParam
+from openai.types.responses import ResponseInputItemParam, ResponseInputParam, ResponseStreamEvent
 from openai.types.shared import ReasoningEffort
 from openai.types.shared_params import Reasoning
 
@@ -13,6 +13,7 @@ from .events import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, Tool
 from .tool import Invocation, Tool
 
 logger = logging.getLogger(__name__)
+MAX_ROUNDS = 50
 
 
 @dataclass(kw_only=True)
@@ -69,7 +70,7 @@ class Agent:
         tool_definitions = [tool.definition for tool in self.tools]
         tools_by_name = {tool.name: tool for tool in self.tools}
 
-        while True:
+        for _ in range(MAX_ROUNDS):
             outputs_by_index: dict[int, dict[str, Any]] = {}
             context = self.get_context()
             logger.info("request_started agent=%s input_items=%d", type(self).__name__, len(context))
@@ -81,34 +82,12 @@ class Agent:
                 temperature=self.temperature,
                 stream=True,
             ) as stream:
-                for response_event in stream:
-                    response = cast("dict[str, Any]", response_event.to_dict())
-                    match response["type"]:
-                        case (
-                            "response.reasoning.delta"
-                            | "response.reasoning_text.delta"
-                            | "response.reasoning_summary_text.delta"
-                        ):
-                            yield ReasoningDelta(response["delta"])
-                        case "response.output_text.delta":
-                            yield TextDelta(response["delta"])
-                        case "response.output_item.done":
-                            outputs_by_index[response["output_index"]] = response["item"]
-                        case "response.completed" | "response.incomplete":
-                            usage = response["response"]["usage"]
-                            logger.info(
-                                "context_usage agent=%s input_tokens=%d", type(self).__name__, usage["input_tokens"]
-                            )
-                            break
-                        case "response.failed" | "error":
-                            raise RuntimeError((response.get("error") or response["response"]["error"])["message"])
+                yield from self._stream_response(stream, outputs_by_index)
 
             outputs = [outputs_by_index[index] for index in sorted(outputs_by_index)]
             self.history.extend(cast("list[ResponseInputItemParam]", outputs))
             logger.info("request_finished agent=%s output_items=%d", type(self).__name__, len(outputs))
             function_calls = [output for output in outputs if output.get("type") == "function_call"]
-            response_outputs = [output for output in outputs if output.get("type") != "function_call"]
-            logger.debug("response outputs=%r", response_outputs)
 
             if not function_calls:
                 logger.info("message_finished agent=%s", type(self).__name__)
@@ -120,7 +99,7 @@ class Agent:
                 yield ToolCallStarted(
                     call_id=output["call_id"],
                     label=tool.format_label(tool.started_label, output["arguments"]) if tool else name,
-                    symbol=tool.symbol if tool else "⚙︎",
+                    symbol=getattr(tool, "symbol", "⚙︎"),
                 )
                 invocation = tool.invoke(output["arguments"]) if tool else Invocation(f"Unknown tool `{name}`.")
                 yield from invocation
@@ -133,3 +112,31 @@ class Agent:
                     call_id=output["call_id"],
                     label=tool.format_label(tool.finished_label, output["arguments"]) if tool else name,
                 )
+        raise RuntimeError(f"Agent exceeded the limit of {MAX_ROUNDS} response rounds.")
+
+    def _stream_response(
+        self, stream: Iterable[ResponseStreamEvent], outputs_by_index: dict[int, dict[str, Any]]
+    ) -> Generator[ChatEvent]:
+        for event in stream:
+            match event.type:
+                case (
+                    "response.reasoning.delta"
+                    | "response.reasoning_text.delta"
+                    | "response.reasoning_summary_text.delta"
+                ):
+                    yield ReasoningDelta(event.delta)
+                case "response.output_text.delta":
+                    yield TextDelta(event.delta)
+                case "response.output_item.done":
+                    outputs_by_index[event.output_index] = cast("dict[str, Any]", event.item.to_dict())
+                case "response.completed":
+                    if usage := event.response.usage:
+                        logger.info("context_usage agent=%s input_tokens=%d", type(self).__name__, usage.input_tokens)
+                    return
+                case "response.incomplete":
+                    details = event.response.incomplete_details
+                    raise RuntimeError(f"Model response incomplete: {details.reason if details else 'unknown reason'}")
+                case "response.failed":
+                    raise RuntimeError(str(event.response.error))
+                case "error":
+                    raise RuntimeError(event.message)

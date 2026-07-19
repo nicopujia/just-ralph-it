@@ -4,3 +4,7 @@ class Error(Exception):
 
 class AuthError(Error):
     """LLM provider authentication is unavailable or invalid."""
+
+
+class PersistenceError(Error):
+    """Persisted JRI data is unavailable or invalid."""

@@ -6,6 +6,8 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, Field, ValidationError, model_validator
 
+from .exceptions import PersistenceError
+
 logger = logging.getLogger(__name__)
 
 
@@ -268,7 +270,7 @@ class Notebook:
             logger.debug("file_loaded notes=%d connections=%d", len(graph.notes), len(graph.connections))
         except (OSError, ValidationError) as error:
             logger.exception("file_load_failed path=%r", self.path)
-            raise RuntimeError(f"Invalid graph file: {error}") from error
+            raise PersistenceError(f"Invalid graph file `{self.path}`. Run JRI with --force to reset it.") from error
         else:
             return graph
 

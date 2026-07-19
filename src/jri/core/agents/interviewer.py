@@ -15,8 +15,9 @@ class Interviewer(Agent):
     """Agent that interviews the user to extract a project idea."""
 
     CONTEXT_THRESHOLD = 0.4
-    INITIAL_TOPIC_NAME = "Project overview"
     FIRST_MESSAGE = "What do you want to build?"
+    INITIAL_TOPIC_NAME = "Project overview"
+    TOPIC_SUFFIXES = (": open topic", ": done", ": trashed")
 
     def __init__(self, settings: Settings, notebook: Notebook) -> None:
         self.settings = settings
@@ -95,15 +96,11 @@ class Interviewer(Agent):
         """
 
         history = self.history
-        switches = self._collect_switches()
-        topics = [note for note in self.notebook.graph.notes if note.text.endswith((": open topic", ": done"))]
-        active = switches[-1][1] if switches else self.initial_topic
-        by_id = {note.id: note for note in self.notebook.graph.notes}
-        lines = [
-            f"- {topic.id}: {by_id[topic.id].text}{' (active)' if topic.id == active.id else ''}"
-            for topic in topics
-            if topic.id in by_id
+        topics = [
+            note for note in self.notebook.graph.notes if self._is_topic(note) and not note.text.endswith(": trashed")
         ]
+        active = self._get_active_topic()
+        lines = [f"- {topic.id}: {topic.text}{' (active)' if topic.id == active.id else ''}" for topic in topics]
         pinned_topics = [self.initial_topic]
         if active.id != self.initial_topic.id:
             pinned_topics.append(active)
@@ -172,24 +169,32 @@ class Interviewer(Agent):
 
         Returns:
             The resolved topic ID and text.
+
+        Raises:
+            ValueError: If the topic is blank, invalid, or trashed.
         """
 
         value = topic.strip()
+        if not value:
+            raise ValueError("Topic name cannot be blank.")
         by_id = {note.id: note for note in self.notebook.graph.notes}
         if value in by_id:
             resolved = by_id[value]
+            if not self._is_topic(resolved):
+                raise ValueError(f"Note `{value}` is not a topic.")
         else:
             resolved = next(
                 (
                     item
                     for item in self.notebook.graph.notes
-                    if item.text.endswith((": open topic", ": done"))
-                    and self._extract_topic_name(item.text).casefold() == value.casefold()
+                    if self._is_topic(item) and self._extract_topic_name(item.text).casefold() == value.casefold()
                 ),
                 None,
             )
             if resolved is None:
                 resolved = self.notebook.add([f"{value}: open topic"])[0]
+        if resolved.text.endswith(": trashed"):
+            raise ValueError(f"Topic `{resolved.id}` is trashed. Edit it to restore it before switching.")
         return f"Switched to {resolved.id}: {resolved.text}"
 
     @tool(
@@ -230,8 +235,7 @@ class Interviewer(Agent):
             A summary containing the new IDs.
         """
         notes = self.notebook.add(texts)
-        switches = self._collect_switches()
-        topic = switches[-1][1] if switches else self.initial_topic
+        topic = self._get_active_topic()
         self.notebook.connect([Connection(source_id=topic.id, target_id=note.id, label="contains") for note in notes])
         return "\n".join(f"Added {note.id}: {note.text}" for note in notes)
 
@@ -246,24 +250,63 @@ class Interviewer(Agent):
 
         Returns:
             A summary of the edited note.
+
+        Raises:
+            ValueError: If a topic would lose its status or the initial
+                topic would be trashed.
         """
+        note = next((note for note in self.notebook.graph.notes if note.id == note_id), None)
+        if note is not None and self._is_topic(note) and not text.endswith(self.TOPIC_SUFFIXES):
+            raise ValueError(f"Topic `{note_id}` must remain open, done, or trashed.")
+        if note_id == self.initial_topic.id and text.endswith(": trashed"):
+            raise ValueError(f"The initial topic `{self.initial_topic.id}` cannot be trashed.")
         note = self.notebook.edit(note_id, text)
         return f"Edited {note.id}: {note.text}"
 
     @tool(
-        "Delete notes and every connection touching them.",
+        "Trash topic notes while preserving them, or delete regular notes and every connection touching them.",
         started_label="Discarding notes",
         finished_label="Discarded notes",
         symbol="🗑️",
     )
     def delete_notes(self, note_ids: list[str]) -> str:
-        """Delete project notes.
+        """Trash topic notes or delete regular notes.
 
         Returns:
             A summary of the deleted notes.
+
+        Raises:
+            ValueError: If the IDs are invalid or include the initial
+                topic.
         """
-        deleted_ids = self.notebook.delete(note_ids)
-        return f"Deleted notes: {', '.join(deleted_ids)}."
+        if not note_ids or len(note_ids) != len(set(note_ids)):
+            raise ValueError("Provide one or more unique note IDs.")
+        graph = self.notebook.graph.model_copy(deep=True)
+        by_id = {note.id: note for note in graph.notes}
+        unknown = set(note_ids) - by_id.keys()
+        if unknown:
+            raise ValueError(f"Unknown note `{min(unknown)}`.")
+        if self.initial_topic.id in note_ids:
+            raise ValueError(f"The initial topic `{self.initial_topic.id}` cannot be trashed.")
+
+        trashed_ids = [note_id for note_id in note_ids if self._is_topic(by_id[note_id])]
+        deleted_ids = [note_id for note_id in note_ids if note_id not in trashed_ids]
+        for note_id in trashed_ids:
+            note = by_id[note_id]
+            note.text = f"{self._extract_topic_name(note.text)}: trashed"
+        deleted = set(deleted_ids)
+        graph.notes = [note for note in graph.notes if note.id not in deleted]
+        graph.connections = [
+            item for item in graph.connections if item.source_id not in deleted and item.target_id not in deleted
+        ]
+        self.notebook.restore(graph)
+
+        summaries: list[str] = []
+        if trashed_ids:
+            summaries.append(f"Trashed topics: {', '.join(trashed_ids)}.")
+        if deleted_ids:
+            summaries.append(f"Deleted notes: {', '.join(deleted_ids)}.")
+        return "\n".join(summaries)
 
     @tool(
         "Create directed, labeled connections between notes.",
@@ -295,24 +338,25 @@ class Interviewer(Agent):
         count = self.notebook.disconnect(connections)
         return f"Disconnected {count} relationship(s)."
 
-    def _collect_switches(self) -> list[tuple[int, Note]]:
+    def _get_active_topic(self) -> Note:
         outputs: dict[str, str] = {}
         for raw_item in self.history:
             item = cast("dict[str, Any]", raw_item)
             if item.get("type") == "function_call_output" and isinstance(item["output"], str):
                 outputs[item["call_id"]] = item["output"]
-        switches: list[tuple[int, Note]] = []
         by_id = {note.id: note for note in self.notebook.graph.notes}
-        for index, raw_item in enumerate(self.history):
+        for raw_item in reversed(self.history):
             item = cast("dict[str, Any]", raw_item)
             if item.get("type") == "function_call" and item["name"] == "switch_topic" and item["call_id"] in outputs:
                 topic_id = outputs[item["call_id"]].partition(":")[0].removeprefix("Switched to ")
-                switches.append((index, by_id[topic_id]))
-        return switches
+                if topic := by_id.get(topic_id):
+                    return self.initial_topic if topic.text.endswith(": trashed") else topic
+        return self.initial_topic
 
-    @staticmethod
-    def _extract_topic_name(text: str) -> str:
-        for suffix in (": open topic", ": done"):
-            if text.endswith(suffix):
-                return text[: -len(suffix)]
-        return text
+    @classmethod
+    def _is_topic(cls, note: Note) -> bool:
+        return note.text.endswith(cls.TOPIC_SUFFIXES)
+
+    @classmethod
+    def _extract_topic_name(cls, text: str) -> str:
+        return text.rsplit(":", 1)[0] if text.endswith(cls.TOPIC_SUFFIXES) else text

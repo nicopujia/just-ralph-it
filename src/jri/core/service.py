@@ -1,20 +1,36 @@
-import json
 import logging
 import shutil
 from collections.abc import Generator
 from datetime import datetime
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 from threading import Lock
-from typing import Any, Literal, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .agents import ChatEvent, Interviewer
+from .exceptions import PersistenceError
 from .notes import Graph, Notebook
 from .settings import Settings
+
+if TYPE_CHECKING:
+    from openai.types.responses import ResponseInputParam
 
 
 class InterviewItem(NamedTuple):
     type: Literal["user", "assistant", "reasoning", "tool"]
     text: str
     symbol: str | None = None
+
+
+class State(BaseModel):
+    """Persisted terminal session state."""
+
+    interview: list[dict[str, Any]] = Field(default_factory=list)
+    show_thinking_blocks: bool = False
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class Service:
@@ -40,9 +56,9 @@ class Service:
         self.state_file = self.base_dir / "state.json"
 
         self.state_lock = Lock()
-        self.state: dict[str, Any] = {"interview": [], "show_thinking_blocks": False}
+        self.state = State()
 
-        if settings.force:
+        if settings.force and self.base_dir.exists():
             shutil.rmtree(self.base_dir)
 
         self.base_dir.mkdir(exist_ok=True, parents=True)
@@ -70,9 +86,16 @@ class Service:
         """
         self.logger.info("chat_started")
         self.logger.debug("chat_message message=%r", message)
-        self.checkpoints.append((len(self.interviewer.history), self.interviewer.notebook.graph.model_copy(deep=True)))
-        yield from self.interviewer.send_message(message)
-        self.update_state(interview=self.interviewer.history)
+        checkpoint = (len(self.interviewer.history), self.interviewer.notebook.graph.model_copy(deep=True))
+        self.checkpoints.append(checkpoint)
+        try:
+            yield from self.interviewer.send_message(message)
+            self.update_state(interview=self.interviewer.history)
+        except Exception:
+            self.interviewer.history = self.interviewer.history[: checkpoint[0]]
+            self.interviewer.notebook.restore(checkpoint[1])
+            self.logger.exception("chat_rolled_back")
+            raise
         self.logger.info("chat_finished interview_items=%d", len(self.interviewer.history))
 
     def rewind(self, checkpoint_index: int) -> None:
@@ -90,13 +113,25 @@ class Service:
 
         Returns:
             Interview items and runtime state.
+
+        Raises:
+            PersistenceError: If the state file is invalid.
         """
         if not self.state_file.exists():
             self.logger.info("restore_skipped reason=no_state_file")
             return [], False
-        self.state = json.loads(self.state_file.read_text())
-        self.logger.info("restored interview_items=%d", len(self.state["interview"]))
-        self.interviewer.history = list(self.state["interview"])
+        try:
+            self.state = State.model_validate_json(self.state_file.read_text())
+            self.interviewer.history = cast("ResponseInputParam", list(self.state.interview))
+            items = self._get_items()
+        except (OSError, ValidationError, KeyError, TypeError) as error:
+            raise PersistenceError(
+                f"Invalid state file `{self.state_file}`. Run JRI with --force to reset it."
+            ) from error
+        self.logger.info("restored interview_items=%d", len(self.state.interview))
+        return items, self.state.show_thinking_blocks
+
+    def _get_items(self) -> list[InterviewItem]:
         tools_by_name = {tool.name: tool for tool in self.interviewer.tools}
         items: list[InterviewItem] = []
         for raw_item in self.interviewer.history:
@@ -128,12 +163,15 @@ class Service:
             )
             if text:
                 items.append(InterviewItem(role, text))
-        return items, bool(self.state["show_thinking_blocks"])
+        return items
 
     def update_state(self, **values: object) -> None:
         """Persist trusted values in the current state."""
 
         with self.state_lock:
-            self.state.update(values)
-            self.state_file.write_text(f"{json.dumps(self.state, indent=2)}\n")
-        self.logger.info("state_updated fields=%r interview_items=%d", list(values), len(self.state["interview"]))
+            state = self.state.model_copy(update=values)
+            with NamedTemporaryFile("w", dir=self.base_dir, delete=False, encoding="utf-8") as file:
+                file.write(f"{state.model_dump_json(indent=2)}\n")
+            Path(file.name).replace(self.state_file)
+            self.state = state
+        self.logger.info("state_updated fields=%r interview_items=%d", list(values), len(self.state.interview))
