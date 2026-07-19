@@ -43,7 +43,6 @@ class Connection(BaseModel):
 class Graph(BaseModel):
     """The persisted note graph."""
 
-    overview_topic_id: TopicId = "t1"
     topics: list[Topic] = Field(default_factory=lambda: [Topic(id="t1", name="Project overview", status="open")])
     notes: list[Note] = Field(default_factory=list)
     connections: list[Connection] = Field(default_factory=list)
@@ -55,7 +54,6 @@ class Graph(BaseModel):
         if len(ids) != len(set(ids)):
             raise ValueError("Topic and note IDs must be unique.")
         content = [
-            self.overview_topic_id,
             *ids,
             *(topic.name for topic in self.topics),
             *(topic.summary for topic in self.topics if topic.summary is not None),
@@ -64,8 +62,8 @@ class Graph(BaseModel):
         ]
         if any(not value.strip() for value in content):
             raise ValueError("Graph content cannot be blank.")
-        if self.overview_topic_id not in topic_ids:
-            raise ValueError("The overview topic must reference an existing topic.")
+        if "t1" not in topic_ids:
+            raise ValueError("The overview topic `t1` must exist.")
         names = [topic.name.strip().casefold() for topic in self.topics]
         if len(names) != len(set(names)):
             raise ValueError("Topic names must be unique.")

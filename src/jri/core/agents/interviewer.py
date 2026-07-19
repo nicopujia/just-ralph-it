@@ -21,9 +21,7 @@ class Interviewer(Agent):
         self.settings = settings
         self.notebook = notebook
         self.explorer: Explorer
-        self.initial_topic = next(
-            topic for topic in self.notebook.graph.topics if topic.id == self.notebook.graph.overview_topic_id
-        )
+        self.initial_topic = next(topic for topic in self.notebook.graph.topics if topic.id == "t1")
         self.active_topic_id = self.initial_topic.id
         super().__init__(
             client=settings.llm_client,

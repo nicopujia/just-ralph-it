@@ -8,7 +8,6 @@ from jri.core.exceptions import PersistenceError
 from jri.core.notes import Connection, Graph, Notebook, ReadQuery
 
 VALID_GRAPH: dict[str, Any] = {
-    "overview_topic_id": "t1",
     "topics": [{"id": "t1", "name": "Overview", "status": "open"}],
     "notes": [{"id": "n1", "topic_id": "t1", "text": "A requirement"}],
     "connections": [],
@@ -46,7 +45,7 @@ def test_topic_and_note_ids_advance_independently(tmp_path: Path) -> None:
                 {"id": "t2", "name": " overview ", "status": "open"},
             ],
         },
-        {**VALID_GRAPH, "overview_topic_id": "t2"},
+        {**VALID_GRAPH, "topics": [{"id": "t2", "name": "Overview", "status": "open"}]},
         {**VALID_GRAPH, "notes": [{"id": "n1", "topic_id": "t2", "text": "A requirement"}]},
         {**VALID_GRAPH, "connections": [{"source_id": "n1", "target_id": "n2", "label": "requires"}]},
         {
