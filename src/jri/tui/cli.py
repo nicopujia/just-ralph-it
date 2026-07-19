@@ -107,6 +107,7 @@ def _view(settings: Settings) -> None:
         html, body, .mermaid, .mermaid svg {{
             width: 100%;
             height: 100%;
+            max-width: none !important;
             margin: 0;
         }}
 
