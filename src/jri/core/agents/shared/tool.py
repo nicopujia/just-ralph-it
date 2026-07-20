@@ -93,6 +93,23 @@ class Invocation:
 
         if isinstance(self._output, str) and len(self._output) > MAX_OUTPUT_LENGTH:
             return self._output[:MAX_OUTPUT_LENGTH] + "\n\n[Output truncated. Try splitting into more targeted calls.]"
+        if isinstance(self._output, list):
+            output: ResponseFunctionCallOutputItemListParam = []
+            remaining = MAX_OUTPUT_LENGTH
+            for item in self._output:
+                field = next((name for name in ("text", "image_url", "file_data") if name in item), None)
+                value = item[field] if field else ""
+                if not isinstance(value, str) or len(value) <= remaining:
+                    output.append(item)
+                    remaining -= len(value)
+                    continue
+                message = "\n\n[Output truncated. Try splitting into more targeted calls.]"
+                if item["type"] == "input_text":
+                    output.append({**item, "text": value[:remaining] + message})
+                else:
+                    output.append({"type": "input_text", "text": message.strip()})
+                break
+            return output
         return self._output if self._output is not None else "Tool call failed: streaming tool returned no output."
 
 

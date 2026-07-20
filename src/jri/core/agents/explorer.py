@@ -116,12 +116,17 @@ class Explorer(Agent):
 
     @staticmethod
     @tool(
-        "Read text, image, and binary file(s) from the machine given their paths.",
+        (
+            "Read text, image, and binary file(s) from the machine. "
+            "For text files, line numbers are 1-based and inclusive."
+        ),
         started_label="Reading {paths}",
         finished_label="Read {paths}",
         symbol="📄",
     )
-    def read_files(paths: list[str]) -> ResponseFunctionCallOutputItemListParam:
+    def read_files(
+        paths: list[str], start_line: int | None = None, end_line: int | None = None
+    ) -> ResponseFunctionCallOutputItemListParam:
         logger.debug("read_paths paths=%r", paths)
         output: ResponseFunctionCallOutputItemListParam = []
         for raw_path in paths:
@@ -142,7 +147,10 @@ class Explorer(Agent):
                 continue
 
             try:
-                output.append({"type": "input_text", "text": data.decode()})
+                text = data.decode()
+                if start_line is not None or end_line is not None:
+                    text = "".join(text.splitlines(keepends=True)[(start_line or 1) - 1 : end_line])
+                output.append({"type": "input_text", "text": text})
             except UnicodeDecodeError:
                 output.append({
                     "type": "input_file",
