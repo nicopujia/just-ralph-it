@@ -1,10 +1,11 @@
 import base64
-import fcntl
 import json
 import os
+import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
+from importlib import import_module
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Lock
@@ -15,6 +16,8 @@ from openai import DefaultHttpxClient, OpenAI
 from openai._models import FinalRequestOptions
 
 from jri.core.exceptions import AuthError
+
+file_lock: Any = import_module("msvcrt" if sys.platform == "win32" else "fcntl")
 
 
 class Auth(httpx.Auth):
@@ -128,11 +131,18 @@ class Auth(httpx.Auth):
     def _file_lock(self) -> Generator[None]:
         lock_path = self.path.with_suffix(".jri.lock")
         with lock_path.open("w") as lock_file:
-            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            if sys.platform == "win32":
+                file_lock.locking(lock_file.fileno(), file_lock.LK_LOCK, 1)
+            else:
+                file_lock.flock(lock_file, file_lock.LOCK_EX)
             try:
                 yield
             finally:
-                fcntl.flock(lock_file, fcntl.LOCK_UN)
+                if sys.platform == "win32":
+                    lock_file.seek(0)
+                    file_lock.locking(lock_file.fileno(), file_lock.LK_UNLCK, 1)
+                else:
+                    file_lock.flock(lock_file, file_lock.LOCK_UN)
 
     def _write(self, data: dict[str, Any]) -> None:
         try:
