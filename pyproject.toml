@@ -1,6 +1,6 @@
 [project]
 name = "just-ralph-it"
-version = "0.3.3"
+version = "0.4.0"
 description = "Easily define your own software project idea and then build entirely by just clicking a button."
 readme = "README.md"
 license = "Apache-2.0"
@@ -15,6 +15,7 @@ dependencies = [
     "openai>=2.41.0",
     "pydantic-settings>=2.14.1",
     "python-dotenv>=1.2.2",
+    "pyyaml>=6.0.3",
     "textual>=8.2.7",
     "youtube-transcript-api>=1.2.4",
 ]

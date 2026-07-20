@@ -2,9 +2,10 @@ import logging
 from difflib import SequenceMatcher
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import Annotated, Literal, Self
+from typing import Annotated, Any, Literal, Self
 
-from pydantic import BaseModel, Field, ValidationError, model_validator
+from pydantic import BaseModel, Field, model_validator
+from yaml import YAMLError, safe_dump, safe_load
 
 from .exceptions import PersistenceError
 
@@ -372,13 +373,29 @@ class Notebook:
             logger.debug("file_created")
             return graph
         try:
-            graph = Graph.model_validate_json(self.path.read_text(encoding="utf-8"))
+            graph = self._parse(safe_load(self.path.read_text(encoding="utf-8")))
             logger.debug("file_loaded notes=%d connections=%d", len(graph.notes), len(graph.connections))
-        except (OSError, ValidationError) as error:
+        except (AttributeError, KeyError, OSError, TypeError, ValueError, YAMLError) as error:
             logger.exception("file_load_failed path=%r", self.path)
-            raise PersistenceError(f"Invalid graph file `{self.path}`. Run JRI with --force to reset it.") from error
+            raise PersistenceError(f"Invalid project file `{self.path}`. Run JRI with --force to reset it.") from error
         else:
             return graph
+
+    @staticmethod
+    def _parse(data: dict[str, Any]) -> Graph:
+        topics = data["topics"]
+        notes = [
+            {"id": note_id, "topic_id": topic["id"], "text": text}
+            for topic in topics
+            for note_id, text in topic.pop("notes").items()
+        ]
+        notes.sort(key=lambda note: int(note["id"][1:]))
+        connections = []
+        for value in data["connections"]:
+            source_id, label_and_target = value.split(" ", maxsplit=1)
+            label, target_id = label_and_target.rsplit(" ", maxsplit=1)
+            connections.append({"source_id": source_id, "target_id": target_id, "label": label})
+        return Graph.model_validate({"topics": topics, "notes": notes, "connections": connections})
 
     def _save(self, graph: Graph) -> None:
         graph = Graph.model_validate(graph)
@@ -388,8 +405,19 @@ class Notebook:
 
     def _write(self, graph: Graph) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        topics = []
+        for topic in graph.topics:
+            data = topic.model_dump(exclude_none=True)
+            data["notes"] = {note.id: note.text for note in graph.notes if note.topic_id == topic.id}
+            topics.append(data)
+        data = {
+            "topics": topics,
+            "connections": [
+                f"{connection.source_id} {connection.label} {connection.target_id}" for connection in graph.connections
+            ],
+        }
         with NamedTemporaryFile("w", dir=self.path.parent, delete=False, encoding="utf-8") as file:
-            file.write(f"{graph.model_dump_json(indent=2)}\n")
+            safe_dump(data, file, sort_keys=False, allow_unicode=True, width=10**9)
             temporary_path = file.name
         try:
             Path(temporary_path).replace(self.path)

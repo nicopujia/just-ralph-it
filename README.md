@@ -114,7 +114,7 @@ jri view
 ```
 
 > [!TIP]
-> Given that JRI doesn't feature project implementation yet, you can hand the generated `.jri/graph.json` file to your favorite coding agent as a starting point for implementation.
+> Given that JRI doesn't feature project implementation yet, you can hand the generated `.jri/project.yaml` file to your favorite coding agent as a starting point for implementation.
 
 ## Upgrading
 

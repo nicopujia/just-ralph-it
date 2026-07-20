@@ -73,7 +73,7 @@ def test_failed_interview_turn_rolls_back_every_persisted_change(tmp_path: Path)
     history = list(service.interviewer.history)
     active_topic_id = service.interviewer.active_topic_id
     graph_file = service.graph_file.read_bytes()
-    state_file = service.state_file.read_bytes()
+    session_file = service.session_file.read_bytes()
 
     with pytest.raises(RuntimeError, match="provider failed"):
         list(service.chat("Deploy it automatically."))
@@ -82,7 +82,7 @@ def test_failed_interview_turn_rolls_back_every_persisted_change(tmp_path: Path)
     assert service.interviewer.history == history
     assert service.interviewer.active_topic_id == active_topic_id
     assert service.graph_file.read_bytes() == graph_file
-    assert service.state_file.read_bytes() == state_file
+    assert service.session_file.read_bytes() == session_file
 
 
 def test_rewind_removes_later_knowledge_after_restart(tmp_path: Path) -> None:
@@ -116,19 +116,19 @@ def test_rewind_removes_later_knowledge_after_restart(tmp_path: Path) -> None:
     assert "Encrypt stored credentials." not in {item.text for item in items}
 
 
-def test_invalid_state_file_explains_how_to_reset(tmp_path: Path) -> None:
+def test_invalid_session_file_explains_how_to_reset(tmp_path: Path) -> None:
     service = build_service(tmp_path, [])
-    service.state_file.write_text("not json")
+    service.session_file.write_text("not json")
 
     with pytest.raises(PersistenceError, match="--force"):
         service.restore()
 
 
-def test_force_resets_invalid_project_state(tmp_path: Path) -> None:
+def test_force_resets_invalid_project_session(tmp_path: Path) -> None:
     base_dir = tmp_path / ".jri"
     base_dir.mkdir()
-    (base_dir / "graph.json").write_text("not json")
-    (base_dir / "state.json").write_text("not json")
+    (base_dir / "project.yaml").write_text(": invalid yaml")
+    (base_dir / "session.json").write_text("not json")
 
     service = build_service(tmp_path, [], force=True)
 

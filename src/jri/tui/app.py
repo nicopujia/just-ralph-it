@@ -206,7 +206,7 @@ class App(TextualApp[None]):
 
         self.is_reasoning_visible = not self.is_reasoning_visible
         logger.info("reasoning_visibility_toggled visible=%r", self.is_reasoning_visible)
-        self.service.update_state(show_thinking_blocks=self.is_reasoning_visible)
+        self.service.update_session(show_thinking_blocks=self.is_reasoning_visible)
         for reasoning_block in self.query(Markdown):
             if reasoning_block.has_class(c.INTERVIEWER_REASONING_CLASSES):
                 reasoning_block.display = self.is_reasoning_visible

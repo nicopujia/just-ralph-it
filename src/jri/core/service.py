@@ -24,8 +24,8 @@ class InterviewItem(NamedTuple):
     symbol: str | None = None
 
 
-class State(BaseModel):
-    """Persisted terminal session state."""
+class Session(BaseModel):
+    """Persisted terminal session."""
 
     active_topic_id: TopicId
     interview: list[dict[str, Any]] = Field(default_factory=list)
@@ -42,8 +42,8 @@ class Service:
         ```
             $CWD/.jri/
                 .gitignore
-                state.json
-                graph.json
+                session.json
+                project.yaml
                 logs/
                     YYYY-MM-DD_HH-MM-SS.log
                     ...
@@ -52,18 +52,18 @@ class Service:
         self.base_dir = settings.cwd / ".jri"
         self.logs_dir = self.base_dir / "logs"
         self.gitignore_file = self.base_dir / ".gitignore"
-        self.graph_file = self.base_dir / "graph.json"
+        self.graph_file = self.base_dir / "project.yaml"
         self.graph_visualization_file = self.base_dir / "graph.html"
-        self.state_file = self.base_dir / "state.json"
+        self.session_file = self.base_dir / "session.json"
 
-        self.state_lock = Lock()
+        self.session_lock = Lock()
 
         if settings.force and self.base_dir.exists():
             shutil.rmtree(self.base_dir)
 
         self.base_dir.mkdir(exist_ok=True, parents=True)
         self.logs_dir.mkdir(exist_ok=True, parents=True)
-        ignored_paths = [self.state_file, self.logs_dir, self.graph_visualization_file]
+        ignored_paths = [self.session_file, self.logs_dir, self.graph_visualization_file]
         self.gitignore_file.write_text("\n".join([p.name for p in ignored_paths]) + "\n")
 
         log_file = self.logs_dir / f"{datetime.now().astimezone().strftime('%Y-%m-%d_%H-%M-%S')}.log"
@@ -76,7 +76,7 @@ class Service:
         self.logger = logging.getLogger(__name__)
         self.logger.info("initialized cwd=%r force=%r", settings.cwd, settings.force)
         self.interviewer = Interviewer(settings, Notebook(self.graph_file))
-        self.state = State(active_topic_id=self.interviewer.active_topic_id)
+        self.session = Session(active_topic_id=self.interviewer.active_topic_id)
         self.checkpoints: list[tuple[int, Graph, str]] = []
 
     def chat(self, message: str) -> Generator[ChatEvent]:
@@ -95,7 +95,7 @@ class Service:
         self.checkpoints.append(checkpoint)
         try:
             yield from self.interviewer.send_message(message)
-            self.update_state(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
+            self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
         except Exception:
             self.interviewer.history = self.interviewer.history[: checkpoint[0]]
             self.interviewer.notebook.restore(checkpoint[1])
@@ -112,39 +112,39 @@ class Service:
         self.interviewer.notebook.restore(graph)
         self.interviewer.active_topic_id = active_topic_id
         del self.checkpoints[checkpoint_index:]
-        self.update_state(active_topic_id=active_topic_id, interview=self.interviewer.history)
+        self.update_session(active_topic_id=active_topic_id, interview=self.interviewer.history)
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
     def restore(self) -> tuple[list[InterviewItem], bool]:
         """Restore interview session if present.
 
         Returns:
-            Interview items and runtime state.
+            Interview items and runtime session values.
 
         Raises:
-            PersistenceError: If the state file is invalid.
+            PersistenceError: If the session file is invalid.
         """
-        if not self.state_file.exists():
-            self.logger.info("restore_skipped reason=no_state_file")
+        if not self.session_file.exists():
+            self.logger.info("restore_skipped reason=no_session_file")
             return [], False
         try:
-            self.state = State.model_validate_json(self.state_file.read_text())
+            self.session = Session.model_validate_json(self.session_file.read_text())
             topics = {topic.id: topic for topic in self.interviewer.notebook.graph.topics if topic.status != "trashed"}
-            topics[self.state.active_topic_id]
+            topics[self.session.active_topic_id]
             self.interviewer.history, self.interviewer.active_topic_id = (
                 cast(
                     "ResponseInputParam",
-                    [{"role": "system", "content": self.interviewer.sys_prompt}, *self.state.interview[1:]],
+                    [{"role": "system", "content": self.interviewer.sys_prompt}, *self.session.interview[1:]],
                 ),
-                self.state.active_topic_id,
+                self.session.active_topic_id,
             )
             items = self._get_items()
         except (OSError, ValidationError, LookupError, TypeError) as error:
             raise PersistenceError(
-                f"Invalid state file `{self.state_file}`. Run JRI with --force to reset it."
+                f"Invalid session file `{self.session_file}`. Run JRI with --force to reset it."
             ) from error
-        self.logger.info("restored interview_items=%d", len(self.state.interview))
-        return items, self.state.show_thinking_blocks
+        self.logger.info("restored interview_items=%d", len(self.session.interview))
+        return items, self.session.show_thinking_blocks
 
     def _get_items(self) -> list[InterviewItem]:
         tools_by_name = {tool.name: tool for tool in self.interviewer.tools}
@@ -180,13 +180,13 @@ class Service:
                 items.append(InterviewItem(role, text))
         return items
 
-    def update_state(self, **values: object) -> None:
-        """Persist trusted values in the current state."""
+    def update_session(self, **values: object) -> None:
+        """Persist trusted values in the current session."""
 
-        with self.state_lock:
-            state = self.state.model_copy(update=values)
+        with self.session_lock:
+            session = self.session.model_copy(update=values)
             with NamedTemporaryFile("w", dir=self.base_dir, delete=False, encoding="utf-8") as file:
-                file.write(f"{state.model_dump_json(indent=2)}\n")
-            Path(file.name).replace(self.state_file)
-            self.state = state
-        self.logger.info("state_updated fields=%r interview_items=%d", list(values), len(self.state.interview))
+                file.write(f"{session.model_dump_json(indent=2)}\n")
+            Path(file.name).replace(self.session_file)
+            self.session = session
+        self.logger.info("session_updated fields=%r interview_items=%d", list(values), len(self.session.interview))

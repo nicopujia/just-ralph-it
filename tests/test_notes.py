@@ -3,6 +3,7 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
+from yaml import safe_load
 
 from jri.core.exceptions import PersistenceError
 from jri.core.notes import Connection, Graph, Notebook, ReadQuery
@@ -15,7 +16,7 @@ VALID_GRAPH: dict[str, Any] = {
 
 
 def test_topic_and_note_ids_advance_independently(tmp_path: Path) -> None:
-    notebook = Notebook(tmp_path / "graph.json")
+    notebook = Notebook(tmp_path / "project.yaml")
 
     assert [note.id for note in notebook.add(["one", "two", "three"], "t1")] == ["n1", "n2", "n3"]
     assert notebook.add_topic("Second topic").id == "t2"
@@ -74,7 +75,7 @@ def test_graph_rejects_invalid_data(data: dict[str, Any]) -> None:
 
 
 def test_invalid_connection_batch_changes_nothing(tmp_path: Path) -> None:
-    notebook = Notebook(tmp_path / "graph.json")
+    notebook = Notebook(tmp_path / "project.yaml")
     notebook.add(["First", "Second"], "t1")
     before = notebook.graph.model_copy(deep=True)
 
@@ -89,7 +90,7 @@ def test_invalid_connection_batch_changes_nothing(tmp_path: Path) -> None:
 
 
 def test_deleting_note_removes_its_connections(tmp_path: Path) -> None:
-    notebook = Notebook(tmp_path / "graph.json")
+    notebook = Notebook(tmp_path / "project.yaml")
     notebook.add(["First", "Second", "Third"], "t1")
     notebook.connect([
         Connection(source_id="n1", target_id="n2", label="requires"),
@@ -105,9 +106,9 @@ def test_deleting_note_removes_its_connections(tmp_path: Path) -> None:
 
 
 def test_notebook_changes_survive_restart(tmp_path: Path) -> None:
-    notebook = Notebook(tmp_path / "graph.json")
+    notebook = Notebook(tmp_path / "project.yaml")
     topic = notebook.add_topic("Delivery")
-    first, second = notebook.add(["Deploy manually.", "Use the main branch."], topic.id)
+    first, second = notebook.add(["Deploy manually.", "Use the main branch 🚀."], topic.id)
     connection = Connection(source_id=first.id, target_id=second.id, label="requires")
     notebook.connect([connection])
 
@@ -120,12 +121,42 @@ def test_notebook_changes_survive_restart(tmp_path: Path) -> None:
     assert (restored_topic.status, restored_topic.summary) == ("done", "Delivery is fully defined.")
     assert [(note.id, note.text) for note in notebook.graph.notes] == [
         (first.id, "Deploy automatically."),
-        (second.id, "Use the main branch."),
+        (second.id, "Use the main branch 🚀."),
     ]
     assert notebook.graph.connections == [connection]
 
     assert notebook.disconnect([connection]) == 1
     assert Notebook(notebook.path).graph.connections == []
+
+
+def test_project_file_uses_compact_schema(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "project.yaml")
+    delivery = notebook.add_topic("Delivery")
+    first = notebook.add(["First"], "t1")[0]
+    second = notebook.add(["Second 🚀"], delivery.id)[0]
+    third = notebook.add(["Third"], "t1")[0]
+    notebook.update_topic(delivery.id, "done", "Delivery is fully defined.")
+    notebook.connect([
+        Connection(source_id=first.id, target_id=second.id, label="supports"),
+        Connection(source_id=first.id, target_id=third.id, label="strongly supports"),
+    ])
+
+    data = safe_load(notebook.path.read_text())
+
+    assert data == {
+        "topics": [
+            {"id": "t1", "name": "Project overview", "status": "open", "notes": {"n1": "First", "n3": "Third"}},
+            {
+                "id": "t2",
+                "name": "Delivery",
+                "status": "done",
+                "summary": "Delivery is fully defined.",
+                "notes": {"n2": "Second 🚀"},
+            },
+        ],
+        "connections": ["n1 supports n2", "n1 strongly supports n3"],
+    }
+    assert Notebook(notebook.path).graph == notebook.graph
 
 
 @pytest.mark.parametrize(
@@ -137,7 +168,7 @@ def test_notebook_changes_survive_restart(tmp_path: Path) -> None:
     ],
 )
 def test_read_respects_traversal_direction_and_depth(tmp_path: Path, query: ReadQuery, expected_ids: set[str]) -> None:
-    notebook = Notebook(tmp_path / "graph.json")
+    notebook = Notebook(tmp_path / "project.yaml")
     notebook.add(["First", "Second", "Third"], "t1")
     notebook.connect([
         Connection(source_id="n1", target_id="n2", label="requires"),
@@ -150,7 +181,7 @@ def test_read_respects_traversal_direction_and_depth(tmp_path: Path, query: Read
 
 
 def test_read_hides_trashed_topics_unless_selected(tmp_path: Path) -> None:
-    notebook = Notebook(tmp_path / "graph.json")
+    notebook = Notebook(tmp_path / "project.yaml")
     topic = notebook.add_topic("Discarded idea")
     notebook.add(["Do not show this by default."], topic.id)
     notebook.update_topic(topic.id, "trashed")
@@ -162,9 +193,23 @@ def test_read_hides_trashed_topics_unless_selected(tmp_path: Path) -> None:
     assert [note.id for note in selected] == ["n1"]
 
 
-def test_invalid_graph_file_explains_how_to_reset(tmp_path: Path) -> None:
-    path = tmp_path / "graph.json"
-    path.write_text("not json")
+@pytest.mark.parametrize(
+    "contents",
+    [
+        ": invalid yaml",
+        "topics: []",
+        "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: []\nconnections: []",
+        "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: {n1: First}\nconnections: [n1 malformed]",
+        (
+            "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: {n1: First}\n"
+            "connections: [n1 supports n1, n1 supports n1]"
+        ),
+        "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: {n1: First}\nconnections: [n1 supports n2]",
+    ],
+)
+def test_invalid_project_file_explains_how_to_reset(tmp_path: Path, contents: str) -> None:
+    path = tmp_path / "project.yaml"
+    path.write_text(contents)
 
     with pytest.raises(PersistenceError, match="--force"):
         Notebook(path)

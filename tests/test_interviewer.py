@@ -21,7 +21,7 @@ def test_context_keeps_at_least_ten_recent_turns(monkeypatch: pytest.MonkeyPatch
         interviewer_temperature=0,
         interviewer_reasoning_effort=None,
     )
-    interviewer = Interviewer(cast("Settings", settings), Notebook(tmp_path / "graph.json"))
+    interviewer = Interviewer(cast("Settings", settings), Notebook(tmp_path / "project.yaml"))
     for index in range(12):
         interviewer.history.extend([
             {"role": "user", "content": f"Question {index}"},
