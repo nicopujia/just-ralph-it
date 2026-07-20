@@ -43,7 +43,7 @@ class Service:
             $CWD/.jri/
                 .gitignore
                 session.json
-                project.yaml
+                notebook.yaml
                 logs/
                     YYYY-MM-DD_HH-MM-SS.log
                     ...
@@ -52,8 +52,8 @@ class Service:
         self.base_dir = settings.cwd / ".jri"
         self.logs_dir = self.base_dir / "logs"
         self.gitignore_file = self.base_dir / ".gitignore"
-        self.graph_file = self.base_dir / "project.yaml"
-        self.graph_visualization_file = self.base_dir / "graph.html"
+        self.notebook_file = self.base_dir / "notebook.yaml"
+        self.visualization_file = self.base_dir / "visualization.html"
         self.session_file = self.base_dir / "session.json"
 
         self.session_lock = Lock()
@@ -63,7 +63,7 @@ class Service:
 
         self.base_dir.mkdir(exist_ok=True, parents=True)
         self.logs_dir.mkdir(exist_ok=True, parents=True)
-        ignored_paths = [self.session_file, self.logs_dir, self.graph_visualization_file]
+        ignored_paths = [self.session_file, self.logs_dir, self.visualization_file]
         self.gitignore_file.write_text("\n".join([p.name for p in ignored_paths]) + "\n")
 
         log_file = self.logs_dir / f"{datetime.now().astimezone().strftime('%Y-%m-%d_%H-%M-%S')}.log"
@@ -75,7 +75,7 @@ class Service:
         application_logger.propagate = False
         self.logger = logging.getLogger(__name__)
         self.logger.info("initialized cwd=%r force=%r", settings.cwd, settings.force)
-        self.interviewer = Interviewer(settings, Notebook(self.graph_file))
+        self.interviewer = Interviewer(settings, Notebook(self.notebook_file))
         self.session = Session(active_topic_id=self.interviewer.active_topic_id)
         self.checkpoints: list[tuple[int, Graph, str]] = []
 

@@ -98,7 +98,7 @@ def _view(settings: Settings) -> None:
     )
 
     diagram_content = "\n".join(diagram)
-    service.graph_visualization_file.write_text(f"""\
+    service.visualization_file.write_text(f"""\
 <!doctype html>
 <html lang="en">
 <head>
@@ -137,8 +137,8 @@ def _view(settings: Settings) -> None:
 </body>
 </html>""")
 
-    print(service.graph_visualization_file)
-    webbrowser.open(service.graph_visualization_file.resolve().as_uri())
+    print(service.visualization_file)
+    webbrowser.open(service.visualization_file.resolve().as_uri())
 
 
 def _escape(value: str) -> str:

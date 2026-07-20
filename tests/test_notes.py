@@ -16,7 +16,7 @@ VALID_GRAPH: dict[str, Any] = {
 
 
 def test_topic_and_note_ids_advance_independently(tmp_path: Path) -> None:
-    notebook = Notebook(tmp_path / "project.yaml")
+    notebook = Notebook(tmp_path / "notebook.yaml")
 
     assert [note.id for note in notebook.add(["one", "two", "three"], "t1")] == ["n1", "n2", "n3"]
     assert notebook.add_topic("Second topic").id == "t2"
@@ -75,7 +75,7 @@ def test_graph_rejects_invalid_data(data: dict[str, Any]) -> None:
 
 
 def test_invalid_connection_batch_changes_nothing(tmp_path: Path) -> None:
-    notebook = Notebook(tmp_path / "project.yaml")
+    notebook = Notebook(tmp_path / "notebook.yaml")
     notebook.add(["First", "Second"], "t1")
     before = notebook.graph.model_copy(deep=True)
 
@@ -90,7 +90,7 @@ def test_invalid_connection_batch_changes_nothing(tmp_path: Path) -> None:
 
 
 def test_deleting_note_removes_its_connections(tmp_path: Path) -> None:
-    notebook = Notebook(tmp_path / "project.yaml")
+    notebook = Notebook(tmp_path / "notebook.yaml")
     notebook.add(["First", "Second", "Third"], "t1")
     notebook.connect([
         Connection(source_id="n1", target_id="n2", label="requires"),
@@ -106,7 +106,7 @@ def test_deleting_note_removes_its_connections(tmp_path: Path) -> None:
 
 
 def test_notebook_changes_survive_restart(tmp_path: Path) -> None:
-    notebook = Notebook(tmp_path / "project.yaml")
+    notebook = Notebook(tmp_path / "notebook.yaml")
     topic = notebook.add_topic("Delivery")
     first, second = notebook.add(["Deploy manually.", "Use the main branch 🚀."], topic.id)
     connection = Connection(source_id=first.id, target_id=second.id, label="requires")
@@ -129,8 +129,8 @@ def test_notebook_changes_survive_restart(tmp_path: Path) -> None:
     assert Notebook(notebook.path).graph.connections == []
 
 
-def test_project_file_uses_compact_schema(tmp_path: Path) -> None:
-    notebook = Notebook(tmp_path / "project.yaml")
+def test_notebook_file_uses_compact_schema(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
     delivery = notebook.add_topic("Delivery")
     first = notebook.add(["First"], "t1")[0]
     second = notebook.add(["Second 🚀"], delivery.id)[0]
@@ -160,7 +160,7 @@ def test_project_file_uses_compact_schema(tmp_path: Path) -> None:
 
 
 def test_render_includes_only_visible_topics_and_relevant_notes(tmp_path: Path) -> None:
-    notebook = Notebook(tmp_path / "project.yaml")
+    notebook = Notebook(tmp_path / "notebook.yaml")
     delivery = notebook.add_topic("Delivery")
     security = notebook.add_topic("Security")
     discarded = notebook.add_topic("Discarded")
@@ -186,7 +186,7 @@ def test_render_includes_only_visible_topics_and_relevant_notes(tmp_path: Path) 
 
 
 def test_render_keeps_empty_overview_notes(tmp_path: Path) -> None:
-    notebook = Notebook(tmp_path / "project.yaml")
+    notebook = Notebook(tmp_path / "notebook.yaml")
 
     assert safe_load(notebook.render("t1")) == {
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}]
@@ -202,7 +202,7 @@ def test_render_keeps_empty_overview_notes(tmp_path: Path) -> None:
     ],
 )
 def test_read_respects_traversal_direction_and_depth(tmp_path: Path, query: ReadQuery, expected_ids: set[str]) -> None:
-    notebook = Notebook(tmp_path / "project.yaml")
+    notebook = Notebook(tmp_path / "notebook.yaml")
     notebook.add(["First", "Second", "Third"], "t1")
     notebook.connect([
         Connection(source_id="n1", target_id="n2", label="requires"),
@@ -215,7 +215,7 @@ def test_read_respects_traversal_direction_and_depth(tmp_path: Path, query: Read
 
 
 def test_read_hides_trashed_topics_unless_selected(tmp_path: Path) -> None:
-    notebook = Notebook(tmp_path / "project.yaml")
+    notebook = Notebook(tmp_path / "notebook.yaml")
     topic = notebook.add_topic("Discarded idea")
     notebook.add(["Do not show this by default."], topic.id)
     notebook.update_topic(topic.id, "trashed")
@@ -241,8 +241,8 @@ def test_read_hides_trashed_topics_unless_selected(tmp_path: Path) -> None:
         "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: {n1: First}\nconnections: [n1 supports n2]",
     ],
 )
-def test_invalid_project_file_explains_how_to_reset(tmp_path: Path, contents: str) -> None:
-    path = tmp_path / "project.yaml"
+def test_invalid_notebook_file_explains_how_to_reset(tmp_path: Path, contents: str) -> None:
+    path = tmp_path / "notebook.yaml"
     path.write_text(contents)
 
     with pytest.raises(PersistenceError, match="--force"):

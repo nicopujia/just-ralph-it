@@ -72,7 +72,7 @@ def test_failed_interview_turn_rolls_back_every_persisted_change(tmp_path: Path)
     graph = service.interviewer.notebook.graph.model_dump()
     history = list(service.interviewer.history)
     active_topic_id = service.interviewer.active_topic_id
-    graph_file = service.graph_file.read_bytes()
+    notebook_file = service.notebook_file.read_bytes()
     session_file = service.session_file.read_bytes()
 
     with pytest.raises(RuntimeError, match="provider failed"):
@@ -81,7 +81,7 @@ def test_failed_interview_turn_rolls_back_every_persisted_change(tmp_path: Path)
     assert service.interviewer.notebook.graph.model_dump() == graph
     assert service.interviewer.history == history
     assert service.interviewer.active_topic_id == active_topic_id
-    assert service.graph_file.read_bytes() == graph_file
+    assert service.notebook_file.read_bytes() == notebook_file
     assert service.session_file.read_bytes() == session_file
 
 
@@ -124,10 +124,10 @@ def test_invalid_session_file_explains_how_to_reset(tmp_path: Path) -> None:
         service.restore()
 
 
-def test_force_resets_invalid_project_session(tmp_path: Path) -> None:
+def test_force_resets_invalid_notebook_session(tmp_path: Path) -> None:
     base_dir = tmp_path / ".jri"
     base_dir.mkdir()
-    (base_dir / "project.yaml").write_text(": invalid yaml")
+    (base_dir / "notebook.yaml").write_text(": invalid yaml")
     (base_dir / "session.json").write_text("not json")
 
     service = build_service(tmp_path, [], force=True)
@@ -138,3 +138,6 @@ def test_force_resets_invalid_project_session(tmp_path: Path) -> None:
     assert [(topic.id, topic.name) for topic in service.interviewer.notebook.graph.topics] == [
         ("t1", "Project overview")
     ]
+    assert service.notebook_file == base_dir / "notebook.yaml"
+    assert service.visualization_file == base_dir / "visualization.html"
+    assert service.gitignore_file.read_text() == "session.json\nlogs\nvisualization.html\n"
