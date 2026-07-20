@@ -25,6 +25,7 @@ Please try again or contact Nico.
 INTERVIEWER_MESSAGE_CLASSES = "interviewer-message"
 INTERVIEWER_NO_RESPONSE_COPY = "_No response received._"
 INTERVIEWER_REASONING_CLASSES = "interviewer-reasoning"
+INTERVIEWER_STOPPED_COPY = "_Response stopped._"
 INTERVIEWER_THINKING_COPY = "_Thinking..._"
 INTERVIEWER_TURN_CLASSES = "interviewer-turn"
 

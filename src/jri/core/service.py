@@ -4,7 +4,7 @@ from collections.abc import Generator
 from datetime import datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from threading import Lock
+from threading import Event, Lock
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -79,7 +79,7 @@ class Service:
         self.session = Session(active_topic_id=self.interviewer.active_topic_id)
         self.checkpoints: list[tuple[int, Graph, str]] = []
 
-    def chat(self, message: str) -> Generator[ChatEvent]:
+    def chat(self, message: str, cancelled: Event | None = None) -> Generator[ChatEvent]:
         """Send a message and persist the full interview context.
 
         Yields:
@@ -94,7 +94,7 @@ class Service:
         )
         self.checkpoints.append(checkpoint)
         try:
-            yield from self.interviewer.send_message(message)
+            yield from self.interviewer.send_message(message, cancelled)
             self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
         except Exception:
             self.interviewer.history = self.interviewer.history[: checkpoint[0]]

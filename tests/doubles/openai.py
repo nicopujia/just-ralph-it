@@ -28,8 +28,10 @@ class _Stream:
 class _Responses:
     def __init__(self, rounds: Iterable[Round]) -> None:
         self.rounds = iter(rounds)
+        self.inputs: list[object] = []
 
-    def create(self, **_: object) -> _Stream:
+    def create(self, **options: object) -> _Stream:
+        self.inputs.append(options["input"])
         return _Stream(next(self.rounds))
 
 

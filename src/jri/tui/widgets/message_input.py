@@ -96,13 +96,6 @@ class MessageInput(TextArea):
         self._message_index = len(self._messages)
         self.text = ""
 
-    def cancel_latest(self) -> None:
-        """Remove the latest message and restore it as the draft."""
-
-        value = self._messages.pop()
-        self._message_index = len(self._messages)
-        self._load(value)
-
     def _load(self, value: str) -> None:
         self.text = value
         self.move_cursor(self.document.end)

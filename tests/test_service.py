@@ -1,5 +1,6 @@
 from collections.abc import Iterable
 from pathlib import Path
+from threading import Event
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
@@ -53,6 +54,61 @@ def test_completed_interview_turn_survives_restart(tmp_path: Path) -> None:
     ]
     assert ("user", "Deploy the project automatically.") in [(item.type, item.text) for item in items]
     assert ("assistant", "How should failed deployments be handled?") in [(item.type, item.text) for item in items]
+
+
+def test_cancelled_interview_turn_survives_restart_and_remains_in_context(tmp_path: Path) -> None:
+    cancelled = Event()
+    service = build_service(
+        tmp_path,
+        [[SimpleNamespace(type="response.output_text.delta", delta="Partial reply")], response(reply("Next reply"))],
+    )
+    events = service.chat("Keep this prompt.", cancelled)
+
+    next(events)
+    cancelled.set()
+    list(events)
+
+    list(service.chat("Continue."))
+    context = cast("FakeClient", service.interviewer.client).responses.inputs[-1]
+    restarted = build_service(tmp_path, [])
+    items, _ = restarted.restore()
+
+    assert {("user", "Keep this prompt."), ("assistant", "Partial reply")} <= {(item.type, item.text) for item in items}
+    assert {item["content"] for item in cast("list[dict[str, object]]", context) if "content" in item} >= {
+        "Keep this prompt.",
+        "Partial reply",
+    }
+
+
+def test_cancelled_interview_turn_without_reply_keeps_prompt(tmp_path: Path) -> None:
+    cancelled = Event()
+    cancelled.set()
+    service = build_service(tmp_path, [[]])
+
+    list(service.chat("Keep this prompt.", cancelled))
+
+    restarted = build_service(tmp_path, [])
+    items, _ = restarted.restore()
+    assert ("user", "Keep this prompt.") in [(item.type, item.text) for item in items]
+
+
+def test_cancelling_tool_call_leaves_valid_history(tmp_path: Path) -> None:
+    cancelled = Event()
+    service = build_service(
+        tmp_path, [response(call("switch", "switch_topic", topic="Delivery")), response(reply("Still works."))]
+    )
+    events = service.chat("Switch topics.", cancelled)
+
+    next(events)
+    cancelled.set()
+    list(events)
+    list(service.chat("Continue."))
+
+    assert service.interviewer.active_topic_id == "t1"
+    assert {
+        (item.get("type"), item.get("call_id"), item.get("output"))
+        for item in cast("list[dict[str, object]]", service.interviewer.history)
+    } >= {("function_call_output", "switch", "Tool call cancelled.")}
 
 
 def test_failed_interview_turn_rolls_back_every_persisted_change(tmp_path: Path) -> None:

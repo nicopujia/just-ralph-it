@@ -218,11 +218,9 @@ class App(TextualApp[None]):
         """Stream interviewer events for a user message."""
 
         status_copy = c.INTERVIEWER_NO_RESPONSE_COPY
-        chat_events = self.service.chat(user_message)
+        chat_events = self.service.chat(user_message, turn_state.cancelled)
         try:
             for chat_event in chat_events:
-                if turn_state.cancelled.is_set():
-                    break
                 if isinstance(chat_event, TextDelta) and chat_event.text:
                     status_copy = None
                 self._call_from_thread(self._render_chat_event, turn_state, chat_event)
@@ -243,24 +241,24 @@ class App(TextualApp[None]):
         finally:
             chat_events.close()
             if turn_state.cancelled.is_set():
-                self._call_from_thread(self._cancel_active_turn, turn_state)
+                self._call_from_thread(self._finish_cancelled_turn, turn_state)
             elif status_copy is not None and self.active_turn_state is turn_state:
                 self._call_from_thread(self._render_interviewer_status, turn_state, status_copy)
-            if not turn_state.cancelled.is_set():
-                self._call_from_thread(self._reset_message_input, turn_state)
+            self._call_from_thread(self._reset_message_input, turn_state)
 
     # --- Callbacks -------------------------------------------------- #
 
-    async def _cancel_active_turn(self, turn_state: InterviewerTurnState) -> None:
+    async def _finish_cancelled_turn(self, turn_state: InterviewerTurnState) -> None:
         if self.active_turn_state is not turn_state:
             return
-        checkpoint_index = len(self.current_turns) - 1
-        self.service.rewind(checkpoint_index)
-        await self._remove_turns(checkpoint_index)
-        self.message_input.cancel_latest()
-        self._reset_message_input(turn_state)
+        for call_id, row in list(turn_state.tool_rows.items()):
+            if not row.is_complete:
+                await row.remove()
+                del turn_state.tool_rows[call_id]
+        if not turn_state.active_markdown_text:
+            await self._render_interviewer_status(turn_state, c.INTERVIEWER_STOPPED_COPY)
         self.messages_container.scroll_end(animate=False)
-        logger.info("interviewer_turn_cancelled checkpoint=%d", checkpoint_index)
+        logger.info("interviewer_turn_cancelled")
 
     def _finish_restoring_history(self, old_scroll_y: float, old_max_scroll_y: int) -> None:
         self.messages_container.scroll_to(

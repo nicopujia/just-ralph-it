@@ -2,6 +2,7 @@ import inspect
 import logging
 from collections.abc import Generator, Iterable
 from dataclasses import InitVar, dataclass, field
+from threading import Event
 from typing import Any, cast
 
 from openai import OpenAI
@@ -50,7 +51,7 @@ class Agent:
 
         return self.history
 
-    def send_message(self, message: str) -> Generator[ChatEvent]:
+    def send_message(self, message: str, cancelled: Event | None = None) -> Generator[ChatEvent]:
         """Send a user message and stream the response.
 
         Automatically handles tool-call loops: if the LLM requests
@@ -65,6 +66,7 @@ class Agent:
 
         """
         self.history.append({"role": "user", "content": message})
+        cancelled = cancelled or Event()
         logger.info("message_started agent=%s model=%s", type(self).__name__, self.model)
 
         tool_definitions = [tool.definition for tool in self.tools]
@@ -72,6 +74,7 @@ class Agent:
 
         for _ in range(MAX_ROUNDS):
             outputs_by_index: dict[int, dict[str, Any]] = {}
+            partial_text: list[str] = []
             context = self.get_context()
             logger.info("request_started agent=%s input_items=%d", type(self).__name__, len(context))
             with self.client.responses.create(
@@ -82,7 +85,18 @@ class Agent:
                 temperature=self.temperature,
                 stream=True,
             ) as stream:
-                yield from self._stream_response(stream, outputs_by_index)
+                for event in self._stream_response(stream, outputs_by_index):
+                    if isinstance(event, TextDelta):
+                        partial_text.append(event.text)
+                    yield event
+                    if cancelled.is_set():
+                        break
+
+            if cancelled.is_set():
+                if partial_text:
+                    self.history.append({"role": "assistant", "content": "".join(partial_text)})
+                logger.info("message_cancelled agent=%s", type(self).__name__)
+                return
 
             outputs = [outputs_by_index[index] for index in sorted(outputs_by_index)]
             self.history.extend(cast("list[ResponseInputItemParam]", outputs))
@@ -94,25 +108,38 @@ class Agent:
                 return
 
             for output in function_calls:
-                name = output["name"]
-                tool = tools_by_name.get(name)
-                yield ToolCallStarted(
-                    call_id=output["call_id"],
-                    label=tool.format_label(tool.started_label, output["arguments"]) if tool else name,
-                    symbol=getattr(tool, "symbol", "⚙︎"),
-                )
-                invocation = tool.invoke(output["arguments"]) if tool else Invocation(f"Unknown tool `{name}`.")
-                yield from invocation
-                self.history.append({
-                    "type": "function_call_output",
-                    "call_id": output["call_id"],
-                    "output": invocation.output,
-                })
-                yield ToolCallFinished(
-                    call_id=output["call_id"],
-                    label=tool.format_label(tool.finished_label, output["arguments"]) if tool else name,
-                )
+                tool = tools_by_name.get(output["name"])
+                yield from self._invoke(output, tool, cancelled)
+                if cancelled.is_set():
+                    logger.info("message_cancelled agent=%s", type(self).__name__)
+                    return
         raise RuntimeError(f"Agent exceeded the limit of {MAX_ROUNDS} response rounds.")
+
+    def _invoke(self, output: dict[str, Any], tool: Tool | None, cancelled: Event) -> Generator[ChatEvent]:
+        name = output["name"]
+        yield ToolCallStarted(
+            call_id=output["call_id"],
+            label=tool.format_label(tool.started_label, output["arguments"]) if tool else name,
+            symbol=getattr(tool, "symbol", "⚙︎"),
+        )
+        if cancelled.is_set():
+            self.history.append({
+                "type": "function_call_output",
+                "call_id": output["call_id"],
+                "output": "Tool call cancelled.",
+            })
+            return
+        invocation = tool.invoke(output["arguments"]) if tool else Invocation(f"Unknown tool `{name}`.")
+        for event in invocation:
+            yield event
+            if cancelled.is_set():
+                break
+        self.history.append({"type": "function_call_output", "call_id": output["call_id"], "output": invocation.output})
+        if not cancelled.is_set():
+            yield ToolCallFinished(
+                call_id=output["call_id"],
+                label=tool.format_label(tool.finished_label, output["arguments"]) if tool else name,
+            )
 
     def _stream_response(
         self, stream: Iterable[ResponseStreamEvent], outputs_by_index: dict[int, dict[str, Any]]
