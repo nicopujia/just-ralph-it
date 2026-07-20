@@ -15,6 +15,7 @@ class Interviewer(Agent):
     """Agent that interviews the user to extract a project idea."""
 
     CONTEXT_THRESHOLD = 0.4
+    MIN_CONTEXT_TURNS = 10
     FIRST_MESSAGE = "What do you want to build?"
 
     def __init__(self, settings: Settings, notebook: Notebook) -> None:
@@ -113,7 +114,7 @@ class Interviewer(Agent):
         tools = [tool.definition for tool in self.tools]
         context: ResponseInputParam = [history[0], pinned, *(item for turn in turns for item in turn)]
         budget = get_context_limit(self.model) * self.CONTEXT_THRESHOLD
-        while len(turns) > 1 and estimate_tokens(context, tools) > budget:
+        while len(turns) > self.MIN_CONTEXT_TURNS and estimate_tokens(context, tools) > budget:
             turns.pop(0)
             context = [history[0], pinned, *(item for turn in turns for item in turn)]
         return context
