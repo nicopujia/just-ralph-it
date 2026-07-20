@@ -1,6 +1,6 @@
 [project]
 name = "just-ralph-it"
-version = "0.5.1"
+version = "0.5.2"
 description = "Easily define your own software project idea and then build entirely by just clicking a button."
 readme = "README.md"
 license = "Apache-2.0"

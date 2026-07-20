@@ -152,6 +152,10 @@ class App(TextualApp[None]):
         placeholder = Markdown(c.INTERVIEWER_THINKING_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES)
         turn_state = InterviewerTurnState(container=interviewer_turn, placeholder=placeholder)
         self.active_turn_state = turn_state
+        # Textual may hit-test a block after update() detaches it.
+        # Disable selection to avoid dereferencing its missing parent.
+        # In other words, this prevents a crash from a Textual bug.
+        App.ALLOW_SELECT = False
         self.current_turns.append((user_message_widget, interviewer_turn))
 
         await self.messages_container.mount(user_message_widget)
@@ -345,6 +349,7 @@ class App(TextualApp[None]):
         if self.active_turn_state is not turn_state:
             return
         self.active_turn_state = None
+        App.ALLOW_SELECT = True
         self.set_focus(self.message_input)
         logger.debug("message_input_reset")
 
