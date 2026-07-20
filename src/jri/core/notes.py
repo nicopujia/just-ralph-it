@@ -366,6 +366,15 @@ class Notebook:
 
         self._save(graph)
 
+    def render(self, topic_id: TopicId) -> str:
+        """Render topic-aware project YAML for model context.
+
+        Returns:
+            Visible topics and relevant notes.
+        """
+
+        return self._dump(self.graph, topic_id)
+
     def _load(self) -> Graph:
         if not self.path.exists():
             graph = Graph()
@@ -405,25 +414,32 @@ class Notebook:
 
     def _write(self, graph: Graph) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        topics = []
-        for topic in graph.topics:
-            data = topic.model_dump(exclude_none=True)
-            data["notes"] = {note.id: note.text for note in graph.notes if note.topic_id == topic.id}
-            topics.append(data)
-        data = {
-            "topics": topics,
-            "connections": [
-                f"{connection.source_id} {connection.label} {connection.target_id}" for connection in graph.connections
-            ],
-        }
+        contents = self._dump(graph)
         with NamedTemporaryFile("w", dir=self.path.parent, delete=False, encoding="utf-8") as file:
-            safe_dump(data, file, sort_keys=False, allow_unicode=True, width=10**9)
+            file.write(contents)
             temporary_path = file.name
         try:
             Path(temporary_path).replace(self.path)
         except OSError:
             Path(temporary_path).unlink(missing_ok=True)
             raise
+
+    @staticmethod
+    def _dump(graph: Graph, topic_id: TopicId | None = None) -> str:
+        topics = []
+        for topic in graph.topics:
+            if topic_id is not None and topic.status == "trashed":
+                continue
+            data = topic.model_dump(exclude_none=True)
+            if topic_id is None or topic.id in {"t1", topic_id}:
+                data["notes"] = {note.id: note.text for note in graph.notes if note.topic_id == topic.id}
+            topics.append(data)
+        data: dict[str, object] = {"topics": topics}
+        if topic_id is None:
+            data["connections"] = [
+                f"{connection.source_id} {connection.label} {connection.target_id}" for connection in graph.connections
+            ]
+        return safe_dump(data, sort_keys=False, allow_unicode=True, width=10**9)
 
     @staticmethod
     def _find_note(graph: Graph, note_id: str) -> Note:

@@ -87,36 +87,26 @@ class Interviewer(Agent):
 
         """
 
-        history = self.history
-        topics = [topic for topic in self.notebook.graph.topics if topic.status != "trashed"]
-        active = next(topic for topic in topics if topic.id == self.active_topic_id)
-        lines = [
-            f"- {topic.id}: {topic.name} ({topic.status})"
-            f"{f'; {topic.summary}' if topic.summary else ''}"
-            f"{' (current)' if topic.id == active.id else ''}"
-            for topic in topics
-        ]
-        pinned_topics = [self.initial_topic]
-        if active.id != self.initial_topic.id:
-            pinned_topics.append(active)
-        for topic in pinned_topics:
-            notes = [note for note in self.notebook.graph.notes if note.topic_id == topic.id]
-            if notes:
-                lines.extend(["", f"{topic.name} notes"])
-                lines.extend(f"- {note.id}: {note.text}" for note in notes)
-        pinned: ResponseInputItemParam = {"role": "system", "content": "Topic index:\n" + "\n".join(lines)}
+        pinned: ResponseInputItemParam = {
+            "role": "system",
+            "content": (
+                f"Current topic: {self.active_topic_id}\n\n"
+                "Project excerpt (where inactive-topic notes and connections are omitted):\n"
+                f"{self.notebook.render(self.active_topic_id)}"
+            ),
+        }
         turns: list[ResponseInputParam] = []
-        for raw_item in history[1:]:
+        for raw_item in self.history[1:]:
             item = cast("dict[str, Any]", raw_item)
             if ("role" in item and item["role"] == "user") or not turns:
                 turns.append([])
             turns[-1].append(raw_item)
         tools = [tool.definition for tool in self.tools]
-        context: ResponseInputParam = [history[0], pinned, *(item for turn in turns for item in turn)]
+        context: ResponseInputParam = [self.history[0], pinned, *(item for turn in turns for item in turn)]
         budget = get_context_limit(self.model) * self.CONTEXT_THRESHOLD
         while len(turns) > self.MIN_CONTEXT_TURNS and estimate_tokens(context, tools) > budget:
             turns.pop(0)
-            context = [history[0], pinned, *(item for turn in turns for item in turn)]
+            context = [self.history[0], pinned, *(item for turn in turns for item in turn)]
         return context
 
     @tool(

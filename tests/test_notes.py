@@ -159,6 +159,40 @@ def test_project_file_uses_compact_schema(tmp_path: Path) -> None:
     assert Notebook(notebook.path).graph == notebook.graph
 
 
+def test_render_includes_only_visible_topics_and_relevant_notes(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "project.yaml")
+    delivery = notebook.add_topic("Delivery")
+    security = notebook.add_topic("Security")
+    discarded = notebook.add_topic("Discarded")
+    notebook.add(["Overview"], "t1")
+    notebook.add(["Deploy automatically."], delivery.id)
+    notebook.add(["Encrypt credentials."], security.id)
+    notebook.add(["Do not build this."], discarded.id)
+    notebook.update_topic(discarded.id, "trashed")
+    notebook.connect([Connection(source_id="n1", target_id="n2", label="supports")])
+
+    delivery_context = safe_load(notebook.render(delivery.id))
+    security_context = safe_load(notebook.render(security.id))
+
+    assert delivery_context == {
+        "topics": [
+            {"id": "t1", "name": "Project overview", "status": "open", "notes": {"n1": "Overview"}},
+            {"id": "t2", "name": "Delivery", "status": "open", "notes": {"n2": "Deploy automatically."}},
+            {"id": "t3", "name": "Security", "status": "open"},
+        ]
+    }
+    assert security_context["topics"][1].get("notes") is None
+    assert security_context["topics"][2]["notes"] == {"n3": "Encrypt credentials."}
+
+
+def test_render_keeps_empty_overview_notes(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "project.yaml")
+
+    assert safe_load(notebook.render("t1")) == {
+        "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}]
+    }
+
+
 @pytest.mark.parametrize(
     ("query", "expected_ids"),
     [
