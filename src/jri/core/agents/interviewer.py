@@ -66,6 +66,8 @@ class Interviewer(Agent):
                     - Capture unresolved unknowns as notes before switching away from a topic.
                     - When you and the user agree a topic is complete, update its status and summary accordingly.
                     - Prefer answering your own questions with `explore` and/or `read_notes` when possible.
+                    - Record only current requirements; replace superseded information instead of preserving history
+                    unless explicit migration or compatibility behavior requires it.
 
                 Constraints:
                     - Don't ask the user to manage notes, IDs, connections, or files.
