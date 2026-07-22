@@ -28,6 +28,7 @@ class Session(BaseModel):
     """Persisted terminal session."""
 
     active_topic_id: TopicId
+    initial_graph: Graph
     interview: list[dict[str, Any]] = Field(default_factory=list)
     show_thinking_blocks: bool = False
 
@@ -76,8 +77,10 @@ class Service:
         self.logger = logging.getLogger(__name__)
         self.logger.info("initialized cwd=%r force=%r", settings.cwd, settings.force)
         self.interviewer = Interviewer(settings, Notebook(self.notebook_file))
-        self.session = Session(active_topic_id=self.interviewer.active_topic_id)
-        self.checkpoints: list[tuple[int, Graph, str]] = []
+        self.session = Session(
+            active_topic_id=self.interviewer.active_topic_id,
+            initial_graph=self.interviewer.notebook.graph.model_copy(deep=True),
+        )
 
     def chat(self, message: str, cancelled: Event | None = None) -> Generator[ChatEvent]:
         """Send a message and persist the full interview context.
@@ -92,7 +95,6 @@ class Service:
             self.interviewer.notebook.graph.model_copy(deep=True),
             self.interviewer.active_topic_id,
         )
-        self.checkpoints.append(checkpoint)
         yield from self._respond(message, checkpoint, cancelled)
 
     def retry(self, cancelled: Event | None = None) -> Generator[ChatEvent]:
@@ -102,26 +104,41 @@ class Service:
             Streamed chat events from the interviewer.
         """
         checkpoint = (
-            self.checkpoints[-1]
-            if self.checkpoints
-            else (
-                len(self.interviewer.history) - 1,
-                self.interviewer.notebook.graph.model_copy(deep=True),
-                self.interviewer.active_topic_id,
-            )
+            len(self.interviewer.history) - 1,
+            self.interviewer.notebook.graph.model_copy(deep=True),
+            self.interviewer.active_topic_id,
         )
         message = cast("dict[str, str]", self.interviewer.history.pop())["content"]
         yield from self._respond(message, checkpoint, cancelled)
 
     def rewind(self, checkpoint_index: int) -> None:
-        """Rewind conversation and notes to a current-run checkpoint."""
+        """Rewind conversation and notes to a user prompt."""
 
-        history_index, graph, active_topic_id = self.checkpoints[checkpoint_index]
+        history_index = [
+            index
+            for index, item in enumerate(self.interviewer.history)
+            if cast("dict[str, Any]", item).get("role") == "user"
+        ][checkpoint_index]
         self.interviewer.history = self.interviewer.history[:history_index]
-        self.interviewer.notebook.restore(graph)
-        self.interviewer.active_topic_id = active_topic_id
-        del self.checkpoints[checkpoint_index:]
-        self.update_session(active_topic_id=active_topic_id, interview=self.interviewer.history)
+        self.interviewer.notebook.restore(self.session.initial_graph)
+        self.interviewer.active_topic_id = self.interviewer.initial_topic.id
+
+        outputs = {
+            item["call_id"]: item["output"]
+            for raw_item in self.interviewer.history
+            if (item := cast("dict[str, Any]", raw_item)).get("type") == "function_call_output"
+        }
+        tools = {tool.name: tool for tool in self.interviewer.tools}
+        for raw_item in self.interviewer.history:
+            item = cast("dict[str, Any]", raw_item)
+            if item.get("type") != "function_call" or item["name"] in {"explore", "read_notes"}:
+                continue
+            output = outputs.get(item["call_id"])
+            if not isinstance(output, str) or output.startswith(("Tool call cancelled.", "Tool call failed:")):
+                continue
+            list(tools[item["name"]].invoke(item["arguments"]))
+
+        self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
     def restore(self) -> tuple[list[InterviewItem], bool]:

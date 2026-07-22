@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from dataclasses import dataclass
 from time import monotonic
 from typing import Literal, override
@@ -18,10 +19,10 @@ class MessageInput(TextArea):
         Binding("ctrl+shift+z", "redo", "Redo", show=False),
     )
 
-    def __init__(self, *, id_: str | None = None, placeholder: str = "") -> None:
+    def __init__(self, messages: Iterable[str] = (), *, id_: str | None = None, placeholder: str = "") -> None:
         super().__init__(id=id_, placeholder=placeholder)
-        self._messages: list[str] = []
-        self._message_index = 0
+        self._messages = list(messages)
+        self._message_index = len(self._messages)
         self._draft = ""
         self._message_history_at = 0.0
 
@@ -73,12 +74,18 @@ class MessageInput(TextArea):
 
     @property
     def history_index(self) -> int:
-        """Return the selected current-run message position."""
+        """Return the selected conversation-wide message position."""
 
         return self._message_index
 
+    @property
+    def message_count(self) -> int:
+        """Return the number of remembered user messages."""
+
+        return len(self._messages)
+
     def select_previous(self) -> None:
-        """Select the previous current-run message."""
+        """Select the previous user message."""
 
         if self._message_index == len(self._messages):
             self._draft = self.text
@@ -87,7 +94,7 @@ class MessageInput(TextArea):
             self._load(self._messages[self._message_index])
 
     def select_next(self) -> None:
-        """Select the next current-run message or saved draft."""
+        """Select the next user message or saved draft."""
 
         if self._message_index < len(self._messages):
             self._message_index += 1

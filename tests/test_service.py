@@ -175,21 +175,60 @@ def test_rewind_removes_later_knowledge_after_restart(tmp_path: Path) -> None:
                 call("security-capture", "capture_notes", texts=["Encrypt stored credentials."]),
             ),
             response(reply("Security captured.")),
+            response(
+                call("billing-switch", "switch_topic", topic="Billing"),
+                call("billing-capture", "capture_notes", texts=["Charge monthly."]),
+            ),
+            response(reply("Billing captured.")),
         ],
     )
     list(service.chat("Deploy from main."))
     list(service.chat("Encrypt stored credentials."))
-
-    service.rewind(1)
+    list(service.chat("Charge monthly."))
 
     restarted = build_service(tmp_path, [])
-    items, _ = restarted.restore()
-    graph = restarted.interviewer.notebook.graph
+    restarted.restore()
+    restarted.rewind(1)
 
-    assert restarted.interviewer.active_topic_id == "t2"
+    reopened = build_service(tmp_path, [])
+    items, _ = reopened.restore()
+    graph = reopened.interviewer.notebook.graph
+
+    assert reopened.interviewer.active_topic_id == "t2"
     assert {(topic.id, topic.name) for topic in graph.topics} == {("t1", "Project overview"), ("t2", "Delivery")}
     assert [(note.topic_id, note.text) for note in graph.notes] == [("t2", "Deploy from main.")]
-    assert "Encrypt stored credentials." not in {item.text for item in items}
+    assert {"Encrypt stored credentials.", "Charge monthly."}.isdisjoint(item.text for item in items)
+
+
+def test_rewind_skips_failed_and_cancelled_tool_calls(tmp_path: Path) -> None:
+    cancelled = Event()
+    service = build_service(
+        tmp_path,
+        [
+            response(call("failed", "switch_topic", topic="")),
+            response(reply("That topic was invalid.")),
+            response(call("cancelled", "switch_topic", topic="Delivery")),
+            response(reply("Latest turn.")),
+        ],
+    )
+    list(service.chat("Try an invalid topic."))
+    events = service.chat("Cancel this switch.", cancelled)
+    next(events)
+    cancelled.set()
+    list(events)
+    list(service.chat("Keep this only until rewind."))
+
+    service.rewind(2)
+
+    assert service.interviewer.active_topic_id == "t1"
+    assert [(topic.id, topic.name) for topic in service.interviewer.notebook.graph.topics] == [
+        ("t1", "Project overview")
+    ]
+    assert "Keep this only until rewind." not in {
+        item["content"]
+        for item in cast("list[dict[str, object]]", service.interviewer.history)
+        if item.get("role") == "user"
+    }
 
 
 def test_invalid_session_file_explains_how_to_reset(tmp_path: Path) -> None:

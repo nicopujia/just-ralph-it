@@ -74,11 +74,14 @@ class App(TextualApp[None]):
         self.restored_item_index = len(self.restored_items)
         self.is_restoring_history = False
         self.active_turn_state: InterviewerTurnState | None = None
-        self.current_turns: list[tuple[Markdown, Vertical]] = []
         self.mounted_turns: list[tuple[Markdown, Vertical]] = []
         self.last_escape_at = 0.0
         self.messages_container = MessagesContainer(self._stop_following_bottom, self._load_older_history)
-        self.message_input = MessageInput(id_=c.MESSAGE_INPUT_ID, placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY)
+        self.message_input = MessageInput(
+            (item.text for item in self.restored_items if item.type == "user"),
+            id_=c.MESSAGE_INPUT_ID,
+            placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY,
+        )
 
     @override
     def compose(self) -> ComposeResult:
@@ -119,7 +122,7 @@ class App(TextualApp[None]):
             return
         await self._retry(event.button)
 
-    def on_message_input_history_requested(self, event: MessageInput.HistoryRequested) -> None:
+    async def on_message_input_history_requested(self, event: MessageInput.HistoryRequested) -> None:
         """Preview message history or cancel the active turn."""
 
         if event.direction == "previous":
@@ -127,6 +130,8 @@ class App(TextualApp[None]):
                 self._request_cancellation()
                 return
             event.message_input.select_previous()
+            if event.message_input.history_index < event.message_input.message_count - len(self.mounted_turns):
+                await self._load_older_history(reveal_hidden=False)
             self._preview_history()
         elif self.active_turn_state is None:
             event.message_input.select_next()
@@ -160,6 +165,11 @@ class App(TextualApp[None]):
         if event.history_index is not None:
             self.service.rewind(event.history_index)
             await self._remove_turns(event.history_index)
+            user_item_indexes = [index for index, item in enumerate(self.restored_items) if item.type == "user"]
+            if event.history_index < len(user_item_indexes):
+                item_index = user_item_indexes[event.history_index]
+                self.restored_items = self.restored_items[:item_index]
+                self.restored_item_index = min(self.restored_item_index, item_index)
         for retry_button in self.query(f".{c.RETRY_BUTTON_CLASSES}"):
             await retry_button.remove()
         event.message_input.remember(user_message)
@@ -175,7 +185,6 @@ class App(TextualApp[None]):
         # Disable selection to avoid dereferencing its missing parent.
         # In other words, this prevents a crash from a Textual bug.
         App.ALLOW_SELECT = False
-        self.current_turns.append((user_message_widget, interviewer_turn))
         self.mounted_turns.append((user_message_widget, interviewer_turn))
 
         await self.messages_container.mount(user_message_widget)
@@ -303,7 +312,7 @@ class App(TextualApp[None]):
         )
         self.is_restoring_history = False
 
-    async def _load_older_history(self) -> None:
+    async def _load_older_history(self, *, reveal_hidden: bool = True) -> None:
         """Prepend the next batch of restored conversation turns."""
 
         if self.is_restoring_history:
@@ -311,7 +320,7 @@ class App(TextualApp[None]):
         self.is_restoring_history = True
         old_scroll_y = self.messages_container.scroll_y
         old_max_scroll_y = self.messages_container.max_scroll_y
-        if self._show_hidden_history():
+        if reveal_hidden and self._show_hidden_history():
             self.call_after_refresh(self._finish_restoring_history, old_scroll_y, old_max_scroll_y)
             return
         if self.restored_item_index == 0:
@@ -497,18 +506,20 @@ class App(TextualApp[None]):
         return True
 
     def _preview_history(self) -> None:
-        for index, (user_message, interviewer_turn) in enumerate(self.current_turns):
+        first_index = self.message_input.message_count - len(self.mounted_turns)
+        for index, (user_message, interviewer_turn) in enumerate(self.mounted_turns, first_index):
             user_message.display = interviewer_turn.display = index < self.message_input.history_index
-        if self.message_input.history_index == len(self.current_turns):
+        if self.message_input.history_index == self.message_input.message_count:
             self._hide_older_history()
         self.messages_container.scroll_end(animate=False)
 
     async def _remove_turns(self, start: int) -> None:
-        for user_message, interviewer_turn in self.current_turns[start:]:
+        mounted_start = self.message_input.message_count - len(self.mounted_turns)
+        offset = max(0, start - mounted_start)
+        for user_message, interviewer_turn in self.mounted_turns[offset:]:
             await user_message.remove()
             await interviewer_turn.remove()
-            self.mounted_turns.remove((user_message, interviewer_turn))
-        del self.current_turns[start:]
+        del self.mounted_turns[offset:]
 
     async def _retry(self, button: Button) -> None:
         container = cast("Vertical", button.parent)
