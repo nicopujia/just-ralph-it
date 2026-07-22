@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from jri.core.agents import Interviewer
+from jri.core.ai import Interviewer
 from jri.core.notes import Notebook
 from tests.doubles.openai import FakeClient
 
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 def test_context_keeps_at_least_ten_recent_turns(monkeypatch: pytest.MonkeyPatch, tmp_path: "Path") -> None:
-    monkeypatch.setattr("jri.core.agents.interviewer.get_context_limit", lambda _: 1)
+    monkeypatch.setattr("jri.core.ai.agents.interviewer.get_context_limit", lambda _: 1)
     settings = SimpleNamespace(
         llm_client=FakeClient([]),
         interviewer_model="test",

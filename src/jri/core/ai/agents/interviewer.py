@@ -1,14 +1,20 @@
-from collections.abc import Generator
-from typing import Any, Literal, cast, override
+from __future__ import annotations
 
-from openai.types.responses import ResponseInputItemParam, ResponseInputParam
+from typing import TYPE_CHECKING, Any, Literal, cast, override
 
+from jri.core import ai
 from jri.core.notes import Connection, Notebook, NoteId, ReadQuery, TopicId
-from jri.core.settings import Settings
 from jri.lib.models import estimate_tokens, get_context_limit
 
+from .base import Agent, Stream, ToolOutput, tool
 from .explorer import Explorer
-from .shared import Agent, TextDelta, ToolCallFinished, ToolCallStarted, ToolOutput, tool
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from openai.types.responses import ResponseInputItemParam, ResponseInputParam
+
+    from jri.core.settings import Settings
 
 
 class Interviewer(Agent):
@@ -18,10 +24,13 @@ class Interviewer(Agent):
     MIN_CONTEXT_TURNS = 10
     FIRST_MESSAGE = "What do you want to build?"
 
-    def __init__(self, settings: Settings, notebook: Notebook) -> None:
+    def __init__(
+        self, settings: Settings, notebook: Notebook, set_ready_to_ralph: Callable[[bool], None] | None = None
+    ) -> None:
         self.settings = settings
         self.notebook = notebook
         self.explorer: Explorer
+        self.set_ready_to_ralph = set_ready_to_ralph or (lambda _: None)
         self.initial_topic = next(topic for topic in self.notebook.graph.topics if topic.id == "t1")
         self.active_topic_id = self.initial_topic.id
         super().__init__(
@@ -68,6 +77,13 @@ class Interviewer(Agent):
                     - Prefer answering your own questions with `explore` and/or `read_notes` when possible.
                     - Record only current requirements; replace superseded information instead of preserving history
                     unless explicit migration or compatibility behavior requires it.
+                    - Explicitly confirm which behavioral domains the user delegates to the Functional Analyst. Never
+                    infer delegation. Record confirmed delegation in the project notes.
+                    - Once both you and the user agree the definition is complete, call `just_ralph_it` with
+                    `show=true`. Explain that this displays a button and that only the user can begin Ralphing by
+                    clicking it or pressing Ctrl+X, J.
+                    - If new information needs discussion after showing the button, call `just_ralph_it` with
+                    `show=false` before continuing.
 
                 Constraints:
                     - Don't ask the user to manage notes, IDs, connections, or files.
@@ -112,6 +128,22 @@ class Interviewer(Agent):
         return context
 
     @tool(
+        "Show or hide the user's Just Ralph It confirmation control without starting Ralphing.",
+        started_label="Updating Ralph readiness",
+        finished_label="Updated Ralph readiness",
+        symbol="✨",
+    )
+    def just_ralph_it(self, *, show: bool) -> str:
+        """Show or hide the user's Ralph confirmation control.
+
+        Returns:
+            The resulting readiness state.
+        """
+
+        self.set_ready_to_ralph(show)
+        return "The Just Ralph It button is now visible." if show else "The Just Ralph It button is now hidden."
+
+    @tool(
         (
             "Gather context through a telegraphic query, including anything from the web or this computer. "
             "Queries can be as broad as needed, so unify all your inquiries in a single call. "
@@ -121,7 +153,7 @@ class Interviewer(Agent):
         finished_label="Explored {query}",
         symbol="🔎",
     )
-    def explore(self, query: str) -> Generator[ToolCallStarted | ToolCallFinished | ToolOutput]:
+    def explore(self, query: str) -> Stream:
         """Gather extra context for the user request.
 
         Yields:
@@ -132,12 +164,12 @@ class Interviewer(Agent):
         latest_output: list[str] = []
         for event in self.explorer.send_message(query):
             match event:
-                case ToolCallStarted():
+                case ai.ToolCallStarted():
                     latest_output.clear()
                     yield event
-                case ToolCallFinished():
+                case ai.ToolCallFinished():
                     yield event
-                case TextDelta():
+                case ai.TextDelta():
                     latest_output.append(event.text)
         yield ToolOutput("".join(latest_output))
 

@@ -1,0 +1,11 @@
+WORKSPACE_DIR = ".jri"
+
+GITIGNORE_FILE = f"{WORKSPACE_DIR}/.gitignore"
+LOGS_DIR = f"{WORKSPACE_DIR}/logs"
+NOTEBOOK_FILE = f"{WORKSPACE_DIR}/notebook.yaml"
+SESSION_FILE = f"{WORKSPACE_DIR}/session.json"
+VISUALIZATION_FILE = f"{WORKSPACE_DIR}/visualization.html"
+
+SPECS_DIR = f"{WORKSPACE_DIR}/specs"
+ARCHITECTURE_SPECS_DIR = f"{SPECS_DIR}/architecture"
+FUNCTIONAL_SPECS_DIR = f"{SPECS_DIR}/functional"

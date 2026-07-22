@@ -11,12 +11,12 @@ from textual.app import App as TextualApp
 from textual.app import ComposeResult, SystemCommand
 from textual.binding import Binding, BindingType
 from textual.command import CommandPalette as TextualCommandPalette
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.reactive import Reactive
 from textual.screen import Screen
-from textual.widgets import Button, Header, Markdown, Static
+from textual.widgets import Button, Header, LoadingIndicator, Markdown, Static
 
-from jri.core.agents import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
+from jri.core.ai import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
 from jri.core.exceptions import AuthError
 from jri.core.service import Service
 
@@ -82,6 +82,8 @@ class App(TextualApp[None]):
             id_=c.MESSAGE_INPUT_ID,
             placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY,
         )
+        self.ralph_button = Button(c.RALPH_BUTTON_COPY, classes=c.RALPH_BUTTON_CLASSES, compact=True)
+        self.ralphing = Horizontal(LoadingIndicator(), Static(c.RALPHING_COPY), classes=c.RALPHING_CLASSES)
 
     @override
     def compose(self) -> ComposeResult:
@@ -95,6 +97,7 @@ class App(TextualApp[None]):
         with self.messages_container:
             yield Static()
         yield self.message_input
+        yield self.ralphing
 
     @override
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
@@ -116,11 +119,14 @@ class App(TextualApp[None]):
     # --- Event handlers --------------------------------------------- #
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Retry a failed interviewer turn."""
+        """Handle a chat action button."""
 
-        if not event.button.has_class(c.RETRY_BUTTON_CLASSES) or self.active_turn_state is not None:
+        if self.active_turn_state is not None:
             return
-        await self._retry(event.button)
+        if event.button.has_class(c.RETRY_BUTTON_CLASSES):
+            await self._retry(event.button)
+        elif event.button.has_class(c.RALPH_BUTTON_CLASSES):
+            self._start_ralphing()
 
     async def on_message_input_history_requested(self, event: MessageInput.HistoryRequested) -> None:
         """Preview message history or cancel the active turn."""
@@ -146,6 +152,12 @@ class App(TextualApp[None]):
         if retry_buttons and self.active_turn_state is None:
             await self._retry(retry_buttons[-1])
 
+    def on_message_input_ralph_requested(self) -> None:
+        """Start Ralphing from the keyboard shortcut."""
+
+        if self.ralph_button.is_mounted and self.ralph_button.display and self.active_turn_state is None:
+            self._start_ralphing()
+
     async def on_message_input_submitted(self, event: MessageInput.Submitted) -> None:
         """Send a submitted user message to the interviewer."""
 
@@ -161,6 +173,7 @@ class App(TextualApp[None]):
             return
 
         logger.info("message_submitted characters=%d", len(user_message))
+        self.ralph_button.display = False
 
         if event.history_index is not None:
             self.service.rewind(event.history_index)
@@ -199,6 +212,7 @@ class App(TextualApp[None]):
         """Restore history and initialize the app state."""
 
         await self._restore_history()
+        await self._sync_ralph_button()
         self.set_focus(self.message_input)
         logger.info("mounted theme=%s", self.theme)
 
@@ -246,6 +260,22 @@ class App(TextualApp[None]):
                 reasoning_block.display = self.is_reasoning_visible
 
     # --- Workers ---------------------------------------------------- #
+
+    @work(thread=True)
+    def _ralph(self, turn_state: InterviewerTurnState) -> None:
+        """Generate specifications and stream progress."""
+
+        events = self.service.ralph()
+        error: Exception | None = None
+        try:
+            for event in events:
+                self._call_from_thread(self._render_chat_event, turn_state, event)
+        except Exception as caught:
+            logger.exception("ralphing_failed")
+            error = caught
+        finally:
+            events.close()
+            self._call_from_thread(self._finish_ralphing, turn_state, error)
 
     @work(thread=True)
     def _send_message(self, user_message: str | None, turn_state: InterviewerTurnState) -> None:
@@ -305,6 +335,27 @@ class App(TextualApp[None]):
             await turn_state.container.mount(turn_state.retry_button, before=0)
         turn_state.retry_button.display = True
         turn_state.retry_button.disabled = False
+
+    async def _finish_ralphing(self, turn_state: InterviewerTurnState, error: Exception | None) -> None:
+        if self.active_turn_state is not turn_state:
+            return
+        if error is not None:
+            for row in turn_state.tool_rows.values():
+                if not row.is_complete:
+                    row.mark_complete("Could not finish specifications")
+                    break
+            await turn_state.container.mount(
+                Markdown(c.RALPH_ERROR_COPY.format(error=error), classes=c.INTERVIEWER_MESSAGE_CLASSES)
+            )
+        elif turn_state.placeholder is not None:
+            await self._render_interviewer_status(turn_state, c.INTERVIEWER_NO_RESPONSE_COPY)
+        self.ralphing.display = False
+        self.message_input.display = True
+        self.message_input.disabled = False
+        self.active_turn_state = None
+        App.ALLOW_SELECT = True
+        await self._sync_ralph_button()
+        self.set_focus(self.message_input)
 
     def _finish_restoring_history(self, old_scroll_y: float, old_max_scroll_y: int) -> None:
         self.messages_container.scroll_to(
@@ -383,6 +434,7 @@ class App(TextualApp[None]):
         self.active_turn_state = None
         App.ALLOW_SELECT = True
         self.set_focus(self.message_input)
+        self.run_worker(self._sync_ralph_button())
         logger.debug("message_input_reset")
 
     def _stop_following_bottom(self) -> None:
@@ -521,8 +573,30 @@ class App(TextualApp[None]):
             await interviewer_turn.remove()
         del self.mounted_turns[offset:]
 
+    def _start_ralphing(self) -> None:
+        if self.active_turn_state is not None or not self.mounted_turns:
+            return
+        self.ralph_button.display = False
+        self.message_input.disabled = True
+        self.message_input.display = False
+        self.ralphing.display = True
+        turn_state = InterviewerTurnState(container=self.mounted_turns[-1][1], placeholder=None)
+        self.active_turn_state = turn_state
+        App.ALLOW_SELECT = False
+        self.messages_container.anchor()
+        self._ralph(turn_state)
+
+    async def _sync_ralph_button(self) -> None:
+        if self.ralph_button.is_mounted:
+            await self.ralph_button.remove()
+        if self.active_turn_state is not None or not self.service.session.ready_to_ralph or not self.mounted_turns:
+            return
+        self.ralph_button = Button(c.RALPH_BUTTON_COPY, classes=c.RALPH_BUTTON_CLASSES, compact=True)
+        await self.mounted_turns[-1][1].mount(self.ralph_button)
+
     async def _retry(self, button: Button) -> None:
         container = cast("Vertical", button.parent)
+        self.ralph_button.display = False
         for child in list(container.children):
             if child is not button:
                 await child.remove()

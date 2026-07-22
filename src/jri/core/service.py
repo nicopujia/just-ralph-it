@@ -9,7 +9,9 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from .agents import ChatEvent, Interviewer
+from jri.core import paths
+
+from .ai import ChatEvent, Interviewer, SpecsGen
 from .exceptions import PersistenceError
 from .notes import Graph, Notebook, TopicId
 from .settings import Settings
@@ -30,6 +32,8 @@ class Session(BaseModel):
     active_topic_id: TopicId
     initial_graph: Graph
     interview: list[dict[str, Any]] = Field(default_factory=list)
+    ready_to_ralph: bool = False
+    active_spec_commit: str | None = None
     show_thinking_blocks: bool = False
 
     model_config = ConfigDict(extra="forbid")
@@ -50,14 +54,15 @@ class Service:
                     ...
         ```
         """
-        self.base_dir = settings.cwd / ".jri"
-        self.logs_dir = self.base_dir / "logs"
-        self.gitignore_file = self.base_dir / ".gitignore"
-        self.notebook_file = self.base_dir / "notebook.yaml"
-        self.visualization_file = self.base_dir / "visualization.html"
-        self.session_file = self.base_dir / "session.json"
+        self.base_dir = settings.cwd / paths.WORKSPACE_DIR
+        self.logs_dir = settings.cwd / paths.LOGS_DIR
+        self.gitignore_file = settings.cwd / paths.GITIGNORE_FILE
+        self.notebook_file = settings.cwd / paths.NOTEBOOK_FILE
+        self.visualization_file = settings.cwd / paths.VISUALIZATION_FILE
+        self.session_file = settings.cwd / paths.SESSION_FILE
 
         self.session_lock = Lock()
+        self.settings = settings
 
         if settings.force and self.base_dir.exists():
             shutil.rmtree(self.base_dir)
@@ -76,7 +81,9 @@ class Service:
         application_logger.propagate = False
         self.logger = logging.getLogger(__name__)
         self.logger.info("initialized cwd=%r force=%r", settings.cwd, settings.force)
-        self.interviewer = Interviewer(settings, Notebook(self.notebook_file))
+        self.interviewer = Interviewer(
+            settings, Notebook(self.notebook_file), lambda ready: self.update_session(ready_to_ralph=ready)
+        )
         self.session = Session(
             active_topic_id=self.interviewer.active_topic_id,
             initial_graph=self.interviewer.notebook.graph.model_copy(deep=True),
@@ -94,6 +101,7 @@ class Service:
             len(self.interviewer.history),
             self.interviewer.notebook.graph.model_copy(deep=True),
             self.interviewer.active_topic_id,
+            self.session.ready_to_ralph,
         )
         yield from self._respond(message, checkpoint, cancelled)
 
@@ -107,6 +115,7 @@ class Service:
             len(self.interviewer.history) - 1,
             self.interviewer.notebook.graph.model_copy(deep=True),
             self.interviewer.active_topic_id,
+            self.session.ready_to_ralph,
         )
         message = cast("dict[str, str]", self.interviewer.history.pop())["content"]
         yield from self._respond(message, checkpoint, cancelled)
@@ -122,6 +131,7 @@ class Service:
         self.interviewer.history = self.interviewer.history[:history_index]
         self.interviewer.notebook.restore(self.session.initial_graph)
         self.interviewer.active_topic_id = self.interviewer.initial_topic.id
+        self.session = self.session.model_copy(update={"ready_to_ralph": False})
 
         outputs = {
             item["call_id"]: item["output"]
@@ -140,6 +150,37 @@ class Service:
 
         self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
+
+    def ralph(self) -> Generator[ChatEvent]:
+        """Generate specifications after explicit user confirmation.
+
+        Yields:
+            Specification progress and the Interviewer's response.
+        """
+
+        self.update_session(ready_to_ralph=False)
+        try:
+            result = yield from SpecsGen(self.settings).generate(self.session.active_spec_commit)
+        except Exception:
+            self.update_session(ready_to_ralph=True)
+            raise
+
+        if isinstance(result, str):
+            self.update_session(active_spec_commit=result)
+            workflow_result = (
+                f"Specification generation succeeded in Git commit {result}. "
+                "Confirm completion concisely and do not show the Just Ralph It button again."
+            )
+        else:
+            workflow_result = (
+                "Specification generation found these behavioral ambiguities. Discuss them with the user and update "
+                "the notebook before offering Just Ralph It again:\n"
+                + "\n".join(f"- {item}" for item in result.ambiguities)
+            )
+        self.interviewer.history.append({"role": "system", "content": workflow_result})
+        self.update_session(interview=self.interviewer.history)
+        yield from self.interviewer.respond()
+        self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
 
     def restore(self) -> tuple[list[InterviewItem], bool]:
         """Restore interview session if present.
@@ -218,7 +259,7 @@ class Service:
         self.logger.info("session_updated fields=%r interview_items=%d", list(values), len(self.session.interview))
 
     def _respond(
-        self, message: str, checkpoint: tuple[int, Graph, str], cancelled: Event | None
+        self, message: str, checkpoint: tuple[int, Graph, str, bool], cancelled: Event | None
     ) -> Generator[ChatEvent]:
         try:
             yield from self.interviewer.send_message(message, cancelled)
@@ -227,6 +268,7 @@ class Service:
             self.interviewer.history = self.interviewer.history[: checkpoint[0]]
             self.interviewer.notebook.restore(checkpoint[1])
             self.interviewer.active_topic_id = checkpoint[2]
+            self.session = self.session.model_copy(update={"ready_to_ralph": checkpoint[3]})
             self.interviewer.history.append({"role": "user", "content": message})
             self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
             self.logger.exception("chat_rolled_back")

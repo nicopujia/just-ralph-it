@@ -1,6 +1,6 @@
 [project]
 name = "just-ralph-it"
-version = "0.5.4"
+version = "0.6.0"
 description = "Think through a software project idea, then build it with one click."
 readme = "README.md"
 license = "Apache-2.0"
@@ -64,7 +64,8 @@ select = ["ALL"]
 fixable = ["ALL"]
 unfixable = []
 ignore = [
-    "COM812", # mandatory trailing comma
+    "B901", # allow generator return values consumed through `yield from`
+    "COM812", # make trailing comma mandatory
     "CPY", # skip copyright notices
     "D", # make docstrings optional
     "D203", # prefer no blank line before class docstrings

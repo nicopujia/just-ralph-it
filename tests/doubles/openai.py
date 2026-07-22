@@ -1,7 +1,7 @@
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Self
 
 type Round = Iterable[SimpleNamespace]
 
@@ -25,19 +25,41 @@ class _Stream:
         return None
 
 
+class _ParsedStream:
+    def __init__(self, parsed: object) -> None:
+        self.response = SimpleNamespace(output_parsed=parsed, output_text="")
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def __iter__(self) -> Iterator[SimpleNamespace]:
+        return iter(())
+
+    def get_final_response(self) -> SimpleNamespace:
+        return self.response
+
+
 class _Responses:
-    def __init__(self, rounds: Iterable[Round]) -> None:
+    def __init__(self, rounds: Iterable[Round], parsed: Iterable[object]) -> None:
         self.rounds = iter(rounds)
+        self.parsed = iter(parsed)
         self.inputs: list[object] = []
 
     def create(self, **options: object) -> _Stream:
         self.inputs.append(options["input"])
         return _Stream(next(self.rounds))
 
+    def stream(self, **options: object) -> _ParsedStream:
+        self.inputs.append(options["input"])
+        return _ParsedStream(next(self.parsed))
+
 
 class FakeClient:
-    def __init__(self, rounds: Iterable[Round]) -> None:
-        self.responses = _Responses(rounds)
+    def __init__(self, rounds: Iterable[Round], *, parsed: Iterable[object] = ()) -> None:
+        self.responses = _Responses(rounds, parsed)
 
 
 def response(*outputs: dict[str, Any]) -> Round:
@@ -59,3 +81,7 @@ def call(call_id: str, name: str, **arguments: object) -> dict[str, Any]:
 
 def reply(text: str) -> dict[str, Any]:
     return {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": text}]}
+
+
+def streamed_reply(text: str) -> Round:
+    return [SimpleNamespace(type="response.output_text.delta", delta=text), *response(reply(text))]

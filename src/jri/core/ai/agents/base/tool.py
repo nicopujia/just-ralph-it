@@ -1,14 +1,18 @@
+from __future__ import annotations
+
 import inspect
 import logging
 from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass, replace
-from typing import ParamSpec, Self, TypeVar, cast, get_type_hints
+from typing import TYPE_CHECKING, ParamSpec, Self, TypeVar, cast, get_type_hints
 
 from openai import pydantic_function_tool
-from openai.types.responses import FunctionToolParam, ResponseFunctionCallOutputItemListParam
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
-from .events import ChatEvent, ToolCallFinished, ToolCallStarted
+from jri.core import ai
+
+if TYPE_CHECKING:
+    from openai.types.responses import FunctionToolParam, ResponseFunctionCallOutputItemListParam
 
 _METADATA_ATTR = "__jri_tool_metadata__"
 MAX_OUTPUT_LENGTH = 100_000
@@ -25,13 +29,13 @@ class _Metadata:
 
 
 @dataclass(frozen=True)
-class Output:
+class ToolOutput:
     """Represent the final output emitted by a streaming tool."""
 
     value: str | ResponseFunctionCallOutputItemListParam
 
 
-Stream = Generator[ToolCallStarted | ToolCallFinished | Output]
+type Stream = Generator[ai.ToolCallStarted | ai.ToolCallFinished | ToolOutput]
 Params = ParamSpec("Params")
 Return = TypeVar("Return")
 
@@ -41,10 +45,9 @@ def tool(
 ) -> Callable[[Callable[Params, Return]], Callable[Params, Return]]:
     """Mark a method as an agent tool.
 
-    The tool name is inferred from the decorated function name. Labels
-    may interpolate tool arguments.
-    `Tool.discover` discovers these methods on `Agent`
-    subclasses.
+    - The tool name is inferred from the decorated function name.
+    - Labels may interpolate tool arguments.
+    - `Tool.discover` discovers these methods on `Agent` subclasses.
 
     Returns:
         A decorator that attaches tool metadata to the function.
@@ -61,10 +64,10 @@ class Invocation:
     """Stream nested tool events and retain the tool's final output."""
 
     def __init__(self, output: str | ResponseFunctionCallOutputItemListParam | Stream) -> None:
-        self.stream = output if isinstance(output, Iterator) else iter((Output(output),))
+        self.stream = output if isinstance(output, Iterator) else iter((ToolOutput(output),))
         self._output: str | ResponseFunctionCallOutputItemListParam | None = None
 
-    def __iter__(self) -> Generator[ChatEvent]:
+    def __iter__(self) -> Generator[ai.ChatEvent]:
         """Resolve the final tool output.
 
         Yields:
@@ -80,7 +83,7 @@ class Invocation:
                 logger.exception("stream_failed")
                 self._output = f"Tool call failed: {error}"
                 return
-            if isinstance(item, Output):
+            if isinstance(item, ToolOutput):
                 self._output = item.value
                 logger.debug("stream_output output=%r", item.value)
             else:

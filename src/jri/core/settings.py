@@ -7,6 +7,7 @@ from openai.types.shared import ReasoningEffort
 from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from jri.core import paths
 from jri.lib.providers import codex
 
 
@@ -34,7 +35,7 @@ class Settings(BaseSettings):
         ),
     )
     logging_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
-        default="INFO", description="Minimum logging level for logs saved under .jri/logs/."
+        default="INFO", description=f"Minimum logging level for logs saved under {paths.LOGS_DIR}/."
     )
     interviewer_model: str = Field(description="Model ID for the Interviewer agent.")
     interviewer_reasoning_effort: ReasoningEffort = Field(

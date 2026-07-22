@@ -1,4 +1,4 @@
-from jri.core.agents import Interviewer
+from jri.core.ai import Interviewer
 
 # Maintain constants ordered alphabetically with one blank line between
 # different initial letter.
@@ -38,6 +38,12 @@ MESSAGE_INPUT_ID = "message-input"
 MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY = Interviewer.FIRST_MESSAGE
 MESSAGE_INPUT_PLACEHOLDER_COPY = "Share your thoughts"
 
+RALPH_BUTTON_CLASSES = "ralph-button"
+RALPH_BUTTON_COPY = "Just Ralph It"
+RALPH_ERROR_COPY = "Could not finish specifications:\n\n{error}"
+RALPHING_CLASSES = "ralphing"
+RALPHING_COPY = "Ralphing... [dim](don't close this window)[/dim]"
+
 RETRY_BUTTON_CLASSES = "retry-button"
 RETRY_COPY = "Try again"
 
@@ -75,6 +81,27 @@ Header {{
     margin: 1;
 }}
 
+.{RALPHING_CLASSES} {{
+    display: none;
+    height: 5;
+    margin: 1;
+    padding: 1;
+    background: $primary;
+    color: $ansi-background;
+    content-align: center middle;
+}}
+
+.{RALPHING_CLASSES} LoadingIndicator {{
+    width: 12;
+    height: 1;
+    color: $ansi-background;
+}}
+
+.{RALPHING_CLASSES} Static {{
+    width: auto;
+    height: 1;
+}}
+
 .{USER_MESSAGE_CLASSES} {{
     text-style: bold;
     margin-bottom: 1;
@@ -102,6 +129,13 @@ Header {{
 .{RETRY_BUTTON_CLASSES} {{
     margin-bottom: 1;
     margin-left: 2;
+}}
+
+.{RALPH_BUTTON_CLASSES} {{
+    margin-bottom: 1;
+    margin-left: 2;
+    background: $warning;
+    color: $ansi-background;
 }}
 
 .{TOOL_CALL_ROW_CLASSES} {{

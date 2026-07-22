@@ -1,13 +1,15 @@
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
-from jri.core.agents.explorer import Explorer
-from jri.core.agents.shared import MAX_OUTPUT_LENGTH
-from jri.core.agents.shared.tool import Invocation
+from jri.core.ai import MAX_OUTPUT_LENGTH, Explorer, Invocation
+from tests.doubles.openai import FakeClient
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from openai.types.responses import ResponseFunctionCallOutputItemListParam
+
+    from jri.core.settings import Settings
 
 
 def test_structured_tool_output_is_truncated() -> None:
@@ -34,6 +36,13 @@ def test_read_files_selects_lines(tmp_path: "Path") -> None:
     path = tmp_path / "example.txt"
     path.write_text("one\ntwo\nthree\nfour\n")
 
-    result = Explorer.read_files([str(path)], start_line=2, end_line=3)
+    settings = SimpleNamespace(
+        cwd=tmp_path,
+        llm_client=FakeClient([]),
+        explorer_model="test",
+        explorer_temperature=0,
+        explorer_reasoning_effort=None,
+    )
+    result = Explorer(cast("Settings", settings)).read_files([path.name], start_line=2, end_line=3)
 
     assert result[1] == {"type": "input_text", "text": "two\nthree\n"}

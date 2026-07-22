@@ -16,7 +16,7 @@ from openai.types.responses import ResponseFunctionCallOutputItemListParam
 from jri.core.settings import Settings
 from jri.lib import brave, youtube
 
-from .shared import MAX_OUTPUT_LENGTH, Agent, tool
+from .base import MAX_OUTPUT_LENGTH, Agent, tool
 
 logger = logging.getLogger(__name__)
 MAX_INPUT_SIZE = 10 * 1024 * 1024
@@ -30,10 +30,12 @@ class Explorer(Agent):
             model=self.settings.explorer_model,
             temperature=settings.explorer_temperature,
             reasoning_effort=self.settings.explorer_reasoning_effort,
-            sys_prompt="""
+            sys_prompt=f"""
                 Role: Explorer.
 
                 Goal: Gather relevant context based on the given query.
+
+                Working directory: {self.settings.cwd}
 
                 Output: A dense, concise, and purely factual report based exclusively on data from tool outputs.
 
@@ -114,7 +116,6 @@ class Explorer(Agent):
         )
         return output
 
-    @staticmethod
     @tool(
         (
             "Read text, image, and binary file(s) from the machine. "
@@ -125,12 +126,14 @@ class Explorer(Agent):
         symbol="📄",
     )
     def read_files(
-        paths: list[str], start_line: int | None = None, end_line: int | None = None
+        self, paths: list[str], start_line: int | None = None, end_line: int | None = None
     ) -> ResponseFunctionCallOutputItemListParam:
         logger.debug("read_paths paths=%r", paths)
         output: ResponseFunctionCallOutputItemListParam = []
         for raw_path in paths:
             path = Path(raw_path).expanduser()
+            if not path.is_absolute():
+                path = self.settings.cwd / path
             try:
                 if path.stat().st_size > MAX_INPUT_SIZE:
                     raise RuntimeError(f"Could not read {path}: file exceeds 10 MiB.")
@@ -160,18 +163,21 @@ class Explorer(Agent):
         logger.info("read_finished files=%d output_items=%d", len(paths), len(output))
         return output
 
-    @staticmethod
     @tool(
-        f"Run a shell command on this machine (OS: {platform.system()}, CWD: {Path.cwd()})",
+        f"Run a shell command on this machine (OS: {platform.system()}).",
         started_label="Running {cmd}",
         finished_label="Ran {cmd}",
         symbol="💻",
     )
-    def shell(cmd: str) -> str:
+    def shell(self, cmd: str) -> str:
         logger.debug("shell_command command=%r", cmd)
         with TemporaryFile("w+", encoding="utf-8", errors="replace") as output_file:
             process = subprocess.Popen(
-                ["/bin/sh", "-lc", cmd], stdout=output_file, stderr=subprocess.STDOUT, start_new_session=True
+                ["/bin/sh", "-lc", cmd],
+                cwd=self.settings.cwd,
+                stdout=output_file,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
             )
             try:
                 process.wait(timeout=30)

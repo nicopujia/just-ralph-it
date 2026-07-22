@@ -19,8 +19,8 @@ This is a pure Python project. To know more about it and related knowledge, refe
 - Write docstrings, but only for public members.
 - Write higher-level functions above lower-level ones. For example:
     - If `f()` calls `a()` and then `b()`, write them in that order on the module.
-- Define logic inline instead of splitting into multiple helper functions unless the logic repeats itself.
-- Internal import paths must not exceed three levels, including `jri` (for example, `jri.core.agents`). Expose deeper
+- Define logic inline instead of splitting into multiple helper functions unless the logic repeats itself or until you get a linter alert.
+- Internal import paths must not exceed three levels, including `jri` (for example, `jri.core.ai`). Expose deeper
   members from a package entry point instead of importing their implementation module directly.
 
 ### Automated testing

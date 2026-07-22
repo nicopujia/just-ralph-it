@@ -56,6 +56,28 @@ def test_completed_interview_turn_survives_restart(tmp_path: Path) -> None:
     assert ("assistant", "How should failed deployments be handled?") in [(item.type, item.text) for item in items]
 
 
+def test_ralph_readiness_survives_restart_and_rolls_back_on_failure(tmp_path: Path) -> None:
+    service = build_service(
+        tmp_path,
+        [
+            response(call("ready", "just_ralph_it", show=True)),
+            response(reply("Click Just Ralph It.")),
+            response(call("hide", "just_ralph_it", show=False)),
+            failure("provider failed"),
+        ],
+    )
+    list(service.chat("We're ready."))
+
+    restarted = build_service(tmp_path, [])
+    restarted.restore()
+    assert restarted.session.ready_to_ralph
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        list(service.chat("Actually, one more thing."))
+
+    assert service.session.ready_to_ralph
+
+
 def test_cancelled_interview_turn_survives_restart_and_remains_in_context(tmp_path: Path) -> None:
     cancelled = Event()
     service = build_service(

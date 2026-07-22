@@ -18,8 +18,8 @@ To know more about this project, read the [concept document](https://nicolaspuji
   - [x] Note taking
   - [x] Topic-based context management
 - [ ] Automated implementation (inspired on the [SDLC](https://en.wikipedia.org/wiki/Systems_development_life_cycle))
-  - [ ] Requirements analysis
-  - [ ] System design
+  - [x] Requirements analysis
+  - [x] System design
   - [ ] Development
   - [ ] Quality assurance
   - [ ] Deployment
@@ -126,7 +126,7 @@ jri view
 ```
 
 > [!TIP]
-> Given that JRI doesn't feature project implementation yet, you can hand the generated `.jri/notebook.yaml` to your favorite coding agent as a starting point for implementation.
+> Given that JRI doesn't feature project implementation yet, you can hand the generated `.jri/notebook.yaml` or `.jri/specs/` to your favorite coding agent as a starting point for implementation.
 
 ## Upgrading
 
