@@ -9,11 +9,21 @@ To know more about this project, read the [concept document](https://nicolaspuji
 ### Feature Roadmap
 
 - [x] Terminal UI
-- [x] Interviewer
+- [x] Requirements gathering interview
   - [x] Exploration
+    - [x] Local shell commands
+    - [x] Local files, including images
+    - [x] Web search
+    - [x] Public URLs, including YouTube videos
   - [x] Note taking
   - [x] Topic-based context management
-- [ ] Project implementation
+- [ ] Automated implementation (inspired on the [SDLC](https://en.wikipedia.org/wiki/Systems_development_life_cycle))
+  - [ ] Requirements analysis
+  - [ ] System design
+  - [ ] Development
+  - [ ] Quality assurance
+  - [ ] Deployment
+  - [ ] Maintenance
 - [ ] Remote execution
 - [ ] Web UI
   - [x] Notes graph visualization
@@ -21,10 +31,10 @@ To know more about this project, read the [concept document](https://nicolaspuji
 
 ## Getting Started
 
-### 0. Prerrequisites
+### 0. Prerequisites
 
-- Python >=3.13 or [uv](https://docs.astral.sh/uv/)
-- API key from any OpenAI-compatible LLM inference provider or a ChatGPT subscription
+- [Python](https://www.python.org/downloads/) >=3.13 or [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- API key from any [OpenAI-compatible](https://github.com/openai/openai-python) LLM inference provider or a [ChatGPT](https://chatgpt.com/codex/pricing/) subscription
 
 ### 1. Installation
 
@@ -116,7 +126,7 @@ jri view
 ```
 
 > [!TIP]
-> Given that JRI doesn't feature project implementation yet, you can hand the generated `.jri/project.yaml` file to your favorite coding agent as a starting point for implementation.
+> Given that JRI doesn't feature project implementation yet, you can hand the generated `.jri/notebook.yaml` to your favorite coding agent as a starting point for implementation.
 
 ## Upgrading
 
@@ -143,4 +153,4 @@ rm -fr /path/to/your-project/.jri
 
 ## Contributing
 
-Please refer to [AGENTS.md](./AGENTS.md).
+Feel free to report bugs as [GitHub issues](https://github.com/nicopujia/just-ralph-it/issues). For development guidelines, please refer to [AGENTS.md](./AGENTS.md).
