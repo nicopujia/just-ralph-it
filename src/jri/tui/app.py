@@ -75,6 +75,7 @@ class App(TextualApp[None]):
         self.is_restoring_history = False
         self.active_turn_state: InterviewerTurnState | None = None
         self.current_turns: list[tuple[Markdown, Vertical]] = []
+        self.mounted_turns: list[tuple[Markdown, Vertical]] = []
         self.last_escape_at = 0.0
         self.messages_container = MessagesContainer(self._stop_following_bottom, self._load_older_history)
         self.message_input = MessageInput(id_=c.MESSAGE_INPUT_ID, placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY)
@@ -157,11 +158,13 @@ class App(TextualApp[None]):
         # In other words, this prevents a crash from a Textual bug.
         App.ALLOW_SELECT = False
         self.current_turns.append((user_message_widget, interviewer_turn))
+        self.mounted_turns.append((user_message_widget, interviewer_turn))
 
         await self.messages_container.mount(user_message_widget)
         await self.messages_container.mount(interviewer_turn)
         await interviewer_turn.mount(placeholder)
 
+        self._hide_older_history()
         self.messages_container.anchor()
         self._send_message(user_message, turn_state)
 
@@ -273,9 +276,18 @@ class App(TextualApp[None]):
     async def _load_older_history(self) -> None:
         """Prepend the next batch of restored conversation turns."""
 
-        if self.is_restoring_history or self.restored_item_index == 0:
+        if self.is_restoring_history:
             return
         self.is_restoring_history = True
+        old_scroll_y = self.messages_container.scroll_y
+        old_max_scroll_y = self.messages_container.max_scroll_y
+        if self._show_hidden_history():
+            self.call_after_refresh(self._finish_restoring_history, old_scroll_y, old_max_scroll_y)
+            return
+        if self.restored_item_index == 0:
+            self.is_restoring_history = False
+            return
+
         end = self.restored_item_index
         start = end
         turns = 0
@@ -286,31 +298,10 @@ class App(TextualApp[None]):
                 if turns == c.HISTORY_BATCH_SIZE:
                     break
 
-        widgets: list[Markdown | Vertical] = []
-        interviewer_items: list[Markdown | ToolCallRow] = []
-        for item in self.restored_items[start:end]:
-            if item.type == "user":
-                if interviewer_items:
-                    widgets.append(Vertical(*interviewer_items, classes=c.INTERVIEWER_TURN_CLASSES))
-                    interviewer_items = []
-                widgets.append(Markdown(item.text, classes=c.USER_MESSAGE_CLASSES))
-                continue
-            if item.type == "reasoning":
-                reasoning_block = Markdown(item.text, classes=c.INTERVIEWER_REASONING_CLASSES)
-                reasoning_block.display = self.is_reasoning_visible
-                interviewer_items.append(reasoning_block)
-                continue
-            interviewer_items.append(
-                ToolCallRow(item.text, symbol=item.symbol or "⚙︎", is_complete=True)
-                if item.type == "tool"
-                else Markdown(item.text, classes=c.INTERVIEWER_MESSAGE_CLASSES)
-            )
-        if interviewer_items:
-            widgets.append(Vertical(*interviewer_items, classes=c.INTERVIEWER_TURN_CLASSES))
-
-        old_scroll_y = self.messages_container.scroll_y
-        old_max_scroll_y = self.messages_container.max_scroll_y
-        await self.messages_container.mount_all(widgets, before=1 if end < len(self.restored_items) else None)
+        restored_turns = self._build_restored_turns(start, end)
+        widgets = [widget for turn in restored_turns for widget in turn]
+        await self.messages_container.mount_all(widgets, before=1 if self.mounted_turns else None)
+        self.mounted_turns[0:0] = restored_turns
         self.restored_item_index = start
         self.call_after_refresh(self._finish_restoring_history, old_scroll_y, old_max_scroll_y)
 
@@ -422,15 +413,63 @@ class App(TextualApp[None]):
         if turn_state.follow_bottom:
             self.messages_container.anchor()
 
+    def _hide_older_history(self) -> None:
+        for index, (user_message, interviewer_turn) in enumerate(self.mounted_turns):
+            user_message.display = interviewer_turn.display = index >= len(self.mounted_turns) - c.HISTORY_BATCH_SIZE
+
+    def _build_restored_turns(self, start: int, end: int) -> list[tuple[Markdown, Vertical]]:
+        restored_turns: list[tuple[Markdown, Vertical]] = []
+        user_message: Markdown | None = None
+        interviewer_items: list[Markdown | ToolCallRow] = []
+        for item in self.restored_items[start:end]:
+            if item.type == "user":
+                if user_message is not None:
+                    restored_turns.append((
+                        user_message,
+                        Vertical(*interviewer_items, classes=c.INTERVIEWER_TURN_CLASSES),
+                    ))
+                user_message = Markdown(item.text, classes=c.USER_MESSAGE_CLASSES)
+                interviewer_items = []
+                continue
+            if item.type == "reasoning":
+                reasoning_block = Markdown(item.text, classes=c.INTERVIEWER_REASONING_CLASSES)
+                reasoning_block.display = self.is_reasoning_visible
+                interviewer_items.append(reasoning_block)
+                continue
+            interviewer_items.append(
+                ToolCallRow(item.text, symbol=item.symbol or "⚙︎", is_complete=True)
+                if item.type == "tool"
+                else Markdown(item.text, classes=c.INTERVIEWER_MESSAGE_CLASSES)
+            )
+        if user_message is not None:
+            restored_turns.append((user_message, Vertical(*interviewer_items, classes=c.INTERVIEWER_TURN_CLASSES)))
+        return restored_turns
+
+    def _show_hidden_history(self) -> bool:
+        first_visible_turn = next(
+            (index for index, (user_message, _) in enumerate(self.mounted_turns) if user_message.display),
+            len(self.mounted_turns),
+        )
+        if not first_visible_turn:
+            return False
+        for user_message, interviewer_turn in self.mounted_turns[
+            max(0, first_visible_turn - c.HISTORY_BATCH_SIZE) : first_visible_turn
+        ]:
+            user_message.display = interviewer_turn.display = True
+        return True
+
     def _preview_history(self) -> None:
         for index, (user_message, interviewer_turn) in enumerate(self.current_turns):
             user_message.display = interviewer_turn.display = index < self.message_input.history_index
+        if self.message_input.history_index == len(self.current_turns):
+            self._hide_older_history()
         self.messages_container.scroll_end(animate=False)
 
     async def _remove_turns(self, start: int) -> None:
         for user_message, interviewer_turn in self.current_turns[start:]:
             await user_message.remove()
             await interviewer_turn.remove()
+            self.mounted_turns.remove((user_message, interviewer_turn))
         del self.current_turns[start:]
 
     def _request_cancellation(self) -> None:
