@@ -14,6 +14,7 @@ class MessageInput(TextArea):
         Binding("ctrl+x", "message_history", "Message history", show=False, priority=True),
         Binding("u", "previous_message", "Undo message", show=False, priority=True),
         Binding("r", "next_message", "Redo message", show=False, priority=True),
+        Binding("t", "retry_message", "Try again", show=False, priority=True),
         Binding("ctrl+shift+z", "redo", "Redo", show=False),
     )
 
@@ -40,6 +41,9 @@ class MessageInput(TextArea):
         message_input: "MessageInput"
         direction: Literal["previous", "next"]
 
+    class RetryRequested(Message):
+        pass
+
     def action_insert_newline(self) -> None:
         self.insert("\n")
 
@@ -59,6 +63,13 @@ class MessageInput(TextArea):
             return
         self._message_history_at = 0.0
         self.post_message(self.HistoryRequested(self, "next"))
+
+    def action_retry_message(self) -> None:
+        if monotonic() - self._message_history_at > 1:
+            self.insert("t")
+            return
+        self._message_history_at = 0.0
+        self.post_message(self.RetryRequested())
 
     @property
     def history_index(self) -> int:

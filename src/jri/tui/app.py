@@ -3,7 +3,7 @@ import platform
 import subprocess
 from collections.abc import Callable, Iterable
 from time import monotonic
-from typing import Any, ClassVar, override
+from typing import Any, ClassVar, cast, override
 
 from openai import OpenAIError
 from textual import work
@@ -14,7 +14,7 @@ from textual.command import CommandPalette as TextualCommandPalette
 from textual.containers import Vertical
 from textual.reactive import Reactive
 from textual.screen import Screen
-from textual.widgets import Header, Markdown, Static
+from textual.widgets import Button, Header, Markdown, Static
 
 from jri.core.agents import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
 from jri.core.exceptions import AuthError
@@ -112,6 +112,13 @@ class App(TextualApp[None]):
 
     # --- Event handlers --------------------------------------------- #
 
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Retry a failed interviewer turn."""
+
+        if not event.button.has_class(c.RETRY_BUTTON_CLASSES) or self.active_turn_state is not None:
+            return
+        await self._retry(event.button)
+
     def on_message_input_history_requested(self, event: MessageInput.HistoryRequested) -> None:
         """Preview message history or cancel the active turn."""
 
@@ -124,6 +131,15 @@ class App(TextualApp[None]):
         elif self.active_turn_state is None:
             event.message_input.select_next()
             self._preview_history()
+
+    async def on_message_input_retry_requested(self) -> None:
+        """Retry the latest failed interviewer turn."""
+
+        retry_buttons = [
+            button for button in self.query(Button) if button.has_class(c.RETRY_BUTTON_CLASSES) and button.display
+        ]
+        if retry_buttons and self.active_turn_state is None:
+            await self._retry(retry_buttons[-1])
 
     async def on_message_input_submitted(self, event: MessageInput.Submitted) -> None:
         """Send a submitted user message to the interviewer."""
@@ -144,6 +160,8 @@ class App(TextualApp[None]):
         if event.history_index is not None:
             self.service.rewind(event.history_index)
             await self._remove_turns(event.history_index)
+        for retry_button in self.query(f".{c.RETRY_BUTTON_CLASSES}"):
+            await retry_button.remove()
         event.message_input.remember(user_message)
         event.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
         self.last_escape_at = 0.0
@@ -221,11 +239,15 @@ class App(TextualApp[None]):
     # --- Workers ---------------------------------------------------- #
 
     @work(thread=True)
-    def _send_message(self, user_message: str, turn_state: InterviewerTurnState) -> None:
+    def _send_message(self, user_message: str | None, turn_state: InterviewerTurnState) -> None:
         """Stream interviewer events for a user message."""
 
         status_copy = c.INTERVIEWER_NO_RESPONSE_COPY
-        chat_events = self.service.chat(user_message, turn_state.cancelled)
+        chat_events = (
+            self.service.retry(turn_state.cancelled)
+            if user_message is None
+            else self.service.chat(user_message, turn_state.cancelled)
+        )
         try:
             for chat_event in chat_events:
                 if isinstance(chat_event, TextDelta) and chat_event.text:
@@ -250,7 +272,7 @@ class App(TextualApp[None]):
             if turn_state.cancelled.is_set():
                 self._call_from_thread(self._finish_cancelled_turn, turn_state)
             elif status_copy is not None and self.active_turn_state is turn_state:
-                self._call_from_thread(self._render_interviewer_status, turn_state, status_copy)
+                self._call_from_thread(self._finish_failed_turn, turn_state, status_copy)
             self._call_from_thread(self._reset_message_input, turn_state)
 
     # --- Callbacks -------------------------------------------------- #
@@ -266,6 +288,14 @@ class App(TextualApp[None]):
             await self._render_interviewer_status(turn_state, c.INTERVIEWER_STOPPED_COPY)
         self.messages_container.scroll_end(animate=False)
         logger.info("interviewer_turn_cancelled")
+
+    async def _finish_failed_turn(self, turn_state: InterviewerTurnState, status_copy: str) -> None:
+        await self._render_interviewer_status(turn_state, status_copy)
+        if turn_state.retry_button is None:
+            turn_state.retry_button = self._build_retry_button()
+            await turn_state.container.mount(turn_state.retry_button, before=0)
+        turn_state.retry_button.display = True
+        turn_state.retry_button.disabled = False
 
     def _finish_restoring_history(self, old_scroll_y: float, old_max_scroll_y: int) -> None:
         self.messages_container.scroll_to(
@@ -311,6 +341,8 @@ class App(TextualApp[None]):
         if self.active_turn_state is not turn_state:
             logger.debug("chat_event_render_skipped type=%s", type(chat_event).__name__)
             return
+        if turn_state.retry_button is not None:
+            turn_state.retry_button.display = False
 
         match chat_event:
             case ReasoningDelta():
@@ -420,7 +452,7 @@ class App(TextualApp[None]):
     def _build_restored_turns(self, start: int, end: int) -> list[tuple[Markdown, Vertical]]:
         restored_turns: list[tuple[Markdown, Vertical]] = []
         user_message: Markdown | None = None
-        interviewer_items: list[Markdown | ToolCallRow] = []
+        interviewer_items: list[Button | Markdown | ToolCallRow] = []
         for item in self.restored_items[start:end]:
             if item.type == "user":
                 if user_message is not None:
@@ -442,8 +474,14 @@ class App(TextualApp[None]):
                 else Markdown(item.text, classes=c.INTERVIEWER_MESSAGE_CLASSES)
             )
         if user_message is not None:
+            if not interviewer_items:
+                interviewer_items.append(self._build_retry_button())
             restored_turns.append((user_message, Vertical(*interviewer_items, classes=c.INTERVIEWER_TURN_CLASSES)))
         return restored_turns
+
+    @staticmethod
+    def _build_retry_button() -> Button:
+        return Button(c.RETRY_COPY, classes=c.RETRY_BUTTON_CLASSES, compact=True)
 
     def _show_hidden_history(self) -> bool:
         first_visible_turn = next(
@@ -471,6 +509,21 @@ class App(TextualApp[None]):
             await interviewer_turn.remove()
             self.mounted_turns.remove((user_message, interviewer_turn))
         del self.current_turns[start:]
+
+    async def _retry(self, button: Button) -> None:
+        container = cast("Vertical", button.parent)
+        for child in list(container.children):
+            if child is not button:
+                await child.remove()
+        placeholder = Markdown(c.INTERVIEWER_THINKING_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES)
+        await container.mount(placeholder)
+        turn_state = InterviewerTurnState(container=container, placeholder=placeholder, retry_button=button)
+        self.active_turn_state = turn_state
+        button.disabled = True
+        self.last_escape_at = 0.0
+        App.ALLOW_SELECT = False
+        self.messages_container.anchor()
+        self._send_message(None, turn_state)
 
     def _request_cancellation(self) -> None:
         if self.active_turn_state is not None and not self.active_turn_state.cancelled.is_set():

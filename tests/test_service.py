@@ -111,7 +111,7 @@ def test_cancelling_tool_call_leaves_valid_history(tmp_path: Path) -> None:
     } >= {("function_call_output", "switch", "Tool call cancelled.")}
 
 
-def test_failed_interview_turn_rolls_back_every_persisted_change(tmp_path: Path) -> None:
+def test_failed_interview_turn_rolls_back_changes_and_keeps_prompt(tmp_path: Path) -> None:
     service = build_service(
         tmp_path,
         [
@@ -129,16 +129,36 @@ def test_failed_interview_turn_rolls_back_every_persisted_change(tmp_path: Path)
     history = list(service.interviewer.history)
     active_topic_id = service.interviewer.active_topic_id
     notebook_file = service.notebook_file.read_bytes()
-    session_file = service.session_file.read_bytes()
 
     with pytest.raises(RuntimeError, match="provider failed"):
         list(service.chat("Deploy it automatically."))
 
     assert service.interviewer.notebook.graph.model_dump() == graph
-    assert service.interviewer.history == history
+    assert service.interviewer.history == [*history, {"role": "user", "content": "Deploy it automatically."}]
     assert service.interviewer.active_topic_id == active_topic_id
     assert service.notebook_file.read_bytes() == notebook_file
-    assert service.session_file.read_bytes() == session_file
+
+    restarted = build_service(tmp_path, [])
+    items, _ = restarted.restore()
+    assert items[-1] == ("user", "Deploy it automatically.", None)
+
+
+def test_failed_interview_turn_can_be_retried_after_restart(tmp_path: Path) -> None:
+    service = build_service(tmp_path, [failure("provider failed")])
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        list(service.chat("Deploy it automatically."))
+
+    restarted = build_service(tmp_path, [response(reply("Retry succeeded."))])
+    restarted.restore()
+    list(restarted.retry())
+
+    assert [
+        item["content"]
+        for item in cast("list[dict[str, object]]", restarted.interviewer.history)
+        if item.get("role") == "user"
+    ].count("Deploy it automatically.") == 1
+    assert restarted.interviewer.history[-1]["content"][0]["text"] == "Retry succeeded."
 
 
 def test_rewind_removes_later_knowledge_after_restart(tmp_path: Path) -> None:

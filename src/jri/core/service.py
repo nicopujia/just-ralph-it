@@ -93,16 +93,25 @@ class Service:
             self.interviewer.active_topic_id,
         )
         self.checkpoints.append(checkpoint)
-        try:
-            yield from self.interviewer.send_message(message, cancelled)
-            self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
-        except Exception:
-            self.interviewer.history = self.interviewer.history[: checkpoint[0]]
-            self.interviewer.notebook.restore(checkpoint[1])
-            self.interviewer.active_topic_id = checkpoint[2]
-            self.logger.exception("chat_rolled_back")
-            raise
-        self.logger.info("chat_finished interview_items=%d", len(self.interviewer.history))
+        yield from self._respond(message, checkpoint, cancelled)
+
+    def retry(self, cancelled: Event | None = None) -> Generator[ChatEvent]:
+        """Retry the latest failed message from its original checkpoint.
+
+        Yields:
+            Streamed chat events from the interviewer.
+        """
+        checkpoint = (
+            self.checkpoints[-1]
+            if self.checkpoints
+            else (
+                len(self.interviewer.history) - 1,
+                self.interviewer.notebook.graph.model_copy(deep=True),
+                self.interviewer.active_topic_id,
+            )
+        )
+        message = cast("dict[str, str]", self.interviewer.history.pop())["content"]
+        yield from self._respond(message, checkpoint, cancelled)
 
     def rewind(self, checkpoint_index: int) -> None:
         """Rewind conversation and notes to a current-run checkpoint."""
@@ -190,3 +199,19 @@ class Service:
             Path(file.name).replace(self.session_file)
             self.session = session
         self.logger.info("session_updated fields=%r interview_items=%d", list(values), len(self.session.interview))
+
+    def _respond(
+        self, message: str, checkpoint: tuple[int, Graph, str], cancelled: Event | None
+    ) -> Generator[ChatEvent]:
+        try:
+            yield from self.interviewer.send_message(message, cancelled)
+            self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
+        except Exception:
+            self.interviewer.history = self.interviewer.history[: checkpoint[0]]
+            self.interviewer.notebook.restore(checkpoint[1])
+            self.interviewer.active_topic_id = checkpoint[2]
+            self.interviewer.history.append({"role": "user", "content": message})
+            self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
+            self.logger.exception("chat_rolled_back")
+            raise
+        self.logger.info("chat_finished interview_items=%d", len(self.interviewer.history))

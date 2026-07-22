@@ -38,6 +38,9 @@ MESSAGE_INPUT_ID = "message-input"
 MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY = Interviewer.FIRST_MESSAGE
 MESSAGE_INPUT_PLACEHOLDER_COPY = "Share your thoughts"
 
+RETRY_BUTTON_CLASSES = "retry-button"
+RETRY_COPY = "Try again"
+
 THEME_DARK = "ansi-dark"
 THEME_LIGHT = "ansi-light"
 TITLE_COPY = "Just Ralph It"
@@ -94,6 +97,11 @@ Header {{
     padding-left: 2;
     text-opacity: 70%;
     text-style: dim italic;
+}}
+
+.{RETRY_BUTTON_CLASSES} {{
+    margin-bottom: 1;
+    margin-left: 2;
 }}
 
 .{TOOL_CALL_ROW_CLASSES} {{
