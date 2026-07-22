@@ -33,7 +33,7 @@ This is a pure Python project. To know more about it and related knowledge, refe
 
 - Do NOT write, and wipe out immediately if existing, all code related to handling states of previous versions. Anything legacy or related to backwards compatibility must be outright deleted.
 - Do NOT write defensive code for hypothetical situations. Do NOT handle edge cases unless asked for. Keep the happy path direct and trust internal types, invariants, and required data.
-- Do NOT write tests for private methods, internal call sequences, configurations, documentation, prompts, model responses, or dependency behavior.
+- Do NOT write tests for the TUI, private methods, internal call sequences, configurations, documentation, prompts, model responses, or dependency behavior.
 
 ## Commands
 
