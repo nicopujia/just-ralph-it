@@ -1,8 +1,10 @@
-# [Just Ralph It](https://justralph.it) (_a.k.a. [Ralfealo](https://ralfealo.com)_)
+# [Just Ralph It](https://justralph.it) (a.k.a. _[Ralfealo](https://ralfealo.com)_)
 
 ## Overview
 
-**Think through a software project idea, then build it with one click.** To know more about it, read the [concept document](https://nicolaspujia.com/just-ralph-it).
+> Think through a software project idea, then build it with one click.
+
+To know more about this project, read the [concept document](https://nicolaspujia.com/just-ralph-it).
 
 ### Feature Roadmap
 
