@@ -2,7 +2,7 @@
 
 ## Overview
 
-Just Ralph It is a software system that aims to help you easily define your software project idea and then build entirely by just clicking a button. To know more about it, read the [concept document](https://nicolaspujia.com/just-ralph-it).
+**Think through a software project idea, then build it with one click.** To know more about it, read the [concept document](https://nicolaspujia.com/just-ralph-it).
 
 ### Feature Roadmap
 
