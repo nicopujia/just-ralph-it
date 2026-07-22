@@ -4,7 +4,7 @@
 
 This is a pure Python project. To know more about it and related knowledge, refer to the following documents:
 
-- [Project concept document and vision](https://nicolaspujia.com/just-ralph-it.md) — **TL;DR**: Easily define your own software project idea and then build it entirely by just clicking a button.
+- [Project concept document and vision](https://nicolaspujia.com/just-ralph-it.md) — **TL;DR**: Think through a software project idea, then build it with one click.
 - [Ralph technique playbook](https://raw.githubusercontent.com/ClaytonFarr/ralph-playbook/refs/heads/main/README.md)
 - [Original article about the Ralph technique](https://ghuntley.com/ralph/)
 
