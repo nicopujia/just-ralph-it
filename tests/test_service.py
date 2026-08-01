@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
@@ -74,6 +74,31 @@ def test_ralph_readiness_survives_restart_and_rolls_back_on_failure(tmp_path: Pa
         list(service.chat("Actually, one more thing."))
 
     assert service.session.ready_to_ralph
+
+
+def test_interrupted_ralph_restores_readiness_after_restart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    class InterruptibleSpecsGen:
+        def __init__(self, _settings: "Settings") -> None:
+            pass
+
+        @staticmethod
+        def generate(_active_commit: str | None) -> Iterator[object]:
+            yield object()
+
+    service = build_service(
+        tmp_path, [response(call("ready", "just_ralph_it", show=True)), response(reply("Click Just Ralph It."))]
+    )
+    list(service.chat("We're ready."))
+    monkeypatch.setattr("jri.core.service.SpecsGen", InterruptibleSpecsGen)
+
+    events = service.ralph()
+    next(events)
+    assert not service.session.ready_to_ralph
+    events.close()
+
+    restarted = build_service(tmp_path, [])
+    restarted.restore()
+    assert restarted.session.ready_to_ralph
 
 
 def test_cancelled_interview_turn_survives_restart_and_remains_in_context(tmp_path: Path) -> None:

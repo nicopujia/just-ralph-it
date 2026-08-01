@@ -166,7 +166,7 @@ class Service:
         self.update_session(ready_to_ralph=False)
         try:
             result = yield from SpecsGen(self.settings).generate(self.session.active_spec_commit)
-        except Exception:
+        except BaseException:
             self.update_session(ready_to_ralph=True)
             raise
 
