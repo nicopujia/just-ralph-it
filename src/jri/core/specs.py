@@ -103,7 +103,13 @@ class Specs:
         self.repository.stage(
             (".",)
             if baseline.commit is None
-            else (paths.GITIGNORE_FILE, paths.NOTEBOOK_FILE, paths.FUNCTIONAL_SPECS_DIR, paths.ARCHITECTURE_SPECS_DIR)
+            else (
+                paths.CONFIG_FILE,
+                paths.GITIGNORE_FILE,
+                paths.NOTEBOOK_FILE,
+                paths.FUNCTIONAL_SPECS_DIR,
+                paths.ARCHITECTURE_SPECS_DIR,
+            )
         )
         return self.repository.commit("jri: update specifications\n\nCo-authored-by: ralphpujia <ralph@pujia.ar>\n")
 
@@ -114,7 +120,7 @@ class Specs:
             path
             for entry in self.repository.status()
             for path in (entry.path, entry.original_path)
-            if path is not None and path not in {paths.GITIGNORE_FILE, paths.NOTEBOOK_FILE}
+            if path is not None and path not in {paths.CONFIG_FILE, paths.GITIGNORE_FILE, paths.NOTEBOOK_FILE}
         })
         if blockers:
             raise RuntimeError(

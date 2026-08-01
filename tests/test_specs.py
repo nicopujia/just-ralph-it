@@ -8,6 +8,7 @@ import pytest
 
 from jri.core.ai import architect, functional_analyst
 from jri.core.service import Service
+from jri.core.settings import Agent, AgentOverride
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 
 if TYPE_CHECKING:
@@ -30,6 +31,22 @@ new file mode 100644
 @@ -0,0 +1 @@
 +# Design
 """
+FUNCTIONAL_UPDATE = """\
+diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
+--- a/.jri/specs/functional/behavior.md
++++ b/.jri/specs/functional/behavior.md
+@@ -1 +1,2 @@
+ # Behavior
++Total output is supported.
+"""
+ARCHITECTURE_UPDATE = """\
+diff --git a/.jri/specs/architecture/design.md b/.jri/specs/architecture/design.md
+--- a/.jri/specs/architecture/design.md
++++ b/.jri/specs/architecture/design.md
+@@ -1 +1,2 @@
+ # Design
++Add a total accumulator.
+"""
 
 
 class FakeSettings(SimpleNamespace):
@@ -49,14 +66,14 @@ def build_service(path: Path, client: FakeClient) -> Service:
     settings = FakeSettings(
         cwd=path,
         force=False,
-        logging_level="CRITICAL",
-        llm_client=client,
-        interviewer_model="test",
-        interviewer_reasoning_effort=None,
-        interviewer_temperature=0,
-        explorer_model="test",
-        explorer_reasoning_effort=None,
-        explorer_temperature=0,
+        logging=SimpleNamespace(level="CRITICAL"),
+        llm=SimpleNamespace(client=client),
+        agents=SimpleNamespace(
+            interviewer=Agent(model="test", reasoning_effort=None, temperature=0),
+            explorer=Agent(model="test", reasoning_effort=None, temperature=0),
+            functional_analyst=AgentOverride(),
+            architect=AgentOverride(),
+        ),
     )
     return Service(cast("Settings", settings))
 
@@ -82,6 +99,18 @@ def successful_client() -> FakeClient:
     )
 
 
+def updated_client() -> FakeClient:
+    return FakeClient(
+        [streamed_reply("Updated repository report"), response(reply("Specifications updated."))],
+        parsed=[
+            functional_analyst.Output(
+                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
+            ),
+            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_UPDATE)),
+        ],
+    )
+
+
 def test_commits_complete_specification_bundle(tmp_path: Path) -> None:
     create_repository(tmp_path)
     service = build_service(tmp_path, successful_client())
@@ -95,10 +124,97 @@ def test_commits_complete_specification_bundle(tmp_path: Path) -> None:
     )
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
         ".jri/.gitignore",
+        ".jri/config.yaml",
         ".jri/notebook.yaml",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
+    assert not run_git(tmp_path, "status", "--short")
+
+
+def test_returns_ambiguities_to_the_interviewer_without_committing(tmp_path: Path) -> None:
+    create_repository(tmp_path)
+    head = run_git(tmp_path, "rev-parse", "HEAD")
+    ambiguity = "Choose whether output is JSON or plain text."
+    client = FakeClient(
+        [response(reply("Should the output be JSON or plain text?"))],
+        parsed=[
+            functional_analyst.Output(
+                result=functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=[ambiguity])
+            )
+        ],
+    )
+    service = build_service(tmp_path, client)
+
+    list(service.ralph())
+
+    assert run_git(tmp_path, "rev-parse", "HEAD") == head
+    assert not (tmp_path / ".jri/specs").exists()
+    assert service.session.active_spec_commit is None
+    assert any(ambiguity in item.get("content", "") for item in service.session.interview)
+    restarted = build_service(tmp_path, FakeClient([]))
+    items, _ = restarted.restore()
+    assert ("assistant", "Should the output be JSON or plain text?", None) in items
+    assert restarted.session.active_spec_commit is None
+
+
+def test_updates_specs_after_restart_and_an_intervening_project_commit(tmp_path: Path) -> None:
+    create_repository(tmp_path)
+    service = build_service(tmp_path, successful_client())
+    list(service.ralph())
+    first_spec_commit = service.session.active_spec_commit
+    assert first_spec_commit is not None
+
+    changelog = tmp_path / "CHANGELOG.md"
+    changelog.write_text("# Changelog\n")
+    run_git(tmp_path, "add", "CHANGELOG.md")
+    run_git(tmp_path, "commit", "-qm", "docs: add changelog")
+    project_commit = run_git(tmp_path, "rev-parse", "HEAD")
+
+    restarted = build_service(tmp_path, updated_client())
+    restarted.restore()
+    assert restarted.session.active_spec_commit == first_spec_commit
+    restarted.interviewer.notebook.add(["Add a total output record."], "t1")
+
+    list(restarted.ralph())
+
+    second_spec_commit = restarted.session.active_spec_commit
+    assert second_spec_commit is not None
+    assert second_spec_commit != first_spec_commit
+    run_git(tmp_path, "merge-base", "--is-ancestor", first_spec_commit, second_spec_commit)
+    assert run_git(tmp_path, "rev-parse", f"{second_spec_commit}^") == project_commit
+    assert run_git(tmp_path, "log", "-3", "--format=%s").splitlines() == [
+        "jri: update specifications",
+        "docs: add changelog",
+        "jri: update specifications",
+    ]
+    assert changelog.read_text() == "# Changelog\n"
+    assert (tmp_path / "README.md").read_text() == "# Project\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == ("# Behavior\nTotal output is supported.\n")
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == ("# Design\nAdd a total accumulator.\n")
+    assert run_git(tmp_path, "show", "--format=", "--name-only", second_spec_commit).splitlines() == [
+        ".jri/notebook.yaml",
+        ".jri/specs/architecture/design.md",
+        ".jri/specs/functional/behavior.md",
+    ]
+    reopened = build_service(tmp_path, FakeClient([]))
+    reopened.restore()
+    assert reopened.session.active_spec_commit == second_spec_commit
+    assert not run_git(tmp_path, "status", "--short")
+
+
+def test_commits_modified_configuration_with_specifications(tmp_path: Path) -> None:
+    create_repository(tmp_path)
+    service = build_service(tmp_path, successful_client())
+    config = tmp_path / ".jri/config.yaml"
+    run_git(tmp_path, "add", ".jri/config.yaml")
+    run_git(tmp_path, "commit", "-qm", "add configuration")
+    config.write_text(f"{config.read_text()}\n# Project-specific configuration.\n")
+
+    list(service.ralph())
+
+    assert run_git(tmp_path, "show", "HEAD:.jri/config.yaml").endswith("# Project-specific configuration.")
+    assert ".jri/config.yaml" in run_git(tmp_path, "show", "--format=", "--name-only").splitlines()
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -114,6 +230,7 @@ def test_initializes_and_commits_new_repository(monkeypatch: pytest.MonkeyPatch,
 
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
         ".jri/.gitignore",
+        ".jri/config.yaml",
         ".jri/notebook.yaml",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
