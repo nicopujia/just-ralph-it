@@ -1,0 +1,27 @@
+llm:
+  # Use a ChatGPT subscription. For an API key, replace this with any OpenAI-compatible base URL
+  # and set llm.api_key in secrets.yaml.
+  provider: openai-subscription
+
+# Each agent selects a model, reasoning effort, and sampling temperature (0 = focused, 2 = varied).
+agents:
+  interviewer:
+    model: gpt-5.6-sol
+    reasoning_effort: high
+    temperature: 0.7
+  explorer:
+    model: gpt-5.6-terra
+    reasoning_effort: low
+    temperature: 0
+  functional_analyst:
+    model: gpt-5.6-sol
+    reasoning_effort: high
+    temperature: 0
+  architect:
+    model: gpt-5.6-sol
+    reasoning_effort: high
+    temperature: 0.2
+
+logging:
+  # One of DEBUG, INFO, WARNING, ERROR, or CRITICAL.
+  level: INFO
