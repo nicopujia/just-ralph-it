@@ -18,11 +18,9 @@ def build_service(path: Path, rounds: Iterable[Round], *, force: bool = False) -
     settings = SimpleNamespace(
         cwd=path,
         force=force,
-        logging_level="CRITICAL",
-        llm_client=FakeClient(rounds),
-        interviewer_model="test",
-        interviewer_temperature=0,
-        interviewer_reasoning_effort=None,
+        logging=SimpleNamespace(level="CRITICAL"),
+        llm=SimpleNamespace(client=FakeClient(rounds)),
+        agents=SimpleNamespace(interviewer=SimpleNamespace(model="test", temperature=0, reasoning_effort=None)),
     )
     return Service(cast("Settings", settings))
 
@@ -264,8 +262,18 @@ def test_invalid_session_file_explains_how_to_reset(tmp_path: Path) -> None:
 def test_force_resets_invalid_notebook_session(tmp_path: Path) -> None:
     base_dir = tmp_path / ".jri"
     base_dir.mkdir()
+    config = base_dir / "config.yaml"
+    secrets = base_dir / "secrets.yaml"
+    config.write_text("custom config")
+    secrets.write_text("custom secrets")
+    (base_dir / ".gitignore").write_text("custom-cache\n")
     (base_dir / "notebook.yaml").write_text(": invalid yaml")
     (base_dir / "session.json").write_text("not json")
+    (base_dir / "visualization.html").write_text("old graph")
+    (base_dir / "logs").mkdir()
+    (base_dir / "logs" / "old.log").write_text("old log")
+    (base_dir / "specs").mkdir()
+    (base_dir / "specs" / "old.md").write_text("old spec")
 
     service = build_service(tmp_path, [], force=True)
 
@@ -277,4 +285,10 @@ def test_force_resets_invalid_notebook_session(tmp_path: Path) -> None:
     ]
     assert service.notebook_file == base_dir / "notebook.yaml"
     assert service.visualization_file == base_dir / "visualization.html"
-    assert service.gitignore_file.read_text() == "session.json\nlogs\nvisualization.html\n"
+    assert config.read_text() == "custom config"
+    assert secrets.read_text() == "custom secrets"
+    assert not service.session_file.exists()
+    assert not service.visualization_file.exists()
+    assert not (base_dir / "specs").exists()
+    assert not (base_dir / "logs" / "old.log").exists()
+    assert service.gitignore_file.read_text() == "custom-cache\nsecrets.yaml\nsession.json\nlogs\nvisualization.html\n"

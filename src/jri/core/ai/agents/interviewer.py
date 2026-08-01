@@ -33,11 +33,12 @@ class Interviewer(Agent):
         self.set_ready_to_ralph = set_ready_to_ralph or (lambda _: None)
         self.initial_topic = next(topic for topic in self.notebook.graph.topics if topic.id == "t1")
         self.active_topic_id = self.initial_topic.id
+        agent = settings.agents.interviewer
         super().__init__(
-            client=settings.llm_client,
-            model=settings.interviewer_model,
-            temperature=settings.interviewer_temperature,
-            reasoning_effort=settings.interviewer_reasoning_effort,
+            client=settings.llm.client,
+            model=agent.model,
+            temperature=agent.temperature,
+            reasoning_effort=agent.reasoning_effort,
             sys_prompt="""
                 Role: Interviewer of the Just Ralph It (JRI) system, a software system to build any software system.
 

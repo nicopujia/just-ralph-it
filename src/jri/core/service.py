@@ -14,7 +14,7 @@ from jri.core import paths
 from .ai import ChatEvent, Interviewer, SpecsGen
 from .exceptions import PersistenceError
 from .notes import Graph, Notebook, TopicId
-from .settings import Settings
+from .settings import Settings, initialize_workspace
 
 if TYPE_CHECKING:
     from openai.types.responses import ResponseInputParam
@@ -47,6 +47,8 @@ class Service:
         ```
             $CWD/.jri/
                 .gitignore
+                config.yaml
+                secrets.yaml
                 session.json
                 notebook.yaml
                 logs/
@@ -64,17 +66,20 @@ class Service:
         self.session_lock = Lock()
         self.settings = settings
 
-        if settings.force and self.base_dir.exists():
-            shutil.rmtree(self.base_dir)
+        if settings.force:
+            self.notebook_file.unlink(missing_ok=True)
+            self.session_file.unlink(missing_ok=True)
+            self.visualization_file.unlink(missing_ok=True)
+            for directory in (self.logs_dir, settings.cwd / paths.SPECS_DIR):
+                if directory.exists():
+                    shutil.rmtree(directory)
 
-        self.base_dir.mkdir(exist_ok=True, parents=True)
+        initialize_workspace(settings.cwd)
         self.logs_dir.mkdir(exist_ok=True, parents=True)
-        ignored_paths = [self.session_file, self.logs_dir, self.visualization_file]
-        self.gitignore_file.write_text("\n".join([p.name for p in ignored_paths]) + "\n")
 
         log_file = self.logs_dir / f"{datetime.now().astimezone().strftime('%Y-%m-%d_%H-%M-%S')}.log"
         application_logger = logging.getLogger("jri")
-        application_logger.setLevel(settings.logging_level)
+        application_logger.setLevel(settings.logging.level)
         handler = logging.FileHandler(log_file, encoding="utf-8")
         handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"))
         application_logger.addHandler(handler)

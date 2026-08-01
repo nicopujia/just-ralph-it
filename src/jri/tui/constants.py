@@ -8,8 +8,8 @@ Set or fix these settings:
 
 {errors}
 
-You can define them in your shell, in a .env file in this directory,
-or pass them as CLI flags.
+You can define them in .jri/config.yaml, .jri/secrets.yaml,
+your shell, a .env file, or CLI flags.
 All commands, including `jri view`, use this configuration.
 """
 

@@ -2,13 +2,17 @@ import argparse
 import html
 import logging
 import webbrowser
+from contextlib import chdir
+from pathlib import Path
 
+import yaml
+from dotenv import find_dotenv
 from pydantic import ValidationError
-from pydantic_settings import CliSettingsSource
+from pydantic_settings import CliSettingsSource, SettingsError
 
 from jri.core.exceptions import AuthError, PersistenceError
 from jri.core.service import Service
-from jri.core.settings import Settings
+from jri.core.settings import Settings, initialize_workspace
 
 from .app import App
 from .constants import CONFIG_ERROR_COPY
@@ -25,21 +29,23 @@ def main() -> None:
     settings_source = CliSettingsSource(Settings, root_parser=parser, parse_args_method=parser.parse_args)
 
     args = parser.parse_args()
+    settings_source(parsed_args=args)
+    project_dir = Path(getattr(args, "cwd", None) or Path.cwd()).resolve()
+    initialize_workspace(project_dir)
 
     try:
-        settings = Settings(_cli_settings_source=settings_source)  # pyright: ignore[reportCallIssue]
-    except ValidationError as error:
-        use_cli_kebab_case = Settings.model_config.get("cli_kebab_case")
-        env_prefix = Settings.model_config.get("env_prefix", "")
-        error_lines: list[str] = []
-        for issue in error.errors():
-            field_name = str(issue["loc"][0])
-            field = Settings.model_fields[field_name]
-            cli_name = field_name.replace("_", "-") if use_cli_kebab_case else field_name
-            error_lines.append(
-                f"- {env_prefix}{field_name.upper()} or --{cli_name}: "
-                f"{field.description or '<no description available>'}"
+        with chdir(project_dir):
+            settings = Settings(
+                cwd=project_dir,
+                _env_file=find_dotenv(usecwd=True),  # pyright: ignore[reportCallIssue]
+                _cli_settings_source=settings_source,  # pyright: ignore[reportCallIssue]
             )
+    except (SettingsError, ValidationError, yaml.YAMLError) as error:
+        error_lines = (
+            [f"- {'.'.join(map(str, issue['loc'])) or 'configuration'}: {issue['msg']}" for issue in error.errors()]
+            if isinstance(error, ValidationError)
+            else [f"- {error}"]
+        )
         print(CONFIG_ERROR_COPY.format(errors="\n".join(error_lines)))
         raise SystemExit(1) from error
 
@@ -56,7 +62,7 @@ def main() -> None:
 
 
 def _run(settings: Settings) -> None:
-    settings.validate_authentication()
+    settings.llm.validate_authentication()
     service = Service(settings)
     app = App(service)
     logger.info("started")

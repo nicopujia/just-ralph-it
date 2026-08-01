@@ -25,11 +25,12 @@ MAX_INPUT_SIZE = 10 * 1024 * 1024
 class Explorer(Agent):
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        agent = settings.agents.explorer
         super().__init__(
-            client=self.settings.llm_client,
-            model=self.settings.explorer_model,
-            temperature=settings.explorer_temperature,
-            reasoning_effort=self.settings.explorer_reasoning_effort,
+            client=settings.llm.client,
+            model=agent.model,
+            temperature=agent.temperature,
+            reasoning_effort=agent.reasoning_effort,
             sys_prompt=f"""
                 Role: Explorer.
 
@@ -61,10 +62,10 @@ class Explorer(Agent):
     )
     def web_search(self, query: str) -> str:
         logger.debug("search_query query=%r", query)
-        if not self.settings.brave_search_api_key:
+        if not self.settings.brave_search.api_key:
             logger.info("search_finished available=False")
             return "Web search not available."
-        results = brave.search(self.settings.brave_search_api_key, query)
+        results = brave.search(self.settings.brave_search.api_key, query)
         output = "\n".join(f"- [{result['title']}]({result['url']})" for result in results)
         logger.info("search_finished results=%d", len(results))
         return output

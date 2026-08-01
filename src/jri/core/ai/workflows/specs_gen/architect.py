@@ -73,11 +73,12 @@ class Architect(LLMRunner):
     """)
 
     def __init__(self, settings: Settings) -> None:
+        agent = settings.agents.architect.resolve(settings.agents.interviewer)
         super().__init__(
-            client=settings.llm_client,
-            model=settings.interviewer_model,
-            reasoning_effort=settings.interviewer_reasoning_effort,
-            temperature=settings.interviewer_temperature,
+            client=settings.llm.client,
+            model=agent.model,
+            reasoning_effort=agent.reasoning_effort,
+            temperature=agent.temperature,
         )
 
     def design(self, context: Input) -> Result:

@@ -38,10 +38,8 @@ def test_read_files_selects_lines(tmp_path: "Path") -> None:
 
     settings = SimpleNamespace(
         cwd=tmp_path,
-        llm_client=FakeClient([]),
-        explorer_model="test",
-        explorer_temperature=0,
-        explorer_reasoning_effort=None,
+        llm=SimpleNamespace(client=FakeClient([])),
+        agents=SimpleNamespace(explorer=SimpleNamespace(model="test", temperature=0, reasoning_effort=None)),
     )
     result = Explorer(cast("Settings", settings)).read_files([path.name], start_line=2, end_line=3)
 
