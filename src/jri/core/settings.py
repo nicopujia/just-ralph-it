@@ -3,7 +3,7 @@ from typing import Any, Literal, override
 
 from openai import OpenAI
 from openai.types.shared import ReasoningEffort
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
 from pydantic_settings import (
     BaseSettings,
     CliSuppress,
@@ -80,7 +80,7 @@ class Agent(BaseModel):
     temperature: float = Field(ge=0, le=2, description="Model sampling temperature.")
 
 
-class Interviewer(Agent):
+class InterviewerConfig(Agent):
     """Interviewer model configuration."""
 
     model: str = "gpt-5.6-sol"
@@ -88,7 +88,7 @@ class Interviewer(Agent):
     temperature: float = 0.7
 
 
-class Explorer(Agent):
+class ExplorerConfig(Agent):
     """Explorer model configuration."""
 
     model: str = "gpt-5.6-terra"
@@ -96,7 +96,7 @@ class Explorer(Agent):
     temperature: float = 0
 
 
-class FunctionalAnalyst(Agent):
+class FunctionalAnalystConfig(Agent):
     """Functional Analyst model configuration."""
 
     model: str = "gpt-5.6-sol"
@@ -104,7 +104,7 @@ class FunctionalAnalyst(Agent):
     temperature: float = 0
 
 
-class Architect(Agent):
+class ArchitectConfig(Agent):
     """Architect model configuration."""
 
     model: str = "gpt-5.6-sol"
@@ -115,10 +115,10 @@ class Architect(Agent):
 class Agents(BaseSettings):
     """Agent model configuration."""
 
-    interviewer: Interviewer = Field(default_factory=Interviewer)
-    explorer: Explorer = Field(default_factory=Explorer)
-    functional_analyst: FunctionalAnalyst = Field(default_factory=FunctionalAnalyst)
-    architect: Architect = Field(default_factory=Architect)
+    interviewer: InterviewerConfig = Field(default_factory=InterviewerConfig)
+    explorer: ExplorerConfig = Field(default_factory=ExplorerConfig)
+    functional_analyst: FunctionalAnalystConfig = Field(default_factory=FunctionalAnalystConfig)
+    architect: ArchitectConfig = Field(default_factory=ArchitectConfig)
 
     model_config = SettingsConfigDict(
         env_prefix="JRI_AGENTS_", env_nested_delimiter="_", env_nested_max_split=2, extra="ignore"
@@ -172,44 +172,33 @@ class Logging(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="JRI_LOGGING_", extra="ignore")
 
 
-class _FileModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+_RUNTIME_FIELDS = frozenset({"cwd", "force"})
+_SECRET_FIELDS = frozenset({"api_key"})
 
 
-class _LLMFile(_FileModel):
-    provider: str | None = None
+def _build_file_schema(model: type[BaseModel], *, secrets: bool) -> type[BaseModel]:
+    """Build the schema a project file is allowed to set.
 
+    Every field is optional so partial files fall back to the defaults,
+    unknown keys are rejected, and secrets stay out of the committed
+    configuration.
 
-class _LoggingFile(_FileModel):
-    level: LoggingLevel | None = None
+    Returns:
+        A model mirroring the settings the file may define.
+    """
 
-
-class _AgentFile(_FileModel):
-    model: str | None = None
-    reasoning_effort: ReasoningEffort = None
-    temperature: float | None = Field(default=None, ge=0, le=2)
-
-
-class _AgentsFile(_FileModel):
-    interviewer: _AgentFile | None = None
-    explorer: _AgentFile | None = None
-    functional_analyst: _AgentFile | None = None
-    architect: _AgentFile | None = None
-
-
-class _ConfigFile(_FileModel):
-    llm: _LLMFile | None = None
-    agents: _AgentsFile | None = None
-    logging: _LoggingFile | None = None
-
-
-class _APIKey(_FileModel):
-    api_key: str | None = None
-
-
-class _SecretsFile(_FileModel):
-    llm: _APIKey | None = None
-    brave_search: _APIKey | None = None
+    fields: dict[str, Any] = {}
+    for name, field in model.model_fields.items():
+        annotation: Any = field.annotation
+        if name in _RUNTIME_FIELDS:
+            continue
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            section = _build_file_schema(annotation, secrets=secrets)
+            if section.model_fields:
+                fields[name] = (section | None, None)
+        elif (name in _SECRET_FIELDS) == secrets:
+            fields[name] = (annotation | None, None)
+    return create_model(f"{model.__name__}File", __config__=ConfigDict(extra="forbid"), **fields)
 
 
 class _YamlSource(YamlConfigSettingsSource):
@@ -264,8 +253,8 @@ class Settings(BaseSettings):
             init_settings,
             env_settings,
             dotenv_settings,
-            _YamlSource(settings_cls, paths.SECRETS_FILE, _SecretsFile),
-            _YamlSource(settings_cls, paths.CONFIG_FILE, _ConfigFile),
+            _YamlSource(settings_cls, paths.SECRETS_FILE, _build_file_schema(cls, secrets=True)),
+            _YamlSource(settings_cls, paths.CONFIG_FILE, _build_file_schema(cls, secrets=False)),
         )
 
     @model_validator(mode="after")

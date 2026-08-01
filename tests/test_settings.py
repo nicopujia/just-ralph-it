@@ -8,6 +8,14 @@ from jri.core import paths
 from jri.core.settings import CONFIG_TEMPLATE, SECRETS_TEMPLATE, Settings, initialize_workspace
 
 
+@pytest.fixture(autouse=True)
+def isolate_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    for name in tuple(os.environ):
+        if name.startswith("JRI_"):
+            monkeypatch.delenv(name)
+
+
 def test_initialize_workspace_creates_complete_self_documenting_configuration(tmp_path: Path) -> None:
     initialize_workspace(tmp_path)
 
@@ -45,12 +53,7 @@ def test_initialize_workspace_preserves_files_and_appends_ignores_idempotently(t
     assert gitignore_file.read_text() == "custom-cache\nlogs\nsecrets.yaml\nsession.json\nvisualization.html\n"
 
 
-def test_settings_defaults_match_generated_configuration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    for name in tuple(os.environ):
-        if name.startswith("JRI_"):
-            monkeypatch.delenv(name)
-
+def test_settings_defaults_match_generated_configuration(tmp_path: Path) -> None:
     settings = Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
 
     assert settings.llm.provider == "openai-subscription"
@@ -77,11 +80,16 @@ def test_settings_defaults_match_generated_configuration(tmp_path: Path, monkeyp
     assert settings.logging.level == "INFO"
 
 
-def test_partial_agent_configuration_uses_agent_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    for name in tuple(os.environ):
-        if name.startswith("JRI_"):
-            monkeypatch.delenv(name)
+def test_generated_configuration_does_not_drift_from_the_defaults(tmp_path: Path) -> None:
+    settings = Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
+    template = yaml.safe_load(CONFIG_TEMPLATE)
+
+    assert template["llm"]["provider"] == settings.llm.provider
+    assert template["agents"] == settings.agents.model_dump()
+    assert template["logging"]["level"] == settings.logging.level
+
+
+def test_partial_agent_configuration_uses_agent_defaults(tmp_path: Path) -> None:
     initialize_workspace(tmp_path)
     (tmp_path / paths.CONFIG_FILE).write_text("""\
 agents:
@@ -107,10 +115,6 @@ agents:
 
 
 def test_settings_resolve_cli_environment_secrets_and_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    for name in tuple(os.environ):
-        if name.startswith("JRI_"):
-            monkeypatch.delenv(name)
     initialize_workspace(tmp_path)
     (tmp_path / paths.CONFIG_FILE).write_text("""\
 llm:

@@ -67,13 +67,16 @@ class Service:
         self.session_lock = Lock()
         self.settings = settings
 
+        kept = {paths.WORKSPACE_DIR, paths.CONFIG_FILE, paths.SECRETS_FILE, paths.GITIGNORE_FILE}
         if settings.force:
-            self.notebook_file.unlink(missing_ok=True)
-            self.session_file.unlink(missing_ok=True)
-            self.visualization_file.unlink(missing_ok=True)
-            for directory in (self.logs_dir, settings.cwd / paths.SPECS_DIR):
-                if directory.exists():
-                    shutil.rmtree(directory)
+            for name, value in vars(paths).items():
+                if not name.isupper() or value in kept:
+                    continue
+                target = settings.cwd / value
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink(missing_ok=True)
 
         initialize_workspace(settings.cwd)
         self.logs_dir.mkdir(exist_ok=True, parents=True)
