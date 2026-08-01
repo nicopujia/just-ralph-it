@@ -1,5 +1,6 @@
 """Small subprocess-backed Git interface."""
 
+import logging
 import os
 import shutil
 import subprocess
@@ -10,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = ["Error", "NotInstalledError", "NotRepositoryError", "Repository", "Status", "find_root"]
+logger = logging.getLogger(__name__)
 
 
 class Error(RuntimeError):
@@ -84,7 +86,7 @@ class Repository:
 
         return self._run("rev-parse", "--verify", "HEAD", check=False).returncode == 0
 
-    def head(self) -> str:
+    def read_head(self) -> str:
         """Return the current commit ID.
 
         Returns:
@@ -93,7 +95,7 @@ class Repository:
 
         return os.fsdecode(self._run("rev-parse", "HEAD").stdout).strip()
 
-    def status(self) -> tuple[Status, ...]:
+    def read_status(self) -> tuple[Status, ...]:
         """Return staged, unstaged, and untracked paths.
 
         Returns:
@@ -161,7 +163,7 @@ class Repository:
             command.extend(["--", *paths])
         return self._run(*command).stdout
 
-    def tracked_paths(self, revision: str = "HEAD") -> tuple[str, ...]:
+    def read_tracked_paths(self, revision: str = "HEAD") -> tuple[str, ...]:
         """Return paths tracked by a revision.
 
         Returns:
@@ -171,7 +173,7 @@ class Repository:
         output = self._run("ls-tree", "-r", "-z", "--name-only", revision).stdout
         return tuple(os.fsdecode(path) for path in output.split(b"\0") if path)
 
-    def worktree_paths(self) -> tuple[str, ...]:
+    def read_worktree_paths(self) -> tuple[str, ...]:
         """Return tracked and unignored untracked worktree paths.
 
         Returns:
@@ -182,7 +184,7 @@ class Repository:
         return tuple(os.fsdecode(path) for path in output.split(b"\0") if path)
 
     @contextmanager
-    def detached_worktree(self, revision: str | None = "HEAD") -> Generator["Repository"]:
+    def open_worktree(self, revision: str | None = "HEAD") -> Generator["Repository"]:
         """Create a temporary detached worktree.
 
         Yields:
@@ -190,10 +192,10 @@ class Repository:
         """
 
         with tempfile.TemporaryDirectory(prefix="git-worktree-") as temporary_directory:
-            location = Path(temporary_directory) / "worktree"
+            location = Path(temporary_directory) / (revision or "worktree")
             if revision is None:
                 location.mkdir()
-                for relative_path in self.worktree_paths():
+                for relative_path in self.read_worktree_paths():
                     source = self.path / relative_path
                     if source.is_file():
                         destination = location / relative_path
@@ -203,11 +205,17 @@ class Repository:
                 repository.stage((".",))
                 yield repository
                 return
+            # A killed process cannot clean up after itself, so drop
+            # the entries it left behind. Git only reclaims an entry
+            # once its directory is gone from disk.
+            self._run("worktree", "prune", check=False)
             self._run("worktree", "add", "--detach", str(location), revision)
             try:
                 yield Repository(location, str(self.executable))
             finally:
-                self._run("worktree", "remove", "--force", str(location))
+                removal = self._run("worktree", "remove", "--force", str(location), check=False)
+                if removal.returncode:
+                    logger.warning("worktree_removal_failed location=%s", location)
 
     def apply_patch(self, patch: bytes, *, index: bool = False) -> None:
         """Apply a patch to the worktree."""
@@ -230,7 +238,7 @@ class Repository:
         """
 
         self._run("commit", "--file=-", stdin=message.encode())
-        return self.head()
+        return self.read_head()
 
     def _run(
         self, *arguments: str, stdin: bytes | None = None, check: bool = True

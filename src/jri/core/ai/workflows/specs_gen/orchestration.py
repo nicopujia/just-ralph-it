@@ -10,7 +10,6 @@ from . import architect, functional_analyst
 
 if TYPE_CHECKING:
     from collections.abc import Generator
-    from pathlib import Path
 
     from jri.core.settings import Settings
 
@@ -75,7 +74,7 @@ class SpecsGen:
             if cycle == 1:
                 yield ai.ToolCallFinished("functional", "Wrote functional specifications from your project notes")
 
-            with self.specs.repository.detached_worktree(baseline.commit) as staging:
+            with self.specs.repository.open_worktree(baseline.commit) as staging:
                 self.specs.apply(staging, functional_result.patch, paths.FUNCTIONAL_SPECS_DIR)
                 functional = self.specs.read(staging.path, paths.FUNCTIONAL_SPECS_DIR)
                 if not functional:
@@ -83,7 +82,20 @@ class SpecsGen:
 
                 if explorer_report is None:
                     yield ai.ToolCallStarted("explorer", "Studying your existing project", "🔎")
-                    explorer_report = self._explore(staging.path)
+                    explorer = ai.Explorer(self.settings.model_copy(update={"cwd": staging.path}))
+                    output: list[str] = []
+                    for event in explorer.send_message(
+                        "Study this repository generally. Report its structure, architecture, established patterns, "
+                        "development commands, and constraints that an architect must respect. Be dense, factual, "
+                        "and repository-general."
+                    ):
+                        if isinstance(event, ai.ToolCallStarted):
+                            output.clear()
+                        elif isinstance(event, ai.TextDelta):
+                            output.append(event.text)
+                    explorer_report = "".join(output).strip()
+                    if not explorer_report:
+                        raise RuntimeError("Repository exploration produced no report.")
                     yield ai.ToolCallFinished("explorer", "Studied your existing project")
                     yield ai.ToolCallStarted("architecture", "Designing the project architecture", "📐")
 
@@ -92,9 +104,9 @@ class SpecsGen:
                     accepted_architecture=self.specs.render(baseline.architecture),
                     baseline_commit=baseline.commit or "(initial repository)",
                     tracked_tree="\n".join(
-                        self.specs.repository.tracked_paths(baseline.commit)
+                        self.specs.repository.read_tracked_paths(baseline.commit)
                         if baseline.commit
-                        else self.specs.repository.worktree_paths()
+                        else self.specs.repository.read_worktree_paths()
                     ),
                     explorer_report=explorer_report,
                 )
@@ -125,19 +137,3 @@ class SpecsGen:
             return commit
 
         raise RuntimeError("The final architecture cycle did not return a patch.")
-
-    def _explore(self, cwd: Path) -> str:
-        explorer = ai.Explorer(self.settings.model_copy(update={"cwd": cwd}))
-        output: list[str] = []
-        for event in explorer.send_message(
-            "Study this repository generally. Report its structure, architecture, established patterns, development "
-            "commands, and constraints that an architect must respect. Be dense, factual, and repository-general."
-        ):
-            if isinstance(event, ai.ToolCallStarted):
-                output.clear()
-            elif isinstance(event, ai.TextDelta):
-                output.append(event.text)
-        report = "".join(output).strip()
-        if not report:
-            raise RuntimeError("Repository exploration produced no report.")
-        return report
