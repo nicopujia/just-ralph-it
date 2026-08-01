@@ -71,7 +71,7 @@ class FunctionalAnalyst(LLMRunner):
     """)
 
     def __init__(self, settings: Settings) -> None:
-        agent = settings.agents.functional_analyst.resolve(settings.agents.interviewer)
+        agent = settings.agents.functional_analyst
         super().__init__(
             client=settings.llm.client,
             model=agent.model,

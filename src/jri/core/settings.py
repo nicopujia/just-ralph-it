@@ -35,11 +35,11 @@ agents:
   functional_analyst:
     model: gpt-5.6-sol
     reasoning_effort: high
-    temperature: 0.7
+    temperature: 0
   architect:
     model: gpt-5.6-sol
     reasoning_effort: high
-    temperature: 0.7
+    temperature: 0.2
 
 logging:
   # One of DEBUG, INFO, WARNING, ERROR, or CRITICAL.
@@ -80,25 +80,6 @@ class Agent(BaseModel):
     temperature: float = Field(ge=0, le=2, description="Model sampling temperature.")
 
 
-class AgentOverride(BaseModel):
-    """Optional agent settings that inherit from another agent."""
-
-    model: str | None = None
-    reasoning_effort: ReasoningEffort = None
-    temperature: float | None = Field(default=None, ge=0, le=2)
-
-    model_config = ConfigDict(extra="forbid")
-
-    def resolve(self, fallback: Agent) -> Agent:
-        """Resolve missing values from the fallback agent.
-
-        Returns:
-            A complete agent configuration.
-        """
-
-        return fallback.model_copy(update=self.model_dump(exclude_none=True))
-
-
 class Interviewer(Agent):
     """Interviewer model configuration."""
 
@@ -115,13 +96,29 @@ class Explorer(Agent):
     temperature: float = 0
 
 
+class FunctionalAnalyst(Agent):
+    """Functional Analyst model configuration."""
+
+    model: str = "gpt-5.6-sol"
+    reasoning_effort: ReasoningEffort = "high"
+    temperature: float = 0
+
+
+class Architect(Agent):
+    """Architect model configuration."""
+
+    model: str = "gpt-5.6-sol"
+    reasoning_effort: ReasoningEffort = "high"
+    temperature: float = 0.2
+
+
 class Agents(BaseSettings):
     """Agent model configuration."""
 
     interviewer: Interviewer = Field(default_factory=Interviewer)
     explorer: Explorer = Field(default_factory=Explorer)
-    functional_analyst: AgentOverride = Field(default_factory=AgentOverride)
-    architect: AgentOverride = Field(default_factory=AgentOverride)
+    functional_analyst: FunctionalAnalyst = Field(default_factory=FunctionalAnalyst)
+    architect: Architect = Field(default_factory=Architect)
 
     model_config = SettingsConfigDict(
         env_prefix="JRI_AGENTS_", env_nested_delimiter="_", env_nested_max_split=2, extra="ignore"
@@ -187,11 +184,17 @@ class _LoggingFile(_FileModel):
     level: LoggingLevel | None = None
 
 
+class _AgentFile(_FileModel):
+    model: str | None = None
+    reasoning_effort: ReasoningEffort = None
+    temperature: float | None = Field(default=None, ge=0, le=2)
+
+
 class _AgentsFile(_FileModel):
-    interviewer: AgentOverride | None = None
-    explorer: AgentOverride | None = None
-    functional_analyst: AgentOverride | None = None
-    architect: AgentOverride | None = None
+    interviewer: _AgentFile | None = None
+    explorer: _AgentFile | None = None
+    functional_analyst: _AgentFile | None = None
+    architect: _AgentFile | None = None
 
 
 class _ConfigFile(_FileModel):

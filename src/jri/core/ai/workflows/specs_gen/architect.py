@@ -73,7 +73,7 @@ class Architect(LLMRunner):
     """)
 
     def __init__(self, settings: Settings) -> None:
-        agent = settings.agents.architect.resolve(settings.agents.interviewer)
+        agent = settings.agents.architect
         super().__init__(
             client=settings.llm.client,
             model=agent.model,

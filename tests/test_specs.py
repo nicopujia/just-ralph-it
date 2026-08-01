@@ -8,7 +8,7 @@ import pytest
 
 from jri.core.ai import architect, functional_analyst
 from jri.core.service import Service
-from jri.core.settings import Agent, AgentOverride
+from jri.core.settings import Agent
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 
 if TYPE_CHECKING:
@@ -71,8 +71,8 @@ def build_service(path: Path, client: FakeClient) -> Service:
         agents=SimpleNamespace(
             interviewer=Agent(model="test", reasoning_effort=None, temperature=0),
             explorer=Agent(model="test", reasoning_effort=None, temperature=0),
-            functional_analyst=AgentOverride(),
-            architect=AgentOverride(),
+            functional_analyst=Agent(model="test", reasoning_effort=None, temperature=0),
+            architect=Agent(model="test", reasoning_effort=None, temperature=0),
         ),
     )
     return Service(cast("Settings", settings))

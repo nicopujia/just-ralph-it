@@ -18,8 +18,8 @@ def test_initialize_workspace_creates_complete_self_documenting_configuration(tm
         "agents": {
             "interviewer": {"model": "gpt-5.6-sol", "reasoning_effort": "high", "temperature": 0.7},
             "explorer": {"model": "gpt-5.6-terra", "reasoning_effort": "low", "temperature": 0},
-            "functional_analyst": {"model": "gpt-5.6-sol", "reasoning_effort": "high", "temperature": 0.7},
-            "architect": {"model": "gpt-5.6-sol", "reasoning_effort": "high", "temperature": 0.7},
+            "functional_analyst": {"model": "gpt-5.6-sol", "reasoning_effort": "high", "temperature": 0},
+            "architect": {"model": "gpt-5.6-sol", "reasoning_effort": "high", "temperature": 0.2},
         },
         "logging": {"level": "INFO"},
     }
@@ -64,12 +64,20 @@ def test_settings_defaults_match_generated_configuration(tmp_path: Path, monkeyp
         "reasoning_effort": "low",
         "temperature": 0,
     }
-    assert settings.agents.functional_analyst.resolve(settings.agents.interviewer) == settings.agents.interviewer
-    assert settings.agents.architect.resolve(settings.agents.interviewer) == settings.agents.interviewer
+    assert settings.agents.functional_analyst.model_dump() == {
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "high",
+        "temperature": 0,
+    }
+    assert settings.agents.architect.model_dump() == {
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "high",
+        "temperature": 0.2,
+    }
     assert settings.logging.level == "INFO"
 
 
-def test_partial_agent_configuration_inherits_from_interviewer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_partial_agent_configuration_uses_agent_defaults(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
     for name in tuple(os.environ):
         if name.startswith("JRI_"):
@@ -91,9 +99,9 @@ agents:
         "reasoning_effort": "medium",
         "temperature": 0.7,
     }
-    assert settings.agents.functional_analyst.resolve(settings.agents.interviewer).model_dump() == {
-        "model": "custom-model",
-        "reasoning_effort": "medium",
+    assert settings.agents.functional_analyst.model_dump() == {
+        "model": "gpt-5.6-sol",
+        "reasoning_effort": "high",
         "temperature": 0.2,
     }
 
