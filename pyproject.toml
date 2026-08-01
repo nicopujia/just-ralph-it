@@ -65,6 +65,7 @@ fixable = ["ALL"]
 unfixable = []
 ignore = [
     "B901", # allow generator return values consumed through `yield from`
+    "C901", # allow complex functions; prefer flat inline logic over helper extraction
     "COM812", # make trailing comma mandatory
     "CPY", # skip copyright notices
     "D", # make docstrings optional
@@ -73,6 +74,9 @@ ignore = [
     "EM101", # allow inline string literals in exceptions
     "EM102", # allow inline f-strings in exceptions
     "EM103", # allow inline .format() or concatenated exception messages
+    "PLR0911", # allow many returns; early returns are the house style
+    "PLR0912", # allow many branches; prefer flat inline logic
+    "PLR0915", # allow many statements; prefer flat inline logic
     "S404", # allow importing subprocess library
     "S603", # allow running subprocesses
     "T20", # allow debug statements
