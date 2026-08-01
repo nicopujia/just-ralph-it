@@ -44,26 +44,28 @@ pip install just-ralph-it
 uv tool install just-ralph-it
 ```
 
-### 2. Authentication
+### 2. Configuration and authentication
 
-You can create a `.env` file at the root of your project or home directory. You can also `export` the variables in your shell or pass them as CLI arguments (see `jri --help`).
+On first run, JRI creates a self-documented `.jri/config.yaml` with the complete default configuration and an ignored `.jri/secrets.yaml` for API keys. You can also override settings through `.env`, the shell, or CLI flags (see `jri --help`). Environment variables follow the nested setting path with `_`, for example `JRI_LLM_PROVIDER` and `JRI_AGENTS_INTERVIEWER_MODEL`.
 
 #### Using an API key
 
-```bash
-# .env
+```yaml
+# .jri/config.yaml
+llm:
+  # Replace this URL with any OpenAI-compatible provider.
+  provider: https://api.openai.com/v1
+```
 
-# To use OpenAI as the provider, just set your OpenAI key here
-JRI_LLM_API_KEY=...
-
-# To use any OpenAI-compatible provider, provide its base URL too
-JRI_LLM_PROVIDER=https://provider.example/v1
-JRI_LLM_API_KEY=...
+```yaml
+# .jri/secrets.yaml
+llm:
+  api_key: ...
 ```
 
 #### Using a ChatGPT subscription
 
-For this, you need to have Codex installed and configure it to store credentials in a file:
+For this, you need to have [Codex](https://learn.chatgpt.com/docs/codex/cli#getting-started) installed and configure it to store credentials in a file:
 
 ```toml
 # ~/.codex/config.toml
@@ -76,44 +78,27 @@ Then run:
 codex login
 ```
 
-Finally, configure it as the provider:
-
-```bash
-# .env
-
-JRI_LLM_PROVIDER=openai-codex
-```
+The generated configuration already selects `openai-subscription` as the provider by default, so no additional JRI setting is required.
 
 #### Optional: Brave Search
 
 To support web search, provide a [Brave Search API](https://brave.com/search/api/) key:
 
-```bash
-# .env
-
-JRI_BRAVE_SEARCH_API_KEY=...
+```yaml
+# .jri/secrets.yaml
+brave_search:
+  api_key: ...
 ```
 
 ### 3. Model selection
 
-For now, there are no built-in model defaults, so you have to set them yourself:
+The generated configuration includes these defaults:
 
-```bash
-# .env
+- Interviewer: `gpt-5.6-sol`, `high` reasoning effort, `0.7` temperature
+- Explorer: `gpt-5.6-terra`, `low` reasoning effort, `0` temperature
+- Functional analyst and architect: the interviewer configuration
 
-# Recommended OpenAI preset
-JRI_INTERVIEWER_MODEL=gpt-5.6-sol
-JRI_EXPLORER_MODEL=gpt-5.6-terra
-
-# Recommended cheap Chinese alternative (e.g. works with OpenRouter)
-JRI_INTERVIEWER_MODEL=z-ai/glm-5.2
-JRI_EXPLORER_MODEL=qwen/qwen3.5-9b
-```
-
-Note that there are default reasoning levels when available for the models:
-
-- Interviewer: `high`
-- Explorer: `low`
+Edit `.jri/config.yaml` to change them. When omitted, functional analyst and architect values inherit from the interviewer.
 
 ### 4. Usage
 
