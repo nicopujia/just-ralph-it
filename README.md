@@ -96,9 +96,10 @@ The generated configuration includes these defaults:
 
 - Interviewer: `gpt-5.6-sol`, `high` reasoning effort, `0.7` temperature
 - Explorer: `gpt-5.6-terra`, `low` reasoning effort, `0` temperature
-- Functional analyst and architect: the interviewer configuration
+- Functional analyst: `gpt-5.6-sol`, `high` reasoning effort, `0` temperature
+- Architect: `gpt-5.6-sol`, `high` reasoning effort, `0.2` temperature
 
-Edit `.jri/config.yaml` to change them. When omitted, functional analyst and architect values inherit from the interviewer.
+Edit `.jri/config.yaml` to change them. Each agent is configured independently; omitted values fall back to its own defaults above.
 
 ### 4. Usage
 

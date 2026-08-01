@@ -332,7 +332,7 @@ class App(TextualApp[None]):
         await self._render_interviewer_status(turn_state, status_copy)
         if turn_state.retry_button is None:
             turn_state.retry_button = self._build_retry_button()
-            await turn_state.container.mount(turn_state.retry_button, before=0)
+            await turn_state.container.mount(turn_state.retry_button)
         turn_state.retry_button.display = True
         turn_state.retry_button.disabled = False
 
@@ -601,7 +601,7 @@ class App(TextualApp[None]):
             if child is not button:
                 await child.remove()
         placeholder = Markdown(c.INTERVIEWER_THINKING_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES)
-        await container.mount(placeholder)
+        await container.mount(placeholder, before=button)
         turn_state = InterviewerTurnState(container=container, placeholder=placeholder, retry_button=button)
         self.active_turn_state = turn_state
         button.disabled = True

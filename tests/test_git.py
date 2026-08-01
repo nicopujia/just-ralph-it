@@ -35,6 +35,16 @@ def test_rejects_missing_git_and_initializes_repository(tmp_path: Path) -> None:
     assert not repository.has_head()
 
 
+def test_finds_worktree_root_from_any_subdirectory(tmp_path: Path) -> None:
+    repository = create_repository(tmp_path / "repo")
+    nested = repository.path / "packages" / "app"
+    nested.mkdir(parents=True)
+
+    assert git.find_root(nested) == repository.path
+    assert git.find_root(repository.path) == repository.path
+    assert git.find_root(tmp_path) is None
+
+
 def test_inspects_revisions_files_diffs_and_status(tmp_path: Path) -> None:
     repository = create_repository(tmp_path / "repo")
     first = repository.head()

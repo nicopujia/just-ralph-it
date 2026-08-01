@@ -13,6 +13,7 @@ from pydantic_settings import CliSettingsSource, SettingsError
 from jri.core.exceptions import AuthError, PersistenceError
 from jri.core.service import Service
 from jri.core.settings import Settings, initialize_workspace
+from jri.lib import git
 
 from .app import App
 from .constants import CONFIG_ERROR_COPY
@@ -30,7 +31,8 @@ def main() -> None:
 
     args = parser.parse_args()
     settings_source(parsed_args=args)
-    project_dir = Path(getattr(args, "cwd", None) or Path.cwd()).resolve()
+    location = Path(getattr(args, "cwd", None) or Path.cwd()).resolve()
+    project_dir = git.find_root(location) or location
     initialize_workspace(project_dir)
 
     try:
