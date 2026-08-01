@@ -276,6 +276,25 @@ def test_rewind_skips_failed_and_cancelled_tool_calls(tmp_path: Path) -> None:
     }
 
 
+def test_rewind_after_restart_still_skips_cancelled_tool_calls(tmp_path: Path) -> None:
+    cancelled = Event()
+    service = build_service(tmp_path, [response(call("cancelled", "switch_topic", topic="Delivery"))])
+    events = service.chat("Cancel this switch.", cancelled)
+    next(events)
+    cancelled.set()
+    list(events)
+
+    restarted = build_service(tmp_path, [response(reply("Latest turn."))])
+    restarted.restore()
+    list(restarted.chat("Keep this only until rewind."))
+    restarted.rewind(1)
+
+    assert restarted.interviewer.active_topic_id == "t1"
+    assert [(topic.id, topic.name) for topic in restarted.interviewer.notebook.graph.topics] == [
+        ("t1", "Project overview")
+    ]
+
+
 def test_invalid_session_file_explains_how_to_reset(tmp_path: Path) -> None:
     service = build_service(tmp_path, [])
     service.session_file.write_text("not json")

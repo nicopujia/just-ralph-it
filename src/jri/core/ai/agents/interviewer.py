@@ -153,6 +153,7 @@ class Interviewer(Agent):
         started_label="Exploring {query}",
         finished_label="Explored {query}",
         symbol="🔎",
+        read_only=True,
     )
     def explore(self, query: str) -> Stream:
         """Gather extra context for the user request.
@@ -235,6 +236,7 @@ class Interviewer(Agent):
         finished_label="Read notes",
         symbol="📖",
         strict=False,
+        read_only=True,
     )
     def read_notes(self, query: ReadQuery | None = None) -> str:
         """Read relevant project notes.

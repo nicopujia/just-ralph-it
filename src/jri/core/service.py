@@ -32,6 +32,7 @@ class Session(BaseModel):
     active_topic_id: TopicId
     initial_graph: Graph
     interview: list[dict[str, Any]] = Field(default_factory=list)
+    failed_call_ids: list[str] = Field(default_factory=list)
     ready_to_ralph: bool = False
     active_spec_commit: str | None = None
     show_thinking_blocks: bool = False
@@ -138,20 +139,14 @@ class Service:
         self.interviewer.active_topic_id = self.interviewer.initial_topic.id
         self.session = self.session.model_copy(update={"ready_to_ralph": False})
 
-        outputs = {
-            item["call_id"]: item["output"]
-            for raw_item in self.interviewer.history
-            if (item := cast("dict[str, Any]", raw_item)).get("type") == "function_call_output"
-        }
         tools = {tool.name: tool for tool in self.interviewer.tools}
         for raw_item in self.interviewer.history:
             item = cast("dict[str, Any]", raw_item)
-            if item.get("type") != "function_call" or item["name"] in {"explore", "read_notes"}:
+            if item.get("type") != "function_call":
                 continue
-            output = outputs.get(item["call_id"])
-            if not isinstance(output, str) or output.startswith(("Tool call cancelled.", "Tool call failed:")):
-                continue
-            list(tools[item["name"]].invoke(item["arguments"]))
+            tool = tools[item["name"]]
+            if not tool.read_only and item["call_id"] not in self.session.failed_call_ids:
+                list(tool.invoke(item["arguments"]))
 
         self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
@@ -215,6 +210,7 @@ class Service:
             raise PersistenceError(
                 f"Invalid session file `{self.session_file}`. Run JRI with --force to reset it."
             ) from error
+        self.interviewer.failed_call_ids = list(self.session.failed_call_ids)
         self.logger.info("restored interview_items=%d", len(self.session.interview))
         return items, self.session.show_thinking_blocks
 
@@ -256,7 +252,9 @@ class Service:
         """Persist trusted values in the current session."""
 
         with self.session_lock:
-            session = self.session.model_copy(update=values)
+            session = self.session.model_copy(
+                update={"failed_call_ids": list(self.interviewer.failed_call_ids), **values}
+            )
             with NamedTemporaryFile("w", dir=self.base_dir, delete=False, encoding="utf-8") as file:
                 file.write(f"{session.model_dump_json(indent=2)}\n")
             Path(file.name).replace(self.session_file)

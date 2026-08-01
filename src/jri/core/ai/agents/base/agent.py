@@ -40,6 +40,7 @@ class Agent:
     tools: list[Tool] = field(init=False)
     history: ResponseInputParam = field(init=False)
     runner: ai.LLMRunner = field(init=False)
+    failed_call_ids: list[str] = field(init=False, default_factory=list)
 
     def __post_init__(self, initial_ctx: ResponseInputParam | None) -> None:
         self.tools = Tool.discover(self)
@@ -134,13 +135,16 @@ class Agent:
             symbol=getattr(tool, "symbol", "⚙︎"),
         )
         if cancelled.is_set():
+            self.failed_call_ids.append(call_id)
             self.history.append({"type": "function_call_output", "call_id": call_id, "output": "Tool call cancelled."})
             return
-        invocation = tool.invoke(arguments) if tool else Invocation(f"Unknown tool `{name}`.")
+        invocation = tool.invoke(arguments) if tool else Invocation(f"Unknown tool `{name}`.", failed=True)
         for event in invocation:
             yield event
             if cancelled.is_set():
                 break
+        if invocation.failed:
+            self.failed_call_ids.append(call_id)
         self.history.append({"type": "function_call_output", "call_id": call_id, "output": invocation.output})
         if not cancelled.is_set():
             yield ai.ToolCallFinished(

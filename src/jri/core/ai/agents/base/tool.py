@@ -26,6 +26,7 @@ class _Metadata:
     finished_label: str
     symbol: str
     strict: bool
+    read_only: bool
 
 
 @dataclass(frozen=True)
@@ -41,20 +42,27 @@ Return = TypeVar("Return")
 
 
 def tool(
-    description: str, *, started_label: str, finished_label: str, symbol: str = "⚙︎", strict: bool = True
+    description: str,
+    *,
+    started_label: str,
+    finished_label: str,
+    symbol: str = "⚙︎",
+    strict: bool = True,
+    read_only: bool = False,
 ) -> Callable[[Callable[Params, Return]], Callable[Params, Return]]:
     """Mark a method as an agent tool.
 
     - The tool name is inferred from the decorated function name.
     - Labels may interpolate tool arguments.
     - `Tool.discover` discovers these methods on `Agent` subclasses.
+    - Read-only tools leave no state behind, so rewinding skips them.
 
     Returns:
         A decorator that attaches tool metadata to the function.
     """
 
     def mark_as_tool(func: Callable[Params, Return]) -> Callable[Params, Return]:
-        setattr(func, _METADATA_ATTR, _Metadata(description, started_label, finished_label, symbol, strict))
+        setattr(func, _METADATA_ATTR, _Metadata(description, started_label, finished_label, symbol, strict, read_only))
         return func
 
     return mark_as_tool
@@ -63,8 +71,9 @@ def tool(
 class Invocation:
     """Stream nested tool events and retain the tool's final output."""
 
-    def __init__(self, output: str | ResponseFunctionCallOutputItemListParam | Stream) -> None:
+    def __init__(self, output: str | ResponseFunctionCallOutputItemListParam | Stream, *, failed: bool = False) -> None:
         self.stream = output if isinstance(output, Iterator) else iter((ToolOutput(output),))
+        self.failed = failed
         self._output: str | ResponseFunctionCallOutputItemListParam | None = None
 
     def __iter__(self) -> Generator[ai.ChatEvent]:
@@ -78,10 +87,12 @@ class Invocation:
             try:
                 item = next(self.stream)
             except StopIteration:
+                self.failed = self.failed or self._output is None
                 return
             except (RuntimeError, TypeError, ValueError) as error:
                 logger.exception("stream_failed")
                 self._output = f"Tool call failed: {error}"
+                self.failed = True
                 return
             if isinstance(item, ToolOutput):
                 self._output = item.value
@@ -126,6 +137,7 @@ class Tool:
     finished_label: str
     symbol: str
     strict: bool
+    read_only: bool
     func: Callable[..., str | ResponseFunctionCallOutputItemListParam | Stream]
     args_model: type[BaseModel]
 
@@ -164,6 +176,7 @@ class Tool:
                     finished_label=metadata.finished_label,
                     symbol=metadata.symbol,
                     strict=metadata.strict,
+                    read_only=metadata.read_only,
                     func=func,
                     args_model=args_model,
                 )
@@ -209,6 +222,7 @@ class Tool:
 
         logger.info("invocation_started name=%s", self.name)
         logger.debug("arguments name=%s arguments=%r", self.name, args)
+        failed = False
         try:
             payload = self.args_model.model_validate_json(args, strict=True)
             output = self.func(**{name: getattr(payload, name) for name in self.args_model.model_fields})
@@ -216,9 +230,11 @@ class Tool:
             logger.exception("validation_failed name=%s", self.name)
             first = error.errors(include_url=False)[0]
             output = f"Tool call failed: {first['msg']}."
+            failed = True
         except (RuntimeError, TypeError, ValueError) as error:
             logger.exception("invocation_failed name=%s", self.name)
             output = f"Tool call failed: {error}"
+            failed = True
         logger.info("invocation_finished name=%s", self.name)
         logger.debug("output name=%s output=%r", self.name, output)
-        return Invocation(output)
+        return Invocation(output, failed=failed)
