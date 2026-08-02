@@ -65,6 +65,7 @@ class LLMRunner:
             RuntimeError: If the response has no parsed output.
         """
 
+        logger.info("parse_started model=%s input_items=%d", self.model, len(context))
         with self.client.responses.stream(
             model=self.model,
             input=context,
@@ -75,12 +76,16 @@ class LLMRunner:
             streamed_text = "".join(event.delta for event in stream if event.type == "response.output_text.delta")
             response = stream.get_final_response()
         if response.output_parsed is not None:
-            return response.output_parsed
-        if response.output_text:
-            return output_type.model_validate_json(response.output_text)
-        if streamed_text:
-            return output_type.model_validate_json(streamed_text)
-        raise RuntimeError("Model response did not contain a parsed output.")
+            parsed = response.output_parsed
+        elif response.output_text:
+            parsed = output_type.model_validate_json(response.output_text)
+        elif streamed_text:
+            parsed = output_type.model_validate_json(streamed_text)
+        else:
+            raise RuntimeError("Model response did not contain a parsed output.")
+        logger.info("parse_finished model=%s", self.model)
+        logger.debug("parse_output model=%s output=%r", self.model, parsed)
+        return parsed
 
     def _respond(
         self,

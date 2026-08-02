@@ -1,3 +1,5 @@
+from time import monotonic
+
 from textual.widgets import Static
 
 from jri.tui import constants as c
@@ -7,6 +9,8 @@ class ToolCallRow(Static):
     """Render a tool call row with spinner state while loading."""
 
     SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
+    # Below this, the elapsed time is noise rather than reassurance.
+    MIN_ELAPSED_SECONDS = 3
 
     def __init__(self, label: str, *, symbol: str = "⚙︎", is_complete: bool = False, depth: int = 0) -> None:
         super().__init__(classes=c.TOOL_CALL_ROW_CLASSES)
@@ -16,6 +20,7 @@ class ToolCallRow(Static):
         self.depth = depth
         self.frame_idx = 0
         self.is_complete = is_complete
+        self.started_at = monotonic()
         self.spinner_timer = None
 
     def on_mount(self) -> None:
@@ -52,5 +57,9 @@ class ToolCallRow(Static):
     def update_copy(self) -> None:
         """Refresh the rendered row text."""
 
-        prefix = self.symbol if self.is_complete else self.SPINNER_FRAMES[self.frame_idx]
-        self.update(f"{prefix} {self.label}")
+        if self.is_complete:
+            self.update(f"{self.symbol} {self.label}")
+            return
+        elapsed = int(monotonic() - self.started_at)
+        suffix = f" [dim]{elapsed // 60}m {elapsed % 60:02d}s[/dim]" if elapsed >= self.MIN_ELAPSED_SECONDS else ""
+        self.update(f"{self.SPINNER_FRAMES[self.frame_idx]} {self.label}{suffix}")

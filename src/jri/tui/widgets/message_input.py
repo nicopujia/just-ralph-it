@@ -52,34 +52,37 @@ class MessageInput(TextArea):
     def action_insert_newline(self) -> None:
         self.insert("\n")
 
+    @override
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """Offer the chord endings only while the chord is open.
+
+        Leaving them disabled otherwise keeps their keys ordinary text,
+        so typing them never routes through an action.
+
+        Returns:
+            Whether the action may run for this key press.
+        """
+
+        if action in {"previous_message", "next_message", "retry_message", "ralph"}:
+            return monotonic() - self._message_history_at <= 1
+        return super().check_action(action, parameters)
+
     def action_message_history(self) -> None:
         self._message_history_at = monotonic()
 
     def action_previous_message(self) -> None:
-        if monotonic() - self._message_history_at > 1:
-            self.insert("u")
-            return
         self._message_history_at = 0.0
         self.post_message(self.HistoryRequested(self, "previous"))
 
     def action_next_message(self) -> None:
-        if monotonic() - self._message_history_at > 1:
-            self.insert("r")
-            return
         self._message_history_at = 0.0
         self.post_message(self.HistoryRequested(self, "next"))
 
     def action_retry_message(self) -> None:
-        if monotonic() - self._message_history_at > 1:
-            self.insert("t")
-            return
         self._message_history_at = 0.0
         self.post_message(self.RetryRequested())
 
     def action_ralph(self) -> None:
-        if monotonic() - self._message_history_at > 1:
-            self.insert("j")
-            return
         self._message_history_at = 0.0
         self.post_message(self.RalphRequested())
 

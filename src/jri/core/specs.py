@@ -1,9 +1,12 @@
+import logging
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from jri.lib import git
 
 from . import paths
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -52,15 +55,26 @@ class Specs:
             or self.repository.read_tree(commit, paths.ARCHITECTURE_SPECS_DIR) != architecture
         ):
             raise RuntimeError("Checked-out specifications differ from the active JRI commit.")
+        logger.info("baseline_prepared head=%s active=%s functional=%d", commit, active_commit, len(functional))
         return Baseline(
             commit, notebook, self.repository.read_file(active_commit, paths.NOTEBOOK_FILE), functional, architecture
         )
 
     def apply(self, repository: git.Repository, patch: str, root: str) -> None:
-        """Validate and apply a specification patch to a repository."""
+        """Validate and apply a specification patch to a repository.
+
+        Raises:
+            git.Error: If Git refuses the patch.
+        """
 
         self._validate_patch(patch, root)
-        repository.apply_patch(patch.encode(), index=True)
+        try:
+            repository.apply_patch(patch.encode(), index=True)
+        except git.Error:
+            # The patch is the only evidence of why generation failed.
+            logger.exception("patch_rejected root=%s patch=%r", root, patch)
+            raise
+        logger.info("patch_applied root=%s characters=%d", root, len(patch))
 
     @staticmethod
     def read(worktree: Path, root: str) -> dict[str, bytes]:
@@ -111,7 +125,9 @@ class Specs:
                 paths.ARCHITECTURE_SPECS_DIR,
             )
         )
-        return self.repository.commit("jri: update specifications\n\nCo-authored-by: ralphpujia <ralph@pujia.ar>\n")
+        commit = self.repository.commit("jri: update specifications\n\nCo-authored-by: ralphpujia <ralph@pujia.ar>\n")
+        logger.info("specs_committed commit=%s", commit)
+        return commit
 
     def _check_status(self, baseline: str | None) -> None:
         if baseline is None:

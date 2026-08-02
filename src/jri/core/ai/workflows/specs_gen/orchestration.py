@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from difflib import unified_diff
 from typing import TYPE_CHECKING
 
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
 
     from jri.core.settings import Settings
 
+logger = logging.getLogger(__name__)
 MAX_CYCLES = 10
 
 
@@ -49,6 +51,7 @@ class SpecsGen:
         rejected: str | None = None
 
         for cycle in range(1, MAX_CYCLES + 1):
+            logger.info("specs_cycle_started cycle=%d", cycle)
             if cycle == 1:
                 yield ai.ToolCallStarted("functional", "Writing functional specifications from your project notes", "✍️")
             functional_result = self.functional_analyst.write(
@@ -68,6 +71,7 @@ class SpecsGen:
                 )
             )
             if isinstance(functional_result, functional_analyst.Ambiguities):
+                logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.ambiguities))
                 active = "functional" if cycle == 1 else "polishing"
                 yield ai.ToolCallFinished(active, "Found project details to clarify")
                 return functional_result
@@ -114,6 +118,7 @@ class SpecsGen:
                     self.architect.finish(context) if cycle == MAX_CYCLES else self.architect.design(context)
                 )
                 if isinstance(architecture_result, architect.Issues):
+                    logger.info("specs_issues cycle=%d count=%d", cycle, len(architecture_result.issues))
                     if cycle == 1:
                         yield ai.ToolCallFinished("architecture", "Drafted the project architecture")
                         yield ai.ToolCallStarted("polishing", "Polishing specifications", "✨")
