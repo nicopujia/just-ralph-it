@@ -117,6 +117,18 @@ agents:
     assert settings.agents.architect.temperature is None
 
 
+def test_untouched_secrets_file_leaves_environment_keys_alone(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    initialize_workspace(tmp_path)
+    (tmp_path / paths.CONFIG_FILE).write_text("llm:\n  provider: https://api.openai.com/v1\n")
+    monkeypatch.setenv("JRI_LLM_API_KEY", "environment-key")
+    monkeypatch.setenv("JRI_BRAVE_SEARCH_API_KEY", "environment-search-key")
+
+    settings = Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
+
+    assert settings.llm.api_key == "environment-key"
+    assert settings.brave_search.api_key == "environment-search-key"
+
+
 def test_settings_resolve_cli_environment_secrets_and_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     initialize_workspace(tmp_path)
     (tmp_path / paths.CONFIG_FILE).write_text("""\

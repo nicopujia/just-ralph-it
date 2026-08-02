@@ -47,12 +47,16 @@ logging:
   # One of DEBUG, INFO, WARNING, ERROR, or CRITICAL.
   level: INFO
 """
+# Every key stays commented out, so an untouched file
+# overrides nothing configured elsewhere.
 SECRETS_TEMPLATE = """\
-llm:
-  api_key:
+# Uncomment what you need. JRI_LLM_API_KEY and JRI_BRAVE_SEARCH_API_KEY work too.
 
-brave_search:
-  api_key:
+# llm:
+#   api_key: ...
+
+# brave_search:
+#   api_key: ...
 """
 
 
