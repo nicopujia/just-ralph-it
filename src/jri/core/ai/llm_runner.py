@@ -3,7 +3,7 @@ from collections.abc import Generator, Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, TypeVar, cast
 
-from openai import OpenAI
+from openai import Omit, OpenAI, omit
 from openai.types.responses import FunctionToolParam, ResponseInputParam, ResponseStreamEvent
 from openai.types.shared import ReasoningEffort
 from openai.types.shared_params import Reasoning
@@ -34,6 +34,17 @@ class LLMRunner:
     reasoning_effort: ReasoningEffort = None
     temperature: float | None = None
 
+    @property
+    def sampling(self) -> float | Omit:
+        """Send a temperature only when one is configured.
+
+        Returns:
+            The configured temperature, or nothing for reasoning models
+            that reject the parameter outright.
+        """
+
+        return omit if self.temperature is None else self.temperature
+
     def respond(self, context: ResponseInputParam, tools: Sequence[FunctionToolParam] = ()) -> Response:
         """Stream one model response.
 
@@ -59,7 +70,7 @@ class LLMRunner:
             input=context,
             text_format=output_type,
             reasoning=Reasoning(effort=self.reasoning_effort, summary="auto"),
-            temperature=self.temperature,
+            temperature=self.sampling,
         ) as stream:
             streamed_text = "".join(event.delta for event in stream if event.type == "response.output_text.delta")
             response = stream.get_final_response()
@@ -82,7 +93,7 @@ class LLMRunner:
             input=context,
             tools=tools,
             reasoning=Reasoning(effort=self.reasoning_effort, summary="auto"),
-            temperature=self.temperature,
+            temperature=self.sampling,
             stream=True,
         ) as stream:
             yield from self._decode(stream, outputs_by_index)

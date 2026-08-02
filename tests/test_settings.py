@@ -98,6 +98,8 @@ agents:
     reasoning_effort: medium
   functional_analyst:
     temperature: 0.2
+  architect:
+    temperature:
 """)
 
     settings = Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
@@ -112,6 +114,7 @@ agents:
         "reasoning_effort": "high",
         "temperature": 0.2,
     }
+    assert settings.agents.architect.temperature is None
 
 
 def test_settings_resolve_cli_environment_secrets_and_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

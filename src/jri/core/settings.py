@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Literal, override
+from typing import Annotated, Any, Literal, override
 
 from openai import OpenAI
 from openai.types.shared import ReasoningEffort
@@ -16,6 +16,7 @@ from jri.core import paths
 from jri.lib.providers import codex
 
 type LoggingLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+type Temperature = Annotated[float, Field(ge=0, le=2)] | None
 CONFIG_TEMPLATE = """\
 llm:
   # Use a ChatGPT subscription. For an API key, replace this with an OpenAI-compatible base URL
@@ -23,6 +24,7 @@ llm:
   provider: openai-subscription
 
 # Each agent selects a model, reasoning effort, and sampling temperature (0 = focused, 2 = varied).
+# Leave a temperature empty to let the model pick; reasoning models reject the setting outright.
 agents:
   interviewer:
     model: gpt-5.6-sol
@@ -77,7 +79,7 @@ class Agent(BaseModel):
 
     model: str = Field(description="Model ID.")
     reasoning_effort: ReasoningEffort = Field(description="Model reasoning effort.")
-    temperature: float = Field(ge=0, le=2, description="Model sampling temperature.")
+    temperature: Temperature = Field(description="Model sampling temperature, or empty for the model's own.")
 
 
 class InterviewerConfig(Agent):
@@ -85,7 +87,7 @@ class InterviewerConfig(Agent):
 
     model: str = "gpt-5.6-sol"
     reasoning_effort: ReasoningEffort = "high"
-    temperature: float = 0.7
+    temperature: Temperature = 0.7
 
 
 class ExplorerConfig(Agent):
@@ -93,7 +95,7 @@ class ExplorerConfig(Agent):
 
     model: str = "gpt-5.6-terra"
     reasoning_effort: ReasoningEffort = "low"
-    temperature: float = 0
+    temperature: Temperature = 0
 
 
 class FunctionalAnalystConfig(Agent):
@@ -101,7 +103,7 @@ class FunctionalAnalystConfig(Agent):
 
     model: str = "gpt-5.6-sol"
     reasoning_effort: ReasoningEffort = "high"
-    temperature: float = 0
+    temperature: Temperature = 0
 
 
 class ArchitectConfig(Agent):
@@ -109,7 +111,7 @@ class ArchitectConfig(Agent):
 
     model: str = "gpt-5.6-sol"
     reasoning_effort: ReasoningEffort = "high"
-    temperature: float = 0.2
+    temperature: Temperature = 0.2
 
 
 class Agents(BaseSettings):
