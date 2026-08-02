@@ -31,6 +31,15 @@ new file mode 100644
 @@ -0,0 +1 @@
 +# Design
 """
+MISCOUNTED_FUNCTIONAL_PATCH = """\
+diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
+new file mode 100644
+--- /dev/null
++++ b/.jri/specs/functional/behavior.md
+@@ -0,0 +1,9 @@
++# Behavior
++Totals are supported.
+"""
 FUNCTIONAL_UPDATE = """\
 diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
 --- a/.jri/specs/functional/behavior.md
@@ -130,6 +139,25 @@ def test_commits_complete_specification_bundle(tmp_path: Path) -> None:
         ".jri/specs/functional/behavior.md",
     ]
     assert not run_git(tmp_path, "status", "--short")
+
+
+def test_commits_specifications_whose_patch_miscounts_its_hunk(tmp_path: Path) -> None:
+    create_repository(tmp_path)
+    client = FakeClient(
+        [streamed_reply("Repository report"), response(reply("Specifications ready."))],
+        parsed=[
+            functional_analyst.Output(
+                result=functional_analyst.Patch(outcome="specification_patch", patch=MISCOUNTED_FUNCTIONAL_PATCH)
+            ),
+            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_PATCH)),
+        ],
+    )
+    service = build_service(tmp_path, client)
+
+    list(service.ralph())
+
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotals are supported.\n"
+    assert service.session.active_spec_commit is not None
 
 
 def test_returns_ambiguities_to_the_interviewer_without_committing(tmp_path: Path) -> None:

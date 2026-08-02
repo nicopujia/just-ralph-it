@@ -218,9 +218,13 @@ class Repository:
                     logger.warning("worktree_removal_failed location=%s", location)
 
     def apply_patch(self, patch: bytes, *, index: bool = False) -> None:
-        """Apply a patch to the worktree."""
+        """Apply a patch to the worktree.
 
-        arguments = ["apply"]
+        Hunk line counts are recomputed from the patch body, since
+        models routinely miscount them while the body itself is correct.
+        """
+
+        arguments = ["apply", "--recount"]
         if index:
             arguments.append("--index")
         self._run(*arguments, stdin=patch)
