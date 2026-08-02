@@ -137,7 +137,7 @@ def test_returns_ambiguities_to_the_interviewer_without_committing(tmp_path: Pat
     head = run_git(tmp_path, "rev-parse", "HEAD")
     ambiguity = "Choose whether output is JSON or plain text."
     client = FakeClient(
-        [response(reply("Should the output be JSON or plain text?"))],
+        [response(reply("Understood.")), response(reply("Should the output be JSON or plain text?"))],
         parsed=[
             functional_analyst.Output(
                 result=functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=[ambiguity])
@@ -145,6 +145,7 @@ def test_returns_ambiguities_to_the_interviewer_without_committing(tmp_path: Pat
         ],
     )
     service = build_service(tmp_path, client)
+    list(service.chat("Build a reporting CLI."))
 
     list(service.ralph())
 
@@ -153,8 +154,8 @@ def test_returns_ambiguities_to_the_interviewer_without_committing(tmp_path: Pat
     assert service.session.active_spec_commit is None
     assert any(ambiguity in item.get("content", "") for item in service.session.interview)
     restarted = build_service(tmp_path, FakeClient([]))
-    items, _ = restarted.restore()
-    assert ("assistant", "Should the output be JSON or plain text?", None) in items
+    turns, _ = restarted.restore()
+    assert ("assistant", "Should the output be JSON or plain text?", None) in turns[-1].items
     assert restarted.session.active_spec_commit is None
 
 

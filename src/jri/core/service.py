@@ -21,9 +21,14 @@ if TYPE_CHECKING:
 
 
 class InterviewItem(NamedTuple):
-    type: Literal["user", "assistant", "reasoning", "tool"]
+    type: Literal["assistant", "reasoning", "tool"]
     text: str
     symbol: str | None = None
+
+
+class Turn(NamedTuple):
+    message: str
+    items: list[InterviewItem]
 
 
 class Session(BaseModel):
@@ -185,11 +190,11 @@ class Service:
         yield from self.interviewer.respond()
         self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
 
-    def restore(self) -> tuple[list[InterviewItem], bool]:
+    def restore(self) -> tuple[list[Turn], bool]:
         """Restore interview session if present.
 
         Returns:
-            Interview items and runtime session values.
+            Interview turns and runtime session values.
 
         Raises:
             PersistenceError: If the session file is invalid.
@@ -208,23 +213,28 @@ class Service:
                 ),
                 self.session.active_topic_id,
             )
-            items = self._get_items()
+            turns = self._get_turns()
         except (OSError, ValidationError, LookupError, TypeError) as error:
             raise PersistenceError(
                 f"Invalid session file `{self.session_file}`. Run JRI with --force to reset it."
             ) from error
         self.interviewer.failed_call_ids = list(self.session.failed_call_ids)
         self.logger.info("restored interview_items=%d", len(self.session.interview))
-        return items, self.session.show_thinking_blocks
+        return turns, self.session.show_thinking_blocks
 
-    def _get_items(self) -> list[InterviewItem]:
+    def _get_turns(self) -> list[Turn]:
         tools_by_name = {tool.name: tool for tool in self.interviewer.tools}
-        items: list[InterviewItem] = []
+        turns: list[Turn] = []
         for raw_item in self.interviewer.history[2:]:
             item = cast("dict[str, Any]", raw_item)
+            if item.get("role") == "user" and item.get("content"):
+                turns.append(Turn(cast("str", item["content"]), []))
+                continue
+            if not turns:
+                continue
             if item.get("type") == "function_call":
                 tool = tools_by_name[item["name"]]
-                items.append(
+                turns[-1].items.append(
                     InterviewItem("tool", tool.format_label(tool.finished_label, item["arguments"]), tool.symbol)
                 )
                 continue
@@ -234,12 +244,9 @@ class Service:
                     part["text"] for part in item.get("content", []) if part["type"] == "reasoning_text"
                 )
                 if summary or reasoning:
-                    items.append(InterviewItem("reasoning", summary or reasoning))
+                    turns[-1].items.append(InterviewItem("reasoning", summary or reasoning))
                 continue
-            if "role" not in item or "content" not in item:
-                continue
-            role = item["role"]
-            if role not in {"user", "assistant"}:
+            if item.get("role") != "assistant" or "content" not in item:
                 continue
             content = item["content"]
             text = (
@@ -248,8 +255,8 @@ class Service:
                 else "".join(part["text"] for part in content if part["type"] == "output_text")
             )
             if text:
-                items.append(InterviewItem(role, text))
-        return items
+                turns[-1].items.append(InterviewItem("assistant", text))
+        return turns
 
     def update_session(self, **values: object) -> None:
         """Persist trusted values in the current session."""

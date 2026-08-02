@@ -70,15 +70,17 @@ class App(TextualApp[None]):
             )
             self.theme = c.THEME_DARK if result.stdout.strip() == "Dark" else c.THEME_LIGHT
         self.service = service
-        self.restored_items, self.is_reasoning_visible = service.restore()
-        self.restored_item_index = len(self.restored_items)
+        self.restored_turns, self.is_reasoning_visible = service.restore()
+        # Restored turns mount newest-first, so this is also the
+        # conversation index of the first mounted turn.
+        self.restored_turn_index = len(self.restored_turns)
         self.is_restoring_history = False
         self.active_turn_state: InterviewerTurnState | None = None
         self.mounted_turns: list[tuple[Markdown, Vertical]] = []
         self.last_escape_at = 0.0
         self.messages_container = MessagesContainer(self._stop_following_bottom, self._load_older_history)
         self.message_input = MessageInput(
-            (item.text for item in self.restored_items if item.type == "user"),
+            (turn.message for turn in self.restored_turns),
             id_=c.MESSAGE_INPUT_ID,
             placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY,
         )
@@ -116,12 +118,18 @@ class App(TextualApp[None]):
             self.action_toggle_reasoning,
         )
 
+    @property
+    def is_busy(self) -> bool:
+        """Whether an interviewer turn is currently running."""
+
+        return self.active_turn_state is not None
+
     # --- Event handlers --------------------------------------------- #
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle a chat action button."""
 
-        if self.active_turn_state is not None:
+        if self.is_busy:
             return
         if event.button.has_class(c.RETRY_BUTTON_CLASSES):
             await self._retry(event.button)
@@ -132,14 +140,14 @@ class App(TextualApp[None]):
         """Preview message history or cancel the active turn."""
 
         if event.direction == "previous":
-            if self.active_turn_state is not None:
+            if self.is_busy:
                 self._request_cancellation()
                 return
             event.message_input.select_previous()
-            if event.message_input.history_index < event.message_input.message_count - len(self.mounted_turns):
+            if event.message_input.history_index < self.restored_turn_index:
                 await self._load_older_history(reveal_hidden=False)
             self._preview_history()
-        elif self.active_turn_state is None:
+        elif not self.is_busy:
             event.message_input.select_next()
             self._preview_history()
 
@@ -149,19 +157,19 @@ class App(TextualApp[None]):
         retry_buttons = [
             button for button in self.query(Button) if button.has_class(c.RETRY_BUTTON_CLASSES) and button.display
         ]
-        if retry_buttons and self.active_turn_state is None:
+        if retry_buttons and not self.is_busy:
             await self._retry(retry_buttons[-1])
 
     def on_message_input_ralph_requested(self) -> None:
         """Start Ralphing from the keyboard shortcut."""
 
-        if self.ralph_button.is_mounted and self.ralph_button.display and self.active_turn_state is None:
+        if self.ralph_button.is_mounted and self.ralph_button.display and not self.is_busy:
             self._start_ralphing()
 
     async def on_message_input_submitted(self, event: MessageInput.Submitted) -> None:
         """Send a submitted user message to the interviewer."""
 
-        if self.active_turn_state is not None:
+        if self.is_busy:
             logger.info("message_submission_ignored reason=turn_active")
             return
 
@@ -178,11 +186,8 @@ class App(TextualApp[None]):
         if event.history_index is not None:
             self.service.rewind(event.history_index)
             await self._remove_turns(event.history_index)
-            user_item_indexes = [index for index, item in enumerate(self.restored_items) if item.type == "user"]
-            if event.history_index < len(user_item_indexes):
-                item_index = user_item_indexes[event.history_index]
-                self.restored_items = self.restored_items[:item_index]
-                self.restored_item_index = min(self.restored_item_index, item_index)
+            self.restored_turns = self.restored_turns[: event.history_index]
+            self.restored_turn_index = min(self.restored_turn_index, event.history_index)
         for retry_button in self.query(f".{c.RETRY_BUTTON_CLASSES}"):
             await retry_button.remove()
         event.message_input.remember(user_message)
@@ -221,7 +226,7 @@ class App(TextualApp[None]):
     def action_cancel_turn(self) -> None:
         """Cancel an active turn after two Escape presses."""
 
-        if self.active_turn_state is None:
+        if not self.is_busy:
             return
         now = monotonic()
         if now - self.last_escape_at <= 1:
@@ -371,28 +376,31 @@ class App(TextualApp[None]):
         self.is_restoring_history = True
         old_scroll_y = self.messages_container.scroll_y
         old_max_scroll_y = self.messages_container.max_scroll_y
-        if reveal_hidden and self._show_hidden_history():
+        # Hidden turns are a prefix while scrolling, but a suffix
+        # while previewing history, where turn 0 stays visible and
+        # there is nothing older to reveal.
+        first_visible_turn = next(
+            (index for index, (user_message, _) in enumerate(self.mounted_turns) if user_message.display),
+            len(self.mounted_turns),
+        )
+        if reveal_hidden and first_visible_turn:
+            for user_message, interviewer_turn in self.mounted_turns[
+                max(0, first_visible_turn - c.HISTORY_BATCH_SIZE) : first_visible_turn
+            ]:
+                user_message.display = interviewer_turn.display = True
             self.call_after_refresh(self._finish_restoring_history, old_scroll_y, old_max_scroll_y)
             return
-        if self.restored_item_index == 0:
+        if self.restored_turn_index == 0:
             self.is_restoring_history = False
             return
 
-        end = self.restored_item_index
-        start = end
-        turns = 0
-        while start > 0:
-            start -= 1
-            if self.restored_items[start].type == "user":
-                turns += 1
-                if turns == c.HISTORY_BATCH_SIZE:
-                    break
-
+        end = self.restored_turn_index
+        start = max(0, end - c.HISTORY_BATCH_SIZE)
         restored_turns = self._build_restored_turns(start, end)
         widgets = [widget for turn in restored_turns for widget in turn]
         await self.messages_container.mount_all(widgets, before=1 if self.mounted_turns else None)
         self.mounted_turns[0:0] = restored_turns
-        self.restored_item_index = start
+        self.restored_turn_index = start
         self.call_after_refresh(self._finish_restoring_history, old_scroll_y, old_max_scroll_y)
 
     async def _render_chat_event(self, turn_state: InterviewerTurnState, chat_event: ChatEvent) -> None:
@@ -512,69 +520,48 @@ class App(TextualApp[None]):
 
     def _build_restored_turns(self, start: int, end: int) -> list[tuple[Markdown, Vertical]]:
         restored_turns: list[tuple[Markdown, Vertical]] = []
-        user_message: Markdown | None = None
-        interviewer_items: list[Button | Markdown | ToolCallRow] = []
-        for item in self.restored_items[start:end]:
-            if item.type == "user":
-                if user_message is not None:
-                    restored_turns.append((
-                        user_message,
-                        Vertical(*interviewer_items, classes=c.INTERVIEWER_TURN_CLASSES),
-                    ))
-                user_message = Markdown(item.text, classes=c.USER_MESSAGE_CLASSES)
-                interviewer_items = []
-                continue
-            if item.type == "reasoning":
-                reasoning_block = Markdown(item.text, classes=c.INTERVIEWER_REASONING_CLASSES)
-                reasoning_block.display = self.is_reasoning_visible
-                interviewer_items.append(reasoning_block)
-                continue
-            interviewer_items.append(
-                ToolCallRow(item.text, symbol=item.symbol or "⚙︎", is_complete=True)
-                if item.type == "tool"
-                else Markdown(item.text, classes=c.INTERVIEWER_MESSAGE_CLASSES)
-            )
-        if user_message is not None:
+        for turn in self.restored_turns[start:end]:
+            interviewer_items: list[Button | Markdown | ToolCallRow] = []
+            for item in turn.items:
+                if item.type == "reasoning":
+                    reasoning_block = Markdown(item.text, classes=c.INTERVIEWER_REASONING_CLASSES)
+                    reasoning_block.display = self.is_reasoning_visible
+                    interviewer_items.append(reasoning_block)
+                    continue
+                interviewer_items.append(
+                    ToolCallRow(item.text, symbol=item.symbol or "⚙︎", is_complete=True)
+                    if item.type == "tool"
+                    else Markdown(item.text, classes=c.INTERVIEWER_MESSAGE_CLASSES)
+                )
             if not interviewer_items:
                 interviewer_items.append(self._build_retry_button())
-            restored_turns.append((user_message, Vertical(*interviewer_items, classes=c.INTERVIEWER_TURN_CLASSES)))
+            restored_turns.append((
+                Markdown(turn.message, classes=c.USER_MESSAGE_CLASSES),
+                Vertical(*interviewer_items, classes=c.INTERVIEWER_TURN_CLASSES),
+            ))
         return restored_turns
 
     @staticmethod
     def _build_retry_button() -> Button:
         return Button(c.RETRY_COPY, classes=c.RETRY_BUTTON_CLASSES, compact=True)
 
-    def _show_hidden_history(self) -> bool:
-        first_visible_turn = next(
-            (index for index, (user_message, _) in enumerate(self.mounted_turns) if user_message.display),
-            len(self.mounted_turns),
-        )
-        if not first_visible_turn:
-            return False
-        for user_message, interviewer_turn in self.mounted_turns[
-            max(0, first_visible_turn - c.HISTORY_BATCH_SIZE) : first_visible_turn
-        ]:
-            user_message.display = interviewer_turn.display = True
-        return True
-
     def _preview_history(self) -> None:
-        first_index = self.message_input.message_count - len(self.mounted_turns)
-        for index, (user_message, interviewer_turn) in enumerate(self.mounted_turns, first_index):
-            user_message.display = interviewer_turn.display = index < self.message_input.history_index
         if self.message_input.history_index == self.message_input.message_count:
             self._hide_older_history()
+        else:
+            for index, (user_message, interviewer_turn) in enumerate(self.mounted_turns, self.restored_turn_index):
+                user_message.display = interviewer_turn.display = index < self.message_input.history_index
         self.messages_container.scroll_end(animate=False)
 
     async def _remove_turns(self, start: int) -> None:
-        mounted_start = self.message_input.message_count - len(self.mounted_turns)
-        offset = max(0, start - mounted_start)
+        offset = max(0, start - self.restored_turn_index)
         for user_message, interviewer_turn in self.mounted_turns[offset:]:
             await user_message.remove()
             await interviewer_turn.remove()
         del self.mounted_turns[offset:]
 
     def _start_ralphing(self) -> None:
-        if self.active_turn_state is not None or not self.mounted_turns:
+        if self.is_busy or not self.mounted_turns:
             return
         self.ralph_button.display = False
         self.message_input.disabled = True
@@ -589,7 +576,7 @@ class App(TextualApp[None]):
     async def _sync_ralph_button(self) -> None:
         if self.ralph_button.is_mounted:
             await self.ralph_button.remove()
-        if self.active_turn_state is not None or not self.service.session.ready_to_ralph or not self.mounted_turns:
+        if self.is_busy or not self.service.session.ready_to_ralph or not self.mounted_turns:
             return
         self.ralph_button = Button(c.RALPH_BUTTON_COPY, classes=c.RALPH_BUTTON_CLASSES, compact=True)
         await self.mounted_turns[-1][1].mount(self.ralph_button)
@@ -619,12 +606,12 @@ class App(TextualApp[None]):
     async def _restore_history(self) -> None:
         """Rebuild the visible chat history from persisted items."""
 
-        if self.restored_items:
+        if self.restored_turns:
             self.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
             await self._load_older_history()
         logger.info(
-            "history_restored items=%d remaining=%d reasoning_visible=%r",
-            len(self.restored_items) - self.restored_item_index,
-            self.restored_item_index,
+            "history_restored turns=%d remaining=%d reasoning_visible=%r",
+            len(self.restored_turns) - self.restored_turn_index,
+            self.restored_turn_index,
             self.is_reasoning_visible,
         )

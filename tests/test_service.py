@@ -40,7 +40,7 @@ def test_completed_interview_turn_survives_restart(tmp_path: Path) -> None:
     list(service.chat("Deploy the project automatically."))
 
     restarted = build_service(tmp_path, [])
-    items, _ = restarted.restore()
+    turns, _ = restarted.restore()
 
     assert restarted.interviewer.active_topic_id == "t2"
     assert {(topic.id, topic.name) for topic in restarted.interviewer.notebook.graph.topics} == {
@@ -50,8 +50,32 @@ def test_completed_interview_turn_survives_restart(tmp_path: Path) -> None:
     assert [(note.topic_id, note.text) for note in restarted.interviewer.notebook.graph.notes] == [
         ("t2", "Deploy from the main branch.")
     ]
-    assert ("user", "Deploy the project automatically.") in [(item.type, item.text) for item in items]
-    assert ("assistant", "How should failed deployments be handled?") in [(item.type, item.text) for item in items]
+    assert "Deploy the project automatically." in [turn.message for turn in turns]
+    assert ("assistant", "How should failed deployments be handled?") in [
+        (item.type, item.text) for turn in turns for item in turn.items
+    ]
+
+
+def test_restore_groups_every_item_under_the_prompt_that_caused_it(tmp_path: Path) -> None:
+    service = build_service(
+        tmp_path,
+        [
+            response(call("switch", "switch_topic", topic="Delivery")),
+            response(reply("Noted.")),
+            response(call("capture", "capture_notes", texts=["Deploy from the main branch."])),
+            response(reply("Anything else?")),
+        ],
+    )
+    list(service.chat("First prompt."))
+    list(service.chat("Second prompt."))
+
+    turns, _ = build_service(tmp_path, []).restore()
+
+    assert [turn.message for turn in turns] == ["First prompt.", "Second prompt."]
+    assert [item.type for item in turns[0].items] == ["tool", "assistant"]
+    assert [item.text for item in turns[0].items] == ["Switched to Delivery", "Noted."]
+    assert [item.type for item in turns[1].items] == ["tool", "assistant"]
+    assert turns[1].items[-1].text == "Anything else?"
 
 
 def test_ralph_readiness_survives_restart_and_rolls_back_on_failure(tmp_path: Path) -> None:
@@ -116,9 +140,10 @@ def test_cancelled_interview_turn_survives_restart_and_remains_in_context(tmp_pa
     list(service.chat("Continue."))
     context = cast("FakeClient", service.interviewer.client).responses.inputs[-1]
     restarted = build_service(tmp_path, [])
-    items, _ = restarted.restore()
+    turns, _ = restarted.restore()
 
-    assert {("user", "Keep this prompt."), ("assistant", "Partial reply")} <= {(item.type, item.text) for item in items}
+    cancelled_turn = next(turn for turn in turns if turn.message == "Keep this prompt.")
+    assert ("assistant", "Partial reply") in [(item.type, item.text) for item in cancelled_turn.items]
     assert {item["content"] for item in cast("list[dict[str, object]]", context) if "content" in item} >= {
         "Keep this prompt.",
         "Partial reply",
@@ -133,8 +158,8 @@ def test_cancelled_interview_turn_without_reply_keeps_prompt(tmp_path: Path) -> 
     list(service.chat("Keep this prompt.", cancelled))
 
     restarted = build_service(tmp_path, [])
-    items, _ = restarted.restore()
-    assert ("user", "Keep this prompt.") in [(item.type, item.text) for item in items]
+    turns, _ = restarted.restore()
+    assert "Keep this prompt." in [turn.message for turn in turns]
 
 
 def test_cancelling_tool_call_leaves_valid_history(tmp_path: Path) -> None:
@@ -184,8 +209,8 @@ def test_failed_interview_turn_rolls_back_changes_and_keeps_prompt(tmp_path: Pat
     assert service.notebook_file.read_bytes() == notebook_file
 
     restarted = build_service(tmp_path, [])
-    items, _ = restarted.restore()
-    assert items[-1] == ("user", "Deploy it automatically.", None)
+    turns, _ = restarted.restore()
+    assert turns[-1] == ("Deploy it automatically.", [])
 
 
 def test_failed_interview_turn_can_be_retried_after_restart(tmp_path: Path) -> None:
@@ -236,13 +261,13 @@ def test_rewind_removes_later_knowledge_after_restart(tmp_path: Path) -> None:
     restarted.rewind(1)
 
     reopened = build_service(tmp_path, [])
-    items, _ = reopened.restore()
+    turns, _ = reopened.restore()
     graph = reopened.interviewer.notebook.graph
 
     assert reopened.interviewer.active_topic_id == "t2"
     assert {(topic.id, topic.name) for topic in graph.topics} == {("t1", "Project overview"), ("t2", "Delivery")}
     assert [(note.topic_id, note.text) for note in graph.notes] == [("t2", "Deploy from main.")]
-    assert {"Encrypt stored credentials.", "Charge monthly."}.isdisjoint(item.text for item in items)
+    assert {"Encrypt stored credentials.", "Charge monthly."}.isdisjoint(turn.message for turn in turns)
 
 
 def test_rewind_skips_failed_and_cancelled_tool_calls(tmp_path: Path) -> None:
@@ -321,8 +346,8 @@ def test_force_resets_invalid_notebook_session(tmp_path: Path) -> None:
 
     service = build_service(tmp_path, [], force=True)
 
-    items, show_thinking_blocks = service.restore()
-    assert items == []
+    turns, show_thinking_blocks = service.restore()
+    assert turns == []
     assert show_thinking_blocks is False
     assert [(topic.id, topic.name) for topic in service.interviewer.notebook.graph.topics] == [
         ("t1", "Project overview")
