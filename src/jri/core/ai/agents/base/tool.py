@@ -4,7 +4,7 @@ import inspect
 import logging
 from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, ParamSpec, Self, TypeVar, cast, get_type_hints
+from typing import TYPE_CHECKING, ClassVar, ParamSpec, Self, TypeVar, cast, get_type_hints
 
 from openai import pydantic_function_tool
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
@@ -14,8 +14,6 @@ from jri.core import ai
 if TYPE_CHECKING:
     from openai.types.responses import FunctionToolParam, ResponseFunctionCallOutputItemListParam
 
-_METADATA_ATTR = "__jri_tool_metadata__"
-MAX_OUTPUT_LENGTH = 100_000
 logger = logging.getLogger(__name__)
 
 
@@ -62,7 +60,9 @@ def tool(
     """
 
     def mark_as_tool(func: Callable[Params, Return]) -> Callable[Params, Return]:
-        setattr(func, _METADATA_ATTR, _Metadata(description, started_label, finished_label, symbol, strict, read_only))
+        setattr(
+            func, Tool.METADATA_ATTR, _Metadata(description, started_label, finished_label, symbol, strict, read_only)
+        )
         return func
 
     return mark_as_tool
@@ -70,6 +70,8 @@ def tool(
 
 class Invocation:
     """Stream nested tool events and retain the tool's final output."""
+
+    MAX_OUTPUT_LENGTH = 100_000
 
     def __init__(self, output: str | ResponseFunctionCallOutputItemListParam | Stream, *, failed: bool = False) -> None:
         self.stream = output if isinstance(output, Iterator) else iter((ToolOutput(output),))
@@ -105,11 +107,14 @@ class Invocation:
     def output(self) -> str | ResponseFunctionCallOutputItemListParam:
         """Return the resolved tool output."""
 
-        if isinstance(self._output, str) and len(self._output) > MAX_OUTPUT_LENGTH:
-            return self._output[:MAX_OUTPUT_LENGTH] + "\n\n[Output truncated. Try splitting into more targeted calls.]"
+        if isinstance(self._output, str) and len(self._output) > self.MAX_OUTPUT_LENGTH:
+            return (
+                self._output[: self.MAX_OUTPUT_LENGTH]
+                + "\n\n[Output truncated. Try splitting into more targeted calls.]"
+            )
         if isinstance(self._output, list):
             output: ResponseFunctionCallOutputItemListParam = []
-            remaining = MAX_OUTPUT_LENGTH
+            remaining = self.MAX_OUTPUT_LENGTH
             for item in self._output:
                 field = next((name for name in ("text", "image_url", "file_data") if name in item), None)
                 value = item[field] if field else ""
@@ -130,6 +135,8 @@ class Invocation:
 @dataclass(frozen=True)
 class Tool:
     """Runtime wrapper for an `@tool`-decorated callable."""
+
+    METADATA_ATTR: ClassVar[str] = "__jri_tool_metadata__"
 
     name: str
     description: str
@@ -153,7 +160,7 @@ class Tool:
         for name in type(owner).__dict__:
             func = getattr(owner, name)
             wrapped = getattr(func, "__func__", func)
-            if not (metadata := getattr(wrapped, _METADATA_ATTR, None)):
+            if not (metadata := getattr(wrapped, cls.METADATA_ATTR, None)):
                 continue
             annotations = get_type_hints(wrapped, include_extras=True)
             fields = {

@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import InitVar, dataclass, field
 from threading import Event
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from jri.core import ai
 
@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from openai.types.shared import ReasoningEffort
 
 logger = logging.getLogger(__name__)
-MAX_ROUNDS = 50
 
 
 @dataclass(kw_only=True)
@@ -27,6 +26,8 @@ class Agent:
     Subclass and decorate methods with ``@tool`` to expose them
     as function calls the LLM can invoke.
     """
+
+    MAX_ROUNDS: ClassVar[int] = 50
 
     initial_ctx: InitVar[ResponseInputParam | None] = None
 
@@ -95,7 +96,7 @@ class Agent:
         tool_definitions = [tool.definition for tool in self.tools]
         tools_by_name = {tool.name: tool for tool in self.tools}
 
-        for _ in range(MAX_ROUNDS):
+        for _ in range(self.MAX_ROUNDS):
             partial_text: list[str] = []
             context = self.get_context()
             logger.info("request_started agent=%s input_items=%d", type(self).__name__, len(context))
@@ -128,7 +129,7 @@ class Agent:
                 if cancelled.is_set():
                     logger.info("message_cancelled agent=%s", type(self).__name__)
                     return
-        raise RuntimeError(f"Agent exceeded the limit of {MAX_ROUNDS} response rounds.")
+        raise RuntimeError(f"Agent exceeded the limit of {self.MAX_ROUNDS} response rounds.")
 
     def _invoke(self, output: dict[str, object], tool: Tool | None, cancelled: Event) -> Generator[ai.ChatEvent]:
         name = cast("str", output["name"])

@@ -16,7 +16,7 @@ from openai.types.responses import ResponseFunctionCallOutputItemListParam
 from jri.core.settings import Settings, read_api_key
 from jri.lib import brave, youtube
 
-from .base import MAX_OUTPUT_LENGTH, Agent, tool
+from .base import Agent, Invocation, tool
 
 logger = logging.getLogger(__name__)
 
@@ -192,11 +192,11 @@ class Explorer(Agent):
                 os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
                 output_file.seek(0)
-                output = output_file.read(MAX_OUTPUT_LENGTH)
+                output = output_file.read(Invocation.MAX_OUTPUT_LENGTH)
                 logger.exception("shell_timed_out command=%r output=%r", cmd, output)
                 raise RuntimeError(f"Command timed out after 30 seconds:\n{output}".rstrip()) from None
             output_file.seek(0)
-            output = output_file.read(MAX_OUTPUT_LENGTH)
+            output = output_file.read(Invocation.MAX_OUTPUT_LENGTH)
         with contextlib.suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
         if process.returncode != 0:

@@ -5,7 +5,7 @@ import httpx
 import pytest
 from openai import omit
 
-from jri.core.ai import MAX_OUTPUT_LENGTH, Explorer, Invocation
+from jri.core.ai import Explorer, Invocation
 from jri.lib import brave, youtube
 from tests.doubles.brave import RESULTS, FakeProvider, respond
 from tests.doubles.openai import FakeClient, reply, response
@@ -34,12 +34,12 @@ def test_sends_temperature_only_when_configured(tmp_path: Path, temperature: flo
 
 
 def test_truncates_long_text_output() -> None:
-    invocation = Invocation("x" * (MAX_OUTPUT_LENGTH + 1))
+    invocation = Invocation("x" * (Invocation.MAX_OUTPUT_LENGTH + 1))
     list(invocation)
 
     output = cast("str", invocation.output)
 
-    assert output == "x" * MAX_OUTPUT_LENGTH + f"\n\n{TRUNCATION_NOTICE}"
+    assert output == "x" * Invocation.MAX_OUTPUT_LENGTH + f"\n\n{TRUNCATION_NOTICE}"
 
 
 def test_truncates_long_structured_output() -> None:
@@ -47,7 +47,7 @@ def test_truncates_long_structured_output() -> None:
         "ResponseFunctionCallOutputItemListParam",
         [
             {"type": "input_text", "text": "first"},
-            {"type": "input_text", "text": "x" * MAX_OUTPUT_LENGTH},
+            {"type": "input_text", "text": "x" * Invocation.MAX_OUTPUT_LENGTH},
             {"type": "input_text", "text": "omitted"},
         ],
     )
@@ -58,7 +58,7 @@ def test_truncates_long_structured_output() -> None:
 
     truncated = cast("dict[str, str]", result[1])["text"]
     assert result[0] == output[0]
-    assert truncated.startswith("x" * (MAX_OUTPUT_LENGTH - len("first")))
+    assert truncated.startswith("x" * (Invocation.MAX_OUTPUT_LENGTH - len("first")))
     assert truncated.endswith(TRUNCATION_NOTICE)
     assert len(result) == len(output) - 1
 

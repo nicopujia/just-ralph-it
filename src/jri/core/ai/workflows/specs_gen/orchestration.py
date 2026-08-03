@@ -15,7 +15,6 @@ if TYPE_CHECKING:
     from jri.core.settings import Settings
 
 logger = logging.getLogger(__name__)
-MAX_CYCLES = 10
 
 
 type SpecsResult = functional_analyst.Ambiguities | str
@@ -23,6 +22,8 @@ type SpecsResult = functional_analyst.Ambiguities | str
 
 class SpecsGen:
     """Generate and commit functional and architectural specs."""
+
+    MAX_CYCLES = 10
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -51,7 +52,7 @@ class SpecsGen:
         rejected: str | None = None
         polishing: ai.ToolCallStarted | None = None
 
-        for cycle in range(1, MAX_CYCLES + 1):
+        for cycle in range(1, self.MAX_CYCLES + 1):
             logger.info("specs_cycle_started cycle=%d", cycle)
             if cycle == 1:
                 yield ai.ToolCallStarted("functional", "Writing functional specifications from your project notes", "✍️")
@@ -116,7 +117,7 @@ class SpecsGen:
                     explorer_report=explorer_report,
                 )
                 architecture_result = (
-                    self.architect.finish(context) if cycle == MAX_CYCLES else self.architect.design(context)
+                    self.architect.finish(context) if cycle == self.MAX_CYCLES else self.architect.design(context)
                 )
                 if isinstance(architecture_result, architect.Issues):
                     logger.info("specs_issues cycle=%d count=%d", cycle, len(architecture_result.issues))
