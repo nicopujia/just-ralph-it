@@ -1,3 +1,11 @@
+"""Provider-agnostic events the UI renders.
+
+Kept independent of the OpenAI stream types: one `ReasoningDelta`
+covers three reasoning delta events, the tool call events carry a
+label, symbol, and nesting depth no provider type has, and workflows
+emit them with no model call behind them.
+"""
+
 from dataclasses import dataclass
 
 
