@@ -5,7 +5,7 @@ import httpx
 import pytest
 from openai import omit
 
-from jri.core.ai import MAX_INPUT_SIZE, MAX_OUTPUT_LENGTH, Explorer, Invocation
+from jri.core.ai import MAX_OUTPUT_LENGTH, Explorer, Invocation
 from jri.lib import brave, youtube
 from tests.doubles.brave import RESULTS, FakeProvider, respond
 from tests.doubles.openai import FakeClient, reply, response
@@ -108,45 +108,45 @@ def test_reports_web_search_as_unavailable_without_an_api_key(tmp_path: Path) ->
     assert build_explorer(tmp_path).web_search("how to ralph") == "Web search not available."
 
 
-def test_fetches_a_page_as_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fetches_a_page_as_markdown(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     serve_pages(monkeypatch, lambda _request: httpx.Response(200, html="<h1>Delivery</h1><p>Deploy from <b>main</b>."))
 
-    output = Explorer.web_fetch("https://example.test/docs")
+    output = build_explorer(tmp_path).web_fetch("https://example.test/docs")
 
     assert "Delivery" in output
     assert "**main**" in output
 
 
-def test_fetches_a_youtube_url_as_its_transcript(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_fetches_a_youtube_url_as_its_transcript(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], []))
 
-    assert Explorer.web_fetch("https://youtu.be/abc123") == TRANSCRIPT
+    assert build_explorer(tmp_path).web_fetch("https://youtu.be/abc123") == TRANSCRIPT
 
 
-def test_stops_fetching_a_page_at_the_size_cap(monkeypatch: pytest.MonkeyPatch) -> None:
-    chunk_size = MAX_INPUT_SIZE * 2 // 3
+def test_stops_fetching_a_page_at_the_size_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    chunk_size = Explorer.MAX_INPUT_SIZE * 2 // 3
     chunks = [letter.encode() * chunk_size for letter in "abc"]
     served: list[bytes] = []
     serve_chunks(monkeypatch, chunks, served)
 
-    output = Explorer.web_fetch("https://example.test/page")
+    output = build_explorer(tmp_path).web_fetch("https://example.test/page")
 
-    assert output == "a" * chunk_size + "b" * (MAX_INPUT_SIZE - chunk_size)
+    assert output == "a" * chunk_size + "b" * (Explorer.MAX_INPUT_SIZE - chunk_size)
     assert served == chunks[:2]
 
 
-def test_reports_a_page_the_host_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reports_a_page_the_host_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     serve_pages(monkeypatch, lambda _request: httpx.Response(404, text="Not found"))
 
     with pytest.raises(RuntimeError, match=r"Could not fetch https://example\.test/missing"):
-        Explorer.web_fetch("https://example.test/missing")
+        build_explorer(tmp_path).web_fetch("https://example.test/missing")
 
 
-def test_reports_a_page_that_never_answered(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reports_a_page_that_never_answered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
 
     serve_pages(monkeypatch, refuse)
 
     with pytest.raises(RuntimeError, match="connection refused"):
-        Explorer.web_fetch("https://example.test/docs")
+        build_explorer(tmp_path).web_fetch("https://example.test/docs")

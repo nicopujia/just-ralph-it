@@ -19,10 +19,11 @@ from jri.lib import brave, youtube
 from .base import MAX_OUTPUT_LENGTH, Agent, tool
 
 logger = logging.getLogger(__name__)
-MAX_INPUT_SIZE = 10 * 1024 * 1024
 
 
 class Explorer(Agent):
+    MAX_INPUT_SIZE = 10 * 1024 * 1024
+
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         agent = settings.agents.explorer
@@ -31,6 +32,7 @@ class Explorer(Agent):
             model=agent.model,
             temperature=agent.temperature,
             reasoning_effort=agent.reasoning_effort,
+            max_input_size=self.MAX_INPUT_SIZE,
             sys_prompt=f"""
                 Role: Explorer.
 
@@ -71,7 +73,6 @@ class Explorer(Agent):
         logger.info("search_finished results=%d", len(results))
         return output
 
-    @staticmethod
     @tool(
         "Fetch contents from a public web page given a URL.",
         started_label="Fetching {url}",
@@ -79,18 +80,19 @@ class Explorer(Agent):
         symbol="🌐",
         read_only=True,
     )
-    def web_fetch(url: str) -> str:
+    def web_fetch(self, url: str) -> str:
         logger.debug("fetch_url url=%r", url)
         if (video_transcript := youtube.fetch_transcript_from_url(url)) is not None:
             logger.info("fetch_finished source=youtube characters=%d", len(video_transcript))
             return video_transcript
+        limit = self.runner.max_input_size
         data = bytearray()
         try:
             with httpx.stream("GET", url, follow_redirects=True, timeout=10.0) as response:
                 response.raise_for_status()
                 for chunk in response.iter_bytes():
-                    data.extend(chunk[: MAX_INPUT_SIZE - len(data)])
-                    if len(data) == MAX_INPUT_SIZE:
+                    data.extend(chunk if limit is None else chunk[: limit - len(data)])
+                    if limit is not None and len(data) == limit:
                         break
         except httpx.HTTPError as error:
             if isinstance(error, httpx.HTTPStatusError):
@@ -133,14 +135,15 @@ class Explorer(Agent):
         self, paths: list[str], start_line: int | None = None, end_line: int | None = None
     ) -> ResponseFunctionCallOutputItemListParam:
         logger.debug("read_paths paths=%r", paths)
+        limit = self.runner.max_input_size
         output: ResponseFunctionCallOutputItemListParam = []
         for raw_path in paths:
             path = Path(raw_path).expanduser()
             if not path.is_absolute():
                 path = self.settings.cwd / path
             try:
-                if path.stat().st_size > MAX_INPUT_SIZE:
-                    raise RuntimeError(f"Could not read {path}: file exceeds 10 MiB.")
+                if limit is not None and path.stat().st_size > limit:
+                    raise RuntimeError(f"Could not read {path}: file exceeds {limit} bytes.")
                 data = path.read_bytes()
             except OSError as error:
                 logger.exception("read_failed path=%r", path)

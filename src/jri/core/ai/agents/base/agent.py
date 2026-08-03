@@ -36,6 +36,7 @@ class Agent:
     sys_prompt: str
     reasoning_effort: ReasoningEffort = None
     temperature: float | None = None
+    max_input_size: int | None = None
 
     tools: list[Tool] = field(init=False)
     history: ResponseInputParam = field(init=False)
@@ -45,7 +46,11 @@ class Agent:
     def __post_init__(self, initial_ctx: ResponseInputParam | None) -> None:
         self.tools = Tool.discover(self)
         self.runner = ai.LLMRunner(
-            client=self.client, model=self.model, reasoning_effort=self.reasoning_effort, temperature=self.temperature
+            client=self.client,
+            model=self.model,
+            reasoning_effort=self.reasoning_effort,
+            temperature=self.temperature,
+            max_input_size=self.max_input_size,
         )
         self.sys_prompt = inspect.cleandoc(self.sys_prompt)
         self.history = list(initial_ctx or [])

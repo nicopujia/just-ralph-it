@@ -53,3 +53,10 @@ def test_reports_a_failed_response() -> None:
 
     with pytest.raises(RuntimeError, match="the model overloaded"):
         runner.parse([], Output)
+
+
+def test_rejects_a_context_over_the_input_size_limit() -> None:
+    runner = LLMRunner(client=cast("OpenAI", FakeClient([])), model="test", max_input_size=10)
+
+    with pytest.raises(RuntimeError, match="over the 10 byte limit"):
+        runner.parse([{"role": "user", "content": "far too many bytes"}], Output)

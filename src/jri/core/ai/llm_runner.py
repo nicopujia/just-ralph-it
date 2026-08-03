@@ -1,3 +1,4 @@
+import json
 import logging
 from collections.abc import Generator, Iterable, Sequence
 from dataclasses import dataclass
@@ -33,6 +34,8 @@ class LLMRunner:
     model: str
     reasoning_effort: ReasoningEffort = None
     temperature: float | None = None
+    max_input_size: int | None = None
+    """Byte bound on model input; `None` leaves it unbounded."""
 
     @property
     def sampling(self) -> float | Omit:
@@ -52,6 +55,7 @@ class LLMRunner:
             Its event stream and collected output items.
         """
 
+        self._check_size(context)
         outputs_by_index: dict[int, dict[str, Any]] = {}
         return Response(self._respond(context, tools, outputs_by_index), outputs_by_index)
 
@@ -62,10 +66,12 @@ class LLMRunner:
             The parsed response.
 
         Raises:
-            RuntimeError: If the response failed, was cut short, or has
-                no parsed output.
+            RuntimeError: If the context is over `max_input_size`, or
+                the response failed, was cut short, or has no parsed
+                output.
         """
 
+        self._check_size(context)
         logger.info("parse_started model=%s input_items=%d", self.model, len(context))
         with self.client.responses.stream(
             model=self.model,
@@ -130,6 +136,13 @@ class LLMRunner:
                     return
                 case _:
                     _diagnose(event)
+
+    def _check_size(self, context: ResponseInputParam) -> None:
+        if self.max_input_size is None:
+            return
+        size = len(json.dumps(context).encode())
+        if size > self.max_input_size:
+            raise RuntimeError(f"Request context is {size} bytes, over the {self.max_input_size} byte limit.")
 
 
 def _diagnose(event: ResponseStreamEvent) -> None:
