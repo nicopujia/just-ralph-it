@@ -3,7 +3,6 @@ import html
 import logging
 import webbrowser
 from contextlib import chdir
-from importlib import metadata
 from pathlib import Path
 
 import yaml
@@ -11,6 +10,7 @@ from dotenv import load_dotenv
 from pydantic import ValidationError
 from pydantic_settings import CliSettingsSource, SettingsError
 
+from jri import __version__
 from jri.core import paths
 from jri.core.exceptions import PersistenceError
 from jri.core.service import Service
@@ -37,13 +37,7 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Just Ralph It")
-    parser.add_argument(
-        "-v",
-        "--version",
-        action="version",
-        version=metadata.version("just-ralph-it"),
-        help="Show the JRI version and exit.",
-    )
+    parser.add_argument("-v", "--version", action="version", version=__version__, help="Show the JRI version and exit.")
     # A positional command, rather than subparsers, lets every setting
     # below be given before or after it.
     parser.add_argument(

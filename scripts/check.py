@@ -4,6 +4,7 @@
 
 import shutil
 import subprocess
+import tomllib
 from pathlib import Path
 
 
@@ -11,7 +12,11 @@ def main() -> None:
     uv = shutil.which("uv")
     if not uv:
         raise RuntimeError("uv must be installed")
-    build_path = Path(__file__).parent.parent / ".dist"
+    root = Path(__file__).parent.parent
+    version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
+    if f'__version__ = "{version}"' not in (root / "src" / "jri" / "__init__.py").read_text():
+        raise RuntimeError(f"jri.__version__ must be {version}, as pyproject.toml says")
+    build_path = root / ".dist"
     if build_path.exists():
         shutil.rmtree(build_path)
     subprocess.run([uv, "build", "--no-sources", "--out-dir", build_path], check=True)
