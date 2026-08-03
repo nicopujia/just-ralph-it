@@ -2,9 +2,10 @@
 
 ## Overview
 
-> Think through a software project idea, then build it with one click.
+Just Ralph It (JRI) is a software that helps you think through your software project idea, and then to build it with one click. You just have to share your thoughts, and JRI handles the rest.
 
-To know more about this project, read the [concept document](https://nicolaspujia.com/just-ralph-it).
+> [!NOTE]
+> To know more about this project vision and motivation, read the [concept document](https://nicolaspujia.com/just-ralph-it).
 
 ### Feature Roadmap
 
@@ -46,7 +47,7 @@ uv tool install just-ralph-it
 
 ### 2. Setup
 
-Move to your project directory and set it up:
+Move to a project directory and set it up:
 
 ```bash
 mkdir ./my-project
@@ -67,7 +68,7 @@ jri view
 ```
 
 > [!TIP]
-> Given that there isn't automated implementation yet, you can hand the generated `.jri/specs/` to your favorite coding agent as a starting point for implementation.
+> Given that there isn't automated implementation yet, you can hand the generated `.jri/notebook.yaml` or `.jri/specs/` to your favorite coding agent as a starting point for implementation.
 
 ## Upgrading
 
@@ -78,20 +79,15 @@ uv tool upgrade just-ralph-it
 ```
 
 > [!WARNING]
-> Until JRI reaches a stable version (>=1.0.0), anything could break from one version to another.
+> Until reaching a stable version (>=1.0.0), anything could break from one version to another.
 
 ## Uninstalling
 
 ```bash
-# Uninstall JRI and its dependencies
 pip uninstall just-ralph-it
 # or
 uv tool uninstall just-ralph-it
 
-# Remove JRI from a repo
+# Remove it from your project
 rm -fr /path/to/your-project/.jri
 ```
-
-## Contributing
-
-Feel free to report bugs as [GitHub issues](https://github.com/nicopujia/just-ralph-it/issues). For development guidelines, please refer to [AGENTS.md](./AGENTS.md).
