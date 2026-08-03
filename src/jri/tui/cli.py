@@ -24,6 +24,7 @@ from .constants import (
     INIT_CREATED_COPY,
     INIT_EXISTING_COPY,
     INIT_NEXT_STEPS_COPY,
+    INIT_RECREATED_COPY,
     INIT_REPOSITORY_COPY,
     WORKSPACE_MISSING_COPY,
 )
@@ -92,10 +93,13 @@ def main() -> None:
 
 
 def _init(settings: Settings) -> None:
-    workspace = Service.init(settings.cwd)
+    workspace = Service.init(settings.cwd, force=settings.force)
     if workspace.repository_created:
         print(INIT_REPOSITORY_COPY.format(directory=settings.cwd))
-    created_copy = INIT_CREATED_COPY if workspace.created else INIT_EXISTING_COPY
+    if workspace.created:
+        created_copy = INIT_CREATED_COPY
+    else:
+        created_copy = INIT_RECREATED_COPY if settings.force else INIT_EXISTING_COPY
     print(created_copy.format(directory=workspace.directory))
     print(INIT_NEXT_STEPS_COPY.format(config_file=workspace.config_file))
 

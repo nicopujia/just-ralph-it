@@ -56,11 +56,12 @@ class Session(BaseModel):
 
 class Service:
     @classmethod
-    def init(cls, cwd: Path) -> Workspace:
+    def init(cls, cwd: Path, *, force: bool = False) -> Workspace:
         """Create a project's JRI workspace, keeping what exists.
 
         Projects outside a Git repository get an empty one, since JRI
-        stores the specifications it writes in commits.
+        stores the specifications it writes in commits. Forcing writes
+        the configuration file again, dropping whatever it held.
 
         Returns:
             The workspace found or created.
@@ -72,7 +73,7 @@ class Service:
         config_file = cwd / paths.CONFIG_FILE
         created = not config_file.exists()
         workspace.mkdir(exist_ok=True, parents=True)
-        if created:
+        if created or force:
             config_file.write_text(Settings.render_config(), encoding="utf-8")
         Notebook(cwd / paths.NOTEBOOK_FILE)
         (cwd / paths.LOGS_DIR).mkdir(exist_ok=True)

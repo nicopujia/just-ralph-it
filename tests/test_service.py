@@ -60,6 +60,22 @@ def test_initializing_an_existing_workspace_preserves_it(tmp_path: Path) -> None
     assert (tmp_path / paths.GITIGNORE_FILE).read_text() == "custom-cache\nlogs\nsession.json\nvisualization.html\n"
 
 
+def test_forcing_initialization_writes_the_configuration_again(tmp_path: Path) -> None:
+    notebook = {
+        "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {"n1": "Keep this note."}}],
+        "connections": [],
+    }
+    Service.init(tmp_path)
+    (tmp_path / paths.CONFIG_FILE).write_text("custom config\n")
+    (tmp_path / paths.NOTEBOOK_FILE).write_text(yaml.safe_dump(notebook))
+
+    workspace = Service.init(tmp_path, force=True)
+
+    assert not workspace.created
+    assert (tmp_path / paths.CONFIG_FILE).read_text() == Settings.render_config()
+    assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text()) == notebook
+
+
 def test_completed_interview_turn_survives_restart(tmp_path: Path) -> None:
     service = build_service(
         tmp_path,

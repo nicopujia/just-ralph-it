@@ -181,7 +181,13 @@ class Settings(BaseSettings):
     """Settings loaded from project files, CLI, and environment."""
 
     cwd: Path = Field(description="Current working directory.", default_factory=Path.cwd)
-    force: bool = Field(description="Force re-creation of the JRI workspace.", default=False)
+    force: bool = Field(
+        description=(
+            "Re-create the JRI workspace: `init` writes the configuration file again, and every other command "
+            "deletes the conversation, the notes, the logs, and the generated specifications."
+        ),
+        default=False,
+    )
     llm: LLM = Field(default_factory=LLM, description="Provider every agent sends its model requests to.")
     brave_search: BraveSearch = Field(
         default_factory=BraveSearch,
