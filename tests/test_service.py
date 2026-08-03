@@ -9,7 +9,7 @@ import yaml
 
 from jri.core import paths
 from jri.core.exceptions import PersistenceError
-from jri.core.service import Service
+from jri.core.service import InterviewItem, Service
 from jri.core.settings import Settings
 from jri.lib import git
 from tests.doubles.openai import FakeClient, call, failure, partial_reply, reply, response
@@ -255,6 +255,65 @@ def test_failed_interview_turn_can_be_retried_after_restart(tmp_path: Path) -> N
     turns, _ = build_service(tmp_path, FakeClient([])).restore()
     assert [turn.message for turn in turns] == ["Deploy it automatically."]
     assert ("assistant", "Retry succeeded.") in [(item.type, item.text) for item in turns[-1].items]
+
+
+def test_failed_interview_turn_explains_itself_after_restart(tmp_path: Path) -> None:
+    service = build_service(tmp_path, FakeClient([failure("provider failed")]))
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        list(service.chat("Deploy it automatically."))
+    service.update_session(failed_turn_error="The provider failed.")
+
+    turns, _ = build_service(tmp_path, FakeClient([])).restore()
+    assert turns[-1] == ("Deploy it automatically.", [InterviewItem("error", "The provider failed.")])
+
+
+def test_successful_retry_clears_the_failed_turn_error(tmp_path: Path) -> None:
+    service = build_service(tmp_path, FakeClient([failure("provider failed"), response(reply("Retry succeeded."))]))
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        list(service.chat("Deploy it automatically."))
+    service.update_session(failed_turn_error="The provider failed.")
+    list(service.retry())
+
+    restarted = build_service(tmp_path, FakeClient([]))
+    turns, _ = restarted.restore()
+    assert restarted.session.failed_turn_error is None
+    assert [item.type for item in turns[-1].items] == ["assistant"]
+
+
+def test_cancelled_interview_turn_clears_the_failed_turn_error(tmp_path: Path) -> None:
+    cancelled = Event()
+    service = build_service(tmp_path, FakeClient([failure("provider failed"), partial_reply("Partial reply")]))
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        list(service.chat("Deploy it automatically."))
+    service.update_session(failed_turn_error="The provider failed.")
+    events = service.retry(cancelled)
+    next(events)
+    cancelled.set()
+    list(events)
+
+    restarted = build_service(tmp_path, FakeClient([]))
+    turns, _ = restarted.restore()
+    assert restarted.session.failed_turn_error is None
+    assert [item.type for item in turns[-1].items] == ["assistant"]
+
+
+def test_rewinding_clears_the_failed_turn_error(tmp_path: Path) -> None:
+    service = build_service(tmp_path, FakeClient([response(reply("What should it display?")), failure("provider")]))
+
+    list(service.chat("It has a terminal UI."))
+    with pytest.raises(RuntimeError, match="provider"):
+        list(service.chat("Deploy it automatically."))
+    service.update_session(failed_turn_error="The provider failed.")
+    service.rewind(1)
+
+    restarted = build_service(tmp_path, FakeClient([]))
+    turns, _ = restarted.restore()
+    assert restarted.session.failed_turn_error is None
+    assert [turn.message for turn in turns] == ["It has a terminal UI."]
+    assert [item.type for item in turns[-1].items] == ["assistant"]
 
 
 def test_rewinding_removes_later_knowledge_after_restart(tmp_path: Path) -> None:

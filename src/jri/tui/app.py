@@ -318,6 +318,7 @@ class App(TextualApp[None]):
                 self._call_from_thread(self._finish_cancelled_turn, turn_state)
             elif self.active_turn_state is turn_state:
                 if error_copy is not None:
+                    self.service.update_session(failed_turn_error=error_copy)
                     self._call_from_thread(self._finish_failed_turn, turn_state, error_copy)
                 elif not replied:
                     self._call_from_thread(self._finish_empty_turn, turn_state)
@@ -536,18 +537,23 @@ class App(TextualApp[None]):
         restored_turns: list[tuple[Markdown, Vertical]] = []
         for turn in self.restored_turns[start:end]:
             interviewer_items: list[Button | Markdown | ToolCallRow] = []
+            failed = False
             for item in turn.items:
                 if item.type == "reasoning":
                     reasoning_block = Markdown(item.text, classes=c.INTERVIEWER_REASONING_CLASSES)
                     reasoning_block.display = self.is_reasoning_visible
                     interviewer_items.append(reasoning_block)
                     continue
+                if item.type == "error":
+                    failed = True
+                    interviewer_items.append(Markdown(item.text, classes=c.INTERVIEWER_ERROR_CLASSES))
+                    continue
                 interviewer_items.append(
                     ToolCallRow(item.text, symbol=item.symbol or "⚙︎", is_complete=True)
                     if item.type == "tool"
                     else Markdown(item.text, classes=c.INTERVIEWER_MESSAGE_CLASSES)
                 )
-            if not interviewer_items:
+            if failed or not interviewer_items:
                 interviewer_items.append(self._build_retry_button())
             restored_turns.append((
                 Markdown(turn.message, classes=c.USER_MESSAGE_CLASSES),

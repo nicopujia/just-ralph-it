@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 class InterviewItem(NamedTuple):
-    type: Literal["assistant", "reasoning", "tool"]
+    type: Literal["assistant", "reasoning", "tool", "error"]
     text: str
     symbol: str | None = None
 
@@ -46,6 +46,7 @@ class Session(BaseModel):
     initial_graph: Graph
     interview: list[dict[str, Any]] = Field(default_factory=list)
     failed_call_ids: list[str] = Field(default_factory=list)
+    failed_turn_error: str | None = None
     ready_to_ralph: bool = False
     active_spec_commit: str | None = None
     show_thinking_blocks: bool = False
@@ -192,7 +193,9 @@ class Service:
             if not tool.read_only and item["call_id"] not in self.session.failed_call_ids:
                 list(tool.invoke(item["arguments"]))
 
-        self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
+        self.update_session(
+            active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history, failed_turn_error=None
+        )
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
     def ralph(self) -> Generator[ChatEvent]:
@@ -224,7 +227,9 @@ class Service:
         self.interviewer.history.append({"role": "system", "content": workflow_result})
         self.update_session(interview=self.interviewer.history)
         yield from self.interviewer.respond()
-        self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
+        self.update_session(
+            active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history, failed_turn_error=None
+        )
 
     def restore(self) -> tuple[list[Turn], bool]:
         """Restore interview session if present.
@@ -276,7 +281,11 @@ class Service:
     ) -> Generator[ChatEvent]:
         try:
             yield from self.interviewer.send_message(message, cancelled)
-            self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
+            self.update_session(
+                active_topic_id=self.interviewer.active_topic_id,
+                interview=self.interviewer.history,
+                failed_turn_error=None,
+            )
         except Exception:
             self.interviewer.history = self.interviewer.history[: checkpoint[0]]
             self.interviewer.notebook.restore(checkpoint[1])
@@ -322,4 +331,6 @@ class Service:
             )
             if text:
                 turns[-1].items.append(InterviewItem("assistant", text))
+        if turns and self.session.failed_turn_error:
+            turns[-1].items.append(InterviewItem("error", self.session.failed_turn_error))
         return turns
