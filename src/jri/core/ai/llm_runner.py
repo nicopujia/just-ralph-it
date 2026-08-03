@@ -62,7 +62,8 @@ class LLMRunner:
             The parsed response.
 
         Raises:
-            RuntimeError: If the response has no parsed output.
+            RuntimeError: If the response failed, was cut short, or has
+                no parsed output.
         """
 
         logger.info("parse_started model=%s input_items=%d", self.model, len(context))
@@ -73,7 +74,11 @@ class LLMRunner:
             reasoning=Reasoning(effort=self.reasoning_effort, summary="auto"),
             temperature=self.sampling,
         ) as stream:
-            streamed_text = "".join(event.delta for event in stream if event.type == "response.output_text.delta")
+            streamed_text = ""
+            for event in stream:
+                _diagnose(event)
+                if event.type == "response.output_text.delta":
+                    streamed_text += event.delta
             response = stream.get_final_response()
         if response.output_parsed is not None:
             parsed = response.output_parsed
@@ -123,10 +128,16 @@ class LLMRunner:
                     if usage := event.response.usage:
                         logger.info("context_usage input_tokens=%d", usage.input_tokens)
                     return
-                case "response.incomplete":
-                    details = event.response.incomplete_details
-                    raise RuntimeError(f"Model response incomplete: {details.reason if details else 'unknown reason'}")
-                case "response.failed":
-                    raise RuntimeError(str(event.response.error))
-                case "error":
-                    raise RuntimeError(event.message)
+                case _:
+                    _diagnose(event)
+
+
+def _diagnose(event: ResponseStreamEvent) -> None:
+    match event.type:
+        case "response.incomplete":
+            details = event.response.incomplete_details
+            raise RuntimeError(f"Model response incomplete: {details.reason if details else 'unknown reason'}")
+        case "response.failed":
+            raise RuntimeError(str(event.response.error))
+        case "error":
+            raise RuntimeError(event.message)

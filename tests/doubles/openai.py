@@ -1,7 +1,7 @@
 import json
 from collections.abc import Iterable, Iterator
 from types import SimpleNamespace
-from typing import Any, Self
+from typing import Any, Self, cast
 
 type Round = Iterable[SimpleNamespace]
 
@@ -27,7 +27,8 @@ class _Stream:
 
 class _ParsedStream:
     def __init__(self, parsed: object) -> None:
-        self.response = SimpleNamespace(output_parsed=parsed, output_text="")
+        self.events = cast("Round", parsed) if isinstance(parsed, list) else ()
+        self.response = SimpleNamespace(output_parsed=None if self.events else parsed, output_text="")
 
     def __enter__(self) -> Self:
         return self
@@ -36,7 +37,7 @@ class _ParsedStream:
         return None
 
     def __iter__(self) -> Iterator[SimpleNamespace]:
-        return iter(())
+        return iter(self.events)
 
     def get_final_response(self) -> SimpleNamespace:
         return self.response
@@ -73,6 +74,15 @@ def response(*outputs: dict[str, Any]) -> Round:
 
 def failure(message: str) -> Round:
     return [SimpleNamespace(type="error", message=message)]
+
+
+def incomplete_response(reason: str | None) -> Round:
+    details = SimpleNamespace(reason=reason) if reason else None
+    return [SimpleNamespace(type="response.incomplete", response=SimpleNamespace(incomplete_details=details))]
+
+
+def failed_response(error: str) -> Round:
+    return [SimpleNamespace(type="response.failed", response=SimpleNamespace(error=error))]
 
 
 def call(call_id: str, name: str, **arguments: object) -> dict[str, Any]:
