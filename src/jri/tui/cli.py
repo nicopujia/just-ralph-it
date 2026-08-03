@@ -6,26 +6,28 @@ from contextlib import chdir
 from pathlib import Path
 
 import yaml
-from dotenv import find_dotenv
+from dotenv import load_dotenv
 from pydantic import ValidationError
 from pydantic_settings import CliSettingsSource, SettingsError
 
+from jri.core import paths
 from jri.core.exceptions import AuthError, PersistenceError
 from jri.core.service import Service
 from jri.core.settings import Settings, initialize_workspace
 from jri.lib import git
 
 from .app import App
-from .constants import CONFIG_ERROR_COPY
+from .constants import CONFIG_ERROR_COPY, WORKSPACE_MISSING_COPY
 
 logger = logging.getLogger(__name__)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Just Ralph It")
-    parser.add_subparsers(dest="command").add_parser(
-        "view", help="Visualize the notes graph using the standard JRI configuration."
-    )
+    subparsers = parser.add_subparsers(dest="command")
+    subparsers.add_parser("init", help="Set the project up with the default JRI configuration.")
+    subparsers.add_parser("chat", help="Chat with the interviewer in the terminal UI.")
+    subparsers.add_parser("view", help="Visualize the notes graph using the standard JRI configuration.")
 
     settings_source = CliSettingsSource(Settings, root_parser=parser, parse_args_method=parser.parse_args)
 
@@ -33,13 +35,24 @@ def main() -> None:
     settings_source(parsed_args=args)
     location = Path(getattr(args, "cwd", None) or Path.cwd()).resolve()
     project_dir = git.find_root(location) or location
-    initialize_workspace(project_dir)
+
+    if args.command is None:
+        parser.print_help()
+        return
+    if args.command == "init":
+        initialize_workspace(project_dir)
+        print(project_dir / paths.CONFIG_FILE)
+        return
+    if not (project_dir / paths.CONFIG_FILE).exists():
+        print(WORKSPACE_MISSING_COPY)
+        raise SystemExit(1)
+
+    load_dotenv(project_dir / ".env")
 
     try:
         with chdir(project_dir):
             settings = Settings(
                 cwd=project_dir,
-                _env_file=find_dotenv(usecwd=True),  # pyright: ignore[reportCallIssue]
                 _cli_settings_source=settings_source,  # pyright: ignore[reportCallIssue]
             )
     except (SettingsError, ValidationError, yaml.YAMLError) as error:
@@ -51,7 +64,7 @@ def main() -> None:
         print(CONFIG_ERROR_COPY.format(errors="\n".join(error_lines)))
         raise SystemExit(1) from error
 
-    handlers = {"view": _view, None: _run}
+    handlers = {"chat": _chat, "view": _view}
 
     try:
         handlers[args.command](settings)
@@ -63,7 +76,7 @@ def main() -> None:
         raise SystemExit(1) from error
 
 
-def _run(settings: Settings) -> None:
+def _chat(settings: Settings) -> None:
     settings.llm.validate_authentication()
     service = Service(settings)
     app = App(service)

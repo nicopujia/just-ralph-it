@@ -13,7 +13,7 @@ import httpx
 from markdownify import MarkdownConverter
 from openai.types.responses import ResponseFunctionCallOutputItemListParam
 
-from jri.core.settings import Settings
+from jri.core.settings import Settings, read_api_key
 from jri.lib import brave, youtube
 
 from .base import MAX_OUTPUT_LENGTH, Agent, tool
@@ -66,7 +66,7 @@ class Explorer(Agent):
         if not self.settings.brave_search.api_key:
             logger.info("search_finished available=False")
             return "Web search not available."
-        results = brave.search(self.settings.brave_search.api_key, query)
+        results = brave.search(read_api_key(self.settings.brave_search.api_key), query)
         output = "\n".join(f"- [{result['title']}]({result['url']})" for result in results)
         logger.info("search_finished results=%d", len(results))
         return output

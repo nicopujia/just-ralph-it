@@ -4,7 +4,6 @@ CONFIG_FILE = f"{WORKSPACE_DIR}/config.yaml"
 GITIGNORE_FILE = f"{WORKSPACE_DIR}/.gitignore"
 LOGS_DIR = f"{WORKSPACE_DIR}/logs"
 NOTEBOOK_FILE = f"{WORKSPACE_DIR}/notebook.yaml"
-SECRETS_FILE = f"{WORKSPACE_DIR}/secrets.yaml"
 SESSION_FILE = f"{WORKSPACE_DIR}/session.json"
 VISUALIZATION_FILE = f"{WORKSPACE_DIR}/visualization.html"
 

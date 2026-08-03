@@ -332,9 +332,7 @@ def test_force_resets_invalid_notebook_session(tmp_path: Path) -> None:
     base_dir = tmp_path / ".jri"
     base_dir.mkdir()
     config = base_dir / "config.yaml"
-    secrets = base_dir / "secrets.yaml"
     config.write_text("custom config")
-    secrets.write_text("custom secrets")
     (base_dir / ".gitignore").write_text("custom-cache\n")
     (base_dir / "notebook.yaml").write_text(": invalid yaml")
     (base_dir / "session.json").write_text("not json")
@@ -355,9 +353,8 @@ def test_force_resets_invalid_notebook_session(tmp_path: Path) -> None:
     assert service.notebook_file == base_dir / "notebook.yaml"
     assert service.visualization_file == base_dir / "visualization.html"
     assert config.read_text() == "custom config"
-    assert secrets.read_text() == "custom secrets"
     assert not service.session_file.exists()
     assert not service.visualization_file.exists()
     assert not (base_dir / "specs").exists()
     assert not (base_dir / "logs" / "old.log").exists()
-    assert service.gitignore_file.read_text() == "custom-cache\nsecrets.yaml\nsession.json\nlogs\nvisualization.html\n"
+    assert (base_dir / ".gitignore").read_text() == "custom-cache\n"

@@ -8,7 +8,7 @@ import pytest
 
 from jri.core.ai import architect, functional_analyst
 from jri.core.service import Service
-from jri.core.settings import Agent
+from jri.core.settings import Agent, initialize_workspace
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 
 if TYPE_CHECKING:
@@ -72,6 +72,7 @@ def run_git(path: Path, *arguments: str) -> str:
 
 
 def build_service(path: Path, client: FakeClient) -> Service:
+    initialize_workspace(path)
     settings = FakeSettings(
         cwd=path,
         force=False,

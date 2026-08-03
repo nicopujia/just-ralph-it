@@ -14,7 +14,7 @@ from jri.core import paths
 from .ai import ChatEvent, Interviewer, SpecsGen
 from .exceptions import PersistenceError
 from .notes import Graph, Notebook, TopicId
-from .settings import Settings, initialize_workspace
+from .settings import Settings
 
 if TYPE_CHECKING:
     from openai.types.responses import ResponseInputParam
@@ -54,7 +54,6 @@ class Service:
             $CWD/.jri/
                 .gitignore
                 config.yaml
-                secrets.yaml
                 session.json
                 notebook.yaml
                 logs/
@@ -64,7 +63,6 @@ class Service:
         """
         self.base_dir = settings.cwd / paths.WORKSPACE_DIR
         self.logs_dir = settings.cwd / paths.LOGS_DIR
-        self.gitignore_file = settings.cwd / paths.GITIGNORE_FILE
         self.notebook_file = settings.cwd / paths.NOTEBOOK_FILE
         self.visualization_file = settings.cwd / paths.VISUALIZATION_FILE
         self.session_file = settings.cwd / paths.SESSION_FILE
@@ -72,7 +70,7 @@ class Service:
         self.session_lock = Lock()
         self.settings = settings
 
-        kept = {paths.WORKSPACE_DIR, paths.CONFIG_FILE, paths.SECRETS_FILE, paths.GITIGNORE_FILE}
+        kept = {paths.WORKSPACE_DIR, paths.CONFIG_FILE, paths.GITIGNORE_FILE}
         if settings.force:
             for name, value in vars(paths).items():
                 if not name.isupper() or value in kept:
@@ -83,7 +81,6 @@ class Service:
                 else:
                     target.unlink(missing_ok=True)
 
-        initialize_workspace(settings.cwd)
         self.logs_dir.mkdir(exist_ok=True, parents=True)
 
         log_file = self.logs_dir / f"{datetime.now().astimezone().strftime('%Y-%m-%d_%H-%M-%S')}.log"

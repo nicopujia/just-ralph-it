@@ -1,27 +1,58 @@
+# Every setting below can also be given as an environment variable following its path
+# (JRI_LLM_PROVIDER, JRI_AGENTS_INTERVIEWER_MODEL, ...) or as a CLI flag (see `jri --help`).
+
 llm:
-  # Use a ChatGPT subscription. For an API key, replace this with any OpenAI-compatible base URL
-  # and set llm.api_key in secrets.yaml.
+  # Either "openai-subscription", to reuse a ChatGPT subscription through the Codex CLI,
+  # or the base URL of any OpenAI-compatible provider, such as https://api.openai.com/v1.
+  #
+  # The subscription needs the Codex CLI (https://learn.chatgpt.com/docs/codex/cli) to store its
+  # credentials in a file, so set `cli_auth_credentials_store = "file"` in ~/.codex/config.toml
+  # and run `codex login`.
+  #
   provider: openai-subscription
 
-# Each agent selects a model, reasoning effort, and sampling temperature (0 = focused, 2 = varied).
+  # Name of the environment variable holding the API key of the provider above.
+  # Required unless the provider is "openai-subscription".
+  # NEVER put the key itself here: JRI reads it from your shell and from the .env file at the root of your project.
+  #
+  # api_key: OPENAI_API_KEY
+
+# Web search for the explorer agent, on top of the shell, files, and URLs it always has.
+# Get a key at https://brave.com/search/api/ and name its environment variable here.
+#
+# brave_search:
+#   api_key: BRAVE_SEARCH_API_KEY
+
+# Each agent selects a model available on the provider above, a reasoning effort (minimal, low,
+# medium, high, or xhigh), and a sampling temperature (0 = focused, 2 = varied).
+# Omit the reasoning effort on models without reasoning, and the temperature to let the model
+# pick it; reasoning models reject the temperature outright.
 agents:
+  # Leads the requirements gathering interview.
+  # Recommended model type: smart yet relatively fast.
   interviewer:
     model: gpt-5.6-sol
-    reasoning_effort: high
-    temperature: 0.7
+    reasoning_effort: medium
+
+  # Runs shell commands, reads files, and browses the web on the interviewer's behalf.
+  # Recommended model type: low cost, fast and with vision capabilities.
   explorer:
     model: gpt-5.6-terra
     reasoning_effort: low
     temperature: 0
+
+  # Turns the interview notes into functional specifications.
+  # Recommended model type: as smart as possible.
   functional_analyst:
     model: gpt-5.6-sol
-    reasoning_effort: high
-    temperature: 0
+    reasoning_effort: xhigh
+
+  # Designs the system that satisfies those specifications.
+  # Recommended model type: as smart as possible.
   architect:
     model: gpt-5.6-sol
-    reasoning_effort: high
-    temperature: 0.2
+    reasoning_effort: xhigh
 
 logging:
-  # One of DEBUG, INFO, WARNING, ERROR, or CRITICAL.
+  # One of DEBUG, INFO, WARNING, ERROR, or CRITICAL. Logs are written to .jri/logs/.
   level: INFO

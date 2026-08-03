@@ -8,7 +8,7 @@ Set or fix these settings:
 
 {errors}
 
-You can define them in .jri/config.yaml, .jri/secrets.yaml,
+You can define them in .jri/config.yaml,
 your shell, a .env file, or CLI flags.
 All commands, including `jri view`, use this configuration.
 """
@@ -53,6 +53,8 @@ TITLE_COPY = "Just Ralph It"
 TOOL_CALL_ROW_CLASSES = "tool-call-row"
 
 USER_MESSAGE_CLASSES = "user-message"
+
+WORKSPACE_MISSING_COPY = "No JRI workspace here. Run `jri init` to create one."
 
 # Formatted strings that need other constants go below
 

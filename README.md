@@ -34,7 +34,7 @@ To know more about this project, read the [concept document](https://nicolaspuji
 ### 0. Prerequisites
 
 - [Python](https://www.python.org/downloads/) >=3.13 or [uv](https://docs.astral.sh/uv/getting-started/installation/)
-- API key from any [OpenAI-compatible](https://github.com/openai/openai-python) LLM inference provider or a [ChatGPT](https://chatgpt.com/codex/pricing/) subscription
+- API key from any [OpenAI-compatible](https://github.com/openai/openai-python) LLM inference provider OR a [ChatGPT](https://chatgpt.com/codex/pricing/) subscription
 
 ### 1. Installation
 
@@ -44,75 +44,30 @@ pip install just-ralph-it
 uv tool install just-ralph-it
 ```
 
-### 2. Configuration and authentication
+### 2. Setup
 
-On first run, JRI creates a self-documented `.jri/config.yaml` with the complete default configuration and an ignored `.jri/secrets.yaml` for API keys. You can also override settings through `.env`, the shell, or CLI flags (see `jri --help`). Environment variables follow the nested setting path with `_`, for example `JRI_LLM_PROVIDER` and `JRI_AGENTS_INTERVIEWER_MODEL`.
-
-#### Using an API key
-
-```yaml
-# .jri/config.yaml
-llm:
-  # Replace this URL with any OpenAI-compatible provider.
-  provider: https://api.openai.com/v1
-```
-
-```yaml
-# .jri/secrets.yaml
-llm:
-  api_key: ...
-```
-
-#### Using a ChatGPT subscription
-
-For this, you need to have [Codex](https://learn.chatgpt.com/docs/codex/cli#getting-started) installed and configure it to store credentials in a file:
-
-```toml
-# ~/.codex/config.toml
-cli_auth_credentials_store = "file"
-```
-
-Then run:
+Move to your project directory and set it up:
 
 ```bash
-codex login
+mkdir ./my-project
+cd ./my-project
+jri init
 ```
 
-The generated configuration already selects `openai-subscription` as the provider by default, so no additional JRI setting is required.
+That creates `.jri/config.yaml`. Open it and follow its comments.
 
-#### Optional: Brave Search
-
-To support web search, provide a [Brave Search API](https://brave.com/search/api/) key:
-
-```yaml
-# .jri/secrets.yaml
-brave_search:
-  api_key: ...
-```
-
-### 3. Model selection
-
-The generated configuration includes these defaults:
-
-- Interviewer: `gpt-5.6-sol`, `high` reasoning effort, `0.7` temperature
-- Explorer: `gpt-5.6-terra`, `low` reasoning effort, `0` temperature
-- Functional analyst: `gpt-5.6-sol`, `high` reasoning effort, `0` temperature
-- Architect: `gpt-5.6-sol`, `high` reasoning effort, `0.2` temperature
-
-Edit `.jri/config.yaml` to change them. Each agent is configured independently; omitted values fall back to its own defaults above.
-
-### 4. Usage
+### 3. Usage
 
 ```bash
 # Run the TUI and start chatting!
-jri
+jri chat
 
 # Visualize the notes graph
 jri view
 ```
 
 > [!TIP]
-> Given that JRI doesn't feature project implementation yet, you can hand the generated `.jri/notebook.yaml` or `.jri/specs/` to your favorite coding agent as a starting point for implementation.
+> Given that there isn't automated implementation yet, you can hand the generated `.jri/specs/` to your favorite coding agent as a starting point for implementation.
 
 ## Upgrading
 
