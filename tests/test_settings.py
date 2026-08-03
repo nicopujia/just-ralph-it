@@ -43,6 +43,27 @@ def test_generates_a_configuration_that_round_trips_through_the_settings(tmp_pat
         "functional_analyst": "gpt-5.6-sol",
         "architect": "gpt-5.6-sol",
     }
+    assert {name: agent["reasoning_effort"] for name, agent in settings.agents.model_dump().items()} == {
+        "interviewer": "medium",
+        "explorer": "low",
+        "functional_analyst": "xhigh",
+        "architect": "xhigh",
+    }
+
+
+def test_documents_every_agent_default_in_the_command_line_help(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit):
+        Settings(cwd=tmp_path, _cli_parse_args=["--help"])  # pyright: ignore[reportCallIssue]
+
+    help_text = " ".join(capsys.readouterr().out.split())
+
+    assert "--agents.interviewer.model str Model ID. (default: gpt-5.6-sol)" in help_text
+    assert "--agents.explorer.model str Model ID. (default: gpt-5.6-terra)" in help_text
+    assert "--agents.architect.model str Model ID. (default: gpt-5.6-sol)" in help_text
+    assert "Reasoning effort: minimal, low, medium, high, or xhigh. (default: medium)" in help_text
+    assert "Reasoning effort: minimal, low, medium, high, or xhigh. (default: xhigh)" in help_text
 
 
 def test_documents_every_setting_it_generates() -> None:

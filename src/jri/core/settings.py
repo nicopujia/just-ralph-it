@@ -36,7 +36,7 @@ class Agent(BaseModel):
     )
 
 
-class Agents(BaseSettings):
+class Agents(BaseModel):
     """Model configuration of every agent."""
 
     interviewer: Agent = Field(
@@ -63,9 +63,7 @@ class Agents(BaseSettings):
         ),
     )
 
-    model_config = SettingsConfigDict(
-        env_prefix="JRI_AGENTS_", env_nested_delimiter="_", env_nested_max_split=2, extra="ignore"
-    )
+    model_config = ConfigDict(extra="ignore")
 
 
 def read_api_key(variable: str) -> str:
@@ -197,7 +195,9 @@ class Settings(BaseSettings):
         ),
     )
     agents: Agents = Field(
-        default_factory=Agents,
+        # A default instance, rather than a factory, is what makes the
+        # command-line help report each agent's real defaults.
+        default=Agents(),
         description=(
             "Each agent picks a model available on the provider above. Omit the reasoning effort on models without "
             "reasoning, and the temperature to let the model pick it; reasoning models reject the temperature "
