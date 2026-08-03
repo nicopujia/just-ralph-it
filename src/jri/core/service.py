@@ -22,8 +22,8 @@ if TYPE_CHECKING:
 
 
 class InterviewItem(NamedTuple):
-    type: Literal["assistant", "reasoning", "tool", "error"]
-    text: str
+    type: Literal["assistant", "reasoning", "tool", "error", "stopped"]
+    text: str = ""
     symbol: str | None = None
 
 
@@ -47,6 +47,7 @@ class Session(BaseModel):
     interview: list[dict[str, Any]] = Field(default_factory=list)
     failed_call_ids: list[str] = Field(default_factory=list)
     failed_turn_error: str | None = None
+    stopped_turn: bool = False
     ready_to_ralph: bool = False
     active_spec_commit: str | None = None
     show_thinking_blocks: bool = False
@@ -192,7 +193,10 @@ class Service:
                 list(tool.invoke(item["arguments"]))
 
         self.update_session(
-            active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history, failed_turn_error=None
+            active_topic_id=self.interviewer.active_topic_id,
+            interview=self.interviewer.history,
+            failed_turn_error=None,
+            stopped_turn=False,
         )
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
@@ -226,7 +230,10 @@ class Service:
         self.update_session(interview=self.interviewer.history)
         yield from self.interviewer.respond()
         self.update_session(
-            active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history, failed_turn_error=None
+            active_topic_id=self.interviewer.active_topic_id,
+            interview=self.interviewer.history,
+            failed_turn_error=None,
+            stopped_turn=False,
         )
 
     def restore(self) -> tuple[list[Turn], bool]:
@@ -284,6 +291,7 @@ class Service:
                 active_topic_id=self.interviewer.active_topic_id,
                 interview=self.interviewer.history,
                 failed_turn_error=None,
+                stopped_turn=cancelled is not None and cancelled.is_set(),
             )
         except Exception:
             self.interviewer.history = self.interviewer.history[: checkpoint[0]]
@@ -332,4 +340,6 @@ class Service:
                 turns[-1].items.append(InterviewItem("assistant", text))
         if turns and self.session.failed_turn_error:
             turns[-1].items.append(InterviewItem("error", self.session.failed_turn_error))
+        elif turns and self.session.stopped_turn and all(item.type != "assistant" for item in turns[-1].items):
+            turns[-1].items.append(InterviewItem("stopped"))
         return turns

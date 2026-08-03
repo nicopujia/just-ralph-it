@@ -209,6 +209,44 @@ def test_cancelled_interview_turn_without_reply_keeps_prompt(tmp_path: Path) -> 
     assert "Keep this prompt." in [turn.message for turn in turns]
 
 
+def test_cancelled_interview_turn_without_reply_says_it_was_stopped_after_restart(tmp_path: Path) -> None:
+    cancelled = Event()
+    cancelled.set()
+    service = build_service(tmp_path, FakeClient([[]]))
+
+    list(service.chat("Stop this one.", cancelled))
+
+    turns, _ = build_service(tmp_path, FakeClient([])).restore()
+    assert turns[-1] == ("Stop this one.", [InterviewItem("stopped")])
+
+
+def test_cancelled_interview_turn_with_a_reply_is_not_marked_as_stopped(tmp_path: Path) -> None:
+    cancelled = Event()
+    service = build_service(tmp_path, FakeClient([partial_reply("Partial reply")]))
+    events = service.chat("Stop this one.", cancelled)
+
+    next(events)
+    cancelled.set()
+    list(events)
+
+    turns, _ = build_service(tmp_path, FakeClient([])).restore()
+    assert turns[-1] == ("Stop this one.", [InterviewItem("assistant", "Partial reply")])
+
+
+def test_next_interview_turn_clears_the_stopped_mark(tmp_path: Path) -> None:
+    cancelled = Event()
+    cancelled.set()
+    service = build_service(tmp_path, FakeClient([[], response(reply("Carrying on."))]))
+
+    list(service.chat("Stop this one.", cancelled))
+    list(service.chat("Carry on."))
+
+    restarted = build_service(tmp_path, FakeClient([]))
+    turns, _ = restarted.restore()
+    assert not restarted.session.stopped_turn
+    assert [item.type for turn in turns for item in turn.items] == ["assistant"]
+
+
 def test_cancelling_a_tool_call_leaves_valid_history(tmp_path: Path) -> None:
     cancelled = Event()
     client = FakeClient([response(call("switch", "switch_topic", topic="Delivery")), response(reply("Still works."))])

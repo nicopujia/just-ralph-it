@@ -566,6 +566,11 @@ class App(TextualApp[None]):
                     failed = True
                     interviewer_items.append(Markdown(item.text, classes=c.INTERVIEWER_ERROR_CLASSES))
                     continue
+                if item.type == "stopped":
+                    interviewer_items.append(
+                        Markdown(c.INTERVIEWER_STOPPED_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES)
+                    )
+                    continue
                 interviewer_items.append(
                     ToolCallRow(item.text, symbol=item.symbol or "⚙︎", is_complete=True)
                     if item.type == "tool"
