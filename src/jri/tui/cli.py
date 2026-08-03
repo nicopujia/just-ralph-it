@@ -44,10 +44,18 @@ def main() -> None:
         version=metadata.version("just-ralph-it"),
         help="Show the JRI version and exit.",
     )
-    subparsers = parser.add_subparsers(dest="command")
-    subparsers.add_parser("init", help="Set the project up with the default JRI configuration.")
-    subparsers.add_parser("chat", help="Chat with the interviewer in the terminal UI.")
-    subparsers.add_parser("view", help="Visualize the notes graph using the standard JRI configuration.")
+    # A positional command, rather than subparsers, lets every setting
+    # below be given before or after it.
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=("init", "chat", "view"),
+        help=(
+            "init: set the project up with the default JRI configuration. "
+            "chat: chat with the interviewer in the terminal UI. "
+            "view: visualize the notes graph."
+        ),
+    )
 
     settings_source = CliSettingsSource(Settings, root_parser=parser, parse_args_method=parser.parse_args)
 
