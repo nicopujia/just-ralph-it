@@ -73,6 +73,7 @@ class Service:
         workspace.mkdir(exist_ok=True, parents=True)
         if created:
             config_file.write_text(Settings.render_config(), encoding="utf-8")
+        Notebook(cwd / paths.NOTEBOOK_FILE)
 
         ignored = (paths.SESSION_FILE, paths.LOGS_DIR, paths.VISUALIZATION_FILE)
         gitignore = cwd / paths.GITIGNORE_FILE

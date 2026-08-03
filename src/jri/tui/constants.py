@@ -15,7 +15,7 @@ All commands, including `jri view`, use this configuration.
 
 HISTORY_BATCH_SIZE = 15
 
-INIT_CREATED_COPY = "Created a JRI workspace at {directory}, with its configuration and Git ignores."
+INIT_CREATED_COPY = "Created a JRI workspace at {directory}, with its configuration, notebook, and Git ignores."
 INIT_EXISTING_COPY = "A JRI workspace already exists at {directory}."
 INIT_NEXT_STEPS_COPY = "Open {config_file} and follow its comments, then run `jri chat`."
 INIT_REPOSITORY_COPY = "Initialized an empty Git repository at {directory}, since JRI commits what it writes."

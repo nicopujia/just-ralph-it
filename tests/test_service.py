@@ -4,6 +4,7 @@ from threading import Event
 from typing import cast
 
 import pytest
+import yaml
 
 from jri.core import paths
 from jri.core.exceptions import PersistenceError
@@ -25,6 +26,10 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
     assert workspace == (tmp_path / paths.WORKSPACE_DIR, tmp_path / paths.CONFIG_FILE, True, True)
     assert (tmp_path / paths.CONFIG_FILE).read_text() == Settings.render_config()
     assert (tmp_path / paths.GITIGNORE_FILE).read_text() == "session.json\nlogs\nvisualization.html\n"
+    assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text()) == {
+        "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
+        "connections": [],
+    }
     assert not git.Repository(tmp_path).has_head()
 
 
