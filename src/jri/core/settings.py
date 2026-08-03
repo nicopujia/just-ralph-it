@@ -48,25 +48,28 @@ agents:
   interviewer:
     model: gpt-5.6-sol
     reasoning_effort: medium
+    # temperature: 0.7
 
   # Runs shell commands, reads files, and browses the web on the interviewer's behalf.
   # Recommended model type: low cost, fast and with vision capabilities.
   explorer:
     model: gpt-5.6-terra
     reasoning_effort: low
-    temperature: 0
+    # temperature: 0
 
   # Turns the interview notes into functional specifications.
   # Recommended model type: as smart as possible.
   functional_analyst:
     model: gpt-5.6-sol
     reasoning_effort: xhigh
+    # temperature: 0
 
   # Designs the system that satisfies those specifications.
   # Recommended model type: as smart as possible.
   architect:
     model: gpt-5.6-sol
     reasoning_effort: xhigh
+    # temperature: 0.2
 
 logging:
   # One of DEBUG, INFO, WARNING, ERROR, or CRITICAL. Logs are written to .jri/logs/.

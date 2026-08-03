@@ -33,7 +33,7 @@ def test_initialize_workspace_creates_complete_self_documenting_configuration(tm
         "llm": {"provider": "openai-subscription"},
         "agents": {
             "interviewer": {"model": "gpt-5.6-sol", "reasoning_effort": "medium"},
-            "explorer": {"model": "gpt-5.6-terra", "reasoning_effort": "low", "temperature": 0},
+            "explorer": {"model": "gpt-5.6-terra", "reasoning_effort": "low"},
             "functional_analyst": {"model": "gpt-5.6-sol", "reasoning_effort": "xhigh"},
             "architect": {"model": "gpt-5.6-sol", "reasoning_effort": "xhigh"},
         },
@@ -81,7 +81,6 @@ def test_incomplete_configuration_is_reported(tmp_path: Path) -> None:
 def test_omitted_model_options_are_left_to_the_model(tmp_path: Path) -> None:
     config = yaml.safe_load(CONFIG_TEMPLATE)
     del config["agents"]["explorer"]["reasoning_effort"]
-    del config["agents"]["explorer"]["temperature"]
     write_config(tmp_path, config)
 
     settings = Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
