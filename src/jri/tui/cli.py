@@ -11,10 +11,11 @@ from pydantic import ValidationError
 from pydantic_settings import CliSettingsSource, SettingsError
 
 from jri.core import paths
-from jri.core.exceptions import AuthError, PersistenceError
+from jri.core.exceptions import PersistenceError
 from jri.core.service import Service
 from jri.core.settings import Settings, initialize_workspace
 from jri.lib import git
+from jri.lib.providers import codex
 
 from .app import App
 from .constants import CONFIG_ERROR_COPY, WORKSPACE_MISSING_COPY
@@ -68,7 +69,7 @@ def main() -> None:
 
     try:
         handlers[args.command](settings)
-    except AuthError as error:
+    except codex.AuthError as error:
         print(f"Authentication failed: {error}")
         raise SystemExit(1) from error
     except PersistenceError as error:

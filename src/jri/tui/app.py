@@ -17,8 +17,8 @@ from textual.screen import Screen
 from textual.widgets import Button, Header, LoadingIndicator, Markdown, Static
 
 from jri.core.ai import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
-from jri.core.exceptions import AuthError
 from jri.core.service import Service
+from jri.lib.providers import codex
 
 from . import constants as c
 from .states import InterviewerTurnState
@@ -305,7 +305,7 @@ class App(TextualApp[None]):
                 if any(term in error_text for term in ("usage limit", "quota", "available balance", "out of budget"))
                 else c.INTERVIEWER_ERROR_COPY.format(error=error)
             )
-        except (AuthError, RuntimeError) as error:
+        except (codex.AuthError, RuntimeError) as error:
             logger.exception("interviewer_worker_failed")
             status_copy = c.INTERVIEWER_ERROR_COPY.format(error=error)
         except Exception:

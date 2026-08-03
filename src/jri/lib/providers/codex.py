@@ -15,9 +15,11 @@ import httpx
 from openai import DefaultHttpxClient, OpenAI
 from openai._models import FinalRequestOptions
 
-from jri.core.exceptions import AuthError
-
 file_lock: Any = import_module("msvcrt" if sys.platform == "win32" else "fcntl")
+
+
+class AuthError(Exception):
+    """Raised when the Codex login is unavailable or invalid."""
 
 
 class Auth(httpx.Auth):
