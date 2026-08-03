@@ -24,25 +24,24 @@ def write_config(tmp_path: Path, config: dict[str, Any]) -> None:
     config_file.write_text(yaml.safe_dump(config))
 
 
-def test_initialize_workspace_creates_complete_self_documenting_configuration(tmp_path: Path) -> None:
+def test_creates_a_complete_self_documenting_configuration(tmp_path: Path) -> None:
     initialize_workspace(tmp_path)
 
     config_file = tmp_path / paths.CONFIG_FILE
+    config = yaml.safe_load(config_file.read_text())
     assert config_file.read_text() == CONFIG_TEMPLATE
-    assert yaml.safe_load(config_file.read_text()) == {
-        "llm": {"provider": "openai-subscription"},
-        "agents": {
-            "interviewer": {"model": "gpt-5.6-sol", "reasoning_effort": "medium"},
-            "explorer": {"model": "gpt-5.6-terra", "reasoning_effort": "low"},
-            "functional_analyst": {"model": "gpt-5.6-sol", "reasoning_effort": "xhigh"},
-            "architect": {"model": "gpt-5.6-sol", "reasoning_effort": "xhigh"},
-        },
-        "logging": {"level": "INFO"},
-    }
     assert "#" in config_file.read_text()
+    assert config["llm"] == {"provider": "openai-subscription"}
+    assert config["logging"] == {"level": "INFO"}
+    assert {name: agent["model"] for name, agent in config["agents"].items()} == {
+        "interviewer": "gpt-5.6-sol",
+        "explorer": "gpt-5.6-terra",
+        "functional_analyst": "gpt-5.6-sol",
+        "architect": "gpt-5.6-sol",
+    }
 
 
-def test_initialize_workspace_preserves_files_and_appends_ignores_idempotently(tmp_path: Path) -> None:
+def test_preserves_existing_files_and_appends_ignores_idempotently(tmp_path: Path) -> None:
     workspace = tmp_path / paths.WORKSPACE_DIR
     workspace.mkdir()
     config_file = tmp_path / paths.CONFIG_FILE
@@ -57,7 +56,7 @@ def test_initialize_workspace_preserves_files_and_appends_ignores_idempotently(t
     assert gitignore_file.read_text() == "custom-cache\nlogs\nsession.json\nvisualization.html\n"
 
 
-def test_generated_configuration_is_the_only_source_of_defaults(tmp_path: Path) -> None:
+def test_takes_every_default_from_the_generated_configuration(tmp_path: Path) -> None:
     initialize_workspace(tmp_path)
     template = yaml.safe_load(CONFIG_TEMPLATE)
 
@@ -68,7 +67,7 @@ def test_generated_configuration_is_the_only_source_of_defaults(tmp_path: Path) 
     assert settings.logging.level == template["logging"]["level"]
 
 
-def test_incomplete_configuration_is_reported(tmp_path: Path) -> None:
+def test_reports_an_incomplete_configuration(tmp_path: Path) -> None:
     config = yaml.safe_load(CONFIG_TEMPLATE)
     del config["agents"]["explorer"]["model"]
     del config["logging"]
@@ -78,9 +77,10 @@ def test_incomplete_configuration_is_reported(tmp_path: Path) -> None:
         Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
 
 
-def test_omitted_model_options_are_left_to_the_model(tmp_path: Path) -> None:
+def test_leaves_omitted_model_options_to_the_model(tmp_path: Path) -> None:
     config = yaml.safe_load(CONFIG_TEMPLATE)
-    del config["agents"]["explorer"]["reasoning_effort"]
+    config["agents"]["explorer"].pop("reasoning_effort", None)
+    config["agents"]["explorer"].pop("temperature", None)
     write_config(tmp_path, config)
 
     settings = Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
@@ -89,7 +89,9 @@ def test_omitted_model_options_are_left_to_the_model(tmp_path: Path) -> None:
     assert settings.agents.explorer.temperature is None
 
 
-def test_api_keys_name_environment_variables(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reads_api_keys_from_the_environment_variables_they_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     config = yaml.safe_load(CONFIG_TEMPLATE)
     config["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "PROVIDER_API_KEY"}
     config["brave_search"] = {"api_key": "SEARCH_API_KEY"}
@@ -104,7 +106,7 @@ def test_api_keys_name_environment_variables(tmp_path: Path, monkeypatch: pytest
     assert settings.llm.client.api_key == "provider-key"
 
 
-def test_unset_environment_variable_is_reported(tmp_path: Path) -> None:
+def test_reports_an_unset_environment_variable(tmp_path: Path) -> None:
     config = yaml.safe_load(CONFIG_TEMPLATE)
     config["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "MISSING_API_KEY"}
     write_config(tmp_path, config)
@@ -113,7 +115,7 @@ def test_unset_environment_variable_is_reported(tmp_path: Path) -> None:
         Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
 
 
-def test_missing_api_key_is_required_without_a_subscription(tmp_path: Path) -> None:
+def test_requires_an_api_key_without_a_subscription(tmp_path: Path) -> None:
     config = yaml.safe_load(CONFIG_TEMPLATE)
     config["llm"] = {"provider": "https://api.openai.com/v1"}
     write_config(tmp_path, config)
@@ -122,7 +124,7 @@ def test_missing_api_key_is_required_without_a_subscription(tmp_path: Path) -> N
         Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
 
 
-def test_settings_resolve_cli_environment_and_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resolves_cli_over_environment_over_configuration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config = yaml.safe_load(CONFIG_TEMPLATE)
     config["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "PROVIDER_API_KEY"}
     config["agents"]["interviewer"] |= {"model": "file-model", "reasoning_effort": "low"}
@@ -131,8 +133,9 @@ def test_settings_resolve_cli_environment_and_config(tmp_path: Path, monkeypatch
     monkeypatch.setenv("JRI_AGENTS_INTERVIEWER_MODEL", "environment-model")
     monkeypatch.setenv("JRI_AGENTS_INTERVIEWER_REASONING_EFFORT", "medium")
 
-    settings = Settings(  # pyright: ignore[reportCallIssue]
-        cwd=tmp_path, _cli_parse_args=["--agents.interviewer.model", "cli-model"]
+    settings = Settings(
+        cwd=tmp_path,
+        _cli_parse_args=["--agents.interviewer.model", "cli-model"],  # pyright: ignore[reportCallIssue]
     )
 
     assert settings.llm.provider == "https://api.openai.com/v1"

@@ -1,0 +1,48 @@
+import httpx
+import pytest
+
+from jri.lib import brave
+from tests.doubles.brave import RESULTS, FakeProvider, respond
+
+
+def test_returns_the_generic_results_of_a_successful_search(monkeypatch: pytest.MonkeyPatch) -> None:
+    provider = FakeProvider(respond(200, {"grounding": {"generic": RESULTS, "other": []}}))
+    monkeypatch.setattr(brave.httpx, "post", provider.post)
+
+    assert brave.search("search-key", "how to ralph") == RESULTS
+    assert provider.calls == [
+        ({"query": "how to ralph"}, {"Accept": "application/json", "X-Subscription-Token": "search-key"})
+    ]
+
+
+def test_reports_the_detail_the_provider_explains_a_rejection_with(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(brave.httpx, "post", FakeProvider(respond(422, {"error": "Query is too long."})).post)
+
+    with pytest.raises(RuntimeError, match=r"Query is too long\."):
+        brave.search("search-key", "how to ralph")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{"message": "Rate limited."}, ["Rate limited."], "Rate limited."],
+    ids=["no-error-field", "not-an-object", "not-a-mapping"],
+)
+def test_reports_the_response_body_when_no_detail_is_given(monkeypatch: pytest.MonkeyPatch, body: object) -> None:
+    monkeypatch.setattr(brave.httpx, "post", FakeProvider(respond(429, body)).post)
+
+    with pytest.raises(RuntimeError, match=r"Rate limited\."):
+        brave.search("search-key", "how to ralph")
+
+
+def test_reports_a_rejection_with_an_empty_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(brave.httpx, "post", FakeProvider(respond(429)).post)
+
+    with pytest.raises(RuntimeError, match="429 Too Many Requests"):
+        brave.search("search-key", "how to ralph")
+
+
+def test_reports_a_search_that_never_reached_the_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(brave.httpx, "post", FakeProvider(httpx.ConnectError("connection refused")).post)
+
+    with pytest.raises(RuntimeError, match="connection refused"):
+        brave.search("search-key", "how to ralph")

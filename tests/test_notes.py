@@ -8,6 +8,7 @@ from yaml import safe_load
 from jri.core.exceptions import PersistenceError
 from jri.core.notes import Connection, Graph, Notebook, ReadQuery
 
+MAX_SEARCH_RESULTS = 10
 VALID_GRAPH: dict[str, Any] = {
     "topics": [{"id": "t1", "name": "Overview", "status": "open"}],
     "notes": [{"id": "n1", "topic_id": "t1", "text": "A requirement"}],
@@ -46,7 +47,11 @@ def test_topic_and_note_ids_advance_independently(tmp_path: Path) -> None:
                 {"id": "t2", "name": " overview ", "status": "open"},
             ],
         },
-        {**VALID_GRAPH, "topics": [{"id": "t2", "name": "Overview", "status": "open"}]},
+        {
+            **VALID_GRAPH,
+            "topics": [{"id": "t2", "name": "Overview", "status": "open"}],
+            "notes": [{"id": "n1", "topic_id": "t2", "text": "A requirement"}],
+        },
         {**VALID_GRAPH, "notes": [{"id": "n1", "topic_id": "t2", "text": "A requirement"}]},
         {**VALID_GRAPH, "connections": [{"source_id": "n1", "target_id": "n2", "label": "requires"}]},
         {
@@ -69,7 +74,7 @@ def test_topic_and_note_ids_advance_independently(tmp_path: Path) -> None:
         "blank-content",
     ],
 )
-def test_graph_rejects_invalid_data(data: dict[str, Any]) -> None:
+def test_rejects_invalid_graph_data(data: dict[str, Any]) -> None:
     with pytest.raises(ValidationError):
         Graph.model_validate(data)
 
@@ -89,7 +94,7 @@ def test_invalid_connection_batch_changes_nothing(tmp_path: Path) -> None:
     assert Notebook(notebook.path).graph == before
 
 
-def test_deleting_note_removes_its_connections(tmp_path: Path) -> None:
+def test_deleting_a_note_removes_its_connections(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
     notebook.add(["First", "Second", "Third"], "t1")
     notebook.connect([
@@ -105,7 +110,7 @@ def test_deleting_note_removes_its_connections(tmp_path: Path) -> None:
     assert {(item.source_id, item.target_id, item.label) for item in graph.connections} == {("n1", "n3", "supports")}
 
 
-def test_notebook_changes_survive_restart(tmp_path: Path) -> None:
+def test_changes_survive_restart(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
     topic = notebook.add_topic("Delivery")
     first, second = notebook.add(["Deploy manually.", "Use the main branch 🚀."], topic.id)
@@ -129,7 +134,7 @@ def test_notebook_changes_survive_restart(tmp_path: Path) -> None:
     assert Notebook(notebook.path).graph.connections == []
 
 
-def test_notebook_file_uses_compact_schema(tmp_path: Path) -> None:
+def test_stores_notes_in_a_compact_schema(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
     delivery = notebook.add_topic("Delivery")
     first = notebook.add(["First"], "t1")[0]
@@ -159,7 +164,7 @@ def test_notebook_file_uses_compact_schema(tmp_path: Path) -> None:
     assert Notebook(notebook.path).graph == notebook.graph
 
 
-def test_render_includes_only_visible_topics_and_relevant_notes(tmp_path: Path) -> None:
+def test_renders_only_visible_topics_and_relevant_notes(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
     delivery = notebook.add_topic("Delivery")
     security = notebook.add_topic("Security")
@@ -185,7 +190,7 @@ def test_render_includes_only_visible_topics_and_relevant_notes(tmp_path: Path) 
     assert security_context["topics"][2]["notes"] == {"n3": "Encrypt credentials."}
 
 
-def test_render_keeps_empty_overview_notes(tmp_path: Path) -> None:
+def test_renders_an_empty_overview(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
 
     assert safe_load(notebook.render("t1")) == {
@@ -198,15 +203,19 @@ def test_render_keeps_empty_overview_notes(tmp_path: Path) -> None:
     [
         (ReadQuery(traverse_from=["n1"], direction="outgoing", depth=1), {"n1", "n2"}),
         (ReadQuery(traverse_from=["n1"], direction="outgoing", depth=2), {"n1", "n2", "n3"}),
+        (ReadQuery(traverse_from=["n1"], direction="incoming", depth=1), {"n1", "n3"}),
         (ReadQuery(traverse_from=["n3"], direction="incoming", depth=1), {"n2", "n3"}),
+        (ReadQuery(traverse_from=["n1"]), {"n1", "n2", "n3"}),
     ],
+    ids=["outgoing", "outgoing-deeper", "incoming", "incoming-from-the-end", "both-by-default"],
 )
-def test_read_respects_traversal_direction_and_depth(tmp_path: Path, query: ReadQuery, expected_ids: set[str]) -> None:
+def test_respects_traversal_direction_and_depth(tmp_path: Path, query: ReadQuery, expected_ids: set[str]) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
     notebook.add(["First", "Second", "Third"], "t1")
     notebook.connect([
         Connection(source_id="n1", target_id="n2", label="requires"),
         Connection(source_id="n2", target_id="n3", label="requires"),
+        Connection(source_id="n3", target_id="n1", label="closes"),
     ])
 
     notes, _ = notebook.read(query)
@@ -214,7 +223,49 @@ def test_read_respects_traversal_direction_and_depth(tmp_path: Path, query: Read
     assert {note.id for note in notes} == expected_ids
 
 
-def test_read_hides_trashed_topics_unless_selected(tmp_path: Path) -> None:
+def test_ranks_fuzzy_matches_and_caps_the_result(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    notebook.add([*(f"Unrelated note {index}" for index in range(12)), "Deploy from the main branch."], "t1")
+
+    notes, _ = notebook.read(ReadQuery(text="MAIN BRANCH"))
+
+    assert notes[0].text == "Deploy from the main branch."
+    assert len(notes) == MAX_SEARCH_RESULTS
+
+
+def test_searches_only_visible_topics(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    topic = notebook.add_topic("Discarded idea")
+    notebook.add(["Deploy from the main branch."], topic.id)
+    notebook.update_topic(topic.id, "trashed")
+
+    assert notebook.read(ReadQuery(text="main branch"))[0] == []
+    assert [note.text for note in notebook.read(ReadQuery(text="main branch", topic_ids=[topic.id]))[0]] == [
+        "Deploy from the main branch."
+    ]
+
+
+@pytest.mark.parametrize(
+    "query", [{"text": "  "}, {"depth": 0}, {"traverse_from": ["n1"], "depth": -1}], ids=["blank-text", "zero", "under"]
+)
+def test_rejects_invalid_search_selectors(query: dict[str, Any]) -> None:
+    with pytest.raises(ValidationError):
+        ReadQuery(**query)
+
+
+def test_rejects_unknown_selectors(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    notebook.add(["First"], "t1")
+
+    with pytest.raises(ValueError, match="t99"):
+        notebook.read(ReadQuery(topic_ids=["t99"]))
+    with pytest.raises(ValueError, match="n99"):
+        notebook.read(ReadQuery(ids=["n99"]))
+    with pytest.raises(ValueError, match="n99"):
+        notebook.read(ReadQuery(traverse_from=["n99"]))
+
+
+def test_hides_trashed_topics_unless_selected(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
     topic = notebook.add_topic("Discarded idea")
     notebook.add(["Do not show this by default."], topic.id)
@@ -241,7 +292,7 @@ def test_read_hides_trashed_topics_unless_selected(tmp_path: Path) -> None:
         "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: {n1: First}\nconnections: [n1 supports n2]",
     ],
 )
-def test_invalid_notebook_file_explains_how_to_reset(tmp_path: Path, contents: str) -> None:
+def test_explains_how_to_reset_an_invalid_notebook_file(tmp_path: Path, contents: str) -> None:
     path = tmp_path / "notebook.yaml"
     path.write_text(contents)
 

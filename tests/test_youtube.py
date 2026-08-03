@@ -1,0 +1,70 @@
+import pytest
+
+from jri.lib import youtube
+from tests.doubles.youtube import FALLBACK_TRANSCRIPT, TRANSCRIPT, FakeApi
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://www.youtube.com/watch?v=abc123",
+        "https://youtube.com/watch?v=abc123&t=30s",
+        "https://music.youtube.com/watch?v=abc123",
+        "https://youtu.be/abc123",
+        "https://www.youtube.com/shorts/abc123",
+        "https://www.youtube-nocookie.com/embed/abc123",
+    ],
+    ids=["watch", "watch-extra-query", "music", "short-link", "shorts", "no-cookie-embed"],
+)
+def test_fetches_the_english_transcript_from_supported_urls(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
+    videos: list[str] = []
+    languages: list[list[str]] = []
+    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi(videos, languages))
+
+    assert youtube.fetch_transcript_from_url(url) == TRANSCRIPT
+    assert videos == ["abc123"]
+    assert languages == [["en"]]
+
+
+def test_falls_back_to_another_language_when_english_is_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], [], english=False))
+
+    assert youtube.fetch_transcript_from_url("https://youtu.be/abc123") == FALLBACK_TRANSCRIPT
+
+
+def test_reports_videos_with_transcripts_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], [], disabled=True))
+
+    with pytest.raises(RuntimeError, match="Failed to load transcript metadata"):
+        youtube.fetch_transcript_from_url("https://youtu.be/abc123")
+
+
+def test_reports_videos_without_any_transcript(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], [], english=False, available=False))
+
+    with pytest.raises(RuntimeError, match="No transcript is available"):
+        youtube.fetch_transcript_from_url("https://youtu.be/abc123")
+
+
+@pytest.mark.parametrize(
+    "url",
+    ["https://example.com/watch?v=abc123", "https://notyoutube.com/watch?v=abc123", "https://youtube.com.evil.test/"],
+    ids=["other-site", "lookalike-host", "suffix-host"],
+)
+def test_ignores_urls_outside_youtube(url: str) -> None:
+    assert youtube.fetch_transcript_from_url(url) is None
+
+
+@pytest.mark.parametrize(
+    ("url", "reason"),
+    [
+        ("https://www.youtube.com/channel/abc123", "Unsupported"),
+        ("https://www.youtube.com/", "Unsupported"),
+        ("https://www.youtube.com/watch?list=abc123", "Missing video id"),
+        ("https://youtu.be/", "Missing video id"),
+    ],
+    ids=["channel", "root", "playlist", "short-link-without-id"],
+)
+def test_rejects_youtube_urls_without_a_video(url: str, reason: str) -> None:
+    with pytest.raises(RuntimeError, match=reason):
+        youtube.fetch_transcript_from_url(url)

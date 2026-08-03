@@ -1,29 +1,10 @@
 import shutil
-import subprocess
 from pathlib import Path
 
 import pytest
 
 from jri.lib import git
-
-
-def run_git(path: Path, *arguments: str) -> str:
-    executable = shutil.which("git")
-    assert executable is not None
-    return subprocess.run(
-        [executable, "-C", str(path), *arguments], check=True, capture_output=True, text=True
-    ).stdout.strip()
-
-
-def create_repository(path: Path) -> git.Repository:
-    path.mkdir()
-    run_git(path, "init", "-q")
-    run_git(path, "config", "user.name", "Test User")
-    run_git(path, "config", "user.email", "test@example.com")
-    (path / "README.md").write_text("first\n")
-    run_git(path, "add", "README.md")
-    run_git(path, "commit", "-qm", "first")
-    return git.Repository(path)
+from tests.git import create_repository, run_git
 
 
 def test_rejects_missing_git_and_initializes_repository(tmp_path: Path) -> None:
@@ -51,8 +32,8 @@ def test_inspects_revisions_files_diffs_and_status(tmp_path: Path) -> None:
     (repository.path / "README.md").write_text("second\n")
     (repository.path / "new file.txt").write_text("new\n")
 
-    assert repository.read_file(first, "README.md") == b"first\n"
-    assert repository.read_tree(first) == {"README.md": b"first\n"}
+    assert repository.read_file(first, "README.md") == b"# Project\n"
+    assert repository.read_tree(first) == {"README.md": b"# Project\n"}
     assert repository.read_tracked_paths(first) == ("README.md",)
     assert b"+second" in repository.diff(first, paths=["README.md"])
     assert {(item.path, item.index, item.worktree) for item in repository.read_status()} == {
@@ -71,11 +52,24 @@ def test_inspects_revisions_files_diffs_and_status(tmp_path: Path) -> None:
     )
 
 
+def test_reports_renames_with_their_original_path(tmp_path: Path) -> None:
+    repository = create_repository(tmp_path / "repo")
+    run_git(repository.path, "mv", "README.md", "docs.md")
+    (repository.path / "untracked.md").write_text("new\n")
+
+    status = repository.read_status()
+
+    assert [(item.path, item.index, item.original_path) for item in status] == [
+        ("docs.md", "R", "README.md"),
+        ("untracked.md", "?", None),
+    ]
+
+
 def test_applies_patch(tmp_path: Path) -> None:
     repository = create_repository(tmp_path / "repo")
     (repository.path / "README.md").write_text("updated\n")
     patch = repository.diff("HEAD", paths=["README.md"])
-    (repository.path / "README.md").write_text("first\n")
+    (repository.path / "README.md").write_text("# Project\n")
     repository.stage(["README.md"])
 
     repository.apply_patch(patch, index=True)
