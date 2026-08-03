@@ -3,6 +3,7 @@ import html
 import logging
 import webbrowser
 from contextlib import chdir
+from importlib import metadata
 from pathlib import Path
 
 import yaml
@@ -32,6 +33,13 @@ logger = logging.getLogger(__name__)
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Just Ralph It")
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=metadata.version("just-ralph-it"),
+        help="Show the JRI version and exit.",
+    )
     subparsers = parser.add_subparsers(dest="command")
     subparsers.add_parser("init", help="Set the project up with the default JRI configuration.")
     subparsers.add_parser("chat", help="Chat with the interviewer in the terminal UI.")
