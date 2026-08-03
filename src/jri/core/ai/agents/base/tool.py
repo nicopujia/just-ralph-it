@@ -14,6 +14,9 @@ from jri.core import ai
 if TYPE_CHECKING:
     from openai.types.responses import FunctionToolParam, ResponseFunctionCallOutputItemListParam
 
+Params = ParamSpec("Params")
+Return = TypeVar("Return")
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,8 +38,6 @@ class ToolOutput:
 
 
 type Stream = Generator[ai.ToolCallStarted | ai.ToolCallFinished | ToolOutput]
-Params = ParamSpec("Params")
-Return = TypeVar("Return")
 
 
 def tool(

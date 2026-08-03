@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, urlparse
 from youtube_transcript_api import NoTranscriptFound, YouTubeTranscriptApi, YouTubeTranscriptApiException
 
 __all__ = ["fetch_transcript_from_url"]
+
 logger = logging.getLogger(__name__)
 
 

@@ -15,11 +15,13 @@ from jri.lib.providers import codex
 type LoggingLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 type Temperature = Annotated[float, Field(ge=0, le=2)] | None
 
+COMMENT_WIDTH = 100
 CONFIG_INTRO = (
     "Every setting below can also be given as an environment variable following its path "
     "(JRI_LLM_PROVIDER, JRI_AGENTS_INTERVIEWER_MODEL, ...) or as a CLI flag (see `jri --help`). "
     "The values shown are the ones JRI already uses, and the commented ones are optional."
 )
+RUNTIME_FIELDS = frozenset({"cwd", "force"})
 
 
 class Agent(BaseModel):
@@ -141,10 +143,6 @@ class Logging(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="JRI_LOGGING_", extra="ignore")
 
 
-_COMMENT_WIDTH = 100
-_RUNTIME_FIELDS = frozenset({"cwd", "force"})
-
-
 def _build_file_schema(model: type[BaseModel]) -> type[BaseModel]:
     """Build the schema the configuration file is allowed to set.
 
@@ -158,7 +156,7 @@ def _build_file_schema(model: type[BaseModel]) -> type[BaseModel]:
     fields: dict[str, Any] = {}
     for name, field in model.model_fields.items():
         annotation: Any = field.annotation
-        if name in _RUNTIME_FIELDS:
+        if name in RUNTIME_FIELDS:
             continue
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):
             section = _build_file_schema(annotation)
@@ -224,7 +222,7 @@ class Settings(BaseSettings):
             commented out.
         """
 
-        intro = [f"# {line}" for line in textwrap.wrap(CONFIG_INTRO, _COMMENT_WIDTH)]
+        intro = [f"# {line}" for line in textwrap.wrap(CONFIG_INTRO, COMMENT_WIDTH)]
         return "\n".join([*intro, "", *_render_settings(cls, None, 0), ""])
 
     @classmethod
@@ -286,13 +284,13 @@ def _render_settings(model: type[BaseModel], values: BaseModel | None, level: in
     indent = "  " * level
     entries: list[list[str]] = []
     for name, field in model.model_fields.items():
-        if level == 0 and name in _RUNTIME_FIELDS:
+        if level == 0 and name in RUNTIME_FIELDS:
             continue
         comment: list[str] = []
         for paragraph in (field.description or "").split("\n\n"):
             if comment:
                 comment.append(f"{indent}#")
-            comment.extend(f"{indent}# {line}" for line in textwrap.wrap(paragraph, _COMMENT_WIDTH - len(indent)))
+            comment.extend(f"{indent}# {line}" for line in textwrap.wrap(paragraph, COMMENT_WIDTH - len(indent)))
         value = getattr(values, name) if values is not None else field.default
         annotation = field.annotation
         if isinstance(annotation, type) and issubclass(annotation, BaseModel):

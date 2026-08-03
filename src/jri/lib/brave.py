@@ -7,7 +7,8 @@ import httpx
 
 __all__ = ["search"]
 
-_ENDPOINT = "https://api.search.brave.com/res/v1/llm/context"
+ENDPOINT = "https://api.search.brave.com/res/v1/llm/context"
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,7 +25,7 @@ def search(api_key: str, query: str) -> list[dict[str, str]]:
     logger.debug("search_query query=%r", query)
     try:
         response = httpx.post(
-            _ENDPOINT,
+            ENDPOINT,
             json={"query": query},
             headers={"Accept": "application/json", "X-Subscription-Token": api_key},
             timeout=30.0,

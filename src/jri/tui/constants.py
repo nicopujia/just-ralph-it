@@ -23,6 +23,8 @@ INIT_EXISTING_COPY = "A JRI workspace already exists at {directory}."
 INIT_NEXT_STEPS_COPY = "Open {config_file} and follow its comments, then run `jri chat`."
 INIT_REPOSITORY_COPY = "Initialized an empty Git repository at {directory}, since JRI commits what it writes."
 
+INTERNAL_ERROR_COPY = "Something unexpected went wrong. Check the JRI log for details and try again."
+
 INTERVIEWER_ERROR_CLASSES = "interviewer-error"
 INTERVIEWER_ERROR_COPY = """
 Something went wrong while talking to the interviewer:
@@ -37,8 +39,6 @@ INTERVIEWER_REASONING_CLASSES = "interviewer-reasoning"
 INTERVIEWER_STOPPED_COPY = "_Response stopped._"
 INTERVIEWER_THINKING_COPY = "_Thinking..._"
 INTERVIEWER_TURN_CLASSES = "interviewer-turn"
-
-INTERNAL_ERROR_COPY = "Something unexpected went wrong. Check the JRI log for details and try again."
 
 KEYMAP_PANEL_COPY = "Keymap"
 

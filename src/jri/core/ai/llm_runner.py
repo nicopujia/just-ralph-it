@@ -13,8 +13,9 @@ from pydantic import BaseModel
 
 from .events import ChatEvent, ReasoningDelta, TextDelta
 
-logger = logging.getLogger(__name__)
 Result = TypeVar("Result", bound=BaseModel)
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 __all__ = ["Error", "NotInstalledError", "NotRepositoryError", "Repository", "Status", "find_root"]
+
 logger = logging.getLogger(__name__)
 
 
