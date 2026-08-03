@@ -17,6 +17,7 @@ For more info, refer to the [concept document](https://nicolaspujia.com/just-ral
 - Function and method names as verbs (except for event handlers and decorators)
 - Higher-level or public functions above lower-level or private ones
 - Helper functions only for repeated logic, unavoidable extractions, or addressing linter alerts
+- Module-level variables in groups one blank line apart: dunders (eg `__all__`), then constants (never private), then lowercase ones (eg `logger`)
 - Import paths <=3 levels
 
 ## Commands
