@@ -9,48 +9,48 @@ from tests.doubles.settings import build_settings
 from tests.git import create_repository, run_git
 
 FUNCTIONAL_PATCH = """\
-diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
+diff --git a/functional/behavior.md b/functional/behavior.md
 new file mode 100644
 --- /dev/null
-+++ b/.jri/specs/functional/behavior.md
++++ b/functional/behavior.md
 @@ -0,0 +1 @@
 +# Behavior
 """
 ARCHITECTURE_PATCH = """\
-diff --git a/.jri/specs/architecture/design.md b/.jri/specs/architecture/design.md
+diff --git a/architecture/design.md b/architecture/design.md
 new file mode 100644
 --- /dev/null
-+++ b/.jri/specs/architecture/design.md
++++ b/architecture/design.md
 @@ -0,0 +1 @@
 +# Design
 """
 MISCOUNTED_FUNCTIONAL_PATCH = """\
-diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
+diff --git a/functional/behavior.md b/functional/behavior.md
 new file mode 100644
 --- /dev/null
-+++ b/.jri/specs/functional/behavior.md
++++ b/functional/behavior.md
 @@ -0,0 +1,9 @@
 +# Behavior
 +Totals are supported.
 """
 RENAME_PATCH = """\
-diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/other.md
+diff --git a/functional/behavior.md b/functional/other.md
 similarity index 100%
-rename from .jri/specs/functional/behavior.md
+rename from functional/behavior.md
 rename to ../../../escape.md
 """
 FUNCTIONAL_UPDATE = """\
-diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
---- a/.jri/specs/functional/behavior.md
-+++ b/.jri/specs/functional/behavior.md
+diff --git a/functional/behavior.md b/functional/behavior.md
+--- a/functional/behavior.md
++++ b/functional/behavior.md
 @@ -1 +1,2 @@
  # Behavior
 +Total output is supported.
 """
 ARCHITECTURE_UPDATE = """\
-diff --git a/.jri/specs/architecture/design.md b/.jri/specs/architecture/design.md
---- a/.jri/specs/architecture/design.md
-+++ b/.jri/specs/architecture/design.md
+diff --git a/architecture/design.md b/architecture/design.md
+--- a/architecture/design.md
++++ b/architecture/design.md
 @@ -1 +1,2 @@
  # Design
 +Add a total accumulator.
@@ -277,6 +277,32 @@ def test_updates_specs_after_restart_and_an_intervening_project_commit(tmp_path:
     assert not run_git(tmp_path, "status", "--short")
 
 
+def test_shows_specifications_to_the_models_under_neutral_roots(tmp_path: Path) -> None:
+    create_repository(tmp_path)
+    list(build_service(tmp_path, successful_client()).ralph())
+    client = FakeClient(
+        [streamed_reply("Repository report"), response(reply("Specifications updated."))],
+        parsed=[
+            functional_analyst.Output(
+                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
+            ),
+            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_UPDATE)),
+        ],
+    )
+    restarted = build_service(tmp_path, client)
+    restarted.restore()
+
+    list(restarted.ralph())
+
+    prompts = [str(item) for item in client.responses.inputs]
+    functional_input = next(item for item in prompts if "Notebook diff from accepted baseline:" in item)
+    architect_input = next(item for item in prompts if "Tracked repository tree:" in item)
+    assert "File: functional/behavior.md" in functional_input
+    assert ".jri" not in functional_input
+    assert "File: functional/behavior.md" in architect_input
+    assert "File: architecture/design.md" in architect_input
+
+
 def test_commits_modified_configuration_with_specifications(tmp_path: Path) -> None:
     create_repository(tmp_path)
     service = build_service(tmp_path, successful_client())
@@ -411,7 +437,7 @@ def test_refuses_specifications_edited_outside_jri(tmp_path: Path) -> None:
     [
         (
             FUNCTIONAL_PATCH.replace(
-                "--- /dev/null\n+++ b/.jri/specs/functional/behavior.md", "--- a/README.md\n+++ b/README.md"
+                "--- /dev/null\n+++ b/functional/behavior.md", "--- a/README.md\n+++ b/README.md"
             ).replace("@@ -0,0 +1 @@", "@@ -1 +1 @@"),
             r"README\.md",
         ),
@@ -422,18 +448,20 @@ def test_refuses_specifications_edited_outside_jri(tmp_path: Path) -> None:
         (FUNCTIONAL_PATCH.replace("+# Behavior", "Binary files a/x.md and b/x.md differ"), "binary files"),
         (
             FUNCTIONAL_PATCH.replace("functional/behavior.md", "functional/../../../escape.md"),
-            r"cannot change `\.jri/specs/functional/\.\./\.\./\.\./escape\.md`",
+            r"cannot change `functional/\.\./\.\./\.\./escape\.md`",
+        ),
+        (FUNCTIONAL_PATCH.replace("behavior.md", "behavior.txt"), r"cannot change `functional/behavior\.txt`"),
+        (FUNCTIONAL_PATCH.replace("functional/behavior.md", "/etc/escape.md"), r"cannot change `/etc/escape\.md`"),
+        (
+            FUNCTIONAL_PATCH.replace("functional/behavior.md", "architecture/behavior.md"),
+            r"cannot change `architecture/behavior\.md`",
         ),
         (
-            FUNCTIONAL_PATCH.replace("behavior.md", "behavior.txt"),
-            r"cannot change `\.jri/specs/functional/behavior\.txt`",
+            FUNCTIONAL_PATCH.replace("functional/behavior.md", ".jri/specs/functional/behavior.md"),
+            r"cannot change `\.jri/specs/functional/behavior\.md`",
         ),
-        (
-            FUNCTIONAL_PATCH.replace(".jri/specs/functional/behavior.md", "/etc/escape.md"),
-            r"cannot change `/etc/escape\.md`",
-        ),
-        (FUNCTIONAL_PATCH.replace("+++ b/.jri/specs/functional/behavior.md", "+++ behavior.md"), "Malformed"),
-        (FUNCTIONAL_PATCH.replace("diff --git a/.jri", "diff --git .jri"), "Malformed"),
+        (FUNCTIONAL_PATCH.replace("+++ b/functional/behavior.md", "+++ behavior.md"), "Malformed"),
+        (FUNCTIONAL_PATCH.replace("diff --git a/functional", "diff --git functional"), "Malformed"),
         (RENAME_PATCH, r"cannot change `\.\./\.\./\.\./escape\.md`"),
         ("", "at least one file"),
     ],
@@ -447,6 +475,8 @@ def test_refuses_specifications_edited_outside_jri(tmp_path: Path) -> None:
         "traversal",
         "non-markdown",
         "absolute-path",
+        "sibling-root",
+        "real-workspace-path",
         "malformed-header",
         "malformed-diff-line",
         "rename-escape",

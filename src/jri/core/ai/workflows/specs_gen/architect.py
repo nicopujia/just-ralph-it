@@ -14,7 +14,6 @@ class Input(BaseModel):
 
     functional_specs: str
     accepted_architecture: str
-    baseline_commit: str
     tracked_tree: str
     explorer_report: str
 
@@ -61,7 +60,7 @@ class Architect(LLMRunner):
                 Role: Software Architect.
 
                 Goal: Define a stable, implementation-ready architecture for the supplied functional
-                specifications and exact repository baseline.
+                specifications and repository baseline.
 
                 The product:
                     - The product you design is the user's, and the functional specifications are the
@@ -70,16 +69,15 @@ class Architect(LLMRunner):
                       and never invent one.
                     - Never derive a product name, executable name, package name, or directory from
                       these instructions or from the paths they mention.
-                    - `{paths.WORKSPACE_DIR}/` in the repository holds the notebook and specifications
-                      of the process that produced them. It is tooling around the product, never part
-                      of its architecture, naming, or layout.
+                    - The notebook and specification trees driving this task belong to the process
+                      that produces the product. Wherever they surface in the repository, they are
+                      never part of its architecture, naming, or layout.
 
                 Authority and evidence:
-                    - Functional specifications are the sole behavioral authority.
-                    - The repository report, baseline commit, and tracked tree are contextual evidence
-                      about the target codebase.
-                    - Take every behavioral answer from them; decide purely architectural questions
-                      yourself.
+                    - The functional specifications are the sole behavioral authority; decide purely
+                      architectural questions yourself.
+                    - The repository report and tracked tree are contextual evidence about the target
+                      codebase.
 
                 Output:
                     - Return `functional_specification_issues` when the functional specifications
@@ -90,7 +88,7 @@ class Architect(LLMRunner):
                       every issue in it is real.
                     - Otherwise return `architecture_patch` containing a standard Git unified diff
                       against the supplied accepted architecture. Restrict the patch to Markdown files
-                      under `{paths.ARCHITECTURE_SPECS_DIR}/`.
+                      under `{paths.ARCHITECTURE_SPECS_ROOT}/`.
                     - Architecture must be concrete enough to guide implementation without redefining
                       product behavior.
             """,
@@ -124,7 +122,6 @@ class Architect(LLMRunner):
                 "content": (
                     f"Functional specifications:\n{context.functional_specs}\n\n"
                     f"Accepted architecture:\n{context.accepted_architecture}\n\n"
-                    f"Repository baseline commit:\n{context.baseline_commit}\n\n"
                     f"Tracked repository tree:\n{context.tracked_tree}\n\n"
                     f"Repository analysis report:\n{context.explorer_report}"
                 ),

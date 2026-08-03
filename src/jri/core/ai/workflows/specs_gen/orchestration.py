@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from difflib import unified_diff
+from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 from jri.core import ai, paths
@@ -63,8 +64,8 @@ class SpecsGen:
                         unified_diff(
                             baseline.accepted_notebook.decode().splitlines(keepends=True),
                             baseline.notebook.decode().splitlines(keepends=True),
-                            fromfile=f"a/{paths.NOTEBOOK_FILE}",
-                            tofile=f"b/{paths.NOTEBOOK_FILE}",
+                            fromfile=f"a/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
+                            tofile=f"b/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
                         )
                     ),
                     accepted_specs=self.specs.render(baseline.functional),
@@ -81,7 +82,7 @@ class SpecsGen:
                 yield ai.ToolCallFinished("functional", "Wrote functional specifications from your project notes")
 
             with self.specs.repository.open_worktree(baseline.commit) as staging:
-                self.specs.apply(staging, functional_result.patch, paths.FUNCTIONAL_SPECS_DIR)
+                self.specs.apply(staging, functional_result.patch, paths.FUNCTIONAL_SPECS_ROOT)
                 functional = self.specs.read(staging.path, paths.FUNCTIONAL_SPECS_DIR)
                 if not functional:
                     raise RuntimeError("Functional specifications cannot be empty.")
@@ -92,8 +93,7 @@ class SpecsGen:
                     output: list[str] = []
                     for event in explorer.send_message(
                         "Study this repository generally. Report its structure, architecture, established patterns, "
-                        "development commands, and constraints that an architect must respect. Be dense, factual, "
-                        "and repository-general."
+                        "development commands, and the constraints that new work in it must respect."
                     ):
                         if isinstance(event, ai.ToolCallStarted):
                             output.clear()
@@ -108,7 +108,6 @@ class SpecsGen:
                 context = architect.Input(
                     functional_specs=self.specs.render(functional),
                     accepted_architecture=self.specs.render(baseline.architecture),
-                    baseline_commit=baseline.commit or "(initial repository)",
                     tracked_tree="\n".join(
                         self.specs.repository.read_tracked_paths(baseline.commit)
                         if baseline.commit
@@ -135,7 +134,7 @@ class SpecsGen:
                     feedback = "\n".join(f"- {issue}" for issue in architecture_result.issues)
                     continue
 
-                self.specs.apply(staging, architecture_result.patch, paths.ARCHITECTURE_SPECS_DIR)
+                self.specs.apply(staging, architecture_result.patch, paths.ARCHITECTURE_SPECS_ROOT)
                 architecture = self.specs.read(staging.path, paths.ARCHITECTURE_SPECS_DIR)
                 if not architecture:
                     raise RuntimeError("Architecture specifications cannot be empty.")

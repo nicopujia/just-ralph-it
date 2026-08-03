@@ -61,7 +61,11 @@ class Specs:
         )
 
     def apply(self, repository: git.Repository, patch: str, root: str) -> None:
-        """Validate and apply a specification patch to a repository.
+        """Validate a model patch and re-root it into the repository.
+
+        Models patch neutral roots such as ``functional``, so the
+        patch is validated against ``root`` and applied below the
+        specifications directory.
 
         Raises:
             git.Error: If Git refuses the patch.
@@ -69,7 +73,7 @@ class Specs:
 
         self._validate_patch(patch, root)
         try:
-            repository.apply_patch(patch.encode(), index=True)
+            repository.apply_patch(patch.encode(), index=True, directory=paths.SPECS_DIR)
         except git.Error:
             # The patch is the only evidence of why generation failed.
             logger.exception("patch_rejected root=%s patch=%r", root, patch)
@@ -92,11 +96,16 @@ class Specs:
         """Render a specification tree as model context.
 
         Returns:
-            The paths and contents of every specification file.
+            The contents of every specification file, keyed by its path
+            below the specifications directory.
         """
 
+        prefix = f"{paths.SPECS_DIR}/"
         return (
-            "\n\n".join(f"File: {path}\n\n{content.decode()}" for path, content in sorted(files.items())) or "(empty)"
+            "\n\n".join(
+                f"File: {path.removeprefix(prefix)}\n\n{content.decode()}" for path, content in sorted(files.items())
+            )
+            or "(empty)"
         )
 
     def accept(self, patch: bytes, baseline: Baseline) -> str:

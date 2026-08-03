@@ -8,5 +8,10 @@ SESSION_FILE = f"{WORKSPACE_DIR}/session.json"
 VISUALIZATION_FILE = f"{WORKSPACE_DIR}/visualization.html"
 
 SPECS_DIR = f"{WORKSPACE_DIR}/specs"
-ARCHITECTURE_SPECS_DIR = f"{SPECS_DIR}/architecture"
-FUNCTIONAL_SPECS_DIR = f"{SPECS_DIR}/functional"
+
+# Specification roots as the models see them, relative to `SPECS_DIR`.
+ARCHITECTURE_SPECS_ROOT = "architecture"
+FUNCTIONAL_SPECS_ROOT = "functional"
+
+ARCHITECTURE_SPECS_DIR = f"{SPECS_DIR}/{ARCHITECTURE_SPECS_ROOT}"
+FUNCTIONAL_SPECS_DIR = f"{SPECS_DIR}/{FUNCTIONAL_SPECS_ROOT}"

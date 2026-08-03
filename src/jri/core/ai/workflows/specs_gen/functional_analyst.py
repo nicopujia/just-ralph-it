@@ -62,15 +62,16 @@ class FunctionalAnalyst(LLMRunner):
                     - Name it exactly as the notebook names it. When the notebook gives no name, refer
                       to it generically (e.g. "the application") and never invent one.
                     - Never take a product name, executable name, package name, or directory from
-                      these instructions or from the paths they mention. `{paths.WORKSPACE_DIR}/` is
-                      where you write; it is not part of the product.
+                      these instructions or from the paths they mention. The specification tree you
+                      write into belongs to the process that produces the product, never to the
+                      product itself.
 
                 Output:
                     - Return `ambiguities` when any unresolved behavioral decision blocks a single
                       faithful implementation.
                     - Otherwise return `specification_patch` containing a standard Git unified diff
                       against the supplied accepted functional specifications. Restrict the patch to
-                      Markdown files under `{paths.FUNCTIONAL_SPECS_DIR}/`.
+                      Markdown files under `{paths.FUNCTIONAL_SPECS_ROOT}/`.
 
                 Behavioral authority:
                     - The complete current notebook is authoritative. The notebook diff only shows

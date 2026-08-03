@@ -217,8 +217,8 @@ class Repository:
                 if removal.returncode:
                     logger.warning("worktree_removal_failed location=%s", location)
 
-    def apply_patch(self, patch: bytes, *, index: bool = False) -> None:
-        """Apply a patch to the worktree.
+    def apply_patch(self, patch: bytes, *, index: bool = False, directory: str | None = None) -> None:
+        """Apply a patch to the worktree, optionally below a directory.
 
         Hunk line counts are recomputed from the patch body, since
         models routinely miscount them while the body itself is correct.
@@ -227,6 +227,8 @@ class Repository:
         arguments = ["apply", "--recount"]
         if index:
             arguments.append("--index")
+        if directory is not None:
+            arguments.append(f"--directory={directory}")
         self._run(*arguments, stdin=patch)
 
     def stage(self, paths: Sequence[str]) -> None:

@@ -80,6 +80,23 @@ def test_applies_patch(tmp_path: Path) -> None:
         repository.apply_patch(patch)
 
 
+def test_applies_patch_below_a_directory(tmp_path: Path) -> None:
+    repository = create_repository(tmp_path / "repo")
+    patch = b"""\
+diff --git a/notes.md b/notes.md
+new file mode 100644
+--- /dev/null
++++ b/notes.md
+@@ -0,0 +1 @@
++# Notes
+"""
+
+    repository.apply_patch(patch, index=True, directory="docs/internal")
+
+    assert (repository.path / "docs/internal/notes.md").read_text() == "# Notes\n"
+    assert repository.read_status() == (git.Status("docs/internal/notes.md", "A", " "),)
+
+
 def test_creates_and_removes_worktree(tmp_path: Path) -> None:
     repository = create_repository(tmp_path / "repo")
 
