@@ -2,6 +2,7 @@ import json
 import logging
 from collections.abc import Generator, Iterable, Sequence
 from dataclasses import dataclass
+from inspect import cleandoc
 from typing import Any, TypeVar, cast
 
 from openai import Omit, OpenAI, omit
@@ -32,10 +33,14 @@ class LLMRunner:
 
     client: OpenAI
     model: str
+    prompt: str = ""
     reasoning_effort: ReasoningEffort = None
     temperature: float | None = None
     max_input_size: int | None = None
     """Byte bound on model input; `None` leaves it unbounded."""
+
+    def __post_init__(self) -> None:
+        self.prompt = cleandoc(self.prompt)
 
     @property
     def sampling(self) -> float | Omit:

@@ -245,7 +245,7 @@ class Service:
             self.interviewer.history, self.interviewer.active_topic_id = (
                 cast(
                     "ResponseInputParam",
-                    [{"role": "system", "content": self.interviewer.sys_prompt}, *self.session.interview[1:]],
+                    [{"role": "system", "content": self.interviewer.prompt}, *self.session.interview[1:]],
                 ),
                 self.session.active_topic_id,
             )

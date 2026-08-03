@@ -33,7 +33,7 @@ class Explorer(Agent):
             temperature=agent.temperature,
             reasoning_effort=agent.reasoning_effort,
             max_input_size=self.MAX_INPUT_SIZE,
-            sys_prompt=f"""
+            prompt=f"""
                 Role: Explorer.
 
                 Goal: Gather relevant context based on the given query.

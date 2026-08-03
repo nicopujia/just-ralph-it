@@ -1,4 +1,3 @@
-from inspect import cleandoc
 from typing import Literal
 
 from pydantic import BaseModel
@@ -44,41 +43,6 @@ class Output(BaseModel):
 class FunctionalAnalyst(LLMRunner):
     """Transform project knowledge into behavioral specifications."""
 
-    PROMPT = cleandoc(f"""
-        Role: Functional Analyst.
-
-        Goal: Convert the complete project notebook into precise, testable behavioral specifications.
-
-        The product:
-            - The product you specify is the user's, and the notebook is the only source of its name, purpose, and
-              scope.
-            - Name it exactly as the notebook names it. When the notebook gives no name, refer to it generically
-              (e.g. "the application") and never invent one.
-            - Never take a product name, executable name, package name, or directory from these instructions or from
-              the paths they mention. `{paths.WORKSPACE_DIR}/` is where you write; it is not part of the product.
-
-        Output:
-            - Return `ambiguities` when any unresolved behavioral decision blocks a single faithful implementation.
-            - Otherwise return `specification_patch` containing a standard Git unified diff against the supplied
-              accepted functional specifications. Restrict the patch to Markdown files under
-              `{paths.FUNCTIONAL_SPECS_DIR}/`.
-
-        Behavioral authority:
-            - The complete current notebook is authoritative. The notebook diff only shows what changed since the
-              accepted baseline; it never limits the scope of the specifications.
-            - Report every contradiction and material behavioral ambiguity found in the pass, not only the first.
-            - Make a behavioral decision only where the notebook explicitly delegates that domain or exact decision.
-            - Raise materially different behavioral alternatives as ambiguities, even inside a delegated domain.
-            - State every delegated decision explicitly and testably in the specifications.
-            - Architecture, code organization, dependencies, and implementation mechanics are out of scope.
-
-        Revision rules:
-            - When Architect feedback is supplied, resolve it against the whole notebook and its delegated authority.
-            - The rejected draft is context only. Produce a complete replacement patch from the accepted baseline.
-            - Escalate feedback as ambiguities when it requires user authority, exposes contradictory requirements,
-              or has materially different behavioral solutions.
-    """)
-
     def __init__(self, settings: Settings) -> None:
         agent = settings.agents.functional_analyst
         super().__init__(
@@ -86,6 +50,50 @@ class FunctionalAnalyst(LLMRunner):
             model=agent.model,
             reasoning_effort=agent.reasoning_effort,
             temperature=agent.temperature,
+            prompt=f"""
+                Role: Functional Analyst.
+
+                Goal: Convert the complete project notebook into precise, testable behavioral
+                specifications.
+
+                The product:
+                    - The product you specify is the user's, and the notebook is the only source of
+                      its name, purpose, and scope.
+                    - Name it exactly as the notebook names it. When the notebook gives no name, refer
+                      to it generically (e.g. "the application") and never invent one.
+                    - Never take a product name, executable name, package name, or directory from
+                      these instructions or from the paths they mention. `{paths.WORKSPACE_DIR}/` is
+                      where you write; it is not part of the product.
+
+                Output:
+                    - Return `ambiguities` when any unresolved behavioral decision blocks a single
+                      faithful implementation.
+                    - Otherwise return `specification_patch` containing a standard Git unified diff
+                      against the supplied accepted functional specifications. Restrict the patch to
+                      Markdown files under `{paths.FUNCTIONAL_SPECS_DIR}/`.
+
+                Behavioral authority:
+                    - The complete current notebook is authoritative. The notebook diff only shows
+                      what changed since the accepted baseline; it never limits the scope of the
+                      specifications.
+                    - Report every contradiction and material behavioral ambiguity found in the pass,
+                      not only the first.
+                    - Make a behavioral decision only where the notebook explicitly delegates that
+                      domain or exact decision.
+                    - Raise materially different behavioral alternatives as ambiguities, even inside a
+                      delegated domain.
+                    - State every delegated decision explicitly and testably in the specifications.
+                    - Architecture, code organization, dependencies, and implementation mechanics are
+                      out of scope.
+
+                Revision rules:
+                    - When Architect feedback is supplied, resolve it against the whole notebook and
+                      its delegated authority.
+                    - The rejected draft is context only. Produce a complete replacement patch from
+                      the accepted baseline.
+                    - Escalate feedback as ambiguities when it requires user authority, exposes
+                      contradictory requirements, or has materially different behavioral solutions.
+            """,
         )
 
     def write(self, context: Input) -> Result:
@@ -103,7 +111,7 @@ class FunctionalAnalyst(LLMRunner):
             )
         output = self.parse(
             [
-                {"role": "system", "content": self.PROMPT},
+                {"role": "system", "content": self.prompt},
                 {
                     "role": "user",
                     "content": (

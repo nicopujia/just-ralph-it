@@ -42,7 +42,7 @@ class Interviewer(Agent):
             # Interviewer needs to know that it's part of JRI because it
             # directly interacts with the user, opposed to the rest of
             # the agents.
-            sys_prompt="""
+            prompt="""
                 Role: Interviewer of the Just Ralph It (JRI) system, a software system to build any software system.
 
                 Goals:

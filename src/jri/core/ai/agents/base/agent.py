@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import inspect
 import logging
 from dataclasses import InitVar, dataclass, field
 from threading import Event
@@ -33,7 +32,7 @@ class Agent:
 
     client: OpenAI
     model: str
-    sys_prompt: str
+    prompt: str
     reasoning_effort: ReasoningEffort = None
     temperature: float | None = None
     max_input_size: int | None = None
@@ -48,13 +47,14 @@ class Agent:
         self.runner = ai.LLMRunner(
             client=self.client,
             model=self.model,
+            prompt=self.prompt,
             reasoning_effort=self.reasoning_effort,
             temperature=self.temperature,
             max_input_size=self.max_input_size,
         )
-        self.sys_prompt = inspect.cleandoc(self.sys_prompt)
+        self.prompt = self.runner.prompt
         self.history = list(initial_ctx or [])
-        self.history.insert(0, {"role": "system", "content": self.sys_prompt})
+        self.history.insert(0, {"role": "system", "content": self.prompt})
 
     def get_context(self) -> ResponseInputParam:
         """Get the conversation context sent to the model.
