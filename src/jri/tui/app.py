@@ -14,7 +14,7 @@ from textual.command import CommandPalette as TextualCommandPalette
 from textual.containers import Horizontal, Vertical
 from textual.reactive import Reactive
 from textual.screen import Screen
-from textual.widgets import Button, Header, LoadingIndicator, Markdown, Static
+from textual.widgets import Button, Footer, Header, LoadingIndicator, Markdown, Static
 
 from jri.core.ai import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
 from jri.core.service import Service
@@ -43,13 +43,14 @@ class App(TextualApp[None]):
     """Render the terminal UI for the interviewer chat."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("ctrl+k", "toggle_keymap_panel", "Show/hide keymap", show=False, priority=True),
-        Binding("escape", "cancel_turn", "Cancel response", show=False),
-        Binding("ctrl+t", "toggle_reasoning", "Show/hide thinking blocks", show=False, priority=True),
+        Binding("ctrl+k", "toggle_keymap_panel", c.KEYMAP_PANEL_COPY, priority=True),
+        Binding("escape", "cancel_turn", c.CANCEL_TURN_COPY, key_display=c.CANCEL_TURN_KEY_COPY),
+        Binding("ctrl+t", "toggle_reasoning", c.THINKING_BLOCKS_COPY, priority=True),
     ]
     TITLE = c.TITLE_COPY
     CSS = c.STYLESHEET
     theme = Reactive(c.THEME_DARK)
+    active_turn_state: Reactive[InterviewerTurnState | None] = Reactive(None, repaint=False)
 
     # Methods order:
     # 1. Magic methods
@@ -75,7 +76,6 @@ class App(TextualApp[None]):
         # conversation index of the first mounted turn.
         self.restored_turn_index = len(self.restored_turns)
         self.is_restoring_history = False
-        self.active_turn_state: InterviewerTurnState | None = None
         self.mounted_turns: list[tuple[Markdown, Vertical]] = []
         self.last_escape_at = 0.0
         self.messages_container = MessagesContainer(self._stop_following_bottom, self._load_older_history)
@@ -86,6 +86,18 @@ class App(TextualApp[None]):
         )
         self.ralph_button = Button(c.RALPH_BUTTON_COPY, classes=c.RALPH_BUTTON_CLASSES, compact=True)
         self.ralphing = Horizontal(LoadingIndicator(), Static(c.RALPHING_COPY), classes=c.RALPHING_CLASSES)
+
+    @override
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """Offer stopping a response only while one is generating.
+
+        Returns:
+            Whether the action may run for this key press.
+        """
+
+        if action == "cancel_turn":
+            return self.is_busy
+        return super().check_action(action, parameters)
 
     @override
     def compose(self) -> ComposeResult:
@@ -100,6 +112,7 @@ class App(TextualApp[None]):
             yield Static()
         yield self.message_input
         yield self.ralphing
+        yield Footer(show_command_palette=False)
 
     @override
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
@@ -220,6 +233,11 @@ class App(TextualApp[None]):
         await self._sync_ralph_button()
         self.set_focus(self.message_input)
         logger.info("mounted theme=%s", self.theme)
+
+    def watch_active_turn_state(self) -> None:
+        """Tell the message input whether a turn is generating."""
+
+        self.message_input.is_turn_active = self.is_busy
 
     # --- Actions ---------------------------------------------------- #
 
@@ -596,10 +614,12 @@ class App(TextualApp[None]):
     async def _sync_ralph_button(self) -> None:
         if self.ralph_button.is_mounted:
             await self.ralph_button.remove()
+        self.message_input.is_ralph_ready = False
         if self.is_busy or not self.service.session.ready_to_ralph or not self.mounted_turns:
             return
         self.ralph_button = Button(c.RALPH_BUTTON_COPY, classes=c.RALPH_BUTTON_CLASSES, compact=True)
         await self.mounted_turns[-1][1].mount(self.ralph_button)
+        self.message_input.is_ralph_ready = True
 
     async def _retry(self, button: Button) -> None:
         container = cast("Vertical", button.parent)

@@ -3,6 +3,9 @@ from jri.core.ai import Interviewer
 # Maintain constants ordered alphabetically with one blank line between
 # different initial letter.
 
+CANCEL_TURN_COPY = "Stop response"
+CANCEL_TURN_KEY_COPY = "esc esc"
+
 CONFIG_ERROR_COPY = """Invalid configuration.
 Set or fix these settings:
 
@@ -37,9 +40,12 @@ INTERVIEWER_TURN_CLASSES = "interviewer-turn"
 
 INTERNAL_ERROR_COPY = "Something unexpected went wrong. Check the JRI log for details and try again."
 
+KEYMAP_PANEL_COPY = "Keymap"
+
 LLM_USAGE_LIMIT_COPY = "Your ChatGPT or API usage limit has been reached. Check your plan and try again later."
 
 MESSAGES_CONTAINER_ID = "messages"
+MESSAGE_HISTORY_COPY = "Message history"
 MESSAGE_INPUT_ID = "message-input"
 MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY = Interviewer.FIRST_MESSAGE
 MESSAGE_INPUT_PLACEHOLDER_COPY = "Share your thoughts"
@@ -47,16 +53,25 @@ MESSAGE_INPUT_PLACEHOLDER_COPY = "Share your thoughts"
 RALPH_BUTTON_CLASSES = "ralph-button"
 RALPH_BUTTON_COPY = "Just Ralph It"
 RALPH_ERROR_COPY = "Could not finish specifications:\n\n{error}"
+RALPH_KEY_COPY = "^x j"
 RALPHING_CLASSES = "ralphing"
 RALPHING_COPY = "Ralphing... [dim](don't close this window)[/dim]"
 
+REDO_MESSAGE_COPY = "Redo message"
+REDO_MESSAGE_KEY_COPY = "^x r"
+
 RETRY_BUTTON_CLASSES = "retry-button"
 RETRY_COPY = "Try again"
+RETRY_KEY_COPY = "^x t"
 
 THEME_DARK = "ansi-dark"
 THEME_LIGHT = "ansi-light"
+THINKING_BLOCKS_COPY = "Thinking blocks"
 TITLE_COPY = "Just Ralph It"
 TOOL_CALL_ROW_CLASSES = "tool-call-row"
+
+UNDO_MESSAGE_COPY = "Undo message"
+UNDO_MESSAGE_KEY_COPY = "^x u"
 
 USER_MESSAGE_CLASSES = "user-message"
 

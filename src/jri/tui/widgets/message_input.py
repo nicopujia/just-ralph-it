@@ -1,31 +1,40 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
-from time import monotonic
-from typing import Literal, override
+from typing import TYPE_CHECKING, Literal, override
 
 from textual.binding import Binding
 from textual.message import Message
+from textual.reactive import Reactive
 from textual.widgets import TextArea
+
+from jri.tui import constants as c
+
+if TYPE_CHECKING:
+    from textual.timer import Timer
 
 
 class MessageInput(TextArea):
+    CHORD_TIMEOUT = 1.0
     BINDINGS = (
         Binding("enter", "submit", "Send message", show=False, priority=True),
         Binding("shift+enter,ctrl+j", "insert_newline", "Insert newline", show=False, priority=True),
-        Binding("ctrl+x", "message_history", "Message history", show=False, priority=True),
-        Binding("u", "previous_message", "Undo message", show=False, priority=True),
-        Binding("r", "next_message", "Redo message", show=False, priority=True),
-        Binding("t", "retry_message", "Try again", show=False, priority=True),
-        Binding("j", "ralph", "Just Ralph It", show=False, priority=True),
+        Binding("ctrl+x", "message_history", c.MESSAGE_HISTORY_COPY, priority=True),
+        Binding("u", "previous_message", c.UNDO_MESSAGE_COPY, key_display=c.UNDO_MESSAGE_KEY_COPY, priority=True),
+        Binding("r", "next_message", c.REDO_MESSAGE_COPY, key_display=c.REDO_MESSAGE_KEY_COPY, priority=True),
+        Binding("t", "retry_message", c.RETRY_COPY, key_display=c.RETRY_KEY_COPY, priority=True),
+        Binding("j", "ralph", c.RALPH_BUTTON_COPY, key_display=c.RALPH_KEY_COPY, priority=True),
         Binding("ctrl+shift+z", "redo", "Redo", show=False),
     )
+    is_ralph_ready: Reactive[bool] = Reactive(default=False, bindings=True)
+    is_turn_active: Reactive[bool] = Reactive(default=False, bindings=True)
+    _is_chord_open: Reactive[bool] = Reactive(default=False, bindings=True)
 
     def __init__(self, messages: Iterable[str] = (), *, id_: str | None = None, placeholder: str = "") -> None:
         super().__init__(id=id_, placeholder=placeholder)
         self._messages = list(messages)
         self._message_index = len(self._messages)
         self._draft = ""
-        self._message_history_at = 0.0
+        self._chord_timer: Timer | None = None
 
     @dataclass
     class Submitted(Message):
@@ -54,36 +63,44 @@ class MessageInput(TextArea):
 
     @override
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        """Offer the chord endings only while the chord is open.
+        """Offer each shortcut only while the user can reach it.
 
-        Leaving them disabled otherwise keeps their keys ordinary text,
-        so typing them never routes through an action.
+        Leaving the chord endings disabled outside the chord keeps
+        their keys ordinary text, so typing them never routes through
+        an action. Ralphing stays visible but disabled while its
+        button is up, to advertise the chord that reaches it.
 
         Returns:
             Whether the action may run for this key press.
         """
 
+        if action == "message_history":
+            return not self.is_turn_active and not self._is_chord_open
+        if action == "ralph" and not self._is_chord_open:
+            return None if self.is_ralph_ready and not self.is_turn_active else False
         if action in {"previous_message", "next_message", "retry_message", "ralph"}:
-            return monotonic() - self._message_history_at <= 1
+            return self._is_chord_open
         return super().check_action(action, parameters)
 
     def action_message_history(self) -> None:
-        self._message_history_at = monotonic()
+        self._close_chord()
+        self._is_chord_open = True
+        self._chord_timer = self.set_timer(self.CHORD_TIMEOUT, self._close_chord)
 
     def action_previous_message(self) -> None:
-        self._message_history_at = 0.0
+        self._close_chord()
         self.post_message(self.HistoryRequested(self, "previous"))
 
     def action_next_message(self) -> None:
-        self._message_history_at = 0.0
+        self._close_chord()
         self.post_message(self.HistoryRequested(self, "next"))
 
     def action_retry_message(self) -> None:
-        self._message_history_at = 0.0
+        self._close_chord()
         self.post_message(self.RetryRequested())
 
     def action_ralph(self) -> None:
-        self._message_history_at = 0.0
+        self._close_chord()
         self.post_message(self.RalphRequested())
 
     @property
@@ -127,6 +144,12 @@ class MessageInput(TextArea):
         self._messages.append(value)
         self._message_index = len(self._messages)
         self.text = ""
+
+    def _close_chord(self) -> None:
+        if self._chord_timer is not None:
+            self._chord_timer.stop()
+            self._chord_timer = None
+        self._is_chord_open = False
 
     def _load(self, value: str) -> None:
         self.text = value
