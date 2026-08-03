@@ -258,6 +258,36 @@ class Service:
         self.logger.info("restored interview_items=%d", len(self.session.interview))
         return turns, self.session.show_thinking_blocks
 
+    def update_session(self, **values: object) -> None:
+        """Persist trusted values in the current session."""
+
+        with self.session_lock:
+            session = self.session.model_copy(
+                update={"failed_call_ids": list(self.interviewer.failed_call_ids), **values}
+            )
+            with NamedTemporaryFile("w", dir=self.base_dir, delete=False, encoding="utf-8") as file:
+                file.write(session.model_dump_json())
+            Path(file.name).replace(self.session_file)
+            self.session = session
+        self.logger.info("session_updated fields=%r interview_items=%d", list(values), len(self.session.interview))
+
+    def _respond(
+        self, message: str, checkpoint: tuple[int, Graph, str, bool], cancelled: Event | None
+    ) -> Generator[ChatEvent]:
+        try:
+            yield from self.interviewer.send_message(message, cancelled)
+            self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
+        except Exception:
+            self.interviewer.history = self.interviewer.history[: checkpoint[0]]
+            self.interviewer.notebook.restore(checkpoint[1])
+            self.interviewer.active_topic_id = checkpoint[2]
+            self.session = self.session.model_copy(update={"ready_to_ralph": checkpoint[3]})
+            self.interviewer.history.append({"role": "user", "content": message})
+            self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
+            self.logger.exception("chat_rolled_back")
+            raise
+        self.logger.info("chat_finished interview_items=%d", len(self.interviewer.history))
+
     def _get_turns(self) -> list[Turn]:
         tools_by_name = {tool.name: tool for tool in self.interviewer.tools}
         turns: list[Turn] = []
@@ -293,33 +323,3 @@ class Service:
             if text:
                 turns[-1].items.append(InterviewItem("assistant", text))
         return turns
-
-    def update_session(self, **values: object) -> None:
-        """Persist trusted values in the current session."""
-
-        with self.session_lock:
-            session = self.session.model_copy(
-                update={"failed_call_ids": list(self.interviewer.failed_call_ids), **values}
-            )
-            with NamedTemporaryFile("w", dir=self.base_dir, delete=False, encoding="utf-8") as file:
-                file.write(session.model_dump_json())
-            Path(file.name).replace(self.session_file)
-            self.session = session
-        self.logger.info("session_updated fields=%r interview_items=%d", list(values), len(self.session.interview))
-
-    def _respond(
-        self, message: str, checkpoint: tuple[int, Graph, str, bool], cancelled: Event | None
-    ) -> Generator[ChatEvent]:
-        try:
-            yield from self.interviewer.send_message(message, cancelled)
-            self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
-        except Exception:
-            self.interviewer.history = self.interviewer.history[: checkpoint[0]]
-            self.interviewer.notebook.restore(checkpoint[1])
-            self.interviewer.active_topic_id = checkpoint[2]
-            self.session = self.session.model_copy(update={"ready_to_ralph": checkpoint[3]})
-            self.interviewer.history.append({"role": "user", "content": message})
-            self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
-            self.logger.exception("chat_rolled_back")
-            raise
-        self.logger.info("chat_finished interview_items=%d", len(self.interviewer.history))
