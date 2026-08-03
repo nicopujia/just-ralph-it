@@ -1,6 +1,6 @@
 ---
-name: verify
-description: Workflow to thoroughly verify your changes. Use when making large logic changes.
+name: verification
+description: Workflow to thoroughly verify your changes. Use when making substantial changes.
 ---
 
 # Verification process
