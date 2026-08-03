@@ -19,14 +19,6 @@ For more info, refer to the [concept document](https://nicolaspujia.com/just-ral
 - Helper functions only for repeated logic, unavoidable extractions, or addressing linter alerts
 - Import paths <=3 levels
 
-## Automated testing
-
-- Only for business logic (`core`, `lib`)
-- 80/20-based
-- Black-box style
-- Deterministic
-- Local-only
-
 ## Commands
 
 ```bash
