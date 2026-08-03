@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from pathlib import Path
 from threading import Event
@@ -340,6 +341,15 @@ def test_rewinding_after_restart_still_skips_cancelled_tool_calls(tmp_path: Path
     assert [(topic.id, topic.name) for topic in restarted.interviewer.notebook.graph.topics] == [
         ("t1", "Project overview")
     ]
+
+
+def test_stores_the_session_as_compact_json(tmp_path: Path) -> None:
+    service = build_service(tmp_path, FakeClient([response(reply("Noted."))]))
+
+    list(service.chat("Deploy the project automatically."))
+
+    content = service.session_file.read_text(encoding="utf-8")
+    assert content == json.dumps(json.loads(content), separators=(",", ":"), ensure_ascii=False)
 
 
 def test_explains_how_to_reset_an_invalid_session_file(tmp_path: Path) -> None:

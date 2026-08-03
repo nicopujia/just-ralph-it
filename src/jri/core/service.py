@@ -302,7 +302,7 @@ class Service:
                 update={"failed_call_ids": list(self.interviewer.failed_call_ids), **values}
             )
             with NamedTemporaryFile("w", dir=self.base_dir, delete=False, encoding="utf-8") as file:
-                file.write(f"{session.model_dump_json(indent=2)}\n")
+                file.write(session.model_dump_json())
             Path(file.name).replace(self.session_file)
             self.session = session
         self.logger.info("session_updated fields=%r interview_items=%d", list(values), len(self.session.interview))
