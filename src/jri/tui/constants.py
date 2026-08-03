@@ -147,6 +147,8 @@ Header {{
 .{RETRY_BUTTON_CLASSES} {{
     margin-bottom: 1;
     margin-left: 2;
+    background: $error;
+    color: $ansi-background;
 }}
 
 .{RALPH_BUTTON_CLASSES} {{
