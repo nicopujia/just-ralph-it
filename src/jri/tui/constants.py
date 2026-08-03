@@ -20,6 +20,7 @@ INIT_EXISTING_COPY = "A JRI workspace already exists at {directory}."
 INIT_NEXT_STEPS_COPY = "Open {config_file} and follow its comments, then run `jri chat`."
 INIT_REPOSITORY_COPY = "Initialized an empty Git repository at {directory}, since JRI commits what it writes."
 
+INTERVIEWER_ERROR_CLASSES = "interviewer-error"
 INTERVIEWER_ERROR_COPY = """
 Something went wrong while talking to the interviewer:
 
@@ -131,6 +132,16 @@ Header {{
     padding-left: 2;
     text-opacity: 70%;
     text-style: dim italic;
+}}
+
+.{INTERVIEWER_ERROR_CLASSES} {{
+    margin-bottom: 1;
+    padding: 1;
+    border-left: heavy ansi_bright_red;
+}}
+
+.{INTERVIEWER_ERROR_CLASSES} MarkdownBlock:last-child {{
+    margin-bottom: 0;
 }}
 
 .{RETRY_BUTTON_CLASSES} {{

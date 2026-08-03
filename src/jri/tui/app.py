@@ -286,7 +286,8 @@ class App(TextualApp[None]):
     def _send_message(self, user_message: str | None, turn_state: InterviewerTurnState) -> None:
         """Stream interviewer events for a user message."""
 
-        status_copy = c.INTERVIEWER_NO_RESPONSE_COPY
+        replied = False
+        error_copy: str | None = None
         chat_events = (
             self.service.retry(turn_state.cancelled)
             if user_message is None
@@ -295,28 +296,31 @@ class App(TextualApp[None]):
         try:
             for chat_event in chat_events:
                 if isinstance(chat_event, TextDelta) and chat_event.text:
-                    status_copy = None
+                    replied = True
                 self._call_from_thread(self._render_chat_event, turn_state, chat_event)
         except OpenAIError as error:
             logger.exception("interviewer_provider_failed")
             error_text = str(error).lower()
-            status_copy = (
+            error_copy = (
                 c.LLM_USAGE_LIMIT_COPY
                 if any(term in error_text for term in ("usage limit", "quota", "available balance", "out of budget"))
                 else c.INTERVIEWER_ERROR_COPY.format(error=error)
             )
         except (codex.AuthError, RuntimeError) as error:
             logger.exception("interviewer_worker_failed")
-            status_copy = c.INTERVIEWER_ERROR_COPY.format(error=error)
+            error_copy = c.INTERVIEWER_ERROR_COPY.format(error=error)
         except Exception:
             logger.exception("interviewer_worker_failed_unexpectedly")
-            status_copy = c.INTERNAL_ERROR_COPY
+            error_copy = c.INTERNAL_ERROR_COPY
         finally:
             chat_events.close()
             if turn_state.cancelled.is_set():
                 self._call_from_thread(self._finish_cancelled_turn, turn_state)
-            elif status_copy is not None and self.active_turn_state is turn_state:
-                self._call_from_thread(self._finish_failed_turn, turn_state, status_copy)
+            elif self.active_turn_state is turn_state:
+                if error_copy is not None:
+                    self._call_from_thread(self._finish_failed_turn, turn_state, error_copy)
+                elif not replied:
+                    self._call_from_thread(self._finish_empty_turn, turn_state)
             self._call_from_thread(self._reset_message_input, turn_state)
 
     # --- Callbacks -------------------------------------------------- #
@@ -333,13 +337,13 @@ class App(TextualApp[None]):
         self.messages_container.scroll_end(animate=False)
         logger.info("interviewer_turn_cancelled")
 
-    async def _finish_failed_turn(self, turn_state: InterviewerTurnState, status_copy: str) -> None:
-        await self._render_interviewer_status(turn_state, status_copy)
-        if turn_state.retry_button is None:
-            turn_state.retry_button = self._build_retry_button()
-            await turn_state.container.mount(turn_state.retry_button)
-        turn_state.retry_button.display = True
-        turn_state.retry_button.disabled = False
+    async def _finish_empty_turn(self, turn_state: InterviewerTurnState) -> None:
+        await self._render_interviewer_status(turn_state, c.INTERVIEWER_NO_RESPONSE_COPY)
+        await self._show_retry_button(turn_state)
+
+    async def _finish_failed_turn(self, turn_state: InterviewerTurnState, error_copy: str) -> None:
+        await self._render_interviewer_status(turn_state, error_copy, c.INTERVIEWER_ERROR_CLASSES)
+        await self._show_retry_button(turn_state)
 
     async def _finish_ralphing(self, turn_state: InterviewerTurnState, error: Exception | None) -> None:
         if self.active_turn_state is not turn_state:
@@ -350,7 +354,7 @@ class App(TextualApp[None]):
                     row.mark_complete("Could not finish specifications")
                     break
             await turn_state.container.mount(
-                Markdown(c.RALPH_ERROR_COPY.format(error=error), classes=c.INTERVIEWER_MESSAGE_CLASSES)
+                Markdown(c.RALPH_ERROR_COPY.format(error=error), classes=c.INTERVIEWER_ERROR_CLASSES)
             )
         elif turn_state.placeholder is not None:
             await self._render_interviewer_status(turn_state, c.INTERVIEWER_NO_RESPONSE_COPY)
@@ -423,14 +427,17 @@ class App(TextualApp[None]):
                 await self._render_tool_call_finished(turn_state, chat_event)
         self._follow_bottom(turn_state)
 
-    async def _render_interviewer_status(self, turn_state: InterviewerTurnState, content: str) -> None:
+    async def _render_interviewer_status(
+        self, turn_state: InterviewerTurnState, content: str, classes: str = c.INTERVIEWER_MESSAGE_CLASSES
+    ) -> None:
         """Render a status message for the interviewer turn."""
 
         if turn_state.placeholder is None:
             turn_state.active_markdown = None
             turn_state.active_markdown_text = ""
-            await turn_state.container.mount(Markdown(content, classes=c.INTERVIEWER_MESSAGE_CLASSES))
+            await turn_state.container.mount(Markdown(content, classes=classes))
         else:
+            turn_state.placeholder.set_classes(classes)
             await turn_state.placeholder.update(content)
         self._follow_bottom(turn_state)
 
@@ -496,6 +503,13 @@ class App(TextualApp[None]):
         turn_state.active_reasoning, turn_state.active_reasoning_text = None, ""
         turn_state.tool_rows[event.call_id] = ToolCallRow(event.label, symbol=event.symbol, depth=event.depth)
         await turn_state.container.mount(turn_state.tool_rows[event.call_id])
+
+    async def _show_retry_button(self, turn_state: InterviewerTurnState) -> None:
+        if turn_state.retry_button is None:
+            turn_state.retry_button = self._build_retry_button()
+            await turn_state.container.mount(turn_state.retry_button)
+        turn_state.retry_button.display = True
+        turn_state.retry_button.disabled = False
 
     # --- Helpers ---------------------------------------------------- #
 
