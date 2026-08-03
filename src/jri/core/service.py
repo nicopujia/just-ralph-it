@@ -74,6 +74,7 @@ class Service:
         if created:
             config_file.write_text(Settings.render_config(), encoding="utf-8")
         Notebook(cwd / paths.NOTEBOOK_FILE)
+        (cwd / paths.LOGS_DIR).mkdir(exist_ok=True)
 
         ignored = (paths.SESSION_FILE, paths.LOGS_DIR, paths.VISUALIZATION_FILE)
         gitignore = cwd / paths.GITIGNORE_FILE

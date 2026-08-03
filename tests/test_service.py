@@ -30,6 +30,7 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
         "connections": [],
     }
+    assert list((tmp_path / paths.LOGS_DIR).iterdir()) == []
     assert not git.Repository(tmp_path).has_head()
 
 
