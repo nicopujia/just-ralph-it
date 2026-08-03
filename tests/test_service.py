@@ -449,3 +449,15 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
     assert not (base_dir / "specs").exists()
     assert not (base_dir / "logs" / "old.log").exists()
     assert (base_dir / ".gitignore").read_text() == "custom-cache\n"
+
+
+def test_resetting_the_workspace_keeps_the_rest_of_the_project(tmp_path: Path) -> None:
+    for name in (paths.ARCHITECTURE_SPECS_ROOT, paths.FUNCTIONAL_SPECS_ROOT, "src"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / "file.md").write_text("project content")
+
+    build_service(tmp_path, FakeClient([]), force=True)
+
+    assert [
+        (path.name, (path / "file.md").read_text()) for path in sorted(tmp_path.iterdir()) if path.name != ".jri"
+    ] == [("architecture", "project content"), ("functional", "project content"), ("src", "project content")]

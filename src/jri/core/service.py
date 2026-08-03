@@ -110,12 +110,9 @@ class Service:
         self.session_lock = Lock()
         self.settings = settings
 
-        kept = {paths.WORKSPACE_DIR, paths.CONFIG_FILE, paths.GITIGNORE_FILE}
         if settings.force:
-            for name, value in vars(paths).items():
-                if not name.isupper() or value in kept:
-                    continue
-                target = settings.cwd / value
+            for path in paths.RESET_PATHS:
+                target = settings.cwd / path
                 if target.is_dir():
                     shutil.rmtree(target)
                 else:
