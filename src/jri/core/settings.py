@@ -5,7 +5,6 @@ from typing import Annotated, Any, Literal, cast, override
 
 import yaml
 from openai import OpenAI
-from openai.types.shared import ReasoningEffort
 from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, YamlConfigSettingsSource
 
@@ -13,6 +12,9 @@ from jri.core import paths
 from jri.lib.providers import codex
 
 type LoggingLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+# Narrower than the provider library's, whose values come and go with
+# its version, so the accepted efforts are the documented ones.
+type ReasoningEffort = Literal["minimal", "low", "medium", "high", "xhigh"] | None
 type Temperature = Annotated[float, Field(ge=0, le=2)] | None
 
 COMMENT_WIDTH = 100

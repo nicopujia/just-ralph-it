@@ -111,6 +111,15 @@ def test_leaves_omitted_model_options_to_the_model(tmp_path: Path) -> None:
     assert settings.agents.explorer.temperature is None
 
 
+def test_rejects_a_reasoning_effort_it_does_not_document(tmp_path: Path) -> None:
+    config = yaml.safe_load(Settings.render_config())
+    config["agents"]["interviewer"]["reasoning_effort"] = "none"
+    write_config(tmp_path, config)
+
+    with pytest.raises(ValidationError, match=r"agents\.interviewer\.reasoning_effort"):
+        Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
+
+
 def test_reads_api_keys_from_the_environment_variables_they_name(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
