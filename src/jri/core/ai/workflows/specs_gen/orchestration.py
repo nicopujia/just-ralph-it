@@ -49,6 +49,7 @@ class SpecsGen:
         explorer_report: str | None = None
         feedback: str | None = None
         rejected: str | None = None
+        polishing: ai.ToolCallStarted | None = None
 
         for cycle in range(1, MAX_CYCLES + 1):
             logger.info("specs_cycle_started cycle=%d", cycle)
@@ -72,7 +73,7 @@ class SpecsGen:
             )
             if isinstance(functional_result, functional_analyst.Ambiguities):
                 logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.ambiguities))
-                active = "functional" if cycle == 1 else "polishing"
+                active = polishing.call_id if polishing else "functional"
                 yield ai.ToolCallFinished(active, "Found project details to clarify")
                 return functional_result
             if cycle == 1:
@@ -119,9 +120,16 @@ class SpecsGen:
                 )
                 if isinstance(architecture_result, architect.Issues):
                     logger.info("specs_issues cycle=%d count=%d", cycle, len(architecture_result.issues))
-                    if cycle == 1:
+                    if polishing is None:
                         yield ai.ToolCallFinished("architecture", "Drafted the project architecture")
-                        yield ai.ToolCallStarted("polishing", "Polishing specifications", "✨")
+                    else:
+                        yield ai.ToolCallFinished(polishing.call_id, polishing.label)
+                    polishing = ai.ToolCallStarted(
+                        f"polish-{cycle}",
+                        f"{len(architecture_result.issues)} issues found. Polishing... (round {cycle})",
+                        "🗒️",
+                    )
+                    yield polishing
                     rejected = self.specs.render(functional)
                     feedback = "\n".join(f"- {issue}" for issue in architecture_result.issues)
                     continue
@@ -132,13 +140,12 @@ class SpecsGen:
                     raise RuntimeError("Architecture specifications cannot be empty.")
                 patch = staging.diff(baseline.commit, paths=(paths.FUNCTIONAL_SPECS_DIR, paths.ARCHITECTURE_SPECS_DIR))
 
-            finished = (
-                ("architecture", "Designed the project architecture")
-                if cycle == 1
-                else ("polishing", "Polished specifications")
-            )
             commit = self.specs.accept(patch, baseline)
-            yield ai.ToolCallFinished(*finished)
+            yield (
+                ai.ToolCallFinished(polishing.call_id, polishing.label)
+                if polishing
+                else ai.ToolCallFinished("architecture", "Designed the project architecture")
+            )
             return commit
 
         raise RuntimeError("The final architecture cycle did not return a patch.")

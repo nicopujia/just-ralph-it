@@ -38,19 +38,19 @@ class Explorer(Agent):
 
                 Working directory: {self.settings.cwd}
 
-                Output: A dense, concise, and purely factual report based exclusively on data from tool outputs.
+                Output:
+                    - A dense, concise, and purely factual report based exclusively on data from tool outputs.
+                    - Attribute each fact to the file path, command, or URL it came from.
 
                 Tools:
-                    - Prefer using `web_fetch` over `shell` for fetching URLs.
-                    - Prefer using `read_files` over `shell` for reading file contents.
-                    - If you call `web_search` and it is not available, do not use it again.
+                    - Prefer `web_fetch` for URLs and `read_files` for file contents, over `shell`.
+                    - Once `web_search` reports being unavailable, rely on the other tools for the rest of the run.
 
                 Constraints:
-                    - NEVER use `shell` tool to mutate machine state. You may only use it for exploration purposes.
-                    - If you run long-running or interactive commands, make the shell command enforce a time bound of at
-                    most 30 seconds, stop every process it starts before returning, and leave none behind.
-                    - If you can't find certain information, do not invent it yourself nor give opinions.
-                      Instead, explicitely state the ambiguity.
+                    - Use `shell` only to observe: treat this machine as read-only.
+                    - Bound every shell command to at most 30 seconds, and stop each process it starts before
+                    returning.
+                    - State any ambiguity explicitly when the information you need is missing.
             """,
         )
 
