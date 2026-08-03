@@ -255,7 +255,8 @@ class Service:
             turns = self._get_turns()
         except (OSError, ValidationError, LookupError, TypeError) as error:
             raise PersistenceError(
-                f"Invalid session file `{self.session_file}`. Run JRI with --force to reset it."
+                f"Invalid session file `{self.session_file}`. Delete it to start a new conversation, "
+                "or run JRI with --force to reset the whole workspace, notes included."
             ) from error
         self.interviewer.failed_call_ids = list(self.session.failed_call_ids)
         self.logger.info("restored interview_items=%d", len(self.session.interview))

@@ -21,6 +21,9 @@ from jri.lib.providers import codex
 from .app import App
 from .constants import (
     CONFIG_ERROR_COPY,
+    FORCE_CANCELLED_COPY,
+    FORCE_PROMPT_COPY,
+    FORCE_WARNING_COPY,
     INIT_CREATED_COPY,
     INIT_EXISTING_COPY,
     INIT_NEXT_STEPS_COPY,
@@ -76,6 +79,10 @@ def main() -> None:
         )
         print(CONFIG_ERROR_COPY.format(errors="\n".join(error_lines)))
         raise SystemExit(1) from error
+
+    if settings.force and not _confirm_reset(args.command, project_dir):
+        print(FORCE_CANCELLED_COPY)
+        raise SystemExit(1)
 
     handlers = {"init": _init, "chat": _chat, "view": _view}
 
@@ -188,6 +195,24 @@ def _view(settings: Settings) -> None:
 
     print(service.visualization_file)
     webbrowser.open(service.visualization_file.resolve().as_uri())
+
+
+def _confirm_reset(command: str, project_dir: Path) -> bool:
+    """Ask the user before a forced run throws their files away.
+
+    Returns:
+        Whether the command may go ahead.
+    """
+
+    targets = (paths.CONFIG_FILE,) if command == "init" else paths.RESET_PATHS
+    existing = [target for target in targets if (project_dir / target).exists()]
+    if not existing:
+        return True
+    print(FORCE_WARNING_COPY.format(paths="\n".join(f"- {project_dir / target}" for target in existing)))
+    try:
+        return input(FORCE_PROMPT_COPY).strip().casefold() in {"y", "yes"}
+    except EOFError:
+        return False
 
 
 def _escape(value: str) -> str:

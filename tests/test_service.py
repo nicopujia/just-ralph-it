@@ -431,7 +431,7 @@ def test_explains_how_to_reset_an_invalid_session_file(tmp_path: Path) -> None:
     service = build_service(tmp_path, FakeClient([]))
     service.session_file.write_text("not json")
 
-    with pytest.raises(PersistenceError, match="--force"):
+    with pytest.raises(PersistenceError, match="Delete it .*--force"):
         service.restore()
 
 
