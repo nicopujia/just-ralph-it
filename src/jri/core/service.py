@@ -46,6 +46,24 @@ class Session(BaseModel):
 
 
 class Service:
+    @classmethod
+    def init(cls, cwd: Path) -> None:
+        """Create a project's JRI workspace, keeping what exists."""
+
+        workspace = cwd / paths.WORKSPACE_DIR
+        workspace.mkdir(exist_ok=True, parents=True)
+        config_file = cwd / paths.CONFIG_FILE
+        if not config_file.exists():
+            config_file.write_text(Settings.render_config(), encoding="utf-8")
+
+        ignored = (paths.SESSION_FILE, paths.LOGS_DIR, paths.VISUALIZATION_FILE)
+        gitignore = cwd / paths.GITIGNORE_FILE
+        content = gitignore.read_text() if gitignore.exists() else ""
+        missing = [Path(path).name for path in ignored if Path(path).name not in content.splitlines()]
+        if missing:
+            separator = "" if not content or content.endswith("\n") else "\n"
+            gitignore.write_text(f"{content}{separator}{'\n'.join(missing)}\n")
+
     def __init__(self, settings: Settings) -> None:
         """Load settings, configure logging, and set base directory up.
 

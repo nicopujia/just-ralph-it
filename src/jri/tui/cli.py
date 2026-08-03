@@ -13,7 +13,7 @@ from pydantic_settings import CliSettingsSource, SettingsError
 from jri.core import paths
 from jri.core.exceptions import PersistenceError
 from jri.core.service import Service
-from jri.core.settings import Settings, initialize_workspace
+from jri.core.settings import Settings
 from jri.lib import git
 from jri.lib.providers import codex
 
@@ -40,11 +40,7 @@ def main() -> None:
     if args.command is None:
         parser.print_help()
         return
-    if args.command == "init":
-        initialize_workspace(project_dir)
-        print(project_dir / paths.CONFIG_FILE)
-        return
-    if not (project_dir / paths.CONFIG_FILE).exists():
+    if args.command != "init" and not (project_dir / paths.CONFIG_FILE).exists():
         print(WORKSPACE_MISSING_COPY)
         raise SystemExit(1)
 
@@ -65,7 +61,7 @@ def main() -> None:
         print(CONFIG_ERROR_COPY.format(errors="\n".join(error_lines)))
         raise SystemExit(1) from error
 
-    handlers = {"chat": _chat, "view": _view}
+    handlers = {"init": _init, "chat": _chat, "view": _view}
 
     try:
         handlers[args.command](settings)
@@ -75,6 +71,11 @@ def main() -> None:
     except PersistenceError as error:
         print(f"Persistence failed: {error}")
         raise SystemExit(1) from error
+
+
+def _init(settings: Settings) -> None:
+    Service.init(settings.cwd)
+    print(settings.cwd / paths.CONFIG_FILE)
 
 
 def _chat(settings: Settings) -> None:

@@ -1,21 +1,39 @@
 from collections.abc import Iterator
 from pathlib import Path
 from threading import Event
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import pytest
 
+from jri.core import paths
 from jri.core.exceptions import PersistenceError
 from jri.core.service import Service
+from jri.core.settings import Settings
 from tests.doubles.openai import FakeClient, call, failure, partial_reply, reply, response
 from tests.doubles.settings import build_settings
-
-if TYPE_CHECKING:
-    from jri.core.settings import Settings
 
 
 def build_service(path: Path, client: FakeClient, *, force: bool = False) -> Service:
     return Service(build_settings(path, client, force=force))
+
+
+def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
+    Service.init(tmp_path)
+
+    assert (tmp_path / paths.CONFIG_FILE).read_text() == Settings.render_config()
+    assert (tmp_path / paths.GITIGNORE_FILE).read_text() == "session.json\nlogs\nvisualization.html\n"
+
+
+def test_initializing_an_existing_workspace_preserves_it(tmp_path: Path) -> None:
+    (tmp_path / paths.WORKSPACE_DIR).mkdir()
+    (tmp_path / paths.CONFIG_FILE).write_text("custom config\n")
+    (tmp_path / paths.GITIGNORE_FILE).write_text("custom-cache\nlogs")
+
+    Service.init(tmp_path)
+    Service.init(tmp_path)
+
+    assert (tmp_path / paths.CONFIG_FILE).read_text() == "custom config\n"
+    assert (tmp_path / paths.GITIGNORE_FILE).read_text() == "custom-cache\nlogs\nsession.json\nvisualization.html\n"
 
 
 def test_completed_interview_turn_survives_restart(tmp_path: Path) -> None:

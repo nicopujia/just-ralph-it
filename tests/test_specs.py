@@ -4,7 +4,6 @@ import pytest
 
 from jri.core.ai import ToolCallFinished, ToolCallStarted, architect, functional_analyst
 from jri.core.service import Service
-from jri.core.settings import initialize_workspace
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
 from tests.git import create_repository, run_git
@@ -59,7 +58,7 @@ diff --git a/.jri/specs/architecture/design.md b/.jri/specs/architecture/design.
 
 
 def build_service(path: Path, client: FakeClient) -> Service:
-    initialize_workspace(path)
+    Service.init(path)
     return Service(build_settings(path, client))
 
 
