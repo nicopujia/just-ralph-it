@@ -31,6 +31,12 @@ class Turn(NamedTuple):
     items: list[InterviewItem]
 
 
+class Workspace(NamedTuple):
+    directory: Path
+    config_file: Path
+    created: bool
+
+
 class Session(BaseModel):
     """Persisted terminal session."""
 
@@ -47,13 +53,18 @@ class Session(BaseModel):
 
 class Service:
     @classmethod
-    def init(cls, cwd: Path) -> None:
-        """Create a project's JRI workspace, keeping what exists."""
+    def init(cls, cwd: Path) -> Workspace:
+        """Create a project's JRI workspace, keeping what exists.
+
+        Returns:
+            The workspace found or created.
+        """
 
         workspace = cwd / paths.WORKSPACE_DIR
-        workspace.mkdir(exist_ok=True, parents=True)
         config_file = cwd / paths.CONFIG_FILE
-        if not config_file.exists():
+        created = not config_file.exists()
+        workspace.mkdir(exist_ok=True, parents=True)
+        if created:
             config_file.write_text(Settings.render_config(), encoding="utf-8")
 
         ignored = (paths.SESSION_FILE, paths.LOGS_DIR, paths.VISUALIZATION_FILE)
@@ -63,6 +74,7 @@ class Service:
         if missing:
             separator = "" if not content or content.endswith("\n") else "\n"
             gitignore.write_text(f"{content}{separator}{'\n'.join(missing)}\n")
+        return Workspace(workspace, config_file, created)
 
     def __init__(self, settings: Settings) -> None:
         """Load settings, configure logging, and set base directory up.

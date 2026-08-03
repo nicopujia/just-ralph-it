@@ -18,7 +18,13 @@ from jri.lib import git
 from jri.lib.providers import codex
 
 from .app import App
-from .constants import CONFIG_ERROR_COPY, WORKSPACE_MISSING_COPY
+from .constants import (
+    CONFIG_ERROR_COPY,
+    INIT_CREATED_COPY,
+    INIT_EXISTING_COPY,
+    INIT_NEXT_STEPS_COPY,
+    WORKSPACE_MISSING_COPY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +80,10 @@ def main() -> None:
 
 
 def _init(settings: Settings) -> None:
-    Service.init(settings.cwd)
-    print(settings.cwd / paths.CONFIG_FILE)
+    workspace = Service.init(settings.cwd)
+    created_copy = INIT_CREATED_COPY if workspace.created else INIT_EXISTING_COPY
+    print(created_copy.format(directory=workspace.directory))
+    print(INIT_NEXT_STEPS_COPY.format(config_file=workspace.config_file))
 
 
 def _chat(settings: Settings) -> None:

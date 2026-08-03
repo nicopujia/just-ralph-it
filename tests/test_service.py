@@ -18,8 +18,9 @@ def build_service(path: Path, client: FakeClient, *, force: bool = False) -> Ser
 
 
 def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
-    Service.init(tmp_path)
+    workspace = Service.init(tmp_path)
 
+    assert workspace == (tmp_path / paths.WORKSPACE_DIR, tmp_path / paths.CONFIG_FILE, True)
     assert (tmp_path / paths.CONFIG_FILE).read_text() == Settings.render_config()
     assert (tmp_path / paths.GITIGNORE_FILE).read_text() == "session.json\nlogs\nvisualization.html\n"
 
@@ -30,8 +31,9 @@ def test_initializing_an_existing_workspace_preserves_it(tmp_path: Path) -> None
     (tmp_path / paths.GITIGNORE_FILE).write_text("custom-cache\nlogs")
 
     Service.init(tmp_path)
-    Service.init(tmp_path)
+    workspace = Service.init(tmp_path)
 
+    assert not workspace.created
     assert (tmp_path / paths.CONFIG_FILE).read_text() == "custom config\n"
     assert (tmp_path / paths.GITIGNORE_FILE).read_text() == "custom-cache\nlogs\nsession.json\nvisualization.html\n"
 
