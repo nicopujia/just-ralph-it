@@ -29,6 +29,7 @@ Issues = "https://github.com/nicopujia/just-ralph-it/issues"
 dev = [
     "basedpyright>=1.39.6",
     "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
     "ruff>=0.15.15",
     "textual-dev>=1.8.0",
 ]
@@ -45,7 +46,7 @@ module-name = "jri"
 source-exclude = ["**/.DS_Store"]
 
 [tool.basedpyright]
-include = ["src"]
+include = ["src", "tests"]
 typeCheckingMode = "standard"
 reportImplicitOverride = "error"
 

@@ -18,9 +18,9 @@ def main() -> None:
     for command in (
         ["ruff", "format", "-q"],
         ["ruff", "check", "--fix", "-q"],
-        ["python", "-m", "compileall", "-q", "src"],
+        ["python", "-m", "compileall", "-q", "--invalidation-mode", "checked-hash", "src"],
         ["basedpyright"],
-        ["pytest", "-q"],
+        ["pytest", "-q", "--cov=src/jri/core", "--cov=src/jri/lib", "--cov-report=term-missing", "--cov-fail-under=80"],
     ):
         subprocess.run([uv, "run", "--locked", *command], check=True)
 
