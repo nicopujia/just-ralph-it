@@ -18,7 +18,7 @@ Just Ralph It (JRI) is a software that helps you think through your software pro
     - [x] Public URLs, including YouTube videos
   - [x] Note taking
   - [x] Topic-based context management
-- [ ] Automated implementation (inspired on the [SDLC](https://en.wikipedia.org/wiki/Systems_development_life_cycle))
+- [ ] Automated implementation (inspired on the [SDLC](https://en.wikipedia.org/wiki/Systems_development_life_cycle) and the [Ralph technique](https://ghuntley.com/ralph/))
   - [x] Requirements analysis
   - [x] System design
   - [ ] Development
