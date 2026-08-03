@@ -203,6 +203,7 @@ class App(TextualApp[None]):
             self.restored_turn_index = min(self.restored_turn_index, event.history_index)
         for retry_button in self.query(f".{c.RETRY_BUTTON_CLASSES}"):
             await retry_button.remove()
+        self._sync_retry_shortcut()
         event.message_input.remember(user_message)
         event.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
         self.last_escape_at = 0.0
@@ -390,6 +391,7 @@ class App(TextualApp[None]):
             y=old_scroll_y + self.messages_container.max_scroll_y - old_max_scroll_y, animate=False, immediate=True
         )
         self.is_restoring_history = False
+        self._sync_retry_shortcut()
 
     async def _load_older_history(self, *, reveal_hidden: bool = True) -> None:
         """Prepend the next batch of restored conversation turns."""
@@ -468,6 +470,7 @@ class App(TextualApp[None]):
         self.active_turn_state = None
         App.ALLOW_SELECT = True
         self.set_focus(self.message_input)
+        self._sync_retry_shortcut()
         self.run_worker(self._sync_ralph_button())
         logger.debug("message_input_reset")
 
@@ -625,6 +628,11 @@ class App(TextualApp[None]):
         self.ralph_button = Button(c.RALPH_BUTTON_COPY, classes=c.RALPH_BUTTON_CLASSES, compact=True)
         await self.mounted_turns[-1][1].mount(self.ralph_button)
         self.message_input.is_ralph_ready = True
+
+    def _sync_retry_shortcut(self) -> None:
+        self.message_input.is_retry_ready = any(
+            button.has_class(c.RETRY_BUTTON_CLASSES) and button.display for button in self.query(Button)
+        )
 
     async def _retry(self, button: Button) -> None:
         container = cast("Vertical", button.parent)

@@ -26,6 +26,7 @@ class MessageInput(TextArea):
         Binding("ctrl+shift+z", "redo", "Redo", show=False),
     )
     is_ralph_ready: Reactive[bool] = Reactive(default=False, bindings=True)
+    is_retry_ready: Reactive[bool] = Reactive(default=False, bindings=True)
     is_turn_active: Reactive[bool] = Reactive(default=False, bindings=True)
     _is_chord_open: Reactive[bool] = Reactive(default=False, bindings=True)
 
@@ -67,8 +68,9 @@ class MessageInput(TextArea):
 
         Leaving the chord endings disabled outside the chord keeps
         their keys ordinary text, so typing them never routes through
-        an action. Ralphing stays visible but disabled while its
-        button is up, to advertise the chord that reaches it.
+        an action. Inside the chord, each ending shows up only where it
+        has something to do. Ralphing stays visible but disabled while
+        its button is up, to advertise the chord that reaches it.
 
         Returns:
             Whether the action may run for this key press.
@@ -78,8 +80,14 @@ class MessageInput(TextArea):
             return not self.is_turn_active and not self._is_chord_open
         if action == "ralph" and not self._is_chord_open:
             return None if self.is_ralph_ready and not self.is_turn_active else False
-        if action in {"previous_message", "next_message", "retry_message", "ralph"}:
-            return self._is_chord_open
+        if action == "previous_message":
+            return self._is_chord_open and self.history_index > 0
+        if action == "next_message":
+            return self._is_chord_open and self.history_index < self.message_count
+        if action == "retry_message":
+            return self._is_chord_open and self.is_retry_ready
+        if action == "ralph":
+            return self._is_chord_open and self.is_ralph_ready
         return super().check_action(action, parameters)
 
     def action_message_history(self) -> None:
