@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jri.core import paths
+from jri.lib import git
 
 from .ai import ChatEvent, Interviewer, SpecsGen
 from .exceptions import PersistenceError
@@ -35,6 +36,7 @@ class Workspace(NamedTuple):
     directory: Path
     config_file: Path
     created: bool
+    repository_created: bool
 
 
 class Session(BaseModel):
@@ -56,10 +58,15 @@ class Service:
     def init(cls, cwd: Path) -> Workspace:
         """Create a project's JRI workspace, keeping what exists.
 
+        Projects outside a Git repository get an empty one, since JRI
+        stores the specifications it writes in commits.
+
         Returns:
             The workspace found or created.
         """
 
+        repository_created = git.find_root(cwd) is None
+        git.Repository(cwd)
         workspace = cwd / paths.WORKSPACE_DIR
         config_file = cwd / paths.CONFIG_FILE
         created = not config_file.exists()
@@ -74,7 +81,7 @@ class Service:
         if missing:
             separator = "" if not content or content.endswith("\n") else "\n"
             gitignore.write_text(f"{content}{separator}{'\n'.join(missing)}\n")
-        return Workspace(workspace, config_file, created)
+        return Workspace(workspace, config_file, created, repository_created)
 
     def __init__(self, settings: Settings) -> None:
         """Load settings, configure logging, and set base directory up.

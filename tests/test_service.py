@@ -9,8 +9,10 @@ from jri.core import paths
 from jri.core.exceptions import PersistenceError
 from jri.core.service import Service
 from jri.core.settings import Settings
+from jri.lib import git
 from tests.doubles.openai import FakeClient, call, failure, partial_reply, reply, response
 from tests.doubles.settings import build_settings
+from tests.git import create_repository
 
 
 def build_service(path: Path, client: FakeClient, *, force: bool = False) -> Service:
@@ -20,9 +22,22 @@ def build_service(path: Path, client: FakeClient, *, force: bool = False) -> Ser
 def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
     workspace = Service.init(tmp_path)
 
-    assert workspace == (tmp_path / paths.WORKSPACE_DIR, tmp_path / paths.CONFIG_FILE, True)
+    assert workspace == (tmp_path / paths.WORKSPACE_DIR, tmp_path / paths.CONFIG_FILE, True, True)
     assert (tmp_path / paths.CONFIG_FILE).read_text() == Settings.render_config()
     assert (tmp_path / paths.GITIGNORE_FILE).read_text() == "session.json\nlogs\nvisualization.html\n"
+    assert not git.Repository(tmp_path).has_head()
+
+
+def test_initializes_a_workspace_inside_an_existing_repository(tmp_path: Path) -> None:
+    repository = create_repository(tmp_path / "repo")
+    nested = repository.path / "packages" / "app"
+    nested.mkdir(parents=True)
+
+    workspace = Service.init(nested)
+
+    assert not workspace.repository_created
+    assert repository.read_head() == git.Repository(nested).read_head()
+    assert (nested / paths.CONFIG_FILE).exists()
 
 
 def test_initializing_an_existing_workspace_preserves_it(tmp_path: Path) -> None:

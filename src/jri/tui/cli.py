@@ -23,6 +23,7 @@ from .constants import (
     INIT_CREATED_COPY,
     INIT_EXISTING_COPY,
     INIT_NEXT_STEPS_COPY,
+    INIT_REPOSITORY_COPY,
     WORKSPACE_MISSING_COPY,
 )
 
@@ -74,6 +75,9 @@ def main() -> None:
     except codex.AuthError as error:
         print(f"Authentication failed: {error}")
         raise SystemExit(1) from error
+    except git.Error as error:
+        print(f"Git failed: {error}")
+        raise SystemExit(1) from error
     except PersistenceError as error:
         print(f"Persistence failed: {error}")
         raise SystemExit(1) from error
@@ -81,6 +85,8 @@ def main() -> None:
 
 def _init(settings: Settings) -> None:
     workspace = Service.init(settings.cwd)
+    if workspace.repository_created:
+        print(INIT_REPOSITORY_COPY.format(directory=settings.cwd))
     created_copy = INIT_CREATED_COPY if workspace.created else INIT_EXISTING_COPY
     print(created_copy.format(directory=workspace.directory))
     print(INIT_NEXT_STEPS_COPY.format(config_file=workspace.config_file))
