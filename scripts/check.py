@@ -85,7 +85,7 @@ def check_constant_publicity(*roots: Path) -> None:
         for line in _find_private_constants(ast.parse(path.read_text()).body, path)
     ]
     if private:
-        raise RuntimeError("Constants private though AGENTS.md requires them public:\n" + "\n".join(private))
+        raise RuntimeError("Module constants must be public:\n" + "\n".join(private))
 
 
 def check_layering(package: Path, tests: Path) -> None:
@@ -116,7 +116,7 @@ def check_import_depth(*roots: Path) -> None:
         if module.startswith(("jri.", "tests.")) and module.count(".") + 1 > MAX_IMPORT_DEPTH
     ]
     if deep:
-        raise RuntimeError(f"Imports deeper than the {MAX_IMPORT_DEPTH} levels AGENTS.md allows:\n" + "\n".join(deep))
+        raise RuntimeError(f"Imports must stay within {MAX_IMPORT_DEPTH} levels:\n" + "\n".join(deep))
 
 
 def check_test_layout(package: Path, tests: Path) -> None:
@@ -131,10 +131,10 @@ def check_test_layout(package: Path, tests: Path) -> None:
         if path.name != "__init__.py"
         and path.relative_to(package).parts[0] != "tui"
         and any(isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) for node in _parse(path))
-        and not (tests / f"test_{path.stem}.py").exists()
+        and not any((tests / name).exists() for name in _name_test_modules(path.relative_to(package)))
     ]
     if misplaced or untested:
-        raise RuntimeError("Tests laid out against tests/AGENTS.md:\n" + "\n".join(misplaced + untested))
+        raise RuntimeError("Tests laid out wrongly:\n" + "\n".join(misplaced + untested))
 
 
 def check_deferred_annotations(*roots: Path) -> None:
@@ -160,7 +160,8 @@ def check_docstrings(*roots: Path) -> None:
     ]
     if written:
         raise RuntimeError(
-            "Docstrings where AGENTS.md asks for a name, a type, a test, or a comment:\n" + "\n".join(written)
+            "Docstrings are not written here; carry the what in a name, a type or a test, and the why in a `#` "
+            "comment:\n" + "\n".join(written)
         )
 
 
@@ -206,6 +207,14 @@ def _find_docstrings(path: Path) -> Iterator[int]:
         first = node.body[0]
         if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
             yield first.lineno
+
+
+def _name_test_modules(relative: Path) -> Iterator[str]:
+    # A conflicting stem earns the sub-packages enclosing it as a
+    # prefix, closest first, until nothing else claims the name.
+    packages = relative.parts[:-1]
+    for start in range(len(packages), -1, -1):
+        yield f"test_{'_'.join([*packages[start:], relative.stem])}.py"
 
 
 def _rank_module(node: ast.stmt) -> int | None:

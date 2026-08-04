@@ -1,10 +1,6 @@
-# Automated testing guidelines
-
-- 80/20-based
-- Only for business logic (`core`, `lib`)
-- Black-box style
+# Testing
+- 80/20
+- Black-box
 - Deterministic
-- Local-only
-- Verb-led behavioral naming
-- One test module per source module; on name conflict, prefix with closest sub-package(s) name until no conflict
-- Doubles go under `doubles/`
+- Verb-led behavioral names
+- Name conflict -> prefix with nearest sub-package(s) until unique
