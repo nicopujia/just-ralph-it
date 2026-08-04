@@ -106,6 +106,16 @@ class Notebook:
         self.graph = self._load()
         logger.info("initialized notes=%d connections=%d", len(self.graph.notes), len(self.graph.connections))
 
+    @property
+    def initial_topic(self) -> Topic:
+        """Return the overview topic every graph is validated to hold.
+
+        Returns:
+            The overview topic.
+        """
+
+        return next(topic for topic in self.graph.topics if topic.id == "t1")
+
     def read(self, query: ReadQuery) -> tuple[list[Note], list[Connection]]:
         """Read notes by fuzzy text, ID, or graph traversal.
 

@@ -2,6 +2,7 @@ import logging
 import shutil
 from collections.abc import Generator
 from datetime import datetime
+from functools import cached_property
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Event, Lock
@@ -142,13 +143,22 @@ class Service:
         application_logger.propagate = False
         self.logger = logging.getLogger(__name__)
         self.logger.info("initialized cwd=%r force=%r", settings.cwd, settings.force)
-        self.interviewer = Interviewer(
-            settings, Notebook(self.notebook_file), lambda ready: self.update_session(ready_to_ralph=ready)
-        )
+        self.notebook = Notebook(self.notebook_file)
         self.session = Session(
-            active_topic_id=self.interviewer.active_topic_id,
-            initial_graph=self.interviewer.notebook.graph.model_copy(deep=True),
+            active_topic_id=self.notebook.initial_topic.id, initial_graph=self.notebook.graph.model_copy(deep=True)
         )
+
+    @cached_property
+    def interviewer(self) -> Interviewer:
+        """Build the interviewer the first time one is needed.
+
+        Commands that only read the notes never reach the provider.
+
+        Returns:
+            The interviewer writing into this service's notebook.
+        """
+
+        return Interviewer(self.settings, self.notebook, lambda ready: self.update_session(ready_to_ralph=ready))
 
     def chat(self, message: str, cancelled: Event | None = None) -> Generator[ChatEvent]:
         """Send a message and persist the full interview context.
@@ -160,7 +170,7 @@ class Service:
         self.logger.debug("chat_message message=%r", message)
         checkpoint = (
             len(self.interviewer.history),
-            self.interviewer.notebook.graph.model_copy(deep=True),
+            self.notebook.graph.model_copy(deep=True),
             self.interviewer.active_topic_id,
             self.session.ready_to_ralph,
         )
@@ -174,7 +184,7 @@ class Service:
         """
         checkpoint = (
             len(self.interviewer.history) - 1,
-            self.interviewer.notebook.graph.model_copy(deep=True),
+            self.notebook.graph.model_copy(deep=True),
             self.interviewer.active_topic_id,
             self.session.ready_to_ralph,
         )
@@ -190,8 +200,8 @@ class Service:
             if cast("dict[str, Any]", item).get("role") == "user"
         ][checkpoint_index]
         self.interviewer.history = self.interviewer.history[:history_index]
-        self.interviewer.notebook.restore(self.session.initial_graph)
-        self.interviewer.active_topic_id = self.interviewer.initial_topic.id
+        self.notebook.restore(self.session.initial_graph)
+        self.interviewer.active_topic_id = self.notebook.initial_topic.id
         self.session = self.session.model_copy(update={"ready_to_ralph": False})
 
         tools = {tool.name: tool for tool in self.interviewer.tools}
@@ -251,7 +261,7 @@ class Service:
             return [], False
         try:
             self.session = Session.model_validate_json(self.session_file.read_text())
-            topics = {topic.id: topic for topic in self.interviewer.notebook.graph.topics if topic.status != "trashed"}
+            topics = {topic.id: topic for topic in self.notebook.graph.topics if topic.status != "trashed"}
             topics[self.session.active_topic_id]
             self.interviewer.history, self.interviewer.active_topic_id = (
                 cast(
@@ -291,7 +301,7 @@ class Service:
             self._save_turn(stopped=cancelled is not None and cancelled.is_set())
         except Exception:
             self.interviewer.history = self.interviewer.history[: checkpoint[0]]
-            self.interviewer.notebook.restore(checkpoint[1])
+            self.notebook.restore(checkpoint[1])
             self.interviewer.active_topic_id = checkpoint[2]
             self.session = self.session.model_copy(update={"ready_to_ralph": checkpoint[3]})
             self.interviewer.history.append({"role": "user", "content": message})

@@ -31,7 +31,7 @@ class Interviewer(Agent):
         self.notebook = notebook
         self.explorer: Explorer
         self.set_ready_to_ralph = set_ready_to_ralph or (lambda _: None)
-        self.initial_topic = next(topic for topic in self.notebook.graph.topics if topic.id == "t1")
+        self.initial_topic = notebook.initial_topic
         self.active_topic_id = self.initial_topic.id
         agent = settings.agents.interviewer
         super().__init__(

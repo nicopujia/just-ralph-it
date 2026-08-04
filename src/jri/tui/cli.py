@@ -131,7 +131,7 @@ def _chat(settings: Settings) -> None:
 
 def _view(settings: Settings) -> None:
     service = Service(settings)
-    graph = service.interviewer.notebook.graph
+    graph = service.notebook.graph
     diagram = ["flowchart TD", "    classDef topic fill:#fff3cd,stroke:#856404,stroke-width:2px"]
     indentation = "    " * 3
 

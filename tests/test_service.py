@@ -2,6 +2,7 @@ import json
 from collections.abc import Iterator
 from pathlib import Path
 from threading import Event
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
@@ -106,6 +107,14 @@ def test_forcing_initialization_writes_the_configuration_again(tmp_path: Path) -
     assert not workspace.created
     assert (tmp_path / paths.CONFIG_FILE).read_text() == Settings.render_config()
     assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text()) == notebook
+
+
+def test_reads_the_notes_without_reaching_the_provider(tmp_path: Path) -> None:
+    unreachable = build_settings(tmp_path, FakeClient([])).model_copy(update={"llm": SimpleNamespace()})
+
+    service = Service(unreachable)
+
+    assert [topic.id for topic in service.notebook.graph.topics] == ["t1"]
 
 
 def test_completed_interview_turn_survives_restart(tmp_path: Path) -> None:
