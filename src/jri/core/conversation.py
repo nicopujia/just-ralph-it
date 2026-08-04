@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jri.lib import files
 
-from .ai import DEFAULT_SYMBOL, ChatEvent, Interviewer, SpecsGeneration, Tool
+from .ai import DEFAULT_SYMBOL, ChatEvent, Interviewer, Tool, specs_generation
 from .exceptions import PersistenceError
 from .notes import Graph, Notebook, TopicId
 from .settings import Settings
@@ -153,7 +153,7 @@ class Conversation:
     def ralph(self) -> Generator[ChatEvent]:
         self.update_session(ready_to_ralph=False)
         try:
-            result = yield from SpecsGeneration(self.settings).generate(self.session.active_spec_commit)
+            result = yield from specs_generation.generate(self.settings, self.session.active_spec_commit)
         except BaseException:
             self.update_session(ready_to_ralph=True)
             raise

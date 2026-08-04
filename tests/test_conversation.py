@@ -13,7 +13,7 @@ from jri.core.exceptions import PersistenceError
 from tests.conftest import CreateRepository
 from tests.doubles.openai import FakeClient, call, failure, partial_reply, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
-from tests.doubles.specs_generation import InterruptibleSpecsGeneration, SucceedingSpecsGeneration
+from tests.doubles.specs_generation import generate_interrupted, generate_succeeding
 from tests.doubles.workspace import install_workspace
 
 
@@ -203,7 +203,7 @@ def test_restores_ralph_readiness_after_an_interrupted_run(tmp_path: Path, monke
         FakeClient([response(call("ready", "just_ralph_it", show=True)), response(reply("Click Just Ralph It."))]),
     )
     list(conversation.chat("We're ready."))
-    monkeypatch.setattr("jri.core.conversation.SpecsGeneration", InterruptibleSpecsGeneration)
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_interrupted)
 
     events = conversation.ralph()
     next(events)
@@ -251,7 +251,7 @@ def test_rolls_back_the_notes_of_a_failed_reply_after_ralphing(tmp_path: Path, m
         ]),
     )
     list(conversation.chat("Build a reporting CLI."))
-    monkeypatch.setattr("jri.core.conversation.SpecsGeneration", SucceedingSpecsGeneration)
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
 
     with pytest.raises(RuntimeError, match="provider failed"):
         list(conversation.ralph())

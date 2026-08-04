@@ -1,7 +1,8 @@
 from .agents import DEFAULT_SYMBOL, Agent, Explorer, Interviewer, Invocation, Tool, ToolOutput, tool
 from .events import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
 from .llm_runner import LLMRunner
-from .workflows.specs_generation import SpecsGeneration, architect, functional_analyst
+from .workflows import specs_generation
+from .workflows.specs_generation import architect, functional_analyst
 
 __all__ = [
     "DEFAULT_SYMBOL",
@@ -12,7 +13,6 @@ __all__ = [
     "Invocation",
     "LLMRunner",
     "ReasoningDelta",
-    "SpecsGeneration",
     "TextDelta",
     "Tool",
     "ToolCallFinished",
@@ -20,5 +20,6 @@ __all__ = [
     "ToolOutput",
     "architect",
     "functional_analyst",
+    "specs_generation",
     "tool",
 ]

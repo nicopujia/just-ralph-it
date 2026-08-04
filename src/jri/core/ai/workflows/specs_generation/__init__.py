@@ -1,4 +1,4 @@
 from . import architect, functional_analyst
-from .orchestration import SpecsGeneration
+from .orchestration import MAX_CYCLES, generate
 
-__all__ = ["SpecsGeneration", "architect", "functional_analyst"]
+__all__ = ["MAX_CYCLES", "architect", "functional_analyst", "generate"]

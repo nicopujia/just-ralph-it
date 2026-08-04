@@ -5,7 +5,7 @@ from typing import cast
 import pytest
 
 from jri.core import paths
-from jri.core.ai import SpecsGeneration, ToolCallFinished, ToolCallStarted, architect, functional_analyst
+from jri.core.ai import ToolCallFinished, ToolCallStarted, architect, functional_analyst, specs_generation
 from jri.core.exceptions import SpecsError
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, call, partial_reply, reply, response, streamed_reply
@@ -64,10 +64,10 @@ def build_workspace(path: Path, create_repository: CreateRepository) -> None:
 
 def generate(path: Path, client: FakeClient, active_commit: str | None = None) -> tuple[list[Row], Result]:
     captured: list[Result] = []
-    workflow = SpecsGeneration(build_settings(path, client))
+    settings = build_settings(path, client)
 
     def drive() -> Generator[Row]:
-        captured.append((yield from workflow.generate(active_commit)))
+        captured.append((yield from specs_generation.generate(settings, active_commit)))
 
     return list(drive()), captured[0]
 
@@ -210,7 +210,7 @@ def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_r
     build_workspace(tmp_path, create_repository)
     parsed: list[object] = [
         item
-        for _ in range(SpecsGeneration.MAX_CYCLES - 1)
+        for _ in range(specs_generation.MAX_CYCLES - 1)
         for item in (written_specs(), reported_issues("Unclear export."))
     ]
     parsed.extend([written_specs(), architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_PATCH)])
@@ -220,7 +220,7 @@ def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_r
 
     assert client.responses.options[-1]["text_format"] is architect.Patch
     assert len([row for row in rows if isinstance(row, ToolCallStarted) and "polish" in row.call_id]) == (
-        SpecsGeneration.MAX_CYCLES - 1
+        specs_generation.MAX_CYCLES - 1
     )
     assert isinstance(result, str)
 
