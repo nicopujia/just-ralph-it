@@ -1,5 +1,6 @@
 import base64
 import json
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -28,14 +29,26 @@ def respond(status_code: int, body: dict[str, Any]) -> httpx.Response:
     return httpx.Response(status_code, json=body, request=httpx.Request("POST", codex.Auth.OAUTH_URL))
 
 
-def build_client(path: Path, monkeypatch: pytest.MonkeyPatch, requests: list[httpx.Request]) -> codex.Client:
+def build_client(
+    path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    requests: list[httpx.Request],
+    *,
+    statuses: Sequence[int] = (),
+    on_first_request: Callable[[], None] | None = None,
+) -> codex.Client:
     write_login(
         path, {"access_token": build_token(DISTANT_FUTURE), "refresh_token": "refresh", "account_id": "account"}
     )
 
     def handle(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        return httpx.Response(200, json={})
+        # A retried request is the very same object, re-headed in
+        # place, so snapshot it before the next attempt rewrites it.
+        requests.append(httpx.Request(request.method, request.url, headers=request.headers, content=request.content))
+        if len(requests) == 1 and on_first_request is not None:
+            on_first_request()
+        status = statuses[len(requests) - 1] if len(requests) <= len(statuses) else httpx.codes.OK
+        return httpx.Response(status, json={})
 
     transport = httpx.MockTransport(handle)
     monkeypatch.setattr(codex, "DefaultHttpxClient", lambda **options: httpx.Client(transport=transport, **options))

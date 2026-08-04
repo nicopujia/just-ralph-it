@@ -239,6 +239,25 @@ def test_commits_specifications_onto_a_freshly_initialized_project(tmp_path: Pat
     assert not run_git(tmp_path, "status", "--short")
 
 
+def test_commits_specifications_onto_a_repository_without_commits(tmp_path: Path, run_git: RunGit) -> None:
+    run_git(tmp_path, "init", "-q")
+    (tmp_path / "README.md").write_text("# Project\n")
+    conversation = build_conversation(tmp_path, successful_client())
+
+    list(conversation.ralph())
+
+    assert run_git(tmp_path, "ls-tree", "-r", "--name-only", "HEAD").splitlines() == [
+        ".jri/.gitignore",
+        ".jri/config.yaml",
+        ".jri/notebook.yaml",
+        ".jri/specs/architecture/design.md",
+        ".jri/specs/functional/behavior.md",
+        "README.md",
+    ]
+    assert conversation.session.active_spec_commit == run_git(tmp_path, "rev-parse", "HEAD")
+    assert not run_git(tmp_path, "status", "--short")
+
+
 def test_refuses_unrelated_changes_before_generation(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:

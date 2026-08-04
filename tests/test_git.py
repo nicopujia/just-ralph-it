@@ -183,6 +183,38 @@ def test_opens_a_detached_worktree_at_the_requested_revision(
         assert run_git(worktree.path, "rev-parse", "--abbrev-ref", "HEAD") == "HEAD"
 
 
+def test_snapshots_the_working_tree_when_no_revision_is_given(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "README.md").write_text("uncommitted edit\n")
+    (repository.path / "docs").mkdir()
+    (repository.path / "docs" / "new.md").write_text("# New\n")
+    (repository.path / ".gitignore").write_text("*.log\n")
+    (repository.path / "noise.log").write_text("ignored\n")
+
+    with repository.open_worktree(None) as snapshot:
+        assert (snapshot.path / "README.md").read_text() == "uncommitted edit\n"
+        assert (snapshot.path / "docs" / "new.md").read_text() == "# New\n"
+        assert not (snapshot.path / "noise.log").exists()
+        assert not snapshot.has_commit()
+        assert b"+uncommitted edit" in snapshot.diff(None)
+
+
+def test_keeps_the_project_untouched_while_a_snapshot_worktree_is_open(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+
+    with repository.open_worktree(None) as snapshot:
+        location = snapshot.path
+        (snapshot.path / "README.md").write_text("changed in the snapshot\n")
+
+    assert (repository.path / "README.md").read_text() == "# Project\n"
+    assert repository.read_status() == ()
+    assert not location.exists()
+
+
 def test_removes_the_worktree_once_it_closes(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
