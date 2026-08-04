@@ -11,15 +11,15 @@ type Appearance = Literal["dark", "light"]
 DARWIN_COMMAND = ("/usr/bin/defaults", "read", "-g", "AppleInterfaceStyle")
 
 
-def read_appearance() -> Appearance:
+def read_appearance() -> Appearance | None:
     """Read whether the system is set to a dark or light appearance.
 
     Returns:
-        The system appearance, defaulting to dark where the operating
-        system does not report one.
+        The system appearance, or nothing where the operating system
+        does not report one, leaving the choice to the caller.
     """
 
     if platform.system() != "Darwin":
-        return "dark"
+        return None
     result = subprocess.run(DARWIN_COMMAND, capture_output=True, text=True, check=False)
     return "dark" if result.stdout.strip() == "Dark" else "light"

@@ -66,7 +66,7 @@ class App(TextualApp[None]):
 
     def __init__(self, service: Service) -> None:
         super().__init__()
-        self.theme = styles.THEME_DARK if appearance.read_appearance() == "dark" else styles.THEME_LIGHT
+        self.theme = styles.THEME_LIGHT if appearance.read_appearance() == "light" else styles.THEME_DARK
         self.service = service
         self.restored_turns, self.is_reasoning_visible = service.restore()
         # Restored turns mount newest-first, so this is also the

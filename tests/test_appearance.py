@@ -18,10 +18,10 @@ def test_reads_a_light_system_appearance(monkeypatch: pytest.MonkeyPatch) -> Non
     assert appearance.read_appearance() == "light"
 
 
-def test_falls_back_to_dark_where_the_system_reports_no_appearance(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_reports_no_appearance_where_the_system_does_not_have_one(monkeypatch: pytest.MonkeyPatch) -> None:
     commands = _serve(monkeypatch, system="Linux", reported="Dark\n")
 
-    assert appearance.read_appearance() == "dark"
+    assert appearance.read_appearance() is None
     assert commands == []
 
 
