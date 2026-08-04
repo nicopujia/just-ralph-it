@@ -144,10 +144,6 @@ def test_hides_a_reasoning_item_that_carries_no_text(tmp_path: Path) -> None:
     assert turns[-1].items == [InterviewItem("assistant", "How often does it deploy?")]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="restore() slices interview[1:], dropping the opening message of a session saved before its first turn",
-)
 def test_keeps_the_opening_message_of_a_session_saved_before_the_first_turn(tmp_path: Path) -> None:
     build_conversation(tmp_path, FakeClient([])).update_session(show_thinking_blocks=True)
     client = FakeClient([response(reply("How often does it deploy?"))])

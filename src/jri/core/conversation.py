@@ -176,19 +176,15 @@ class Conversation:
             self.session = Session.model_validate_json(self.workspace.session_file.read_text())
             topics = {topic.id: topic for topic in self.notebook.graph.topics if topic.status != "trashed"}
             topics[self.session.active_topic_id]
-            self.interviewer.history, self.interviewer.active_topic_id = (
-                cast(
-                    "ResponseInputParam",
-                    [{"role": "system", "content": self.interviewer.prompt}, *self.session.interview[1:]],
-                ),
-                self.session.active_topic_id,
-            )
-            turns = read_turns(self.interviewer.history, self.interviewer.tools, self.session)
+            history = self._read_interview()
+            turns = read_turns(history, self.interviewer.tools, self.session)
         except (OSError, ValidationError, LookupError, TypeError) as error:
             raise PersistenceError(
                 f"Invalid session file `{self.workspace.session_file}`. Delete it to start a new conversation, "
                 "or run `jri init --force` to reset the whole workspace, notes included."
             ) from error
+        self.interviewer.history = history
+        self.interviewer.active_topic_id = self.session.active_topic_id
         self.interviewer.failed_call_ids = list(self.session.failed_call_ids)
         self.logger.info("restored interview_items=%d", len(self.session.interview))
         return turns
@@ -207,6 +203,14 @@ class Conversation:
                 ) from error
             self.session = session
         self.logger.info("session_updated fields=%r interview_items=%d", list(values), len(self.session.interview))
+
+    def _read_interview(self) -> ResponseInputParam:
+        # A session saved before its first turn stored no interview at
+        # all, and a stored one opens with the system prompt of the run
+        # that wrote it, which the running one supersedes.
+        if not self.session.interview:
+            return self.interviewer.history
+        return [self.interviewer.history[0], *cast("ResponseInputParam", self.session.interview[1:])]
 
     def _find_prompts(self) -> list[int]:
         return [
