@@ -117,16 +117,16 @@ class Conversation:
         yield from self._respond(message, checkpoint, cancelled)
 
     def retry(self, cancelled: Event | None = None) -> Generator[ChatEvent]:
-        checkpoint = self._capture_checkpoint(len(self.interviewer.history) - 1)
-        message = cast("dict[str, str]", self.interviewer.history.pop())["content"]
+        # Whatever the turn left behind goes with it: only the prompt
+        # that opened it is sent again.
+        history_index = self._find_prompts()[-1]
+        message = cast("str", cast("dict[str, Any]", self.interviewer.history[history_index])["content"])
+        checkpoint = self._capture_checkpoint(history_index)
+        self.interviewer.history = self.interviewer.history[:history_index]
         yield from self._respond(message, checkpoint, cancelled)
 
     def rewind(self, checkpoint_index: int) -> None:
-        history_index = [
-            index
-            for index, item in enumerate(self.interviewer.history)
-            if cast("dict[str, Any]", item).get("role") == "user"
-        ][checkpoint_index]
+        history_index = self._find_prompts()[checkpoint_index]
         self.interviewer.history = self.interviewer.history[:history_index]
         self.notebook.restore(self.session.initial_graph)
         self.interviewer.active_topic_id = self.notebook.initial_topic.id
@@ -207,6 +207,13 @@ class Conversation:
                 ) from error
             self.session = session
         self.logger.info("session_updated fields=%r interview_items=%d", list(values), len(self.session.interview))
+
+    def _find_prompts(self) -> list[int]:
+        return [
+            index
+            for index, item in enumerate(self.interviewer.history)
+            if cast("dict[str, Any]", item).get("role") == "user"
+        ]
 
     def _capture_checkpoint(self, history_length: int) -> Checkpoint:
         return Checkpoint(

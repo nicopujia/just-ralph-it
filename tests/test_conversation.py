@@ -483,9 +483,6 @@ def test_clears_the_failed_turn_error_on_a_cancelled_retry(tmp_path: Path) -> No
     assert [item.type for item in turns[-1].items] == ["assistant"]
 
 
-@pytest.mark.xfail(
-    strict=True, reason="retry() pops the assistant message of a reply-less turn and resends its content as the prompt"
-)
 def test_resends_the_prompt_when_retrying_a_turn_that_brought_no_reply(tmp_path: Path) -> None:
     conversation = build_conversation(tmp_path, FakeClient([response(reply("")), response(reply("Retry succeeded."))]))
     list(conversation.chat("Deploy it automatically."))
