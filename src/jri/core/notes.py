@@ -269,11 +269,14 @@ class Notebook:
         return count
 
     def restore(self, graph: Graph) -> None:
+        # The notebook owns what it holds, so the caller keeping its own
+        # copy of a checkpoint cannot reach into it afterwards.
+        restored = graph.model_copy(deep=True)
         # A note ID never comes back, so rolling the graph back keeps
         # the highest one reached rather than handing it out twice.
-        if int(graph.next_note_id[1:]) < int(self.graph.next_note_id[1:]):
-            graph = graph.model_copy(update={"next_note_id": self.graph.next_note_id})
-        self._save(graph)
+        if int(restored.next_note_id[1:]) < int(self.graph.next_note_id[1:]):
+            restored.next_note_id = self.graph.next_note_id
+        self._save(restored)
 
     def render(self, topic_id: TopicId) -> str:
         return self._dump(self.graph, topic_id)

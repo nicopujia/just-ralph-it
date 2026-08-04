@@ -467,9 +467,6 @@ def test_keeps_the_topic_summary_when_only_the_status_changes(tmp_path: Path) ->
     assert Notebook(notebook.path).find_topic(topic.id) == updated
 
 
-@pytest.mark.xfail(
-    strict=True, reason="Notebook.restore keeps the caller's Graph by reference, so a later mutation of it leaks in"
-)
 def test_stores_a_copy_of_a_restored_graph(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
     notebook.add(["First"], "t1")
