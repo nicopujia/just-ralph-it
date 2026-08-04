@@ -103,9 +103,6 @@ def test_reports_a_stream_that_never_produced_an_output() -> None:
     assert cast("str", invocation.output).startswith("Tool call failed:")
 
 
-@pytest.mark.xfail(
-    strict=True, reason="Invocation.failed stays False when a stream is abandoned before it yields a ToolOutput"
-)
 def test_marks_a_stream_abandoned_before_its_output_as_failed() -> None:
     invocation = build_tool("narrate").invoke('{"text": "one"}')
 

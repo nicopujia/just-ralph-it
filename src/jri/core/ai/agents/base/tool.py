@@ -48,7 +48,7 @@ class Invocation:
 
     def __init__(self, output: str | ResponseFunctionCallOutputItemListParam | Stream, *, failed: bool = False) -> None:
         self.stream = output if isinstance(output, Iterator) else iter((ToolOutput(output),))
-        self.failed = failed
+        self._failed = failed
         self._output: str | ResponseFunctionCallOutputItemListParam | None = None
 
     def __iter__(self) -> Generator["ai.ChatEvent"]:
@@ -56,12 +56,11 @@ class Invocation:
             try:
                 item = next(self.stream)
             except StopIteration:
-                self.failed = self.failed or self._output is None
                 return
             except (RuntimeError, TypeError, ValueError) as error:
                 logger.exception("stream_failed")
                 self._output = f"Tool call failed: {error}"
-                self.failed = True
+                self._failed = True
                 return
             if isinstance(item, ToolOutput):
                 self._output = item.value
@@ -69,6 +68,12 @@ class Invocation:
             else:
                 logger.debug("stream_event value=%r", item)
                 yield replace(item, depth=item.depth + 1)
+
+    @property
+    def failed(self) -> bool:
+        # A stream left without an output has none to report, however
+        # far it got, so the call it stands for did not succeed.
+        return self._failed or self._output is None
 
     @property
     def output(self) -> str | ResponseFunctionCallOutputItemListParam:
