@@ -12,11 +12,31 @@ def test_rejects_a_missing_git_executable(tmp_path: Path) -> None:
         git.Repository(tmp_path, executable="missing-git-executable")
 
 
-def test_initializes_a_repository_outside_any_worktree(tmp_path: Path) -> None:
-    repository = git.Repository(tmp_path)
+def test_refuses_to_open_a_path_outside_any_worktree(tmp_path: Path) -> None:
+    with pytest.raises(git.NotRepositoryError):
+        git.Repository(tmp_path)
 
-    assert (tmp_path / ".git").is_dir()
+    assert not (tmp_path / ".git").exists()
+
+
+def test_initializes_a_repository_only_when_asked(tmp_path: Path) -> None:
+    repository = git.Repository.init(tmp_path / "project")
+
+    assert (tmp_path / "project" / ".git").is_dir()
     assert not repository.has_commit()
+
+
+def test_keeps_the_worktree_an_existing_repository_already_has(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path / "repo")
+    nested = tmp_path / "repo" / "packages"
+    nested.mkdir()
+
+    repository = git.Repository.init(nested)
+
+    assert repository.path == (tmp_path / "repo").resolve()
+    assert repository.has_commit()
 
 
 def test_finds_worktree_root_from_any_subdirectory(tmp_path: Path, create_repository: CreateRepository) -> None:

@@ -117,7 +117,7 @@ class Service:
         """
 
         repository_created = git.find_root(cwd) is None
-        repository = Repository(cwd)
+        repository = Repository.init(cwd)
         workspace = cwd / paths.WORKSPACE_DIR
         config_file = cwd / paths.CONFIG_FILE
         created = not config_file.exists()

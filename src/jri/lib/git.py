@@ -9,6 +9,7 @@ from collections.abc import Generator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Self
 
 __all__ = ["Error", "NotInstalledError", "NotRepositoryError", "Repository", "Status", "find_root"]
 
@@ -68,15 +69,34 @@ class Repository:
             capture_output=True,
         )
         if result.returncode:
-            candidate.mkdir(parents=True, exist_ok=True)
-            result = subprocess.run(
-                [str(self.executable), "-C", str(candidate), "init", "--quiet"], check=False, capture_output=True
-            )
-            if result.returncode:
-                raise NotRepositoryError(os.fsdecode(result.stderr).strip() or f"Cannot initialize Git: {candidate}")
-            self.path = candidate
-        else:
-            self.path = Path(os.fsdecode(result.stdout).strip()).resolve()
+            raise NotRepositoryError(os.fsdecode(result.stderr).strip() or f"Not a Git worktree: {candidate}")
+        self.path = Path(os.fsdecode(result.stdout).strip()).resolve()
+
+    @classmethod
+    def init(cls, path: Path | str, executable: str = "git") -> Self:
+        """Open the worktree a path belongs to, creating one if needed.
+
+        Returns:
+            The repository found or created.
+
+        Raises:
+            NotInstalledError: If the Git executable is unavailable.
+            NotRepositoryError: If Git cannot create a repository there.
+        """
+
+        if find_root(Path(path)) is not None:
+            return cls(path, executable)
+        resolved_executable = shutil.which(executable)
+        if resolved_executable is None:
+            raise NotInstalledError(f"Git executable not found: {executable}")
+        candidate = Path(path).resolve()
+        candidate.mkdir(parents=True, exist_ok=True)
+        result = subprocess.run(
+            [resolved_executable, "-C", str(candidate), "init", "--quiet"], check=False, capture_output=True
+        )
+        if result.returncode:
+            raise NotRepositoryError(os.fsdecode(result.stderr).strip() or f"Cannot initialize Git: {candidate}")
+        return cls(candidate, executable)
 
     def has_commit(self, revision: str = "HEAD") -> bool:
         """Return whether a revision resolves to a commit.
@@ -203,7 +223,7 @@ class Repository:
                         destination = location / relative_path
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(source, destination)
-                repository = type(self)(location, str(self.executable))
+                repository = type(self).init(location, str(self.executable))
                 repository.stage((".",))
                 yield repository
                 return
