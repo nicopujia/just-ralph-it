@@ -13,12 +13,15 @@ For more info, refer to the [concept document](https://nicolaspujia.com/just-ral
 
 ## Code style
 
-- DDD naming (eg just `Agent.get_context`, NEVER `BaseOpenAIAgent.get_agent_context`)
-- Function and method names as verbs (except for event handlers and decorators)
-- Helper functions only for repeated logic, unavoidable extractions, or addressing linter alerts
-- Module members in groups one blank line apart: dunders (eg `__all__`), types (eg `type ChatEvent = ...`), constants (never private), variables (eg `logger`), public functions, public classes, private functions, private classes
-- Class members: constants, magic methods, nested types (eg `MessageInput.Submitted`), public methods, private methods; decorated methods sort by visibility (a public `@property` is a public method)
-- Import paths <=3 levels
+- Apply DDD naming, modules included (eg: `Agent.get_context`, NEVER `BaseOpenAIAgent.get_agent_context`; `repository.py`, NEVER `constants.py`).
+- Name functions and methods as verbs, except for event handlers and decorators.
+- Write helper functions only for repeated logic, unavoidable extractions, or addressing linter alerts.
+- Keep import paths at 3 levels or less.
+
+### Ordering
+
+- **Module members (groups one blank line apart)**: dunders, types, constants (all must be public), public variables, private variables, public functions, public classes, private functions, private classes.
+- **Class members**: constants, nested types, magic methods, public methods, private methods.
 
 ## Commands
 
