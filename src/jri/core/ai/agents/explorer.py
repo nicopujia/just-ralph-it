@@ -112,7 +112,9 @@ class Explorer(Agent):
                     data.extend(chunk[: self.MAX_INPUT_SIZE - len(data)])
                     if len(data) == self.MAX_INPUT_SIZE:
                         break
-        except httpx.HTTPError as error:
+        # A model can invent a URL httpx refuses to even build, and
+        # that refusal is no HTTPError.
+        except (httpx.HTTPError, httpx.InvalidURL) as error:
             if isinstance(error, httpx.HTTPStatusError):
                 logger.debug(
                     "fetch_error_response final_url=%r headers=%r",

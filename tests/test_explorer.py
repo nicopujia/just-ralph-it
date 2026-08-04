@@ -161,6 +161,13 @@ def test_reports_a_page_the_host_rejected(tmp_path: Path, monkeypatch: pytest.Mo
         build_explorer(tmp_path).fetch_web_page("https://example.test/missing")
 
 
+def test_reports_a_url_that_cannot_be_requested(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_pages(monkeypatch, lambda _request: httpx.Response(200, text="Reached"))
+
+    with pytest.raises(RuntimeError, match="Could not fetch"):
+        build_explorer(tmp_path).fetch_web_page("https://example.test/\x00")
+
+
 def test_reports_a_page_that_never_answered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     def refuse(_request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("connection refused")
