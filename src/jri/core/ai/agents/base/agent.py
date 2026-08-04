@@ -6,6 +6,7 @@ from threading import Event
 from typing import TYPE_CHECKING, ClassVar, cast
 
 from jri.core import ai
+from jri.core.exceptions import ModelError
 
 from .tool import Invocation, Tool
 
@@ -87,7 +88,7 @@ class Agent:
             Structured chat events from the streamed LLM response.
 
         Raises:
-            RuntimeError: If the model reports a failed response.
+            ModelError: If the model fails to finish the response.
         """
 
         cancelled = cancelled or Event()
@@ -129,7 +130,7 @@ class Agent:
                 if cancelled.is_set():
                     logger.info("message_cancelled agent=%s", type(self).__name__)
                     return
-        raise RuntimeError(f"Agent exceeded the limit of {self.MAX_ROUNDS} response rounds.")
+        raise ModelError(f"Agent exceeded the limit of {self.MAX_ROUNDS} response rounds.")
 
     def _invoke(self, output: dict[str, object], tool: Tool | None, cancelled: Event) -> Generator[ai.ChatEvent]:
         name = cast("str", output["name"])

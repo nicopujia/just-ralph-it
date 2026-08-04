@@ -11,6 +11,8 @@ from openai.types.shared import ReasoningEffort
 from openai.types.shared_params import Reasoning
 from pydantic import BaseModel
 
+from jri.core.exceptions import ModelError
+
 from .events import ChatEvent, ReasoningDelta, TextDelta
 
 Result = TypeVar("Result", bound=BaseModel)
@@ -72,7 +74,7 @@ class LLMRunner:
             The parsed response.
 
         Raises:
-            RuntimeError: If the context is over `max_input_size`, or
+            ModelError: If the context is over `max_input_size`, or
                 the response failed, was cut short, or has no parsed
                 output.
         """
@@ -99,7 +101,7 @@ class LLMRunner:
         elif streamed_text:
             parsed = output_type.model_validate_json(streamed_text)
         else:
-            raise RuntimeError("Model response did not contain a parsed output.")
+            raise ModelError("Model response did not contain a parsed output.")
         logger.info("parse_finished model=%s", self.model)
         logger.debug("parse_output model=%s output=%r", self.model, parsed)
         return parsed
@@ -148,15 +150,15 @@ class LLMRunner:
             return
         size = len(json.dumps(context).encode())
         if size > self.max_input_size:
-            raise RuntimeError(f"Request context is {size} bytes, over the {self.max_input_size} byte limit.")
+            raise ModelError(f"Request context is {size} bytes, over the {self.max_input_size} byte limit.")
 
 
 def _diagnose(event: ResponseStreamEvent) -> None:
     match event.type:
         case "response.incomplete":
             details = event.response.incomplete_details
-            raise RuntimeError(f"Model response incomplete: {details.reason if details else 'unknown reason'}")
+            raise ModelError(f"Model response incomplete: {details.reason if details else 'unknown reason'}")
         case "response.failed":
-            raise RuntimeError(str(event.response.error))
+            raise ModelError(str(event.response.error))
         case "error":
-            raise RuntimeError(event.message)
+            raise ModelError(event.message)

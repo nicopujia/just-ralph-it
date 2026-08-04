@@ -5,6 +5,7 @@ from pathlib import Path, PurePosixPath
 from jri.lib import git
 
 from . import paths
+from .exceptions import RepositoryStateError, SpecsError
 from .repository import Repository
 
 logger = logging.getLogger(__name__)
@@ -34,8 +35,8 @@ class Specs:
             The current repository and accepted specification state.
 
         Raises:
-            RuntimeError: If the repository state cannot produce a valid
-                specification baseline.
+            RepositoryStateError: If the repository state cannot produce
+                a valid specification baseline.
         """
 
         notebook = (self.repository.path / paths.NOTEBOOK_FILE).read_bytes()
@@ -43,19 +44,19 @@ class Specs:
         self._check_status(commit)
         if active_commit is None:
             if commit is not None and self.repository.read_tree(commit, paths.SPECS_DIR):
-                raise RuntimeError("Existing specifications have no active JRI commit.")
+                raise RepositoryStateError("Existing specifications have no active JRI commit.")
             return Baseline(commit, notebook, b"", {}, {})
         if commit is None or not self.repository.has_commit(active_commit):
-            raise RuntimeError("The active specification commit is missing from Git.")
+            raise RepositoryStateError("The active specification commit is missing from Git.")
         if not self.repository.is_ancestor(active_commit, commit):
-            raise RuntimeError("The active specification commit is not reachable from HEAD.")
+            raise RepositoryStateError("The active specification commit is not reachable from HEAD.")
         functional = self.repository.read_tree(active_commit, paths.FUNCTIONAL_SPECS_DIR)
         architecture = self.repository.read_tree(active_commit, paths.ARCHITECTURE_SPECS_DIR)
         if (
             self.repository.read_tree(commit, paths.FUNCTIONAL_SPECS_DIR) != functional
             or self.repository.read_tree(commit, paths.ARCHITECTURE_SPECS_DIR) != architecture
         ):
-            raise RuntimeError("Checked-out specifications differ from the active JRI commit.")
+            raise RepositoryStateError("Checked-out specifications differ from the active JRI commit.")
         logger.info("baseline_prepared head=%s active=%s functional=%d", commit, active_commit, len(functional))
         return Baseline(
             commit, notebook, self.repository.read_file(active_commit, paths.NOTEBOOK_FILE), functional, architecture
@@ -65,8 +66,9 @@ class Specs:
         """Validate a model patch and re-root it into the repository.
 
         Models patch neutral roots such as ``functional``, so the
-        patch is validated against ``root`` and applied below the
-        specifications directory.
+        patch is validated against ``root``, which raises `SpecsError`
+        when it is unsafe, and applied below the specifications
+        directory.
 
         Raises:
             git.Error: If Git refuses the patch.
@@ -116,12 +118,13 @@ class Specs:
             The accepted commit ID.
 
         Raises:
-            RuntimeError: If the repository changed during generation.
+            RepositoryStateError: If the repository changed during
+                generation.
         """
 
         head = self.repository.read_head() if self.repository.has_commit() else None
         if head != baseline.commit or (self.repository.path / paths.NOTEBOOK_FILE).read_bytes() != baseline.notebook:
-            raise RuntimeError("The project changed while specifications were being generated. Try again.")
+            raise RepositoryStateError("The project changed while specifications were being generated. Try again.")
         self._check_status(baseline.commit)
         self.repository.apply_patch(patch)
         self.repository.stage(
@@ -149,14 +152,14 @@ class Specs:
             if path is not None and path not in {paths.CONFIG_FILE, paths.GITIGNORE_FILE, paths.NOTEBOOK_FILE}
         })
         if blockers:
-            raise RuntimeError(
+            raise RepositoryStateError(
                 "Commit or remove these files before Ralphing:\n" + "\n".join(f"- {path}" for path in blockers)
             )
 
     @staticmethod
     def _validate_patch(patch: str, root: str) -> None:
         if "GIT binary patch" in patch or "Binary files " in patch:
-            raise RuntimeError("Specification patches cannot contain binary files.")
+            raise SpecsError("Specification patches cannot contain binary files.")
         patch_paths: list[str] = []
         for line in patch.splitlines():
             if (
@@ -164,24 +167,24 @@ class Specs:
                 or (line.startswith(("new file mode ", "deleted file mode ")) and not line.endswith(" 100644"))
                 or " 120000" in line
             ):
-                raise RuntimeError("Specification patches cannot change file modes or symlinks.")
+                raise SpecsError("Specification patches cannot change file modes or symlinks.")
             if line.startswith("diff --git "):
                 match line.split():
                     case ["diff", "--git", old, new] if old.startswith("a/") and new.startswith("b/"):
                         patch_paths.extend((old[2:], new[2:]))
                     case _:
-                        raise RuntimeError("Malformed specification patch path.")
+                        raise SpecsError("Malformed specification patch path.")
             elif line.startswith(("--- ", "+++ ")):
                 raw_path = line[4:].split("\t", maxsplit=1)[0]
                 if raw_path != "/dev/null":
                     if not raw_path.startswith(("a/", "b/")):
-                        raise RuntimeError("Malformed specification patch path.")
+                        raise SpecsError("Malformed specification patch path.")
                     patch_paths.append(raw_path[2:])
             elif line.startswith(("rename from ", "rename to ", "copy from ", "copy to ")):
                 patch_paths.append(line.split(" ", maxsplit=2)[2])
         if not patch_paths:
-            raise RuntimeError("Specification patch must change at least one file.")
+            raise SpecsError("Specification patch must change at least one file.")
         for raw_path in patch_paths:
             path = PurePosixPath(raw_path)
             if path.is_absolute() or ".." in path.parts or path.suffix != ".md" or not path.is_relative_to(root):
-                raise RuntimeError(f"Specification patch cannot change `{raw_path}`.")
+                raise SpecsError(f"Specification patch cannot change `{raw_path}`.")

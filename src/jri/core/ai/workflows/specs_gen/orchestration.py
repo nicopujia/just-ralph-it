@@ -6,6 +6,7 @@ from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 from jri.core import ai, paths
+from jri.core.exceptions import SpecsError
 from jri.core.specs import Specs
 
 from . import architect, functional_analyst
@@ -37,6 +38,9 @@ class SpecsGen:
     ) -> Generator[ai.ToolCallStarted | ai.ToolCallFinished, None, SpecsResult]:
         """Generate one accepted specification bundle.
 
+        Validating the repository raises `RepositoryStateError` when it
+        cannot back the generation.
+
         Returns:
             Ambiguities for the Interviewer or the accepted Git commit.
 
@@ -44,7 +48,7 @@ class SpecsGen:
             User-facing workflow progress.
 
         Raises:
-            RuntimeError: If generation or repository validation fails.
+            SpecsError: If the generated specifications are unusable.
         """
 
         baseline = self.specs.prepare(active_commit)
@@ -85,7 +89,7 @@ class SpecsGen:
                 self.specs.apply(staging, functional_result.patch, paths.FUNCTIONAL_SPECS_ROOT)
                 functional = self.specs.read(staging.path, paths.FUNCTIONAL_SPECS_DIR)
                 if not functional:
-                    raise RuntimeError("Functional specifications cannot be empty.")
+                    raise SpecsError("Functional specifications cannot be empty.")
 
                 if explorer_report is None:
                     yield ai.ToolCallStarted("explorer", "Studying your existing project", "🔎")
@@ -101,7 +105,7 @@ class SpecsGen:
                             output.append(event.text)
                     explorer_report = "".join(output).strip()
                     if not explorer_report:
-                        raise RuntimeError("Repository exploration produced no report.")
+                        raise SpecsError("Repository exploration produced no report.")
                     yield ai.ToolCallFinished("explorer", "Studied your existing project")
                     yield ai.ToolCallStarted("architecture", "Designing the project architecture", "📐")
 
@@ -137,7 +141,7 @@ class SpecsGen:
                 self.specs.apply(staging, architecture_result.patch, paths.ARCHITECTURE_SPECS_ROOT)
                 architecture = self.specs.read(staging.path, paths.ARCHITECTURE_SPECS_DIR)
                 if not architecture:
-                    raise RuntimeError("Architecture specifications cannot be empty.")
+                    raise SpecsError("Architecture specifications cannot be empty.")
                 patch = staging.diff(baseline.commit, paths=(paths.FUNCTIONAL_SPECS_DIR, paths.ARCHITECTURE_SPECS_DIR))
 
             commit = self.specs.accept(patch, baseline)
@@ -148,4 +152,4 @@ class SpecsGen:
             )
             return commit
 
-        raise RuntimeError("The final architecture cycle did not return a patch.")
+        raise SpecsError("The final architecture cycle did not return a patch.")
