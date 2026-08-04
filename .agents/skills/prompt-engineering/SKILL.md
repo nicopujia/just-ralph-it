@@ -1,6 +1,6 @@
 ---
 name: prompt-engineering
-description: How to write and audit an LLM agent's system prompt. Use when creating a new AI agent or workflow, revising a `sys_prompt` string, or diagnosing bad agent output that traces back to its instructions.
+description: How to write and audit an LLM agent's system prompt. Use when creating a new AI agent or workflow, modifying AGENTS.md or SKILL.md files, revising a `sys_prompt` string, or diagnosing bad agent output that traces back to its instructions.
 ---
 
 # Writing agent prompts
