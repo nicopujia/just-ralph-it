@@ -57,9 +57,6 @@ def test_reports_a_response_without_any_output() -> None:
         runner.parse([], Output)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="LLMRunner.parse lets pydantic's ValidationError escape instead of the recoverable ModelError"
-)
 def test_reports_a_response_that_is_not_valid_json() -> None:
     runner = build_runner(response(reply("Sure! Here is the answer you asked for.")))
 

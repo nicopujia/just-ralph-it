@@ -9,7 +9,7 @@ from openai import Omit, OpenAI, omit
 from openai.types.responses import FunctionToolParam, ResponseInputParam, ResponseStreamEvent
 from openai.types.shared import ReasoningEffort
 from openai.types.shared_params import Reasoning
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from jri.core.exceptions import ModelError
 
@@ -68,12 +68,16 @@ class LLMRunner:
                 if event.type == "response.output_text.delta":
                     streamed_text += event.delta
             response = stream.get_final_response()
+        text = response.output_text or streamed_text
         if response.output_parsed is not None:
             parsed = response.output_parsed
-        elif response.output_text:
-            parsed = output_type.model_validate_json(response.output_text)
-        elif streamed_text:
-            parsed = output_type.model_validate_json(streamed_text)
+        elif text:
+            try:
+                parsed = output_type.model_validate_json(text)
+            except ValidationError as error:
+                # The worker recovers from a model that answered badly,
+                # but not from an error the model library raises.
+                raise ModelError(f"Model response could not be read as {output_type.__name__}: {error}") from error
         else:
             raise ModelError("Model response did not contain a parsed output.")
         logger.info("parse_finished model=%s", self.model)
