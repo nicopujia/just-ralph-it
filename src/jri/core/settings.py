@@ -65,8 +65,6 @@ class Agents(BaseModel):
         ),
     )
 
-    model_config = ConfigDict(extra="ignore")
-
 
 def read_api_key(variable: str) -> str:
     """Read the API key held by the named environment variable.
@@ -312,9 +310,5 @@ def _render_settings(model: type[BaseModel], values: BaseModel | None, level: in
         setting = yaml.safe_dump({name: value}, sort_keys=False, allow_unicode=True, width=10**9).strip()
         entries.append([*comment, f"{indent}# {setting}" if unset else f"{indent}{setting}"])
 
-    lines: list[str] = []
-    for entry in entries:
-        if lines:
-            lines.append("")
-        lines.extend(entry)
-    return lines
+    lines = [line for entry in entries for line in ("", *entry)]
+    return lines[1:]

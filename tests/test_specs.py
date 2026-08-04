@@ -74,6 +74,18 @@ def successful_client() -> FakeClient:
     )
 
 
+def updated_client() -> FakeClient:
+    return FakeClient(
+        [streamed_reply("Updated repository report"), response(reply("Specifications updated."))],
+        parsed=[
+            functional_analyst.Output(
+                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
+            ),
+            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_UPDATE)),
+        ],
+    )
+
+
 def written_specs() -> functional_analyst.Output:
     return functional_analyst.Output(
         result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_PATCH)
@@ -234,18 +246,7 @@ def test_updates_specs_after_restart_and_an_intervening_project_commit(tmp_path:
     run_git(tmp_path, "commit", "-qm", "docs: add changelog")
     project_commit = run_git(tmp_path, "rev-parse", "HEAD")
 
-    restarted = build_service(
-        tmp_path,
-        FakeClient(
-            [streamed_reply("Updated repository report"), response(reply("Specifications updated."))],
-            parsed=[
-                functional_analyst.Output(
-                    result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
-                ),
-                architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_UPDATE)),
-            ],
-        ),
-    )
+    restarted = build_service(tmp_path, updated_client())
     restarted.restore()
     assert restarted.session.active_spec_commit == first_spec_commit
     restarted.interviewer.notebook.add(["Add a total output record."], "t1")
@@ -280,15 +281,7 @@ def test_updates_specs_after_restart_and_an_intervening_project_commit(tmp_path:
 def test_shows_specifications_to_the_models_under_neutral_roots(tmp_path: Path) -> None:
     create_repository(tmp_path)
     list(build_service(tmp_path, successful_client()).ralph())
-    client = FakeClient(
-        [streamed_reply("Repository report"), response(reply("Specifications updated."))],
-        parsed=[
-            functional_analyst.Output(
-                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
-            ),
-            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_UPDATE)),
-        ],
-    )
+    client = updated_client()
     restarted = build_service(tmp_path, client)
     restarted.restore()
 

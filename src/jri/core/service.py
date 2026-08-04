@@ -79,10 +79,10 @@ class Service:
         Notebook(cwd / paths.NOTEBOOK_FILE)
         (cwd / paths.LOGS_DIR).mkdir(exist_ok=True)
 
-        ignored = (paths.SESSION_FILE, paths.LOGS_DIR, paths.VISUALIZATION_FILE)
+        ignored = [Path(path).name for path in (paths.SESSION_FILE, paths.LOGS_DIR, paths.VISUALIZATION_FILE)]
         gitignore = cwd / paths.GITIGNORE_FILE
         content = gitignore.read_text() if gitignore.exists() else ""
-        missing = [Path(path).name for path in ignored if Path(path).name not in content.splitlines()]
+        missing = [name for name in ignored if name not in content.splitlines()]
         if missing:
             separator = "" if not content or content.endswith("\n") else "\n"
             gitignore.write_text(f"{content}{separator}{'\n'.join(missing)}\n")
@@ -192,12 +192,7 @@ class Service:
             if not tool.read_only and item["call_id"] not in self.session.failed_call_ids:
                 list(tool.invoke(item["arguments"]))
 
-        self.update_session(
-            active_topic_id=self.interviewer.active_topic_id,
-            interview=self.interviewer.history,
-            failed_turn_error=None,
-            stopped_turn=False,
-        )
+        self._save_turn()
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
     def ralph(self) -> Generator[ChatEvent]:
@@ -229,12 +224,7 @@ class Service:
         self.interviewer.history.append({"role": "system", "content": workflow_result})
         self.update_session(interview=self.interviewer.history)
         yield from self.interviewer.respond()
-        self.update_session(
-            active_topic_id=self.interviewer.active_topic_id,
-            interview=self.interviewer.history,
-            failed_turn_error=None,
-            stopped_turn=False,
-        )
+        self._save_turn()
 
     def restore(self) -> tuple[list[Turn], bool]:
         """Restore interview session if present.
@@ -287,12 +277,7 @@ class Service:
     ) -> Generator[ChatEvent]:
         try:
             yield from self.interviewer.send_message(message, cancelled)
-            self.update_session(
-                active_topic_id=self.interviewer.active_topic_id,
-                interview=self.interviewer.history,
-                failed_turn_error=None,
-                stopped_turn=cancelled is not None and cancelled.is_set(),
-            )
+            self._save_turn(stopped=cancelled is not None and cancelled.is_set())
         except Exception:
             self.interviewer.history = self.interviewer.history[: checkpoint[0]]
             self.interviewer.notebook.restore(checkpoint[1])
@@ -303,6 +288,16 @@ class Service:
             self.logger.exception("chat_rolled_back")
             raise
         self.logger.info("chat_finished interview_items=%d", len(self.interviewer.history))
+
+    def _save_turn(self, *, stopped: bool = False) -> None:
+        """Persist the interview, clearing the previous turn's marks."""
+
+        self.update_session(
+            active_topic_id=self.interviewer.active_topic_id,
+            interview=self.interviewer.history,
+            failed_turn_error=None,
+            stopped_turn=stopped,
+        )
 
     def _get_turns(self) -> list[Turn]:
         tools_by_name = {tool.name: tool for tool in self.interviewer.tools}

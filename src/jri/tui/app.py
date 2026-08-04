@@ -630,9 +630,7 @@ class App(TextualApp[None]):
         self.message_input.is_ralph_ready = True
 
     def _sync_retry_shortcut(self) -> None:
-        self.message_input.is_retry_ready = any(
-            button.has_class(c.RETRY_BUTTON_CLASSES) and button.display for button in self.query(Button)
-        )
+        self.message_input.is_retry_ready = any(button.display for button in self.query(f".{c.RETRY_BUTTON_CLASSES}"))
 
     async def _retry(self, button: Button) -> None:
         container = cast("Vertical", button.parent)

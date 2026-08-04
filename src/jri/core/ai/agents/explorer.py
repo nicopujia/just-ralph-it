@@ -85,14 +85,13 @@ class Explorer(Agent):
         if (video_transcript := youtube.fetch_transcript_from_url(url)) is not None:
             logger.info("fetch_finished source=youtube characters=%d", len(video_transcript))
             return video_transcript
-        limit = self.runner.max_input_size
         data = bytearray()
         try:
             with httpx.stream("GET", url, follow_redirects=True, timeout=10.0) as response:
                 response.raise_for_status()
                 for chunk in response.iter_bytes():
-                    data.extend(chunk if limit is None else chunk[: limit - len(data)])
-                    if limit is not None and len(data) == limit:
+                    data.extend(chunk[: self.MAX_INPUT_SIZE - len(data)])
+                    if len(data) == self.MAX_INPUT_SIZE:
                         break
         except httpx.HTTPError as error:
             if isinstance(error, httpx.HTTPStatusError):
@@ -135,15 +134,14 @@ class Explorer(Agent):
         self, paths: list[str], start_line: int | None = None, end_line: int | None = None
     ) -> ResponseFunctionCallOutputItemListParam:
         logger.debug("read_paths paths=%r", paths)
-        limit = self.runner.max_input_size
         output: ResponseFunctionCallOutputItemListParam = []
         for raw_path in paths:
             path = Path(raw_path).expanduser()
             if not path.is_absolute():
                 path = self.settings.cwd / path
             try:
-                if limit is not None and path.stat().st_size > limit:
-                    raise RuntimeError(f"Could not read {path}: file exceeds {limit} bytes.")
+                if path.stat().st_size > self.MAX_INPUT_SIZE:
+                    raise RuntimeError(f"Could not read {path}: file exceeds {self.MAX_INPUT_SIZE} bytes.")
                 data = path.read_bytes()
             except OSError as error:
                 logger.exception("read_failed path=%r", path)
