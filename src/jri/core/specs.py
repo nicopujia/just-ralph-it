@@ -38,13 +38,13 @@ class Specs:
         """
 
         notebook = (self.repository.path / paths.NOTEBOOK_FILE).read_bytes()
-        commit = self.repository.read_head() if self.repository.has_head() else None
+        commit = self.repository.read_head() if self.repository.has_commit() else None
         self._check_status(commit)
         if active_commit is None:
             if commit is not None and self.repository.read_tree(commit, paths.SPECS_DIR):
                 raise RuntimeError("Existing specifications have no active JRI commit.")
             return Baseline(commit, notebook, b"", {}, {})
-        if commit is None:
+        if commit is None or not self.repository.has_commit(active_commit):
             raise RuntimeError("The active specification commit is missing from Git.")
         if not self.repository.is_ancestor(active_commit, commit):
             raise RuntimeError("The active specification commit is not reachable from HEAD.")
@@ -118,7 +118,7 @@ class Specs:
             RuntimeError: If the repository changed during generation.
         """
 
-        head = self.repository.read_head() if self.repository.has_head() else None
+        head = self.repository.read_head() if self.repository.has_commit() else None
         if head != baseline.commit or (self.repository.path / paths.NOTEBOOK_FILE).read_bytes() != baseline.notebook:
             raise RuntimeError("The project changed while specifications were being generated. Try again.")
         self._check_status(baseline.commit)

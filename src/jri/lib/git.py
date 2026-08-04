@@ -78,14 +78,15 @@ class Repository:
         else:
             self.path = Path(os.fsdecode(result.stdout).strip()).resolve()
 
-    def has_head(self) -> bool:
-        """Return whether the repository has at least one commit.
+    def has_commit(self, revision: str = "HEAD") -> bool:
+        """Return whether a revision resolves to a commit.
 
         Returns:
-            Whether ``HEAD`` resolves to a commit.
+            Whether the revision names a commit in this repository.
         """
 
-        return self._run("rev-parse", "--verify", "HEAD", check=False).returncode == 0
+        arguments = ("rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}")
+        return self._run(*arguments, check=False).returncode == 0
 
     def read_head(self) -> str:
         """Return the current commit ID.

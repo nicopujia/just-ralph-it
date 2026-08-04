@@ -13,7 +13,7 @@ def test_rejects_missing_git_and_initializes_repository(tmp_path: Path) -> None:
     repository = git.Repository(tmp_path)
 
     assert (tmp_path / ".git").is_dir()
-    assert not repository.has_head()
+    assert not repository.has_commit()
 
 
 def test_finds_worktree_root_from_any_subdirectory(tmp_path: Path) -> None:
