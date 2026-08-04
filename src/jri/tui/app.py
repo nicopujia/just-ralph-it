@@ -17,6 +17,7 @@ from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, LoadingIndicator, Markdown, Static
 
 from jri.core.ai import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
+from jri.core.exceptions import RepositoryStateError
 from jri.core.service import Service
 from jri.lib.providers import codex
 
@@ -373,8 +374,13 @@ class App(TextualApp[None]):
                 if not row.is_complete:
                     row.mark_complete("Could not finish specifications")
                     break
+            # A repository the user has to sort out is not a crash.
+            blocked = isinstance(error, RepositoryStateError)
             await turn_state.container.mount(
-                Markdown(c.RALPH_ERROR_COPY.format(error=error), classes=c.INTERVIEWER_ERROR_CLASSES)
+                Markdown(
+                    (c.RALPH_BLOCKED_COPY if blocked else c.RALPH_ERROR_COPY).format(error=error),
+                    classes=c.INTERVIEWER_MESSAGE_CLASSES if blocked else c.INTERVIEWER_ERROR_CLASSES,
+                )
             )
         elif turn_state.placeholder is not None:
             await self._render_interviewer_status(turn_state, c.INTERVIEWER_NO_RESPONSE_COPY)

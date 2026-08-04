@@ -70,6 +70,8 @@ MESSAGE_INPUT_ID = "message-input"
 MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY = Interviewer.FIRST_MESSAGE
 MESSAGE_INPUT_PLACEHOLDER_COPY = "Share your thoughts"
 
+RALPH_BLOCKED_COPY = "Ralphing stopped because of your project's state:\n\n{error}\n\nSort that out and Ralph again."
+
 RALPH_BUTTON_CLASSES = "ralph-button"
 RALPH_BUTTON_COPY = "Just Ralph It"
 RALPH_ERROR_COPY = "Could not finish specifications:\n\n{error}"
