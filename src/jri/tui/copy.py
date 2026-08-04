@@ -1,7 +1,6 @@
 from jri.core.ai import Interviewer
 
-# Maintain constants ordered alphabetically with one blank line between
-# different initial letters.
+# Alphabetical order, blank line between initial letters
 
 AUTH_ERROR = "Authentication failed: {error}"
 

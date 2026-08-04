@@ -1,5 +1,4 @@
-# Maintain constants ordered alphabetically with one blank line between
-# different initial letter.
+# Alphabetical order, blank line between initial letters
 
 INTERVIEWER_ERROR_CLASSES = "interviewer-error"
 INTERVIEWER_MESSAGE_CLASSES = "interviewer-message"
@@ -20,7 +19,7 @@ TOOL_CALL_ROW_CLASSES = "tool-call-row"
 
 USER_MESSAGE_CLASSES = "user-message"
 
-# Formatted strings that need other constants go below
+# f-strings using other constants go below
 
 STYLESHEET = f"""
 Screen {{
