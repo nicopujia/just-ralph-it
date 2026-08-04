@@ -14,7 +14,7 @@ For more info, refer to the [concept document](https://nicolaspujia.com/just-ral
 ## Code style
 
 - Apply DDD naming, modules included (eg: `Agent.get_context`, NEVER `BaseOpenAIAgent.get_agent_context`; `repository.py`, NEVER `constants.py`).
-- Name functions and methods as verbs, except for event handlers and decorators.
+- Name functions and methods as verbs, except for properties, event handlers, and decorators.
 - Write helper functions only for repeated logic, unavoidable extractions, or addressing linter alerts.
 - Keep import paths at 3 levels or less.
 
