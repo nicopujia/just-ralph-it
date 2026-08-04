@@ -63,6 +63,9 @@ def main() -> None:
 
 def _init(args: argparse.Namespace) -> None:
     location = Path(args.cwd or Path.cwd()).resolve()
+    # Creating things is what `init` is for, and Git can only report the
+    # repository a directory belongs to once that directory exists.
+    location.mkdir(parents=True, exist_ok=True)
     project_dir = git.find_root(location) or location
     if args.force and not (args.yes or _confirm_reset(project_dir)):
         print(copy.FORCE_CANCELLED)
@@ -105,11 +108,14 @@ def _load_settings(args: argparse.Namespace) -> Settings:
         The settings of the project the command was pointed at.
 
     Raises:
-        SystemExit: If the project has no workspace or its
-            configuration cannot be resolved.
+        SystemExit: If the directory is missing, the project has no
+            workspace, or its configuration cannot be resolved.
     """
 
     location = Path(getattr(args, "cwd", None) or Path.cwd()).resolve()
+    if not location.is_dir():
+        print(copy.DIRECTORY_MISSING.format(directory=location))
+        raise SystemExit(1)
     project_dir = git.find_root(location) or location
     if not (project_dir / paths.CONFIG_FILE).exists():
         print(copy.WORKSPACE_MISSING)

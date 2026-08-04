@@ -83,6 +83,17 @@ def test_initializes_a_workspace_inside_an_existing_repository(
     assert (nested / paths.CONFIG_FILE).exists()
 
 
+def test_creates_the_working_directory_when_it_is_missing(tmp_path: Path) -> None:
+    missing = tmp_path / "new" / "project"
+
+    workspace = Service.init(missing)
+
+    assert workspace.repository_created
+    assert workspace.directory == missing / paths.WORKSPACE_DIR
+    assert (missing / paths.CONFIG_FILE).exists()
+    assert git.find_root(missing) == missing.resolve()
+
+
 def test_preserves_an_existing_workspace_when_initializing_again(tmp_path: Path) -> None:
     (tmp_path / paths.WORKSPACE_DIR).mkdir()
     (tmp_path / paths.CONFIG_FILE).write_text("custom config\n")

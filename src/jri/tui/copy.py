@@ -34,6 +34,8 @@ your shell, a .env file, or CLI flags.
 All commands, including `jri view`, use this configuration.
 """
 
+DIRECTORY_MISSING = "No directory at {directory}. Run `jri init --cwd {directory}` to create it."
+
 FORCE_CANCELLED = "Nothing was deleted."
 FORCE_PROMPT = "Type `y` to continue, or anything else to cancel: "
 FORCE_WARNING = """--force replaces these, and what they hold cannot be brought back:
