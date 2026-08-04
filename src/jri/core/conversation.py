@@ -2,7 +2,7 @@ import logging
 from collections.abc import Generator
 from functools import cached_property
 from threading import Event, Lock
-from typing import Any, Literal, NamedTuple, cast
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 from openai.types.responses import ResponseInputParam
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -14,6 +14,9 @@ from .exceptions import PersistenceError
 from .notes import Graph, Notebook, TopicId
 from .settings import Settings
 from .workspace import Workspace
+
+if TYPE_CHECKING:
+    from openai.types.responses import ResponseInputItemParam
 
 
 def read_turns(history: ResponseInputParam, tools: list[Tool], session: "Session") -> list["Turn"]:
@@ -165,10 +168,17 @@ class Conversation:
                 "the notebook before offering Just Ralph It again:\n"
                 + "\n".join(f"- {item}" for item in result.ambiguities)
             )
-        self.interviewer.history.append({"role": "system", "content": workflow_result})
+        report: ResponseInputItemParam = {"role": "system", "content": workflow_result}
+        checkpoint = self._capture_checkpoint(len(self.interviewer.history))
+        self.interviewer.history.append(report)
         self.update_session(interview=self.interviewer.history)
-        yield from self.interviewer.respond()
-        self._save_turn()
+        try:
+            yield from self.interviewer.respond()
+            self._save_turn()
+        except Exception:
+            self._roll_back(checkpoint, report)
+            self.logger.exception("ralph_rolled_back")
+            raise
 
     def restore(self) -> list[Turn]:
         if not self.workspace.session_file.exists():
@@ -234,15 +244,19 @@ class Conversation:
             yield from self.interviewer.send_message(message, cancelled)
             self._save_turn(stopped=cancelled is not None and cancelled.is_set())
         except Exception:
-            self.interviewer.history = self.interviewer.history[: checkpoint.history_length]
-            self.notebook.restore(checkpoint.graph)
-            self.interviewer.active_topic_id = checkpoint.active_topic_id
-            self.session = self.session.model_copy(update={"ready_to_ralph": checkpoint.ready_to_ralph})
-            self.interviewer.history.append({"role": "user", "content": message})
-            self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
+            self._roll_back(checkpoint, {"role": "user", "content": message})
             self.logger.exception("chat_rolled_back")
             raise
         self.logger.info("chat_finished interview_items=%d", len(self.interviewer.history))
+
+    # What opened the turn outlives it, so the user can retry it.
+    def _roll_back(self, checkpoint: Checkpoint, opening: "ResponseInputItemParam") -> None:
+        self.interviewer.history = self.interviewer.history[: checkpoint.history_length]
+        self.notebook.restore(checkpoint.graph)
+        self.interviewer.active_topic_id = checkpoint.active_topic_id
+        self.session = self.session.model_copy(update={"ready_to_ralph": checkpoint.ready_to_ralph})
+        self.interviewer.history.append(opening)
+        self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
 
     def _save_turn(self, *, stopped: bool = False) -> None:
         self.update_session(

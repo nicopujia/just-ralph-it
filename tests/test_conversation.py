@@ -241,9 +241,6 @@ def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
     assert restarted.session.active_spec_commit is None
 
 
-@pytest.mark.xfail(
-    strict=True, reason="ralph() saves the interview before responding, so the notes of a failed reply outlive it"
-)
 def test_rolls_back_the_notes_of_a_failed_reply_after_ralphing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     conversation = build_conversation(
         tmp_path,
