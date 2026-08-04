@@ -119,7 +119,9 @@ class Tool:
     @classmethod
     def discover(cls, owner: object) -> list[Self]:
         tools: list[Self] = []
-        for name in type(owner).__dict__:
+        # An owner inherits the tools of the classes it extends, base
+        # class first, so the whole line of ancestors is walked.
+        for name in dict.fromkeys(name for klass in reversed(type(owner).__mro__) for name in vars(klass)):
             func = getattr(owner, name)
             wrapped = getattr(func, "__func__", func)
             if not (metadata := getattr(wrapped, cls.METADATA_ATTR, None)):

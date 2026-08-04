@@ -1,8 +1,6 @@
 from collections.abc import Generator
 from typing import TYPE_CHECKING, cast
 
-import pytest
-
 from jri.core.ai import Invocation, Tool, ToolCallStarted, ToolOutput, tool
 
 if TYPE_CHECKING:
@@ -124,10 +122,6 @@ def test_skips_replaying_a_read_only_tool() -> None:
     assert toolbox.recorded == ["two"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Tool.discover reads type(owner).__dict__, so a tool inherited from a base class is silently dropped",
-)
 def test_discovers_the_tools_an_owner_inherits() -> None:
     names = {discovered.name for discovered in Tool.discover(ExtendedToolbox())}
 
