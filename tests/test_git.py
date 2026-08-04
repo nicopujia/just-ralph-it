@@ -42,7 +42,7 @@ def test_inspects_revisions_files_diffs_and_status(tmp_path: Path) -> None:
     }
 
     repository.stage(["README.md", "new file.txt"])
-    second = repository.commit("jri: test\n\nCo-authored-by: Test Person <test@example.com>\n")
+    second = repository.commit("jri: test", "Test Person <test@example.com>")
 
     assert repository.is_ancestor(first, second)
     assert not repository.is_ancestor(second, first)

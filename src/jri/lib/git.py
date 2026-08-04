@@ -238,14 +238,18 @@ class Repository:
 
         self._run("add", "--", *paths)
 
-    def commit(self, message: str) -> str:
-        """Create a commit with an exact message.
+    def commit(self, message: str, co_author: str) -> str:
+        """Create a commit crediting a co-author.
+
+        The co-author is required so that every commit records who
+        wrote it alongside the person Git credits as the author.
 
         Returns:
             The new commit ID.
         """
 
-        self._run("commit", "--file=-", stdin=message.encode())
+        body = f"{message}\n\nCo-authored-by: {co_author}\n"
+        self._run("commit", "--file=-", stdin=body.encode())
         return self.read_head()
 
     def _run(

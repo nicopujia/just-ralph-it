@@ -14,7 +14,7 @@ from jri.core.settings import Settings
 from jri.lib import git
 from tests.doubles.openai import FakeClient, call, failure, partial_reply, reply, response
 from tests.doubles.settings import build_settings
-from tests.git import create_repository
+from tests.git import create_repository, run_git
 
 
 def build_service(path: Path, client: FakeClient, *, force: bool = False) -> Service:
@@ -42,6 +42,12 @@ def test_commits_the_project_when_it_creates_the_repository(tmp_path: Path) -> N
     Service.init(tmp_path)
 
     repository = git.Repository(tmp_path)
+    assert run_git(tmp_path, "show", "-s", "--format=%B") == (
+        "jri: initialize project\n\nCo-authored-by: ralphpujia <ralph@pujia.ar>"
+    )
+    assert run_git(tmp_path, "show", "-s", "--format=%(trailers:key=Co-authored-by,valueonly)") == (
+        "ralphpujia <ralph@pujia.ar>"
+    )
     assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text() == ".DS_Store\n.env\n.env.*\n"
     assert set(repository.read_tracked_paths()) == {
         paths.PROJECT_GITIGNORE_FILE,

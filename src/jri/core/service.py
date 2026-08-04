@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from jri.core import paths
+from jri.core import constants, paths
 from jri.lib import git
 
 from .ai import ChatEvent, Interviewer, SpecsGen
@@ -57,7 +57,7 @@ class Session(BaseModel):
 
 class Service:
     PROJECT_IGNORES = (".DS_Store", ".env", ".env.*")
-    INITIAL_COMMIT_MESSAGE = "jri: initialize project\n"
+    INITIAL_COMMIT_MESSAGE = "jri: initialize project"
 
     @classmethod
     def init(cls, cwd: Path, *, force: bool = False) -> Workspace:
@@ -96,7 +96,7 @@ class Service:
             if not project_gitignore.exists():
                 project_gitignore.write_text(f"{'\n'.join(cls.PROJECT_IGNORES)}\n")
             repository.stage((".",))
-            repository.commit(cls.INITIAL_COMMIT_MESSAGE)
+            repository.commit(cls.INITIAL_COMMIT_MESSAGE, constants.CO_AUTHOR)
         return Workspace(workspace, config_file, created, repository_created)
 
     def __init__(self, settings: Settings) -> None:

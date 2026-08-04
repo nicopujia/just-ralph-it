@@ -4,7 +4,7 @@ from pathlib import Path, PurePosixPath
 
 from jri.lib import git
 
-from . import paths
+from . import constants, paths
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ class Specs:
                 paths.ARCHITECTURE_SPECS_DIR,
             )
         )
-        commit = self.repository.commit("jri: update specifications\n\nCo-authored-by: ralphpujia <ralph@pujia.ar>\n")
+        commit = self.repository.commit("jri: update specifications", constants.CO_AUTHOR)
         logger.info("specs_committed commit=%s", commit)
         return commit
 
