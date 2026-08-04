@@ -1,6 +1,8 @@
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+__all__ = ["write_atomically"]
+
 
 def write_atomically(path: Path, content: str) -> None:
     # Readers see either the previous contents or the new ones, so a

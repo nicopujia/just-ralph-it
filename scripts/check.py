@@ -40,6 +40,9 @@ CLASS_GROUPS = ("constant", "nested type", "magic method", "method", "private me
 # What each package may reach for, on top of itself.
 LAYERS = {"lib": frozenset[str](), "core": frozenset({"lib"}), "tui": frozenset({"core", "lib"})}
 MAX_IMPORT_DEPTH = 3
+# The package meant to be reusable outside JRI, so its modules declare
+# what they export rather than leaving every name reachable.
+PUBLIC_API_PACKAGE = "lib"
 TEST_SUPPORT_MODULES = frozenset({"__init__.py", "conftest.py"})
 
 
@@ -53,6 +56,7 @@ def main() -> None:
     check_member_order(source, tests)
     check_constant_publicity(source, tests)
     check_layering(package, tests)
+    check_public_api(package)
     check_import_depth(source, tests)
     check_test_layout(package, tests)
     check_deferred_annotations(source, tests)
@@ -105,6 +109,23 @@ def check_layering(package: Path, tests: Path) -> None:
     ]
     if crossings:
         raise RuntimeError("Packages must reach only for the ones below them:\n" + "\n".join(crossings))
+
+
+def check_public_api(package: Path) -> None:
+    silent = [
+        f"{path}: no __all__"
+        for path in sorted((package / PUBLIC_API_PACKAGE).rglob("*.py"))
+        if path.name != "__init__.py"
+        and not any(
+            isinstance(node, ast.Assign)
+            and any(isinstance(target, ast.Name) and target.id == "__all__" for target in node.targets)
+            for node in ast.parse(path.read_text(encoding="utf-8")).body
+        )
+    ]
+    if silent:
+        raise RuntimeError(
+            f"`{PUBLIC_API_PACKAGE}` is reusable code, so every module states what it exports:\n" + "\n".join(silent)
+        )
 
 
 def check_import_depth(*roots: Path) -> None:

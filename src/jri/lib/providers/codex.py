@@ -15,6 +15,8 @@ import httpx
 from openai import DefaultHttpxClient, OpenAI
 from openai._models import FinalRequestOptions
 
+__all__ = ["Auth", "AuthError", "Client"]
+
 file_lock: Any = import_module("msvcrt" if sys.platform == "win32" else "fcntl")
 
 
