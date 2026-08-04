@@ -589,10 +589,6 @@ def test_skips_cancelled_tool_calls_when_rewinding_after_restart(tmp_path: Path)
     ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="rewind() replays capture_notes against a monotonic next_note_id, so every replayed note ID is stale",
-)
 def test_keeps_the_connections_between_replayed_notes_when_rewinding(tmp_path: Path) -> None:
     conversation = build_conversation(
         tmp_path,

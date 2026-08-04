@@ -268,13 +268,14 @@ class Notebook:
         logger.info("disconnect_finished count=%d", count)
         return count
 
-    def restore(self, graph: Graph) -> None:
+    def restore(self, graph: Graph, *, reuse_note_ids: bool = False) -> None:
         # The notebook owns what it holds, so the caller keeping its own
         # copy of a checkpoint cannot reach into it afterwards.
         restored = graph.model_copy(deep=True)
         # A note ID never comes back, so rolling the graph back keeps
-        # the highest one reached rather than handing it out twice.
-        if int(restored.next_note_id[1:]) < int(self.graph.next_note_id[1:]):
+        # the highest one reached rather than handing it out twice,
+        # unless the notes it named are about to be written again.
+        if not reuse_note_ids and int(restored.next_note_id[1:]) < int(self.graph.next_note_id[1:]):
             restored.next_note_id = self.graph.next_note_id
         self._save(restored)
 

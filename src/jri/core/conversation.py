@@ -133,7 +133,9 @@ class Conversation:
     def rewind(self, checkpoint_index: int) -> None:
         history_index = self._find_prompts()[checkpoint_index]
         self.interviewer.history = self.interviewer.history[:history_index]
-        self.notebook.restore(self.session.initial_graph)
+        # The calls kept are replayed below, so they have to name their
+        # notes exactly as the calls that referenced them expect.
+        self.notebook.restore(self.session.initial_graph, reuse_note_ids=True)
         self.interviewer.active_topic_id = self.notebook.initial_topic.id
         self.session = self.session.model_copy(update={"ready_to_ralph": False})
 
