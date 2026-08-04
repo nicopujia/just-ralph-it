@@ -94,8 +94,6 @@ def test_stops_a_streaming_tool_call_when_cancelled() -> None:
 
 
 class ToolAgent(Agent):
-    """Agent exposing one tool of every shape the loop must handle."""
-
     def __init__(self, client: "OpenAI") -> None:
         self.calls: list[str] = []
         self.narrated: list[str] = []

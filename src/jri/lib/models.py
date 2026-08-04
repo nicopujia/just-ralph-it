@@ -1,5 +1,3 @@
-"""Model metadata and context-size helpers."""
-
 import json
 from functools import cache
 from typing import cast
@@ -14,15 +12,6 @@ FALLBACK_CONTEXT_LIMIT = 100_000
 
 @cache
 def get_context_limit(model: str) -> int:
-    """Return the model's context-window limit from models.dev.
-
-    Returns:
-        The model's maximum context size in tokens.
-
-    Uses a conservative fallback when models.dev is unavailable or does
-    not contain the configured model.
-    """
-
     try:
         catalog = _fetch_catalog()
     except (RuntimeError, TypeError):
@@ -41,12 +30,6 @@ def get_context_limit(model: str) -> int:
 
 
 def estimate_tokens(context: object, tools: object) -> int:
-    """Estimate tokens from the serialized request size.
-
-    Returns:
-        A conservative token-count estimate.
-    """
-
     payload = json.dumps({"input": context, "tools": tools}, ensure_ascii=False, separators=(",", ":"))
     return (len(payload.encode()) + 2) // 3
 

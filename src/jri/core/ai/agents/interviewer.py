@@ -17,8 +17,6 @@ if TYPE_CHECKING:
 
 
 class Interviewer(Agent):
-    """Agent that interviews the user to extract a project idea."""
-
     CONTEXT_THRESHOLD = 0.4
     MIN_CONTEXT_TURNS = 10
     FIRST_MESSAGE = "What do you want to build?"
@@ -103,13 +101,6 @@ class Interviewer(Agent):
 
     @override
     def get_context(self) -> ResponseInputParam:
-        """Return the topic-aware context sent to the model.
-
-        Returns:
-            The topic-aware conversation context.
-
-        """
-
         pinned: ResponseInputItemParam = {
             "role": "system",
             "content": (
@@ -139,12 +130,6 @@ class Interviewer(Agent):
         symbol="✨",
     )
     def just_ralph_it(self, *, show: bool) -> str:
-        """Show or hide the user's Ralph confirmation control.
-
-        Returns:
-            The resulting readiness state.
-        """
-
         self.set_ready_to_ralph(show)
         return "The Just Ralph It button is now visible." if show else "The Just Ralph It button is now hidden."
 
@@ -160,12 +145,6 @@ class Interviewer(Agent):
         read_only=True,
     )
     def explore(self, query: str) -> Stream:
-        """Gather extra context for the user request.
-
-        Yields:
-            Explorer tool events followed by its final text output.
-        """
-
         explorer = Explorer(self.settings)
         latest_output: list[str] = []
         for event in explorer.send_message(query):
@@ -186,15 +165,6 @@ class Interviewer(Agent):
         symbol="📑",
     )
     def switch_topic(self, topic: str) -> str:
-        """Switch to a project topic.
-
-        Returns:
-            The resolved topic ID and name.
-
-        Raises:
-            ValueError: If the topic is blank, invalid, or trashed.
-        """
-
         value = topic.strip()
         resolved = self.notebook.find_topic(value)
         if resolved is None:
@@ -215,14 +185,6 @@ class Interviewer(Agent):
     def update_topic(
         self, topic_id: TopicId, status: Literal["open", "done", "trashed"], summary: str | None = None
     ) -> str:
-        """Update a topic's status and optional summary.
-
-        Returns:
-            A summary of the updated topic.
-
-        Raises:
-            ValueError: If the overview topic would be trashed.
-        """
         if topic_id == self.initial_topic.id and status == "trashed":
             raise ValueError(f"The overview topic `{topic_id}` cannot be trashed.")
         topic = self.notebook.update_topic(topic_id, status, summary)
@@ -243,11 +205,6 @@ class Interviewer(Agent):
         read_only=True,
     )
     def read_notes(self, query: ReadQuery | None = None) -> str:
-        """Read relevant project notes.
-
-        Returns:
-            Matching notes and connections.
-        """
         notes, connections = self.notebook.read(query or ReadQuery())
         if not notes:
             return "No notes found."
@@ -264,11 +221,6 @@ class Interviewer(Agent):
         symbol="📝",
     )
     def capture_notes(self, texts: list[str]) -> str:
-        """Capture project notes under the active topic.
-
-        Returns:
-            A summary containing the new IDs.
-        """
         notes = self.notebook.add(texts, self.active_topic_id)
         return "\n".join(f"Added {note.id}: {note.text}" for note in notes)
 
@@ -279,11 +231,6 @@ class Interviewer(Agent):
         symbol="✏️",
     )
     def edit_note(self, note_id: NoteId, text: str) -> str:
-        """Edit a project note.
-
-        Returns:
-            A summary of the edited note.
-        """
         note = self.notebook.edit(note_id, text)
         return f"Edited {note.id}: {note.text}"
 
@@ -294,11 +241,6 @@ class Interviewer(Agent):
         symbol="🗑️",
     )
     def delete_notes(self, note_ids: list[NoteId]) -> str:
-        """Delete project notes.
-
-        Returns:
-            A summary of the deleted notes.
-        """
         return f"Deleted notes: {', '.join(self.notebook.delete(note_ids))}."
 
     @tool(
@@ -308,11 +250,6 @@ class Interviewer(Agent):
         symbol="🖇️",
     )
     def connect_notes(self, connections: list[Connection]) -> str:
-        """Connect project notes and topics.
-
-        Returns:
-            The number of relationships created.
-        """
         return f"Connected {self.notebook.connect(connections)} relationship(s)."
 
     @tool(
@@ -322,9 +259,4 @@ class Interviewer(Agent):
         symbol="📎",
     )
     def disconnect_notes(self, connections: list[Connection]) -> str:
-        """Disconnect project notes and topics.
-
-        Returns:
-            The number of relationships removed.
-        """
         return f"Disconnected {self.notebook.disconnect(connections)} relationship(s)."

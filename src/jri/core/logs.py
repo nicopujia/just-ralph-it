@@ -7,12 +7,6 @@ from .settings import Settings
 
 
 def configure(settings: Settings) -> None:
-    """Route this run's logs into a new file under the workspace.
-
-    Raises:
-        PersistenceError: If the log file cannot be created.
-    """
-
     logs_dir = settings.cwd / paths.LOGS_DIR
     log_file = logs_dir / f"{datetime.now().astimezone().strftime('%Y-%m-%d_%H-%M-%S')}.log"
     try:

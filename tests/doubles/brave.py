@@ -9,12 +9,6 @@ RESULTS = [
 
 
 def respond(status_code: int, body: object = None) -> httpx.Response:
-    """Build a search response the provider would return.
-
-    Returns:
-        A response bound to a stand-in request.
-    """
-
     request = httpx.Request("POST", "https://search.test/context")
     if body is None:
         return httpx.Response(status_code, request=request)
@@ -22,8 +16,6 @@ def respond(status_code: int, body: object = None) -> httpx.Response:
 
 
 class FakeProvider:
-    """Search endpoint recording the request it is called with."""
-
     def __init__(self, outcome: httpx.Response | httpx.HTTPError) -> None:
         self.outcome = outcome
         self.calls: list[tuple[dict[str, str], dict[str, str]]] = []

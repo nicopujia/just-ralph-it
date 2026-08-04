@@ -12,8 +12,6 @@ type Result = Issues | Patch
 
 
 class Input(BaseModel):
-    """Input for designing an architecture for accepted behavior."""
-
     functional_specs: str
     accepted_architecture: str
     tracked_tree: str
@@ -21,28 +19,20 @@ class Input(BaseModel):
 
 
 class Issues(BaseModel):
-    """Functional issues that require another analysis pass."""
-
     outcome: Literal["functional_specification_issues"]
     issues: list[str]
 
 
 class Patch(BaseModel):
-    """A diff that produces the architecture specification tree."""
-
     outcome: Literal["architecture_patch"]
     patch: str
 
 
 class Output(BaseModel):
-    """Architect response envelope for issue-capable cycles."""
-
     result: Issues | Patch
 
 
 class Architect:
-    """Transform functional specifications into architecture."""
-
     FINAL_PROMPT = cleandoc("""
         This is the final architecture pass. Return only an `architecture_patch`. Resolve every remaining
         architectural choice yourself while preserving the functional specifications exactly.
@@ -94,22 +84,10 @@ class Architect:
         )
 
     def design(self, context: Input) -> Result:
-        """Design architecture or report functional issues.
-
-        Returns:
-            An architecture patch or issues for the Functional Analyst.
-        """
-
         output = self.runner.parse(self._build_input(context, self.runner.prompt), Output)
         return output.result
 
     def finish(self, context: Input) -> Patch:
-        """Produce the architecture patch on the final pass.
-
-        Returns:
-            The required architecture patch.
-        """
-
         return self.runner.parse(self._build_input(context, f"{self.runner.prompt}\n\n{self.FINAL_PROMPT}"), Patch)
 
     @staticmethod

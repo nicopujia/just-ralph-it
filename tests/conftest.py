@@ -17,13 +17,6 @@ type RunGit = Callable[..., str]
 
 @pytest.fixture
 def run_git() -> RunGit:
-    """Run Git commands inside a worktree.
-
-    Returns:
-        A callable taking a worktree path and Git arguments, and
-        returning the command's trimmed standard output.
-    """
-
     executable = shutil.which("git")
     assert executable is not None
 
@@ -37,13 +30,6 @@ def run_git() -> RunGit:
 
 @pytest.fixture
 def create_repository(run_git: RunGit) -> CreateRepository:
-    """Create repositories holding a single committed file.
-
-    Returns:
-        A callable taking a path and returning the repository made
-        at it.
-    """
-
     def create(path: Path) -> git.Repository:
         path.mkdir(parents=True, exist_ok=True)
         run_git(path, "init", "-q")

@@ -1,5 +1,3 @@
-"""Helpers for parsing YouTube URLs and fetching transcripts."""
-
 import logging
 from contextlib import suppress
 from urllib.parse import parse_qs, urlparse
@@ -12,17 +10,6 @@ logger = logging.getLogger(__name__)
 
 
 def fetch_transcript_from_url(url: str) -> str | None:
-    """Return transcript text for a YouTube URL.
-
-    Returns:
-        Transcript text for supported YouTube video URLs, or `None`
-        for non-YouTube URLs.
-
-    Raises:
-        RuntimeError: Raised when the URL is malformed or transcript
-            retrieval fails.
-    """
-
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower().removeprefix("www.")
     parts = [part for part in parsed.path.split("/") if part]

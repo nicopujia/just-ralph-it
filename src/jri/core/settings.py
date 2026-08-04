@@ -23,18 +23,10 @@ CONFIG_INTRO = "The values below are the ones JRI already uses, and the commente
 
 
 def read_api_key(variable: str) -> str:
-    """Read the API key held by the named environment variable.
-
-    Returns:
-        The API key.
-    """
-
     return os.environ[variable]
 
 
 class AgentProfile(BaseModel):
-    """Model configuration for an agent."""
-
     model: str = Field(description="Model ID.")
     reasoning_effort: ReasoningEffort = Field(
         default=None,
@@ -51,8 +43,6 @@ class AgentProfile(BaseModel):
 
 
 class AgentProfiles(BaseModel):
-    """Model configuration of every agent."""
-
     interviewer: AgentProfile = Field(
         default=AgentProfile(model="gpt-5.6-sol", reasoning_effort="medium"),
         description="Leads the requirements gathering interview. Recommended model type: smart yet relatively fast.",
@@ -81,8 +71,6 @@ class AgentProfiles(BaseModel):
 
 
 class LLM(BaseModel):
-    """LLM provider configuration."""
-
     provider: str = Field(
         default="openai-subscription",
         description=(
@@ -107,22 +95,16 @@ class LLM(BaseModel):
 
     @property
     def client(self) -> OpenAI:
-        """Build a client for the configured provider."""
-
         if self.provider == "openai-subscription":
             return codex.Client(APPLICATION_NAME)
         return OpenAI(base_url=self.provider, api_key=read_api_key(cast("str", self.api_key)))
 
     def validate_authentication(self) -> None:
-        """Validate subscription authentication when configured."""
-
         if self.provider == "openai-subscription":
             codex.Auth(APPLICATION_NAME).validate()
 
 
 class BraveSearch(BaseModel):
-    """Brave Search configuration."""
-
     api_key: str | None = Field(
         default=None,
         examples=["BRAVE_SEARCH_API_KEY"],
@@ -133,8 +115,6 @@ class BraveSearch(BaseModel):
 
 
 class Logging(BaseModel):
-    """Application logging configuration."""
-
     level: LoggingLevel = Field(
         default="INFO",
         description=(
@@ -146,8 +126,6 @@ class Logging(BaseModel):
 
 
 class Settings(BaseModel):
-    """Settings loaded from a project's configuration file."""
-
     # Not a setting: the directory a command runs in is what tells JRI
     # which project to read the settings of, so the file has no say in
     # it and never shows it.
@@ -174,39 +152,16 @@ class Settings(BaseModel):
 
     @classmethod
     def load(cls, cwd: Path) -> Self:
-        """Load the settings of the project rooted at a directory.
-
-        Returns:
-            The settings its configuration file defines.
-        """
-
         config = yaml.safe_load((cwd / paths.CONFIG_FILE).read_text(encoding="utf-8"))
         return cls.model_validate({**(config or {}), "cwd": cwd})
 
     @classmethod
     def render_config(cls) -> str:
-        """Render the configuration file documenting every setting.
-
-        Returns:
-            A YAML document holding the current defaults, with each
-            setting's documentation above it and the optional ones
-            commented out.
-        """
-
         intro = [f"# {line}" for line in textwrap.wrap(CONFIG_INTRO, COMMENT_WIDTH)]
         return "\n".join([*intro, "", *_render_settings(cls, None, 0), ""])
 
     @model_validator(mode="after")
     def validate_api_keys(self) -> "Settings":
-        """Require API keys to be readable from the environment.
-
-        Returns:
-            The validated settings.
-
-        Raises:
-            ValueError: Raised when an API key is missing or unset.
-        """
-
         if self.llm.provider != "openai-subscription" and not self.llm.api_key:
             raise ValueError(
                 "llm.api_key must name the environment variable holding the API key, "
@@ -219,16 +174,6 @@ class Settings(BaseModel):
 
 
 def _render_settings(model: type[BaseModel], values: BaseModel | None, level: int) -> list[str]:
-    """Render one settings model as documented YAML lines.
-
-    Values come from ``values`` when a section carries its own defaults,
-    and from each field otherwise. Settings left unset default to
-    nothing, so they are rendered as a commented example instead.
-
-    Returns:
-        The lines of the section, indented and commented in place.
-    """
-
     indent = "  " * level
     entries: list[list[str]] = []
     for name, field in model.model_fields.items():

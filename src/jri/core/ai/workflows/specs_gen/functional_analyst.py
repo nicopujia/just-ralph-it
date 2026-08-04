@@ -10,8 +10,6 @@ type Result = Ambiguities | Patch
 
 
 class Input(BaseModel):
-    """Input for producing or revising functional specifications."""
-
     notebook: str
     notebook_diff: str
     accepted_specs: str
@@ -20,28 +18,20 @@ class Input(BaseModel):
 
 
 class Ambiguities(BaseModel):
-    """Behavioral questions that prevent specification generation."""
-
     outcome: Literal["ambiguities"]
     ambiguities: list[str]
 
 
 class Patch(BaseModel):
-    """A diff that produces the functional specification tree."""
-
     outcome: Literal["specification_patch"]
     patch: str
 
 
 class Output(BaseModel):
-    """Structured Functional Analyst response envelope."""
-
     result: Ambiguities | Patch
 
 
 class FunctionalAnalyst:
-    """Transform project knowledge into behavioral specifications."""
-
     def __init__(self, settings: Settings) -> None:
         profile = settings.agents.functional_analyst
         self.runner = LLMRunner(
@@ -97,12 +87,6 @@ class FunctionalAnalyst:
         )
 
     def write(self, context: Input) -> Result:
-        """Write specifications or report ambiguities.
-
-        Returns:
-            A specification patch or all blocking ambiguities.
-        """
-
         revision = ""
         if context.rejected_specs is not None:
             revision = (

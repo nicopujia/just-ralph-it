@@ -7,8 +7,6 @@ from jri.tui import styles
 
 
 class ToolCallRow(Static):
-    """Render a tool call row with spinner state while loading."""
-
     SPINNER_FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
     # Below this, the elapsed time is noise rather than reassurance.
     MIN_ELAPSED_SECONDS = 3
@@ -25,21 +23,15 @@ class ToolCallRow(Static):
         self.spinner_timer = None
 
     def on_mount(self) -> None:
-        """Start the spinner when the row mounts."""
-
         self.update_copy()
         if not self.is_complete:
             self.spinner_timer = self.set_interval(0.08, self.advance_spinner)
 
     def on_unmount(self) -> None:
-        """Stop the spinner when the row unmounts."""
-
         if self.spinner_timer is not None:
             self.spinner_timer.stop()
 
     def mark_complete(self, label: str) -> None:
-        """Mark the tool call as complete."""
-
         self.is_complete = True
         self.label = label
         if self.spinner_timer is not None:
@@ -48,16 +40,12 @@ class ToolCallRow(Static):
         self.update_copy()
 
     def advance_spinner(self) -> None:
-        """Advance the spinner while the call is running."""
-
         if self.is_complete:
             return
         self.frame_index = (self.frame_index + 1) % len(self.SPINNER_FRAMES)
         self.update_copy()
 
     def update_copy(self) -> None:
-        """Refresh the rendered row text."""
-
         if self.is_complete:
             self.update(f"{self.symbol} {self.label}")
             return

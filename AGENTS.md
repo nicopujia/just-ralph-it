@@ -17,6 +17,7 @@ For more info, refer to the [concept document](https://nicolaspujia.com/just-ral
 - Name functions and methods as verbs, except for properties, event handlers, and decorators.
 - Write helper functions only for repeated logic, unavoidable extractions, or addressing linter alerts.
 - Keep import paths at 3 levels or less.
+- Omit docstrings. Names, types, and tests carry the what; a `#` comment carries a why that the code cannot.
 
 ### Ordering
 

@@ -1,5 +1,3 @@
-"""Small subprocess-backed Git interface."""
-
 import logging
 import os
 import shutil
@@ -17,12 +15,6 @@ logger = logging.getLogger(__name__)
 
 
 def find_root(path: Path) -> Path | None:
-    """Find the worktree a path belongs to, without creating one.
-
-    Returns:
-        The worktree root, or ``None`` outside any repository.
-    """
-
     executable = shutil.which("git")
     if executable is None:
         return None
@@ -32,22 +24,17 @@ def find_root(path: Path) -> Path | None:
     return Path(os.fsdecode(result.stdout).strip()).resolve() if not result.returncode else None
 
 
-class Error(RuntimeError):
-    """Raised when a Git command fails."""
+class Error(RuntimeError): ...
 
 
-class NotInstalledError(Error):
-    """Raised when the Git executable is unavailable."""
+class NotInstalledError(Error): ...
 
 
-class NotRepositoryError(Error):
-    """Raised when a path is not inside a Git worktree."""
+class NotRepositoryError(Error): ...
 
 
 @dataclass(frozen=True)
 class Status:
-    """A path reported by Git's porcelain status."""
-
     path: str
     index: str
     worktree: str
@@ -55,8 +42,6 @@ class Status:
 
 
 class Repository:
-    """Run reusable Git operations against a worktree."""
-
     def __init__(self, path: Path | str, executable: str = "git") -> None:
         resolved_executable = shutil.which(executable)
         if resolved_executable is None:
@@ -74,16 +59,6 @@ class Repository:
 
     @classmethod
     def init(cls, path: Path | str, executable: str = "git") -> Self:
-        """Open the worktree a path belongs to, creating one if needed.
-
-        Returns:
-            The repository found or created.
-
-        Raises:
-            NotInstalledError: If the Git executable is unavailable.
-            NotRepositoryError: If Git cannot create a repository there.
-        """
-
         if find_root(Path(path)) is not None:
             return cls(path, executable)
         resolved_executable = shutil.which(executable)
@@ -99,31 +74,13 @@ class Repository:
         return cls(candidate, executable)
 
     def has_commit(self, revision: str = "HEAD") -> bool:
-        """Return whether a revision resolves to a commit.
-
-        Returns:
-            Whether the revision names a commit in this repository.
-        """
-
         arguments = ("rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}")
         return self._run(*arguments, check=False).returncode == 0
 
     def read_head(self) -> str:
-        """Return the current commit ID.
-
-        Returns:
-            The full commit ID at ``HEAD``.
-        """
-
         return os.fsdecode(self._run("rev-parse", "HEAD").stdout).strip()
 
     def read_status(self) -> tuple[Status, ...]:
-        """Return staged, unstaged, and untracked paths.
-
-        Returns:
-            Porcelain status entries for changed paths.
-        """
-
         records = self._run("status", "--porcelain=v1", "-z", "--untracked-files=all").stdout.split(b"\0")
         entries: list[Status] = []
         position = 0
@@ -140,33 +97,15 @@ class Repository:
         return tuple(entries)
 
     def is_ancestor(self, ancestor: str, descendant: str = "HEAD") -> bool:
-        """Return whether one revision is an ancestor of another.
-
-        Returns:
-            Whether ``ancestor`` is reachable from ``descendant``.
-        """
-
         result = self._run("merge-base", "--is-ancestor", ancestor, descendant, check=False)
         if result.returncode not in {0, 1}:
             self._raise(result)
         return result.returncode == 0
 
     def read_file(self, revision: str, path: str) -> bytes:
-        """Read a file from a committed revision.
-
-        Returns:
-            The committed file contents.
-        """
-
         return self._run("show", f"{revision}:{path}").stdout
 
     def read_tree(self, revision: str, path: str = "") -> dict[str, bytes]:
-        """Read every committed file below a path.
-
-        Returns:
-            Repository-relative paths mapped to their contents.
-        """
-
         command = ["ls-tree", "-r", "-z", "--name-only", revision]
         if path:
             command.extend(["--", path])
@@ -174,45 +113,21 @@ class Repository:
         return {name: self.read_file(revision, name) for name in names}
 
     def diff(self, base: str | None, *, paths: Sequence[str] = ()) -> bytes:
-        """Return a revision or working-tree diff.
-
-        Returns:
-            The unified diff emitted by Git.
-        """
-
         command = ["diff", base] if base is not None else ["diff", "--cached"]
         if paths:
             command.extend(["--", *paths])
         return self._run(*command).stdout
 
     def read_tracked_paths(self, revision: str = "HEAD") -> tuple[str, ...]:
-        """Return paths tracked by a revision.
-
-        Returns:
-            Repository-relative tracked paths.
-        """
-
         output = self._run("ls-tree", "-r", "-z", "--name-only", revision).stdout
         return tuple(os.fsdecode(path) for path in output.split(b"\0") if path)
 
     def read_worktree_paths(self) -> tuple[str, ...]:
-        """Return tracked and unignored untracked worktree paths.
-
-        Returns:
-            Repository-relative paths visible to Git.
-        """
-
         output = self._run("ls-files", "-co", "--exclude-standard", "-z").stdout
         return tuple(os.fsdecode(path) for path in output.split(b"\0") if path)
 
     @contextmanager
     def open_worktree(self, revision: str | None = "HEAD") -> Generator["Repository"]:
-        """Create a temporary detached worktree.
-
-        Yields:
-            A repository rooted at the temporary worktree.
-        """
-
         with tempfile.TemporaryDirectory(prefix="git-worktree-") as temporary_directory:
             location = Path(temporary_directory) / (revision or "worktree")
             if revision is None:
@@ -240,12 +155,8 @@ class Repository:
                     logger.warning("worktree_removal_failed location=%s", location)
 
     def apply_patch(self, patch: bytes, *, index: bool = False, directory: str | None = None) -> None:
-        """Apply a patch to the worktree, optionally below a directory.
-
-        Hunk line counts are recomputed from the patch body, since
-        models routinely miscount them while the body itself is correct.
-        """
-
+        # Recount hunk line counts from the patch body: models
+        # routinely miscount them while the body itself is correct.
         arguments = ["apply", "--recount"]
         if index:
             arguments.append("--index")
@@ -254,20 +165,11 @@ class Repository:
         self._run(*arguments, stdin=patch)
 
     def stage(self, paths: Sequence[str]) -> None:
-        """Stage the given paths."""
-
         self._run("add", "--", *paths)
 
     def commit(self, message: str, co_author: str) -> str:
-        """Create a commit crediting a co-author.
-
-        The co-author is required so that every commit records who
-        wrote it alongside the person Git credits as the author.
-
-        Returns:
-            The new commit ID.
-        """
-
+        # The co-author is required so every commit records who wrote
+        # it alongside the person Git credits as the author.
         body = f"{message}\n\nCo-authored-by: {co_author}\n"
         self._run("commit", "--file=-", stdin=body.encode())
         return self.read_head()

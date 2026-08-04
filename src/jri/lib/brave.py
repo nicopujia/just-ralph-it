@@ -1,5 +1,3 @@
-"""Search the web with the Brave LLM Context API."""
-
 import logging
 from typing import cast
 
@@ -13,15 +11,6 @@ logger = logging.getLogger(__name__)
 
 
 def search(api_key: str, query: str) -> list[dict[str, str]]:
-    """Search the web and return generic results.
-
-    Returns:
-        Generic web search results.
-
-    Raises:
-        RuntimeError: If the Brave request fails.
-    """
-
     logger.debug("search_query query=%r", query)
     try:
         response = httpx.post(

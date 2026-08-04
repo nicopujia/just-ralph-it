@@ -64,18 +64,6 @@ class MessageInput(TextArea):
 
     @override
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        """Offer each shortcut only while the user can reach it.
-
-        Leaving the chord endings disabled outside the chord keeps
-        their keys ordinary text, so typing them never routes through
-        an action. Inside the chord, each ending shows up only where it
-        has something to do. Ralphing stays visible but disabled while
-        its button is up, to advertise the chord that reaches it.
-
-        Returns:
-            Whether the action may run for this key press.
-        """
-
         if action == "message_history":
             return not self.is_turn_active and not self._is_chord_open
         if action == "ralph" and not self._is_chord_open:
@@ -113,19 +101,13 @@ class MessageInput(TextArea):
 
     @property
     def history_index(self) -> int:
-        """Return the selected conversation-wide message position."""
-
         return self._message_index
 
     @property
     def message_count(self) -> int:
-        """Return the number of remembered user messages."""
-
         return len(self._messages)
 
     def select_previous(self) -> None:
-        """Select the previous user message."""
-
         if self._message_index == len(self._messages):
             self._draft = self.text
         if self._message_index > 0:
@@ -133,8 +115,6 @@ class MessageInput(TextArea):
             self._load(self._messages[self._message_index])
 
     def select_next(self) -> None:
-        """Select the next user message or saved draft."""
-
         if self._message_index < len(self._messages):
             self._message_index += 1
             self._load(
@@ -146,8 +126,6 @@ class MessageInput(TextArea):
         self.post_message(self.Submitted(self, self.text, history_index))
 
     def remember(self, value: str) -> None:
-        """Remember one accepted message and clear the input."""
-
         del self._messages[self._message_index :]
         self._messages.append(value)
         self._message_index = len(self._messages)

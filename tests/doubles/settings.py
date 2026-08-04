@@ -12,12 +12,6 @@ if TYPE_CHECKING:
 def build_settings(
     path: Path, client: "FakeClient", *, temperature: float | None = 0, search_api_key: str | None = None
 ) -> "Settings":
-    """Build the settings an agent or conversation reads.
-
-    Returns:
-        Settings backed by a fake LLM client.
-    """
-
     profile = AgentProfile(model="test", reasoning_effort=None, temperature=temperature)
     return cast(
         "Settings",
@@ -34,7 +28,5 @@ def build_settings(
 
 
 class FakeSettings(SimpleNamespace):
-    """Stand-in for the settings an agent or conversation reads."""
-
     def model_copy(self, *, update: dict[str, object]) -> "FakeSettings":
         return FakeSettings(**(vars(self) | update))

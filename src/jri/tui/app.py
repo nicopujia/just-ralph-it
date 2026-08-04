@@ -34,14 +34,10 @@ class CommandPalette(TextualCommandPalette):
     ]
 
     def action_previous_command(self) -> None:
-        """Move to the previous command."""
-
         self._action_command_list("cursor_up")
 
 
 class App(TextualApp[None]):
-    """Render the terminal UI for the interviewer chat."""
-
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("ctrl+k", "toggle_keymap_panel", copy.KEYMAP_PANEL, priority=True),
         Binding("escape", "cancel_turn", copy.CANCEL_TURN, key_display=copy.CANCEL_TURN_KEY),
@@ -87,24 +83,12 @@ class App(TextualApp[None]):
 
     @override
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        """Offer stopping a response only while one is generating.
-
-        Returns:
-            Whether the action may run for this key press.
-        """
-
         if action == "cancel_turn":
             return self.is_busy
         return super().check_action(action, parameters)
 
     @override
     def compose(self) -> ComposeResult:
-        """Compose the terminal layout.
-
-        Yields:
-            The widgets that make up the terminal UI.
-        """
-
         yield Header(show_clock=True)
         with self.messages_container:
             yield Static()
@@ -114,12 +98,6 @@ class App(TextualApp[None]):
 
     @override
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
-        """Return application commands available in the palette.
-
-        Yields:
-            Commands available in the command palette.
-        """
-
         for command in super().get_system_commands(screen):
             if command.title != "Maximize":
                 yield command
@@ -131,15 +109,11 @@ class App(TextualApp[None]):
 
     @property
     def is_busy(self) -> bool:
-        """Whether an interviewer turn is currently running."""
-
         return self.active_turn_state is not None
 
     # --- Event handlers --------------------------------------------- #
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
-        """Handle a chat action button."""
-
         if self.is_busy:
             return
         if event.button.has_class(styles.RETRY_BUTTON_CLASSES):
@@ -148,8 +122,6 @@ class App(TextualApp[None]):
             self._start_ralphing()
 
     async def on_message_input_history_requested(self, event: MessageInput.HistoryRequested) -> None:
-        """Preview message history or cancel the active turn."""
-
         if event.direction == "previous":
             if self.is_busy:
                 self._request_cancellation()
@@ -163,14 +135,10 @@ class App(TextualApp[None]):
             self._preview_history()
 
     def on_message_input_ralph_requested(self) -> None:
-        """Start Ralphing from the keyboard shortcut."""
-
         if self.ralph_button.is_mounted and self.ralph_button.display and not self.is_busy:
             self._start_ralphing()
 
     async def on_message_input_retry_requested(self) -> None:
-        """Retry the latest failed interviewer turn."""
-
         retry_buttons = [
             button for button in self.query(Button) if button.has_class(styles.RETRY_BUTTON_CLASSES) and button.display
         ]
@@ -178,8 +146,6 @@ class App(TextualApp[None]):
             await self._retry(retry_buttons[-1])
 
     async def on_message_input_submitted(self, event: MessageInput.Submitted) -> None:
-        """Send a submitted user message to the interviewer."""
-
         if self.is_busy:
             logger.info("message_submission_ignored reason=turn_active")
             return
@@ -226,23 +192,17 @@ class App(TextualApp[None]):
         self._send_message(user_message, turn_state)
 
     async def on_mount(self) -> None:
-        """Restore history and initialize the app state."""
-
         await self._restore_history()
         await self._sync_ralph_button()
         self.set_focus(self.message_input)
         logger.info("mounted theme=%s", self.theme)
 
     def watch_active_turn_state(self) -> None:
-        """Tell the message input whether a turn is generating."""
-
         self.message_input.is_turn_active = self.is_busy
 
     # --- Actions ---------------------------------------------------- #
 
     def action_cancel_turn(self) -> None:
-        """Cancel an active turn after two Escape presses."""
-
         if not self.is_busy:
             return
         now = monotonic()
@@ -254,16 +214,12 @@ class App(TextualApp[None]):
 
     @override
     def action_command_palette(self) -> None:
-        """Show the command palette."""
-
         if isinstance(self.screen, CommandPalette):
             self.screen.action_previous_command()
         elif self.use_command_palette:
             self.push_screen(CommandPalette(id="--command-palette"))
 
     def action_toggle_keymap_panel(self) -> None:
-        """Show or hide the keymap panel."""
-
         if self.screen.query("HelpPanel"):
             self.action_hide_help_panel()
             logger.info("keymap_panel_toggled visible=False")
@@ -272,8 +228,6 @@ class App(TextualApp[None]):
             logger.info("keymap_panel_toggled visible=True")
 
     def action_toggle_reasoning(self) -> None:
-        """Show or hide reasoning summaries in this session."""
-
         self.is_reasoning_visible = not self.is_reasoning_visible
         logger.info("reasoning_visibility_toggled visible=%r", self.is_reasoning_visible)
         self.conversation.update_session(show_thinking_blocks=self.is_reasoning_visible)
@@ -285,8 +239,6 @@ class App(TextualApp[None]):
 
     @work(thread=True)
     def _ralph(self, turn_state: InterviewerTurnState) -> None:
-        """Generate specifications and stream progress."""
-
         events = self.conversation.ralph()
         error: Exception | None = None
         try:
@@ -301,8 +253,6 @@ class App(TextualApp[None]):
 
     @work(thread=True)
     def _send_message(self, user_message: str | None, turn_state: InterviewerTurnState) -> None:
-        """Stream interviewer events for a user message."""
-
         replied = False
         error_copy: str | None = None
         chat_events = (
@@ -397,8 +347,6 @@ class App(TextualApp[None]):
         self._sync_retry_shortcut()
 
     async def _load_older_history(self, *, reveal_hidden: bool = True) -> None:
-        """Prepend the next batch of restored conversation turns."""
-
         if self.is_restoring_history:
             return
         self.is_restoring_history = True
@@ -432,8 +380,6 @@ class App(TextualApp[None]):
         self.call_after_refresh(self._finish_restoring_history, old_scroll_y, old_max_scroll_y)
 
     async def _render_chat_event(self, turn_state: InterviewerTurnState, chat_event: ChatEvent) -> None:
-        """Render one streamed event into the current turn."""
-
         if self.active_turn_state is not turn_state:
             logger.debug("chat_event_render_skipped type=%s", type(chat_event).__name__)
             return
@@ -454,8 +400,6 @@ class App(TextualApp[None]):
     async def _render_interviewer_status(
         self, turn_state: InterviewerTurnState, content: str, classes: str = styles.INTERVIEWER_MESSAGE_CLASSES
     ) -> None:
-        """Render a status message for the interviewer turn."""
-
         if turn_state.placeholder is None:
             turn_state.active_markdown = None
             turn_state.active_markdown_text = ""
@@ -466,8 +410,6 @@ class App(TextualApp[None]):
         self._follow_bottom(turn_state)
 
     def _reset_message_input(self, turn_state: InterviewerTurnState) -> None:
-        """Reset the input state after a worker finishes."""
-
         if self.active_turn_state is not turn_state:
             return
         self.active_turn_state = None
@@ -478,8 +420,6 @@ class App(TextualApp[None]):
         logger.debug("message_input_reset")
 
     def _stop_following_bottom(self) -> None:
-        """Stop following streamed content after the user scrolls."""
-
         if self.active_turn_state is not None:
             self.active_turn_state.follow_bottom = False
 
@@ -585,8 +525,6 @@ class App(TextualApp[None]):
                 raise
 
     def _follow_bottom(self, turn_state: InterviewerTurnState) -> None:
-        """Follow a generating turn to the bottom when enabled."""
-
         if turn_state.follow_bottom:
             self.messages_container.anchor()
 
@@ -616,8 +554,6 @@ class App(TextualApp[None]):
             logger.info("interviewer_turn_cancellation_requested")
 
     async def _restore_history(self) -> None:
-        """Rebuild the visible chat history from persisted items."""
-
         if self.restored_turns:
             self.message_input.placeholder = copy.MESSAGE_INPUT_PLACEHOLDER
             await self._load_older_history()

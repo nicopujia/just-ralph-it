@@ -13,8 +13,6 @@ from .settings import Settings
 
 @dataclass(frozen=True)
 class Workspace:
-    """A project's JRI directory, as `create` found or left it."""
-
     PROJECT_IGNORES: ClassVar[tuple[str, ...]] = (".DS_Store", ".env", ".env.*")
     INITIAL_COMMIT_MESSAGE: ClassVar[str] = "jri: initialize project"
 
@@ -25,33 +23,10 @@ class Workspace:
 
     @staticmethod
     def find_project(cwd: Path) -> Path:
-        """Find the directory a project is rooted at.
-
-        A project is the Git worktree holding a directory, since JRI
-        stores the specifications it writes in commits, and the
-        directory itself outside any worktree.
-
-        Returns:
-            The directory the project is rooted at.
-        """
-
         return git.find_root(cwd) or cwd
 
     @classmethod
     def create(cls, cwd: Path, *, force: bool = False) -> Self:
-        """Create a project's JRI workspace, keeping what exists.
-
-        Projects outside a Git repository get one holding everything
-        already there, since JRI stores the specifications it writes in
-        commits and reads its baseline from the latest one. Forcing
-        writes the configuration file again and throws away the
-        conversation, the notes, the logs, and the generated
-        specifications.
-
-        Returns:
-            The workspace found or created.
-        """
-
         repository_created = git.find_root(cwd) is None
         repository = Repository.init(cwd)
         workspace = cwd / paths.WORKSPACE_DIR

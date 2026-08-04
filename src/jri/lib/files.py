@@ -3,16 +3,8 @@ from tempfile import NamedTemporaryFile
 
 
 def write_atomically(path: Path, content: str) -> None:
-    """Replace a file's contents in one step, making its directory.
-
-    Readers see either the previous contents or the new ones, so a
-    process killed mid-write leaves nothing half-written behind.
-
-    Raises:
-        OSError: If the directory, the temporary file, or the
-            replacement cannot be written.
-    """
-
+    # Readers see either the previous contents or the new ones, so a
+    # process killed mid-write leaves nothing half-written behind.
     temporary_path: str | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)

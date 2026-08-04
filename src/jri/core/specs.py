@@ -13,8 +13,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Baseline:
-    """Repository state used to generate the next specifications."""
-
     commit: str | None
     notebook: bytes
     accepted_notebook: bytes
@@ -23,22 +21,10 @@ class Baseline:
 
 
 class Specs:
-    """Manage the Git-backed specification lifecycle."""
-
     def __init__(self, path: Path) -> None:
         self.repository = Repository(path)
 
     def prepare(self, active_commit: str | None) -> Baseline:
-        """Load and validate the baseline for specification generation.
-
-        Returns:
-            The current repository and accepted specification state.
-
-        Raises:
-            RepositoryStateError: If the repository state cannot produce
-                a valid specification baseline.
-        """
-
         notebook = (self.repository.path / paths.NOTEBOOK_FILE).read_bytes()
         commit = self.repository.read_head() if self.repository.has_commit() else None
         self._check_status(commit)
@@ -62,47 +48,23 @@ class Specs:
             commit, notebook, self.repository.read_file(active_commit, paths.NOTEBOOK_FILE), functional, architecture
         )
 
-    def apply(self, repository: git.Repository, patch: str, root: str) -> None:
-        """Validate a model patch and re-root it into the repository.
-
-        Models patch neutral roots such as ``functional``, so the
-        patch is validated against ``root``, which raises `SpecsError`
-        when it is unsafe, and applied below the specifications
-        directory.
-
-        Raises:
-            git.Error: If Git refuses the patch.
-        """
-
-        self._validate_patch(patch, root)
+    def apply(self, repository: git.Repository, patch: str, model_root: str) -> None:
+        self._validate_patch(patch, model_root)
         try:
             repository.apply_patch(patch.encode(), index=True, directory=paths.SPECS_DIR)
         except git.Error:
             # The patch is the only evidence of why generation failed.
-            logger.exception("patch_rejected root=%s patch=%r", root, patch)
+            logger.exception("patch_rejected root=%s patch=%r", model_root, patch)
             raise
-        logger.info("patch_applied root=%s characters=%d", root, len(patch))
+        logger.info("patch_applied root=%s characters=%d", model_root, len(patch))
 
     @staticmethod
-    def read(worktree: Path, root: str) -> dict[str, bytes]:
-        """Read every Markdown specification below a worktree path.
-
-        Returns:
-            Repository-relative paths mapped to their contents.
-        """
-
-        directory = worktree / root
-        return {path.relative_to(worktree).as_posix(): path.read_bytes() for path in sorted(directory.rglob("*.md"))}
+    def read(worktree: Path, directory: str) -> dict[str, bytes]:
+        root = worktree / directory
+        return {path.relative_to(worktree).as_posix(): path.read_bytes() for path in sorted(root.rglob("*.md"))}
 
     @staticmethod
     def render(files: dict[str, bytes]) -> str:
-        """Render a specification tree as model context.
-
-        Returns:
-            The contents of every specification file, keyed by its path
-            below the specifications directory.
-        """
-
         prefix = f"{paths.SPECS_DIR}/"
         return (
             "\n\n".join(
@@ -112,16 +74,6 @@ class Specs:
         )
 
     def accept(self, patch: bytes, baseline: Baseline) -> str:
-        """Commit a generated specification bundle.
-
-        Returns:
-            The accepted commit ID.
-
-        Raises:
-            RepositoryStateError: If the repository changed during
-                generation.
-        """
-
         head = self.repository.read_head() if self.repository.has_commit() else None
         if head != baseline.commit or (self.repository.path / paths.NOTEBOOK_FILE).read_bytes() != baseline.notebook:
             raise RepositoryStateError("The project changed while specifications were being generated. Try again.")
@@ -157,7 +109,7 @@ class Specs:
             )
 
     @staticmethod
-    def _validate_patch(patch: str, root: str) -> None:
+    def _validate_patch(patch: str, model_root: str) -> None:
         if "GIT binary patch" in patch or "Binary files " in patch:
             raise SpecsError("Specification patches cannot contain binary files.")
         patch_paths: list[str] = []
@@ -186,5 +138,5 @@ class Specs:
             raise SpecsError("Specification patch must change at least one file.")
         for raw_path in patch_paths:
             path = PurePosixPath(raw_path)
-            if path.is_absolute() or ".." in path.parts or path.suffix != ".md" or not path.is_relative_to(root):
+            if path.is_absolute() or ".." in path.parts or path.suffix != ".md" or not path.is_relative_to(model_root):
                 raise SpecsError(f"Specification patch cannot change `{raw_path}`.")

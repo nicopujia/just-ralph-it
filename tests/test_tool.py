@@ -72,8 +72,6 @@ def test_labels_a_call_by_its_tool_name_when_the_arguments_are_invalid() -> None
 
 
 class Toolbox:
-    """Owner of a single tool to discover."""
-
     PREFIX = "echo: "
 
     @tool("Echo the given text.", started_label="Echoing {text}", finished_label="Echoed {text}")

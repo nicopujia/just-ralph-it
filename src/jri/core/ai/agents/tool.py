@@ -29,17 +29,6 @@ def tool(
     strict: bool = True,
     read_only: bool = False,
 ) -> Callable[[Callable[Params, Return]], Callable[Params, Return]]:
-    """Mark a method as an agent tool.
-
-    - The tool name is inferred from the decorated function name.
-    - Labels may interpolate tool arguments.
-    - `Tool.discover` discovers these methods on `Agent` subclasses.
-    - Read-only tools leave no state behind, so rewinding skips them.
-
-    Returns:
-        A decorator that attaches tool metadata to the function.
-    """
-
     def mark_as_tool(func: Callable[Params, Return]) -> Callable[Params, Return]:
         setattr(
             func, Tool.METADATA_ATTR, _Metadata(description, started_label, finished_label, symbol, strict, read_only)
@@ -51,14 +40,10 @@ def tool(
 
 @dataclass(frozen=True)
 class ToolOutput:
-    """Represent the final output emitted by a streaming tool."""
-
     value: str | ResponseFunctionCallOutputItemListParam
 
 
 class Invocation:
-    """Stream nested tool events and retain the tool's final output."""
-
     MAX_OUTPUT_LENGTH = 100_000
 
     def __init__(self, output: str | ResponseFunctionCallOutputItemListParam | Stream, *, failed: bool = False) -> None:
@@ -67,12 +52,6 @@ class Invocation:
         self._output: str | ResponseFunctionCallOutputItemListParam | None = None
 
     def __iter__(self) -> Generator["ai.ChatEvent"]:
-        """Resolve the final tool output.
-
-        Yields:
-            Nested tool events.
-        """
-
         while True:
             try:
                 item = next(self.stream)
@@ -93,8 +72,6 @@ class Invocation:
 
     @property
     def output(self) -> str | ResponseFunctionCallOutputItemListParam:
-        """Return the resolved tool output."""
-
         if isinstance(self._output, str) and len(self._output) > self.MAX_OUTPUT_LENGTH:
             return (
                 self._output[: self.MAX_OUTPUT_LENGTH]
@@ -122,8 +99,6 @@ class Invocation:
 
 @dataclass(frozen=True)
 class Tool:
-    """Runtime wrapper for an `@tool`-decorated callable."""
-
     METADATA_ATTR: ClassVar[str] = "__jri_tool_metadata__"
 
     name: str
@@ -138,12 +113,6 @@ class Tool:
 
     @classmethod
     def discover(cls, owner: object) -> list[Self]:
-        """Discover every `@tool` method available on `owner`.
-
-        Returns:
-            Tools found on the owner.
-        """
-
         tools: list[Self] = []
         for name in type(owner).__dict__:
             func = getattr(owner, name)
@@ -179,12 +148,6 @@ class Tool:
         return tools
 
     def format_label(self, label: str, args: str) -> str:
-        """Format a user-facing label with the tool arguments.
-
-        Returns:
-            The label formatted with the tool arguments.
-        """
-
         try:
             payload = self.args_model.model_validate_json(args, strict=True)
         except ValidationError:
@@ -193,8 +156,6 @@ class Tool:
 
     @property
     def definition(self) -> FunctionToolParam:
-        """OpenAI Responses API function-tool definition."""
-
         if self.strict:
             function = pydantic_function_tool(self.args_model, name=self.name, description=self.description)["function"]
             parameters = cast("dict[str, object]", function.get("parameters"))
@@ -209,12 +170,6 @@ class Tool:
         }
 
     def invoke(self, args: str) -> Invocation:
-        """Validate JSON args and call the tool.
-
-        Returns:
-            An invocation that streams events and retains the result.
-        """
-
         logger.info("invocation_started name=%s", self.name)
         logger.debug("arguments name=%s arguments=%r", self.name, args)
         failed = False
@@ -233,6 +188,11 @@ class Tool:
         logger.info("invocation_finished name=%s", self.name)
         logger.debug("output name=%s output=%r", self.name, output)
         return Invocation(output, failed=failed)
+
+    def replay(self, arguments: str) -> None:
+        if self.read_only:
+            return
+        list(self.invoke(arguments))
 
 
 @dataclass(frozen=True)

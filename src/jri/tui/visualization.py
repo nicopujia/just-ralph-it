@@ -1,5 +1,3 @@
-"""Render the note graph as a self-contained diagram document."""
-
 import html
 
 from jri.core.notes import Graph
@@ -10,12 +8,6 @@ INDENTATION = "    " * 3
 
 
 def render(graph: Graph) -> str:
-    """Render the note graph as a pannable Mermaid diagram page.
-
-    Returns:
-        An HTML document holding the whole graph.
-    """
-
     diagram = ["flowchart TD", "    classDef topic fill:#fff3cd,stroke:#856404,stroke-width:2px"]
 
     for topic in graph.topics:

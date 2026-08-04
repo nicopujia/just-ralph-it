@@ -94,16 +94,6 @@ def _view() -> None:
 
 
 def _load_settings() -> Settings:
-    """Resolve the settings a command runs with.
-
-    Returns:
-        The settings of the project the command was run in.
-
-    Raises:
-        SystemExit: If the project has no workspace or its configuration
-            cannot be resolved.
-    """
-
     project_dir = Workspace.find_project(Path.cwd().resolve())
     if not (project_dir / paths.CONFIG_FILE).exists():
         print(copy.WORKSPACE_MISSING)
@@ -122,12 +112,6 @@ def _load_settings() -> Settings:
 
 
 def _confirm_reset(project_dir: Path) -> bool:
-    """Ask the user before a forced run throws their files away.
-
-    Returns:
-        Whether the command may go ahead.
-    """
-
     targets = (paths.CONFIG_FILE, *paths.RESET_PATHS)
     existing = [target for target in targets if (project_dir / target).exists()]
     if not existing:

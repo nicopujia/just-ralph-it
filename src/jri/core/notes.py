@@ -18,8 +18,6 @@ logger = logging.getLogger(__name__)
 
 
 class Topic(BaseModel):
-    """A named area of the notebook."""
-
     id: TopicId
     name: str
     status: Literal["open", "done", "trashed"]
@@ -27,24 +25,18 @@ class Topic(BaseModel):
 
 
 class Note(BaseModel):
-    """A single independently meaningful idea."""
-
     id: NoteId
     topic_id: TopicId
     text: str
 
 
 class Connection(BaseModel):
-    """A directed, labeled relationship between two graph nodes."""
-
     source_id: NodeId
     target_id: NodeId
     label: str
 
 
 class Graph(BaseModel):
-    """The persisted note graph."""
-
     topics: list[Topic] = Field(default_factory=lambda: [Topic(id="t1", name="Project overview", status="open")])
     notes: list[Note] = Field(default_factory=list)
     connections: list[Connection] = Field(default_factory=list)
@@ -81,8 +73,6 @@ class Graph(BaseModel):
 
 
 class ReadQuery(BaseModel):
-    """Select notes by text, ID, or graph traversal."""
-
     text: str | None = None
     ids: list[NoteId] | None = None
     topic_ids: list[TopicId] | None = None
@@ -100,8 +90,6 @@ class ReadQuery(BaseModel):
 
 
 class Notebook:
-    """Query and mutate the persisted interviewer note graph."""
-
     def __init__(self, path: Path) -> None:
         self.path = path
         self.graph = self._load()
@@ -109,23 +97,9 @@ class Notebook:
 
     @property
     def initial_topic(self) -> Topic:
-        """Return the overview topic every graph is validated to hold.
-
-        Returns:
-            The overview topic.
-        """
-
         return next(topic for topic in self.graph.topics if topic.id == "t1")
 
     def read(self, query: ReadQuery) -> tuple[list[Note], list[Connection]]:
-        """Read notes by fuzzy text, ID, or graph traversal.
-
-        Returns:
-            Matching notes and the connections between them.
-
-        Raises:
-            ValueError: If selectors or traversal arguments are invalid.
-        """
         topic_ids = {topic.id for topic in self.graph.topics}
         if not set(query.topic_ids or []) <= topic_ids:
             raise ValueError(f"Unknown topic `{min(set(query.topic_ids or []) - topic_ids)}`.")
@@ -136,7 +110,8 @@ class Notebook:
         )
         by_id = {note.id: note for note in self.graph.notes}
         candidates = {note.id: note for note in self.graph.notes if note.topic_id in allowed_topics}
-        selected = dict(candidates) if query.text is None and not query.ids and not query.traverse_from else {}
+        unfiltered = query.text is None and not query.ids and not query.traverse_from
+        selected = dict(candidates) if unfiltered else {}
         if not set(query.ids or []) <= by_id.keys():
             raise ValueError(f"Unknown note `{min(set(query.ids or []) - by_id.keys())}`.")
         selected.update((note_id, by_id[note_id]) for note_id in query.ids or [])
@@ -154,28 +129,15 @@ class Notebook:
             for note in ranked[:10]:
                 selected[note.id] = note
 
-        frontier = set(query.traverse_from or [])
-        unknown = frontier - (by_id.keys() | topic_ids)
-        if unknown:
-            raise ValueError(f"Unknown topic or note `{min(unknown)}`.")
-        selected.update((note_id, by_id[note_id]) for note_id in frontier & by_id.keys())
-        visited = set(frontier)
-        traversal_direction = query.direction or "both"
-        for _ in range(query.depth or 1):
-            next_frontier: set[str] = set()
-            for connection in self.graph.connections:
-                if traversal_direction in {"outgoing", "both"} and connection.source_id in frontier:
-                    next_frontier.add(connection.target_id)
-                if traversal_direction in {"incoming", "both"} and connection.target_id in frontier:
-                    next_frontier.add(connection.source_id)
-            next_frontier -= visited
-            selected.update((note_id, by_id[note_id]) for note_id in next_frontier & by_id.keys())
-            visited |= next_frontier
-            frontier = next_frontier
+        reached, visited = self._traverse(query, by_id)
+        selected.update(reached)
 
         selected = {note_id: note for note_id, note in selected.items() if note.topic_id in allowed_topics}
         selected_ids = set(selected)
         visible_ids = selected_ids | allowed_topics
+        # Traversal walks topics as well as notes, but only notes are
+        # ever selected, so a topic-to-topic edge the walk crossed
+        # survives on `visited` alone.
         connections = [
             item
             for item in self.graph.connections
@@ -185,22 +147,13 @@ class Notebook:
                 item.source_id in selected_ids
                 or item.target_id in selected_ids
                 or (item.source_id in visited and item.target_id in visited)
-                or (not query.traverse_from and query.text is None and not query.ids)
+                or unfiltered
             )
         ]
         logger.info("read_finished notes=%d connections=%d", len(selected), len(connections))
         return list(selected.values()), connections
 
     def add(self, texts: list[str], topic_id: str) -> list[Note]:
-        """Add multiple notes atomically.
-
-        Returns:
-            The added notes.
-
-        Raises:
-            ValueError: If the topic is unknown or the batch contains no
-                usable text.
-        """
         if not texts or any(not text.strip() for text in texts):
             raise ValueError("Provide one or more non-blank note texts.")
         graph = self.graph.model_copy(deep=True)
@@ -213,15 +166,6 @@ class Notebook:
         return added
 
     def add_topic(self, name: str) -> Topic:
-        """Add an open topic.
-
-        Returns:
-            The added topic.
-
-        Raises:
-            ValueError: If the name is blank or already used.
-        """
-
         if not name.strip():
             raise ValueError("Topic name cannot be blank.")
         graph = self.graph.model_copy(deep=True)
@@ -235,12 +179,6 @@ class Notebook:
         return topic
 
     def find_topic(self, value: str) -> Topic | None:
-        """Find a topic by ID or case-insensitive name.
-
-        Returns:
-            The matching topic, if one exists.
-        """
-
         for topic in self.graph.topics:
             if topic.id == value or topic.name.strip().casefold() == value.strip().casefold():
                 return topic
@@ -249,16 +187,6 @@ class Notebook:
     def update_topic(
         self, topic_id: str, status: Literal["open", "done", "trashed"], summary: str | None = None
     ) -> Topic:
-        """Update a topic's status and optionally its summary.
-
-        Returns:
-            The updated topic.
-
-        Raises:
-            ValueError: If the topic is unknown or the update is
-                invalid.
-        """
-
         graph = self.graph.model_copy(deep=True)
         if summary is not None and not summary.strip():
             raise ValueError("Topic summary cannot be blank.")
@@ -271,14 +199,6 @@ class Notebook:
         return topic
 
     def edit(self, note_id: str, text: str) -> Note:
-        """Edit a note without changing its connections.
-
-        Returns:
-            The edited note.
-
-        Raises:
-            ValueError: If the note is unknown or its text is blank.
-        """
         if not text.strip():
             raise ValueError("Note text cannot be blank.")
         graph = self.graph.model_copy(deep=True)
@@ -289,14 +209,6 @@ class Notebook:
         return note
 
     def delete(self, note_ids: list[str]) -> list[str]:
-        """Delete notes and their connections atomically.
-
-        Returns:
-            The deleted note IDs.
-
-        Raises:
-            ValueError: If the batch or any note ID is invalid.
-        """
         if not note_ids or len(note_ids) != len(set(note_ids)):
             raise ValueError("Provide one or more unique note IDs.")
         graph = self.graph.model_copy(deep=True)
@@ -312,16 +224,6 @@ class Notebook:
         return note_ids
 
     def connect(self, connections: list[Connection]) -> int:
-        """Connect notes atomically.
-
-        Existing connections are no-ops.
-
-        Returns:
-            The number of relationships created.
-
-        Raises:
-            ValueError: If any requested connection is invalid.
-        """
         if not connections:
             raise ValueError("Provide one or more connections.")
         graph = self.graph.model_copy(deep=True)
@@ -342,16 +244,6 @@ class Notebook:
         return count
 
     def disconnect(self, connections: list[Connection]) -> int:
-        """Disconnect notes atomically.
-
-        Missing connections are no-ops.
-
-        Returns:
-            The number of relationships removed.
-
-        Raises:
-            ValueError: If the requested batch is invalid.
-        """
         if not connections:
             raise ValueError("Provide one or more connections.")
         graph = self.graph.model_copy(deep=True)
@@ -373,18 +265,31 @@ class Notebook:
         return count
 
     def restore(self, graph: Graph) -> None:
-        """Restore a previous graph snapshot."""
-
         self._save(graph)
 
     def render(self, topic_id: TopicId) -> str:
-        """Render topic-aware project YAML for model context.
-
-        Returns:
-            Visible topics and relevant notes.
-        """
-
         return self._dump(self.graph, topic_id)
+
+    def _traverse(self, query: ReadQuery, by_id: dict[str, Note]) -> tuple[dict[str, Note], set[str]]:
+        frontier = set(query.traverse_from or [])
+        unknown = frontier - (by_id.keys() | {topic.id for topic in self.graph.topics})
+        if unknown:
+            raise ValueError(f"Unknown topic or note `{min(unknown)}`.")
+        reached = {note_id: by_id[note_id] for note_id in frontier & by_id.keys()}
+        visited = set(frontier)
+        direction = query.direction or "both"
+        for _ in range(query.depth or 1):
+            next_frontier: set[str] = set()
+            for connection in self.graph.connections:
+                if direction in {"outgoing", "both"} and connection.source_id in frontier:
+                    next_frontier.add(connection.target_id)
+                if direction in {"incoming", "both"} and connection.target_id in frontier:
+                    next_frontier.add(connection.source_id)
+            next_frontier -= visited
+            reached.update((note_id, by_id[note_id]) for note_id in next_frontier & by_id.keys())
+            visited |= next_frontier
+            frontier = next_frontier
+        return reached, visited
 
     def _load(self) -> Graph:
         if not self.path.exists():

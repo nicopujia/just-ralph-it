@@ -18,21 +18,16 @@ from openai._models import FinalRequestOptions
 file_lock: Any = import_module("msvcrt" if sys.platform == "win32" else "fcntl")
 
 
-class AuthError(Exception):
-    """Raised when the Codex login is unavailable or invalid."""
+class AuthError(Exception): ...
 
 
 class Auth(httpx.Auth):
-    """Authenticate requests with an existing file-based Codex login.
-
-    The originator names the application refreshing the login, so that
-    concurrent applications lock the login file under their own name.
-    """
-
     CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
     OAUTH_URL = "https://auth.openai.com/oauth/token"
 
     def __init__(self, originator: str) -> None:
+        # Naming the application refreshing the login lets concurrent
+        # applications lock the login file under their own name.
         self.originator = originator
         self.path = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "auth.json"
         self.lock = Lock()
@@ -52,8 +47,6 @@ class Auth(httpx.Auth):
         yield request
 
     def validate(self) -> None:
-        """Validate that a reusable ChatGPT login is available."""
-
         self._read_credentials()
 
     def _read_credentials(self) -> dict[str, str]:
@@ -163,8 +156,6 @@ class Auth(httpx.Auth):
 
 
 class Client(OpenAI):
-    """Adapt OpenAI Responses requests to the ChatGPT Codex backend."""
-
     def __init__(self, originator: str) -> None:
         super().__init__(
             base_url="https://chatgpt.com/backend-api/codex",

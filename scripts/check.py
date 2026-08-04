@@ -1,7 +1,5 @@
 #!/usr/bin/env -S uv run --script
 
-"""Build, compile, format, lint, type-check, and test the project."""
-
 import ast
 import shutil
 import subprocess
@@ -50,6 +48,7 @@ def main() -> None:
     source = root / "src"
     package = source / "jri"
     tests = root / "tests"
+    scripts = Path(__file__).parent
     check_version(root)
     check_member_order(source, tests)
     check_constant_publicity(source, tests)
@@ -57,31 +56,17 @@ def main() -> None:
     check_import_depth(source, tests)
     check_test_layout(package, tests)
     check_deferred_annotations(source, tests)
+    check_docstrings(source, tests, scripts)
     run_uv_commands(root)
 
 
 def check_version(root: Path) -> None:
-    """Check `jri.__version__` against the pyproject.toml version.
-
-    Raises:
-        RuntimeError: If the two versions disagree.
-    """
-
     version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
     if f'__version__ = "{version}"' not in (root / "src" / "jri" / "__init__.py").read_text():
         raise RuntimeError(f"jri.__version__ must be {version}, as pyproject.toml says")
 
 
 def check_member_order(*roots: Path) -> None:
-    """Check every module and class against the AGENTS.md order.
-
-    Members no group covers, such as a conditional definition, are
-    left alone.
-
-    Raises:
-        RuntimeError: If a member comes before an earlier group.
-    """
-
     disorder = [
         line
         for root in roots
@@ -93,15 +78,6 @@ def check_member_order(*roots: Path) -> None:
 
 
 def check_constant_publicity(*roots: Path) -> None:
-    """Check every module constant against the AGENTS.md publicity.
-
-    A leading underscore reads as a constant to the order check, since
-    `"_FOO".isupper()` holds, so it would otherwise pass unnoticed.
-
-    Raises:
-        RuntimeError: If a module keeps a constant to itself.
-    """
-
     private = [
         line
         for root in roots
@@ -113,15 +89,6 @@ def check_constant_publicity(*roots: Path) -> None:
 
 
 def check_layering(package: Path, tests: Path) -> None:
-    """Check that every package reaches only for the ones below it.
-
-    Nothing fails at import time when `lib` reaches into `core`, so a
-    package quietly stops being reusable long before anyone notices.
-
-    Raises:
-        RuntimeError: If a package imports one it must not know.
-    """
-
     crossings = [
         f"{path}:{line}: {path.relative_to(package).parts[0]} imports {module}"
         for path in sorted(package.rglob("*.py"))
@@ -141,12 +108,6 @@ def check_layering(package: Path, tests: Path) -> None:
 
 
 def check_import_depth(*roots: Path) -> None:
-    """Check every project import against the AGENTS.md depth.
-
-    Raises:
-        RuntimeError: If an import path runs deeper than the limit.
-    """
-
     deep = [
         f"{path}:{line}: {module} is {module.count('.') + 1} levels deep"
         for root in roots
@@ -159,16 +120,6 @@ def check_import_depth(*roots: Path) -> None:
 
 
 def check_test_layout(package: Path, tests: Path) -> None:
-    """Check the test tree against tests/AGENTS.md.
-
-    A module earns a test module once it defines a function, so the
-    ones that only declare types, constants or exceptions are exempt.
-
-    Raises:
-        RuntimeError: If a helper sits outside `doubles/`, or a module
-            with behavior has no test module.
-    """
-
     misplaced = [
         f"{path}: helpers belong under {tests.name}/doubles/"
         for path in sorted(tests.glob("*.py"))
@@ -187,16 +138,6 @@ def check_test_layout(package: Path, tests: Path) -> None:
 
 
 def check_deferred_annotations(*roots: Path) -> None:
-    """Check that no module defers every annotation it writes.
-
-    `from __future__ import annotations` turns all of them into strings
-    at once, including the ones pydantic and the tool schemas read back
-    at runtime. Quote the few that need it instead.
-
-    Raises:
-        RuntimeError: If a module imports the future annotations.
-    """
-
     deferred = [
         f"{path}:{node.lineno}: annotations deferred"
         for root in roots
@@ -210,16 +151,20 @@ def check_deferred_annotations(*roots: Path) -> None:
         raise RuntimeError("Annotations deferred where a quoted one would do:\n" + "\n".join(deferred))
 
 
+def check_docstrings(*roots: Path) -> None:
+    written = [
+        f"{path}:{line}: docstring"
+        for root in roots
+        for path in sorted(root.rglob("*.py"))
+        for line in _find_docstrings(path)
+    ]
+    if written:
+        raise RuntimeError(
+            "Docstrings where AGENTS.md asks for a name, a type, a test, or a comment:\n" + "\n".join(written)
+        )
+
+
 def run_uv_commands(root: Path) -> None:
-    """Run every command of `UV_COMMANDS` from the project root.
-
-    They run on a build directory the last run left behind no files
-    in. A failing one stops the rest.
-
-    Raises:
-        RuntimeError: If uv is missing.
-    """
-
     uv = shutil.which("uv")
     if not uv:
         raise RuntimeError("uv must be installed")
@@ -233,12 +178,6 @@ def run_uv_commands(root: Path) -> None:
 def _find_disorder(
     body: list[ast.stmt], rank: Callable[[ast.stmt], int | None], groups: tuple[str, ...], path: Path, scope: str
 ) -> Iterator[str]:
-    """Report every member of a body that its predecessors outrank.
-
-    Yields:
-        One `file:line:` complaint per member out of order.
-    """
-
     highest = 0
     for node in body:
         group = rank(node)
@@ -251,12 +190,6 @@ def _find_disorder(
 
 
 def _find_private_constants(body: list[ast.stmt], path: Path) -> Iterator[str]:
-    """Report every constant a module hides behind an underscore.
-
-    Yields:
-        One `file:line:` complaint per private constant.
-    """
-
     for node in body:
         match node:
             case ast.Assign(targets=[ast.Name(id=name)]) | ast.AnnAssign(target=ast.Name(id=name)):
@@ -266,13 +199,16 @@ def _find_private_constants(body: list[ast.stmt], path: Path) -> Iterator[str]:
                 continue
 
 
+def _find_docstrings(path: Path) -> Iterator[int]:
+    for node in _parse(path):
+        if not isinstance(node, ast.Module | ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef) or not node.body:
+            continue
+        first = node.body[0]
+        if isinstance(first, ast.Expr) and isinstance(first.value, ast.Constant) and isinstance(first.value.value, str):
+            yield first.lineno
+
+
 def _rank_module(node: ast.stmt) -> int | None:
-    """Place a module member in `MODULE_GROUPS`.
-
-    Returns:
-        The group index, or nothing for members without a group.
-    """
-
     match node:
         case ast.Assign(targets=[ast.Name(id=name)]) | ast.AnnAssign(target=ast.Name(id=name)):
             if name.startswith("__") and name.endswith("__"):
@@ -291,12 +227,6 @@ def _rank_module(node: ast.stmt) -> int | None:
 
 
 def _rank_class(node: ast.stmt) -> int | None:
-    """Place a class member in `CLASS_GROUPS`.
-
-    Returns:
-        The group index, or nothing for members without a group.
-    """
-
     match node:
         case ast.Assign() | ast.AnnAssign():
             return 0
@@ -311,15 +241,6 @@ def _rank_class(node: ast.stmt) -> int | None:
 
 
 def _find_imports(path: Path) -> Iterator[tuple[str, int]]:
-    """Report every absolute module a file imports.
-
-    Relative imports stay inside their own package, so they cannot
-    cross a boundary and are left out.
-
-    Yields:
-        One module name and line number per import.
-    """
-
     for node in _parse(path):
         if isinstance(node, ast.ImportFrom) and node.module and not node.level:
             yield node.module, node.lineno
@@ -329,12 +250,6 @@ def _find_imports(path: Path) -> Iterator[tuple[str, int]]:
 
 
 def _parse(path: Path) -> Iterator[ast.AST]:
-    """Walk every node of a Python file.
-
-    Yields:
-        Each node of the parsed file.
-    """
-
     yield from ast.walk(ast.parse(path.read_text(encoding="utf-8")))
 
 

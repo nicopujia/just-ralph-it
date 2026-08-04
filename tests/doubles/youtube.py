@@ -36,8 +36,6 @@ class FakeTranscripts:
 
 
 class FakeApi:
-    """Transcript API recording every video and language asked for."""
-
     def __init__(
         self,
         videos: list[str],

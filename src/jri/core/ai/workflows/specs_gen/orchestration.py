@@ -16,8 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 class SpecsGen:
-    """Generate and commit functional and architectural specs."""
-
     MAX_CYCLES = 10
 
     def __init__(self, settings: Settings) -> None:
@@ -29,31 +27,16 @@ class SpecsGen:
     def generate(
         self, active_commit: str | None
     ) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished", None, SpecsResult]:
-        """Generate one accepted specification bundle.
-
-        Validating the repository raises `RepositoryStateError` when it
-        cannot back the generation.
-
-        Returns:
-            Ambiguities for the Interviewer or the accepted Git commit.
-
-        Yields:
-            User-facing workflow progress.
-
-        Raises:
-            SpecsError: If the generated specifications are unusable.
-        """
-
         baseline = self.specs.prepare(active_commit)
         explorer_report: str | None = None
         feedback: str | None = None
         rejected: str | None = None
-        polishing: ai.ToolCallStarted | None = None
+        open_row = ai.ToolCallStarted("functional", "Writing functional specifications from your project notes", "✍️")
 
         for cycle in range(1, self.MAX_CYCLES + 1):
             logger.info("specs_cycle_started cycle=%d", cycle)
             if cycle == 1:
-                yield ai.ToolCallStarted("functional", "Writing functional specifications from your project notes", "✍️")
+                yield open_row
             functional_result = self.functional_analyst.write(
                 functional_analyst.Input(
                     notebook=baseline.notebook.decode(),
@@ -72,11 +55,10 @@ class SpecsGen:
             )
             if isinstance(functional_result, functional_analyst.Ambiguities):
                 logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.ambiguities))
-                active = polishing.call_id if polishing else "functional"
-                yield ai.ToolCallFinished(active, "Found project details to clarify")
+                yield ai.ToolCallFinished(open_row.call_id, "Found project details to clarify")
                 return functional_result
             if cycle == 1:
-                yield ai.ToolCallFinished("functional", "Wrote functional specifications from your project notes")
+                yield ai.ToolCallFinished(open_row.call_id, "Wrote functional specifications from your project notes")
 
             with self.specs.repository.open_worktree(baseline.commit) as staging:
                 self.specs.apply(staging, functional_result.patch, paths.FUNCTIONAL_SPECS_ROOT)
@@ -100,7 +82,8 @@ class SpecsGen:
                     if not explorer_report:
                         raise SpecsError("Repository exploration produced no report.")
                     yield ai.ToolCallFinished("explorer", "Studied your existing project")
-                    yield ai.ToolCallStarted("architecture", "Designing the project architecture", "📐")
+                    open_row = ai.ToolCallStarted("architecture", "Designing the project architecture", "📐")
+                    yield open_row
 
                 context = architect.Input(
                     functional_specs=self.specs.render(functional),
@@ -117,16 +100,17 @@ class SpecsGen:
                 )
                 if isinstance(architecture_result, architect.Issues):
                     logger.info("specs_issues cycle=%d count=%d", cycle, len(architecture_result.issues))
-                    if polishing is None:
-                        yield ai.ToolCallFinished("architecture", "Drafted the project architecture")
-                    else:
-                        yield ai.ToolCallFinished(polishing.call_id, polishing.label)
-                    polishing = ai.ToolCallStarted(
+                    # A polish row has no separate closing phrasing,
+                    # so it closes under the label it opened with.
+                    yield ai.ToolCallFinished(
+                        open_row.call_id, "Drafted the project architecture" if cycle == 1 else open_row.label
+                    )
+                    open_row = ai.ToolCallStarted(
                         f"polish-{cycle}",
                         f"{len(architecture_result.issues)} issues found. Polishing... (round {cycle})",
                         "🗒️",
                     )
-                    yield polishing
+                    yield open_row
                     rejected = self.specs.render(functional)
                     feedback = "\n".join(f"- {issue}" for issue in architecture_result.issues)
                     continue
@@ -138,10 +122,8 @@ class SpecsGen:
                 patch = staging.diff(baseline.commit, paths=(paths.FUNCTIONAL_SPECS_DIR, paths.ARCHITECTURE_SPECS_DIR))
 
             commit = self.specs.accept(patch, baseline)
-            yield (
-                ai.ToolCallFinished(polishing.call_id, polishing.label)
-                if polishing
-                else ai.ToolCallFinished("architecture", "Designed the project architecture")
+            yield ai.ToolCallFinished(
+                open_row.call_id, "Designed the project architecture" if cycle == 1 else open_row.label
             )
             return commit
 

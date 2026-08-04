@@ -23,8 +23,6 @@ logger = logging.getLogger(__name__)
 
 
 class Explorer(Agent):
-    """Agent that gathers context from the web and this machine."""
-
     MAX_INPUT_SIZE = 10 * 1024 * 1024
 
     def __init__(self, settings: Settings) -> None:
@@ -67,12 +65,6 @@ class Explorer(Agent):
         read_only=True,
     )
     def search_web(self, query: str) -> str:
-        """Search the web for the given query.
-
-        Returns:
-            The titles and URLs of the results.
-        """
-
         logger.debug("search_query query=%r", query)
         if not self.settings.brave_search.api_key:
             logger.info("search_finished available=False")
@@ -90,15 +82,6 @@ class Explorer(Agent):
         read_only=True,
     )
     def fetch_web_page(self, url: str) -> str:
-        """Fetch a public web page or video transcript.
-
-        Returns:
-            The page as Markdown, or the transcript of a video.
-
-        Raises:
-            RuntimeError: If the page cannot be fetched.
-        """
-
         logger.debug("fetch_url url=%r", url)
         if (video_transcript := youtube.fetch_transcript_from_url(url)) is not None:
             logger.info("fetch_finished source=youtube characters=%d", len(video_transcript))
@@ -151,15 +134,6 @@ class Explorer(Agent):
     def read_files(
         self, paths: list[str], start_line: int | None = None, end_line: int | None = None
     ) -> ResponseFunctionCallOutputItemListParam:
-        """Read files as text, image, or binary inputs.
-
-        Returns:
-            One input item per file, preceded by its path.
-
-        Raises:
-            RuntimeError: If a file is unreadable or too large.
-        """
-
         logger.debug("read_paths paths=%r", paths)
         output: ResponseFunctionCallOutputItemListParam = []
         for raw_path in paths:
@@ -202,15 +176,6 @@ class Explorer(Agent):
         symbol="💻",
     )
     def run_shell(self, cmd: str) -> str:
-        """Run a shell command on this machine.
-
-        Returns:
-            The command's combined standard output and error.
-
-        Raises:
-            RuntimeError: If the command fails or times out.
-        """
-
         logger.debug("shell_command command=%r", cmd)
         with TemporaryFile("w+", encoding="utf-8", errors="replace") as output_file:
             process = subprocess.Popen(

@@ -8,8 +8,6 @@ from jri.tui import styles
 
 
 class MessagesContainer(VerticalScroll):
-    """Render messages and report manual vertical scrolling."""
-
     def __init__(self, on_scroll: Callable[[], None], on_top: Callable[[], Awaitable[None]]) -> None:
         super().__init__(id=styles.MESSAGES_CONTAINER_ID)
         self.on_scroll = on_scroll

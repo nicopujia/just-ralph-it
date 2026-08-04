@@ -32,8 +32,6 @@ class Response:
 
 @dataclass(kw_only=True)
 class LLMRunner:
-    """Run and parse individual model requests."""
-
     client: OpenAI
     model: str
     prompt: str = ""
@@ -47,38 +45,14 @@ class LLMRunner:
 
     @property
     def sampling(self) -> float | Omit:
-        """Send a temperature only when one is configured.
-
-        Returns:
-            The configured temperature, or nothing for reasoning models
-            that reject the parameter outright.
-        """
-
         return omit if self.temperature is None else self.temperature
 
     def respond(self, context: ResponseInputParam, tools: Sequence[FunctionToolParam] = ()) -> Response:
-        """Stream one model response.
-
-        Returns:
-            Its event stream and collected output items.
-        """
-
         self._check_size(context)
         outputs_by_index: dict[int, dict[str, Any]] = {}
         return Response(self._respond(context, tools, outputs_by_index), outputs_by_index)
 
     def parse(self, context: ResponseInputParam, output_type: type[Result]) -> Result:
-        """Parse one model response into the requested type.
-
-        Returns:
-            The parsed response.
-
-        Raises:
-            ModelError: If the context is over `max_input_size`, or
-                the response failed, was cut short, or has no parsed
-                output.
-        """
-
         self._check_size(context)
         logger.info("parse_started model=%s input_items=%d", self.model, len(context))
         with self.client.responses.stream(

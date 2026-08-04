@@ -20,12 +20,6 @@ def streamed_reply(text: str) -> Round:
 
 
 def partial_reply(text: str) -> Round:
-    """Stream deltas without completing the response.
-
-    Returns:
-        The events of a provider that reports no aggregated text.
-    """
-
     return [SimpleNamespace(type="response.output_text.delta", delta=text)]
 
 
@@ -51,8 +45,6 @@ def reply(text: str) -> dict[str, Any]:
 
 
 class FakeClient:
-    """Stand-in for the OpenAI client, replaying canned rounds."""
-
     def __init__(self, rounds: Iterable[Round], *, parsed: Iterable[object] = ()) -> None:
         self.responses = _Responses(rounds, parsed)
 

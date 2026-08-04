@@ -9,8 +9,6 @@ from .widgets import ToolCallRow
 
 @dataclass
 class InterviewerTurnState:
-    """Tracks UI state for one interviewer turn."""
-
     container: Vertical
     placeholder: Markdown | None
     active_markdown: Markdown | None = None

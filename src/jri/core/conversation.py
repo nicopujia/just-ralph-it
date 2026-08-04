@@ -17,13 +17,6 @@ from .settings import Settings
 
 
 def read_turns(history: ResponseInputParam, tools: list[Tool], session: "Session") -> list["Turn"]:
-    """Read a persisted interview as the turns the user saw.
-
-    Returns:
-        One turn per user prompt, holding what the interviewer
-        answered it with.
-    """
-
     tools_by_name = {tool.name: tool for tool in tools}
     turns: list[Turn] = []
     for raw_item in history[2:]:
@@ -74,8 +67,6 @@ class Turn(NamedTuple):
 
 
 class Session(BaseModel):
-    """Persisted terminal session."""
-
     active_topic_id: TopicId
     initial_graph: Graph
     interview: list[dict[str, Any]] = Field(default_factory=list)
@@ -91,26 +82,6 @@ class Session(BaseModel):
 
 class Conversation:
     def __init__(self, settings: Settings) -> None:
-        """Bind a conversation to the workspace `Workspace.create` made.
-
-        Nothing here reaches the filesystem, so a command that fails
-        before it reads or writes anything leaves the project alone.
-
-        Directory structure:
-        ```
-            $CWD/.jri/
-                .gitignore
-                config.yaml
-                session.json
-                notebook.yaml
-                visualization.html
-                logs/
-                    YYYY-MM-DD_HH-MM-SS.log
-                    ...
-                specs/
-        ```
-        """
-
         self.notebook_file = settings.cwd / paths.NOTEBOOK_FILE
         self.session_file = settings.cwd / paths.SESSION_FILE
 
@@ -121,44 +92,19 @@ class Conversation:
 
     @cached_property
     def notebook(self) -> Notebook:
-        """Open the notes the first time a command needs them.
-
-        Returns:
-            The notebook this conversation reads and writes.
-        """
-
         return Notebook(self.notebook_file)
 
     @cached_property
     def session(self) -> Session:
-        """Start a session the first time a command needs one.
-
-        Returns:
-            A session anchored to the notebook's initial topic.
-        """
-
         return Session(
             active_topic_id=self.notebook.initial_topic.id, initial_graph=self.notebook.graph.model_copy(deep=True)
         )
 
     @cached_property
     def interviewer(self) -> Interviewer:
-        """Build the interviewer the first time one is needed.
-
-        Commands that only read the notes never reach the provider.
-
-        Returns:
-            The interviewer writing into this conversation's notebook.
-        """
-
         return Interviewer(self.settings, self.notebook, lambda ready: self.update_session(ready_to_ralph=ready))
 
     def chat(self, message: str, cancelled: Event | None = None) -> Generator[ChatEvent]:
-        """Send a message and persist the full interview context.
-
-        Yields:
-            Streamed chat events from the interviewer.
-        """
         self.logger.info("chat_started")
         self.logger.debug("chat_message message=%r", message)
         checkpoint = (
@@ -170,11 +116,6 @@ class Conversation:
         yield from self._respond(message, checkpoint, cancelled)
 
     def retry(self, cancelled: Event | None = None) -> Generator[ChatEvent]:
-        """Retry the latest failed message from its original checkpoint.
-
-        Yields:
-            Streamed chat events from the interviewer.
-        """
         checkpoint = (
             len(self.interviewer.history) - 1,
             self.notebook.graph.model_copy(deep=True),
@@ -185,8 +126,6 @@ class Conversation:
         yield from self._respond(message, checkpoint, cancelled)
 
     def rewind(self, checkpoint_index: int) -> None:
-        """Rewind conversation and notes to a user prompt."""
-
         history_index = [
             index
             for index, item in enumerate(self.interviewer.history)
@@ -202,20 +141,13 @@ class Conversation:
             item = cast("dict[str, Any]", raw_item)
             if item.get("type") != "function_call":
                 continue
-            tool = tools[item["name"]]
-            if not tool.read_only and item["call_id"] not in self.session.failed_call_ids:
-                list(tool.invoke(item["arguments"]))
+            if item["call_id"] not in self.session.failed_call_ids:
+                tools[item["name"]].replay(item["arguments"])
 
         self._save_turn()
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
     def ralph(self) -> Generator[ChatEvent]:
-        """Generate specifications after explicit user confirmation.
-
-        Yields:
-            Specification progress and the Interviewer's response.
-        """
-
         self.update_session(ready_to_ralph=False)
         try:
             result = yield from SpecsGen(self.settings).generate(self.session.active_spec_commit)
@@ -241,14 +173,6 @@ class Conversation:
         self._save_turn()
 
     def restore(self) -> list[Turn]:
-        """Restore interview session if present.
-
-        Returns:
-            The interview turns to show again.
-
-        Raises:
-            PersistenceError: If the session file is invalid.
-        """
         if not self.session_file.exists():
             self.logger.info("restore_skipped reason=no_session_file")
             return []
@@ -274,12 +198,6 @@ class Conversation:
         return turns
 
     def update_session(self, **values: object) -> None:
-        """Persist trusted values in the current session.
-
-        Raises:
-            PersistenceError: If the session file cannot be written.
-        """
-
         with self.session_lock:
             session = self.session.model_copy(
                 update={"failed_call_ids": list(self.interviewer.failed_call_ids), **values}
@@ -312,8 +230,6 @@ class Conversation:
         self.logger.info("chat_finished interview_items=%d", len(self.interviewer.history))
 
     def _save_turn(self, *, stopped: bool = False) -> None:
-        """Persist the interview, clearing the previous turn's marks."""
-
         self.update_session(
             active_topic_id=self.interviewer.active_topic_id,
             interview=self.interviewer.history,

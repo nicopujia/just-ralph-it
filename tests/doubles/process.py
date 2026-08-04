@@ -6,12 +6,6 @@ import pytest
 
 
 def serve_timeout(monkeypatch: pytest.MonkeyPatch, started: Path) -> None:
-    """Time out every bounded wait once the command signals it began.
-
-    Unbounded waits run for real, so the caller can still reap the
-    process it killed.
-    """
-
     original_wait = subprocess.Popen.wait
 
     def wait(process: "subprocess.Popen[bytes]", timeout: float | None = None) -> int:

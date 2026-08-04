@@ -21,12 +21,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass(kw_only=True)
 class Agent:
-    """Minimal, customizable LLM agent.
-
-    Subclass and decorate methods with ``@tool`` to expose them
-    as function calls the LLM can invoke.
-    """
-
     MAX_ROUNDS: ClassVar[int] = 50
 
     initial_ctx: InitVar[ResponseInputParam | None] = None
@@ -58,38 +52,13 @@ class Agent:
         self.history.insert(0, {"role": "system", "content": self.prompt})
 
     def get_context(self) -> ResponseInputParam:
-        """Get the conversation context sent to the model.
-
-        Returns:
-            The conversation items as an ordered list.
-        """
-
         return self.history
 
     def send_message(self, message: str, cancelled: Event | None = None) -> Generator["ai.ChatEvent"]:
-        """Send a user message and stream the response.
-
-        Automatically handles tool-call loops: if the LLM requests
-        function calls, the agent invokes them, and resumes the stream
-        until the model produces a final text reply.
-
-        Yields:
-            Structured chat events from the streamed LLM response.
-
-        """
         self.history.append({"role": "user", "content": message})
         yield from self.respond(cancelled)
 
     def respond(self, cancelled: Event | None = None) -> Generator["ai.ChatEvent"]:
-        """Respond to the current conversation context.
-
-        Yields:
-            Structured chat events from the streamed LLM response.
-
-        Raises:
-            ModelError: If the model fails to finish the response.
-        """
-
         cancelled = cancelled or Event()
         logger.info("message_started agent=%s model=%s", type(self).__name__, self.model)
 
