@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import json
 from collections.abc import Iterable, Iterator
 from types import SimpleNamespace
@@ -66,12 +64,12 @@ class _Responses:
         self.inputs: list[object] = []
         self.options: list[dict[str, object]] = []
 
-    def create(self, **options: object) -> _Stream:
+    def create(self, **options: object) -> "_Stream":
         self.inputs.append(options["input"])
         self.options.append(options)
         return _Stream(next(self.rounds))
 
-    def stream(self, **options: object) -> _ParsedStream:
+    def stream(self, **options: object) -> "_ParsedStream":
         self.inputs.append(options["input"])
         self.options.append(options)
         return _ParsedStream(next(self.parsed))

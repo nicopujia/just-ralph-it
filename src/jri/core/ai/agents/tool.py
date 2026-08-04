@@ -1,18 +1,14 @@
-from __future__ import annotations
-
 import inspect
 import logging
 from collections.abc import Callable, Generator, Iterator
 from dataclasses import dataclass, replace
-from typing import TYPE_CHECKING, ClassVar, ParamSpec, Self, TypeVar, cast, get_type_hints
+from typing import ClassVar, ParamSpec, Self, TypeVar, cast, get_type_hints
 
 from openai import pydantic_function_tool
+from openai.types.responses import FunctionToolParam, ResponseFunctionCallOutputItemListParam
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
 from jri.core import ai
-
-if TYPE_CHECKING:
-    from openai.types.responses import FunctionToolParam, ResponseFunctionCallOutputItemListParam
 
 type Stream = Generator[ai.ToolCallStarted | ai.ToolCallFinished | ToolOutput]
 
@@ -70,7 +66,7 @@ class Invocation:
         self.failed = failed
         self._output: str | ResponseFunctionCallOutputItemListParam | None = None
 
-    def __iter__(self) -> Generator[ai.ChatEvent]:
+    def __iter__(self) -> Generator["ai.ChatEvent"]:
         """Resolve the final tool output.
 
         Yields:

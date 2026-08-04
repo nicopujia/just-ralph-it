@@ -3,8 +3,9 @@ from pathlib import Path
 import pytest
 
 from jri.core.ai import architect, functional_analyst
+from jri.core.conversation import Conversation
 from jri.core.exceptions import RepositoryStateError, SpecsError
-from jri.core.service import Service
+from jri.core.workspace import Workspace
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
@@ -58,9 +59,9 @@ diff --git a/architecture/design.md b/architecture/design.md
 """
 
 
-def build_service(path: Path, client: FakeClient) -> Service:
-    Service.init(path)
-    return Service(build_settings(path, client))
+def build_conversation(path: Path, client: FakeClient) -> Conversation:
+    Workspace.create(path)
+    return Conversation(build_settings(path, client))
 
 
 def successful_client() -> FakeClient:
@@ -91,9 +92,9 @@ def test_commits_complete_specification_bundle(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
-    service = build_service(tmp_path, successful_client())
+    conversation = build_conversation(tmp_path, successful_client())
 
-    list(service.ralph())
+    list(conversation.ralph())
 
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
     assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
@@ -123,21 +124,21 @@ def test_commits_specifications_whose_patch_miscounts_its_hunk(
             architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_PATCH)),
         ],
     )
-    service = build_service(tmp_path, client)
+    conversation = build_conversation(tmp_path, client)
 
-    list(service.ralph())
+    list(conversation.ralph())
 
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotals are supported.\n"
-    assert service.session.active_spec_commit is not None
+    assert conversation.session.active_spec_commit is not None
 
 
 def test_updates_specs_after_restart_and_an_intervening_project_commit(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
-    service = build_service(tmp_path, successful_client())
-    list(service.ralph())
-    first_spec_commit = service.session.active_spec_commit
+    conversation = build_conversation(tmp_path, successful_client())
+    list(conversation.ralph())
+    first_spec_commit = conversation.session.active_spec_commit
     assert first_spec_commit is not None
 
     changelog = tmp_path / "CHANGELOG.md"
@@ -146,7 +147,7 @@ def test_updates_specs_after_restart_and_an_intervening_project_commit(
     run_git(tmp_path, "commit", "-qm", "docs: add changelog")
     project_commit = run_git(tmp_path, "rev-parse", "HEAD")
 
-    restarted = build_service(tmp_path, updated_client())
+    restarted = build_conversation(tmp_path, updated_client())
     restarted.restore()
     assert restarted.session.active_spec_commit == first_spec_commit
     restarted.interviewer.notebook.add(["Add a total output record."], "t1")
@@ -172,7 +173,7 @@ def test_updates_specs_after_restart_and_an_intervening_project_commit(
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
-    reopened = build_service(tmp_path, FakeClient([]))
+    reopened = build_conversation(tmp_path, FakeClient([]))
     reopened.restore()
     assert reopened.session.active_spec_commit == second_spec_commit
     assert not run_git(tmp_path, "status", "--short")
@@ -182,9 +183,9 @@ def test_shows_specifications_to_the_models_under_neutral_roots(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
-    list(build_service(tmp_path, successful_client()).ralph())
+    list(build_conversation(tmp_path, successful_client()).ralph())
     client = updated_client()
-    restarted = build_service(tmp_path, client)
+    restarted = build_conversation(tmp_path, client)
     restarted.restore()
 
     list(restarted.ralph())
@@ -202,13 +203,13 @@ def test_commits_modified_configuration_with_specifications(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
-    service = build_service(tmp_path, successful_client())
+    conversation = build_conversation(tmp_path, successful_client())
     config = tmp_path / ".jri/config.yaml"
     run_git(tmp_path, "add", ".jri/config.yaml")
     run_git(tmp_path, "commit", "-qm", "add configuration")
     config.write_text(f"{config.read_text()}\n# Project-specific configuration.\n")
 
-    list(service.ralph())
+    list(conversation.ralph())
 
     assert run_git(tmp_path, "show", "HEAD:.jri/config.yaml").endswith("# Project-specific configuration.")
     assert ".jri/config.yaml" in run_git(tmp_path, "show", "--format=", "--name-only").splitlines()
@@ -217,9 +218,9 @@ def test_commits_modified_configuration_with_specifications(
 
 def test_commits_specifications_onto_a_freshly_initialized_project(tmp_path: Path, run_git: RunGit) -> None:
     (tmp_path / "README.md").write_text("# New project\n")
-    service = build_service(tmp_path, successful_client())
+    conversation = build_conversation(tmp_path, successful_client())
 
-    list(service.ralph())
+    list(conversation.ralph())
 
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
         ".jri/specs/architecture/design.md",
@@ -234,7 +235,7 @@ def test_commits_specifications_onto_a_freshly_initialized_project(tmp_path: Pat
         ".jri/specs/functional/behavior.md",
         "README.md",
     ]
-    assert service.session.active_spec_commit == run_git(tmp_path, "rev-parse", "HEAD")
+    assert conversation.session.active_spec_commit == run_git(tmp_path, "rev-parse", "HEAD")
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -242,11 +243,11 @@ def test_refuses_unrelated_changes_before_generation(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
-    service = build_service(tmp_path, FakeClient([]))
+    conversation = build_conversation(tmp_path, FakeClient([]))
     (tmp_path / "unrelated.txt").write_text("block")
 
     with pytest.raises(RepositoryStateError, match=r"unrelated\.txt"):
-        list(service.ralph())
+        list(conversation.ralph())
 
     assert run_git(tmp_path, "log", "--oneline").count("\n") == 0
 
@@ -255,41 +256,41 @@ def test_refuses_to_commit_when_the_project_moved_during_generation(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
-    service = build_service(tmp_path, successful_client())
-    events = service.ralph()
+    conversation = build_conversation(tmp_path, successful_client())
+    events = conversation.ralph()
     next(events)
     run_git(tmp_path, "commit", "--allow-empty", "-qm", "concurrent")
 
     with pytest.raises(RepositoryStateError, match="changed while specifications were being generated"):
         list(events)
 
-    assert service.session.active_spec_commit is None
+    assert conversation.session.active_spec_commit is None
 
 
 def test_refuses_to_commit_when_the_notebook_moved_during_generation(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
-    service = build_service(tmp_path, successful_client())
-    events = service.ralph()
+    conversation = build_conversation(tmp_path, successful_client())
+    events = conversation.ralph()
     next(events)
-    service.interviewer.notebook.add(["Captured while generating."], "t1")
+    conversation.interviewer.notebook.add(["Captured while generating."], "t1")
 
     with pytest.raises(RepositoryStateError, match="changed while specifications were being generated"):
         list(events)
 
-    assert service.session.active_spec_commit is None
+    assert conversation.session.active_spec_commit is None
 
 
 def test_refuses_a_project_file_renamed_onto_a_workspace_path(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
-    service = build_service(tmp_path, FakeClient([]))
-    run_git(tmp_path, "mv", "-f", "README.md", ".jri/notebook.yaml")
+    conversation = build_conversation(tmp_path, FakeClient([]))
+    run_git(tmp_path, "mv", "-f", "README.md", ".jri/config.yaml")
 
     with pytest.raises(RepositoryStateError, match=r"README\.md"):
-        list(service.ralph())
+        list(conversation.ralph())
 
     assert run_git(tmp_path, "log", "--oneline").count("\n") == 0
 
@@ -303,18 +304,18 @@ def test_refuses_existing_specifications_without_an_active_commit(
     spec.write_text("# Behavior\n")
     run_git(tmp_path, "add", ".jri")
     run_git(tmp_path, "commit", "-qm", "add specifications")
-    service = build_service(tmp_path, FakeClient([]))
+    conversation = build_conversation(tmp_path, FakeClient([]))
 
     with pytest.raises(RepositoryStateError, match="no active JRI commit"):
-        list(service.ralph())
+        list(conversation.ralph())
 
 
 def test_refuses_active_commit_missing_from_git(tmp_path: Path) -> None:
-    service = build_service(tmp_path, FakeClient([]))
-    service.update_session(active_spec_commit="0" * 40)
+    conversation = build_conversation(tmp_path, FakeClient([]))
+    conversation.update_session(active_spec_commit="0" * 40)
 
     with pytest.raises(RepositoryStateError, match="missing from Git"):
-        list(service.ralph())
+        list(conversation.ralph())
 
 
 def test_refuses_active_commit_unreachable_from_head(
@@ -327,25 +328,25 @@ def test_refuses_active_commit_unreachable_from_head(
     run_git(tmp_path, "commit", "-qm", "docs: add changelog")
     abandoned = run_git(tmp_path, "rev-parse", "HEAD")
     run_git(tmp_path, "reset", "-q", "--hard", initial)
-    service = build_service(tmp_path, FakeClient([]))
-    service.update_session(active_spec_commit=abandoned)
+    conversation = build_conversation(tmp_path, FakeClient([]))
+    conversation.update_session(active_spec_commit=abandoned)
 
     with pytest.raises(RepositoryStateError, match="not reachable from HEAD"):
-        list(service.ralph())
+        list(conversation.ralph())
 
 
 def test_refuses_specifications_edited_outside_jri(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
-    service = build_service(tmp_path, successful_client())
-    list(service.ralph())
+    conversation = build_conversation(tmp_path, successful_client())
+    list(conversation.ralph())
     (tmp_path / ".jri/specs/functional/behavior.md").write_text("# Behavior\nEdited by hand.\n")
     run_git(tmp_path, "add", ".jri/specs")
     run_git(tmp_path, "commit", "-qm", "docs: edit specifications")
 
     with pytest.raises(RepositoryStateError, match="differ from the active JRI commit"):
-        list(service.ralph())
+        list(conversation.ralph())
 
 
 @pytest.mark.parametrize(
@@ -407,7 +408,7 @@ def test_refuses_unsafe_specification_patch(
         [],
         parsed=[functional_analyst.Output(result=functional_analyst.Patch(outcome="specification_patch", patch=patch))],
     )
-    service = build_service(tmp_path, client)
+    conversation = build_conversation(tmp_path, client)
 
     with pytest.raises(SpecsError, match=reason):
-        list(service.ralph())
+        list(conversation.ralph())

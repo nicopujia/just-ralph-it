@@ -1,20 +1,14 @@
-from __future__ import annotations
-
 import logging
+from collections.abc import Generator
 from difflib import unified_diff
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING
 
 from jri.core import ai, paths
 from jri.core.exceptions import SpecsError
+from jri.core.settings import Settings
 from jri.core.specs import Specs
 
 from . import architect, functional_analyst
-
-if TYPE_CHECKING:
-    from collections.abc import Generator
-
-    from jri.core.settings import Settings
 
 type SpecsResult = functional_analyst.Ambiguities | str
 
@@ -34,7 +28,7 @@ class SpecsGen:
 
     def generate(
         self, active_commit: str | None
-    ) -> Generator[ai.ToolCallStarted | ai.ToolCallFinished, None, SpecsResult]:
+    ) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished", None, SpecsResult]:
         """Generate one accepted specification bundle.
 
         Validating the repository raises `RepositoryStateError` when it

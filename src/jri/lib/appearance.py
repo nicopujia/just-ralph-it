@@ -4,14 +4,14 @@ import platform
 import subprocess
 from typing import Literal
 
-__all__ = ["Appearance", "read_appearance"]
+__all__ = ["Appearance", "read"]
 
 type Appearance = Literal["dark", "light"]
 
 DARWIN_COMMAND = ("/usr/bin/defaults", "read", "-g", "AppleInterfaceStyle")
 
 
-def read_appearance() -> Appearance | None:
+def read() -> Appearance | None:
     """Read whether the system is set to a dark or light appearance.
 
     Returns:

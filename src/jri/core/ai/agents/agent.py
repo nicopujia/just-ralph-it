@@ -1,9 +1,12 @@
-from __future__ import annotations
-
 import logging
+from collections.abc import Generator
 from dataclasses import InitVar, dataclass, field
 from threading import Event
 from typing import TYPE_CHECKING, ClassVar, cast
+
+from openai import OpenAI
+from openai.types.responses import ResponseInputParam
+from openai.types.shared import ReasoningEffort
 
 from jri.core import ai
 from jri.core.exceptions import ModelError
@@ -11,11 +14,7 @@ from jri.core.exceptions import ModelError
 from .tool import DEFAULT_SYMBOL, Invocation, Tool
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
-
-    from openai import OpenAI
-    from openai.types.responses import ResponseInputItemParam, ResponseInputParam
-    from openai.types.shared import ReasoningEffort
+    from openai.types.responses import ResponseInputItemParam
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +40,7 @@ class Agent:
 
     tools: list[Tool] = field(init=False)
     history: ResponseInputParam = field(init=False)
-    runner: ai.LLMRunner = field(init=False)
+    runner: "ai.LLMRunner" = field(init=False)
     failed_call_ids: list[str] = field(init=False, default_factory=list)
 
     def __post_init__(self, initial_ctx: ResponseInputParam | None) -> None:
@@ -67,7 +66,7 @@ class Agent:
 
         return self.history
 
-    def send_message(self, message: str, cancelled: Event | None = None) -> Generator[ai.ChatEvent]:
+    def send_message(self, message: str, cancelled: Event | None = None) -> Generator["ai.ChatEvent"]:
         """Send a user message and stream the response.
 
         Automatically handles tool-call loops: if the LLM requests
@@ -81,7 +80,7 @@ class Agent:
         self.history.append({"role": "user", "content": message})
         yield from self.respond(cancelled)
 
-    def respond(self, cancelled: Event | None = None) -> Generator[ai.ChatEvent]:
+    def respond(self, cancelled: Event | None = None) -> Generator["ai.ChatEvent"]:
         """Respond to the current conversation context.
 
         Yields:
@@ -132,7 +131,7 @@ class Agent:
                     return
         raise ModelError(f"Agent exceeded the limit of {self.MAX_ROUNDS} response rounds.")
 
-    def _invoke(self, output: dict[str, object], tool: Tool | None, cancelled: Event) -> Generator[ai.ChatEvent]:
+    def _invoke(self, output: dict[str, object], tool: Tool | None, cancelled: Event) -> Generator["ai.ChatEvent"]:
         name = cast("str", output["name"])
         arguments = cast("str", output["arguments"])
         call_id = cast("str", output["call_id"])

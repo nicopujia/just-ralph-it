@@ -29,12 +29,12 @@ class Explorer(Agent):
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
-        agent = settings.agents.explorer
+        profile = settings.agents.explorer
         super().__init__(
             client=settings.llm.client,
-            model=agent.model,
-            temperature=agent.temperature,
-            reasoning_effort=agent.reasoning_effort,
+            model=profile.model,
+            temperature=profile.temperature,
+            reasoning_effort=profile.reasoning_effort,
             max_input_size=self.MAX_INPUT_SIZE,
             prompt=f"""
                 Role: Explorer.

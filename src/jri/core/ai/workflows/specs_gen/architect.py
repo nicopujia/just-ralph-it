@@ -49,12 +49,12 @@ class Architect:
     """)
 
     def __init__(self, settings: Settings) -> None:
-        agent = settings.agents.architect
+        profile = settings.agents.architect
         self.runner = LLMRunner(
             client=settings.llm.client,
-            model=agent.model,
-            reasoning_effort=agent.reasoning_effort,
-            temperature=agent.temperature,
+            model=profile.model,
+            reasoning_effort=profile.reasoning_effort,
+            temperature=profile.temperature,
             prompt=f"""
                 Role: Software Architect.
 

@@ -10,10 +10,11 @@ from pydantic import ValidationError
 from pydantic_settings import CliSettingsSource, SettingsError
 
 from jri import __version__
-from jri.core import paths
+from jri.core import logs, paths
+from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
-from jri.core.service import Service
 from jri.core.settings import Settings
+from jri.core.workspace import Workspace
 from jri.lib import git
 from jri.lib.providers import codex
 
@@ -66,11 +67,11 @@ def _init(args: argparse.Namespace) -> None:
     # Creating things is what `init` is for, and Git can only report the
     # repository a directory belongs to once that directory exists.
     location.mkdir(parents=True, exist_ok=True)
-    project_dir = git.find_root(location) or location
+    project_dir = Workspace.find_project(location)
     if args.force and not (args.yes or _confirm_reset(project_dir)):
         print(copy.FORCE_CANCELLED)
         raise SystemExit(1)
-    workspace = Service.init(project_dir, force=args.force)
+    workspace = Workspace.create(project_dir, force=args.force)
     if workspace.repository_created:
         print(copy.INIT_REPOSITORY.format(directory=project_dir))
     reset_copy = copy.INIT_RECREATED if args.force else copy.INIT_EXISTING
@@ -80,9 +81,10 @@ def _init(args: argparse.Namespace) -> None:
 
 def _chat(args: argparse.Namespace) -> None:
     settings = _load_settings(args)
+    logs.configure(settings)
     settings.llm.validate_authentication()
-    service = Service(settings)
-    app = App(service)
+    conversation = Conversation(settings)
+    app = App(conversation)
     logger.info("started")
     try:
         app.run()
@@ -95,10 +97,13 @@ def _chat(args: argparse.Namespace) -> None:
 
 
 def _view(args: argparse.Namespace) -> None:
-    service = Service(_load_settings(args))
-    service.visualization_file.write_text(visualization.render(service.notebook.graph), encoding="utf-8")
-    print(service.visualization_file)
-    webbrowser.open(service.visualization_file.resolve().as_uri())
+    settings = _load_settings(args)
+    logs.configure(settings)
+    conversation = Conversation(settings)
+    visualization_file = settings.cwd / paths.VISUALIZATION_FILE
+    visualization_file.write_text(visualization.render(conversation.notebook.graph), encoding="utf-8")
+    print(visualization_file)
+    webbrowser.open(visualization_file.resolve().as_uri())
 
 
 def _load_settings(args: argparse.Namespace) -> Settings:
@@ -116,7 +121,7 @@ def _load_settings(args: argparse.Namespace) -> Settings:
     if not location.is_dir():
         print(copy.DIRECTORY_MISSING.format(directory=location))
         raise SystemExit(1)
-    project_dir = git.find_root(location) or location
+    project_dir = Workspace.find_project(location)
     if not (project_dir / paths.CONFIG_FILE).exists():
         print(copy.WORKSPACE_MISSING)
         raise SystemExit(1)

@@ -43,12 +43,12 @@ class FunctionalAnalyst:
     """Transform project knowledge into behavioral specifications."""
 
     def __init__(self, settings: Settings) -> None:
-        agent = settings.agents.functional_analyst
+        profile = settings.agents.functional_analyst
         self.runner = LLMRunner(
             client=settings.llm.client,
-            model=agent.model,
-            reasoning_effort=agent.reasoning_effort,
-            temperature=agent.temperature,
+            model=profile.model,
+            reasoning_effort=profile.reasoning_effort,
+            temperature=profile.temperature,
             prompt=f"""
                 Role: Functional Analyst.
 

@@ -44,7 +44,7 @@ def read_api_key(variable: str) -> str:
     return os.environ[variable]
 
 
-class Agent(BaseModel):
+class AgentProfile(BaseModel):
     """Model configuration for an agent."""
 
     model: str = Field(description="Model ID.")
@@ -60,28 +60,28 @@ class Agent(BaseModel):
     )
 
 
-class Agents(BaseModel):
+class AgentProfiles(BaseModel):
     """Model configuration of every agent."""
 
-    interviewer: Agent = Field(
-        default=Agent(model="gpt-5.6-sol", reasoning_effort="medium"),
+    interviewer: AgentProfile = Field(
+        default=AgentProfile(model="gpt-5.6-sol", reasoning_effort="medium"),
         description="Leads the requirements gathering interview. Recommended model type: smart yet relatively fast.",
     )
-    explorer: Agent = Field(
-        default=Agent(model="gpt-5.6-terra", reasoning_effort="low"),
+    explorer: AgentProfile = Field(
+        default=AgentProfile(model="gpt-5.6-terra", reasoning_effort="low"),
         description=(
             "Runs shell commands, reads files, and browses the web on the interviewer's behalf. "
             "Recommended model type: low cost, fast and with vision capabilities."
         ),
     )
-    functional_analyst: Agent = Field(
-        default=Agent(model="gpt-5.6-sol", reasoning_effort="xhigh"),
+    functional_analyst: AgentProfile = Field(
+        default=AgentProfile(model="gpt-5.6-sol", reasoning_effort="xhigh"),
         description=(
             "Turns the interview notes into functional specifications. Recommended model type: as smart as possible."
         ),
     )
-    architect: Agent = Field(
-        default=Agent(model="gpt-5.6-sol", reasoning_effort="xhigh"),
+    architect: AgentProfile = Field(
+        default=AgentProfile(model="gpt-5.6-sol", reasoning_effort="xhigh"),
         description=(
             "Designs the system that satisfies those specifications. Recommended model type: as smart as possible."
         ),
@@ -168,10 +168,10 @@ class Settings(BaseSettings):
             "Get a key at https://brave.com/search/api/."
         ),
     )
-    agents: CliSuppress[Agents] = Field(
+    agents: CliSuppress[AgentProfiles] = Field(
         # A default instance, rather than a factory, is what makes the
         # command-line help report each agent's real defaults.
-        default=Agents(),
+        default=AgentProfiles(),
         description=(
             "Each agent picks a model available on the provider above. Omit the reasoning effort on models without "
             "reasoning, and the temperature to let the model pick it; reasoning models reject the temperature "

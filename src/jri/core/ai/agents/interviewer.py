@@ -1,9 +1,11 @@
-from __future__ import annotations
-
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Literal, cast, override
+
+from openai.types.responses import ResponseInputParam
 
 from jri.core import ai
 from jri.core.notes import Connection, Notebook, NoteId, ReadQuery, TopicId
+from jri.core.settings import Settings
 from jri.lib.models import estimate_tokens, get_context_limit
 
 from .agent import Agent
@@ -11,11 +13,7 @@ from .explorer import Explorer
 from .tool import Stream, ToolOutput, tool
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from openai.types.responses import ResponseInputItemParam, ResponseInputParam
-
-    from jri.core.settings import Settings
+    from openai.types.responses import ResponseInputItemParam
 
 
 class Interviewer(Agent):
@@ -33,12 +31,12 @@ class Interviewer(Agent):
         self.set_ready_to_ralph = set_ready_to_ralph or (lambda _: None)
         self.initial_topic = notebook.initial_topic
         self.active_topic_id = self.initial_topic.id
-        agent = settings.agents.interviewer
+        profile = settings.agents.interviewer
         super().__init__(
             client=settings.llm.client,
-            model=agent.model,
-            temperature=agent.temperature,
-            reasoning_effort=agent.reasoning_effort,
+            model=profile.model,
+            temperature=profile.temperature,
+            reasoning_effort=profile.reasoning_effort,
             # Interviewer needs to know that it's part of JRI because it
             # directly interacts with the user, opposed to the rest of
             # the agents.

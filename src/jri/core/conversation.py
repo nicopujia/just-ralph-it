@@ -1,26 +1,65 @@
 import logging
-import shutil
 from collections.abc import Generator
-from datetime import datetime
 from functools import cached_property
-from pathlib import Path
-from tempfile import NamedTemporaryFile
 from threading import Event, Lock
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
+from typing import Any, Literal, NamedTuple, cast
 
+from openai.types.responses import ResponseInputParam
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from jri.lib import git
+from jri.lib import files
 
 from . import paths
-from .ai import DEFAULT_SYMBOL, ChatEvent, Interviewer, SpecsGen
+from .ai import DEFAULT_SYMBOL, ChatEvent, Interviewer, SpecsGen, Tool
 from .exceptions import PersistenceError
 from .notes import Graph, Notebook, TopicId
-from .repository import Repository
 from .settings import Settings
 
-if TYPE_CHECKING:
-    from openai.types.responses import ResponseInputParam
+
+def read_turns(history: ResponseInputParam, tools: list[Tool], session: "Session") -> list["Turn"]:
+    """Read a persisted interview as the turns the user saw.
+
+    Returns:
+        One turn per user prompt, holding what the interviewer
+        answered it with.
+    """
+
+    tools_by_name = {tool.name: tool for tool in tools}
+    turns: list[Turn] = []
+    for raw_item in history[2:]:
+        item = cast("dict[str, Any]", raw_item)
+        if item.get("role") == "user" and item.get("content"):
+            turns.append(Turn(cast("str", item["content"]), []))
+            continue
+        if not turns:
+            continue
+        if item.get("type") == "function_call":
+            tool = tools_by_name[item["name"]]
+            turns[-1].items.append(
+                InterviewItem("tool", tool.format_label(tool.finished_label, item["arguments"]), tool.symbol)
+            )
+            continue
+        if item.get("type") == "reasoning":
+            summary = "".join(part["text"] for part in item["summary"] if part["type"] == "summary_text")
+            reasoning = "".join(part["text"] for part in item.get("content", []) if part["type"] == "reasoning_text")
+            if summary or reasoning:
+                turns[-1].items.append(InterviewItem("reasoning", summary or reasoning))
+            continue
+        if item.get("role") != "assistant" or "content" not in item:
+            continue
+        content = item["content"]
+        text = (
+            content
+            if isinstance(content, str)
+            else "".join(part["text"] for part in content if part["type"] == "output_text")
+        )
+        if text:
+            turns[-1].items.append(InterviewItem("assistant", text))
+    if turns and session.failed_turn_error:
+        turns[-1].items.append(InterviewItem("error", session.failed_turn_error))
+    elif turns and session.stopped_turn and all(item.type != "assistant" for item in turns[-1].items):
+        turns[-1].items.append(InterviewItem("stopped"))
+    return turns
 
 
 class InterviewItem(NamedTuple):
@@ -32,13 +71,6 @@ class InterviewItem(NamedTuple):
 class Turn(NamedTuple):
     message: str
     items: list[InterviewItem]
-
-
-class Workspace(NamedTuple):
-    directory: Path
-    config_file: Path
-    created: bool
-    repository_created: bool
 
 
 class Session(BaseModel):
@@ -57,12 +89,12 @@ class Session(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class Service:
-    PROJECT_IGNORES = (".DS_Store", ".env", ".env.*")
-    INITIAL_COMMIT_MESSAGE = "jri: initialize project"
-
+class Conversation:
     def __init__(self, settings: Settings) -> None:
-        """Load settings, configure logging, and set base directory up.
+        """Bind a conversation to the workspace `Workspace.create` made.
+
+        Nothing here reaches the filesystem, so a command that fails
+        before it reads or writes anything leaves the project alone.
 
         Directory structure:
         ```
@@ -71,84 +103,43 @@ class Service:
                 config.yaml
                 session.json
                 notebook.yaml
+                visualization.html
                 logs/
                     YYYY-MM-DD_HH-MM-SS.log
                     ...
+                specs/
         ```
         """
-        self.base_dir = settings.cwd / paths.WORKSPACE_DIR
-        self.logs_dir = settings.cwd / paths.LOGS_DIR
+
         self.notebook_file = settings.cwd / paths.NOTEBOOK_FILE
-        self.visualization_file = settings.cwd / paths.VISUALIZATION_FILE
         self.session_file = settings.cwd / paths.SESSION_FILE
 
         self.session_lock = Lock()
         self.settings = settings
-
-        self.logs_dir.mkdir(exist_ok=True, parents=True)
-
-        log_file = self.logs_dir / f"{datetime.now().astimezone().strftime('%Y-%m-%d_%H-%M-%S')}.log"
-        application_logger = logging.getLogger("jri")
-        application_logger.setLevel(settings.logging.level)
-        handler = logging.FileHandler(log_file, encoding="utf-8")
-        handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"))
-        application_logger.addHandler(handler)
-        application_logger.propagate = False
         self.logger = logging.getLogger(__name__)
         self.logger.info("initialized cwd=%r", settings.cwd)
-        self.notebook = Notebook(self.notebook_file)
-        self.session = Session(
-            active_topic_id=self.notebook.initial_topic.id, initial_graph=self.notebook.graph.model_copy(deep=True)
-        )
 
-    @classmethod
-    def init(cls, cwd: Path, *, force: bool = False) -> Workspace:
-        """Create a project's JRI workspace, keeping what exists.
-
-        Projects outside a Git repository get one holding everything
-        already there, since JRI stores the specifications it writes in
-        commits and reads its baseline from the latest one. Forcing
-        writes the configuration file again and throws away the
-        conversation, the notes, the logs, and the generated
-        specifications.
+    @cached_property
+    def notebook(self) -> Notebook:
+        """Open the notes the first time a command needs them.
 
         Returns:
-            The workspace found or created.
+            The notebook this conversation reads and writes.
         """
 
-        repository_created = git.find_root(cwd) is None
-        repository = Repository.init(cwd)
-        workspace = cwd / paths.WORKSPACE_DIR
-        config_file = cwd / paths.CONFIG_FILE
-        created = not config_file.exists()
-        if force:
-            for path in paths.RESET_PATHS:
-                target = cwd / path
-                if target.is_dir():
-                    shutil.rmtree(target)
-                else:
-                    target.unlink(missing_ok=True)
-        workspace.mkdir(exist_ok=True, parents=True)
-        if created or force:
-            config_file.write_text(Settings.render_config(), encoding="utf-8")
-        Notebook(cwd / paths.NOTEBOOK_FILE)
-        (cwd / paths.LOGS_DIR).mkdir(exist_ok=True)
+        return Notebook(self.notebook_file)
 
-        ignored = [Path(path).name for path in (paths.SESSION_FILE, paths.LOGS_DIR, paths.VISUALIZATION_FILE)]
-        gitignore = cwd / paths.GITIGNORE_FILE
-        content = gitignore.read_text() if gitignore.exists() else ""
-        missing = [name for name in ignored if name not in content.splitlines()]
-        if missing:
-            separator = "" if not content or content.endswith("\n") else "\n"
-            gitignore.write_text(f"{content}{separator}{'\n'.join(missing)}\n")
+    @cached_property
+    def session(self) -> Session:
+        """Start a session the first time a command needs one.
 
-        if repository_created:
-            project_gitignore = cwd / paths.PROJECT_GITIGNORE_FILE
-            if not project_gitignore.exists():
-                project_gitignore.write_text(f"{'\n'.join(cls.PROJECT_IGNORES)}\n")
-            repository.stage((".",))
-            repository.commit(cls.INITIAL_COMMIT_MESSAGE)
-        return Workspace(workspace, config_file, created, repository_created)
+        Returns:
+            A session anchored to the notebook's initial topic.
+        """
+
+        return Session(
+            active_topic_id=self.notebook.initial_topic.id, initial_graph=self.notebook.graph.model_copy(deep=True)
+        )
 
     @cached_property
     def interviewer(self) -> Interviewer:
@@ -157,7 +148,7 @@ class Service:
         Commands that only read the notes never reach the provider.
 
         Returns:
-            The interviewer writing into this service's notebook.
+            The interviewer writing into this conversation's notebook.
         """
 
         return Interviewer(self.settings, self.notebook, lambda ready: self.update_session(ready_to_ralph=ready))
@@ -249,18 +240,18 @@ class Service:
         yield from self.interviewer.respond()
         self._save_turn()
 
-    def restore(self) -> tuple[list[Turn], bool]:
+    def restore(self) -> list[Turn]:
         """Restore interview session if present.
 
         Returns:
-            Interview turns and runtime session values.
+            The interview turns to show again.
 
         Raises:
             PersistenceError: If the session file is invalid.
         """
         if not self.session_file.exists():
             self.logger.info("restore_skipped reason=no_session_file")
-            return [], False
+            return []
         try:
             self.session = Session.model_validate_json(self.session_file.read_text())
             topics = {topic.id: topic for topic in self.notebook.graph.topics if topic.status != "trashed"}
@@ -272,7 +263,7 @@ class Service:
                 ),
                 self.session.active_topic_id,
             )
-            turns = self._get_turns()
+            turns = read_turns(self.interviewer.history, self.interviewer.tools, self.session)
         except (OSError, ValidationError, LookupError, TypeError) as error:
             raise PersistenceError(
                 f"Invalid session file `{self.session_file}`. Delete it to start a new conversation, "
@@ -280,7 +271,7 @@ class Service:
             ) from error
         self.interviewer.failed_call_ids = list(self.session.failed_call_ids)
         self.logger.info("restored interview_items=%d", len(self.session.interview))
-        return turns, self.session.show_thinking_blocks
+        return turns
 
     def update_session(self, **values: object) -> None:
         """Persist trusted values in the current session.
@@ -293,15 +284,9 @@ class Service:
             session = self.session.model_copy(
                 update={"failed_call_ids": list(self.interviewer.failed_call_ids), **values}
             )
-            temporary_path: str | None = None
             try:
-                with NamedTemporaryFile("w", dir=self.base_dir, delete=False, encoding="utf-8") as file:
-                    temporary_path = file.name
-                    file.write(session.model_dump_json())
-                Path(temporary_path).replace(self.session_file)
+                files.write_atomically(self.session_file, session.model_dump_json())
             except OSError as error:
-                if temporary_path is not None:
-                    Path(temporary_path).unlink(missing_ok=True)
                 self.logger.exception("session_write_failed path=%r", self.session_file)
                 raise PersistenceError(
                     f"Could not save the session file `{self.session_file}`: {error.strerror}"
@@ -335,43 +320,3 @@ class Service:
             failed_turn_error=None,
             stopped_turn=stopped,
         )
-
-    def _get_turns(self) -> list[Turn]:
-        tools_by_name = {tool.name: tool for tool in self.interviewer.tools}
-        turns: list[Turn] = []
-        for raw_item in self.interviewer.history[2:]:
-            item = cast("dict[str, Any]", raw_item)
-            if item.get("role") == "user" and item.get("content"):
-                turns.append(Turn(cast("str", item["content"]), []))
-                continue
-            if not turns:
-                continue
-            if item.get("type") == "function_call":
-                tool = tools_by_name[item["name"]]
-                turns[-1].items.append(
-                    InterviewItem("tool", tool.format_label(tool.finished_label, item["arguments"]), tool.symbol)
-                )
-                continue
-            if item.get("type") == "reasoning":
-                summary = "".join(part["text"] for part in item["summary"] if part["type"] == "summary_text")
-                reasoning = "".join(
-                    part["text"] for part in item.get("content", []) if part["type"] == "reasoning_text"
-                )
-                if summary or reasoning:
-                    turns[-1].items.append(InterviewItem("reasoning", summary or reasoning))
-                continue
-            if item.get("role") != "assistant" or "content" not in item:
-                continue
-            content = item["content"]
-            text = (
-                content
-                if isinstance(content, str)
-                else "".join(part["text"] for part in content if part["type"] == "output_text")
-            )
-            if text:
-                turns[-1].items.append(InterviewItem("assistant", text))
-        if turns and self.session.failed_turn_error:
-            turns[-1].items.append(InterviewItem("error", self.session.failed_turn_error))
-        elif turns and self.session.stopped_turn and all(item.type != "assistant" for item in turns[-1].items):
-            turns[-1].items.append(InterviewItem("stopped"))
-        return turns

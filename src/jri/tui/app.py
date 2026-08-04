@@ -15,8 +15,8 @@ from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, LoadingIndicator, Markdown, Static
 
 from jri.core.ai import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
+from jri.core.conversation import Conversation
 from jri.core.exceptions import RepositoryStateError
-from jri.core.service import Service
 from jri.lib import appearance
 from jri.lib.providers import codex
 
@@ -64,11 +64,12 @@ class App(TextualApp[None]):
     # 8. Misc helpers
     # Order alphabetically within each section, except for section 1
 
-    def __init__(self, service: Service) -> None:
+    def __init__(self, conversation: Conversation) -> None:
         super().__init__()
-        self.theme = styles.THEME_LIGHT if appearance.read_appearance() == "light" else styles.THEME_DARK
-        self.service = service
-        self.restored_turns, self.is_reasoning_visible = service.restore()
+        self.theme = styles.THEME_LIGHT if appearance.read() == "light" else styles.THEME_DARK
+        self.conversation = conversation
+        self.restored_turns = conversation.restore()
+        self.is_reasoning_visible = conversation.session.show_thinking_blocks
         # Restored turns mount newest-first, so this is also the
         # conversation index of the first mounted turn.
         self.restored_turn_index = len(self.restored_turns)
@@ -194,7 +195,7 @@ class App(TextualApp[None]):
         self.ralph_button.display = False
 
         if event.history_index is not None:
-            self.service.rewind(event.history_index)
+            self.conversation.rewind(event.history_index)
             await self._remove_turns(event.history_index)
             self.restored_turns = self.restored_turns[: event.history_index]
             self.restored_turn_index = min(self.restored_turn_index, event.history_index)
@@ -275,7 +276,7 @@ class App(TextualApp[None]):
 
         self.is_reasoning_visible = not self.is_reasoning_visible
         logger.info("reasoning_visibility_toggled visible=%r", self.is_reasoning_visible)
-        self.service.update_session(show_thinking_blocks=self.is_reasoning_visible)
+        self.conversation.update_session(show_thinking_blocks=self.is_reasoning_visible)
         for reasoning_block in self.query(Markdown):
             if reasoning_block.has_class(styles.INTERVIEWER_REASONING_CLASSES):
                 reasoning_block.display = self.is_reasoning_visible
@@ -286,7 +287,7 @@ class App(TextualApp[None]):
     def _ralph(self, turn_state: InterviewerTurnState) -> None:
         """Generate specifications and stream progress."""
 
-        events = self.service.ralph()
+        events = self.conversation.ralph()
         error: Exception | None = None
         try:
             for event in events:
@@ -305,9 +306,9 @@ class App(TextualApp[None]):
         replied = False
         error_copy: str | None = None
         chat_events = (
-            self.service.retry(turn_state.cancelled)
+            self.conversation.retry(turn_state.cancelled)
             if user_message is None
-            else self.service.chat(user_message, turn_state.cancelled)
+            else self.conversation.chat(user_message, turn_state.cancelled)
         )
         try:
             for chat_event in chat_events:
@@ -334,7 +335,7 @@ class App(TextualApp[None]):
                 self._call_from_thread(self._finish_cancelled_turn, turn_state)
             elif self.active_turn_state is turn_state:
                 if error_copy is not None:
-                    self.service.update_session(failed_turn_error=error_copy)
+                    self.conversation.update_session(failed_turn_error=error_copy)
                     self._call_from_thread(self._finish_failed_turn, turn_state, error_copy)
                 elif not replied:
                     self._call_from_thread(self._finish_empty_turn, turn_state)
@@ -660,7 +661,7 @@ class App(TextualApp[None]):
         if self.ralph_button.is_mounted:
             await self.ralph_button.remove()
         self.message_input.is_ralph_ready = False
-        if self.is_busy or not self.service.session.ready_to_ralph or not self.mounted_turns:
+        if self.is_busy or not self.conversation.session.ready_to_ralph or not self.mounted_turns:
             return
         self.ralph_button = Button(copy.RALPH_BUTTON, classes=styles.RALPH_BUTTON_CLASSES, compact=True)
         await self.mounted_turns[-1][1].mount(self.ralph_button)

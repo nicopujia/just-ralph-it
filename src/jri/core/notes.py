@@ -1,11 +1,12 @@
 import logging
 from difflib import SequenceMatcher
 from pathlib import Path
-from tempfile import NamedTemporaryFile
 from typing import Annotated, Any, Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
 from yaml import YAMLError, safe_dump, safe_load
+
+from jri.lib import files
 
 from .exceptions import PersistenceError
 
@@ -425,16 +426,9 @@ class Notebook:
         logger.debug("saved notes=%d connections=%d", len(graph.notes), len(graph.connections))
 
     def _write(self, graph: Graph) -> None:
-        temporary_path: str | None = None
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            with NamedTemporaryFile("w", dir=self.path.parent, delete=False, encoding="utf-8") as file:
-                temporary_path = file.name
-                file.write(self._dump(graph))
-            Path(temporary_path).replace(self.path)
+            files.write_atomically(self.path, self._dump(graph))
         except OSError as error:
-            if temporary_path is not None:
-                Path(temporary_path).unlink(missing_ok=True)
             logger.exception("file_write_failed path=%r", self.path)
             raise PersistenceError(f"Could not save the notebook file `{self.path}`: {error.strerror}") from error
 
