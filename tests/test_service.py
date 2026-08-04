@@ -13,9 +13,9 @@ from jri.core.exceptions import PersistenceError
 from jri.core.service import InterviewItem, Service
 from jri.core.settings import Settings
 from jri.lib import git
+from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, call, failure, partial_reply, reply, response
 from tests.doubles.settings import build_settings
-from tests.git import create_repository, run_git
 
 
 def build_service(path: Path, client: FakeClient) -> Service:
@@ -35,7 +35,7 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
     assert list((tmp_path / paths.LOGS_DIR).iterdir()) == []
 
 
-def test_commits_the_project_when_it_creates_the_repository(tmp_path: Path) -> None:
+def test_commits_the_project_when_it_creates_the_repository(tmp_path: Path, run_git: RunGit) -> None:
     (tmp_path / "main.py").write_text("print('hello')\n")
     (tmp_path / ".env").write_text("SECRET=1\n")
     (tmp_path / ".DS_Store").write_bytes(b"\x00")
@@ -68,7 +68,9 @@ def test_committing_a_new_repository_keeps_an_existing_ignore_file(tmp_path: Pat
     assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text() == "build/\n"
 
 
-def test_initializes_a_workspace_inside_an_existing_repository(tmp_path: Path) -> None:
+def test_initializes_a_workspace_inside_an_existing_repository(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
     repository = create_repository(tmp_path / "repo")
     nested = repository.path / "packages" / "app"
     nested.mkdir(parents=True)

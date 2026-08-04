@@ -4,9 +4,9 @@ import pytest
 
 from jri.core.ai import ToolCallFinished, ToolCallStarted, architect, functional_analyst
 from jri.core.service import Service
+from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
-from tests.git import create_repository, run_git
 
 FUNCTIONAL_PATCH = """\
 diff --git a/functional/behavior.md b/functional/behavior.md
@@ -104,7 +104,9 @@ def collect_tool_calls(service: Service) -> list[tuple[str, str, str]]:
     ]
 
 
-def test_commits_complete_specification_bundle(tmp_path: Path) -> None:
+def test_commits_complete_specification_bundle(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
     create_repository(tmp_path)
     service = build_service(tmp_path, successful_client())
 
@@ -125,7 +127,9 @@ def test_commits_complete_specification_bundle(tmp_path: Path) -> None:
     assert not run_git(tmp_path, "status", "--short")
 
 
-def test_commits_specifications_whose_patch_miscounts_its_hunk(tmp_path: Path) -> None:
+def test_commits_specifications_whose_patch_miscounts_its_hunk(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
     create_repository(tmp_path)
     client = FakeClient(
         [streamed_reply("Repository report"), response(reply("Specifications ready."))],
@@ -144,7 +148,9 @@ def test_commits_specifications_whose_patch_miscounts_its_hunk(tmp_path: Path) -
     assert service.session.active_spec_commit is not None
 
 
-def test_returns_ambiguities_to_the_interviewer_without_committing(tmp_path: Path) -> None:
+def test_returns_ambiguities_to_the_interviewer_without_committing(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
     create_repository(tmp_path)
     head = run_git(tmp_path, "rev-parse", "HEAD")
     ambiguity = "Choose whether output is JSON or plain text."
@@ -171,7 +177,7 @@ def test_returns_ambiguities_to_the_interviewer_without_committing(tmp_path: Pat
     assert restarted.session.active_spec_commit is None
 
 
-def test_reports_one_row_per_polishing_round(tmp_path: Path) -> None:
+def test_reports_one_row_per_polishing_round(tmp_path: Path, create_repository: CreateRepository) -> None:
     create_repository(tmp_path)
     client = FakeClient(
         [streamed_reply("Repository report"), response(reply("Specifications ready."))],
@@ -207,7 +213,9 @@ def test_reports_one_row_per_polishing_round(tmp_path: Path) -> None:
     assert service.session.active_spec_commit is not None
 
 
-def test_finishes_the_open_polishing_round_when_ambiguities_appear(tmp_path: Path) -> None:
+def test_finishes_the_open_polishing_round_when_ambiguities_appear(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
     create_repository(tmp_path)
     client = FakeClient(
         [streamed_reply("Repository report"), response(reply("Should the output be JSON or plain text?"))],
@@ -233,7 +241,9 @@ def test_finishes_the_open_polishing_round_when_ambiguities_appear(tmp_path: Pat
     assert service.session.active_spec_commit is None
 
 
-def test_updates_specs_after_restart_and_an_intervening_project_commit(tmp_path: Path) -> None:
+def test_updates_specs_after_restart_and_an_intervening_project_commit(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
     create_repository(tmp_path)
     service = build_service(tmp_path, successful_client())
     list(service.ralph())
@@ -278,7 +288,9 @@ def test_updates_specs_after_restart_and_an_intervening_project_commit(tmp_path:
     assert not run_git(tmp_path, "status", "--short")
 
 
-def test_shows_specifications_to_the_models_under_neutral_roots(tmp_path: Path) -> None:
+def test_shows_specifications_to_the_models_under_neutral_roots(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
     create_repository(tmp_path)
     list(build_service(tmp_path, successful_client()).ralph())
     client = updated_client()
@@ -296,7 +308,9 @@ def test_shows_specifications_to_the_models_under_neutral_roots(tmp_path: Path) 
     assert "File: architecture/design.md" in architect_input
 
 
-def test_commits_modified_configuration_with_specifications(tmp_path: Path) -> None:
+def test_commits_modified_configuration_with_specifications(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
     create_repository(tmp_path)
     service = build_service(tmp_path, successful_client())
     config = tmp_path / ".jri/config.yaml"
@@ -311,7 +325,7 @@ def test_commits_modified_configuration_with_specifications(tmp_path: Path) -> N
     assert not run_git(tmp_path, "status", "--short")
 
 
-def test_commits_specifications_onto_a_freshly_initialized_project(tmp_path: Path) -> None:
+def test_commits_specifications_onto_a_freshly_initialized_project(tmp_path: Path, run_git: RunGit) -> None:
     (tmp_path / "README.md").write_text("# New project\n")
     service = build_service(tmp_path, successful_client())
 
@@ -334,7 +348,9 @@ def test_commits_specifications_onto_a_freshly_initialized_project(tmp_path: Pat
     assert not run_git(tmp_path, "status", "--short")
 
 
-def test_refuses_unrelated_changes_before_generation(tmp_path: Path) -> None:
+def test_refuses_unrelated_changes_before_generation(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
     create_repository(tmp_path)
     service = build_service(tmp_path, FakeClient([]))
     (tmp_path / "unrelated.txt").write_text("block")
@@ -345,7 +361,9 @@ def test_refuses_unrelated_changes_before_generation(tmp_path: Path) -> None:
     assert run_git(tmp_path, "log", "--oneline").count("\n") == 0
 
 
-def test_refuses_to_commit_when_the_project_moved_during_generation(tmp_path: Path) -> None:
+def test_refuses_to_commit_when_the_project_moved_during_generation(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
     create_repository(tmp_path)
     service = build_service(tmp_path, successful_client())
     events = service.ralph()
@@ -358,7 +376,9 @@ def test_refuses_to_commit_when_the_project_moved_during_generation(tmp_path: Pa
     assert service.session.active_spec_commit is None
 
 
-def test_refuses_to_commit_when_the_notebook_moved_during_generation(tmp_path: Path) -> None:
+def test_refuses_to_commit_when_the_notebook_moved_during_generation(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
     create_repository(tmp_path)
     service = build_service(tmp_path, successful_client())
     events = service.ralph()
@@ -371,7 +391,9 @@ def test_refuses_to_commit_when_the_notebook_moved_during_generation(tmp_path: P
     assert service.session.active_spec_commit is None
 
 
-def test_refuses_a_project_file_renamed_onto_a_workspace_path(tmp_path: Path) -> None:
+def test_refuses_a_project_file_renamed_onto_a_workspace_path(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
     create_repository(tmp_path)
     service = build_service(tmp_path, FakeClient([]))
     run_git(tmp_path, "mv", "-f", "README.md", ".jri/notebook.yaml")
@@ -382,7 +404,9 @@ def test_refuses_a_project_file_renamed_onto_a_workspace_path(tmp_path: Path) ->
     assert run_git(tmp_path, "log", "--oneline").count("\n") == 0
 
 
-def test_refuses_existing_specifications_without_an_active_commit(tmp_path: Path) -> None:
+def test_refuses_existing_specifications_without_an_active_commit(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
     create_repository(tmp_path)
     spec = tmp_path / ".jri/specs/functional/behavior.md"
     spec.parent.mkdir(parents=True)
@@ -403,7 +427,9 @@ def test_refuses_active_commit_missing_from_git(tmp_path: Path) -> None:
         list(service.ralph())
 
 
-def test_refuses_active_commit_unreachable_from_head(tmp_path: Path) -> None:
+def test_refuses_active_commit_unreachable_from_head(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
     create_repository(tmp_path)
     initial = run_git(tmp_path, "rev-parse", "HEAD")
     (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
@@ -418,7 +444,9 @@ def test_refuses_active_commit_unreachable_from_head(tmp_path: Path) -> None:
         list(service.ralph())
 
 
-def test_refuses_specifications_edited_outside_jri(tmp_path: Path) -> None:
+def test_refuses_specifications_edited_outside_jri(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
     create_repository(tmp_path)
     service = build_service(tmp_path, successful_client())
     list(service.ralph())
@@ -481,7 +509,9 @@ def test_refuses_specifications_edited_outside_jri(tmp_path: Path) -> None:
         "empty",
     ],
 )
-def test_refuses_unsafe_specification_patch(tmp_path: Path, patch: str, reason: str) -> None:
+def test_refuses_unsafe_specification_patch(
+    tmp_path: Path, patch: str, reason: str, create_repository: CreateRepository
+) -> None:
     create_repository(tmp_path)
     client = FakeClient(
         [],

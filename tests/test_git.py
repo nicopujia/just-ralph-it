@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from jri.lib import git
-from tests.git import create_repository, run_git
+from tests.conftest import CreateRepository, RunGit
 
 
 def test_rejects_missing_git_and_initializes_repository(tmp_path: Path) -> None:
@@ -16,7 +16,7 @@ def test_rejects_missing_git_and_initializes_repository(tmp_path: Path) -> None:
     assert not repository.has_commit()
 
 
-def test_finds_worktree_root_from_any_subdirectory(tmp_path: Path) -> None:
+def test_finds_worktree_root_from_any_subdirectory(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     nested = repository.path / "packages" / "app"
     nested.mkdir(parents=True)
@@ -26,7 +26,9 @@ def test_finds_worktree_root_from_any_subdirectory(tmp_path: Path) -> None:
     assert git.find_root(tmp_path) is None
 
 
-def test_inspects_revisions_files_diffs_and_status(tmp_path: Path) -> None:
+def test_inspects_revisions_files_diffs_and_status(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
     repository = create_repository(tmp_path / "repo")
     first = repository.read_head()
     (repository.path / "README.md").write_text("second\n")
@@ -52,7 +54,9 @@ def test_inspects_revisions_files_diffs_and_status(tmp_path: Path) -> None:
     )
 
 
-def test_reports_renames_with_their_original_path(tmp_path: Path) -> None:
+def test_reports_renames_with_their_original_path(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
     repository = create_repository(tmp_path / "repo")
     run_git(repository.path, "mv", "README.md", "docs.md")
     (repository.path / "untracked.md").write_text("new\n")
@@ -65,7 +69,7 @@ def test_reports_renames_with_their_original_path(tmp_path: Path) -> None:
     ]
 
 
-def test_applies_patch(tmp_path: Path) -> None:
+def test_applies_patch(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     (repository.path / "README.md").write_text("updated\n")
     patch = repository.diff("HEAD", paths=["README.md"])
@@ -80,7 +84,7 @@ def test_applies_patch(tmp_path: Path) -> None:
         repository.apply_patch(patch)
 
 
-def test_applies_patch_below_a_directory(tmp_path: Path) -> None:
+def test_applies_patch_below_a_directory(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     patch = b"""\
 diff --git a/notes.md b/notes.md
@@ -97,7 +101,7 @@ new file mode 100644
     assert repository.read_status() == (git.Status("docs/internal/notes.md", "A", " "),)
 
 
-def test_creates_and_removes_worktree(tmp_path: Path) -> None:
+def test_creates_and_removes_worktree(tmp_path: Path, create_repository: CreateRepository, run_git: RunGit) -> None:
     repository = create_repository(tmp_path / "repo")
 
     with repository.open_worktree() as worktree:
@@ -110,7 +114,9 @@ def test_creates_and_removes_worktree(tmp_path: Path) -> None:
     assert str(location) not in run_git(repository.path, "worktree", "list", "--porcelain")
 
 
-def test_clears_worktrees_leaked_by_a_killed_process(tmp_path: Path) -> None:
+def test_clears_worktrees_leaked_by_a_killed_process(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
     repository = create_repository(tmp_path / "repo")
     leaked = tmp_path / "orphan"
     run_git(repository.path, "worktree", "add", "--detach", str(leaked), "HEAD")

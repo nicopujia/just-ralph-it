@@ -1,11 +1,58 @@
 import logging
+import shutil
 import socket
-from collections.abc import Iterator
+import subprocess
+from collections.abc import Callable, Iterator
+from pathlib import Path
 from typing import Never
 
 import pytest
 
+from jri.lib import git
 from tests.doubles.models import serve_catalog
+
+type CreateRepository = Callable[[Path], git.Repository]
+type RunGit = Callable[..., str]
+
+
+@pytest.fixture
+def run_git() -> RunGit:
+    """Run Git commands inside a worktree.
+
+    Returns:
+        A callable taking a worktree path and Git arguments, and
+        returning the command's trimmed standard output.
+    """
+
+    executable = shutil.which("git")
+    assert executable is not None
+
+    def run(path: Path, *arguments: str) -> str:
+        return subprocess.run(
+            [executable, "-C", str(path), *arguments], check=True, capture_output=True, text=True
+        ).stdout.strip()
+
+    return run
+
+
+@pytest.fixture
+def create_repository(run_git: RunGit) -> CreateRepository:
+    """Create repositories holding a single committed file.
+
+    Returns:
+        A callable taking a path and returning the repository made
+        at it.
+    """
+
+    def create(path: Path) -> git.Repository:
+        path.mkdir(parents=True, exist_ok=True)
+        run_git(path, "init", "-q")
+        (path / "README.md").write_text("# Project\n")
+        run_git(path, "add", "README.md")
+        run_git(path, "commit", "-qm", "initial")
+        return git.Repository(path)
+
+    return create
 
 
 @pytest.fixture(autouse=True)
