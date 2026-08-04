@@ -15,9 +15,9 @@ For more info, refer to the [concept document](https://nicolaspujia.com/just-ral
 
 - DDD naming (eg just `Agent.get_context`, NEVER `BaseOpenAIAgent.get_agent_context`)
 - Function and method names as verbs (except for event handlers and decorators)
-- Higher-level or public functions above lower-level or private ones
 - Helper functions only for repeated logic, unavoidable extractions, or addressing linter alerts
-- Module-level variables in groups one blank line apart: dunders (eg `__all__`), then constants (never private), then lowercase ones (eg `logger`)
+- Module members in groups one blank line apart: dunders (eg `__all__`), types (eg `type ChatEvent = ...`), constants (never private), variables (eg `logger`), public functions, public classes, private functions, private classes
+- Class members: constants, magic methods, nested types (eg `MessageInput.Submitted`), public methods, private methods; decorated methods sort by visibility (a public `@property` is a public method)
 - Import paths <=3 levels
 
 ## Commands
