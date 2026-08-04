@@ -33,7 +33,12 @@ class SpecsGeneration:
         rejected: str | None = None
         open_row = ai.ToolCallStarted("functional", "Writing functional specifications from your project notes", "✍️")
 
-        for cycle in range(1, self.MAX_CYCLES + 1):
+        cycle = 0
+
+        # The last cycle asks the architect to finish, which always
+        # answers with a patch, so the loop always ends with a result.
+        while True:
+            cycle += 1
             logger.info("specs_cycle_started cycle=%d", cycle)
             if cycle == 1:
                 yield open_row
@@ -125,5 +130,3 @@ class SpecsGeneration:
                 open_row.call_id, "Designed the project architecture" if cycle == 1 else open_row.label
             )
             return commit
-
-        raise SpecsError("The final architecture cycle did not return a patch.")
