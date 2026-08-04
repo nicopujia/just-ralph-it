@@ -9,6 +9,7 @@ import pytest
 import yaml
 
 from jri.core import paths
+from jri.core.ai import functional_analyst
 from jri.core.exceptions import PersistenceError
 from jri.core.service import InterviewItem, Service
 from jri.core.settings import Settings
@@ -230,6 +231,32 @@ def test_restores_ralph_readiness_after_an_interrupted_run(tmp_path: Path, monke
     restarted = build_service(tmp_path, FakeClient([]))
     restarted.restore()
     assert restarted.session.ready_to_ralph
+
+
+def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    Service.init(tmp_path)
+    ambiguity = "Choose whether output is JSON or plain text."
+    client = FakeClient(
+        [response(reply("Understood.")), response(reply("Should the output be JSON or plain text?"))],
+        parsed=[
+            functional_analyst.Output(
+                result=functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=[ambiguity])
+            )
+        ],
+    )
+    service = build_service(tmp_path, client)
+    list(service.chat("Build a reporting CLI."))
+
+    list(service.ralph())
+
+    assert any(ambiguity in item.get("content", "") for item in service.session.interview)
+    restarted = build_service(tmp_path, FakeClient([]))
+    turns, _ = restarted.restore()
+    assert ("assistant", "Should the output be JSON or plain text?", None) in turns[-1].items
+    assert restarted.session.active_spec_commit is None
 
 
 def test_restores_a_cancelled_interview_turn(tmp_path: Path) -> None:

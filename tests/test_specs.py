@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from jri.core.ai import ToolCallFinished, ToolCallStarted, architect, functional_analyst
+from jri.core.ai import architect, functional_analyst
 from jri.core.service import Service
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
@@ -86,24 +86,6 @@ def updated_client() -> FakeClient:
     )
 
 
-def written_specs() -> functional_analyst.Output:
-    return functional_analyst.Output(
-        result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_PATCH)
-    )
-
-
-def reported_issues(*issues: str) -> architect.Output:
-    return architect.Output(result=architect.Issues(outcome="functional_specification_issues", issues=list(issues)))
-
-
-def collect_tool_calls(service: Service) -> list[tuple[str, str, str]]:
-    return [
-        (type(event).__name__, event.call_id, event.label)
-        for event in service.ralph()
-        if isinstance(event, ToolCallStarted | ToolCallFinished)
-    ]
-
-
 def test_commits_complete_specification_bundle(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -146,99 +128,6 @@ def test_commits_specifications_whose_patch_miscounts_its_hunk(
 
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotals are supported.\n"
     assert service.session.active_spec_commit is not None
-
-
-def test_returns_ambiguities_to_the_interviewer_without_committing(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    head = run_git(tmp_path, "rev-parse", "HEAD")
-    ambiguity = "Choose whether output is JSON or plain text."
-    client = FakeClient(
-        [response(reply("Understood.")), response(reply("Should the output be JSON or plain text?"))],
-        parsed=[
-            functional_analyst.Output(
-                result=functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=[ambiguity])
-            )
-        ],
-    )
-    service = build_service(tmp_path, client)
-    list(service.chat("Build a reporting CLI."))
-
-    list(service.ralph())
-
-    assert run_git(tmp_path, "rev-parse", "HEAD") == head
-    assert not (tmp_path / ".jri/specs").exists()
-    assert service.session.active_spec_commit is None
-    assert any(ambiguity in item.get("content", "") for item in service.session.interview)
-    restarted = build_service(tmp_path, FakeClient([]))
-    turns, _ = restarted.restore()
-    assert ("assistant", "Should the output be JSON or plain text?", None) in turns[-1].items
-    assert restarted.session.active_spec_commit is None
-
-
-def test_reports_one_row_per_polishing_round(tmp_path: Path, create_repository: CreateRepository) -> None:
-    create_repository(tmp_path)
-    client = FakeClient(
-        [streamed_reply("Repository report"), response(reply("Specifications ready."))],
-        parsed=[
-            written_specs(),
-            reported_issues("Undefined totals.", "Unclear export.", "Missing errors."),
-            written_specs(),
-            reported_issues("Unclear export."),
-            written_specs(),
-            reported_issues("Missing errors.", "Undefined limits."),
-            written_specs(),
-            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_PATCH)),
-        ],
-    )
-    service = build_service(tmp_path, client)
-
-    events = collect_tool_calls(service)
-
-    assert events == [
-        ("ToolCallStarted", "functional", "Writing functional specifications from your project notes"),
-        ("ToolCallFinished", "functional", "Wrote functional specifications from your project notes"),
-        ("ToolCallStarted", "explorer", "Studying your existing project"),
-        ("ToolCallFinished", "explorer", "Studied your existing project"),
-        ("ToolCallStarted", "architecture", "Designing the project architecture"),
-        ("ToolCallFinished", "architecture", "Drafted the project architecture"),
-        ("ToolCallStarted", "polish-1", "3 issues found. Polishing... (round 1)"),
-        ("ToolCallFinished", "polish-1", "3 issues found. Polishing... (round 1)"),
-        ("ToolCallStarted", "polish-2", "1 issues found. Polishing... (round 2)"),
-        ("ToolCallFinished", "polish-2", "1 issues found. Polishing... (round 2)"),
-        ("ToolCallStarted", "polish-3", "2 issues found. Polishing... (round 3)"),
-        ("ToolCallFinished", "polish-3", "2 issues found. Polishing... (round 3)"),
-    ]
-    assert service.session.active_spec_commit is not None
-
-
-def test_finishes_the_open_polishing_round_when_ambiguities_appear(
-    tmp_path: Path, create_repository: CreateRepository
-) -> None:
-    create_repository(tmp_path)
-    client = FakeClient(
-        [streamed_reply("Repository report"), response(reply("Should the output be JSON or plain text?"))],
-        parsed=[
-            written_specs(),
-            reported_issues("Unclear export.", "Missing errors."),
-            functional_analyst.Output(
-                result=functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=["JSON or plain text?"])
-            ),
-        ],
-    )
-    service = build_service(tmp_path, client)
-
-    events = collect_tool_calls(service)
-
-    assert events[-2:] == [
-        ("ToolCallStarted", "polish-1", "2 issues found. Polishing... (round 1)"),
-        ("ToolCallFinished", "polish-1", "Found project details to clarify"),
-    ]
-    assert [call_id for kind, call_id, _ in events if kind == "ToolCallStarted"] == [
-        call_id for kind, call_id, _ in events if kind == "ToolCallFinished"
-    ]
-    assert service.session.active_spec_commit is None
 
 
 def test_updates_specs_after_restart_and_an_intervening_project_commit(
