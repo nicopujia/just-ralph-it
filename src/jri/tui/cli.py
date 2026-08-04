@@ -6,6 +6,7 @@ from pathlib import Path
 import yaml
 from dotenv import load_dotenv
 from pydantic import ValidationError
+from pydantic_core import ErrorDetails
 
 from jri import __version__
 from jri.core import logs, paths
@@ -103,12 +104,24 @@ def _load_settings() -> Settings:
         return Settings.load(project_dir)
     except (ValidationError, yaml.YAMLError) as error:
         error_lines = (
-            [f"- {'.'.join(map(str, issue['loc'])) or 'configuration'}: {issue['msg']}" for issue in error.errors()]
+            [_describe_issue(issue) for issue in error.errors()]
             if isinstance(error, ValidationError)
             else [f"- {error}"]
         )
         print(copy.CONFIG_ERROR.format(errors="\n".join(error_lines)))
         raise SystemExit(1) from error
+
+
+def _describe_issue(issue: ErrorDetails) -> str:
+    setting = ".".join(map(str, issue["loc"])) or "configuration"
+    if issue["type"] != "extra_forbidden":
+        return f"- {setting}: {issue['msg']}"
+    # A key the settings do not declare reads as a typo to the person
+    # who wrote it, not as the schema violation Pydantic reports.
+    suggestion = Settings.suggest_setting(issue["loc"])
+    return f"- {setting}: " + (
+        copy.UNKNOWN_SETTING_SUGGESTION.format(setting=suggestion) if suggestion else copy.UNKNOWN_SETTING
+    )
 
 
 def _confirm_reset(project_dir: Path) -> bool:

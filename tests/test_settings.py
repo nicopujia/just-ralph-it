@@ -84,6 +84,27 @@ def test_reports_a_setting_it_does_not_know(tmp_path: Path) -> None:
         Settings.load(tmp_path)
 
 
+def test_suggests_the_setting_a_mistyped_key_resembles() -> None:
+    assert Settings.suggest_setting(("llm", "provder")) == "llm.provider"
+    assert Settings.suggest_setting(("lgging",)) == "logging"
+    assert Settings.suggest_setting(("brave_search", "api-key")) == "brave_search.api_key"
+
+
+def test_suggests_the_setting_an_abbreviated_key_begins() -> None:
+    assert Settings.suggest_setting(("agents", "explorer", "temp")) == "agents.explorer.temperature"
+    assert Settings.suggest_setting(("agents", "explorer", "reasoning")) == "agents.explorer.reasoning_effort"
+
+
+def test_suggests_nothing_for_a_key_no_setting_resembles() -> None:
+    assert Settings.suggest_setting(("agents", "designer")) is None
+    assert Settings.suggest_setting(("cwdd",)) is None
+    assert Settings.suggest_setting(("nowhere", "provder")) is None
+
+
+def test_suggests_nothing_for_a_key_several_settings_begin() -> None:
+    assert Settings.suggest_setting(("l",)) is None
+
+
 def test_leaves_omitted_model_options_to_the_model(tmp_path: Path) -> None:
     config = yaml.safe_load(Settings.render_config())
     config["agents"]["explorer"].pop("reasoning_effort", None)

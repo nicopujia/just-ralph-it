@@ -93,5 +93,7 @@ TITLE = "Just Ralph It"
 
 UNDO_MESSAGE = "Undo message"
 UNDO_MESSAGE_KEY = "^x u"
+UNKNOWN_SETTING = "There is no such setting."
+UNKNOWN_SETTING_SUGGESTION = "There is no such setting. Did you mean {setting}?"
 
 WORKSPACE_MISSING = "No JRI workspace here. Run `jri init` to create one."

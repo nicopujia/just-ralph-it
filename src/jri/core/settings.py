@@ -1,3 +1,4 @@
+import difflib
 import os
 import textwrap
 from pathlib import Path
@@ -159,6 +160,26 @@ class Settings(BaseModel):
     def render_config(cls) -> str:
         intro = [f"# {line}" for line in textwrap.wrap(CONFIG_INTRO, COMMENT_WIDTH)]
         return "\n".join([*intro, "", *_render_settings(cls, None, 0), ""])
+
+    @classmethod
+    def suggest_setting(cls, path: tuple[int | str, ...]) -> str | None:
+        model: type[BaseModel] = cls
+        for key in map(str, path[:-1]):
+            annotation = model.model_fields[key].annotation if key in model.model_fields else None
+            if not (isinstance(annotation, type) and issubclass(annotation, BaseModel)):
+                return None
+            model = annotation
+        # Settings the file has no say in are not worth suggesting.
+        candidates = [name for name, field in model.model_fields.items() if not field.exclude]
+        unknown = str(path[-1])
+        matches = difflib.get_close_matches(unknown, candidates, n=1)
+        if not matches:
+            # An abbreviation is too short to score as similar to the
+            # name it stands for, however plainly it points at one, so
+            # it is worth a suggestion while it points at only one.
+            prefixed = [name for name in candidates if name.startswith(unknown)]
+            matches = prefixed if len(prefixed) == 1 else []
+        return ".".join([*map(str, path[:-1]), *matches]) if matches else None
 
     @model_validator(mode="after")
     def validate_api_keys(self) -> "Settings":
