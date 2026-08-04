@@ -17,11 +17,11 @@ if TYPE_CHECKING:
     from openai.types.responses import ResponseFunctionCallOutputItemListParam
 
 
+TRUNCATION_NOTICE = "[Output truncated. Try splitting into more targeted calls.]"
+
+
 def build_explorer(path: Path) -> Explorer:
     return Explorer(build_settings(path, FakeClient([])))
-
-
-TRUNCATION_NOTICE = "[Output truncated. Try splitting into more targeted calls.]"
 
 
 @pytest.mark.parametrize("temperature", [0, None], ids=["configured", "omitted"])

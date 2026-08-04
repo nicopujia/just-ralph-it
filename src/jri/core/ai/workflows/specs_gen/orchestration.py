@@ -16,10 +16,9 @@ if TYPE_CHECKING:
 
     from jri.core.settings import Settings
 
-logger = logging.getLogger(__name__)
-
-
 type SpecsResult = functional_analyst.Ambiguities | str
+
+logger = logging.getLogger(__name__)
 
 
 class SpecsGen:

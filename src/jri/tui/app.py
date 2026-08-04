@@ -56,12 +56,12 @@ class App(TextualApp[None]):
     # Methods order:
     # 1. Magic methods
     # 2. Misc overrides
-    # 2. Event handlers
-    # 3. Actions
-    # 4. Workers
-    # 5. Callbacks
-    # 6. Rendering helpers
-    # 7. Misc helpers
+    # 3. Event handlers
+    # 4. Actions
+    # 5. Workers
+    # 6. Callbacks
+    # 7. Rendering helpers
+    # 8. Misc helpers
     # Order alphabetically within each section, except for section 1
 
     def __init__(self, service: Service) -> None:
@@ -165,6 +165,12 @@ class App(TextualApp[None]):
             event.message_input.select_next()
             self._preview_history()
 
+    def on_message_input_ralph_requested(self) -> None:
+        """Start Ralphing from the keyboard shortcut."""
+
+        if self.ralph_button.is_mounted and self.ralph_button.display and not self.is_busy:
+            self._start_ralphing()
+
     async def on_message_input_retry_requested(self) -> None:
         """Retry the latest failed interviewer turn."""
 
@@ -173,12 +179,6 @@ class App(TextualApp[None]):
         ]
         if retry_buttons and not self.is_busy:
             await self._retry(retry_buttons[-1])
-
-    def on_message_input_ralph_requested(self) -> None:
-        """Start Ralphing from the keyboard shortcut."""
-
-        if self.ralph_button.is_mounted and self.ralph_button.display and not self.is_busy:
-            self._start_ralphing()
 
     async def on_message_input_submitted(self, event: MessageInput.Submitted) -> None:
         """Send a submitted user message to the interviewer."""
@@ -541,25 +541,6 @@ class App(TextualApp[None]):
 
     # --- Helpers ---------------------------------------------------- #
 
-    def _call_from_thread(self, callback: Callable[..., Any], *args: object) -> None:
-        if not self.is_running:
-            return
-        try:
-            self.call_from_thread(callback, *args)
-        except RuntimeError:
-            if self.is_running:
-                raise
-
-    def _follow_bottom(self, turn_state: InterviewerTurnState) -> None:
-        """Follow a generating turn to the bottom when enabled."""
-
-        if turn_state.follow_bottom:
-            self.messages_container.anchor()
-
-    def _hide_older_history(self) -> None:
-        for index, (user_message, interviewer_turn) in enumerate(self.mounted_turns):
-            user_message.display = interviewer_turn.display = index >= len(self.mounted_turns) - c.HISTORY_BATCH_SIZE
-
     def _build_restored_turns(self, start: int, end: int) -> list[tuple[Markdown, Vertical]]:
         restored_turns: list[tuple[Markdown, Vertical]] = []
         for turn in self.restored_turns[start:end]:
@@ -597,6 +578,25 @@ class App(TextualApp[None]):
     def _build_retry_button() -> Button:
         return Button(c.RETRY_COPY, classes=c.RETRY_BUTTON_CLASSES, compact=True)
 
+    def _call_from_thread(self, callback: Callable[..., Any], *args: object) -> None:
+        if not self.is_running:
+            return
+        try:
+            self.call_from_thread(callback, *args)
+        except RuntimeError:
+            if self.is_running:
+                raise
+
+    def _follow_bottom(self, turn_state: InterviewerTurnState) -> None:
+        """Follow a generating turn to the bottom when enabled."""
+
+        if turn_state.follow_bottom:
+            self.messages_container.anchor()
+
+    def _hide_older_history(self) -> None:
+        for index, (user_message, interviewer_turn) in enumerate(self.mounted_turns):
+            user_message.display = interviewer_turn.display = index >= len(self.mounted_turns) - c.HISTORY_BATCH_SIZE
+
     def _preview_history(self) -> None:
         if self.message_input.history_index == self.message_input.message_count:
             self._hide_older_history()
@@ -611,6 +611,41 @@ class App(TextualApp[None]):
             await user_message.remove()
             await interviewer_turn.remove()
         del self.mounted_turns[offset:]
+
+    def _request_cancellation(self) -> None:
+        if self.active_turn_state is not None and not self.active_turn_state.cancelled.is_set():
+            self.active_turn_state.cancelled.set()
+            self.notify("Stopping response…", timeout=1)
+            logger.info("interviewer_turn_cancellation_requested")
+
+    async def _restore_history(self) -> None:
+        """Rebuild the visible chat history from persisted items."""
+
+        if self.restored_turns:
+            self.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
+            await self._load_older_history()
+        logger.info(
+            "history_restored turns=%d remaining=%d reasoning_visible=%r",
+            len(self.restored_turns) - self.restored_turn_index,
+            self.restored_turn_index,
+            self.is_reasoning_visible,
+        )
+
+    async def _retry(self, button: Button) -> None:
+        container = cast("Vertical", button.parent)
+        self.ralph_button.display = False
+        for child in list(container.children):
+            if child is not button:
+                await child.remove()
+        placeholder = Markdown(c.INTERVIEWER_THINKING_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES)
+        await container.mount(placeholder, before=button)
+        turn_state = InterviewerTurnState(container=container, placeholder=placeholder, retry_button=button)
+        self.active_turn_state = turn_state
+        button.disabled = True
+        self.last_escape_at = 0.0
+        App.ALLOW_SELECT = False
+        self.messages_container.anchor()
+        self._send_message(None, turn_state)
 
     def _start_ralphing(self) -> None:
         if self.is_busy or not self.mounted_turns:
@@ -637,38 +672,3 @@ class App(TextualApp[None]):
 
     def _sync_retry_shortcut(self) -> None:
         self.message_input.is_retry_ready = any(button.display for button in self.query(f".{c.RETRY_BUTTON_CLASSES}"))
-
-    async def _retry(self, button: Button) -> None:
-        container = cast("Vertical", button.parent)
-        self.ralph_button.display = False
-        for child in list(container.children):
-            if child is not button:
-                await child.remove()
-        placeholder = Markdown(c.INTERVIEWER_THINKING_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES)
-        await container.mount(placeholder, before=button)
-        turn_state = InterviewerTurnState(container=container, placeholder=placeholder, retry_button=button)
-        self.active_turn_state = turn_state
-        button.disabled = True
-        self.last_escape_at = 0.0
-        App.ALLOW_SELECT = False
-        self.messages_container.anchor()
-        self._send_message(None, turn_state)
-
-    def _request_cancellation(self) -> None:
-        if self.active_turn_state is not None and not self.active_turn_state.cancelled.is_set():
-            self.active_turn_state.cancelled.set()
-            self.notify("Stopping response…", timeout=1)
-            logger.info("interviewer_turn_cancellation_requested")
-
-    async def _restore_history(self) -> None:
-        """Rebuild the visible chat history from persisted items."""
-
-        if self.restored_turns:
-            self.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
-            await self._load_older_history()
-        logger.info(
-            "history_restored turns=%d remaining=%d reasoning_visible=%r",
-            len(self.restored_turns) - self.restored_turn_index,
-            self.restored_turn_index,
-            self.is_reasoning_visible,
-        )

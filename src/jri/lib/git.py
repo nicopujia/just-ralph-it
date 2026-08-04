@@ -15,6 +15,22 @@ __all__ = ["Error", "NotInstalledError", "NotRepositoryError", "Repository", "St
 logger = logging.getLogger(__name__)
 
 
+def find_root(path: Path) -> Path | None:
+    """Find the worktree a path belongs to, without creating one.
+
+    Returns:
+        The worktree root, or ``None`` outside any repository.
+    """
+
+    executable = shutil.which("git")
+    if executable is None:
+        return None
+    result = subprocess.run(
+        [executable, "-C", str(path), "rev-parse", "--show-toplevel"], check=False, capture_output=True
+    )
+    return Path(os.fsdecode(result.stdout).strip()).resolve() if not result.returncode else None
+
+
 class Error(RuntimeError):
     """Raised when a Git command fails."""
 
@@ -35,22 +51,6 @@ class Status:
     index: str
     worktree: str
     original_path: str | None = None
-
-
-def find_root(path: Path) -> Path | None:
-    """Find the worktree a path belongs to, without creating one.
-
-    Returns:
-        The worktree root, or ``None`` outside any repository.
-    """
-
-    executable = shutil.which("git")
-    if executable is None:
-        return None
-    result = subprocess.run(
-        [executable, "-C", str(path), "rev-parse", "--show-toplevel"], check=False, capture_output=True
-    )
-    return Path(os.fsdecode(result.stdout).strip()).resolve() if not result.returncode else None
 
 
 class Repository:

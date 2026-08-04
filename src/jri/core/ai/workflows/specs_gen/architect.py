@@ -8,6 +8,8 @@ from jri.core import paths
 from jri.core.ai import LLMRunner
 from jri.core.settings import Settings
 
+type Result = Issues | Patch
+
 
 class Input(BaseModel):
     """Input for designing an architecture for accepted behavior."""
@@ -30,9 +32,6 @@ class Patch(BaseModel):
 
     outcome: Literal["architecture_patch"]
     patch: str
-
-
-type Result = Issues | Patch
 
 
 class Output(BaseModel):

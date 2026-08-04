@@ -8,13 +8,6 @@ from typing import Any, Self, cast
 type Round = Iterable[SimpleNamespace]
 
 
-class FakeClient:
-    """Stand-in for the OpenAI client, replaying canned rounds."""
-
-    def __init__(self, rounds: Iterable[Round], *, parsed: Iterable[object] = ()) -> None:
-        self.responses = _Responses(rounds, parsed)
-
-
 def response(*outputs: dict[str, Any]) -> Round:
     events = [
         SimpleNamespace(type="response.output_item.done", output_index=index, item=_Item(output))
@@ -57,6 +50,13 @@ def call(call_id: str, name: str, **arguments: object) -> dict[str, Any]:
 
 def reply(text: str) -> dict[str, Any]:
     return {"type": "message", "role": "assistant", "content": [{"type": "output_text", "text": text}]}
+
+
+class FakeClient:
+    """Stand-in for the OpenAI client, replaying canned rounds."""
+
+    def __init__(self, rounds: Iterable[Round], *, parsed: Iterable[object] = ()) -> None:
+        self.responses = _Responses(rounds, parsed)
 
 
 class _Responses:

@@ -9,11 +9,11 @@ from yaml import YAMLError, safe_dump, safe_load
 
 from .exceptions import PersistenceError
 
-logger = logging.getLogger(__name__)
-
 type TopicId = Annotated[str, Field(pattern=r"^t\d+$")]
 type NoteId = Annotated[str, Field(pattern=r"^n\d+$")]
 type NodeId = Annotated[str, Field(pattern=r"^[nt]\d+$")]
+
+logger = logging.getLogger(__name__)
 
 
 class Topic(BaseModel):

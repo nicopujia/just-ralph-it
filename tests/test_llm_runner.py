@@ -10,10 +10,6 @@ if TYPE_CHECKING:
     from openai import OpenAI
 
 
-class Output(BaseModel):
-    answer: str
-
-
 def build_runner(parsed: object) -> LLMRunner:
     return LLMRunner(client=cast("OpenAI", FakeClient([], parsed=[parsed])), model="test")
 
@@ -60,3 +56,7 @@ def test_rejects_a_context_over_the_input_size_limit() -> None:
 
     with pytest.raises(RuntimeError, match="over the 10 byte limit"):
         runner.parse([{"role": "user", "content": "far too many bytes"}], Output)
+
+
+class Output(BaseModel):
+    answer: str

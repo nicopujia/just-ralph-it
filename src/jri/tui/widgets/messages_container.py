@@ -16,6 +16,12 @@ class MessagesContainer(VerticalScroll):
         self.on_top = on_top
 
     @override
+    def watch_scroll_y(self, old_value: float, new_value: float) -> None:
+        super().watch_scroll_y(old_value, new_value)
+        if old_value > 0 and new_value <= 0:
+            self._load_older()
+
+    @override
     def _on_mouse_scroll_up(self, event: events.MouseScrollUp) -> None:
         if not event.ctrl and not event.shift:
             self.on_scroll()
@@ -28,12 +34,6 @@ class MessagesContainer(VerticalScroll):
         if not event.ctrl and not event.shift:
             self.on_scroll()
         super()._on_mouse_scroll_down(event)
-
-    @override
-    def watch_scroll_y(self, old_value: float, new_value: float) -> None:
-        super().watch_scroll_y(old_value, new_value)
-        if old_value > 0 and new_value <= 0:
-            self._load_older()
 
     def _load_older(self) -> None:
         self.run_worker(self.on_top(), group="history")

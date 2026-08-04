@@ -32,6 +32,16 @@ CONFIG_INTRO = (
 RUNTIME_FIELDS = frozenset({"cwd", "force"})
 
 
+def read_api_key(variable: str) -> str:
+    """Read the API key held by the named environment variable.
+
+    Returns:
+        The API key.
+    """
+
+    return os.environ[variable]
+
+
 class Agent(BaseModel):
     """Model configuration for an agent."""
 
@@ -70,16 +80,6 @@ class Agents(BaseModel):
             "Designs the system that satisfies those specifications. Recommended model type: as smart as possible."
         ),
     )
-
-
-def read_api_key(variable: str) -> str:
-    """Read the API key held by the named environment variable.
-
-    Returns:
-        The API key.
-    """
-
-    return os.environ[variable]
 
 
 class LLM(BaseSettings):
@@ -145,40 +145,6 @@ class Logging(BaseSettings):
     )
 
     model_config = SettingsConfigDict(env_prefix="JRI_LOGGING_", extra="ignore")
-
-
-def _build_file_schema(model: type[BaseModel]) -> type[BaseModel]:
-    """Build the schema the configuration file is allowed to set.
-
-    Every field is optional so the file may leave settings to the other
-    sources, and unknown keys are rejected.
-
-    Returns:
-        A model mirroring the settings the file may define.
-    """
-
-    fields: dict[str, Any] = {}
-    for name, field in model.model_fields.items():
-        annotation: Any = field.annotation
-        if name in RUNTIME_FIELDS:
-            continue
-        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-            section = _build_file_schema(annotation)
-            if section.model_fields:
-                fields[name] = (section | None, None)
-        else:
-            fields[name] = (annotation | None, None)
-    return create_model(f"{model.__name__}File", __config__=ConfigDict(extra="forbid"), **fields)
-
-
-class _YamlSource(YamlConfigSettingsSource):
-    def __init__(self, settings_cls: type[BaseSettings], file: str, schema: type[BaseModel]) -> None:
-        self.schema = schema
-        super().__init__(settings_cls, yaml_file=file, yaml_file_encoding="utf-8")
-
-    @override
-    def __call__(self) -> dict[str, Any]:
-        return self.schema.model_validate(super().__call__()).model_dump(exclude_unset=True)
 
 
 class Settings(BaseSettings):
@@ -284,6 +250,30 @@ class Settings(BaseSettings):
         return self
 
 
+def _build_file_schema(model: type[BaseModel]) -> type[BaseModel]:
+    """Build the schema the configuration file is allowed to set.
+
+    Every field is optional so the file may leave settings to the other
+    sources, and unknown keys are rejected.
+
+    Returns:
+        A model mirroring the settings the file may define.
+    """
+
+    fields: dict[str, Any] = {}
+    for name, field in model.model_fields.items():
+        annotation: Any = field.annotation
+        if name in RUNTIME_FIELDS:
+            continue
+        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+            section = _build_file_schema(annotation)
+            if section.model_fields:
+                fields[name] = (section | None, None)
+        else:
+            fields[name] = (annotation | None, None)
+    return create_model(f"{model.__name__}File", __config__=ConfigDict(extra="forbid"), **fields)
+
+
 def _render_settings(model: type[BaseModel], values: BaseModel | None, level: int) -> list[str]:
     """Render one settings model as documented YAML lines.
 
@@ -320,3 +310,13 @@ def _render_settings(model: type[BaseModel], values: BaseModel | None, level: in
 
     lines = [line for entry in entries for line in ("", *entry)]
     return lines[1:]
+
+
+class _YamlSource(YamlConfigSettingsSource):
+    def __init__(self, settings_cls: type[BaseSettings], file: str, schema: type[BaseModel]) -> None:
+        self.schema = schema
+        super().__init__(settings_cls, yaml_file=file, yaml_file_encoding="utf-8")
+
+    @override
+    def __call__(self) -> dict[str, Any]:
+        return self.schema.model_validate(super().__call__()).model_dump(exclude_unset=True)

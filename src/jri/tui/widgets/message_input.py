@@ -153,6 +153,9 @@ class MessageInput(TextArea):
         self._message_index = len(self._messages)
         self.text = ""
 
+    def on_blur(self) -> None:
+        self.focus()
+
     def _close_chord(self) -> None:
         if self._chord_timer is not None:
             self._chord_timer.stop()
@@ -162,6 +165,3 @@ class MessageInput(TextArea):
     def _load(self, value: str) -> None:
         self.text = value
         self.move_cursor(self.document.end)
-
-    def on_blur(self) -> None:
-        self.focus()

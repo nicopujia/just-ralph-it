@@ -14,30 +14,12 @@ from jri.core import ai
 if TYPE_CHECKING:
     from openai.types.responses import FunctionToolParam, ResponseFunctionCallOutputItemListParam
 
+type Stream = Generator[ai.ToolCallStarted | ai.ToolCallFinished | ToolOutput]
+
 Params = ParamSpec("Params")
 Return = TypeVar("Return")
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class _Metadata:
-    description: str
-    started_label: str
-    finished_label: str
-    symbol: str
-    strict: bool
-    read_only: bool
-
-
-@dataclass(frozen=True)
-class ToolOutput:
-    """Represent the final output emitted by a streaming tool."""
-
-    value: str | ResponseFunctionCallOutputItemListParam
-
-
-type Stream = Generator[ai.ToolCallStarted | ai.ToolCallFinished | ToolOutput]
 
 
 def tool(
@@ -67,6 +49,13 @@ def tool(
         return func
 
     return mark_as_tool
+
+
+@dataclass(frozen=True)
+class ToolOutput:
+    """Represent the final output emitted by a streaming tool."""
+
+    value: str | ResponseFunctionCallOutputItemListParam
 
 
 class Invocation:
@@ -246,3 +235,13 @@ class Tool:
         logger.info("invocation_finished name=%s", self.name)
         logger.debug("output name=%s output=%r", self.name, output)
         return Invocation(output, failed=failed)
+
+
+@dataclass(frozen=True)
+class _Metadata:
+    description: str
+    started_label: str
+    finished_label: str
+    symbol: str
+    strict: bool
+    read_only: bool

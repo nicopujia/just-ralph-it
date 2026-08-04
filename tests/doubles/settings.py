@@ -9,13 +9,6 @@ if TYPE_CHECKING:
     from tests.doubles.openai import FakeClient
 
 
-class FakeSettings(SimpleNamespace):
-    """Stand-in for the settings an agent or service reads."""
-
-    def model_copy(self, *, update: dict[str, object]) -> "FakeSettings":
-        return FakeSettings(**(vars(self) | update))
-
-
 def build_settings(
     path: Path, client: "FakeClient", *, temperature: float | None = 0, search_api_key: str | None = None
 ) -> "Settings":
@@ -37,3 +30,10 @@ def build_settings(
             agents=SimpleNamespace(interviewer=agent, explorer=agent, functional_analyst=agent, architect=agent),
         ),
     )
+
+
+class FakeSettings(SimpleNamespace):
+    """Stand-in for the settings an agent or service reads."""
+
+    def model_copy(self, *, update: dict[str, object]) -> "FakeSettings":
+        return FakeSettings(**(vars(self) | update))

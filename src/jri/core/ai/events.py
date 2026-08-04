@@ -8,6 +8,8 @@ emit them with no model call behind them.
 
 from dataclasses import dataclass
 
+type ChatEvent = ReasoningDelta | TextDelta | ToolCallStarted | ToolCallFinished
+
 
 @dataclass(frozen=True)
 class ReasoningDelta:
@@ -40,6 +42,3 @@ class ToolCallFinished:
     call_id: str
     label: str
     depth: int = 0
-
-
-type ChatEvent = ReasoningDelta | TextDelta | ToolCallStarted | ToolCallFinished

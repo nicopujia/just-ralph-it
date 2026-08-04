@@ -11,18 +11,6 @@ from jri.lib.providers import codex
 DISTANT_FUTURE = 4_102_444_800
 
 
-class FakeProvider:
-    """Refresh endpoint recording the request it is called with."""
-
-    def __init__(self, response: httpx.Response) -> None:
-        self.response = response
-        self.calls: list[tuple[str, dict[str, str]]] = []
-
-    def post(self, url: str, **options: object) -> httpx.Response:
-        self.calls.append((url, cast("dict[str, str]", options["data"])))
-        return self.response
-
-
 def write_login(path: Path, tokens: dict[str, Any] | None, *, auth_mode: str = "chatgpt") -> None:
     """Write the login file the Codex CLI leaves behind."""
 
@@ -71,3 +59,15 @@ def build_client(path: Path, monkeypatch: pytest.MonkeyPatch, requests: list[htt
     transport = httpx.MockTransport(handle)
     monkeypatch.setattr(codex, "DefaultHttpxClient", lambda **options: httpx.Client(transport=transport, **options))
     return codex.Client()
+
+
+class FakeProvider:
+    """Refresh endpoint recording the request it is called with."""
+
+    def __init__(self, response: httpx.Response) -> None:
+        self.response = response
+        self.calls: list[tuple[str, dict[str, str]]] = []
+
+    def post(self, url: str, **options: object) -> httpx.Response:
+        self.calls.append((url, cast("dict[str, str]", options["data"])))
+        return self.response

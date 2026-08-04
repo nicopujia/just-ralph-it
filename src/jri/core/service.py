@@ -61,6 +61,46 @@ class Service:
     PROJECT_IGNORES = (".DS_Store", ".env", ".env.*")
     INITIAL_COMMIT_MESSAGE = "jri: initialize project"
 
+    def __init__(self, settings: Settings) -> None:
+        """Load settings, configure logging, and set base directory up.
+
+        Directory structure:
+        ```
+            $CWD/.jri/
+                .gitignore
+                config.yaml
+                session.json
+                notebook.yaml
+                logs/
+                    YYYY-MM-DD_HH-MM-SS.log
+                    ...
+        ```
+        """
+        self.base_dir = settings.cwd / paths.WORKSPACE_DIR
+        self.logs_dir = settings.cwd / paths.LOGS_DIR
+        self.notebook_file = settings.cwd / paths.NOTEBOOK_FILE
+        self.visualization_file = settings.cwd / paths.VISUALIZATION_FILE
+        self.session_file = settings.cwd / paths.SESSION_FILE
+
+        self.session_lock = Lock()
+        self.settings = settings
+
+        self.logs_dir.mkdir(exist_ok=True, parents=True)
+
+        log_file = self.logs_dir / f"{datetime.now().astimezone().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+        application_logger = logging.getLogger("jri")
+        application_logger.setLevel(settings.logging.level)
+        handler = logging.FileHandler(log_file, encoding="utf-8")
+        handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"))
+        application_logger.addHandler(handler)
+        application_logger.propagate = False
+        self.logger = logging.getLogger(__name__)
+        self.logger.info("initialized cwd=%r", settings.cwd)
+        self.notebook = Notebook(self.notebook_file)
+        self.session = Session(
+            active_topic_id=self.notebook.initial_topic.id, initial_graph=self.notebook.graph.model_copy(deep=True)
+        )
+
     @classmethod
     def init(cls, cwd: Path, *, force: bool = False) -> Workspace:
         """Create a project's JRI workspace, keeping what exists.
@@ -109,46 +149,6 @@ class Service:
             repository.stage((".",))
             repository.commit(cls.INITIAL_COMMIT_MESSAGE)
         return Workspace(workspace, config_file, created, repository_created)
-
-    def __init__(self, settings: Settings) -> None:
-        """Load settings, configure logging, and set base directory up.
-
-        Directory structure:
-        ```
-            $CWD/.jri/
-                .gitignore
-                config.yaml
-                session.json
-                notebook.yaml
-                logs/
-                    YYYY-MM-DD_HH-MM-SS.log
-                    ...
-        ```
-        """
-        self.base_dir = settings.cwd / paths.WORKSPACE_DIR
-        self.logs_dir = settings.cwd / paths.LOGS_DIR
-        self.notebook_file = settings.cwd / paths.NOTEBOOK_FILE
-        self.visualization_file = settings.cwd / paths.VISUALIZATION_FILE
-        self.session_file = settings.cwd / paths.SESSION_FILE
-
-        self.session_lock = Lock()
-        self.settings = settings
-
-        self.logs_dir.mkdir(exist_ok=True, parents=True)
-
-        log_file = self.logs_dir / f"{datetime.now().astimezone().strftime('%Y-%m-%d_%H-%M-%S')}.log"
-        application_logger = logging.getLogger("jri")
-        application_logger.setLevel(settings.logging.level)
-        handler = logging.FileHandler(log_file, encoding="utf-8")
-        handler.setFormatter(logging.Formatter("[%(asctime)s] [%(levelname)s] [%(name)s] %(message)s"))
-        application_logger.addHandler(handler)
-        application_logger.propagate = False
-        self.logger = logging.getLogger(__name__)
-        self.logger.info("initialized cwd=%r", settings.cwd)
-        self.notebook = Notebook(self.notebook_file)
-        self.session = Session(
-            active_topic_id=self.notebook.initial_topic.id, initial_graph=self.notebook.graph.model_copy(deep=True)
-        )
 
     @cached_property
     def interviewer(self) -> Interviewer:
