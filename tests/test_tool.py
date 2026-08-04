@@ -83,13 +83,25 @@ def test_labels_a_call_by_its_tool_name_when_the_arguments_are_invalid() -> None
     assert discovered.format_label(discovered.started_label, '{"text": "one"}') == "Echoing one"
 
 
-def test_discards_the_partial_output_of_a_stream_that_fails_midway() -> None:
+def test_keeps_the_output_of_a_stream_that_fails_after_reporting_it() -> None:
     invocation = build_tool("give_up").invoke('{"text": "one"}')
 
     list(invocation)
 
     assert invocation.failed
-    assert invocation.output == "Tool call failed: no more: one"
+    assert invocation.output == "partial: one\n\nTool call failed: no more: one"
+
+
+def test_keeps_the_structured_output_of_a_stream_that_fails_after_reporting_it() -> None:
+    invocation = build_tool("give_up_after_listing").invoke('{"text": "one"}')
+
+    list(invocation)
+
+    assert invocation.failed
+    assert invocation.output == [
+        {"type": "input_text", "text": "partial: one"},
+        {"type": "input_text", "text": "Tool call failed: no more: one"},
+    ]
 
 
 def test_reports_a_stream_that_never_produced_an_output() -> None:
@@ -157,6 +169,14 @@ class Toolbox:
     def give_up(self, text: str) -> Generator[ToolOutput]:
         self.recorded.append(text)
         yield ToolOutput(f"partial: {text}")
+        raise ValueError(f"no more: {text}")
+
+    @tool("Give up after listing.", started_label="Giving up on {text}", finished_label="Gave up on {text}")
+    def give_up_after_listing(self, text: str) -> Generator[ToolOutput]:
+        self.recorded.append(text)
+        yield ToolOutput(
+            cast("ResponseFunctionCallOutputItemListParam", [{"type": "input_text", "text": f"partial: {text}"}])
+        )
         raise ValueError(f"no more: {text}")
 
 

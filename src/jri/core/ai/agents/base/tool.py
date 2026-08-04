@@ -59,7 +59,15 @@ class Invocation:
                 return
             except (RuntimeError, TypeError, ValueError) as error:
                 logger.exception("stream_failed")
-                self._output = f"Tool call failed: {error}"
+                failure = f"Tool call failed: {error}"
+                # Whatever the stream already reported is real work, so
+                # the failure joins that output instead of replacing it.
+                if self._output is None:
+                    self._output = failure
+                elif isinstance(self._output, str):
+                    self._output = f"{self._output}\n\n{failure}"
+                else:
+                    self._output = [*self._output, {"type": "input_text", "text": failure}]
                 self._failed = True
                 return
             if isinstance(item, ToolOutput):
