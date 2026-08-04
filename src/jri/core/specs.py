@@ -112,22 +112,34 @@ class Specs:
 
     @staticmethod
     def _validate_patch(patch: str, model_root: str) -> None:
-        if "GIT binary patch" in patch or "Binary files " in patch:
-            raise SpecsError("Specification patches cannot contain binary files.")
         patch_paths: list[str] = []
+        in_hunk = False
         for line in patch.splitlines():
+            # Only the metadata of a patch says what it changes, since
+            # a hunk body is prose that may read exactly like it. Every
+            # body line carries a prefix, which the metadata never has.
+            if in_hunk and (not line or line.startswith((" ", "+", "-", "\\"))):
+                continue
+            in_hunk = line.startswith("@@ ")
+            if in_hunk:
+                continue
+            if line == "GIT binary patch" or line.startswith("Binary files "):
+                raise SpecsError("Specification patches cannot contain binary files.")
             if (
                 line.startswith(("old mode ", "new mode "))
                 or (line.startswith(("new file mode ", "deleted file mode ")) and not line.endswith(" 100644"))
-                or " 120000" in line
+                or (line.startswith("index ") and line.endswith(" 120000"))
             ):
                 raise SpecsError("Specification patches cannot change file modes or symlinks.")
             if line.startswith("diff --git "):
-                match line.split():
-                    case ["diff", "--git", old, new] if old.startswith("a/") and new.startswith("b/"):
-                        patch_paths.extend((old[2:], new[2:]))
-                    case _:
-                        raise SpecsError("Malformed specification patch path.")
+                # A file name may hold spaces, and Git leaves it
+                # unquoted, so the halves are told apart by the
+                # prefixes bounding them rather than by splitting.
+                header = line.removeprefix("diff --git ")
+                middle = header.find(" b/")
+                if not header.startswith("a/") or middle < 0:
+                    raise SpecsError("Malformed specification patch path.")
+                patch_paths.extend((header[2:middle], header[middle + len(" b/") :]))
             elif line.startswith(("--- ", "+++ ")):
                 raw_path = line[4:].split("\t", maxsplit=1)[0]
                 if raw_path != "/dev/null":

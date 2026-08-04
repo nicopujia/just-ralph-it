@@ -455,9 +455,6 @@ def test_reports_a_valid_patch_that_git_cannot_apply(tmp_path: Path, create_repo
     assert not (tmp_path / ".jri/specs").exists()
 
 
-@pytest.mark.xfail(
-    strict=True, reason="the patch guards match metadata substrings against hunk bodies and split file names"
-)
 @pytest.mark.parametrize(
     ("patch", "path", "content"),
     [
