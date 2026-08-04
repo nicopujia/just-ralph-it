@@ -93,6 +93,21 @@ def test_stops_a_streaming_tool_call_when_cancelled() -> None:
     assert agent.narrated == ["first-step"]
 
 
+def test_answers_every_call_of_a_round_that_cancellation_interrupted() -> None:
+    cancelled = Event()
+    agent = build_agent([response(call("streamed", "narrate", text="one"), call("later", "echo", text="two"))])
+    events = agent.send_message("Go.", cancelled)
+
+    next(events)
+    cancelled.set()
+    list(events)
+
+    history = cast("list[dict[str, str]]", agent.history)
+    # A call left unanswered makes the next request malformed.
+    assert [item["call_id"] for item in history if item.get("type") == "function_call_output"] == ["streamed", "later"]
+    assert agent.calls == []
+
+
 class ToolAgent(Agent):
     def __init__(self, client: "OpenAI") -> None:
         self.calls: list[str] = []

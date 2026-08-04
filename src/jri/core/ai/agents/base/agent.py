@@ -92,12 +92,15 @@ class Agent:
                 logger.info("message_finished agent=%s", type(self).__name__)
                 return
 
+            # Every call of the round is answered, cancelled ones
+            # included: a call left without an output would make the
+            # next request malformed.
             for output in function_calls:
                 tool = tools_by_name.get(output["name"])
                 yield from self._invoke(output, tool, cancelled)
-                if cancelled.is_set():
-                    logger.info("message_cancelled agent=%s", type(self).__name__)
-                    return
+            if cancelled.is_set():
+                logger.info("message_cancelled agent=%s", type(self).__name__)
+                return
         raise ModelError(f"Agent exceeded the limit of {self.MAX_ROUNDS} response rounds.")
 
     def _invoke(self, output: dict[str, object], tool: Tool | None, cancelled: Event) -> Generator["ai.ChatEvent"]:
