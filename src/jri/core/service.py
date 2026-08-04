@@ -56,20 +56,24 @@ class Session(BaseModel):
 
 
 class Service:
+    PROJECT_IGNORES = (".DS_Store", ".env", ".env.*")
+    INITIAL_COMMIT_MESSAGE = "jri: initialize project\n"
+
     @classmethod
     def init(cls, cwd: Path, *, force: bool = False) -> Workspace:
         """Create a project's JRI workspace, keeping what exists.
 
-        Projects outside a Git repository get an empty one, since JRI
-        stores the specifications it writes in commits. Forcing writes
-        the configuration file again, dropping whatever it held.
+        Projects outside a Git repository get one holding everything
+        already there, since JRI stores the specifications it writes in
+        commits and reads its baseline from the latest one. Forcing
+        writes the configuration file again, dropping whatever it held.
 
         Returns:
             The workspace found or created.
         """
 
         repository_created = git.find_root(cwd) is None
-        git.Repository(cwd)
+        repository = git.Repository(cwd)
         workspace = cwd / paths.WORKSPACE_DIR
         config_file = cwd / paths.CONFIG_FILE
         created = not config_file.exists()
@@ -86,6 +90,13 @@ class Service:
         if missing:
             separator = "" if not content or content.endswith("\n") else "\n"
             gitignore.write_text(f"{content}{separator}{'\n'.join(missing)}\n")
+
+        if repository_created:
+            project_gitignore = cwd / paths.PROJECT_GITIGNORE_FILE
+            if not project_gitignore.exists():
+                project_gitignore.write_text(f"{'\n'.join(cls.PROJECT_IGNORES)}\n")
+            repository.stage((".",))
+            repository.commit(cls.INITIAL_COMMIT_MESSAGE)
         return Workspace(workspace, config_file, created, repository_created)
 
     def __init__(self, settings: Settings) -> None:

@@ -311,13 +311,18 @@ def test_commits_modified_configuration_with_specifications(tmp_path: Path) -> N
     assert not run_git(tmp_path, "status", "--short")
 
 
-def test_initializes_and_commits_new_repository(tmp_path: Path) -> None:
+def test_commits_specifications_onto_a_freshly_initialized_project(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("# New project\n")
     service = build_service(tmp_path, successful_client())
 
     list(service.ralph())
 
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
+        ".jri/specs/architecture/design.md",
+        ".jri/specs/functional/behavior.md",
+    ]
+    assert run_git(tmp_path, "ls-tree", "-r", "--name-only", "HEAD").splitlines() == [
+        ".gitignore",
         ".jri/.gitignore",
         ".jri/config.yaml",
         ".jri/notebook.yaml",

@@ -32,7 +32,33 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
         "connections": [],
     }
     assert list((tmp_path / paths.LOGS_DIR).iterdir()) == []
-    assert not git.Repository(tmp_path).has_head()
+
+
+def test_commits_the_project_when_it_creates_the_repository(tmp_path: Path) -> None:
+    (tmp_path / "main.py").write_text("print('hello')\n")
+    (tmp_path / ".env").write_text("SECRET=1\n")
+    (tmp_path / ".DS_Store").write_bytes(b"\x00")
+
+    Service.init(tmp_path)
+
+    repository = git.Repository(tmp_path)
+    assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text() == ".DS_Store\n.env\n.env.*\n"
+    assert set(repository.read_tracked_paths()) == {
+        paths.PROJECT_GITIGNORE_FILE,
+        paths.GITIGNORE_FILE,
+        paths.CONFIG_FILE,
+        paths.NOTEBOOK_FILE,
+        "main.py",
+    }
+    assert repository.read_status() == ()
+
+
+def test_committing_a_new_repository_keeps_an_existing_ignore_file(tmp_path: Path) -> None:
+    (tmp_path / paths.PROJECT_GITIGNORE_FILE).write_text("build/\n")
+
+    Service.init(tmp_path)
+
+    assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text() == "build/\n"
 
 
 def test_initializes_a_workspace_inside_an_existing_repository(tmp_path: Path) -> None:
