@@ -21,9 +21,6 @@ def test_returns_no_results_when_the_provider_finds_nothing(monkeypatch: pytest.
     assert brave.search("search-key", "how to ralph") == []
 
 
-@pytest.mark.xfail(
-    strict=True, reason="search() lets KeyError and TypeError escape instead of RuntimeError when grounding is unusable"
-)
 @pytest.mark.parametrize(
     "body",
     [{"other": {}}, {"grounding": {"other": []}}, {"grounding": ["Just Ralph It"]}, {"grounding": None}],
@@ -36,9 +33,6 @@ def test_reports_an_accepted_response_that_carries_no_results(monkeypatch: pytes
         brave.search("search-key", "how to ralph")
 
 
-@pytest.mark.xfail(
-    strict=True, reason="search() lets a JSON decoding error escape instead of RuntimeError when the body is not JSON"
-)
 @pytest.mark.parametrize(
     "response", [respond(200, text="<html>Gateway timeout</html>"), respond(204)], ids=["not-json", "no-body"]
 )

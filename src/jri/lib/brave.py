@@ -43,9 +43,17 @@ def search(api_key: str, query: str) -> list[dict[str, str]]:
             detail = str(error)
         raise RuntimeError(detail) from error
 
-    raw = cast("dict[str, object]", response.json())
-    grounding = cast("dict[str, object]", raw["grounding"])
-    results = cast("list[dict[str, str]]", grounding["generic"])
+    try:
+        body = cast("object", response.json())
+    except ValueError as error:
+        logger.exception("search_failed query=%r", query)
+        raise RuntimeError(f"Brave answered with something other than JSON: {response.text!r}") from error
+    match body:
+        case {"grounding": {"generic": list() as generic}}:
+            results = cast("list[dict[str, str]]", generic)
+        case _:
+            logger.error("search_failed query=%r response_body=%r", query, response.text)
+            raise RuntimeError(f"Brave answered without any results: {response.text!r}")
     logger.info("search_finished results=%d", len(results))
     logger.debug(
         "search_response url=%r status_code=%r headers=%r response_body=%r",
