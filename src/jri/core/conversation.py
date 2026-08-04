@@ -50,8 +50,10 @@ def read_turns(history: ResponseInputParam, tools: list[Tool], session: "Session
             turns[-1].items.append(InterviewItem("assistant", text))
     if turns and session.failed_turn_error:
         turns[-1].items.append(InterviewItem("error", session.failed_turn_error))
-    elif turns and session.stopped_turn and all(item.type != "assistant" for item in turns[-1].items):
-        turns[-1].items.append(InterviewItem("stopped"))
+    elif session.stopped_turn is not None and session.stopped_turn < len(turns):
+        stopped = turns[session.stopped_turn]
+        if all(item.type != "assistant" for item in stopped.items):
+            stopped.items.append(InterviewItem("stopped"))
     return turns
 
 
@@ -79,7 +81,7 @@ class Session(BaseModel):
     interview: list[dict[str, Any]] = Field(default_factory=list)
     failed_call_ids: list[str] = Field(default_factory=list)
     failed_turn_error: str | None = None
-    stopped_turn: bool = False
+    stopped_turn: int | None = None
     ready_to_ralph: bool = False
     active_spec_commit: str | None = None
     show_thinking_blocks: bool = False
@@ -247,5 +249,7 @@ class Conversation:
             active_topic_id=self.interviewer.active_topic_id,
             interview=self.interviewer.history,
             failed_turn_error=None,
-            stopped_turn=stopped,
+            # Naming the turn that was stopped keeps the mark on it when
+            # a later turn ends without one of its own.
+            stopped_turn=len(self._find_prompts()) - 1 if stopped else None,
         )

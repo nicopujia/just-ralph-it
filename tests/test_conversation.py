@@ -343,10 +343,6 @@ def test_clears_the_stopped_mark_on_the_next_turn(tmp_path: Path) -> None:
     assert [item.type for turn in turns for item in turn.items] == ["assistant"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="session.stopped_turn carries no turn identity, so a failed turn inherits the cancelled one's mark",
-)
 def test_keeps_the_stopped_mark_on_the_cancelled_turn_when_the_next_one_fails(tmp_path: Path) -> None:
     cancelled = Event()
     cancelled.set()
