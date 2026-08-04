@@ -13,6 +13,7 @@ VALID_GRAPH: dict[str, Any] = {
     "topics": [{"id": "t1", "name": "Overview", "status": "open"}],
     "notes": [{"id": "n1", "topic_id": "t1", "text": "A requirement"}],
     "connections": [],
+    "next_note_id": "n2",
 }
 
 
@@ -62,6 +63,7 @@ def test_advances_topic_and_note_ids_independently(tmp_path: Path) -> None:
             ],
         },
         {**VALID_GRAPH, "topics": [{"id": "t1", "name": " ", "status": "open"}]},
+        {**VALID_GRAPH, "next_note_id": "n1"},
     ],
     ids=[
         "malformed-id",
@@ -72,6 +74,7 @@ def test_advances_topic_and_note_ids_independently(tmp_path: Path) -> None:
         "dangling-connection",
         "duplicate-connection",
         "blank-content",
+        "taken-next-id",
     ],
 )
 def test_rejects_invalid_graph_data(data: dict[str, Any]) -> None:
@@ -92,6 +95,28 @@ def test_rejects_an_invalid_connection_batch_without_changing_anything(tmp_path:
 
     assert notebook.graph == before
     assert Notebook(notebook.path).graph == before
+
+
+def test_never_reuses_the_id_of_a_deleted_note(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    notebook.add(["First", "Second", "Third"], "t1")
+
+    notebook.delete(["n3"])
+
+    assert notebook.add(["Fourth"], "t1")[0].id == "n4"
+    assert Notebook(notebook.path).add(["Fifth"], "t1")[0].id == "n5"
+
+
+def test_keeps_the_next_note_id_when_restoring_an_earlier_graph(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    notebook.add(["First"], "t1")
+    checkpoint = notebook.graph.model_copy(deep=True)
+    notebook.add(["Second"], "t1")
+
+    notebook.restore(checkpoint)
+
+    assert [note.id for note in notebook.graph.notes] == ["n1"]
+    assert notebook.add(["Third"], "t1")[0].id == "n3"
 
 
 def test_removes_the_connections_of_a_deleted_note(tmp_path: Path) -> None:
@@ -160,6 +185,7 @@ def test_stores_notes_in_a_compact_schema(tmp_path: Path) -> None:
             },
         ],
         "connections": ["n1 supports n2", "n1 strongly supports n3"],
+        "next_note_id": "n4",
     }
     assert Notebook(notebook.path).graph == notebook.graph
 
@@ -283,13 +309,31 @@ def test_hides_trashed_topics_unless_selected(tmp_path: Path) -> None:
     [
         ": invalid yaml",
         "topics: []",
-        "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: []\nconnections: []",
-        "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: {n1: First}\nconnections: [n1 malformed]",
+        "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: []\nconnections: []\nnext_note_id: n1",
         (
             "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: {n1: First}\n"
-            "connections: [n1 supports n1, n1 supports n1]"
+            "connections: [n1 malformed]\nnext_note_id: n2"
         ),
-        "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: {n1: First}\nconnections: [n1 supports n2]",
+        (
+            "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: {n1: First}\n"
+            "connections: [n1 supports n1, n1 supports n1]\nnext_note_id: n2"
+        ),
+        (
+            "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: {n1: First}\n"
+            "connections: [n1 supports n2]\nnext_note_id: n2"
+        ),
+        "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: {n1: First}\nconnections: []",
+        "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: {n1: First}\nconnections: []\nnext_note_id: n1",
+    ],
+    ids=[
+        "malformed-yaml",
+        "truncated",
+        "notes-not-a-mapping",
+        "malformed-connection",
+        "duplicate-connection",
+        "dangling-connection",
+        "no-next-id",
+        "taken-next-id",
     ],
 )
 def test_explains_how_to_reset_an_invalid_notebook_file(tmp_path: Path, contents: str) -> None:

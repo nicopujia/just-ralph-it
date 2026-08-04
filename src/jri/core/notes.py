@@ -40,6 +40,7 @@ class Graph(BaseModel):
     topics: list[Topic] = Field(default_factory=lambda: [Topic(id="t1", name="Project overview", status="open")])
     notes: list[Note] = Field(default_factory=list)
     connections: list[Connection] = Field(default_factory=list)
+    next_note_id: NoteId = "n1"
 
     @model_validator(mode="after")
     def validate_graph(self) -> "Graph":
@@ -63,6 +64,8 @@ class Graph(BaseModel):
             raise ValueError("Topic names must be unique.")
         if any(note.topic_id not in topic_ids for note in self.notes):
             raise ValueError("Every note must reference an existing topic.")
+        if any(int(note.id[1:]) >= int(self.next_note_id[1:]) for note in self.notes):
+            raise ValueError(f"Note IDs must come before `{self.next_note_id}`.")
         triples = [(item.source_id, item.target_id, item.label) for item in self.connections]
         if len(triples) != len(set(triples)):
             raise ValueError("Connections must be unique.")
@@ -158,9 +161,10 @@ class Notebook:
             raise ValueError("Provide one or more non-blank note texts.")
         graph = self.graph.model_copy(deep=True)
         self._find_topic(graph, topic_id)
-        next_number = max((int(note.id[1:]) for note in graph.notes), default=0) + 1
+        next_number = int(graph.next_note_id[1:])
         added = [Note(id=f"n{next_number + index}", topic_id=topic_id, text=text) for index, text in enumerate(texts)]
         graph.notes.extend(added)
+        graph.next_note_id = f"n{next_number + len(added)}"
         self._save(graph)
         logger.info("add_finished ids=%r", [note.id for note in added])
         return added
@@ -265,6 +269,10 @@ class Notebook:
         return count
 
     def restore(self, graph: Graph) -> None:
+        # A note ID never comes back, so rolling the graph back keeps
+        # the highest one reached rather than handing it out twice.
+        if int(graph.next_note_id[1:]) < int(self.graph.next_note_id[1:]):
+            graph = graph.model_copy(update={"next_note_id": self.graph.next_note_id})
         self._save(graph)
 
     def render(self, topic_id: TopicId) -> str:
@@ -322,7 +330,12 @@ class Notebook:
             source_id, label_and_target = value.split(" ", maxsplit=1)
             label, target_id = label_and_target.rsplit(" ", maxsplit=1)
             connections.append({"source_id": source_id, "target_id": target_id, "label": label})
-        return Graph.model_validate({"topics": topics, "notes": notes, "connections": connections})
+        return Graph.model_validate({
+            "topics": topics,
+            "notes": notes,
+            "connections": connections,
+            "next_note_id": data["next_note_id"],
+        })
 
     def _save(self, graph: Graph) -> None:
         graph = Graph.model_validate(graph)
@@ -352,6 +365,7 @@ class Notebook:
             data["connections"] = [
                 f"{connection.source_id} {connection.label} {connection.target_id}" for connection in graph.connections
             ]
+            data["next_note_id"] = graph.next_note_id
         return safe_dump(data, sort_keys=False, allow_unicode=True, width=10**9)
 
     @staticmethod

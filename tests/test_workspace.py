@@ -26,6 +26,7 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
     assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text()) == {
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
         "connections": [],
+        "next_note_id": "n1",
     }
     assert list((tmp_path / paths.LOGS_DIR).iterdir()) == []
 
@@ -105,6 +106,7 @@ def test_starts_the_workspace_over_when_initialization_is_forced(tmp_path: Path)
     notebook = {
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {"n1": "Keep this note."}}],
         "connections": [],
+        "next_note_id": "n2",
     }
     Workspace.create(tmp_path)
     (tmp_path / paths.CONFIG_FILE).write_text("custom config\n")
@@ -117,6 +119,7 @@ def test_starts_the_workspace_over_when_initialization_is_forced(tmp_path: Path)
     assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text()) == {
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
         "connections": [],
+        "next_note_id": "n1",
     }
 
 

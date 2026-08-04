@@ -295,10 +295,10 @@ def test_rolls_back_the_changes_of_a_failed_turn(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="provider failed"):
         list(conversation.chat("Deploy it automatically."))
 
-    assert conversation.interviewer.notebook.graph.model_dump() == graph
+    assert conversation.interviewer.notebook.graph.model_dump() == {**graph, "next_note_id": "n3"}
     assert conversation.interviewer.history == [*history, {"role": "user", "content": "Deploy it automatically."}]
     assert conversation.interviewer.active_topic_id == active_topic_id
-    assert conversation.notebook_file.read_bytes() == notebook_file
+    assert conversation.notebook_file.read_bytes() == notebook_file.replace(b"next_note_id: n2", b"next_note_id: n3")
 
 
 def test_restores_the_prompt_of_a_failed_turn(tmp_path: Path) -> None:
