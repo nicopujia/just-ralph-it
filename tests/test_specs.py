@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from jri.core.ai import architect, functional_analyst
+from jri.core.exceptions import RepositoryStateError, SpecsError
 from jri.core.service import Service
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
@@ -244,7 +245,7 @@ def test_refuses_unrelated_changes_before_generation(
     service = build_service(tmp_path, FakeClient([]))
     (tmp_path / "unrelated.txt").write_text("block")
 
-    with pytest.raises(RuntimeError, match=r"unrelated\.txt"):
+    with pytest.raises(RepositoryStateError, match=r"unrelated\.txt"):
         list(service.ralph())
 
     assert run_git(tmp_path, "log", "--oneline").count("\n") == 0
@@ -259,7 +260,7 @@ def test_refuses_to_commit_when_the_project_moved_during_generation(
     next(events)
     run_git(tmp_path, "commit", "--allow-empty", "-qm", "concurrent")
 
-    with pytest.raises(RuntimeError, match="changed while specifications were being generated"):
+    with pytest.raises(RepositoryStateError, match="changed while specifications were being generated"):
         list(events)
 
     assert service.session.active_spec_commit is None
@@ -274,7 +275,7 @@ def test_refuses_to_commit_when_the_notebook_moved_during_generation(
     next(events)
     service.interviewer.notebook.add(["Captured while generating."], "t1")
 
-    with pytest.raises(RuntimeError, match="changed while specifications were being generated"):
+    with pytest.raises(RepositoryStateError, match="changed while specifications were being generated"):
         list(events)
 
     assert service.session.active_spec_commit is None
@@ -287,7 +288,7 @@ def test_refuses_a_project_file_renamed_onto_a_workspace_path(
     service = build_service(tmp_path, FakeClient([]))
     run_git(tmp_path, "mv", "-f", "README.md", ".jri/notebook.yaml")
 
-    with pytest.raises(RuntimeError, match=r"README\.md"):
+    with pytest.raises(RepositoryStateError, match=r"README\.md"):
         list(service.ralph())
 
     assert run_git(tmp_path, "log", "--oneline").count("\n") == 0
@@ -304,7 +305,7 @@ def test_refuses_existing_specifications_without_an_active_commit(
     run_git(tmp_path, "commit", "-qm", "add specifications")
     service = build_service(tmp_path, FakeClient([]))
 
-    with pytest.raises(RuntimeError, match="no active JRI commit"):
+    with pytest.raises(RepositoryStateError, match="no active JRI commit"):
         list(service.ralph())
 
 
@@ -312,7 +313,7 @@ def test_refuses_active_commit_missing_from_git(tmp_path: Path) -> None:
     service = build_service(tmp_path, FakeClient([]))
     service.update_session(active_spec_commit="0" * 40)
 
-    with pytest.raises(RuntimeError, match="missing from Git"):
+    with pytest.raises(RepositoryStateError, match="missing from Git"):
         list(service.ralph())
 
 
@@ -329,7 +330,7 @@ def test_refuses_active_commit_unreachable_from_head(
     service = build_service(tmp_path, FakeClient([]))
     service.update_session(active_spec_commit=abandoned)
 
-    with pytest.raises(RuntimeError, match="not reachable from HEAD"):
+    with pytest.raises(RepositoryStateError, match="not reachable from HEAD"):
         list(service.ralph())
 
 
@@ -343,7 +344,7 @@ def test_refuses_specifications_edited_outside_jri(
     run_git(tmp_path, "add", ".jri/specs")
     run_git(tmp_path, "commit", "-qm", "docs: edit specifications")
 
-    with pytest.raises(RuntimeError, match="differ from the active JRI commit"):
+    with pytest.raises(RepositoryStateError, match="differ from the active JRI commit"):
         list(service.ralph())
 
 
@@ -408,5 +409,5 @@ def test_refuses_unsafe_specification_patch(
     )
     service = build_service(tmp_path, client)
 
-    with pytest.raises(RuntimeError, match=reason):
+    with pytest.raises(SpecsError, match=reason):
         list(service.ralph())
