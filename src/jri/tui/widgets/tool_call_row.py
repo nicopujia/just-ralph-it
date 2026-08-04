@@ -2,7 +2,7 @@ from time import monotonic
 
 from textual.widgets import Static
 
-from jri.tui import constants as c
+from jri.tui import styles
 
 
 class ToolCallRow(Static):
@@ -13,7 +13,7 @@ class ToolCallRow(Static):
     MIN_ELAPSED_SECONDS = 3
 
     def __init__(self, label: str, *, symbol: str = "⚙︎", is_complete: bool = False, depth: int = 0) -> None:
-        super().__init__(classes=c.TOOL_CALL_ROW_CLASSES)
+        super().__init__(classes=styles.TOOL_CALL_ROW_CLASSES)
         self.styles.padding = (0, 2, 0, 2 + depth * 2)
         self.label = label
         self.symbol = symbol

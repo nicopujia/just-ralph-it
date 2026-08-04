@@ -1,0 +1,126 @@
+# Maintain constants ordered alphabetically with one blank line between
+# different initial letter.
+
+INTERVIEWER_ERROR_CLASSES = "interviewer-error"
+INTERVIEWER_MESSAGE_CLASSES = "interviewer-message"
+INTERVIEWER_REASONING_CLASSES = "interviewer-reasoning"
+INTERVIEWER_TURN_CLASSES = "interviewer-turn"
+
+MESSAGES_CONTAINER_ID = "messages"
+MESSAGE_INPUT_ID = "message-input"
+
+RALPH_BUTTON_CLASSES = "ralph-button"
+RALPHING_CLASSES = "ralphing"
+
+RETRY_BUTTON_CLASSES = "retry-button"
+
+THEME_DARK = "ansi-dark"
+THEME_LIGHT = "ansi-light"
+TOOL_CALL_ROW_CLASSES = "tool-call-row"
+
+USER_MESSAGE_CLASSES = "user-message"
+
+# Formatted strings that need other constants go below
+
+STYLESHEET = f"""
+Screen {{
+    layout: vertical;
+}}
+
+Header {{
+    dock: top;
+}}
+
+#{MESSAGES_CONTAINER_ID} {{
+    height: 1fr;
+    padding-right: 2;
+    padding-left: 2;
+}}
+
+#{MESSAGES_CONTAINER_ID} > Static {{
+    height: 1fr;
+}}
+
+#{MESSAGE_INPUT_ID} {{
+    height: auto;
+    max-height: 16;
+    margin: 1;
+}}
+
+.{RALPHING_CLASSES} {{
+    display: none;
+    height: 5;
+    margin: 1;
+    padding: 1;
+    background: $primary;
+    color: $ansi-background;
+    content-align: center middle;
+}}
+
+.{RALPHING_CLASSES} LoadingIndicator {{
+    width: 12;
+    height: 1;
+    color: $ansi-background;
+}}
+
+.{RALPHING_CLASSES} Static {{
+    width: auto;
+    height: 1;
+}}
+
+.{USER_MESSAGE_CLASSES} {{
+    text-style: bold;
+    margin-bottom: 1;
+    margin-top: 1;
+    padding: 1;
+    border-left: heavy ansi_bright_magenta;
+}}
+
+.{USER_MESSAGE_CLASSES} MarkdownBlock:last-child {{
+    margin-bottom: 0;
+}}
+
+.{INTERVIEWER_TURN_CLASSES} {{
+    height: auto;
+    padding-top: 1;
+}}
+
+.{INTERVIEWER_REASONING_CLASSES} {{
+    padding-right: 2;
+    padding-left: 2;
+    text-opacity: 70%;
+    text-style: dim italic;
+}}
+
+.{INTERVIEWER_ERROR_CLASSES} {{
+    margin-bottom: 1;
+    padding: 1;
+    border-left: heavy ansi_bright_red;
+}}
+
+.{INTERVIEWER_ERROR_CLASSES} MarkdownBlock:last-child {{
+    margin-bottom: 0;
+}}
+
+.{RETRY_BUTTON_CLASSES} {{
+    margin-bottom: 1;
+    margin-left: 2;
+    background: $error;
+    color: $ansi-background;
+}}
+
+.{RALPH_BUTTON_CLASSES} {{
+    margin-bottom: 1;
+    margin-left: 2;
+    background: $warning;
+    color: $ansi-background;
+}}
+
+.{TOOL_CALL_ROW_CLASSES} {{
+    margin-bottom: 1;
+    padding-right: 2;
+    padding-left: 2;
+    text-opacity: 70%;
+    text-style: dim;
+}}
+""".strip()

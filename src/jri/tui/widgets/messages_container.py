@@ -4,14 +4,14 @@ from typing import override
 from textual import events
 from textual.containers import VerticalScroll
 
-from jri.tui import constants as c
+from jri.tui import styles
 
 
 class MessagesContainer(VerticalScroll):
     """Render messages and report manual vertical scrolling."""
 
     def __init__(self, on_scroll: Callable[[], None], on_top: Callable[[], Awaitable[None]]) -> None:
-        super().__init__(id=c.MESSAGES_CONTAINER_ID)
+        super().__init__(id=styles.MESSAGES_CONTAINER_ID)
         self.on_scroll = on_scroll
         self.on_top = on_top
 

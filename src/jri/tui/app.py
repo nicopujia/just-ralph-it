@@ -21,7 +21,7 @@ from jri.core.exceptions import RepositoryStateError
 from jri.core.service import Service
 from jri.lib.providers import codex
 
-from . import constants as c
+from . import copy, styles
 from .states import InterviewerTurnState
 from .widgets import MessageInput, MessagesContainer, ToolCallRow
 
@@ -44,13 +44,14 @@ class App(TextualApp[None]):
     """Render the terminal UI for the interviewer chat."""
 
     BINDINGS: ClassVar[list[BindingType]] = [
-        Binding("ctrl+k", "toggle_keymap_panel", c.KEYMAP_PANEL_COPY, priority=True),
-        Binding("escape", "cancel_turn", c.CANCEL_TURN_COPY, key_display=c.CANCEL_TURN_KEY_COPY),
-        Binding("ctrl+t", "toggle_reasoning", c.THINKING_BLOCKS_COPY, priority=True),
+        Binding("ctrl+k", "toggle_keymap_panel", copy.KEYMAP_PANEL, priority=True),
+        Binding("escape", "cancel_turn", copy.CANCEL_TURN, key_display=copy.CANCEL_TURN_KEY),
+        Binding("ctrl+t", "toggle_reasoning", copy.THINKING_BLOCKS, priority=True),
     ]
-    TITLE = c.TITLE_COPY
-    CSS = c.STYLESHEET
-    theme = Reactive(c.THEME_DARK)
+    HISTORY_BATCH_SIZE = 15
+    TITLE = copy.TITLE
+    CSS = styles.STYLESHEET
+    theme = Reactive(styles.THEME_DARK)
     active_turn_state: Reactive[InterviewerTurnState | None] = Reactive(None, repaint=False)
 
     # Methods order:
@@ -70,7 +71,7 @@ class App(TextualApp[None]):
             result = subprocess.run(
                 ["/usr/bin/defaults", "read", "-g", "AppleInterfaceStyle"], capture_output=True, text=True, check=False
             )
-            self.theme = c.THEME_DARK if result.stdout.strip() == "Dark" else c.THEME_LIGHT
+            self.theme = styles.THEME_DARK if result.stdout.strip() == "Dark" else styles.THEME_LIGHT
         self.service = service
         self.restored_turns, self.is_reasoning_visible = service.restore()
         # Restored turns mount newest-first, so this is also the
@@ -82,11 +83,11 @@ class App(TextualApp[None]):
         self.messages_container = MessagesContainer(self._stop_following_bottom, self._load_older_history)
         self.message_input = MessageInput(
             (turn.message for turn in self.restored_turns),
-            id_=c.MESSAGE_INPUT_ID,
-            placeholder=c.MESSAGE_INPUT_INITIAL_PLACEHOLDER_COPY,
+            id_=styles.MESSAGE_INPUT_ID,
+            placeholder=copy.MESSAGE_INPUT_INITIAL_PLACEHOLDER,
         )
-        self.ralph_button = Button(c.RALPH_BUTTON_COPY, classes=c.RALPH_BUTTON_CLASSES, compact=True)
-        self.ralphing = Horizontal(LoadingIndicator(), Static(c.RALPHING_COPY), classes=c.RALPHING_CLASSES)
+        self.ralph_button = Button(copy.RALPH_BUTTON, classes=styles.RALPH_BUTTON_CLASSES, compact=True)
+        self.ralphing = Horizontal(LoadingIndicator(), Static(copy.RALPHING), classes=styles.RALPHING_CLASSES)
 
     @override
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
@@ -145,9 +146,9 @@ class App(TextualApp[None]):
 
         if self.is_busy:
             return
-        if event.button.has_class(c.RETRY_BUTTON_CLASSES):
+        if event.button.has_class(styles.RETRY_BUTTON_CLASSES):
             await self._retry(event.button)
-        elif event.button.has_class(c.RALPH_BUTTON_CLASSES):
+        elif event.button.has_class(styles.RALPH_BUTTON_CLASSES):
             self._start_ralphing()
 
     async def on_message_input_history_requested(self, event: MessageInput.HistoryRequested) -> None:
@@ -175,7 +176,7 @@ class App(TextualApp[None]):
         """Retry the latest failed interviewer turn."""
 
         retry_buttons = [
-            button for button in self.query(Button) if button.has_class(c.RETRY_BUTTON_CLASSES) and button.display
+            button for button in self.query(Button) if button.has_class(styles.RETRY_BUTTON_CLASSES) and button.display
         ]
         if retry_buttons and not self.is_busy:
             await self._retry(retry_buttons[-1])
@@ -202,16 +203,16 @@ class App(TextualApp[None]):
             await self._remove_turns(event.history_index)
             self.restored_turns = self.restored_turns[: event.history_index]
             self.restored_turn_index = min(self.restored_turn_index, event.history_index)
-        for retry_button in self.query(f".{c.RETRY_BUTTON_CLASSES}"):
+        for retry_button in self.query(f".{styles.RETRY_BUTTON_CLASSES}"):
             await retry_button.remove()
         self._sync_retry_shortcut()
         event.message_input.remember(user_message)
-        event.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
+        event.message_input.placeholder = copy.MESSAGE_INPUT_PLACEHOLDER
         self.last_escape_at = 0.0
 
-        user_message_widget = Markdown(user_message, classes=c.USER_MESSAGE_CLASSES)
-        interviewer_turn = Vertical(classes=c.INTERVIEWER_TURN_CLASSES)
-        placeholder = Markdown(c.INTERVIEWER_THINKING_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES)
+        user_message_widget = Markdown(user_message, classes=styles.USER_MESSAGE_CLASSES)
+        interviewer_turn = Vertical(classes=styles.INTERVIEWER_TURN_CLASSES)
+        placeholder = Markdown(copy.INTERVIEWER_THINKING, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
         turn_state = InterviewerTurnState(container=interviewer_turn, placeholder=placeholder)
         self.active_turn_state = turn_state
         # Textual may hit-test a block after update() detaches it.
@@ -281,7 +282,7 @@ class App(TextualApp[None]):
         logger.info("reasoning_visibility_toggled visible=%r", self.is_reasoning_visible)
         self.service.update_session(show_thinking_blocks=self.is_reasoning_visible)
         for reasoning_block in self.query(Markdown):
-            if reasoning_block.has_class(c.INTERVIEWER_REASONING_CLASSES):
+            if reasoning_block.has_class(styles.INTERVIEWER_REASONING_CLASSES):
                 reasoning_block.display = self.is_reasoning_visible
 
     # --- Workers ---------------------------------------------------- #
@@ -322,16 +323,16 @@ class App(TextualApp[None]):
             logger.exception("interviewer_provider_failed")
             error_text = str(error).lower()
             error_copy = (
-                c.LLM_USAGE_LIMIT_COPY
+                copy.LLM_USAGE_LIMIT
                 if any(term in error_text for term in ("usage limit", "quota", "available balance", "out of budget"))
-                else c.INTERVIEWER_ERROR_COPY.format(error=error)
+                else copy.INTERVIEWER_ERROR.format(error=error)
             )
         except (codex.AuthError, RuntimeError) as error:
             logger.exception("interviewer_worker_failed")
-            error_copy = c.INTERVIEWER_ERROR_COPY.format(error=error)
+            error_copy = copy.INTERVIEWER_ERROR.format(error=error)
         except Exception:
             logger.exception("interviewer_worker_failed_unexpectedly")
-            error_copy = c.INTERNAL_ERROR_COPY
+            error_copy = copy.INTERNAL_ERROR
         finally:
             chat_events.close()
             if turn_state.cancelled.is_set():
@@ -354,16 +355,16 @@ class App(TextualApp[None]):
                 await row.remove()
                 del turn_state.tool_rows[call_id]
         if not turn_state.active_markdown_text:
-            await self._render_interviewer_status(turn_state, c.INTERVIEWER_STOPPED_COPY)
+            await self._render_interviewer_status(turn_state, copy.INTERVIEWER_STOPPED)
         self.messages_container.scroll_end(animate=False)
         logger.info("interviewer_turn_cancelled")
 
     async def _finish_empty_turn(self, turn_state: InterviewerTurnState) -> None:
-        await self._render_interviewer_status(turn_state, c.INTERVIEWER_NO_RESPONSE_COPY)
+        await self._render_interviewer_status(turn_state, copy.INTERVIEWER_NO_RESPONSE)
         await self._show_retry_button(turn_state)
 
     async def _finish_failed_turn(self, turn_state: InterviewerTurnState, error_copy: str) -> None:
-        await self._render_interviewer_status(turn_state, error_copy, c.INTERVIEWER_ERROR_CLASSES)
+        await self._render_interviewer_status(turn_state, error_copy, styles.INTERVIEWER_ERROR_CLASSES)
         await self._show_retry_button(turn_state)
 
     async def _finish_ralphing(self, turn_state: InterviewerTurnState, error: Exception | None) -> None:
@@ -378,12 +379,12 @@ class App(TextualApp[None]):
             blocked = isinstance(error, RepositoryStateError)
             await turn_state.container.mount(
                 Markdown(
-                    (c.RALPH_BLOCKED_COPY if blocked else c.RALPH_ERROR_COPY).format(error=error),
-                    classes=c.INTERVIEWER_MESSAGE_CLASSES if blocked else c.INTERVIEWER_ERROR_CLASSES,
+                    (copy.RALPH_BLOCKED if blocked else copy.RALPH_ERROR).format(error=error),
+                    classes=styles.INTERVIEWER_MESSAGE_CLASSES if blocked else styles.INTERVIEWER_ERROR_CLASSES,
                 )
             )
         elif turn_state.placeholder is not None:
-            await self._render_interviewer_status(turn_state, c.INTERVIEWER_NO_RESPONSE_COPY)
+            await self._render_interviewer_status(turn_state, copy.INTERVIEWER_NO_RESPONSE)
         self.ralphing.display = False
         self.message_input.display = True
         self.message_input.disabled = False
@@ -416,7 +417,7 @@ class App(TextualApp[None]):
         )
         if reveal_hidden and first_visible_turn:
             for user_message, interviewer_turn in self.mounted_turns[
-                max(0, first_visible_turn - c.HISTORY_BATCH_SIZE) : first_visible_turn
+                max(0, first_visible_turn - self.HISTORY_BATCH_SIZE) : first_visible_turn
             ]:
                 user_message.display = interviewer_turn.display = True
             self.call_after_refresh(self._finish_restoring_history, old_scroll_y, old_max_scroll_y)
@@ -426,7 +427,7 @@ class App(TextualApp[None]):
             return
 
         end = self.restored_turn_index
-        start = max(0, end - c.HISTORY_BATCH_SIZE)
+        start = max(0, end - self.HISTORY_BATCH_SIZE)
         restored_turns = self._build_restored_turns(start, end)
         widgets = [widget for turn in restored_turns for widget in turn]
         await self.messages_container.mount_all(widgets, before=1 if self.mounted_turns else None)
@@ -455,7 +456,7 @@ class App(TextualApp[None]):
         self._follow_bottom(turn_state)
 
     async def _render_interviewer_status(
-        self, turn_state: InterviewerTurnState, content: str, classes: str = c.INTERVIEWER_MESSAGE_CLASSES
+        self, turn_state: InterviewerTurnState, content: str, classes: str = styles.INTERVIEWER_MESSAGE_CLASSES
     ) -> None:
         """Render a status message for the interviewer turn."""
 
@@ -491,7 +492,7 @@ class App(TextualApp[None]):
     async def _render_reasoning_delta(self, turn_state: InterviewerTurnState, event: ReasoningDelta) -> None:
         if turn_state.active_reasoning is None:
             turn_state.active_markdown, turn_state.active_markdown_text = None, ""
-            turn_state.active_reasoning = Markdown("", classes=c.INTERVIEWER_REASONING_CLASSES)
+            turn_state.active_reasoning = Markdown("", classes=styles.INTERVIEWER_REASONING_CLASSES)
             turn_state.active_reasoning.display = self.is_reasoning_visible
             await turn_state.container.mount(turn_state.active_reasoning)
 
@@ -505,7 +506,7 @@ class App(TextualApp[None]):
             turn_state.placeholder = None
         turn_state.active_reasoning, turn_state.active_reasoning_text = None, ""
         if turn_state.active_markdown is None:
-            turn_state.active_markdown = Markdown("", classes=c.INTERVIEWER_MESSAGE_CLASSES)
+            turn_state.active_markdown = Markdown("", classes=styles.INTERVIEWER_MESSAGE_CLASSES)
             await turn_state.container.mount(turn_state.active_markdown)
 
         turn_state.active_markdown_text += event.text
@@ -519,7 +520,7 @@ class App(TextualApp[None]):
                 del turn_state.tool_rows[nested_call_id]
         turn_state.tool_rows[event.call_id].mark_complete(event.label)
         if event.depth == 0:
-            turn_state.placeholder = Markdown(c.INTERVIEWER_THINKING_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES)
+            turn_state.placeholder = Markdown(copy.INTERVIEWER_THINKING, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
             await turn_state.container.mount(turn_state.placeholder)
 
     @staticmethod
@@ -548,35 +549,35 @@ class App(TextualApp[None]):
             failed = False
             for item in turn.items:
                 if item.type == "reasoning":
-                    reasoning_block = Markdown(item.text, classes=c.INTERVIEWER_REASONING_CLASSES)
+                    reasoning_block = Markdown(item.text, classes=styles.INTERVIEWER_REASONING_CLASSES)
                     reasoning_block.display = self.is_reasoning_visible
                     interviewer_items.append(reasoning_block)
                     continue
                 if item.type == "error":
                     failed = True
-                    interviewer_items.append(Markdown(item.text, classes=c.INTERVIEWER_ERROR_CLASSES))
+                    interviewer_items.append(Markdown(item.text, classes=styles.INTERVIEWER_ERROR_CLASSES))
                     continue
                 if item.type == "stopped":
                     interviewer_items.append(
-                        Markdown(c.INTERVIEWER_STOPPED_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES)
+                        Markdown(copy.INTERVIEWER_STOPPED, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
                     )
                     continue
                 interviewer_items.append(
                     ToolCallRow(item.text, symbol=item.symbol or "⚙︎", is_complete=True)
                     if item.type == "tool"
-                    else Markdown(item.text, classes=c.INTERVIEWER_MESSAGE_CLASSES)
+                    else Markdown(item.text, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
                 )
             if failed or not interviewer_items:
                 interviewer_items.append(self._build_retry_button())
             restored_turns.append((
-                Markdown(turn.message, classes=c.USER_MESSAGE_CLASSES),
-                Vertical(*interviewer_items, classes=c.INTERVIEWER_TURN_CLASSES),
+                Markdown(turn.message, classes=styles.USER_MESSAGE_CLASSES),
+                Vertical(*interviewer_items, classes=styles.INTERVIEWER_TURN_CLASSES),
             ))
         return restored_turns
 
     @staticmethod
     def _build_retry_button() -> Button:
-        return Button(c.RETRY_COPY, classes=c.RETRY_BUTTON_CLASSES, compact=True)
+        return Button(copy.RETRY, classes=styles.RETRY_BUTTON_CLASSES, compact=True)
 
     def _call_from_thread(self, callback: Callable[..., Any], *args: object) -> None:
         if not self.is_running:
@@ -595,7 +596,7 @@ class App(TextualApp[None]):
 
     def _hide_older_history(self) -> None:
         for index, (user_message, interviewer_turn) in enumerate(self.mounted_turns):
-            user_message.display = interviewer_turn.display = index >= len(self.mounted_turns) - c.HISTORY_BATCH_SIZE
+            user_message.display = interviewer_turn.display = index >= len(self.mounted_turns) - self.HISTORY_BATCH_SIZE
 
     def _preview_history(self) -> None:
         if self.message_input.history_index == self.message_input.message_count:
@@ -622,7 +623,7 @@ class App(TextualApp[None]):
         """Rebuild the visible chat history from persisted items."""
 
         if self.restored_turns:
-            self.message_input.placeholder = c.MESSAGE_INPUT_PLACEHOLDER_COPY
+            self.message_input.placeholder = copy.MESSAGE_INPUT_PLACEHOLDER
             await self._load_older_history()
         logger.info(
             "history_restored turns=%d remaining=%d reasoning_visible=%r",
@@ -637,7 +638,7 @@ class App(TextualApp[None]):
         for child in list(container.children):
             if child is not button:
                 await child.remove()
-        placeholder = Markdown(c.INTERVIEWER_THINKING_COPY, classes=c.INTERVIEWER_MESSAGE_CLASSES)
+        placeholder = Markdown(copy.INTERVIEWER_THINKING, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
         await container.mount(placeholder, before=button)
         turn_state = InterviewerTurnState(container=container, placeholder=placeholder, retry_button=button)
         self.active_turn_state = turn_state
@@ -666,9 +667,11 @@ class App(TextualApp[None]):
         self.message_input.is_ralph_ready = False
         if self.is_busy or not self.service.session.ready_to_ralph or not self.mounted_turns:
             return
-        self.ralph_button = Button(c.RALPH_BUTTON_COPY, classes=c.RALPH_BUTTON_CLASSES, compact=True)
+        self.ralph_button = Button(copy.RALPH_BUTTON, classes=styles.RALPH_BUTTON_CLASSES, compact=True)
         await self.mounted_turns[-1][1].mount(self.ralph_button)
         self.message_input.is_ralph_ready = True
 
     def _sync_retry_shortcut(self) -> None:
-        self.message_input.is_retry_ready = any(button.display for button in self.query(f".{c.RETRY_BUTTON_CLASSES}"))
+        self.message_input.is_retry_ready = any(
+            button.display for button in self.query(f".{styles.RETRY_BUTTON_CLASSES}")
+        )

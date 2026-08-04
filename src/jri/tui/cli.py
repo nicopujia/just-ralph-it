@@ -18,27 +18,14 @@ from jri.core.settings import Settings
 from jri.lib import git
 from jri.lib.providers import codex
 
+from . import copy
 from .app import App
-from .constants import (
-    CLI_EPILOG_COPY,
-    CONFIG_ERROR_COPY,
-    FORCE_CANCELLED_COPY,
-    FORCE_COMMAND_COPY,
-    FORCE_PROMPT_COPY,
-    FORCE_WARNING_COPY,
-    INIT_CREATED_COPY,
-    INIT_EXISTING_COPY,
-    INIT_NEXT_STEPS_COPY,
-    INIT_RECREATED_COPY,
-    INIT_REPOSITORY_COPY,
-    WORKSPACE_MISSING_COPY,
-)
 
 logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Just Ralph It", epilog=CLI_EPILOG_COPY)
+    parser = argparse.ArgumentParser(description="Just Ralph It", epilog=copy.CLI_EPILOG)
     parser.add_argument("-v", "--version", action="version", version=__version__, help="Show the JRI version and exit.")
     # A positional command, rather than subparsers, lets every setting
     # below be given before or after it.
@@ -64,7 +51,7 @@ def main() -> None:
         parser.print_help()
         return
     if args.command != "init" and not (project_dir / paths.CONFIG_FILE).exists():
-        print(WORKSPACE_MISSING_COPY)
+        print(copy.WORKSPACE_MISSING)
         raise SystemExit(1)
 
     load_dotenv(project_dir / ".env")
@@ -81,15 +68,15 @@ def main() -> None:
             if isinstance(error, ValidationError)
             else [f"- {error}"]
         )
-        print(CONFIG_ERROR_COPY.format(errors="\n".join(error_lines)))
+        print(copy.CONFIG_ERROR.format(errors="\n".join(error_lines)))
         raise SystemExit(1) from error
 
     if settings.force:
         if args.command != "init":
-            print(FORCE_COMMAND_COPY)
+            print(copy.FORCE_COMMAND)
             raise SystemExit(1)
         if not _confirm_reset(project_dir):
-            print(FORCE_CANCELLED_COPY)
+            print(copy.FORCE_CANCELLED)
             raise SystemExit(1)
 
     handlers = {"init": _init, "chat": _chat, "view": _view}
@@ -110,13 +97,13 @@ def main() -> None:
 def _init(settings: Settings) -> None:
     workspace = Service.init(settings.cwd, force=settings.force)
     if workspace.repository_created:
-        print(INIT_REPOSITORY_COPY.format(directory=settings.cwd))
+        print(copy.INIT_REPOSITORY.format(directory=settings.cwd))
     if workspace.created:
-        created_copy = INIT_CREATED_COPY
+        created_copy = copy.INIT_CREATED
     else:
-        created_copy = INIT_RECREATED_COPY if settings.force else INIT_EXISTING_COPY
+        created_copy = copy.INIT_RECREATED if settings.force else copy.INIT_EXISTING
     print(created_copy.format(directory=workspace.directory))
-    print(INIT_NEXT_STEPS_COPY.format(config_file=workspace.config_file))
+    print(copy.INIT_NEXT_STEPS.format(config_file=workspace.config_file))
 
 
 def _chat(settings: Settings) -> None:
@@ -216,9 +203,9 @@ def _confirm_reset(project_dir: Path) -> bool:
     existing = [target for target in targets if (project_dir / target).exists()]
     if not existing:
         return True
-    print(FORCE_WARNING_COPY.format(paths="\n".join(f"- {project_dir / target}" for target in existing)))
+    print(copy.FORCE_WARNING.format(paths="\n".join(f"- {project_dir / target}" for target in existing)))
     try:
-        return input(FORCE_PROMPT_COPY).strip().casefold() in {"y", "yes"}
+        return input(copy.FORCE_PROMPT).strip().casefold() in {"y", "yes"}
     except EOFError:
         return False
 
