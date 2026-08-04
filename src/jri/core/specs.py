@@ -4,7 +4,8 @@ from pathlib import Path, PurePosixPath
 
 from jri.lib import git
 
-from . import constants, paths
+from . import paths
+from .repository import Repository
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ class Specs:
     """Manage the Git-backed specification lifecycle."""
 
     def __init__(self, path: Path) -> None:
-        self.repository = git.Repository(path)
+        self.repository = Repository(path)
 
     def prepare(self, active_commit: str | None) -> Baseline:
         """Load and validate the baseline for specification generation.
@@ -134,7 +135,7 @@ class Specs:
                 paths.ARCHITECTURE_SPECS_DIR,
             )
         )
-        commit = self.repository.commit("jri: update specifications", constants.CO_AUTHOR)
+        commit = self.repository.commit("jri: update specifications")
         logger.info("specs_committed commit=%s", commit)
         return commit
 

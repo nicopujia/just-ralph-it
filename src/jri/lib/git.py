@@ -203,7 +203,7 @@ class Repository:
                         destination = location / relative_path
                         destination.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copy2(source, destination)
-                repository = Repository(location, str(self.executable))
+                repository = type(self)(location, str(self.executable))
                 repository.stage((".",))
                 yield repository
                 return
@@ -213,7 +213,7 @@ class Repository:
             self._run("worktree", "prune", check=False)
             self._run("worktree", "add", "--detach", str(location), revision)
             try:
-                yield Repository(location, str(self.executable))
+                yield type(self)(location, str(self.executable))
             finally:
                 removal = self._run("worktree", "remove", "--force", str(location), check=False)
                 if removal.returncode:
