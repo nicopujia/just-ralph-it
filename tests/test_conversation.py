@@ -7,13 +7,13 @@ from typing import cast
 import pytest
 
 from jri.core import paths
-from jri.core.ai import functional_analyst
+from jri.core.ai import Interviewer, functional_analyst
 from jri.core.conversation import Conversation, InterviewItem
 from jri.core.exceptions import PersistenceError
 from tests.conftest import CreateRepository
-from tests.doubles.openai import FakeClient, call, failure, partial_reply, reply, response
+from tests.doubles.openai import FakeClient, call, failure, partial_reply, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
-from tests.doubles.specs_generation import InterruptibleSpecsGeneration
+from tests.doubles.specs_generation import InterruptibleSpecsGeneration, SucceedingSpecsGeneration
 from tests.doubles.workspace import install_workspace
 
 
@@ -90,6 +90,74 @@ def test_groups_every_restored_item_under_the_prompt_that_caused_it(tmp_path: Pa
     assert [item.text for item in turns[0].items] == ["Switched to Delivery", "Noted."]
     assert [item.type for item in turns[1].items] == ["tool", "assistant"]
     assert turns[1].items[-1].text == "Anything else?"
+
+
+def test_restores_the_reasoning_summary_of_a_turn(tmp_path: Path) -> None:
+    conversation = build_conversation(
+        tmp_path,
+        FakeClient([
+            response(
+                {"type": "reasoning", "summary": [{"type": "summary_text", "text": "Weighing the options."}]},
+                reply("How often does it deploy?"),
+            )
+        ]),
+    )
+    list(conversation.chat("It deploys automatically."))
+
+    turns = build_conversation(tmp_path, FakeClient([])).restore()
+
+    assert turns[-1].items == [
+        InterviewItem("reasoning", "Weighing the options."),
+        InterviewItem("assistant", "How often does it deploy?"),
+    ]
+
+
+def test_falls_back_to_the_raw_reasoning_of_a_turn_without_a_summary(tmp_path: Path) -> None:
+    conversation = build_conversation(
+        tmp_path,
+        FakeClient([
+            response(
+                {
+                    "type": "reasoning",
+                    "summary": [],
+                    "content": [{"type": "reasoning_text", "text": "Deployment cadence is still unknown."}],
+                },
+                reply("How often does it deploy?"),
+            )
+        ]),
+    )
+    list(conversation.chat("It deploys automatically."))
+
+    turns = build_conversation(tmp_path, FakeClient([])).restore()
+
+    assert turns[-1].items[0] == InterviewItem("reasoning", "Deployment cadence is still unknown.")
+
+
+def test_hides_a_reasoning_item_that_carries_no_text(tmp_path: Path) -> None:
+    conversation = build_conversation(
+        tmp_path, FakeClient([response({"type": "reasoning", "summary": []}, reply("How often does it deploy?"))])
+    )
+    list(conversation.chat("It deploys automatically."))
+
+    turns = build_conversation(tmp_path, FakeClient([])).restore()
+
+    assert turns[-1].items == [InterviewItem("assistant", "How often does it deploy?")]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="restore() slices interview[1:], dropping the opening message of a session saved before its first turn",
+)
+def test_keeps_the_opening_message_of_a_session_saved_before_the_first_turn(tmp_path: Path) -> None:
+    build_conversation(tmp_path, FakeClient([])).update_session(show_thinking_blocks=True)
+    client = FakeClient([response(reply("How often does it deploy?"))])
+    restarted = build_conversation(tmp_path, client)
+    restarted.restore()
+
+    list(restarted.chat("It deploys automatically."))
+
+    context = cast("list[dict[str, object]]", client.responses.inputs[-1])
+    assert Interviewer.FIRST_MESSAGE in [item.get("content") for item in context]
 
 
 def test_restores_ralph_readiness_after_restart(tmp_path: Path) -> None:
@@ -177,6 +245,29 @@ def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
     assert restarted.session.active_spec_commit is None
 
 
+@pytest.mark.xfail(
+    strict=True, reason="ralph() saves the interview before responding, so the notes of a failed reply outlive it"
+)
+def test_rolls_back_the_notes_of_a_failed_reply_after_ralphing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(
+        tmp_path,
+        FakeClient([
+            response(reply("Understood.")),
+            response(call("capture", "capture_notes", texts=["Ship every Friday."])),
+            failure("provider failed"),
+        ]),
+    )
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.SpecsGeneration", SucceedingSpecsGeneration)
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        list(conversation.ralph())
+
+    reopened = build_conversation(tmp_path, FakeClient([]))
+    reopened.restore()
+    assert [note.text for note in reopened.notebook.graph.notes] == []
+
+
 def test_restores_a_cancelled_interview_turn(tmp_path: Path) -> None:
     cancelled = Event()
     conversation = build_conversation(tmp_path, FakeClient([partial_reply("Partial reply")]))
@@ -254,6 +345,23 @@ def test_clears_the_stopped_mark_on_the_next_turn(tmp_path: Path) -> None:
     turns = restarted.restore()
     assert not restarted.session.stopped_turn
     assert [item.type for turn in turns for item in turn.items] == ["assistant"]
+
+
+@pytest.mark.xfail(
+    strict=True,
+    reason="session.stopped_turn carries no turn identity, so a failed turn inherits the cancelled one's mark",
+)
+def test_keeps_the_stopped_mark_on_the_cancelled_turn_when_the_next_one_fails(tmp_path: Path) -> None:
+    cancelled = Event()
+    cancelled.set()
+    conversation = build_conversation(tmp_path, FakeClient([[], failure("provider failed")]))
+    list(conversation.chat("Stop this one.", cancelled))
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        list(conversation.chat("Deploy it automatically."))
+
+    turns = build_conversation(tmp_path, FakeClient([])).restore()
+    assert turns == [("Stop this one.", [InterviewItem("stopped")]), ("Deploy it automatically.", [])]
 
 
 def test_leaves_valid_history_when_a_tool_call_is_cancelled(tmp_path: Path) -> None:
@@ -375,6 +483,20 @@ def test_clears_the_failed_turn_error_on_a_cancelled_retry(tmp_path: Path) -> No
     assert [item.type for item in turns[-1].items] == ["assistant"]
 
 
+@pytest.mark.xfail(
+    strict=True, reason="retry() pops the assistant message of a reply-less turn and resends its content as the prompt"
+)
+def test_resends_the_prompt_when_retrying_a_turn_that_brought_no_reply(tmp_path: Path) -> None:
+    conversation = build_conversation(tmp_path, FakeClient([response(reply("")), response(reply("Retry succeeded."))]))
+    list(conversation.chat("Deploy it automatically."))
+
+    list(conversation.retry())
+
+    turns = build_conversation(tmp_path, FakeClient([])).restore()
+    assert [turn.message for turn in turns] == ["Deploy it automatically."]
+    assert ("assistant", "Retry succeeded.") in [(item.type, item.text) for item in turns[-1].items]
+
+
 def test_clears_the_failed_turn_error_when_rewinding(tmp_path: Path) -> None:
     conversation = build_conversation(
         tmp_path, FakeClient([response(reply("What should it display?")), failure("provider")])
@@ -481,6 +603,81 @@ def test_skips_cancelled_tool_calls_when_rewinding_after_restart(tmp_path: Path)
     ]
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="rewind() replays capture_notes against a monotonic next_note_id, so every replayed note ID is stale",
+)
+def test_keeps_the_connections_between_replayed_notes_when_rewinding(tmp_path: Path) -> None:
+    conversation = build_conversation(
+        tmp_path,
+        FakeClient([
+            response(
+                call("capture", "capture_notes", texts=["Deploy from main.", "Roll back on failure."]),
+                call(
+                    "connect", "connect_notes", connections=[{"source_id": "n1", "target_id": "n2", "label": "guards"}]
+                ),
+            ),
+            response(reply("Delivery captured.")),
+            response(call("billing-capture", "capture_notes", texts=["Charge monthly."])),
+            response(reply("Billing captured.")),
+        ]),
+    )
+    list(conversation.chat("Deploy from main."))
+    list(conversation.chat("Charge monthly."))
+
+    conversation.rewind(1)
+
+    graph = build_conversation(tmp_path, FakeClient([])).notebook.graph
+    texts = {note.id: note.text for note in graph.notes}
+    assert sorted(texts.values()) == ["Deploy from main.", "Roll back on failure."]
+    assert [(texts[item.source_id], item.label, texts[item.target_id]) for item in graph.connections] == [
+        ("Deploy from main.", "guards", "Roll back on failure.")
+    ]
+
+
+def test_keeps_ralph_readiness_reached_before_the_rewind_point(tmp_path: Path) -> None:
+    conversation = build_conversation(
+        tmp_path,
+        FakeClient([
+            response(call("ready", "just_ralph_it", show=True)),
+            response(reply("Click Just Ralph It.")),
+            response(reply("Noted.")),
+        ]),
+    )
+    list(conversation.chat("We're ready."))
+    list(conversation.chat("One more thing."))
+
+    conversation.rewind(1)
+
+    restarted = build_conversation(tmp_path, FakeClient([]))
+    restarted.restore()
+    assert restarted.session.ready_to_ralph
+
+
+def test_skips_read_only_tool_calls_when_rewinding(tmp_path: Path) -> None:
+    # Only the rounds a run without a second exploration needs, so
+    # replaying `explore` would starve the turn after the rewind.
+    conversation = build_conversation(
+        tmp_path,
+        FakeClient([
+            response(call("explore", "explore", query="deployment options")),
+            streamed_reply("Deployments run from the main branch."),
+            response(reply("Here is what I found.")),
+            response(reply("Understood.")),
+            response(reply("Anything else?")),
+        ]),
+    )
+    list(conversation.chat("What are the deployment options?"))
+    list(conversation.chat("Thanks."))
+
+    conversation.rewind(1)
+    list(conversation.chat("Let's talk about billing."))
+
+    turns = build_conversation(tmp_path, FakeClient([])).restore()
+    assert [turn.message for turn in turns] == ["What are the deployment options?", "Let's talk about billing."]
+    assert turns[-1].items == [InterviewItem("assistant", "Anything else?")]
+
+
 def test_stores_the_session_as_compact_json(tmp_path: Path) -> None:
     conversation = build_conversation(tmp_path, FakeClient([response(reply("Noted."))]))
 
@@ -497,3 +694,14 @@ def test_explains_how_to_reset_an_invalid_session_file(tmp_path: Path) -> None:
 
     with pytest.raises(PersistenceError, match=r"Delete it .*--force"):
         conversation.restore()
+
+
+def test_reports_a_session_that_cannot_be_written(tmp_path: Path) -> None:
+    conversation = build_conversation(tmp_path, FakeClient([]))
+    conversation.workspace.session_file.mkdir(parents=True)
+    (conversation.workspace.session_file / "blocker").write_text("taken")
+
+    with pytest.raises(PersistenceError, match="Could not save the session file"):
+        conversation.update_session(show_thinking_blocks=True)
+
+    assert not conversation.session.show_thinking_blocks

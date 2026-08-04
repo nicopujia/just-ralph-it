@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -6,8 +7,12 @@ from pydantic import ValidationError
 from yaml import safe_load
 
 from jri.core.exceptions import PersistenceError
-from jri.core.notes import Connection, Graph, Notebook, ReadQuery
+from jri.core.notes import Connection, Graph, Note, Notebook, ReadQuery, Topic
 
+type Change = Callable[[Notebook], object]
+
+BLANK_LABEL_CONNECTION = Connection(source_id="n1", target_id="n2", label=" ")
+CONNECTION = Connection(source_id="n1", target_id="n2", label="requires")
 MAX_SEARCH_RESULTS = 10
 VALID_GRAPH: dict[str, Any] = {
     "topics": [{"id": "t1", "name": "Overview", "status": "open"}],
@@ -354,3 +359,164 @@ def test_reports_a_notebook_that_cannot_be_written(tmp_path: Path) -> None:
         notebook.add(["A requirement"], "t1")
 
     assert sorted(path.name for path in tmp_path.iterdir()) == ["notebook.yaml"]
+
+
+def test_keeps_the_last_saved_graph_in_memory_when_writing_fails(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    notebook.add(["First"], "t1")
+    before = notebook.graph.model_copy(deep=True)
+    notebook.path.unlink()
+    notebook.path.mkdir()
+    (notebook.path / "blocker").write_text("taken")
+
+    with pytest.raises(PersistenceError):
+        notebook.add(["Second"], "t1")
+
+    assert notebook.graph == before
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        (lambda notebook: notebook.add([], "t1"), "non-blank note texts"),
+        (lambda notebook: notebook.add([" "], "t1"), "non-blank note texts"),
+        (lambda notebook: notebook.add(["Third"], "t9"), "Unknown topic `t9`"),
+        (lambda notebook: notebook.add_topic(" "), "Topic name cannot be blank"),
+        (lambda notebook: notebook.add_topic("  project OVERVIEW "), "already exists"),
+        (lambda notebook: notebook.update_topic("t1", "open", " "), "Topic summary cannot be blank"),
+        (lambda notebook: notebook.update_topic("t9", "open"), "Unknown topic `t9`"),
+        (lambda notebook: notebook.edit("n1", " "), "Note text cannot be blank"),
+        (lambda notebook: notebook.edit("n9", "Third"), "Unknown note `n9`"),
+        (lambda notebook: notebook.delete([]), "unique note IDs"),
+        (lambda notebook: notebook.delete(["n1", "n1"]), "unique note IDs"),
+        (lambda notebook: notebook.delete(["n1", "n9"]), "Unknown note `n9`"),
+        (lambda notebook: notebook.connect([]), "Provide one or more connections"),
+        (lambda notebook: notebook.connect([CONNECTION, CONNECTION]), "must be unique"),
+        (lambda notebook: notebook.connect([BLANK_LABEL_CONNECTION]), "Connection labels cannot be blank"),
+        (lambda notebook: notebook.disconnect([]), "Provide one or more connections"),
+        (lambda notebook: notebook.disconnect([CONNECTION, CONNECTION]), "must be unique"),
+        (lambda notebook: notebook.disconnect([BLANK_LABEL_CONNECTION]), "Connection labels cannot be blank"),
+    ],
+    ids=[
+        "add-nothing",
+        "add-blank-text",
+        "add-to-an-unknown-topic",
+        "add-a-blank-topic",
+        "add-a-taken-topic-name",
+        "update-with-a-blank-summary",
+        "update-an-unknown-topic",
+        "edit-to-blank-text",
+        "edit-an-unknown-note",
+        "delete-nothing",
+        "delete-a-repeated-note",
+        "delete-an-unknown-note-mid-batch",
+        "connect-nothing",
+        "connect-a-repeated-connection",
+        "connect-with-a-blank-label",
+        "disconnect-nothing",
+        "disconnect-a-repeated-connection",
+        "disconnect-with-a-blank-label",
+    ],
+)
+def test_rejects_an_invalid_request_without_changing_anything(tmp_path: Path, change: Change, reason: str) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    notebook.add(["First", "Second"], "t1")
+    before = notebook.graph.model_copy(deep=True)
+
+    with pytest.raises(ValueError, match=reason):
+        change(notebook)
+
+    assert notebook.graph == before
+    assert Notebook(notebook.path).graph == before
+
+
+def test_counts_only_the_connections_a_request_changes(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    notebook.add(["First", "Second", "Third"], "t1")
+    stored = Connection(source_id="n1", target_id="n2", label="requires")
+    new = Connection(source_id="n2", target_id="n3", label="requires")
+
+    assert notebook.connect([stored]) == 1
+    assert notebook.connect([stored]) == 0
+    assert notebook.connect([stored, new]) == 1
+    assert notebook.graph.connections == [stored, new]
+    assert notebook.disconnect([Connection(source_id="n1", target_id="n3", label="supports")]) == 0
+    assert notebook.disconnect([stored, new]) == len([stored, new])
+    assert Notebook(notebook.path).graph.connections == []
+
+
+def test_stores_a_stripped_topic_name_and_finds_it_by_id_or_name(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+
+    topic = notebook.add_topic("  Delivery  ")
+
+    assert topic.name == "Delivery"
+    assert notebook.find_topic(topic.id) == topic
+    assert notebook.find_topic(" DELIVERY ") == topic
+    assert notebook.find_topic("Security") is None
+
+
+def test_keeps_the_topic_summary_when_only_the_status_changes(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    topic = notebook.add_topic("Delivery")
+    notebook.update_topic(topic.id, "done", "Delivery is fully defined.")
+
+    updated = notebook.update_topic(topic.id, "trashed")
+
+    assert (updated.status, updated.summary) == ("trashed", "Delivery is fully defined.")
+    assert Notebook(notebook.path).find_topic(topic.id) == updated
+
+
+@pytest.mark.xfail(
+    strict=True, reason="Notebook.restore keeps the caller's Graph by reference, so a later mutation of it leaks in"
+)
+def test_stores_a_copy_of_a_restored_graph(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    notebook.add(["First"], "t1")
+    checkpoint = notebook.graph.model_copy(deep=True)
+
+    notebook.restore(checkpoint)
+    checkpoint.notes.append(Note(id="n9", topic_id="t1", text="Leaked"))
+    checkpoint.topics.append(Topic(id="t9", name="Leaked", status="open"))
+
+    assert [note.id for note in notebook.graph.notes] == ["n1"]
+    assert [topic.id for topic in notebook.graph.topics] == ["t1"]
+
+
+def test_returns_the_connections_between_the_notes_it_reaches(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    delivery = notebook.add_topic("Delivery")
+    notebook.add(["First"], "t1")
+    notebook.add(["Second"], delivery.id)
+    notebook.add(["Third"], "t1")
+    crossed = Connection(source_id="t1", target_id=delivery.id, label="relates to")
+    entered = Connection(source_id="t1", target_id="n1", label="contains")
+    followed = Connection(source_id="n1", target_id="n2", label="requires")
+    unreached = Connection(source_id="n2", target_id="n3", label="requires")
+    notebook.connect([crossed, entered, followed, unreached])
+
+    notes, connections = notebook.read(ReadQuery(traverse_from=["t1"], direction="outgoing", depth=2))
+
+    assert {note.id for note in notes} == {"n1", "n2"}
+    assert connections == [crossed, entered, followed]
+
+
+@pytest.mark.xfail(
+    strict=True, reason="read() treats an empty topic_ids as a filter that matches nothing, unlike every other selector"
+)
+def test_ignores_an_empty_selector_list(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    notebook.add(["First"], "t1")
+
+    assert [note.id for note in notebook.read(ReadQuery(ids=[]))[0]] == ["n1"]
+    assert [note.id for note in notebook.read(ReadQuery(topic_ids=[]))[0]] == ["n1"]
+
+
+def test_hides_a_trashed_note_requested_by_id(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    topic = notebook.add_topic("Discarded idea")
+    notebook.add(["Do not show this by default."], topic.id)
+    notebook.update_topic(topic.id, "trashed")
+
+    assert notebook.read(ReadQuery(ids=["n1"]))[0] == []
+    assert [note.id for note in notebook.read(ReadQuery(ids=["n1"], topic_ids=[topic.id]))[0]] == ["n1"]

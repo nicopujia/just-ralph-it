@@ -1,7 +1,9 @@
 from collections.abc import Iterator
-from typing import Any, NamedTuple, cast
+from typing import Any, Literal, NamedTuple, cast
 
-from youtube_transcript_api import NoTranscriptFound, TranscriptsDisabled
+from youtube_transcript_api import NoTranscriptFound, RequestBlocked, TranscriptsDisabled
+
+type FakeFailure = Literal["list", "fetch"]
 
 TRANSCRIPT = "English\nlines"
 FALLBACK_TRANSCRIPT = "Fallback\nlines"
@@ -12,27 +14,43 @@ class FakeSnippet(NamedTuple):
 
 
 class FakeTranscript:
-    def __init__(self, language: str) -> None:
+    def __init__(self, language: str, texts: list[str] | None = None, *, fetchable: bool = True) -> None:
         self.language = language
+        self.texts = texts
+        self.fetchable = fetchable
 
     def fetch(self) -> list[FakeSnippet]:
-        return [FakeSnippet(self.language), FakeSnippet("   "), FakeSnippet("lines")]
+        if not self.fetchable:
+            raise RequestBlocked("video")
+        texts = [self.language, "   ", "lines"] if self.texts is None else self.texts
+        return [FakeSnippet(text) for text in texts]
 
 
 class FakeTranscripts:
-    def __init__(self, languages: list[list[str]], *, english: bool, available: bool) -> None:
+    def __init__(
+        self,
+        languages: list[list[str]],
+        texts: list[str] | None = None,
+        *,
+        english: bool,
+        available: bool,
+        fetchable: bool = True,
+    ) -> None:
         self.languages = languages
+        self.texts = texts
         self.english = english
         self.available = available
+        self.fetchable = fetchable
 
     def __iter__(self) -> Iterator[FakeTranscript]:
-        return iter([FakeTranscript("Fallback")] if self.available else [])
+        transcripts = [FakeTranscript("Fallback", self.texts, fetchable=self.fetchable)] if self.available else []
+        return iter(transcripts)
 
     def find_transcript(self, languages: list[str]) -> FakeTranscript:
         self.languages.append(languages)
         if not self.english:
             raise NoTranscriptFound("video", languages, cast("Any", None))
-        return FakeTranscript("English")
+        return FakeTranscript("English", self.texts, fetchable=self.fetchable)
 
 
 class FakeApi:
@@ -40,19 +58,27 @@ class FakeApi:
         self,
         videos: list[str],
         languages: list[list[str]],
+        texts: list[str] | None = None,
         *,
         english: bool = True,
         available: bool = True,
-        disabled: bool = False,
+        failure: "FakeFailure | None" = None,
     ) -> None:
         self.videos = videos
         self.languages = languages
+        self.texts = texts
         self.english = english
         self.available = available
-        self.disabled = disabled
+        self.failure = failure
 
     def list(self, video_id: str) -> FakeTranscripts:
         self.videos.append(video_id)
-        if self.disabled:
+        if self.failure == "list":
             raise TranscriptsDisabled(video_id)
-        return FakeTranscripts(self.languages, english=self.english, available=self.available)
+        return FakeTranscripts(
+            self.languages,
+            self.texts,
+            english=self.english,
+            available=self.available,
+            fetchable=self.failure != "fetch",
+        )

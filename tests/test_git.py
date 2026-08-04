@@ -1,4 +1,5 @@
 import shutil
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -251,3 +252,175 @@ def test_clears_worktrees_leaked_by_a_killed_process(
 
     with repository.open_worktree():
         assert str(leaked) not in run_git(repository.path, "worktree", "list", "--porcelain")
+
+
+def test_rejects_initializing_without_a_git_executable(tmp_path: Path) -> None:
+    with pytest.raises(git.NotInstalledError):
+        git.Repository.init(tmp_path / "project", executable="missing-git-executable")
+
+    assert not (tmp_path / "project").exists()
+
+
+@pytest.mark.xfail(
+    strict=True, reason="Repository.init leaks FileExistsError instead of a git.Error when the path is a regular file"
+)
+def test_rejects_initializing_a_repository_over_a_file(tmp_path: Path) -> None:
+    target = tmp_path / "project"
+    target.write_text("not a directory\n")
+
+    with pytest.raises(git.Error):
+        git.Repository.init(target)
+
+
+def test_reports_no_root_when_git_is_not_installed(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    monkeypatch.setenv("PATH", str(tmp_path / "without-git"))
+
+    assert git.find_root(repository.path) is None
+
+
+def test_rejects_reading_the_head_of_a_repository_without_commits(tmp_path: Path) -> None:
+    repository = git.Repository.init(tmp_path / "project")
+
+    with pytest.raises(git.Error):
+        repository.read_head()
+
+
+def test_reports_which_revisions_name_a_commit(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    first = repository.read_head()
+    blob = run_git(repository.path, "rev-parse", "HEAD:README.md")
+
+    assert repository.has_commit(first)
+    assert not repository.has_commit("no-such-revision")
+    assert not repository.has_commit(blob)
+
+
+def test_rejects_comparing_against_a_revision_that_does_not_exist(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+
+    with pytest.raises(git.Error):
+        repository.is_ancestor("no-such-revision")
+
+
+def test_reports_deleted_paths_on_the_side_they_were_deleted_from(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "notes.md").write_text("notes\n")
+    repository.stage(["notes.md"])
+    repository.commit("jri: add notes")
+
+    run_git(repository.path, "rm", "-q", "README.md")
+    (repository.path / "notes.md").unlink()
+
+    assert {(item.path, item.index, item.worktree) for item in repository.read_status()} == {
+        ("README.md", "D", " "),
+        ("notes.md", " ", "D"),
+    }
+
+
+def test_rejects_reading_a_file_a_revision_does_not_hold(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+
+    with pytest.raises(git.Error):
+        repository.read_file("HEAD", "missing.md")
+
+    with pytest.raises(git.Error):
+        repository.read_file("no-such-revision", "README.md")
+
+
+def test_reads_binary_content_as_raw_bytes(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    content = bytes(range(256))
+    (repository.path / "logo.bin").write_bytes(content)
+    repository.stage(["logo.bin"])
+
+    revision = repository.commit("jri: add a logo")
+
+    assert repository.read_file(revision, "logo.bin") == content
+
+
+def test_reads_only_the_tree_below_the_requested_path(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "docs").mkdir()
+    (repository.path / "docs" / "guide.md").write_text("# Guide\n")
+    repository.stage(["docs"])
+    revision = repository.commit("jri: add docs")
+
+    assert repository.read_tree(revision, "docs") == {"docs/guide.md": b"# Guide\n"}
+    assert repository.read_tree(revision, "missing") == {}
+
+
+def test_rejects_a_commit_with_nothing_staged(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+
+    with pytest.raises(git.Error):
+        repository.commit("jri: test")
+
+
+def test_applies_a_patch_whose_hunk_counts_are_wrong(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    patch = b"""\
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,7 +1,9 @@
+-# Project
++# Renamed
+"""
+
+    repository.apply_patch(patch)
+
+    assert (repository.path / "README.md").read_text() == "# Renamed\n"
+
+
+def test_removes_the_worktree_when_the_body_raises(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    locations: list[Path] = []
+
+    # Wrapped so the raising block stays out of `pytest.raises`.
+    def fail_inside_the_worktree() -> None:
+        with repository.open_worktree() as worktree:
+            locations.append(worktree.path)
+            raise ZeroDivisionError
+
+    with pytest.raises(ZeroDivisionError):
+        fail_inside_the_worktree()
+
+    assert not locations[0].exists()
+    assert str(locations[0]) not in run_git(repository.path, "worktree", "list", "--porcelain")
+
+
+def test_survives_a_worktree_that_was_already_removed(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+
+    with repository.open_worktree() as worktree:
+        location = worktree.path
+        run_git(repository.path, "worktree", "remove", "--force", str(location))
+
+    assert not location.exists()
+
+
+def test_rejects_opening_a_worktree_at_an_unknown_revision(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(scratch))
+
+    with pytest.raises(git.Error), repository.open_worktree("no-such-revision"):
+        pass
+
+    assert list(scratch.iterdir()) == []

@@ -8,14 +8,20 @@ from pydantic import ValidationError
 
 from jri.core import paths
 from jri.core.settings import Settings
+from jri.lib.providers import codex
+from tests.doubles.codex import DISTANT_FUTURE, build_token, write_login
 
 SETTING_PATTERN = re.compile(r"(# )?[a-z_]+:( .*)?")
 
 
 def write_config(tmp_path: Path, config: dict[str, Any]) -> None:
+    write_config_text(tmp_path, yaml.safe_dump(config))
+
+
+def write_config_text(tmp_path: Path, text: str) -> None:
     config_file = tmp_path / paths.CONFIG_FILE
     config_file.parent.mkdir(exist_ok=True)
-    config_file.write_text(yaml.safe_dump(config))
+    config_file.write_text(text)
 
 
 def test_generates_a_configuration_that_round_trips_through_the_settings(tmp_path: Path) -> None:
@@ -159,6 +165,100 @@ def test_requires_an_api_key_without_a_subscription(tmp_path: Path) -> None:
 
     with pytest.raises(ValidationError, match=r"llm\.api_key"):
         Settings.load(tmp_path)
+
+
+def test_falls_back_to_the_defaults_for_a_blank_configuration_file(tmp_path: Path) -> None:
+    write_config_text(tmp_path, "  \n\n")
+
+    settings = Settings.load(tmp_path)
+
+    assert settings.model_dump() == Settings(cwd=tmp_path).model_dump()
+
+
+def test_reports_a_configuration_file_that_is_not_yaml(tmp_path: Path) -> None:
+    write_config_text(tmp_path, "llm: [unclosed\n")
+
+    with pytest.raises(yaml.YAMLError):
+        Settings.load(tmp_path)
+
+
+@pytest.mark.xfail(
+    strict=True, reason="a config.yaml whose top level is a sequence raises a raw TypeError that no caller catches"
+)
+def test_reports_a_configuration_file_that_is_not_a_mapping(tmp_path: Path) -> None:
+    write_config_text(tmp_path, "- llm\n- logging\n")
+
+    with pytest.raises(ValidationError):
+        Settings.load(tmp_path)
+
+
+def test_reports_a_section_without_a_body(tmp_path: Path) -> None:
+    write_config_text(tmp_path, "llm:\n")
+
+    with pytest.raises(ValidationError, match="llm"):
+        Settings.load(tmp_path)
+
+
+@pytest.mark.parametrize("temperature", [-0.1, 2.5], ids=["below", "above"])
+def test_rejects_a_temperature_outside_the_supported_range(tmp_path: Path, temperature: float) -> None:
+    config = yaml.safe_load(Settings.render_config())
+    config["agents"]["explorer"]["temperature"] = temperature
+    write_config(tmp_path, config)
+
+    with pytest.raises(ValidationError, match=r"agents\.explorer\.temperature"):
+        Settings.load(tmp_path)
+
+
+@pytest.mark.parametrize("temperature", [0, 2], ids=["focused", "varied"])
+def test_accepts_the_extremes_of_the_temperature_range(tmp_path: Path, temperature: float) -> None:
+    config = yaml.safe_load(Settings.render_config())
+    config["agents"]["explorer"]["temperature"] = temperature
+    write_config(tmp_path, config)
+
+    assert Settings.load(tmp_path).agents.explorer.temperature == temperature
+
+
+def test_reports_an_unset_search_environment_variable(tmp_path: Path) -> None:
+    config = yaml.safe_load(Settings.render_config())
+    config["brave_search"] = {"api_key": "MISSING_SEARCH_API_KEY"}
+    write_config(tmp_path, config)
+
+    with pytest.raises(ValidationError, match=r"brave_search\.api_key names MISSING_SEARCH_API_KEY"):
+        Settings.load(tmp_path)
+
+
+def test_reaches_the_subscription_through_the_codex_client(tmp_path: Path) -> None:
+    write_config_text(tmp_path, Settings.render_config())
+
+    assert isinstance(Settings.load(tmp_path).llm.client, codex.Client)
+
+
+def test_accepts_a_complete_subscription_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path))
+    write_login(
+        tmp_path, {"access_token": build_token(DISTANT_FUTURE), "refresh_token": "refresh", "account_id": "account"}
+    )
+    write_config_text(tmp_path, Settings.render_config())
+
+    Settings.load(tmp_path).llm.validate_authentication()
+
+
+def test_reports_a_missing_subscription_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    write_config_text(tmp_path, Settings.render_config())
+
+    with pytest.raises(codex.AuthError):
+        Settings.load(tmp_path).llm.validate_authentication()
+
+
+def test_needs_no_subscription_login_for_another_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "codex"))
+    monkeypatch.setenv("PROVIDER_API_KEY", "provider-key")
+    config = yaml.safe_load(Settings.render_config())
+    config["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "PROVIDER_API_KEY"}
+    write_config(tmp_path, config)
+
+    Settings.load(tmp_path).llm.validate_authentication()
 
 
 def test_takes_every_setting_from_the_configuration_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

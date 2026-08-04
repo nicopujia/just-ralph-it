@@ -23,6 +23,10 @@ def partial_reply(text: str) -> Round:
     return [SimpleNamespace(type="response.output_text.delta", delta=text)]
 
 
+def reasoning(text: str, event_type: str) -> Round:
+    return [SimpleNamespace(type=event_type, delta=text), *response()]
+
+
 def failure(message: str) -> Round:
     return [SimpleNamespace(type="error", message=message)]
 

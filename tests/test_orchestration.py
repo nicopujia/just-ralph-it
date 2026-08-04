@@ -31,6 +31,30 @@ new file mode 100644
 @@ -0,0 +1 @@
 +# Behavior
 """
+FUNCTIONAL_UPDATE = """\
+diff --git a/functional/behavior.md b/functional/behavior.md
+--- a/functional/behavior.md
++++ b/functional/behavior.md
+@@ -1 +1,2 @@
+ # Behavior
++Total output is supported.
+"""
+FUNCTIONAL_DELETION_PATCH = """\
+diff --git a/functional/behavior.md b/functional/behavior.md
+deleted file mode 100644
+--- a/functional/behavior.md
++++ /dev/null
+@@ -1 +0,0 @@
+-# Behavior
+"""
+ARCHITECTURE_DELETION_PATCH = """\
+diff --git a/architecture/design.md b/architecture/design.md
+deleted file mode 100644
+--- a/architecture/design.md
++++ /dev/null
+@@ -1 +0,0 @@
+-# Design
+"""
 
 
 def build_workspace(path: Path, create_repository: CreateRepository) -> None:
@@ -38,14 +62,21 @@ def build_workspace(path: Path, create_repository: CreateRepository) -> None:
     install_workspace(path)
 
 
-def generate(path: Path, client: FakeClient) -> tuple[list[Row], Result]:
+def generate(path: Path, client: FakeClient, active_commit: str | None = None) -> tuple[list[Row], Result]:
     captured: list[Result] = []
     workflow = SpecsGeneration(build_settings(path, client))
 
     def drive() -> Generator[Row]:
-        captured.append((yield from workflow.generate(None)))
+        captured.append((yield from workflow.generate(active_commit)))
 
     return list(drive()), captured[0]
+
+
+def commit_specs(path: Path) -> str:
+    client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
+    _, commit = generate(path, client)
+    assert isinstance(commit, str)
+    return commit
 
 
 def written_specs() -> functional_analyst.Output:
@@ -217,4 +248,57 @@ def test_refuses_an_empty_repository_report(tmp_path: Path, create_repository: C
     client = FakeClient([response(reply(""))], parsed=[written_specs()])
 
     with pytest.raises(SpecsError, match="produced no report"):
+        generate(tmp_path, client)
+
+
+def test_refuses_a_patch_that_deletes_every_functional_specification(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    commit = commit_specs(tmp_path)
+    client = FakeClient(
+        [],
+        parsed=[
+            functional_analyst.Output(
+                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_DELETION_PATCH)
+            )
+        ],
+    )
+
+    with pytest.raises(SpecsError, match="Functional specifications cannot be empty"):
+        generate(tmp_path, client, commit)
+
+
+def test_refuses_a_patch_that_deletes_every_architecture_specification(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    commit = commit_specs(tmp_path)
+    client = FakeClient(
+        [streamed_reply("Repository report")],
+        parsed=[
+            functional_analyst.Output(
+                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
+            ),
+            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_DELETION_PATCH)),
+        ],
+    )
+
+    with pytest.raises(SpecsError, match="Architecture specifications cannot be empty"):
+        generate(tmp_path, client, commit)
+
+
+def test_refuses_an_architecture_patch_that_leaves_its_root(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    client = FakeClient(
+        [streamed_reply("Repository report")],
+        parsed=[
+            written_specs(),
+            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=FUNCTIONAL_PATCH)),
+        ],
+    )
+
+    with pytest.raises(SpecsError, match=r"cannot change `functional/behavior\.md`"):
         generate(tmp_path, client)

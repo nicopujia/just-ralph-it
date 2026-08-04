@@ -5,6 +5,8 @@ import pytest
 from jri.core.ai import architect, functional_analyst
 from jri.core.conversation import Conversation
 from jri.core.exceptions import RepositoryStateError, SpecsError
+from jri.core.specs import Specs
+from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
@@ -57,6 +59,64 @@ diff --git a/architecture/design.md b/architecture/design.md
  # Design
 +Add a total accumulator.
 """
+FUNCTIONAL_PAIR_PATCH = """\
+diff --git a/functional/behavior.md b/functional/behavior.md
+new file mode 100644
+--- /dev/null
++++ b/functional/behavior.md
+@@ -0,0 +1 @@
++# Behavior
+diff --git a/functional/exports.md b/functional/exports.md
+new file mode 100644
+--- /dev/null
++++ b/functional/exports.md
+@@ -0,0 +1 @@
++# Exports
+"""
+FUNCTIONAL_DELETION_PATCH = """\
+diff --git a/functional/exports.md b/functional/exports.md
+deleted file mode 100644
+--- a/functional/exports.md
++++ /dev/null
+@@ -1 +0,0 @@
+-# Exports
+"""
+TIMEOUT_PROSE_PATCH = """\
+diff --git a/functional/behavior.md b/functional/behavior.md
+new file mode 100644
+--- /dev/null
++++ b/functional/behavior.md
+@@ -0,0 +1,2 @@
++# Behavior
++An export request times out after 120000 milliseconds.
+"""
+BINARY_PROSE_PATCH = """\
+diff --git a/functional/behavior.md b/functional/behavior.md
+new file mode 100644
+--- /dev/null
++++ b/functional/behavior.md
+@@ -0,0 +1,3 @@
++# Behavior
++Binary files are stored outside the repository.
++A GIT binary patch never belongs in a specification.
+"""
+OPERATOR_PROSE_PATCH = """\
+diff --git a/functional/behavior.md b/functional/behavior.md
+new file mode 100644
+--- /dev/null
++++ b/functional/behavior.md
+@@ -0,0 +1,2 @@
++# Behavior
++++ and -- adjust the quantity of an order line.
+"""
+SPACED_NAME_PATCH = """\
+diff --git a/functional/user guide.md b/functional/user guide.md
+new file mode 100644
+--- /dev/null
++++ b/functional/user guide.md
+@@ -0,0 +1 @@
++# User guide
+"""
 
 
 def build_conversation(path: Path, client: FakeClient) -> Conversation:
@@ -64,28 +124,24 @@ def build_conversation(path: Path, client: FakeClient) -> Conversation:
     return Conversation(build_settings(path, client))
 
 
-def successful_client() -> FakeClient:
+def build_client(functional_patch: str, architecture_patch: str = ARCHITECTURE_PATCH) -> FakeClient:
     return FakeClient(
         [streamed_reply("Repository report"), response(reply("Specifications ready."))],
         parsed=[
             functional_analyst.Output(
-                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_PATCH)
+                result=functional_analyst.Patch(outcome="specification_patch", patch=functional_patch)
             ),
-            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_PATCH)),
+            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=architecture_patch)),
         ],
     )
+
+
+def successful_client() -> FakeClient:
+    return build_client(FUNCTIONAL_PATCH)
 
 
 def updated_client() -> FakeClient:
-    return FakeClient(
-        [streamed_reply("Updated repository report"), response(reply("Specifications updated."))],
-        parsed=[
-            functional_analyst.Output(
-                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
-            ),
-            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_UPDATE)),
-        ],
-    )
+    return build_client(FUNCTIONAL_UPDATE, ARCHITECTURE_UPDATE)
 
 
 def test_commits_complete_specification_bundle(
@@ -354,6 +410,91 @@ def test_refuses_active_commit_unreachable_from_head(
         list(conversation.ralph())
 
 
+def test_reads_every_markdown_specification_under_a_root(tmp_path: Path) -> None:
+    root = tmp_path / "specs" / "functional"
+    (root / "nested").mkdir(parents=True)
+    (root / "b.md").write_text("B")
+    (root / "a.md").write_text("A")
+    (root / "notes.txt").write_text("Not a specification.")
+    (root / "nested" / "c.md").write_text("C")
+
+    specs = Specs.read(tmp_path, "specs/functional")
+
+    assert list(specs) == ["specs/functional/a.md", "specs/functional/b.md", "specs/functional/nested/c.md"]
+    assert specs["specs/functional/nested/c.md"] == b"C"
+    assert Specs.read(tmp_path, "specs/architecture") == {}
+
+
+def test_commits_a_specification_the_analyst_deleted(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, build_client(FUNCTIONAL_PAIR_PATCH)).ralph())
+    restarted = build_conversation(tmp_path, build_client(FUNCTIONAL_DELETION_PATCH, ARCHITECTURE_UPDATE))
+    restarted.restore()
+
+    list(restarted.ralph())
+
+    assert not (tmp_path / ".jri/specs/functional/exports.md").exists()
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
+        ".jri/specs/architecture/design.md",
+        ".jri/specs/functional/exports.md",
+    ]
+    assert not run_git(tmp_path, "status", "--short")
+
+
+def test_reports_a_valid_patch_that_git_cannot_apply(tmp_path: Path, create_repository: CreateRepository) -> None:
+    create_repository(tmp_path)
+    conversation = build_conversation(tmp_path, build_client(FUNCTIONAL_UPDATE))
+
+    with pytest.raises(git.Error):
+        list(conversation.ralph())
+
+    assert conversation.session.active_spec_commit is None
+    assert not (tmp_path / ".jri/specs").exists()
+
+
+@pytest.mark.xfail(
+    strict=True, reason="the patch guards match metadata substrings against hunk bodies and split file names"
+)
+@pytest.mark.parametrize(
+    ("patch", "path", "content"),
+    [
+        (
+            TIMEOUT_PROSE_PATCH,
+            "functional/behavior.md",
+            "# Behavior\nAn export request times out after 120000 milliseconds.\n",
+        ),
+        (
+            BINARY_PROSE_PATCH,
+            "functional/behavior.md",
+            (
+                "# Behavior\nBinary files are stored outside the repository.\n"
+                "A GIT binary patch never belongs in a specification.\n"
+            ),
+        ),
+        (
+            OPERATOR_PROSE_PATCH,
+            "functional/behavior.md",
+            "# Behavior\n++ and -- adjust the quantity of an order line.\n",
+        ),
+        (SPACED_NAME_PATCH, "functional/user guide.md", "# User guide\n"),
+    ],
+    ids=["timeout-in-milliseconds", "binary-prose", "operator-prose", "spaced-file-name"],
+)
+def test_accepts_specifications_that_read_like_patch_metadata(
+    tmp_path: Path, patch: str, path: str, content: str, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    conversation = build_conversation(tmp_path, build_client(patch))
+
+    list(conversation.ralph())
+
+    assert (tmp_path / ".jri/specs" / path).read_text() == content
+    assert conversation.session.active_spec_commit is not None
+
+
 def test_refuses_specifications_edited_outside_jri(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -363,6 +504,20 @@ def test_refuses_specifications_edited_outside_jri(
     (tmp_path / ".jri/specs/functional/behavior.md").write_text("# Behavior\nEdited by hand.\n")
     run_git(tmp_path, "add", ".jri/specs")
     run_git(tmp_path, "commit", "-qm", "docs: edit specifications")
+
+    with pytest.raises(RepositoryStateError, match="differ from the active JRI commit"):
+        list(conversation.ralph())
+
+
+def test_refuses_architecture_specifications_edited_outside_jri(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    conversation = build_conversation(tmp_path, successful_client())
+    list(conversation.ralph())
+    (tmp_path / ".jri/specs/architecture/design.md").write_text("# Design\nEdited by hand.\n")
+    run_git(tmp_path, "add", ".jri/specs")
+    run_git(tmp_path, "commit", "-qm", "docs: edit the architecture")
 
     with pytest.raises(RepositoryStateError, match="differ from the active JRI commit"):
         list(conversation.ralph())

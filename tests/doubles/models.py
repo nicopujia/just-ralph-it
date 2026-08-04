@@ -3,15 +3,22 @@ from typing import Any
 import httpx
 import pytest
 
-from jri.lib.models import get_context_limit
+from jri.lib.models import ENDPOINT, get_context_limit
 
 CONTEXT_LIMIT = 400_000
 CATALOG: dict[str, Any] = {"test": {"limit": {"context": CONTEXT_LIMIT}}}
 
 
 def serve_catalog(monkeypatch: pytest.MonkeyPatch, catalog: object = CATALOG, *, status_code: int = 200) -> None:
-    def get(url: str, **_: object) -> httpx.Response:
-        return httpx.Response(status_code, json=catalog, request=httpx.Request("GET", url))
+    request = httpx.Request("GET", ENDPOINT)
+    serve_outcome(monkeypatch, httpx.Response(status_code, json=catalog, request=request))
+
+
+def serve_outcome(monkeypatch: pytest.MonkeyPatch, outcome: httpx.Response | httpx.HTTPError) -> None:
+    def get(_url: str, **_options: object) -> httpx.Response:
+        if isinstance(outcome, httpx.HTTPError):
+            raise outcome
+        return outcome
 
     monkeypatch.setattr(httpx, "get", get)
     get_context_limit.cache_clear()

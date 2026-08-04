@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import yaml
 
 from jri.core import paths
@@ -60,6 +61,44 @@ def test_keeps_an_existing_ignore_file_when_creating_the_repository(tmp_path: Pa
     install_workspace(tmp_path)
 
     assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text() == "build/\n"
+
+
+@pytest.mark.xfail(
+    strict=True, reason="Install writes the project ignores only when the project has no .gitignore of its own"
+)
+def test_keeps_secrets_out_of_the_initial_commit_of_an_already_ignoring_project(tmp_path: Path) -> None:
+    (tmp_path / paths.PROJECT_GITIGNORE_FILE).write_text("build/\n")
+    (tmp_path / ".env").write_text("SECRET=1\n")
+    (tmp_path / ".DS_Store").write_bytes(b"\x00")
+
+    install_workspace(tmp_path)
+
+    assert set(git.Repository(tmp_path).read_tracked_paths()).isdisjoint({".env", ".DS_Store"})
+
+
+def test_leaves_a_repository_without_commits_alone(tmp_path: Path, run_git: RunGit) -> None:
+    run_git(tmp_path, "init", "-q")
+    (tmp_path / "main.py").write_text("print('hello')\n")
+
+    installation = install_workspace(tmp_path)
+
+    assert not installation.repository_created
+    assert not git.Repository(tmp_path).has_commit()
+    assert not (tmp_path / paths.PROJECT_GITIGNORE_FILE).exists()
+
+
+def test_finds_the_workspace_at_the_root_of_the_enclosing_repository(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    nested = repository.path / "packages" / "app"
+    nested.mkdir(parents=True)
+
+    assert Workspace.find(nested).root == repository.path
+
+
+def test_falls_back_to_the_working_directory_outside_a_repository(tmp_path: Path) -> None:
+    assert Workspace.find(tmp_path).root == tmp_path
 
 
 def test_initializes_a_workspace_inside_an_existing_repository(

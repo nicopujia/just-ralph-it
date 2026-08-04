@@ -1,6 +1,8 @@
 import base64
 import json
 from collections.abc import Callable, Sequence
+from contextlib import suppress
+from datetime import datetime, tzinfo
 from pathlib import Path
 from typing import Any, cast
 
@@ -10,10 +12,11 @@ import pytest
 from jri.lib.providers import codex
 
 DISTANT_FUTURE = 4_102_444_800
+NOW = 1_800_000_000
 ORIGINATOR = "test-app"
 
 
-def write_login(path: Path, tokens: dict[str, Any] | None, *, auth_mode: str = "chatgpt") -> None:
+def write_login(path: Path, tokens: object, *, auth_mode: str = "chatgpt") -> None:
     data: dict[str, Any] = {"auth_mode": auth_mode}
     if tokens is not None:
         data["tokens"] = tokens
@@ -21,12 +24,37 @@ def write_login(path: Path, tokens: dict[str, Any] | None, *, auth_mode: str = "
 
 
 def build_token(expires: int) -> str:
-    payload = base64.urlsafe_b64encode(json.dumps({"exp": expires}).encode()).decode().rstrip("=")
-    return f"header.{payload}.signature"
+    return encode_token(json.dumps({"exp": expires}))
 
 
-def respond(status_code: int, body: dict[str, Any]) -> httpx.Response:
-    return httpx.Response(status_code, json=body, request=httpx.Request("POST", codex.Auth.OAUTH_URL))
+def encode_token(payload: str) -> str:
+    encoded = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+    return f"header.{encoded}.signature"
+
+
+def respond(status_code: int, body: "dict[str, Any] | str") -> httpx.Response:
+    request = httpx.Request("POST", codex.Auth.OAUTH_URL)
+    if isinstance(body, str):
+        return httpx.Response(status_code, text=body, request=request)
+    return httpx.Response(status_code, json=body, request=request)
+
+
+def retry_after_rejection(auth: codex.Auth, on_first_request: Callable[[], None]) -> None:
+    # Drives the httpx retry handshake by hand, so a failure surfaces
+    # unwrapped: the callback stands in for a sibling process rewriting
+    # auth.json while the first attempt is still in flight.
+    flow = auth.sync_auth_flow(httpx.Request("POST", "https://chatgpt.com/backend-api/codex/responses"))
+    request = next(flow)
+    on_first_request()
+    with suppress(StopIteration):
+        flow.send(httpx.Response(httpx.codes.UNAUTHORIZED, request=request))
+
+
+def deny_replacement(monkeypatch: pytest.MonkeyPatch) -> None:
+    def replace(_path: Path, _target: Path) -> Path:
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(codex.Path, "replace", replace)
 
 
 def build_client(
@@ -56,10 +84,18 @@ def build_client(
 
 
 class FakeProvider:
-    def __init__(self, response: httpx.Response) -> None:
+    def __init__(self, response: "httpx.Response | Exception") -> None:
         self.response = response
         self.calls: list[tuple[str, dict[str, str]]] = []
 
     def post(self, url: str, **options: object) -> httpx.Response:
         self.calls.append((url, cast("dict[str, str]", options["data"])))
+        if isinstance(self.response, Exception):
+            raise self.response
         return self.response
+
+
+class FrozenClock:
+    @staticmethod
+    def now(tz: tzinfo) -> datetime:
+        return datetime.fromtimestamp(NOW, tz=tz)

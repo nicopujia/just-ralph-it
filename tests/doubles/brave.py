@@ -8,8 +8,10 @@ RESULTS = [
 ]
 
 
-def respond(status_code: int, body: object = None) -> httpx.Response:
+def respond(status_code: int, body: object = None, *, text: str | None = None) -> httpx.Response:
     request = httpx.Request("POST", "https://search.test/context")
+    if text is not None:
+        return httpx.Response(status_code, text=text, request=request)
     if body is None:
         return httpx.Response(status_code, request=request)
     return httpx.Response(status_code, json=body, request=request)
