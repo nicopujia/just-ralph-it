@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING, cast
 
 import pytest
+from openai import omit
 from pydantic import BaseModel
 
 from jri.core.ai import LLMRunner
@@ -49,6 +50,15 @@ def test_reports_a_failed_response() -> None:
 
     with pytest.raises(RuntimeError, match="the model overloaded"):
         runner.parse([], Output)
+
+
+@pytest.mark.parametrize("temperature", [0, None], ids=["configured", "omitted"])
+def test_sends_temperature_only_when_configured(temperature: float | None) -> None:
+    client = FakeClient([], parsed=[Output(answer="ready")])
+
+    LLMRunner(client=cast("OpenAI", client), model="test", temperature=temperature).parse([], Output)
+
+    assert client.responses.options[-1]["temperature"] == (omit if temperature is None else temperature)
 
 
 def test_rejects_a_context_over_the_input_size_limit() -> None:
