@@ -125,7 +125,7 @@ def test_leaves_omitted_model_options_to_the_model(tmp_path: Path) -> None:
 
 def test_rejects_a_reasoning_effort_it_does_not_document(tmp_path: Path) -> None:
     config = yaml.safe_load(Settings.render_config())
-    config["agents"]["interviewer"]["reasoning_effort"] = "none"
+    config["agents"]["interviewer"]["reasoning_effort"] = "maximum"
     write_config(tmp_path, config)
 
     with pytest.raises(ValidationError, match=r"agents\.interviewer\.reasoning_effort"):

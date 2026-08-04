@@ -21,7 +21,7 @@ from . import paths
 type LoggingLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 # Narrower than the provider library's, whose values come and go with
 # its version, so the accepted efforts are the documented ones.
-type ReasoningEffort = Literal["minimal", "low", "medium", "high", "xhigh"] | None
+type ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None
 type Temperature = Annotated[float, Field(ge=0, le=2)] | None
 
 APPLICATION_NAME = "jri"
@@ -49,7 +49,11 @@ class Agent(BaseModel):
 
     model: str = Field(description="Model ID.")
     reasoning_effort: ReasoningEffort = Field(
-        default=None, description="Reasoning effort: minimal, low, medium, high, or xhigh."
+        default=None,
+        description=(
+            "Reasoning effort: none, minimal, low, medium, high, or xhigh. Setting none turns reasoning off, "
+            "where omitting this leaves the model its own default."
+        ),
     )
     temperature: Temperature = Field(
         default=None, examples=[0.2], description="Sampling temperature: 0 is focused and 2 is varied."
