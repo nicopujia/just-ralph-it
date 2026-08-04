@@ -16,8 +16,7 @@ from openai.types.responses import ResponseFunctionCallOutputItemListParam
 from jri.core.settings import Settings, read_api_key
 from jri.lib import brave, youtube
 
-from .agent import Agent
-from .tool import Invocation, tool
+from .base import Agent, Invocation, tool
 
 logger = logging.getLogger(__name__)
 

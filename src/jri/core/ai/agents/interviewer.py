@@ -8,9 +8,8 @@ from jri.core.notes import Connection, Notebook, NoteId, ReadQuery, TopicId
 from jri.core.settings import Settings
 from jri.lib.models import estimate_tokens, get_context_limit
 
-from .agent import Agent
+from .base import Agent, Stream, ToolOutput, tool
 from .explorer import Explorer
-from .tool import Stream, ToolOutput, tool
 
 if TYPE_CHECKING:
     from openai.types.responses import ResponseInputItemParam
