@@ -32,6 +32,7 @@ def main() -> None:
     if f'__version__ = "{version}"' not in (root / "src" / "jri" / "__init__.py").read_text():
         raise RuntimeError(f"jri.__version__ must be {version}, as pyproject.toml says")
     check_member_order(root / "src", root / "tests")
+    check_constant_publicity(root / "src", root / "tests")
     build_path = root / ".dist"
     if build_path.exists():
         shutil.rmtree(build_path)
@@ -66,6 +67,26 @@ def check_member_order(*roots: Path) -> None:
         raise RuntimeError("Members out of the order AGENTS.md describes:\n" + "\n".join(disorder))
 
 
+def check_constant_publicity(*roots: Path) -> None:
+    """Check every module constant against the AGENTS.md publicity.
+
+    A leading underscore reads as a constant to the order check, since
+    `"_FOO".isupper()` holds, so it would otherwise pass unnoticed.
+
+    Raises:
+        RuntimeError: If a module keeps a constant to itself.
+    """
+
+    private = [
+        line
+        for root in roots
+        for path in sorted(root.rglob("*.py"))
+        for line in _find_private_constants(ast.parse(path.read_text()).body, path)
+    ]
+    if private:
+        raise RuntimeError("Constants private though AGENTS.md requires them public:\n" + "\n".join(private))
+
+
 def _find_disorder(
     body: list[ast.stmt], rank: Callable[[ast.stmt], int | None], groups: tuple[str, ...], path: Path, scope: str
 ) -> Iterator[str]:
@@ -84,6 +105,22 @@ def _find_disorder(
             highest = max(highest, group)
         if isinstance(node, ast.ClassDef):
             yield from _find_disorder(node.body, _rank_class, CLASS_GROUPS, path, f"class {node.name}")
+
+
+def _find_private_constants(body: list[ast.stmt], path: Path) -> Iterator[str]:
+    """Report every constant a module hides behind an underscore.
+
+    Yields:
+        One `file:line:` complaint per private constant.
+    """
+
+    for node in body:
+        match node:
+            case ast.Assign(targets=[ast.Name(id=name)]) | ast.AnnAssign(target=ast.Name(id=name)):
+                if name.startswith("_") and not name.endswith("__") and name.isupper():
+                    yield f"{path}:{node.lineno}: private constant {name} in module"
+            case _:
+                continue
 
 
 def _rank_module(node: ast.stmt) -> int | None:
