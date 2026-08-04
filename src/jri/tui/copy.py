@@ -10,12 +10,6 @@ CANCEL_TURN_CONFIRMATION = "Press Esc again to stop"
 CANCEL_TURN_KEY = "esc esc"
 CANCEL_TURN_STARTED = "Stopping response…"
 CLI_CHAT_HELP = "Chat with the interviewer in the terminal UI."
-CLI_CWD_HELP = "Current working directory."
-CLI_EPILOG = (
-    "Every setting documented in .jri/config.yaml also works on `chat` and `view` as a flag (--llm.provider, "
-    "--agents.interviewer.model, ...) or as an environment variable (JRI_LLM_PROVIDER, "
-    "JRI_AGENTS_INTERVIEWER_MODEL, ...)."
-)
 CLI_FORCE_HELP = (
     "Re-create the JRI workspace: write the configuration file again and delete the conversation, the notes, "
     "the logs, and the generated specifications."
@@ -25,16 +19,12 @@ CLI_VERSION_HELP = "Show the JRI version and exit."
 CLI_VIEW_HELP = "Visualize the notes graph."
 CLI_YES_HELP = "Answer yes to the confirmation --force asks for."
 CONFIG_ERROR = """Invalid configuration.
-Set or fix these settings:
+Set or fix these settings in .jri/config.yaml:
 
 {errors}
 
-You can define them in .jri/config.yaml,
-your shell, a .env file, or CLI flags.
 All commands, including `jri view`, use this configuration.
 """
-
-DIRECTORY_MISSING = "No directory at {directory}. Run `jri init --cwd {directory}` to create it."
 
 FORCE_CANCELLED = "Nothing was deleted."
 FORCE_PROMPT = "Type `y` to continue, or anything else to cancel: "

@@ -1,4 +1,3 @@
-import os
 import re
 from pathlib import Path
 from typing import Any
@@ -13,14 +12,6 @@ from jri.core.settings import Settings
 SETTING_PATTERN = re.compile(r"(# )?[a-z_]+:( .*)?")
 
 
-@pytest.fixture(autouse=True)
-def isolate_settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    for name in tuple(os.environ):
-        if name.startswith("JRI_"):
-            monkeypatch.delenv(name)
-
-
 def write_config(tmp_path: Path, config: dict[str, Any]) -> None:
     config_file = tmp_path / paths.CONFIG_FILE
     config_file.parent.mkdir(exist_ok=True)
@@ -28,13 +19,13 @@ def write_config(tmp_path: Path, config: dict[str, Any]) -> None:
 
 
 def test_generates_a_configuration_that_round_trips_through_the_settings(tmp_path: Path) -> None:
-    defaults = Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
     (tmp_path / paths.CONFIG_FILE).parent.mkdir(exist_ok=True)
     (tmp_path / paths.CONFIG_FILE).write_text(Settings.render_config())
 
-    settings = Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
+    settings = Settings.load(tmp_path)
 
-    assert settings.model_dump() == defaults.model_dump()
+    assert settings.model_dump() == Settings(cwd=tmp_path).model_dump()
+    assert settings.cwd == tmp_path
     assert settings.llm.provider == "openai-subscription"
     assert settings.logging.level == "INFO"
     assert {name: agent["model"] for name, agent in settings.agents.model_dump().items()} == {
@@ -49,33 +40,6 @@ def test_generates_a_configuration_that_round_trips_through_the_settings(tmp_pat
         "functional_analyst": "xhigh",
         "architect": "xhigh",
     }
-
-
-def test_keeps_configured_settings_out_of_the_help_yet_usable(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    with pytest.raises(SystemExit):
-        Settings(cwd=tmp_path, _cli_parse_args=["--help"])  # pyright: ignore[reportCallIssue]
-
-    help_text = " ".join(capsys.readouterr().out.split())
-
-    assert "--cwd" in help_text
-    for flag in (
-        "--force",
-        "--llm.provider",
-        "--brave-search.api-key",
-        "--agents.interviewer.model",
-        "--logging.level",
-    ):
-        assert flag not in help_text
-
-    overridden = Settings(
-        cwd=tmp_path,
-        _cli_parse_args=["--agents.interviewer.model", "custom", "--logging.level", "DEBUG"],  # pyright: ignore[reportCallIssue]
-    )
-
-    assert overridden.agents.interviewer.model == "custom"
-    assert overridden.logging.level == "DEBUG"
 
 
 def test_documents_every_setting_it_generates() -> None:
@@ -108,7 +72,16 @@ def test_reports_an_incomplete_configuration(tmp_path: Path) -> None:
     write_config(tmp_path, config)
 
     with pytest.raises(ValidationError, match=r"agents\.explorer\.model"):
-        Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
+        Settings.load(tmp_path)
+
+
+def test_reports_a_setting_it_does_not_know(tmp_path: Path) -> None:
+    config = yaml.safe_load(Settings.render_config())
+    config["agents"]["designer"] = {"model": "gpt-5.6-sol"}
+    write_config(tmp_path, config)
+
+    with pytest.raises(ValidationError, match=r"agents\.designer"):
+        Settings.load(tmp_path)
 
 
 def test_leaves_omitted_model_options_to_the_model(tmp_path: Path) -> None:
@@ -117,7 +90,7 @@ def test_leaves_omitted_model_options_to_the_model(tmp_path: Path) -> None:
     config["agents"]["explorer"].pop("temperature", None)
     write_config(tmp_path, config)
 
-    settings = Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
+    settings = Settings.load(tmp_path)
 
     assert settings.agents.explorer.reasoning_effort is None
     assert settings.agents.explorer.temperature is None
@@ -129,7 +102,7 @@ def test_rejects_a_reasoning_effort_it_does_not_document(tmp_path: Path) -> None
     write_config(tmp_path, config)
 
     with pytest.raises(ValidationError, match=r"agents\.interviewer\.reasoning_effort"):
-        Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
+        Settings.load(tmp_path)
 
 
 def test_reads_api_keys_from_the_environment_variables_they_name(
@@ -142,7 +115,7 @@ def test_reads_api_keys_from_the_environment_variables_they_name(
     monkeypatch.setenv("PROVIDER_API_KEY", "provider-key")
     monkeypatch.setenv("SEARCH_API_KEY", "search-key")
 
-    settings = Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
+    settings = Settings.load(tmp_path)
 
     assert settings.llm.api_key == "PROVIDER_API_KEY"
     assert settings.brave_search.api_key == "SEARCH_API_KEY"
@@ -155,7 +128,7 @@ def test_reports_an_unset_environment_variable(tmp_path: Path) -> None:
     write_config(tmp_path, config)
 
     with pytest.raises(ValidationError, match="MISSING_API_KEY, but that environment variable is not set"):
-        Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
+        Settings.load(tmp_path)
 
 
 def test_requires_an_api_key_without_a_subscription(tmp_path: Path) -> None:
@@ -164,24 +137,18 @@ def test_requires_an_api_key_without_a_subscription(tmp_path: Path) -> None:
     write_config(tmp_path, config)
 
     with pytest.raises(ValidationError, match=r"llm\.api_key"):
-        Settings(cwd=tmp_path, _cli_parse_args=[])  # pyright: ignore[reportCallIssue]
+        Settings.load(tmp_path)
 
 
-def test_resolves_cli_over_environment_over_configuration(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_takes_every_setting_from_the_configuration_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config = yaml.safe_load(Settings.render_config())
-    config["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "PROVIDER_API_KEY"}
     config["agents"]["interviewer"] |= {"model": "file-model", "reasoning_effort": "low"}
     write_config(tmp_path, config)
-    monkeypatch.setenv("PROVIDER_API_KEY", "provider-key")
     monkeypatch.setenv("JRI_AGENTS_INTERVIEWER_MODEL", "environment-model")
-    monkeypatch.setenv("JRI_AGENTS_INTERVIEWER_REASONING_EFFORT", "medium")
+    monkeypatch.setenv("JRI_LOGGING_LEVEL", "DEBUG")
 
-    settings = Settings(
-        cwd=tmp_path,
-        _cli_parse_args=["--agents.interviewer.model", "cli-model"],  # pyright: ignore[reportCallIssue]
-    )
+    settings = Settings.load(tmp_path)
 
-    assert settings.llm.provider == "https://api.openai.com/v1"
-    assert settings.llm.api_key == "PROVIDER_API_KEY"
-    assert settings.agents.interviewer.model == "cli-model"
-    assert settings.agents.interviewer.reasoning_effort == "medium"
+    assert settings.agents.interviewer.model == "file-model"
+    assert settings.agents.interviewer.reasoning_effort == "low"
+    assert settings.logging.level == "INFO"

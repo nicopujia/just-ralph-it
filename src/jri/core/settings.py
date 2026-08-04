@@ -1,18 +1,11 @@
 import os
 import textwrap
 from pathlib import Path
-from typing import Annotated, Any, Literal, cast, override
+from typing import Annotated, Literal, Self, cast
 
 import yaml
 from openai import OpenAI
-from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
-from pydantic_settings import (
-    BaseSettings,
-    CliSuppress,
-    PydanticBaseSettingsSource,
-    SettingsConfigDict,
-    YamlConfigSettingsSource,
-)
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from jri.lib.providers import codex
 
@@ -26,12 +19,7 @@ type Temperature = Annotated[float, Field(ge=0, le=2)] | None
 
 APPLICATION_NAME = "jri"
 COMMENT_WIDTH = 100
-CONFIG_INTRO = (
-    "Every setting below can also be given as an environment variable following its path "
-    "(JRI_LLM_PROVIDER, JRI_AGENTS_INTERVIEWER_MODEL, ...) or as a CLI flag (see `jri --help`). "
-    "The values shown are the ones JRI already uses, and the commented ones are optional."
-)
-RUNTIME_FIELDS = frozenset({"cwd"})
+CONFIG_INTRO = "The values below are the ones JRI already uses, and the commented ones are optional."
 
 
 def read_api_key(variable: str) -> str:
@@ -58,6 +46,8 @@ class AgentProfile(BaseModel):
     temperature: Temperature = Field(
         default=None, examples=[0.2], description="Sampling temperature: 0 is focused and 2 is varied."
     )
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class AgentProfiles(BaseModel):
@@ -87,8 +77,10 @@ class AgentProfiles(BaseModel):
         ),
     )
 
+    model_config = ConfigDict(extra="forbid")
 
-class LLM(BaseSettings):
+
+class LLM(BaseModel):
     """LLM provider configuration."""
 
     provider: str = Field(
@@ -111,7 +103,7 @@ class LLM(BaseSettings):
         ),
     )
 
-    model_config = SettingsConfigDict(env_prefix="JRI_LLM_", extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     @property
     def client(self) -> OpenAI:
@@ -128,7 +120,7 @@ class LLM(BaseSettings):
             codex.Auth(APPLICATION_NAME).validate()
 
 
-class BraveSearch(BaseSettings):
+class BraveSearch(BaseModel):
     """Brave Search configuration."""
 
     api_key: str | None = Field(
@@ -137,10 +129,10 @@ class BraveSearch(BaseSettings):
         description="Name of the environment variable holding the Brave Search LLM Context API key.",
     )
 
-    model_config = SettingsConfigDict(env_prefix="JRI_BRAVE_SEARCH_", extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
-class Logging(BaseSettings):
+class Logging(BaseModel):
     """Application logging configuration."""
 
     level: LoggingLevel = Field(
@@ -150,49 +142,46 @@ class Logging(BaseSettings):
         ),
     )
 
-    model_config = SettingsConfigDict(env_prefix="JRI_LOGGING_", extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
-class Settings(BaseSettings):
-    """Settings loaded from project files, CLI, and environment."""
+class Settings(BaseModel):
+    """Settings loaded from a project's configuration file."""
 
-    # Every command resolves the directory itself and passes it in, so
-    # this default only spares the field a required marker it would
-    # wear in the command-line help.
-    cwd: Path = Field(description="Current working directory.", default=Path())
-    llm: CliSuppress[LLM] = Field(default_factory=LLM, description="Provider every agent sends its model requests to.")
-    brave_search: CliSuppress[BraveSearch] = Field(
+    # Not a setting: the directory a command runs in is what tells JRI
+    # which project to read the settings of, so the file has no say in
+    # it and never shows it.
+    cwd: Path = Field(default=Path(), exclude=True)
+    llm: LLM = Field(default_factory=LLM, description="Provider every agent sends its model requests to.")
+    brave_search: BraveSearch = Field(
         default_factory=BraveSearch,
         description=(
             "Web search for the explorer agent, on top of the shell, files, and URLs it always has. "
             "Get a key at https://brave.com/search/api/."
         ),
     )
-    agents: CliSuppress[AgentProfiles] = Field(
-        # A default instance, rather than a factory, is what makes the
-        # command-line help report each agent's real defaults.
-        default=AgentProfiles(),
+    agents: AgentProfiles = Field(
+        default_factory=AgentProfiles,
         description=(
             "Each agent picks a model available on the provider above. Omit the reasoning effort on models without "
             "reasoning, and the temperature to let the model pick it; reasoning models reject the temperature "
             "outright."
         ),
     )
-    logging: CliSuppress[Logging] = Field(
-        default_factory=Logging, description="Diagnostics JRI writes down while it runs."
-    )
+    logging: Logging = Field(default_factory=Logging, description="Diagnostics JRI writes down while it runs.")
 
-    model_config = SettingsConfigDict(
-        cli_kebab_case=True,
-        cli_parse_args=True,
-        cli_implicit_flags="toggle",
-        cli_avoid_json=True,
-        env_prefix="JRI_",
-        env_nested_delimiter="_",
-        env_nested_max_split=2,
-        env_file_encoding="utf-8",
-        extra="ignore",
-    )
+    model_config = ConfigDict(extra="forbid")
+
+    @classmethod
+    def load(cls, cwd: Path) -> Self:
+        """Load the settings of the project rooted at a directory.
+
+        Returns:
+            The settings its configuration file defines.
+        """
+
+        config = yaml.safe_load((cwd / paths.CONFIG_FILE).read_text(encoding="utf-8"))
+        return cls.model_validate({**(config or {}), "cwd": cwd})
 
     @classmethod
     def render_config(cls) -> str:
@@ -206,29 +195,6 @@ class Settings(BaseSettings):
 
         intro = [f"# {line}" for line in textwrap.wrap(CONFIG_INTRO, COMMENT_WIDTH)]
         return "\n".join([*intro, "", *_render_settings(cls, None, 0), ""])
-
-    @classmethod
-    @override
-    def settings_customise_sources(
-        cls,
-        settings_cls: type[BaseSettings],
-        init_settings: PydanticBaseSettingsSource,
-        env_settings: PydanticBaseSettingsSource,
-        dotenv_settings: PydanticBaseSettingsSource,
-        file_secret_settings: PydanticBaseSettingsSource,
-    ) -> tuple[PydanticBaseSettingsSource, ...]:
-        """Load the project configuration last, so overrides win.
-
-        Returns:
-            The ordered settings sources.
-        """
-
-        return (
-            init_settings,
-            env_settings,
-            dotenv_settings,
-            _YamlSource(settings_cls, paths.CONFIG_FILE, _build_file_schema(cls)),
-        )
 
     @model_validator(mode="after")
     def validate_api_keys(self) -> "Settings":
@@ -252,30 +218,6 @@ class Settings(BaseSettings):
         return self
 
 
-def _build_file_schema(model: type[BaseModel]) -> type[BaseModel]:
-    """Build the schema the configuration file is allowed to set.
-
-    Every field is optional so the file may leave settings to the other
-    sources, and unknown keys are rejected.
-
-    Returns:
-        A model mirroring the settings the file may define.
-    """
-
-    fields: dict[str, Any] = {}
-    for name, field in model.model_fields.items():
-        annotation: Any = field.annotation
-        if name in RUNTIME_FIELDS:
-            continue
-        if isinstance(annotation, type) and issubclass(annotation, BaseModel):
-            section = _build_file_schema(annotation)
-            if section.model_fields:
-                fields[name] = (section | None, None)
-        else:
-            fields[name] = (annotation | None, None)
-    return create_model(f"{model.__name__}File", __config__=ConfigDict(extra="forbid"), **fields)
-
-
 def _render_settings(model: type[BaseModel], values: BaseModel | None, level: int) -> list[str]:
     """Render one settings model as documented YAML lines.
 
@@ -290,7 +232,7 @@ def _render_settings(model: type[BaseModel], values: BaseModel | None, level: in
     indent = "  " * level
     entries: list[list[str]] = []
     for name, field in model.model_fields.items():
-        if level == 0 and name in RUNTIME_FIELDS:
+        if field.exclude:
             continue
         comment: list[str] = []
         for paragraph in (field.description or "").split("\n\n"):
@@ -312,13 +254,3 @@ def _render_settings(model: type[BaseModel], values: BaseModel | None, level: in
 
     lines = [line for entry in entries for line in ("", *entry)]
     return lines[1:]
-
-
-class _YamlSource(YamlConfigSettingsSource):
-    def __init__(self, settings_cls: type[BaseSettings], file: str, schema: type[BaseModel]) -> None:
-        self.schema = schema
-        super().__init__(settings_cls, yaml_file=file, yaml_file_encoding="utf-8")
-
-    @override
-    def __call__(self) -> dict[str, Any]:
-        return self.schema.model_validate(super().__call__()).model_dump(exclude_unset=True)
