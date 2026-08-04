@@ -14,8 +14,9 @@ from pydantic_settings import (
     YamlConfigSettingsSource,
 )
 
-from jri.core import paths
 from jri.lib.providers import codex
+
+from . import paths
 
 type LoggingLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 # Narrower than the provider library's, whose values come and go with
@@ -23,6 +24,7 @@ type LoggingLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 type ReasoningEffort = Literal["minimal", "low", "medium", "high", "xhigh"] | None
 type Temperature = Annotated[float, Field(ge=0, le=2)] | None
 
+APPLICATION_NAME = "jri"
 COMMENT_WIDTH = 100
 CONFIG_INTRO = (
     "Every setting below can also be given as an environment variable following its path "
@@ -112,14 +114,14 @@ class LLM(BaseSettings):
         """Build a client for the configured provider."""
 
         if self.provider == "openai-subscription":
-            return codex.Client()
+            return codex.Client(APPLICATION_NAME)
         return OpenAI(base_url=self.provider, api_key=read_api_key(cast("str", self.api_key)))
 
     def validate_authentication(self) -> None:
         """Validate subscription authentication when configured."""
 
         if self.provider == "openai-subscription":
-            codex.Auth().validate()
+            codex.Auth(APPLICATION_NAME).validate()
 
 
 class BraveSearch(BaseSettings):

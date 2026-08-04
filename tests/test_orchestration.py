@@ -198,7 +198,7 @@ def test_reports_only_the_explorer_text_that_follows_its_last_tool_call(
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
         [
-            [*partial_reply("Draft notes"), *response(call("search", "web_search", query="ralph"))],
+            [*partial_reply("Draft notes"), *response(call("search", "search_web", query="ralph"))],
             streamed_reply("Final report"),
         ],
         parsed=[written_specs(), designed_architecture()],

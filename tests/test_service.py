@@ -36,6 +36,16 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
     assert list((tmp_path / paths.LOGS_DIR).iterdir()) == []
 
 
+def test_writes_the_note_graph_where_the_workspace_keeps_it(tmp_path: Path) -> None:
+    Service.init(tmp_path)
+    service = build_service(tmp_path, FakeClient([]))
+
+    path = service.visualize()
+
+    assert path == service.visualization_file
+    assert "Project overview" in path.read_text()
+
+
 def test_commits_the_project_when_it_creates_the_repository(tmp_path: Path, run_git: RunGit) -> None:
     (tmp_path / "main.py").write_text("print('hello')\n")
     (tmp_path / ".env").write_text("SECRET=1\n")
@@ -255,7 +265,7 @@ def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
     assert any(ambiguity in item.get("content", "") for item in service.session.interview)
     restarted = build_service(tmp_path, FakeClient([]))
     turns, _ = restarted.restore()
-    assert ("assistant", "Should the output be JSON or plain text?", None) in turns[-1].items
+    assert InterviewItem("assistant", "Should the output be JSON or plain text?") in turns[-1].items
     assert restarted.session.active_spec_commit is None
 
 

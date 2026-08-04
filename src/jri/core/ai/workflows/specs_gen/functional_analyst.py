@@ -39,12 +39,12 @@ class Output(BaseModel):
     result: Ambiguities | Patch
 
 
-class FunctionalAnalyst(LLMRunner):
+class FunctionalAnalyst:
     """Transform project knowledge into behavioral specifications."""
 
     def __init__(self, settings: Settings) -> None:
         agent = settings.agents.functional_analyst
-        super().__init__(
+        self.runner = LLMRunner(
             client=settings.llm.client,
             model=agent.model,
             reasoning_effort=agent.reasoning_effort,
@@ -109,9 +109,9 @@ class FunctionalAnalyst(LLMRunner):
                 "\n\nRejected functional draft:\n"
                 f"{context.rejected_specs}\n\nArchitect feedback:\n{context.architect_feedback or ''}"
             )
-        output = self.parse(
+        output = self.runner.parse(
             [
-                {"role": "system", "content": self.prompt},
+                {"role": "system", "content": self.runner.prompt},
                 {
                     "role": "user",
                     "content": (

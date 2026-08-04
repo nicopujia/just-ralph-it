@@ -1,5 +1,4 @@
 import argparse
-import html
 import logging
 import webbrowser
 from contextlib import chdir
@@ -25,26 +24,17 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Just Ralph It", epilog=copy.CLI_EPILOG)
-    parser.add_argument("-v", "--version", action="version", version=__version__, help="Show the JRI version and exit.")
+    parser = argparse.ArgumentParser(description=copy.TITLE, epilog=copy.CLI_EPILOG)
+    parser.add_argument("-v", "--version", action="version", version=__version__, help=copy.CLI_VERSION_HELP)
     # A positional command, rather than subparsers, lets every setting
     # below be given before or after it.
-    parser.add_argument(
-        "command",
-        nargs="?",
-        choices=("init", "chat", "view"),
-        help=(
-            "init: set the project up with the default JRI configuration. "
-            "chat: chat with the interviewer in the terminal UI. "
-            "view: visualize the notes graph."
-        ),
-    )
+    parser.add_argument("command", nargs="?", choices=("init", "chat", "view"), help=copy.CLI_COMMAND_HELP)
 
     settings_source = CliSettingsSource(Settings, root_parser=parser, parse_args_method=parser.parse_args)
 
     args = parser.parse_args()
     settings_source(parsed_args=args)
-    location = Path(getattr(args, "cwd", None) or Path.cwd()).resolve()
+    location = Path(args.cwd or Path.cwd()).resolve()
     project_dir = git.find_root(location) or location
 
     if args.command is None:
@@ -84,13 +74,13 @@ def main() -> None:
     try:
         handlers[args.command](settings)
     except codex.AuthError as error:
-        print(f"Authentication failed: {error}")
+        print(copy.AUTH_ERROR.format(error=error))
         raise SystemExit(1) from error
     except git.Error as error:
-        print(f"Git failed: {error}")
+        print(copy.GIT_ERROR.format(error=error))
         raise SystemExit(1) from error
     except PersistenceError as error:
-        print(f"Persistence failed: {error}")
+        print(copy.PERSISTENCE_ERROR.format(error=error))
         raise SystemExit(1) from error
 
 
@@ -122,74 +112,9 @@ def _chat(settings: Settings) -> None:
 
 
 def _view(settings: Settings) -> None:
-    service = Service(settings)
-    graph = service.notebook.graph
-    diagram = ["flowchart TD", "    classDef topic fill:#fff3cd,stroke:#856404,stroke-width:2px"]
-    indentation = "    " * 3
-
-    for topic in graph.topics:
-        summary = topic.summary
-        label = f"{_escape(topic.name)}<br/>[{topic.status}]"
-        if summary:
-            label += f"<br/>{_escape(summary)}"
-        diagram.append(f'{indentation}{topic.id}(["{label}"]):::topic')
-
-    diagram.extend(f'{indentation}{note.id}["{_escape(note.text)}"]' for note in graph.notes)
-
-    connected_pairs = {(connection.source_id, connection.target_id) for connection in graph.connections}
-    diagram.extend(
-        f'{indentation}{note.topic_id} -->|"contains"| {note.id}'
-        for note in graph.notes
-        if (note.topic_id, note.id) not in connected_pairs
-    )
-
-    diagram.extend(
-        f'{indentation}{connection.source_id} -->|"{_escape(connection.label)}"| {connection.target_id}'
-        for connection in graph.connections
-    )
-
-    diagram_content = "\n".join(diagram)
-    service.visualization_file.write_text(f"""\
-<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <style>
-        html, body, .mermaid, .mermaid svg {{
-            width: 100%;
-            height: 100%;
-            max-width: none !important;
-            margin: 0;
-        }}
-
-        body {{
-            overflow: hidden;
-        }}
-    </style>
-    <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
-    <script type="module">
-        try {{
-            const {{ default: mermaid }} = await import(
-                "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"
-            );
-            mermaid.initialize({{ startOnLoad: false }});
-            await mermaid.run();
-            window.svgPanZoom(document.querySelector(".mermaid svg"), {{ controlIconsEnabled: true }});
-        }} catch {{
-            document.body.textContent = "The graph viewer could not load its CDN resources. "
-                + "Check your internet connection.";
-        }}
-    </script>
-</head>
-<body>
-    <pre class="mermaid">
-        {diagram_content}
-    </pre>
-</body>
-</html>""")
-
-    print(service.visualization_file)
-    webbrowser.open(service.visualization_file.resolve().as_uri())
+    path = Service(settings).visualize()
+    print(path)
+    webbrowser.open(path.resolve().as_uri())
 
 
 def _confirm_reset(project_dir: Path) -> bool:
@@ -208,10 +133,6 @@ def _confirm_reset(project_dir: Path) -> bool:
         return input(copy.FORCE_PROMPT).strip().casefold() in {"y", "yes"}
     except EOFError:
         return False
-
-
-def _escape(value: str) -> str:
-    return html.escape(value, quote=True).replace("\n", "<br/>")
 
 
 if __name__ == "__main__":

@@ -40,7 +40,7 @@ class Output(BaseModel):
     result: Issues | Patch
 
 
-class Architect(LLMRunner):
+class Architect:
     """Transform functional specifications into architecture."""
 
     FINAL_PROMPT = cleandoc("""
@@ -50,7 +50,7 @@ class Architect(LLMRunner):
 
     def __init__(self, settings: Settings) -> None:
         agent = settings.agents.architect
-        super().__init__(
+        self.runner = LLMRunner(
             client=settings.llm.client,
             model=agent.model,
             reasoning_effort=agent.reasoning_effort,
@@ -100,7 +100,7 @@ class Architect(LLMRunner):
             An architecture patch or issues for the Functional Analyst.
         """
 
-        output = self.parse(self._build_input(context, self.prompt), Output)
+        output = self.runner.parse(self._build_input(context, self.runner.prompt), Output)
         return output.result
 
     def finish(self, context: Input) -> Patch:
@@ -110,7 +110,7 @@ class Architect(LLMRunner):
             The required architecture patch.
         """
 
-        return self.parse(self._build_input(context, f"{self.prompt}\n\n{self.FINAL_PROMPT}"), Patch)
+        return self.runner.parse(self._build_input(context, f"{self.runner.prompt}\n\n{self.FINAL_PROMPT}"), Patch)
 
     @staticmethod
     def _build_input(context: Input, prompt: str) -> ResponseInputParam:

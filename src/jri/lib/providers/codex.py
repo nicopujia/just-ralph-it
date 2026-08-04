@@ -23,18 +23,23 @@ class AuthError(Exception):
 
 
 class Auth(httpx.Auth):
+    """Authenticate requests with an existing file-based Codex login.
+
+    The originator names the application refreshing the login, so that
+    concurrent applications lock the login file under their own name.
+    """
+
     CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
     OAUTH_URL = "https://auth.openai.com/oauth/token"
 
-    """Authenticate requests with an existing file-based Codex login."""
-
-    def __init__(self) -> None:
+    def __init__(self, originator: str) -> None:
+        self.originator = originator
         self.path = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "auth.json"
         self.lock = Lock()
 
     @override
     def sync_auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response]:
-        credentials = self._credentials()
+        credentials = self._read_credentials()
         request.headers["Authorization"] = f"Bearer {credentials['access_token']}"
         request.headers["chatgpt-account-id"] = credentials["account_id"]
         response = yield request
@@ -49,9 +54,9 @@ class Auth(httpx.Auth):
     def validate(self) -> None:
         """Validate that a reusable ChatGPT login is available."""
 
-        self._credentials()
+        self._read_credentials()
 
-    def _credentials(self) -> dict[str, str]:
+    def _read_credentials(self) -> dict[str, str]:
         data = self._read()
         tokens = data.get("tokens")
         if data.get("auth_mode") != "chatgpt" or not isinstance(tokens, dict):
@@ -62,7 +67,7 @@ class Auth(httpx.Auth):
             raise AuthError("The Codex login is incomplete. Run `codex login` again.") from error
         if not all(isinstance(value, str) and value for value in credentials.values()):
             raise AuthError("The Codex login is incomplete. Run `codex login` again.")
-        if self._expired(credentials["access_token"]):
+        if self._has_expired(credentials["access_token"]):
             return self._refresh(credentials["refresh_token"])
         return credentials
 
@@ -80,7 +85,7 @@ class Auth(httpx.Auth):
         return data
 
     @staticmethod
-    def _expired(access_token: str) -> bool:
+    def _has_expired(access_token: str) -> bool:
         try:
             payload = access_token.split(".")[1]
             payload += "=" * (-len(payload) % 4)
@@ -100,7 +105,7 @@ class Auth(httpx.Auth):
                 values = (access_token, account_id, new_refresh_token)
                 if all(isinstance(value, str) for value in values) and all(values):
                     access_token, account_id, new_refresh_token = cast("tuple[str, str, str]", values)
-                    if not self._expired(access_token):
+                    if not self._has_expired(access_token):
                         return {
                             "access_token": access_token,
                             "refresh_token": new_refresh_token,
@@ -131,7 +136,7 @@ class Auth(httpx.Auth):
 
     @contextmanager
     def _file_lock(self) -> Generator[None]:
-        lock_path = self.path.with_suffix(".jri.lock")
+        lock_path = self.path.with_suffix(f".{self.originator}.lock")
         with lock_path.open("w") as lock_file:
             if sys.platform == "win32":
                 file_lock.locking(lock_file.fileno(), file_lock.LK_LOCK, 1)
@@ -160,12 +165,12 @@ class Auth(httpx.Auth):
 class Client(OpenAI):
     """Adapt OpenAI Responses requests to the ChatGPT Codex backend."""
 
-    def __init__(self) -> None:
+    def __init__(self, originator: str) -> None:
         super().__init__(
             base_url="https://chatgpt.com/backend-api/codex",
             api_key="codex",
-            default_headers={"originator": "jri", "OpenAI-Beta": "responses=experimental"},
-            http_client=DefaultHttpxClient(auth=Auth()),
+            default_headers={"originator": originator, "OpenAI-Beta": "responses=experimental"},
+            http_client=DefaultHttpxClient(auth=Auth(originator)),
         )
 
     @override

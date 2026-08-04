@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, ClassVar, cast
 from jri.core import ai
 from jri.core.exceptions import ModelError
 
-from .tool import Invocation, Tool
+from .tool import DEFAULT_SYMBOL, Invocation, Tool
 
 if TYPE_CHECKING:
     from collections.abc import Generator
@@ -139,7 +139,7 @@ class Agent:
         yield ai.ToolCallStarted(
             call_id=call_id,
             label=tool.format_label(tool.started_label, arguments) if tool else name,
-            symbol=getattr(tool, "symbol", "⚙︎"),
+            symbol=tool.symbol if tool else DEFAULT_SYMBOL,
         )
         if cancelled.is_set():
             self.failed_call_ids.append(call_id)

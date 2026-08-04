@@ -2,6 +2,7 @@ from time import monotonic
 
 from textual.widgets import Static
 
+from jri.core.ai import DEFAULT_SYMBOL
 from jri.tui import styles
 
 
@@ -12,7 +13,7 @@ class ToolCallRow(Static):
     # Below this, the elapsed time is noise rather than reassurance.
     MIN_ELAPSED_SECONDS = 3
 
-    def __init__(self, label: str, *, symbol: str = "⚙︎", is_complete: bool = False, depth: int = 0) -> None:
+    def __init__(self, label: str, *, symbol: str = DEFAULT_SYMBOL, is_complete: bool = False, depth: int = 0) -> None:
         super().__init__(classes=styles.TOOL_CALL_ROW_CLASSES)
         self.styles.padding = (0, 2, 0, 2 + depth * 2)
         self.label = label

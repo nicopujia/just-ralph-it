@@ -1,6 +1,4 @@
 import logging
-import platform
-import subprocess
 from collections.abc import Callable, Iterable
 from time import monotonic
 from typing import Any, ClassVar, cast, override
@@ -19,6 +17,7 @@ from textual.widgets import Button, Footer, Header, LoadingIndicator, Markdown, 
 from jri.core.ai import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
 from jri.core.exceptions import RepositoryStateError
 from jri.core.service import Service
+from jri.lib import appearance
 from jri.lib.providers import codex
 
 from . import copy, styles
@@ -31,7 +30,7 @@ logger = logging.getLogger(__name__)
 class CommandPalette(TextualCommandPalette):
     BINDINGS: ClassVar[list[BindingType]] = [
         *TextualCommandPalette.BINDINGS,
-        Binding("ctrl+n", "cursor_down", "Next command", show=False),
+        Binding("ctrl+n", "cursor_down", copy.NEXT_COMMAND, show=False),
     ]
 
     def action_previous_command(self) -> None:
@@ -67,11 +66,7 @@ class App(TextualApp[None]):
 
     def __init__(self, service: Service) -> None:
         super().__init__()
-        if platform.system() == "Darwin":
-            result = subprocess.run(
-                ["/usr/bin/defaults", "read", "-g", "AppleInterfaceStyle"], capture_output=True, text=True, check=False
-            )
-            self.theme = styles.THEME_DARK if result.stdout.strip() == "Dark" else styles.THEME_LIGHT
+        self.theme = styles.THEME_DARK if appearance.read_appearance() == "dark" else styles.THEME_LIGHT
         self.service = service
         self.restored_turns, self.is_reasoning_visible = service.restore()
         # Restored turns mount newest-first, so this is also the
@@ -128,8 +123,8 @@ class App(TextualApp[None]):
             if command.title != "Maximize":
                 yield command
         yield SystemCommand(
-            "Hide thinking blocks" if self.is_reasoning_visible else "Show thinking blocks",
-            "Toggle model's chain-of-thought (reasoning) text blocks.",
+            copy.HIDE_THINKING_BLOCKS if self.is_reasoning_visible else copy.SHOW_THINKING_BLOCKS,
+            copy.THINKING_BLOCKS_COMMAND,
             self.action_toggle_reasoning,
         )
 
@@ -254,7 +249,7 @@ class App(TextualApp[None]):
             self._request_cancellation()
             return
         self.last_escape_at = now
-        self.notify("Press Esc again to stop", timeout=1)
+        self.notify(copy.CANCEL_TURN_CONFIRMATION, timeout=1)
 
     @override
     def action_command_palette(self) -> None:
@@ -373,7 +368,7 @@ class App(TextualApp[None]):
         if error is not None:
             for row in turn_state.tool_rows.values():
                 if not row.is_complete:
-                    row.mark_complete("Could not finish specifications")
+                    row.mark_complete(copy.RALPH_INTERRUPTED)
                     break
             # A repository the user has to sort out is not a crash.
             blocked = isinstance(error, RepositoryStateError)
@@ -563,7 +558,7 @@ class App(TextualApp[None]):
                     )
                     continue
                 interviewer_items.append(
-                    ToolCallRow(item.text, symbol=item.symbol or "⚙︎", is_complete=True)
+                    ToolCallRow(item.text, symbol=item.symbol, is_complete=True)
                     if item.type == "tool"
                     else Markdown(item.text, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
                 )
@@ -616,7 +611,7 @@ class App(TextualApp[None]):
     def _request_cancellation(self) -> None:
         if self.active_turn_state is not None and not self.active_turn_state.cancelled.is_set():
             self.active_turn_state.cancelled.set()
-            self.notify("Stopping response…", timeout=1)
+            self.notify(copy.CANCEL_TURN_STARTED, timeout=1)
             logger.info("interviewer_turn_cancellation_requested")
 
     async def _restore_history(self) -> None:

@@ -6,8 +6,9 @@ from jri.core import ai
 from jri.core.notes import Connection, Notebook, NoteId, ReadQuery, TopicId
 from jri.lib.models import estimate_tokens, get_context_limit
 
-from .base import Agent, Stream, ToolOutput, tool
+from .agent import Agent
 from .explorer import Explorer
+from .tool import Stream, ToolOutput, tool
 
 if TYPE_CHECKING:
     from collections.abc import Callable

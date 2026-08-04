@@ -16,14 +16,14 @@ if TYPE_CHECKING:
 class MessageInput(TextArea):
     CHORD_TIMEOUT = 1.0
     BINDINGS = (
-        Binding("enter", "submit", "Send message", show=False, priority=True),
-        Binding("shift+enter,ctrl+j", "insert_newline", "Insert newline", show=False, priority=True),
+        Binding("enter", "submit", copy.SEND_MESSAGE, show=False, priority=True),
+        Binding("shift+enter,ctrl+j", "insert_newline", copy.INSERT_NEWLINE, show=False, priority=True),
         Binding("ctrl+x", "message_history", copy.MESSAGE_HISTORY, priority=True),
         Binding("u", "previous_message", copy.UNDO_MESSAGE, key_display=copy.UNDO_MESSAGE_KEY, priority=True),
         Binding("r", "next_message", copy.REDO_MESSAGE, key_display=copy.REDO_MESSAGE_KEY, priority=True),
         Binding("t", "retry_message", copy.RETRY, key_display=copy.RETRY_KEY, priority=True),
         Binding("j", "ralph", copy.RALPH_BUTTON, key_display=copy.RALPH_KEY, priority=True),
-        Binding("ctrl+shift+z", "redo", "Redo", show=False),
+        Binding("ctrl+shift+z", "redo", copy.REDO, show=False),
     )
     is_ralph_ready: Reactive[bool] = Reactive(default=False, bindings=True)
     is_retry_ready: Reactive[bool] = Reactive(default=False, bindings=True)

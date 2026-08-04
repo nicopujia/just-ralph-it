@@ -9,6 +9,7 @@ import pytest
 from jri.lib.providers import codex
 
 DISTANT_FUTURE = 4_102_444_800
+ORIGINATOR = "test-app"
 
 
 def write_login(path: Path, tokens: dict[str, Any] | None, *, auth_mode: str = "chatgpt") -> None:
@@ -58,7 +59,7 @@ def build_client(path: Path, monkeypatch: pytest.MonkeyPatch, requests: list[htt
 
     transport = httpx.MockTransport(handle)
     monkeypatch.setattr(codex, "DefaultHttpxClient", lambda **options: httpx.Client(transport=transport, **options))
-    return codex.Client()
+    return codex.Client(ORIGINATOR)
 
 
 class FakeProvider:

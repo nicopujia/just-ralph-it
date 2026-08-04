@@ -5,7 +5,15 @@ from typing import TYPE_CHECKING, Any, cast
 import pytest
 
 from jri.lib.providers import codex
-from tests.doubles.codex import DISTANT_FUTURE, FakeProvider, build_client, build_token, respond, write_login
+from tests.doubles.codex import (
+    DISTANT_FUTURE,
+    ORIGINATOR,
+    FakeProvider,
+    build_client,
+    build_token,
+    respond,
+    write_login,
+)
 
 if TYPE_CHECKING:
     import httpx
@@ -21,12 +29,12 @@ def test_accepts_a_complete_unexpired_login(tmp_path: Path) -> None:
         tmp_path, {"access_token": build_token(DISTANT_FUTURE), "refresh_token": "refresh", "account_id": "account"}
     )
 
-    codex.Auth().validate()
+    codex.Auth(ORIGINATOR).validate()
 
 
 def test_reports_a_missing_login(tmp_path: Path) -> None:
     with pytest.raises(codex.AuthError, match="No file-based Codex login found"):
-        codex.Auth().validate()
+        codex.Auth(ORIGINATOR).validate()
 
     assert not (tmp_path / "auth.json").exists()
 
@@ -54,7 +62,7 @@ def test_reports_an_unusable_login(tmp_path: Path, contents: str, reason: str) -
     (tmp_path / "auth.json").write_text(contents)
 
     with pytest.raises(codex.AuthError, match=reason):
-        codex.Auth().validate()
+        codex.Auth(ORIGINATOR).validate()
 
 
 def test_refreshes_an_expired_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -63,7 +71,7 @@ def test_refreshes_an_expired_login(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     provider = FakeProvider(respond(200, refreshed))
     monkeypatch.setattr(codex.httpx, "post", provider.post)
 
-    codex.Auth().validate()
+    codex.Auth(ORIGINATOR).validate()
 
     assert provider.calls == [
         (
@@ -83,7 +91,7 @@ def test_reports_an_expired_login_that_the_provider_rejects(tmp_path: Path, monk
     monkeypatch.setattr(codex.httpx, "post", FakeProvider(rejection).post)
 
     with pytest.raises(codex.AuthError, match="expired"):
-        codex.Auth().validate()
+        codex.Auth(ORIGINATOR).validate()
 
     assert json.loads((tmp_path / "auth.json").read_text())["tokens"] == login
 
@@ -93,7 +101,7 @@ def test_reports_an_expired_login_whose_refresh_is_incomplete(tmp_path: Path, mo
     monkeypatch.setattr(codex.httpx, "post", FakeProvider(respond(200, {"access_token": "only"})).post)
 
     with pytest.raises(codex.AuthError, match="expired"):
-        codex.Auth().validate()
+        codex.Auth(ORIGINATOR).validate()
 
 
 def test_adapts_responses_requests_to_the_codex_backend(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

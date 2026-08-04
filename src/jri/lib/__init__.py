@@ -1,5 +1,5 @@
 """External services and utility code."""
 
-from . import git
+from . import appearance, git
 
-__all__ = ["git"]
+__all__ = ["appearance", "git"]

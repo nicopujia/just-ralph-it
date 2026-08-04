@@ -16,6 +16,8 @@ if TYPE_CHECKING:
 
 type Stream = Generator[ai.ToolCallStarted | ai.ToolCallFinished | ToolOutput]
 
+DEFAULT_SYMBOL = "⚙︎"
+
 Params = ParamSpec("Params")
 Return = TypeVar("Return")
 
@@ -27,7 +29,7 @@ def tool(
     *,
     started_label: str,
     finished_label: str,
-    symbol: str = "⚙︎",
+    symbol: str = DEFAULT_SYMBOL,
     strict: bool = True,
     read_only: bool = False,
 ) -> Callable[[Callable[Params, Return]], Callable[Params, Return]]:
