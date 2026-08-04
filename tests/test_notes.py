@@ -298,3 +298,15 @@ def test_explains_how_to_reset_an_invalid_notebook_file(tmp_path: Path, contents
 
     with pytest.raises(PersistenceError, match="--force"):
         Notebook(path)
+
+
+def test_reports_a_notebook_that_cannot_be_written(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    notebook.path.unlink()
+    notebook.path.mkdir()
+    (notebook.path / "blocker").write_text("taken")
+
+    with pytest.raises(PersistenceError, match="Could not save the notebook file"):
+        notebook.add(["A requirement"], "t1")
+
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["notebook.yaml"]

@@ -67,3 +67,17 @@ def test_the_overview_topic_cannot_be_trashed(tmp_path: Path) -> None:
         interviewer.update_topic("t1", "trashed")
 
     assert interviewer.notebook.graph.topics[0].status == "open"
+
+
+def test_reports_an_unwritable_notebook_to_the_model(tmp_path: Path) -> None:
+    interviewer = build_interviewer(tmp_path)
+    interviewer.notebook.path.unlink()
+    interviewer.notebook.path.mkdir()
+    (interviewer.notebook.path / "blocker").write_text("taken")
+    capture_notes = next(tool for tool in interviewer.tools if tool.name == "capture_notes")
+
+    invocation = capture_notes.invoke('{"texts": ["A requirement"]}')
+    list(invocation)
+
+    assert invocation.failed
+    assert cast("str", invocation.output).startswith("Tool call failed: Could not save the notebook file")

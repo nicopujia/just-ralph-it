@@ -425,16 +425,18 @@ class Notebook:
         logger.debug("saved notes=%d connections=%d", len(graph.notes), len(graph.connections))
 
     def _write(self, graph: Graph) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        contents = self._dump(graph)
-        with NamedTemporaryFile("w", dir=self.path.parent, delete=False, encoding="utf-8") as file:
-            file.write(contents)
-            temporary_path = file.name
+        temporary_path: str | None = None
         try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with NamedTemporaryFile("w", dir=self.path.parent, delete=False, encoding="utf-8") as file:
+                temporary_path = file.name
+                file.write(self._dump(graph))
             Path(temporary_path).replace(self.path)
-        except OSError:
-            Path(temporary_path).unlink(missing_ok=True)
-            raise
+        except OSError as error:
+            if temporary_path is not None:
+                Path(temporary_path).unlink(missing_ok=True)
+            logger.exception("file_write_failed path=%r", self.path)
+            raise PersistenceError(f"Could not save the notebook file `{self.path}`: {error.strerror}") from error
 
     @staticmethod
     def _dump(graph: Graph, topic_id: TopicId | None = None) -> str:

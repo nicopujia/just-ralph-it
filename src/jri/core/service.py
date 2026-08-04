@@ -283,15 +283,29 @@ class Service:
         return turns, self.session.show_thinking_blocks
 
     def update_session(self, **values: object) -> None:
-        """Persist trusted values in the current session."""
+        """Persist trusted values in the current session.
+
+        Raises:
+            PersistenceError: If the session file cannot be written.
+        """
 
         with self.session_lock:
             session = self.session.model_copy(
                 update={"failed_call_ids": list(self.interviewer.failed_call_ids), **values}
             )
-            with NamedTemporaryFile("w", dir=self.base_dir, delete=False, encoding="utf-8") as file:
-                file.write(session.model_dump_json())
-            Path(file.name).replace(self.session_file)
+            temporary_path: str | None = None
+            try:
+                with NamedTemporaryFile("w", dir=self.base_dir, delete=False, encoding="utf-8") as file:
+                    temporary_path = file.name
+                    file.write(session.model_dump_json())
+                Path(temporary_path).replace(self.session_file)
+            except OSError as error:
+                if temporary_path is not None:
+                    Path(temporary_path).unlink(missing_ok=True)
+                self.logger.exception("session_write_failed path=%r", self.session_file)
+                raise PersistenceError(
+                    f"Could not save the session file `{self.session_file}`: {error.strerror}"
+                ) from error
             self.session = session
         self.logger.info("session_updated fields=%r interview_items=%d", list(values), len(self.session.interview))
 
