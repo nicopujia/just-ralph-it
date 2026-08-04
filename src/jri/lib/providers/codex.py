@@ -92,8 +92,13 @@ class Auth(httpx.Auth):
     def _refresh(self, refresh_token: str) -> dict[str, str]:
         with self.lock, self._file_lock():
             current = self._read()
-            tokens = current.get("tokens", {})
-            if isinstance(tokens, dict) and tokens.get("refresh_token") != refresh_token:
+            tokens = current.get("tokens")
+            # Spending the refresh token is irreversible, so the login
+            # it would be saved into has to be usable beforehand.
+            if not isinstance(tokens, dict):
+                raise AuthError("The Codex login is invalid. Run `codex login` again.")
+            tokens = cast("dict[str, Any]", tokens)
+            if tokens.get("refresh_token") != refresh_token:
                 access_token = tokens.get("access_token")
                 account_id = tokens.get("account_id")
                 new_refresh_token = tokens.get("refresh_token")

@@ -278,10 +278,6 @@ def test_refreshes_with_its_own_token_when_the_sibling_login_is_unusable(
     assert requests[1].headers["Authorization"] == f"Bearer {refreshed['access_token']}"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="Auth._refresh crashes with AttributeError instead of AuthError on non-mapping tokens in auth.json",
-)
 def test_reports_a_login_a_sibling_process_replaced_with_a_malformed_one(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
