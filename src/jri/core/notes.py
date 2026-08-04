@@ -108,7 +108,7 @@ class Notebook:
             raise ValueError(f"Unknown topic `{min(set(query.topic_ids or []) - topic_ids)}`.")
         allowed_topics = (
             set(query.topic_ids)
-            if query.topic_ids is not None
+            if query.topic_ids
             else {topic.id for topic in self.graph.topics if topic.status != "trashed"}
         )
         by_id = {note.id: note for note in self.graph.notes}

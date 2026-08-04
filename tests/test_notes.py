@@ -501,9 +501,6 @@ def test_returns_the_connections_between_the_notes_it_reaches(tmp_path: Path) ->
     assert connections == [crossed, entered, followed]
 
 
-@pytest.mark.xfail(
-    strict=True, reason="read() treats an empty topic_ids as a filter that matches nothing, unlike every other selector"
-)
 def test_ignores_an_empty_selector_list(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
     notebook.add(["First"], "t1")
