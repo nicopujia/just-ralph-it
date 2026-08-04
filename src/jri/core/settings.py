@@ -155,7 +155,10 @@ class Settings(BaseModel):
     @classmethod
     def load(cls, cwd: Path) -> Self:
         config = yaml.safe_load(Workspace(cwd).config_file.read_text(encoding="utf-8"))
-        return cls.model_validate({**(config or {}), "cwd": cwd})
+        # The file has no say in the working directory, so it is set
+        # once the file itself has been validated — including whether
+        # it is a mapping at all.
+        return cls.model_validate({} if config is None else config).model_copy(update={"cwd": cwd})
 
     @classmethod
     def render_config(cls) -> str:

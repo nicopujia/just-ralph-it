@@ -182,9 +182,6 @@ def test_reports_a_configuration_file_that_is_not_yaml(tmp_path: Path) -> None:
         Settings.load(tmp_path)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="a config.yaml whose top level is a sequence raises a raw TypeError that no caller catches"
-)
 def test_reports_a_configuration_file_that_is_not_a_mapping(tmp_path: Path) -> None:
     write_config_text(tmp_path, "- llm\n- logging\n")
 
