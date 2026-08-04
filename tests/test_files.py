@@ -36,9 +36,6 @@ def test_empties_a_file_whose_new_contents_are_empty(tmp_path: Path) -> None:
     assert target.read_bytes() == b""
 
 
-@pytest.mark.xfail(
-    strict=True, reason="write() replaces a file with its 0600 temporary copy, narrowing the permissions it rewrites"
-)
 def test_keeps_the_permissions_of_the_file_it_replaces(tmp_path: Path) -> None:
     target = tmp_path / "file.txt"
     target.write_text("first", encoding="utf-8")
@@ -49,7 +46,6 @@ def test_keeps_the_permissions_of_the_file_it_replaces(tmp_path: Path) -> None:
     assert target.stat().st_mode & 0o777 == READABLE_BY_EVERYONE
 
 
-@pytest.mark.xfail(strict=True, reason="write() replaces a symlink with a regular file instead of writing through it")
 def test_writes_through_a_symlink_instead_of_replacing_it(tmp_path: Path) -> None:
     target = tmp_path / "file.txt"
     target.write_text("first", encoding="utf-8")
@@ -72,9 +68,6 @@ def test_leaves_no_temporary_file_behind_when_the_write_fails(tmp_path: Path) ->
     assert list(tmp_path.iterdir()) == [occupied]
 
 
-@pytest.mark.xfail(
-    strict=True, reason="write() cleans up its temporary file only on OSError, so an encoding failure leaves it behind"
-)
 def test_leaves_no_temporary_file_behind_when_the_contents_cannot_be_encoded(tmp_path: Path) -> None:
     target = tmp_path / "file.txt"
     target.write_text("first", encoding="utf-8")
