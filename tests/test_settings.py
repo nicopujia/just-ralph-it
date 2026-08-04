@@ -59,8 +59,14 @@ def test_keeps_configured_settings_out_of_the_help_yet_usable(
 
     help_text = " ".join(capsys.readouterr().out.split())
 
-    assert "--force" in help_text
-    for flag in ("--llm.provider", "--brave-search.api-key", "--agents.interviewer.model", "--logging.level"):
+    assert "--cwd" in help_text
+    for flag in (
+        "--force",
+        "--llm.provider",
+        "--brave-search.api-key",
+        "--agents.interviewer.model",
+        "--logging.level",
+    ):
         assert flag not in help_text
 
     overridden = Settings(

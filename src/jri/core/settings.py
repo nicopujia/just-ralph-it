@@ -31,7 +31,7 @@ CONFIG_INTRO = (
     "(JRI_LLM_PROVIDER, JRI_AGENTS_INTERVIEWER_MODEL, ...) or as a CLI flag (see `jri --help`). "
     "The values shown are the ones JRI already uses, and the commented ones are optional."
 )
-RUNTIME_FIELDS = frozenset({"cwd", "force"})
+RUNTIME_FIELDS = frozenset({"cwd"})
 
 
 def read_api_key(variable: str) -> str:
@@ -153,13 +153,6 @@ class Settings(BaseSettings):
     """Settings loaded from project files, CLI, and environment."""
 
     cwd: Path = Field(description="Current working directory.", default_factory=Path.cwd)
-    force: bool = Field(
-        description=(
-            "Re-create the JRI workspace, for `init` alone: writes the configuration file again and deletes "
-            "the conversation, the notes, the logs, and the generated specifications."
-        ),
-        default=False,
-    )
     llm: CliSuppress[LLM] = Field(default_factory=LLM, description="Provider every agent sends its model requests to.")
     brave_search: CliSuppress[BraveSearch] = Field(
         default_factory=BraveSearch,

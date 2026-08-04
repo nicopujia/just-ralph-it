@@ -9,17 +9,21 @@ CANCEL_TURN = "Stop response"
 CANCEL_TURN_CONFIRMATION = "Press Esc again to stop"
 CANCEL_TURN_KEY = "esc esc"
 CANCEL_TURN_STARTED = "Stopping response…"
-CLI_COMMAND_HELP = (
-    "init: set the project up with the default JRI configuration. "
-    "chat: chat with the interviewer in the terminal UI. "
-    "view: visualize the notes graph."
-)
+CLI_CHAT_HELP = "Chat with the interviewer in the terminal UI."
+CLI_CWD_HELP = "Current working directory."
 CLI_EPILOG = (
-    "Every setting documented in .jri/config.yaml also works here as a flag (--llm.provider, "
+    "Every setting documented in .jri/config.yaml also works on `chat` and `view` as a flag (--llm.provider, "
     "--agents.interviewer.model, ...) or as an environment variable (JRI_LLM_PROVIDER, "
-    "JRI_AGENTS_INTERVIEWER_MODEL, ...), before or after the command."
+    "JRI_AGENTS_INTERVIEWER_MODEL, ...)."
 )
+CLI_FORCE_HELP = (
+    "Re-create the JRI workspace: write the configuration file again and delete the conversation, the notes, "
+    "the logs, and the generated specifications."
+)
+CLI_INIT_HELP = "Set the project up with the default JRI configuration."
 CLI_VERSION_HELP = "Show the JRI version and exit."
+CLI_VIEW_HELP = "Visualize the notes graph."
+CLI_YES_HELP = "Answer yes to the confirmation --force asks for."
 CONFIG_ERROR = """Invalid configuration.
 Set or fix these settings:
 
@@ -31,7 +35,6 @@ All commands, including `jri view`, use this configuration.
 """
 
 FORCE_CANCELLED = "Nothing was deleted."
-FORCE_COMMAND = "--force only applies to `jri init`."
 FORCE_PROMPT = "Type `y` to continue, or anything else to cancel: "
 FORCE_WARNING = """--force replaces these, and what they hold cannot be brought back:
 

@@ -23,7 +23,6 @@ def build_settings(
         "Settings",
         FakeSettings(
             cwd=path,
-            force=False,
             logging=SimpleNamespace(level="CRITICAL"),
             llm=SimpleNamespace(client=client),
             brave_search=SimpleNamespace(api_key=search_api_key),

@@ -26,53 +26,30 @@ logger = logging.getLogger(__name__)
 def main() -> None:
     parser = argparse.ArgumentParser(description=copy.TITLE, epilog=copy.CLI_EPILOG)
     parser.add_argument("-v", "--version", action="version", version=__version__, help=copy.CLI_VERSION_HELP)
-    # A positional command, rather than subparsers, lets every setting
-    # below be given before or after it.
-    parser.add_argument("command", nargs="?", choices=("init", "chat", "view"), help=copy.CLI_COMMAND_HELP)
+    subparsers = parser.add_subparsers(dest="command", metavar="command")
 
-    settings_source = CliSettingsSource(Settings, root_parser=parser, parse_args_method=parser.parse_args)
+    init_parser = subparsers.add_parser("init", help=copy.CLI_INIT_HELP, description=copy.CLI_INIT_HELP)
+    init_parser.add_argument("--cwd", help=copy.CLI_CWD_HELP)
+    init_parser.add_argument("--force", action="store_true", help=copy.CLI_FORCE_HELP)
+    init_parser.add_argument("--yes", action="store_true", help=copy.CLI_YES_HELP)
+    # A settings source bound to a subparser puts its flags on that
+    # command alone, so `init` takes none and every other command
+    # rejects the flags it has no use for.
+    for name, description in (("chat", copy.CLI_CHAT_HELP), ("view", copy.CLI_VIEW_HELP)):
+        subparser = subparsers.add_parser(name, help=description, description=description, epilog=copy.CLI_EPILOG)
+        subparser.set_defaults(
+            settings_source=CliSettingsSource(Settings, root_parser=subparser, parse_args_method=subparser.parse_args)
+        )
 
     args = parser.parse_args()
-    settings_source(parsed_args=args)
-    location = Path(args.cwd or Path.cwd()).resolve()
-    project_dir = git.find_root(location) or location
-
     if args.command is None:
         parser.print_help()
         return
-    if args.command != "init" and not (project_dir / paths.CONFIG_FILE).exists():
-        print(copy.WORKSPACE_MISSING)
-        raise SystemExit(1)
-
-    load_dotenv(project_dir / ".env")
-
-    try:
-        with chdir(project_dir):
-            settings = Settings(
-                cwd=project_dir,
-                _cli_settings_source=settings_source,  # pyright: ignore[reportCallIssue]
-            )
-    except (SettingsError, ValidationError, yaml.YAMLError) as error:
-        error_lines = (
-            [f"- {'.'.join(map(str, issue['loc'])) or 'configuration'}: {issue['msg']}" for issue in error.errors()]
-            if isinstance(error, ValidationError)
-            else [f"- {error}"]
-        )
-        print(copy.CONFIG_ERROR.format(errors="\n".join(error_lines)))
-        raise SystemExit(1) from error
-
-    if settings.force:
-        if args.command != "init":
-            print(copy.FORCE_COMMAND)
-            raise SystemExit(1)
-        if not _confirm_reset(project_dir):
-            print(copy.FORCE_CANCELLED)
-            raise SystemExit(1)
 
     handlers = {"init": _init, "chat": _chat, "view": _view}
 
     try:
-        handlers[args.command](settings)
+        handlers[args.command](args)
     except codex.AuthError as error:
         print(copy.AUTH_ERROR.format(error=error))
         raise SystemExit(1) from error
@@ -84,19 +61,22 @@ def main() -> None:
         raise SystemExit(1) from error
 
 
-def _init(settings: Settings) -> None:
-    workspace = Service.init(settings.cwd, force=settings.force)
+def _init(args: argparse.Namespace) -> None:
+    location = Path(args.cwd or Path.cwd()).resolve()
+    project_dir = git.find_root(location) or location
+    if args.force and not (args.yes or _confirm_reset(project_dir)):
+        print(copy.FORCE_CANCELLED)
+        raise SystemExit(1)
+    workspace = Service.init(project_dir, force=args.force)
     if workspace.repository_created:
-        print(copy.INIT_REPOSITORY.format(directory=settings.cwd))
-    if workspace.created:
-        created_copy = copy.INIT_CREATED
-    else:
-        created_copy = copy.INIT_RECREATED if settings.force else copy.INIT_EXISTING
-    print(created_copy.format(directory=workspace.directory))
+        print(copy.INIT_REPOSITORY.format(directory=project_dir))
+    reset_copy = copy.INIT_RECREATED if args.force else copy.INIT_EXISTING
+    print((copy.INIT_CREATED if workspace.created else reset_copy).format(directory=workspace.directory))
     print(copy.INIT_NEXT_STEPS.format(config_file=workspace.config_file))
 
 
-def _chat(settings: Settings) -> None:
+def _chat(args: argparse.Namespace) -> None:
+    settings = _load_settings(args)
     settings.llm.validate_authentication()
     service = Service(settings)
     app = App(service)
@@ -111,11 +91,45 @@ def _chat(settings: Settings) -> None:
         logging.shutdown()
 
 
-def _view(settings: Settings) -> None:
-    service = Service(settings)
+def _view(args: argparse.Namespace) -> None:
+    service = Service(_load_settings(args))
     service.visualization_file.write_text(visualization.render(service.notebook.graph), encoding="utf-8")
     print(service.visualization_file)
     webbrowser.open(service.visualization_file.resolve().as_uri())
+
+
+def _load_settings(args: argparse.Namespace) -> Settings:
+    """Resolve the settings a command runs with.
+
+    Returns:
+        The settings of the project the command was pointed at.
+
+    Raises:
+        SystemExit: If the project has no workspace or its
+            configuration cannot be resolved.
+    """
+
+    location = Path(getattr(args, "cwd", None) or Path.cwd()).resolve()
+    project_dir = git.find_root(location) or location
+    if not (project_dir / paths.CONFIG_FILE).exists():
+        print(copy.WORKSPACE_MISSING)
+        raise SystemExit(1)
+    load_dotenv(project_dir / ".env")
+    args.settings_source(parsed_args=args)
+    try:
+        with chdir(project_dir):
+            return Settings(
+                cwd=project_dir,
+                _cli_settings_source=args.settings_source,  # pyright: ignore[reportCallIssue]
+            )
+    except (SettingsError, ValidationError, yaml.YAMLError) as error:
+        error_lines = (
+            [f"- {'.'.join(map(str, issue['loc'])) or 'configuration'}: {issue['msg']}" for issue in error.errors()]
+            if isinstance(error, ValidationError)
+            else [f"- {error}"]
+        )
+        print(copy.CONFIG_ERROR.format(errors="\n".join(error_lines)))
+        raise SystemExit(1) from error
 
 
 def _confirm_reset(project_dir: Path) -> bool:
