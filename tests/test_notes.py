@@ -16,7 +16,7 @@ VALID_GRAPH: dict[str, Any] = {
 }
 
 
-def test_topic_and_note_ids_advance_independently(tmp_path: Path) -> None:
+def test_advances_topic_and_note_ids_independently(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
 
     assert [note.id for note in notebook.add(["one", "two", "three"], "t1")] == ["n1", "n2", "n3"]
@@ -79,7 +79,7 @@ def test_rejects_invalid_graph_data(data: dict[str, Any]) -> None:
         Graph.model_validate(data)
 
 
-def test_invalid_connection_batch_changes_nothing(tmp_path: Path) -> None:
+def test_rejects_an_invalid_connection_batch_without_changing_anything(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
     notebook.add(["First", "Second"], "t1")
     before = notebook.graph.model_copy(deep=True)
@@ -94,7 +94,7 @@ def test_invalid_connection_batch_changes_nothing(tmp_path: Path) -> None:
     assert Notebook(notebook.path).graph == before
 
 
-def test_deleting_a_note_removes_its_connections(tmp_path: Path) -> None:
+def test_removes_the_connections_of_a_deleted_note(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
     notebook.add(["First", "Second", "Third"], "t1")
     notebook.connect([
@@ -110,7 +110,7 @@ def test_deleting_a_note_removes_its_connections(tmp_path: Path) -> None:
     assert {(item.source_id, item.target_id, item.label) for item in graph.connections} == {("n1", "n3", "supports")}
 
 
-def test_changes_survive_restart(tmp_path: Path) -> None:
+def test_restores_notebook_changes_after_restart(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
     topic = notebook.add_topic("Delivery")
     first, second = notebook.add(["Deploy manually.", "Use the main branch 🚀."], topic.id)

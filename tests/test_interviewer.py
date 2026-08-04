@@ -29,21 +29,33 @@ def test_keeps_at_least_ten_recent_turns_in_context(monkeypatch: pytest.MonkeyPa
     assert messages == [f"Question {index}" for index in range(2, 12)]
 
 
-def test_switching_creates_resolves_and_rejects_topics(tmp_path: Path) -> None:
+def test_creates_a_topic_named_by_the_model(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
 
     assert interviewer.switch_topic("Delivery") == "Switched to t2: Delivery"
+    assert interviewer.active_topic_id == "t2"
+
+
+def test_resolves_an_existing_topic_by_its_id(tmp_path: Path) -> None:
+    interviewer = build_interviewer(tmp_path)
+    interviewer.switch_topic("Delivery")
+
     assert interviewer.switch_topic("t2") == "Switched to t2: Delivery"
     assert interviewer.active_topic_id == "t2"
 
+
+def test_rejects_switching_to_a_note(tmp_path: Path) -> None:
+    interviewer = build_interviewer(tmp_path)
+    interviewer.switch_topic("Delivery")
     interviewer.notebook.add(["Deploy from the main branch."], "t2")
 
     with pytest.raises(ValueError, match="`n1` is not a topic"):
         interviewer.switch_topic("n1")
+
     assert interviewer.active_topic_id == "t2"
 
 
-def test_switching_to_a_trashed_topic_is_rejected(tmp_path: Path) -> None:
+def test_rejects_switching_to_a_trashed_topic(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
     interviewer.switch_topic("Delivery")
     interviewer.update_topic("t2", "trashed")
@@ -52,7 +64,7 @@ def test_switching_to_a_trashed_topic_is_rejected(tmp_path: Path) -> None:
         interviewer.switch_topic("t2")
 
 
-def test_trashing_the_active_topic_falls_back_to_the_overview(tmp_path: Path) -> None:
+def test_falls_back_to_the_overview_when_the_active_topic_is_trashed(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
     interviewer.switch_topic("Delivery")
 
@@ -60,7 +72,7 @@ def test_trashing_the_active_topic_falls_back_to_the_overview(tmp_path: Path) ->
     assert interviewer.active_topic_id == "t1"
 
 
-def test_the_overview_topic_cannot_be_trashed(tmp_path: Path) -> None:
+def test_rejects_trashing_the_overview_topic(tmp_path: Path) -> None:
     interviewer = build_interviewer(tmp_path)
 
     with pytest.raises(ValueError, match="cannot be trashed"):

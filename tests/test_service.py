@@ -60,7 +60,7 @@ def test_commits_the_project_when_it_creates_the_repository(tmp_path: Path, run_
     assert repository.read_status() == ()
 
 
-def test_committing_a_new_repository_keeps_an_existing_ignore_file(tmp_path: Path) -> None:
+def test_keeps_an_existing_ignore_file_when_creating_the_repository(tmp_path: Path) -> None:
     (tmp_path / paths.PROJECT_GITIGNORE_FILE).write_text("build/\n")
 
     Service.init(tmp_path)
@@ -82,7 +82,7 @@ def test_initializes_a_workspace_inside_an_existing_repository(
     assert (nested / paths.CONFIG_FILE).exists()
 
 
-def test_initializing_an_existing_workspace_preserves_it(tmp_path: Path) -> None:
+def test_preserves_an_existing_workspace_when_initializing_again(tmp_path: Path) -> None:
     (tmp_path / paths.WORKSPACE_DIR).mkdir()
     (tmp_path / paths.CONFIG_FILE).write_text("custom config\n")
     (tmp_path / paths.GITIGNORE_FILE).write_text("custom-cache\nlogs")
@@ -95,7 +95,7 @@ def test_initializing_an_existing_workspace_preserves_it(tmp_path: Path) -> None
     assert (tmp_path / paths.GITIGNORE_FILE).read_text() == "custom-cache\nlogs\nsession.json\nvisualization.html\n"
 
 
-def test_forcing_initialization_starts_the_workspace_over(tmp_path: Path) -> None:
+def test_starts_the_workspace_over_when_initialization_is_forced(tmp_path: Path) -> None:
     notebook = {
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {"n1": "Keep this note."}}],
         "connections": [],
@@ -122,7 +122,7 @@ def test_reads_the_notes_without_reaching_the_provider(tmp_path: Path) -> None:
     assert [topic.id for topic in service.notebook.graph.topics] == ["t1"]
 
 
-def test_completed_interview_turn_survives_restart(tmp_path: Path) -> None:
+def test_restores_a_completed_interview_turn(tmp_path: Path) -> None:
     service = build_service(
         tmp_path,
         FakeClient([
@@ -175,7 +175,20 @@ def test_groups_every_restored_item_under_the_prompt_that_caused_it(tmp_path: Pa
     assert turns[1].items[-1].text == "Anything else?"
 
 
-def test_ralph_readiness_survives_restart_and_rolls_back_on_failure(tmp_path: Path) -> None:
+def test_restores_ralph_readiness_after_restart(tmp_path: Path) -> None:
+    service = build_service(
+        tmp_path,
+        FakeClient([response(call("ready", "just_ralph_it", show=True)), response(reply("Click Just Ralph It."))]),
+    )
+    list(service.chat("We're ready."))
+
+    restarted = build_service(tmp_path, FakeClient([]))
+    restarted.restore()
+
+    assert restarted.session.ready_to_ralph
+
+
+def test_rolls_back_ralph_readiness_when_the_turn_fails(tmp_path: Path) -> None:
     service = build_service(
         tmp_path,
         FakeClient([
@@ -187,17 +200,13 @@ def test_ralph_readiness_survives_restart_and_rolls_back_on_failure(tmp_path: Pa
     )
     list(service.chat("We're ready."))
 
-    restarted = build_service(tmp_path, FakeClient([]))
-    restarted.restore()
-    assert restarted.session.ready_to_ralph
-
     with pytest.raises(RuntimeError, match="provider failed"):
         list(service.chat("Actually, one more thing."))
 
     assert service.session.ready_to_ralph
 
 
-def test_interrupted_ralph_restores_readiness_after_restart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_restores_ralph_readiness_after_an_interrupted_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     class InterruptibleSpecsGen:
         def __init__(self, _settings: "Settings") -> None:
             pass
@@ -223,27 +232,36 @@ def test_interrupted_ralph_restores_readiness_after_restart(tmp_path: Path, monk
     assert restarted.session.ready_to_ralph
 
 
-def test_cancelled_interview_turn_survives_restart_and_remains_in_context(tmp_path: Path) -> None:
+def test_restores_a_cancelled_interview_turn(tmp_path: Path) -> None:
     cancelled = Event()
-    client = FakeClient([partial_reply("Partial reply"), response(reply("Next reply"))])
-    service = build_service(tmp_path, client)
+    service = build_service(tmp_path, FakeClient([partial_reply("Partial reply")]))
     events = service.chat("Keep this prompt.", cancelled)
 
     next(events)
     cancelled.set()
     list(events)
 
-    list(service.chat("Continue."))
-    context = cast("list[dict[str, object]]", client.responses.inputs[-1])
-    restarted = build_service(tmp_path, FakeClient([]))
-    turns, _ = restarted.restore()
-
+    turns, _ = build_service(tmp_path, FakeClient([])).restore()
     cancelled_turn = next(turn for turn in turns if turn.message == "Keep this prompt.")
     assert ("assistant", "Partial reply") in [(item.type, item.text) for item in cancelled_turn.items]
+
+
+def test_keeps_a_cancelled_reply_in_the_model_context(tmp_path: Path) -> None:
+    cancelled = Event()
+    client = FakeClient([partial_reply("Partial reply"), response(reply("Next reply"))])
+    service = build_service(tmp_path, client)
+    events = service.chat("Keep this prompt.", cancelled)
+    next(events)
+    cancelled.set()
+    list(events)
+
+    list(service.chat("Continue."))
+
+    context = cast("list[dict[str, object]]", client.responses.inputs[-1])
     assert {item["content"] for item in context if "content" in item} >= {"Keep this prompt.", "Partial reply"}
 
 
-def test_cancelled_interview_turn_without_reply_keeps_prompt(tmp_path: Path) -> None:
+def test_keeps_the_prompt_of_a_cancelled_turn_without_a_reply(tmp_path: Path) -> None:
     cancelled = Event()
     cancelled.set()
     service = build_service(tmp_path, FakeClient([[]]))
@@ -255,7 +273,7 @@ def test_cancelled_interview_turn_without_reply_keeps_prompt(tmp_path: Path) -> 
     assert "Keep this prompt." in [turn.message for turn in turns]
 
 
-def test_cancelled_interview_turn_without_reply_says_it_was_stopped_after_restart(tmp_path: Path) -> None:
+def test_marks_a_cancelled_turn_without_a_reply_as_stopped(tmp_path: Path) -> None:
     cancelled = Event()
     cancelled.set()
     service = build_service(tmp_path, FakeClient([[]]))
@@ -266,7 +284,7 @@ def test_cancelled_interview_turn_without_reply_says_it_was_stopped_after_restar
     assert turns[-1] == ("Stop this one.", [InterviewItem("stopped")])
 
 
-def test_cancelled_interview_turn_with_a_reply_is_not_marked_as_stopped(tmp_path: Path) -> None:
+def test_leaves_a_cancelled_turn_with_a_reply_unmarked(tmp_path: Path) -> None:
     cancelled = Event()
     service = build_service(tmp_path, FakeClient([partial_reply("Partial reply")]))
     events = service.chat("Stop this one.", cancelled)
@@ -279,7 +297,7 @@ def test_cancelled_interview_turn_with_a_reply_is_not_marked_as_stopped(tmp_path
     assert turns[-1] == ("Stop this one.", [InterviewItem("assistant", "Partial reply")])
 
 
-def test_next_interview_turn_clears_the_stopped_mark(tmp_path: Path) -> None:
+def test_clears_the_stopped_mark_on_the_next_turn(tmp_path: Path) -> None:
     cancelled = Event()
     cancelled.set()
     service = build_service(tmp_path, FakeClient([[], response(reply("Carrying on."))]))
@@ -293,7 +311,7 @@ def test_next_interview_turn_clears_the_stopped_mark(tmp_path: Path) -> None:
     assert [item.type for turn in turns for item in turn.items] == ["assistant"]
 
 
-def test_cancelling_a_tool_call_leaves_valid_history(tmp_path: Path) -> None:
+def test_leaves_valid_history_when_a_tool_call_is_cancelled(tmp_path: Path) -> None:
     cancelled = Event()
     client = FakeClient([response(call("switch", "switch_topic", topic="Delivery")), response(reply("Still works."))])
     service = build_service(tmp_path, client)
@@ -310,7 +328,7 @@ def test_cancelling_a_tool_call_leaves_valid_history(tmp_path: Path) -> None:
     assert {item["call_id"] for item in context if item.get("type") == "function_call_output"} == {"switch"}
 
 
-def test_failed_interview_turn_rolls_back_changes_and_keeps_prompt(tmp_path: Path) -> None:
+def test_rolls_back_the_changes_of_a_failed_turn(tmp_path: Path) -> None:
     service = build_service(
         tmp_path,
         FakeClient([
@@ -337,12 +355,18 @@ def test_failed_interview_turn_rolls_back_changes_and_keeps_prompt(tmp_path: Pat
     assert service.interviewer.active_topic_id == active_topic_id
     assert service.notebook_file.read_bytes() == notebook_file
 
-    restarted = build_service(tmp_path, FakeClient([]))
-    turns, _ = restarted.restore()
+
+def test_restores_the_prompt_of_a_failed_turn(tmp_path: Path) -> None:
+    service = build_service(tmp_path, FakeClient([failure("provider failed")]))
+
+    with pytest.raises(RuntimeError, match="provider failed"):
+        list(service.chat("Deploy it automatically."))
+
+    turns, _ = build_service(tmp_path, FakeClient([])).restore()
     assert turns[-1] == ("Deploy it automatically.", [])
 
 
-def test_failed_interview_turn_can_be_retried_after_restart(tmp_path: Path) -> None:
+def test_retries_a_failed_turn_after_restart(tmp_path: Path) -> None:
     service = build_service(tmp_path, FakeClient([failure("provider failed")]))
 
     with pytest.raises(RuntimeError, match="provider failed"):
@@ -357,7 +381,7 @@ def test_failed_interview_turn_can_be_retried_after_restart(tmp_path: Path) -> N
     assert ("assistant", "Retry succeeded.") in [(item.type, item.text) for item in turns[-1].items]
 
 
-def test_failed_interview_turn_explains_itself_after_restart(tmp_path: Path) -> None:
+def test_restores_the_error_of_a_failed_turn(tmp_path: Path) -> None:
     service = build_service(tmp_path, FakeClient([failure("provider failed")]))
 
     with pytest.raises(RuntimeError, match="provider failed"):
@@ -368,7 +392,7 @@ def test_failed_interview_turn_explains_itself_after_restart(tmp_path: Path) -> 
     assert turns[-1] == ("Deploy it automatically.", [InterviewItem("error", "The provider failed.")])
 
 
-def test_successful_retry_clears_the_failed_turn_error(tmp_path: Path) -> None:
+def test_clears_the_failed_turn_error_on_a_successful_retry(tmp_path: Path) -> None:
     service = build_service(tmp_path, FakeClient([failure("provider failed"), response(reply("Retry succeeded."))]))
 
     with pytest.raises(RuntimeError, match="provider failed"):
@@ -382,7 +406,7 @@ def test_successful_retry_clears_the_failed_turn_error(tmp_path: Path) -> None:
     assert [item.type for item in turns[-1].items] == ["assistant"]
 
 
-def test_cancelled_interview_turn_clears_the_failed_turn_error(tmp_path: Path) -> None:
+def test_clears_the_failed_turn_error_on_a_cancelled_retry(tmp_path: Path) -> None:
     cancelled = Event()
     service = build_service(tmp_path, FakeClient([failure("provider failed"), partial_reply("Partial reply")]))
 
@@ -400,7 +424,7 @@ def test_cancelled_interview_turn_clears_the_failed_turn_error(tmp_path: Path) -
     assert [item.type for item in turns[-1].items] == ["assistant"]
 
 
-def test_rewinding_clears_the_failed_turn_error(tmp_path: Path) -> None:
+def test_clears_the_failed_turn_error_when_rewinding(tmp_path: Path) -> None:
     service = build_service(tmp_path, FakeClient([response(reply("What should it display?")), failure("provider")]))
 
     list(service.chat("It has a terminal UI."))
@@ -416,7 +440,7 @@ def test_rewinding_clears_the_failed_turn_error(tmp_path: Path) -> None:
     assert [item.type for item in turns[-1].items] == ["assistant"]
 
 
-def test_rewinding_removes_later_knowledge_after_restart(tmp_path: Path) -> None:
+def test_removes_knowledge_captured_after_the_rewind_point(tmp_path: Path) -> None:
     service = build_service(
         tmp_path,
         FakeClient([
@@ -455,7 +479,7 @@ def test_rewinding_removes_later_knowledge_after_restart(tmp_path: Path) -> None
     assert {"Encrypt stored credentials.", "Charge monthly."}.isdisjoint(turn.message for turn in turns)
 
 
-def test_rewinding_skips_failed_and_cancelled_tool_calls(tmp_path: Path) -> None:
+def test_skips_failed_and_cancelled_tool_calls_when_rewinding(tmp_path: Path) -> None:
     cancelled = Event()
     service = build_service(
         tmp_path,
@@ -483,7 +507,7 @@ def test_rewinding_skips_failed_and_cancelled_tool_calls(tmp_path: Path) -> None
     assert "Keep this only until rewind." not in [turn.message for turn in turns]
 
 
-def test_rewinding_after_restart_still_skips_cancelled_tool_calls(tmp_path: Path) -> None:
+def test_skips_cancelled_tool_calls_when_rewinding_after_restart(tmp_path: Path) -> None:
     cancelled = Event()
     service = build_service(tmp_path, FakeClient([response(call("cancelled", "switch_topic", topic="Delivery"))]))
     events = service.chat("Cancel this switch.", cancelled)
@@ -552,7 +576,7 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
     assert (base_dir / ".gitignore").read_text() == "custom-cache\nsession.json\nlogs\nvisualization.html\n"
 
 
-def test_resetting_the_workspace_keeps_the_rest_of_the_project(tmp_path: Path) -> None:
+def test_keeps_the_rest_of_the_project_when_resetting_the_workspace(tmp_path: Path) -> None:
     for name in (paths.ARCHITECTURE_SPECS_ROOT, paths.FUNCTIONAL_SPECS_ROOT, "src"):
         (tmp_path / name).mkdir()
         (tmp_path / name / "file.md").write_text("project content")
