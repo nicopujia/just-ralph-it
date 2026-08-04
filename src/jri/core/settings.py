@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from jri.lib.providers import codex
 
 from . import paths
+from .workspace import Workspace
 
 type LoggingLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 # Narrower than the provider library's, whose values come and go with
@@ -153,7 +154,7 @@ class Settings(BaseModel):
 
     @classmethod
     def load(cls, cwd: Path) -> Self:
-        config = yaml.safe_load((cwd / paths.CONFIG_FILE).read_text(encoding="utf-8"))
+        config = yaml.safe_load(Workspace(cwd).config_file.read_text(encoding="utf-8"))
         return cls.model_validate({**(config or {}), "cwd": cwd})
 
     @classmethod

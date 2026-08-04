@@ -6,13 +6,13 @@ import pytest
 from jri.core import logs, paths
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
-from jri.core.workspace import Workspace
 from tests.doubles.openai import FakeClient
 from tests.doubles.settings import build_settings
+from tests.doubles.workspace import install_workspace
 
 
 def test_writes_a_log_file_for_every_run(tmp_path: Path) -> None:
-    Workspace.create(tmp_path)
+    install_workspace(tmp_path)
     settings = build_settings(tmp_path, FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
 
     logs.configure(settings)

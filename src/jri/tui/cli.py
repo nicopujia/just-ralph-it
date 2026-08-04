@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from pydantic_core import ErrorDetails
 
 from jri import __version__
-from jri.core import logs, paths
+from jri.core import logs
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from jri.core.settings import Settings
@@ -55,15 +55,15 @@ def main() -> None:
 
 
 def _initialize(*, force: bool, yes: bool) -> None:
-    project_dir = Workspace.find_project(Path.cwd().resolve())
-    if force and not (yes or _confirm_reset(project_dir)):
+    workspace = Workspace.find(Path.cwd().resolve())
+    if force and not (yes or _confirm_reset(workspace)):
         print(copy.FORCE_CANCELLED)
         raise SystemExit(1)
-    workspace = Workspace.create(project_dir, force=force)
-    if workspace.repository_created:
-        print(copy.INIT_REPOSITORY.format(directory=project_dir))
+    installation = workspace.install(Settings.render_config(), force=force)
+    if installation.repository_created:
+        print(copy.INIT_REPOSITORY.format(directory=workspace.root))
     reset_copy = copy.INIT_RECREATED if force else copy.INIT_EXISTING
-    print((copy.INIT_CREATED if workspace.created else reset_copy).format(directory=workspace.directory))
+    print((copy.INIT_CREATED if installation.created else reset_copy).format(directory=workspace.directory))
     print(copy.INIT_NEXT_STEPS.format(config_file=workspace.config_file))
 
 
@@ -88,19 +88,20 @@ def _view() -> None:
     settings = _load_settings()
     logs.configure(settings)
     conversation = Conversation(settings)
-    conversation.visualization_file.write_text(visualization.render(conversation.notebook.graph), encoding="utf-8")
-    print(conversation.visualization_file)
-    webbrowser.open(conversation.visualization_file.resolve().as_uri())
+    visualization_file = conversation.workspace.visualization_file
+    visualization_file.write_text(visualization.render(conversation.notebook.graph), encoding="utf-8")
+    print(visualization_file)
+    webbrowser.open(visualization_file.resolve().as_uri())
 
 
 def _load_settings() -> Settings:
-    project_dir = Workspace.find_project(Path.cwd().resolve())
-    if not (project_dir / paths.CONFIG_FILE).exists():
+    workspace = Workspace.find(Path.cwd().resolve())
+    if not workspace.config_file.exists():
         print(copy.WORKSPACE_MISSING)
         raise SystemExit(1)
-    load_dotenv(project_dir / ".env")
+    load_dotenv(workspace.root / ".env")
     try:
-        return Settings.load(project_dir)
+        return Settings.load(workspace.root)
     except (ValidationError, yaml.YAMLError) as error:
         error_lines = (
             [_describe_issue(issue) for issue in error.errors()]
@@ -123,12 +124,11 @@ def _describe_issue(issue: ErrorDetails) -> str:
     )
 
 
-def _confirm_reset(project_dir: Path) -> bool:
-    targets = (paths.CONFIG_FILE, *paths.RESET_PATHS)
-    existing = [target for target in targets if (project_dir / target).exists()]
+def _confirm_reset(workspace: Workspace) -> bool:
+    existing = [target for target in (workspace.config_file, *workspace.reset_paths) if target.exists()]
     if not existing:
         return True
-    print(copy.FORCE_WARNING.format(paths="\n".join(f"- {project_dir / target}" for target in existing)))
+    print(copy.FORCE_WARNING.format(paths="\n".join(f"- {target}" for target in existing)))
     try:
         return input(copy.FORCE_PROMPT).strip().casefold() in {"y", "yes"}
     except EOFError:

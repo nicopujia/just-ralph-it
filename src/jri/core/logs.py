@@ -1,13 +1,13 @@
 import logging
 from datetime import datetime
 
-from . import paths
 from .exceptions import PersistenceError
 from .settings import Settings
+from .workspace import Workspace
 
 
 def configure(settings: Settings) -> None:
-    logs_dir = settings.cwd / paths.LOGS_DIR
+    logs_dir = Workspace(settings.cwd).logs_dir
     log_file = logs_dir / f"{datetime.now().astimezone().strftime('%Y-%m-%d_%H-%M-%S')}.log"
     try:
         logs_dir.mkdir(exist_ok=True, parents=True)

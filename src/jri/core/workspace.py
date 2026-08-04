@@ -1,14 +1,13 @@
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar, Self
+from typing import ClassVar
 
 from jri.lib import git
 
 from . import paths
 from .notes import Notebook
 from .repository import Repository
-from .settings import Settings
 
 
 @dataclass(frozen=True)
@@ -16,47 +15,83 @@ class Workspace:
     PROJECT_IGNORES: ClassVar[tuple[str, ...]] = (".DS_Store", ".env", ".env.*")
     INITIAL_COMMIT_MESSAGE: ClassVar[str] = "jri: initialize project"
 
-    directory: Path
-    config_file: Path
-    created: bool
-    repository_created: bool
+    root: Path
 
     @staticmethod
-    def find_project(cwd: Path) -> Path:
-        return git.find_root(cwd) or cwd
+    def find(cwd: Path) -> "Workspace":
+        return Workspace(git.find_root(cwd) or cwd)
 
-    @classmethod
-    def create(cls, cwd: Path, *, force: bool = False) -> Self:
-        repository_created = git.find_root(cwd) is None
-        repository = Repository.init(cwd)
-        workspace = cwd / paths.WORKSPACE_DIR
-        config_file = cwd / paths.CONFIG_FILE
-        created = not config_file.exists()
+    @property
+    def directory(self) -> Path:
+        return self.root / paths.WORKSPACE_DIR
+
+    @property
+    def config_file(self) -> Path:
+        return self.root / paths.CONFIG_FILE
+
+    @property
+    def gitignore_file(self) -> Path:
+        return self.root / paths.GITIGNORE_FILE
+
+    @property
+    def project_gitignore_file(self) -> Path:
+        return self.root / paths.PROJECT_GITIGNORE_FILE
+
+    @property
+    def notebook_file(self) -> Path:
+        return self.root / paths.NOTEBOOK_FILE
+
+    @property
+    def session_file(self) -> Path:
+        return self.root / paths.SESSION_FILE
+
+    @property
+    def visualization_file(self) -> Path:
+        return self.root / paths.VISUALIZATION_FILE
+
+    @property
+    def logs_dir(self) -> Path:
+        return self.root / paths.LOGS_DIR
+
+    @property
+    def reset_paths(self) -> tuple[Path, ...]:
+        return tuple(self.root / path for path in paths.RESET_PATHS)
+
+    # The rendered configuration comes in rather than being read from
+    # `Settings`, so locating a workspace never depends on loading one.
+    def install(self, config: str, *, force: bool = False) -> "Installation":
+        repository_created = git.find_root(self.root) is None
+        repository = Repository.init(self.root)
+        created = not self.config_file.exists()
         if force:
-            for path in paths.RESET_PATHS:
-                target = cwd / path
-                if target.is_dir():
-                    shutil.rmtree(target)
+            for path in self.reset_paths:
+                if path.is_dir():
+                    shutil.rmtree(path)
                 else:
-                    target.unlink(missing_ok=True)
-        workspace.mkdir(exist_ok=True, parents=True)
+                    path.unlink(missing_ok=True)
+        self.directory.mkdir(exist_ok=True, parents=True)
         if created or force:
-            config_file.write_text(Settings.render_config(), encoding="utf-8")
-        Notebook(cwd / paths.NOTEBOOK_FILE)
-        (cwd / paths.LOGS_DIR).mkdir(exist_ok=True)
+            self.config_file.write_text(config, encoding="utf-8")
+        Notebook(self.notebook_file)
+        self.logs_dir.mkdir(exist_ok=True)
 
-        ignored = [Path(path).name for path in (paths.SESSION_FILE, paths.LOGS_DIR, paths.VISUALIZATION_FILE)]
-        gitignore = cwd / paths.GITIGNORE_FILE
-        content = gitignore.read_text() if gitignore.exists() else ""
+        ignored = [path.name for path in (self.session_file, self.logs_dir, self.visualization_file)]
+        content = self.gitignore_file.read_text() if self.gitignore_file.exists() else ""
         missing = [name for name in ignored if name not in content.splitlines()]
         if missing:
             separator = "" if not content or content.endswith("\n") else "\n"
-            gitignore.write_text(f"{content}{separator}{'\n'.join(missing)}\n")
+            self.gitignore_file.write_text(f"{content}{separator}{'\n'.join(missing)}\n")
 
         if repository_created:
-            project_gitignore = cwd / paths.PROJECT_GITIGNORE_FILE
-            if not project_gitignore.exists():
-                project_gitignore.write_text(f"{'\n'.join(cls.PROJECT_IGNORES)}\n")
+            if not self.project_gitignore_file.exists():
+                self.project_gitignore_file.write_text(f"{'\n'.join(self.PROJECT_IGNORES)}\n")
             repository.stage((".",))
-            repository.commit(cls.INITIAL_COMMIT_MESSAGE)
-        return cls(workspace, config_file, created, repository_created)
+            repository.commit(self.INITIAL_COMMIT_MESSAGE)
+        return Installation(self, created=created, repository_created=repository_created)
+
+
+@dataclass(frozen=True)
+class Installation:
+    workspace: Workspace
+    created: bool
+    repository_created: bool

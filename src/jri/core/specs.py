@@ -7,6 +7,7 @@ from jri.lib import git
 from . import paths
 from .exceptions import RepositoryStateError, SpecsError
 from .repository import Repository
+from .workspace import Workspace
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +24,10 @@ class Baseline:
 class Specs:
     def __init__(self, path: Path) -> None:
         self.repository = Repository(path)
+        self.workspace = Workspace(self.repository.path)
 
     def prepare(self, active_commit: str | None) -> Baseline:
-        notebook = (self.repository.path / paths.NOTEBOOK_FILE).read_bytes()
+        notebook = self.workspace.notebook_file.read_bytes()
         commit = self.repository.read_head() if self.repository.has_commit() else None
         self._check_status(commit)
         if active_commit is None:
@@ -75,7 +77,7 @@ class Specs:
 
     def accept(self, patch: bytes, baseline: Baseline) -> str:
         head = self.repository.read_head() if self.repository.has_commit() else None
-        if head != baseline.commit or (self.repository.path / paths.NOTEBOOK_FILE).read_bytes() != baseline.notebook:
+        if head != baseline.commit or self.workspace.notebook_file.read_bytes() != baseline.notebook:
             raise RepositoryStateError("The project changed while specifications were being generated. Try again.")
         self._check_status(baseline.commit)
         self.repository.apply_patch(patch)

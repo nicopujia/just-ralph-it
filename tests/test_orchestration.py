@@ -7,10 +7,10 @@ import pytest
 from jri.core import paths
 from jri.core.ai import SpecsGeneration, ToolCallFinished, ToolCallStarted, architect, functional_analyst
 from jri.core.exceptions import SpecsError
-from jri.core.workspace import Workspace
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, call, partial_reply, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
+from tests.doubles.workspace import install_workspace
 
 type Result = functional_analyst.Ambiguities | str
 type Row = ToolCallStarted | ToolCallFinished
@@ -35,7 +35,7 @@ new file mode 100644
 
 def build_workspace(path: Path, create_repository: CreateRepository) -> None:
     create_repository(path)
-    Workspace.create(path)
+    install_workspace(path)
 
 
 def generate(path: Path, client: FakeClient) -> tuple[list[Row], Result]:

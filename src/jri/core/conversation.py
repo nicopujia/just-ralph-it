@@ -9,11 +9,11 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jri.lib import files
 
-from . import paths
 from .ai import DEFAULT_SYMBOL, ChatEvent, Interviewer, SpecsGeneration, Tool
 from .exceptions import PersistenceError
 from .notes import Graph, Notebook, TopicId
 from .settings import Settings
+from .workspace import Workspace
 
 
 def read_turns(history: ResponseInputParam, tools: list[Tool], session: "Session") -> list["Turn"]:
@@ -89,9 +89,7 @@ class Session(BaseModel):
 
 class Conversation:
     def __init__(self, settings: Settings) -> None:
-        self.notebook_file = settings.cwd / paths.NOTEBOOK_FILE
-        self.session_file = settings.cwd / paths.SESSION_FILE
-        self.visualization_file = settings.cwd / paths.VISUALIZATION_FILE
+        self.workspace = Workspace(settings.cwd)
 
         self.session_lock = Lock()
         self.settings = settings
@@ -100,7 +98,7 @@ class Conversation:
 
     @cached_property
     def notebook(self) -> Notebook:
-        return Notebook(self.notebook_file)
+        return Notebook(self.workspace.notebook_file)
 
     @cached_property
     def session(self) -> Session:
@@ -171,11 +169,11 @@ class Conversation:
         self._save_turn()
 
     def restore(self) -> list[Turn]:
-        if not self.session_file.exists():
+        if not self.workspace.session_file.exists():
             self.logger.info("restore_skipped reason=no_session_file")
             return []
         try:
-            self.session = Session.model_validate_json(self.session_file.read_text())
+            self.session = Session.model_validate_json(self.workspace.session_file.read_text())
             topics = {topic.id: topic for topic in self.notebook.graph.topics if topic.status != "trashed"}
             topics[self.session.active_topic_id]
             self.interviewer.history, self.interviewer.active_topic_id = (
@@ -188,7 +186,7 @@ class Conversation:
             turns = read_turns(self.interviewer.history, self.interviewer.tools, self.session)
         except (OSError, ValidationError, LookupError, TypeError) as error:
             raise PersistenceError(
-                f"Invalid session file `{self.session_file}`. Delete it to start a new conversation, "
+                f"Invalid session file `{self.workspace.session_file}`. Delete it to start a new conversation, "
                 "or run `jri init --force` to reset the whole workspace, notes included."
             ) from error
         self.interviewer.failed_call_ids = list(self.session.failed_call_ids)
@@ -201,11 +199,11 @@ class Conversation:
                 update={"failed_call_ids": list(self.interviewer.failed_call_ids), **values}
             )
             try:
-                files.write_atomically(self.session_file, session.model_dump_json())
+                files.write_atomically(self.workspace.session_file, session.model_dump_json())
             except OSError as error:
-                self.logger.exception("session_write_failed path=%r", self.session_file)
+                self.logger.exception("session_write_failed path=%r", self.workspace.session_file)
                 raise PersistenceError(
-                    f"Could not save the session file `{self.session_file}`: {error.strerror}"
+                    f"Could not save the session file `{self.workspace.session_file}`: {error.strerror}"
                 ) from error
             self.session = session
         self.logger.info("session_updated fields=%r interview_items=%d", list(values), len(self.session.interview))

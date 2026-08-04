@@ -5,10 +5,10 @@ import pytest
 from jri.core.ai import architect, functional_analyst
 from jri.core.conversation import Conversation
 from jri.core.exceptions import RepositoryStateError, SpecsError
-from jri.core.workspace import Workspace
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
+from tests.doubles.workspace import install_workspace
 
 FUNCTIONAL_PATCH = """\
 diff --git a/functional/behavior.md b/functional/behavior.md
@@ -60,7 +60,7 @@ diff --git a/architecture/design.md b/architecture/design.md
 
 
 def build_conversation(path: Path, client: FakeClient) -> Conversation:
-    Workspace.create(path)
+    install_workspace(path)
     return Conversation(build_settings(path, client))
 
 

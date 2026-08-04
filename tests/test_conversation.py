@@ -10,11 +10,11 @@ from jri.core import paths
 from jri.core.ai import functional_analyst
 from jri.core.conversation import Conversation, InterviewItem
 from jri.core.exceptions import PersistenceError
-from jri.core.workspace import Workspace
 from tests.conftest import CreateRepository
 from tests.doubles.openai import FakeClient, call, failure, partial_reply, reply, response
 from tests.doubles.settings import build_settings
 from tests.doubles.specs_generation import InterruptibleSpecsGeneration
+from tests.doubles.workspace import install_workspace
 
 
 def build_conversation(path: Path, client: FakeClient) -> Conversation:
@@ -22,7 +22,7 @@ def build_conversation(path: Path, client: FakeClient) -> Conversation:
 
 
 def test_leaves_the_workspace_untouched_until_a_command_reads_it(tmp_path: Path) -> None:
-    Workspace.create(tmp_path)
+    install_workspace(tmp_path)
     (tmp_path / paths.NOTEBOOK_FILE).unlink()
 
     Conversation(build_settings(tmp_path, FakeClient([])))
@@ -155,7 +155,7 @@ def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
-    Workspace.create(tmp_path)
+    install_workspace(tmp_path)
     ambiguity = "Choose whether output is JSON or plain text."
     client = FakeClient(
         [response(reply("Understood.")), response(reply("Should the output be JSON or plain text?"))],
@@ -290,7 +290,7 @@ def test_rolls_back_the_changes_of_a_failed_turn(tmp_path: Path) -> None:
     graph = conversation.interviewer.notebook.graph.model_dump()
     history = list(conversation.interviewer.history)
     active_topic_id = conversation.interviewer.active_topic_id
-    notebook_file = conversation.notebook_file.read_bytes()
+    notebook_file = conversation.workspace.notebook_file.read_bytes()
 
     with pytest.raises(RuntimeError, match="provider failed"):
         list(conversation.chat("Deploy it automatically."))
@@ -298,7 +298,9 @@ def test_rolls_back_the_changes_of_a_failed_turn(tmp_path: Path) -> None:
     assert conversation.interviewer.notebook.graph.model_dump() == {**graph, "next_note_id": "n3"}
     assert conversation.interviewer.history == [*history, {"role": "user", "content": "Deploy it automatically."}]
     assert conversation.interviewer.active_topic_id == active_topic_id
-    assert conversation.notebook_file.read_bytes() == notebook_file.replace(b"next_note_id: n2", b"next_note_id: n3")
+    assert conversation.workspace.notebook_file.read_bytes() == notebook_file.replace(
+        b"next_note_id: n2", b"next_note_id: n3"
+    )
 
 
 def test_restores_the_prompt_of_a_failed_turn(tmp_path: Path) -> None:
@@ -484,14 +486,14 @@ def test_stores_the_session_as_compact_json(tmp_path: Path) -> None:
 
     list(conversation.chat("Deploy the project automatically."))
 
-    content = conversation.session_file.read_text(encoding="utf-8")
+    content = conversation.workspace.session_file.read_text(encoding="utf-8")
     assert content == json.dumps(json.loads(content), separators=(",", ":"), ensure_ascii=False)
 
 
 def test_explains_how_to_reset_an_invalid_session_file(tmp_path: Path) -> None:
     conversation = build_conversation(tmp_path, FakeClient([]))
     (tmp_path / paths.WORKSPACE_DIR).mkdir()
-    conversation.session_file.write_text("not json")
+    conversation.workspace.session_file.write_text("not json")
 
     with pytest.raises(PersistenceError, match=r"Delete it .*--force"):
         conversation.restore()
