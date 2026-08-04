@@ -85,7 +85,10 @@ class Workspace:
         if repository_created:
             if not self.project_gitignore_file.exists():
                 self.project_gitignore_file.write_text(f"{'\n'.join(self.PROJECT_IGNORES)}\n")
-            repository.stage((".",))
+            # The ignore file a project brought along is not JRI's to
+            # rewrite, so the commit JRI makes of a project it never saw
+            # leaves those patterns out whether or not they are ignored.
+            repository.stage((".", *(f":(exclude,glob)**/{pattern}" for pattern in self.PROJECT_IGNORES)))
             repository.commit(self.INITIAL_COMMIT_MESSAGE)
         return Installation(self, created=created, repository_created=repository_created)
 

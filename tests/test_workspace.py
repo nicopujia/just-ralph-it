@@ -1,6 +1,5 @@
 from pathlib import Path
 
-import pytest
 import yaml
 
 from jri.core import paths
@@ -63,9 +62,6 @@ def test_keeps_an_existing_ignore_file_when_creating_the_repository(tmp_path: Pa
     assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text() == "build/\n"
 
 
-@pytest.mark.xfail(
-    strict=True, reason="Install writes the project ignores only when the project has no .gitignore of its own"
-)
 def test_keeps_secrets_out_of_the_initial_commit_of_an_already_ignoring_project(tmp_path: Path) -> None:
     (tmp_path / paths.PROJECT_GITIGNORE_FILE).write_text("build/\n")
     (tmp_path / ".env").write_text("SECRET=1\n")
