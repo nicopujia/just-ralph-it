@@ -51,7 +51,7 @@ def test_generates_a_configuration_that_round_trips_through_the_settings(tmp_pat
     }
 
 
-def test_documents_every_agent_default_in_the_command_line_help(
+def test_keeps_configured_settings_out_of_the_help_yet_usable(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     with pytest.raises(SystemExit):
@@ -59,11 +59,17 @@ def test_documents_every_agent_default_in_the_command_line_help(
 
     help_text = " ".join(capsys.readouterr().out.split())
 
-    assert "--agents.interviewer.model str Model ID. (default: gpt-5.6-sol)" in help_text
-    assert "--agents.explorer.model str Model ID. (default: gpt-5.6-terra)" in help_text
-    assert "--agents.architect.model str Model ID. (default: gpt-5.6-sol)" in help_text
-    assert "Reasoning effort: minimal, low, medium, high, or xhigh. (default: medium)" in help_text
-    assert "Reasoning effort: minimal, low, medium, high, or xhigh. (default: xhigh)" in help_text
+    assert "--force" in help_text
+    for flag in ("--llm.provider", "--brave-search.api-key", "--agents.interviewer.model", "--logging.level"):
+        assert flag not in help_text
+
+    overridden = Settings(
+        cwd=tmp_path,
+        _cli_parse_args=["--agents.interviewer.model", "custom", "--logging.level", "DEBUG"],  # pyright: ignore[reportCallIssue]
+    )
+
+    assert overridden.agents.interviewer.model == "custom"
+    assert overridden.logging.level == "DEBUG"
 
 
 def test_documents_every_setting_it_generates() -> None:

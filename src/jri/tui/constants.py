@@ -6,6 +6,12 @@ from jri.core.ai import Interviewer
 CANCEL_TURN_COPY = "Stop response"
 CANCEL_TURN_KEY_COPY = "esc esc"
 
+CLI_EPILOG_COPY = (
+    "Every setting documented in .jri/config.yaml also works here as a flag (--llm.provider, "
+    "--agents.interviewer.model, ...) or as an environment variable (JRI_LLM_PROVIDER, "
+    "JRI_AGENTS_INTERVIEWER_MODEL, ...), before or after the command."
+)
+
 CONFIG_ERROR_COPY = """Invalid configuration.
 Set or fix these settings:
 

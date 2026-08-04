@@ -6,7 +6,13 @@ from typing import Annotated, Any, Literal, cast, override
 import yaml
 from openai import OpenAI
 from pydantic import BaseModel, ConfigDict, Field, create_model, model_validator
-from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict, YamlConfigSettingsSource
+from pydantic_settings import (
+    BaseSettings,
+    CliSuppress,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+    YamlConfigSettingsSource,
+)
 
 from jri.core import paths
 from jri.lib.providers import codex
@@ -186,15 +192,15 @@ class Settings(BaseSettings):
         ),
         default=False,
     )
-    llm: LLM = Field(default_factory=LLM, description="Provider every agent sends its model requests to.")
-    brave_search: BraveSearch = Field(
+    llm: CliSuppress[LLM] = Field(default_factory=LLM, description="Provider every agent sends its model requests to.")
+    brave_search: CliSuppress[BraveSearch] = Field(
         default_factory=BraveSearch,
         description=(
             "Web search for the explorer agent, on top of the shell, files, and URLs it always has. "
             "Get a key at https://brave.com/search/api/."
         ),
     )
-    agents: Agents = Field(
+    agents: CliSuppress[Agents] = Field(
         # A default instance, rather than a factory, is what makes the
         # command-line help report each agent's real defaults.
         default=Agents(),
@@ -204,7 +210,9 @@ class Settings(BaseSettings):
             "outright."
         ),
     )
-    logging: Logging = Field(default_factory=Logging, description="Diagnostics JRI writes down while it runs.")
+    logging: CliSuppress[Logging] = Field(
+        default_factory=Logging, description="Diagnostics JRI writes down while it runs."
+    )
 
     model_config = SettingsConfigDict(
         cli_kebab_case=True,

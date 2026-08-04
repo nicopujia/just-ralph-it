@@ -20,6 +20,7 @@ from jri.lib.providers import codex
 
 from .app import App
 from .constants import (
+    CLI_EPILOG_COPY,
     CONFIG_ERROR_COPY,
     FORCE_CANCELLED_COPY,
     FORCE_PROMPT_COPY,
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Just Ralph It")
+    parser = argparse.ArgumentParser(description="Just Ralph It", epilog=CLI_EPILOG_COPY)
     parser.add_argument("-v", "--version", action="version", version=__version__, help="Show the JRI version and exit.")
     # A positional command, rather than subparsers, lets every setting
     # below be given before or after it.
