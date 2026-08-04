@@ -152,7 +152,10 @@ class Logging(BaseSettings):
 class Settings(BaseSettings):
     """Settings loaded from project files, CLI, and environment."""
 
-    cwd: Path = Field(description="Current working directory.", default_factory=Path.cwd)
+    # Every command resolves the directory itself and passes it in, so
+    # this default only spares the field a required marker it would
+    # wear in the command-line help.
+    cwd: Path = Field(description="Current working directory.", default=Path())
     llm: CliSuppress[LLM] = Field(default_factory=LLM, description="Provider every agent sends its model requests to.")
     brave_search: CliSuppress[BraveSearch] = Field(
         default_factory=BraveSearch,
