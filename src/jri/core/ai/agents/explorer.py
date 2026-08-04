@@ -208,7 +208,8 @@ class Explorer(Agent):
             try:
                 process.wait(timeout=30)
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
                 process.wait()
                 output_file.seek(0)
                 output = output_file.read(Invocation.MAX_OUTPUT_LENGTH)

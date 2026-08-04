@@ -109,6 +109,19 @@ def test_stops_the_process_group_when_a_shell_command_times_out(
     assert not _is_running(child)
 
 
+def test_reports_a_timeout_whose_process_group_already_vanished(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def vanish(_group: int, _number: int) -> None:
+        raise ProcessLookupError
+
+    serve_timeout(monkeypatch, tmp_path / "done.txt")
+    monkeypatch.setattr(os, "killpg", vanish)
+
+    with pytest.raises(RuntimeError, match="Command timed out after 30 seconds"):
+        build_explorer(tmp_path).run_shell("echo finished > done.txt")
+
+
 def test_searches_the_web_and_links_the_results(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SEARCH_API_KEY", "search-key")
     provider = FakeProvider(respond(200, {"grounding": {"generic": RESULTS}}))
