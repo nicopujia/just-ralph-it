@@ -152,13 +152,20 @@ class Auth(httpx.Auth):
                     file_lock.flock(lock_file, file_lock.LOCK_UN)
 
     def _write(self, data: dict[str, Any]) -> None:
+        temporary_path: Path | None = None
         try:
             self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            # A temporary file is readable by its owner alone, which is
+            # what the login replacing it with must stay.
             with NamedTemporaryFile("w", encoding="utf-8", dir=self.path.parent, delete=False) as file:
+                temporary_path = Path(file.name)
                 file.write(f"{json.dumps(data, indent=2)}\n")
-            Path(file.name).chmod(0o600)
-            Path(file.name).replace(self.path)
+            temporary_path.replace(self.path)
         except (OSError, TypeError, ValueError) as error:
+            # A scratch copy of the credentials must not outlive the
+            # attempt to save them.
+            if temporary_path is not None:
+                temporary_path.unlink(missing_ok=True)
             raise AuthError("The refreshed Codex login could not be saved.") from error
 
 

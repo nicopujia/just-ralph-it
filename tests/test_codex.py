@@ -328,9 +328,6 @@ def test_reports_a_refreshed_login_that_cannot_be_saved(tmp_path: Path, monkeypa
         home.chmod(0o700)
 
 
-@pytest.mark.xfail(
-    strict=True, reason="Auth._write orphans its temporary file when saving fails, leaking a copy of the credentials"
-)
 def test_leaves_no_scratch_file_behind_when_saving_the_login_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
