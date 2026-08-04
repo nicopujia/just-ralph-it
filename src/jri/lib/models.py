@@ -23,10 +23,11 @@ def get_context_limit(model: str) -> int:
         if len(matches) != 1:
             return FALLBACK_CONTEXT_LIMIT
         entry = matches[0]
-    limit = cast("dict[str, object]", entry.get("limit", {})).get("context")
-    if not isinstance(limit, int):
-        return FALLBACK_CONTEXT_LIMIT
-    return limit
+    match entry:
+        case {"limit": {"context": int() as limit}}:
+            return limit
+        case _:
+            return FALLBACK_CONTEXT_LIMIT
 
 
 def estimate_tokens(context: object, tools: object) -> int:
@@ -34,7 +35,7 @@ def estimate_tokens(context: object, tools: object) -> int:
     return (len(payload.encode()) + 2) // 3
 
 
-def _fetch_catalog() -> dict[str, dict[str, object]]:
+def _fetch_catalog() -> dict[str, object]:
     try:
         response = httpx.get(ENDPOINT, timeout=30.0)
         response.raise_for_status()
@@ -43,4 +44,4 @@ def _fetch_catalog() -> dict[str, dict[str, object]]:
         raise RuntimeError(f"Failed to load models.dev: {error}") from error
     if not isinstance(catalog, dict):
         raise TypeError("models.dev returned an invalid catalog.")
-    return cast("dict[str, dict[str, object]]", catalog)
+    return cast("dict[str, object]", catalog)

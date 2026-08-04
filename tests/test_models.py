@@ -37,10 +37,6 @@ def test_falls_back_when_the_catalog_cannot_answer(monkeypatch: pytest.MonkeyPat
     assert get_context_limit("gpt-5.6-sol") == FALLBACK_CONTEXT_LIMIT
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="get_context_limit crashes on a catalog entry or limit that is not a mapping instead of falling back",
-)
 @pytest.mark.parametrize(
     "catalog",
     [{"openai/gpt-5.6-sol": CONTEXT_LIMIT}, {"openai/gpt-5.6-sol": {"limit": CONTEXT_LIMIT}}],
