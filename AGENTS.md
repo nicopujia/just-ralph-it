@@ -6,7 +6,7 @@ After changes: `scripts/check.py`
 - DDD naming, modules included: `Agent.get_context`, NEVER `BaseOpenAIAgent.get_agent_context`; `repository.py`, NEVER `constants.py`
 - Functions/methods = verbs; except properties, event handlers, decorators
 - Helpers only for: repeated logic, unavoidable extractions, linter alerts
-- No backwards-compat code
+- Prefer cleanest long-term approach—no backwards-compat code
 - `lib` = JRI-agnostic business logic only
 - `tui` = UI only, no tests
 
