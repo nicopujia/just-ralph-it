@@ -128,7 +128,7 @@ class Tool:
                 for parameter in inspect.signature(func).parameters.values()
             }
             arguments_model = create_model(
-                f"{func.__name__.title()}Args",
+                f"{func.__name__.title()}Arguments",
                 __config__=ConfigDict(extra="forbid"),
                 **fields,  # pyright: ignore[reportCallIssue, reportArgumentType]
             )
