@@ -30,7 +30,6 @@ class Interviewer(Agent):
     ) -> None:
         self.settings = settings
         self.notebook = notebook
-        self.explorer: Explorer
         self.set_ready_to_ralph = set_ready_to_ralph or (lambda _: None)
         self.initial_topic = notebook.initial_topic
         self.active_topic_id = self.initial_topic.id
@@ -169,9 +168,9 @@ class Interviewer(Agent):
             Explorer tool events followed by its final text output.
         """
 
-        self.explorer = Explorer(self.settings)
+        explorer = Explorer(self.settings)
         latest_output: list[str] = []
-        for event in self.explorer.send_message(query):
+        for event in explorer.send_message(query):
             match event:
                 case ai.ToolCallStarted():
                     latest_output.clear()

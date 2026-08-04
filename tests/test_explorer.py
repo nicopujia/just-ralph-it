@@ -1,6 +1,5 @@
 import base64
 import os
-import subprocess
 import time
 from pathlib import Path
 
@@ -11,6 +10,7 @@ from jri.core.ai import Explorer, Invocation
 from jri.lib import brave, youtube
 from tests.doubles.brave import RESULTS, FakeProvider, respond
 from tests.doubles.openai import FakeClient
+from tests.doubles.process import serve_timeout
 from tests.doubles.settings import build_settings
 from tests.doubles.web import serve_chunks, serve_pages
 from tests.doubles.youtube import TRANSCRIPT, FakeApi
@@ -97,17 +97,7 @@ def test_stops_the_process_group_when_a_shell_command_times_out(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     background = tmp_path / "background.pid"
-    original_wait = subprocess.Popen.wait
-
-    def wait(process: "subprocess.Popen[bytes]", timeout: float | None = None) -> int:
-        if timeout is None:
-            return original_wait(process)
-        deadline = time.monotonic() + 10
-        while not background.exists() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        raise subprocess.TimeoutExpired(process.args, timeout)
-
-    monkeypatch.setattr(subprocess.Popen, "wait", wait)
+    serve_timeout(monkeypatch, background)
 
     with pytest.raises(RuntimeError, match="Command timed out after 30 seconds"):
         build_explorer(tmp_path).run_shell("sleep 60 & echo $! > background.pid; sleep 60")

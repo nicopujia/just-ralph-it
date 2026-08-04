@@ -18,10 +18,6 @@ def build_architect(path: Path, client: FakeClient) -> architect.Architect:
     return architect.Architect(build_settings(path, client))
 
 
-def read_prompt(client: FakeClient) -> str:
-    return str(cast("list[dict[str, object]]", client.responses.inputs[-1])[0]["content"])
-
-
 def test_designs_an_architecture_patch(tmp_path: Path) -> None:
     client = FakeClient([], parsed=[architect.Output(result=PATCH)])
 
@@ -43,4 +39,5 @@ def test_leaves_the_final_pass_no_way_to_report_issues(tmp_path: Path) -> None:
 
     assert build_architect(tmp_path, client).finish(CONTEXT) == PATCH
     assert client.responses.options[-1]["text_format"] is architect.Patch
-    assert read_prompt(client).endswith(architect.Architect.FINAL_PROMPT)
+    prompt = cast("list[dict[str, object]]", client.responses.inputs[-1])[0]["content"]
+    assert str(prompt).endswith(architect.Architect.FINAL_PROMPT)

@@ -1,5 +1,4 @@
 import json
-from collections.abc import Iterator
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
@@ -17,6 +16,7 @@ from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, call, failure, partial_reply, reply, response
 from tests.doubles.settings import build_settings
+from tests.doubles.specs_gen import InterruptibleSpecsGen
 
 
 def build_service(path: Path, client: FakeClient) -> Service:
@@ -219,14 +219,6 @@ def test_rolls_back_ralph_readiness_when_the_turn_fails(tmp_path: Path) -> None:
 
 
 def test_restores_ralph_readiness_after_an_interrupted_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    class InterruptibleSpecsGen:
-        def __init__(self, _settings: "Settings") -> None:
-            pass
-
-        @staticmethod
-        def generate(_active_commit: str | None) -> Iterator[object]:
-            yield object()
-
     service = build_service(
         tmp_path,
         FakeClient([response(call("ready", "just_ralph_it", show=True)), response(reply("Click Just Ralph It."))]),

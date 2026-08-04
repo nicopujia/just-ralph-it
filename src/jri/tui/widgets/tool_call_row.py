@@ -19,7 +19,7 @@ class ToolCallRow(Static):
         self.label = label
         self.symbol = symbol
         self.depth = depth
-        self.frame_idx = 0
+        self.frame_index = 0
         self.is_complete = is_complete
         self.started_at = monotonic()
         self.spinner_timer = None
@@ -52,7 +52,7 @@ class ToolCallRow(Static):
 
         if self.is_complete:
             return
-        self.frame_idx = (self.frame_idx + 1) % len(self.SPINNER_FRAMES)
+        self.frame_index = (self.frame_index + 1) % len(self.SPINNER_FRAMES)
         self.update_copy()
 
     def update_copy(self) -> None:
@@ -63,4 +63,4 @@ class ToolCallRow(Static):
             return
         elapsed = int(monotonic() - self.started_at)
         suffix = f" [dim]{elapsed // 60}m {elapsed % 60:02d}s[/dim]" if elapsed >= self.MIN_ELAPSED_SECONDS else ""
-        self.update(f"{self.SPINNER_FRAMES[self.frame_idx]} {self.label}{suffix}")
+        self.update(f"{self.SPINNER_FRAMES[self.frame_index]} {self.label}{suffix}")
