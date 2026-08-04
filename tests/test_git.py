@@ -7,9 +7,12 @@ from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
 
 
-def test_rejects_missing_git_and_initializes_repository(tmp_path: Path) -> None:
+def test_rejects_a_missing_git_executable(tmp_path: Path) -> None:
     with pytest.raises(git.NotInstalledError):
         git.Repository(tmp_path, executable="missing-git-executable")
+
+
+def test_initializes_a_repository_outside_any_worktree(tmp_path: Path) -> None:
     repository = git.Repository(tmp_path)
 
     assert (tmp_path / ".git").is_dir()
@@ -26,32 +29,73 @@ def test_finds_worktree_root_from_any_subdirectory(tmp_path: Path, create_reposi
     assert git.find_root(tmp_path) is None
 
 
-def test_inspects_revisions_files_diffs_and_status(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
+def test_reads_the_files_a_revision_tracks(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
-    first = repository.read_head()
+    revision = repository.read_head()
+    (repository.path / "README.md").write_text("second\n")
+
+    assert repository.read_file(revision, "README.md") == b"# Project\n"
+    assert repository.read_tree(revision) == {"README.md": b"# Project\n"}
+    assert repository.read_tracked_paths(revision) == ("README.md",)
+
+
+def test_diffs_the_worktree_against_a_revision(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    revision = repository.read_head()
+    (repository.path / "README.md").write_text("second\n")
+
+    assert b"+second" in repository.diff(revision, paths=["README.md"])
+
+
+def test_reports_changed_and_untracked_paths(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
     (repository.path / "README.md").write_text("second\n")
     (repository.path / "new file.txt").write_text("new\n")
 
-    assert repository.read_file(first, "README.md") == b"# Project\n"
-    assert repository.read_tree(first) == {"README.md": b"# Project\n"}
-    assert repository.read_tracked_paths(first) == ("README.md",)
-    assert b"+second" in repository.diff(first, paths=["README.md"])
     assert {(item.path, item.index, item.worktree) for item in repository.read_status()} == {
         ("README.md", " ", "M"),
         ("new file.txt", "?", "?"),
     }
 
+
+def test_moves_staged_paths_to_the_index_side_of_the_status(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "README.md").write_text("second\n")
+    (repository.path / "new file.txt").write_text("new\n")
+
     repository.stage(["README.md", "new file.txt"])
+
+    assert {(item.path, item.index, item.worktree) for item in repository.read_status()} == {
+        ("README.md", "M", " "),
+        ("new file.txt", "A", " "),
+    }
+
+
+def test_commits_staged_paths_with_a_co_author(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "README.md").write_text("second\n")
+    repository.stage(["README.md"])
+
+    commit = repository.commit("jri: test", "Test Person <test@example.com>")
+
+    assert run_git(repository.path, "show", "-s", "--format=%B", commit) == (
+        "jri: test\n\nCo-authored-by: Test Person <test@example.com>"
+    )
+
+
+def test_reports_which_revision_descends_from_which(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    first = repository.read_head()
+    (repository.path / "README.md").write_text("second\n")
+    repository.stage(["README.md"])
     second = repository.commit("jri: test", "Test Person <test@example.com>")
 
     assert repository.is_ancestor(first, second)
     assert not repository.is_ancestor(second, first)
-    assert repository.read_status() == ()
-    assert run_git(repository.path, "show", "-s", "--format=%B", second) == (
-        "jri: test\n\nCo-authored-by: Test Person <test@example.com>"
-    )
 
 
 def test_reports_renames_with_their_original_path(
@@ -69,7 +113,7 @@ def test_reports_renames_with_their_original_path(
     ]
 
 
-def test_applies_patch(tmp_path: Path, create_repository: CreateRepository) -> None:
+def test_applies_a_patch_to_the_worktree_and_the_index(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     (repository.path / "README.md").write_text("updated\n")
     patch = repository.diff("HEAD", paths=["README.md"])
@@ -80,11 +124,18 @@ def test_applies_patch(tmp_path: Path, create_repository: CreateRepository) -> N
 
     assert (repository.path / "README.md").read_text() == "updated\n"
     assert repository.read_status()[0].index == "M"
+
+
+def test_rejects_a_patch_that_does_not_apply(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "README.md").write_text("updated\n")
+    patch = repository.diff("HEAD", paths=["README.md"])
+
     with pytest.raises(git.Error):
         repository.apply_patch(patch)
 
 
-def test_applies_patch_below_a_directory(tmp_path: Path, create_repository: CreateRepository) -> None:
+def test_applies_a_patch_below_a_directory(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     patch = b"""\
 diff --git a/notes.md b/notes.md
@@ -101,14 +152,24 @@ new file mode 100644
     assert repository.read_status() == (git.Status("docs/internal/notes.md", "A", " "),)
 
 
-def test_creates_and_removes_worktree(tmp_path: Path, create_repository: CreateRepository, run_git: RunGit) -> None:
+def test_opens_a_detached_worktree_at_the_requested_revision(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+
+    with repository.open_worktree() as worktree:
+        assert worktree.path.exists()
+        assert worktree.read_head() == repository.read_head()
+        assert run_git(worktree.path, "rev-parse", "--abbrev-ref", "HEAD") == "HEAD"
+
+
+def test_removes_the_worktree_once_it_closes(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
     repository = create_repository(tmp_path / "repo")
 
     with repository.open_worktree() as worktree:
         location = worktree.path
-        assert location.exists()
-        assert worktree.read_head() == repository.read_head()
-        assert run_git(location, "rev-parse", "--abbrev-ref", "HEAD") == "HEAD"
 
     assert not location.exists()
     assert str(location) not in run_git(repository.path, "worktree", "list", "--porcelain")
