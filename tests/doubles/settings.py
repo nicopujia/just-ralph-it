@@ -17,12 +17,7 @@ class FakeSettings(SimpleNamespace):
 
 
 def build_settings(
-    path: Path,
-    client: "FakeClient",
-    *,
-    force: bool = False,
-    temperature: float | None = 0,
-    search_api_key: str | None = None,
+    path: Path, client: "FakeClient", *, temperature: float | None = 0, search_api_key: str | None = None
 ) -> "Settings":
     """Build the settings an agent or service reads.
 
@@ -35,7 +30,7 @@ def build_settings(
         "Settings",
         FakeSettings(
             cwd=path,
-            force=force,
+            force=False,
             logging=SimpleNamespace(level="CRITICAL"),
             llm=SimpleNamespace(client=client),
             brave_search=SimpleNamespace(api_key=search_api_key),

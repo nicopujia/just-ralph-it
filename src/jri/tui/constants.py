@@ -23,6 +23,7 @@ All commands, including `jri view`, use this configuration.
 """
 
 FORCE_CANCELLED_COPY = "Nothing was deleted."
+FORCE_COMMAND_COPY = "--force only applies to `jri init`."
 FORCE_PROMPT_COPY = "Type `y` to continue, or anything else to cancel: "
 FORCE_WARNING_COPY = """--force replaces these, and what they hold cannot be brought back:
 
@@ -34,7 +35,10 @@ HISTORY_BATCH_SIZE = 15
 INIT_CREATED_COPY = "Created a JRI workspace at {directory}, with its configuration, notebook, logs, and Git ignores."
 INIT_EXISTING_COPY = "A JRI workspace already exists at {directory}."
 INIT_NEXT_STEPS_COPY = "Open {config_file} and follow its comments, then run `jri chat`."
-INIT_RECREATED_COPY = "Re-created the JRI configuration at {directory}, replacing what it held."
+INIT_RECREATED_COPY = (
+    "Re-created the JRI workspace at {directory}, replacing its configuration, notes, conversation, logs, "
+    "and specifications."
+)
 INIT_REPOSITORY_COPY = (
     "Initialized a Git repository at {directory} and committed what was already there, since JRI builds on commits."
 )

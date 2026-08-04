@@ -18,8 +18,8 @@ from tests.doubles.settings import build_settings
 from tests.git import create_repository, run_git
 
 
-def build_service(path: Path, client: FakeClient, *, force: bool = False) -> Service:
-    return Service(build_settings(path, client, force=force))
+def build_service(path: Path, client: FakeClient) -> Service:
+    return Service(build_settings(path, client))
 
 
 def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
@@ -93,7 +93,7 @@ def test_initializing_an_existing_workspace_preserves_it(tmp_path: Path) -> None
     assert (tmp_path / paths.GITIGNORE_FILE).read_text() == "custom-cache\nlogs\nsession.json\nvisualization.html\n"
 
 
-def test_forcing_initialization_writes_the_configuration_again(tmp_path: Path) -> None:
+def test_forcing_initialization_starts_the_workspace_over(tmp_path: Path) -> None:
     notebook = {
         "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {"n1": "Keep this note."}}],
         "connections": [],
@@ -106,7 +106,10 @@ def test_forcing_initialization_writes_the_configuration_again(tmp_path: Path) -
 
     assert not workspace.created
     assert (tmp_path / paths.CONFIG_FILE).read_text() == Settings.render_config()
-    assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text()) == notebook
+    assert yaml.safe_load((tmp_path / paths.NOTEBOOK_FILE).read_text()) == {
+        "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
+        "connections": [],
+    }
 
 
 def test_reads_the_notes_without_reaching_the_provider(tmp_path: Path) -> None:
@@ -528,7 +531,8 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
     (base_dir / "specs").mkdir()
     (base_dir / "specs" / "old.md").write_text("old spec")
 
-    service = build_service(tmp_path, FakeClient([]), force=True)
+    Service.init(tmp_path, force=True)
+    service = build_service(tmp_path, FakeClient([]))
 
     turns, show_thinking_blocks = service.restore()
     assert turns == []
@@ -538,12 +542,12 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
     ]
     assert service.notebook_file == base_dir / "notebook.yaml"
     assert service.visualization_file == base_dir / "visualization.html"
-    assert config.read_text() == "custom config"
+    assert config.read_text() == Settings.render_config()
     assert not service.session_file.exists()
     assert not service.visualization_file.exists()
     assert not (base_dir / "specs").exists()
     assert not (base_dir / "logs" / "old.log").exists()
-    assert (base_dir / ".gitignore").read_text() == "custom-cache\n"
+    assert (base_dir / ".gitignore").read_text() == "custom-cache\nsession.json\nlogs\nvisualization.html\n"
 
 
 def test_resetting_the_workspace_keeps_the_rest_of_the_project(tmp_path: Path) -> None:
@@ -551,8 +555,9 @@ def test_resetting_the_workspace_keeps_the_rest_of_the_project(tmp_path: Path) -
         (tmp_path / name).mkdir()
         (tmp_path / name / "file.md").write_text("project content")
 
-    build_service(tmp_path, FakeClient([]), force=True)
+    Service.init(tmp_path, force=True)
 
+    kept = {".jri", ".git", paths.PROJECT_GITIGNORE_FILE}
     assert [
-        (path.name, (path / "file.md").read_text()) for path in sorted(tmp_path.iterdir()) if path.name != ".jri"
+        (path.name, (path / "file.md").read_text()) for path in sorted(tmp_path.iterdir()) if path.name not in kept
     ] == [("architecture", "project content"), ("functional", "project content"), ("src", "project content")]

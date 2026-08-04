@@ -396,7 +396,9 @@ class Notebook:
             logger.debug("file_loaded notes=%d connections=%d", len(graph.notes), len(graph.connections))
         except (AttributeError, KeyError, OSError, TypeError, ValueError, YAMLError) as error:
             logger.exception("file_load_failed path=%r", self.path)
-            raise PersistenceError(f"Invalid notebook file `{self.path}`. Run JRI with --force to reset it.") from error
+            raise PersistenceError(
+                f"Invalid notebook file `{self.path}`. Run `jri init --force` to reset it."
+            ) from error
         else:
             return graph
 

@@ -23,6 +23,7 @@ from .constants import (
     CLI_EPILOG_COPY,
     CONFIG_ERROR_COPY,
     FORCE_CANCELLED_COPY,
+    FORCE_COMMAND_COPY,
     FORCE_PROMPT_COPY,
     FORCE_WARNING_COPY,
     INIT_CREATED_COPY,
@@ -83,9 +84,13 @@ def main() -> None:
         print(CONFIG_ERROR_COPY.format(errors="\n".join(error_lines)))
         raise SystemExit(1) from error
 
-    if settings.force and not _confirm_reset(args.command, project_dir):
-        print(FORCE_CANCELLED_COPY)
-        raise SystemExit(1)
+    if settings.force:
+        if args.command != "init":
+            print(FORCE_COMMAND_COPY)
+            raise SystemExit(1)
+        if not _confirm_reset(project_dir):
+            print(FORCE_CANCELLED_COPY)
+            raise SystemExit(1)
 
     handlers = {"init": _init, "chat": _chat, "view": _view}
 
@@ -200,14 +205,14 @@ def _view(settings: Settings) -> None:
     webbrowser.open(service.visualization_file.resolve().as_uri())
 
 
-def _confirm_reset(command: str, project_dir: Path) -> bool:
+def _confirm_reset(project_dir: Path) -> bool:
     """Ask the user before a forced run throws their files away.
 
     Returns:
         Whether the command may go ahead.
     """
 
-    targets = (paths.CONFIG_FILE,) if command == "init" else paths.RESET_PATHS
+    targets = (paths.CONFIG_FILE, *paths.RESET_PATHS)
     existing = [target for target in targets if (project_dir / target).exists()]
     if not existing:
         return True

@@ -68,7 +68,9 @@ class Service:
         Projects outside a Git repository get one holding everything
         already there, since JRI stores the specifications it writes in
         commits and reads its baseline from the latest one. Forcing
-        writes the configuration file again, dropping whatever it held.
+        writes the configuration file again and throws away the
+        conversation, the notes, the logs, and the generated
+        specifications.
 
         Returns:
             The workspace found or created.
@@ -79,6 +81,13 @@ class Service:
         workspace = cwd / paths.WORKSPACE_DIR
         config_file = cwd / paths.CONFIG_FILE
         created = not config_file.exists()
+        if force:
+            for path in paths.RESET_PATHS:
+                target = cwd / path
+                if target.is_dir():
+                    shutil.rmtree(target)
+                else:
+                    target.unlink(missing_ok=True)
         workspace.mkdir(exist_ok=True, parents=True)
         if created or force:
             config_file.write_text(Settings.render_config(), encoding="utf-8")
@@ -125,14 +134,6 @@ class Service:
         self.session_lock = Lock()
         self.settings = settings
 
-        if settings.force:
-            for path in paths.RESET_PATHS:
-                target = settings.cwd / path
-                if target.is_dir():
-                    shutil.rmtree(target)
-                else:
-                    target.unlink(missing_ok=True)
-
         self.logs_dir.mkdir(exist_ok=True, parents=True)
 
         log_file = self.logs_dir / f"{datetime.now().astimezone().strftime('%Y-%m-%d_%H-%M-%S')}.log"
@@ -143,7 +144,7 @@ class Service:
         application_logger.addHandler(handler)
         application_logger.propagate = False
         self.logger = logging.getLogger(__name__)
-        self.logger.info("initialized cwd=%r force=%r", settings.cwd, settings.force)
+        self.logger.info("initialized cwd=%r", settings.cwd)
         self.notebook = Notebook(self.notebook_file)
         self.session = Session(
             active_topic_id=self.notebook.initial_topic.id, initial_graph=self.notebook.graph.model_copy(deep=True)
@@ -275,7 +276,7 @@ class Service:
         except (OSError, ValidationError, LookupError, TypeError) as error:
             raise PersistenceError(
                 f"Invalid session file `{self.session_file}`. Delete it to start a new conversation, "
-                "or run JRI with --force to reset the whole workspace, notes included."
+                "or run `jri init --force` to reset the whole workspace, notes included."
             ) from error
         self.interviewer.failed_call_ids = list(self.session.failed_call_ids)
         self.logger.info("restored interview_items=%d", len(self.session.interview))

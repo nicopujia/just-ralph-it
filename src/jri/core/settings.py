@@ -187,8 +187,8 @@ class Settings(BaseSettings):
     cwd: Path = Field(description="Current working directory.", default_factory=Path.cwd)
     force: bool = Field(
         description=(
-            "Re-create the JRI workspace: `init` writes the configuration file again, and every other command "
-            "deletes the conversation, the notes, the logs, and the generated specifications."
+            "Re-create the JRI workspace, for `init` alone: writes the configuration file again and deletes "
+            "the conversation, the notes, the logs, and the generated specifications."
         ),
         default=False,
     )
