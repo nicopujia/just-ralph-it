@@ -74,7 +74,7 @@ def check_member_order(*roots: Path) -> None:
         for line in _find_disorder(ast.parse(path.read_text()).body, _rank_module, MODULE_GROUPS, path, "module")
     ]
     if disorder:
-        raise RuntimeError("Members out of the order AGENTS.md describes:\n" + "\n".join(disorder))
+        raise RuntimeError("Members must follow the documented order:\n" + "\n".join(disorder))
 
 
 def check_constant_publicity(*roots: Path) -> None:
@@ -104,7 +104,7 @@ def check_layering(package: Path, tests: Path) -> None:
         if module.startswith("jri.tui")
     ]
     if crossings:
-        raise RuntimeError("Packages reaching past the boundaries AGENTS.md draws:\n" + "\n".join(crossings))
+        raise RuntimeError("Packages must reach only for the ones below them:\n" + "\n".join(crossings))
 
 
 def check_import_depth(*roots: Path) -> None:

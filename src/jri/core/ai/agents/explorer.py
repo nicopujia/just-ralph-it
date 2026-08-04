@@ -6,6 +6,8 @@ import os
 import platform
 import signal
 import subprocess
+from collections.abc import Generator
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryFile
 
@@ -13,6 +15,7 @@ import httpx
 from markdownify import MarkdownConverter
 from openai.types.responses import ResponseFunctionCallOutputItemListParam
 
+from jri.core import ai
 from jri.core.settings import Settings, read_api_key
 from jri.lib import brave, youtube
 
@@ -55,6 +58,22 @@ class Explorer(Agent):
                     - State any ambiguity explicitly when the information you need is missing.
             """,
         )
+
+    # Only the last uninterrupted stretch of text is the report: a tool
+    # call means the run was still gathering, so whatever it had said
+    # before that is working-out rather than conclusion.
+    def report(self, query: str, depth: int = 0) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished", None, str]:
+        output: list[str] = []
+        for event in self.send_message(query):
+            match event:
+                case ai.ToolCallStarted():
+                    output.clear()
+                    yield replace(event, depth=depth)
+                case ai.ToolCallFinished():
+                    yield replace(event, depth=depth)
+                case ai.TextDelta():
+                    output.append(event.text)
+        return "".join(output)
 
     @tool(
         "Explore the web with a search engine.",
@@ -170,15 +189,15 @@ class Explorer(Agent):
 
     @tool(
         f"Run a shell command on this machine (OS: {platform.system()}).",
-        started_label="Running {cmd}",
-        finished_label="Ran {cmd}",
+        started_label="Running {command}",
+        finished_label="Ran {command}",
         symbol="💻",
     )
-    def run_shell(self, cmd: str) -> str:
-        logger.debug("shell_command command=%r", cmd)
+    def run_shell(self, command: str) -> str:
+        logger.debug("shell_command command=%r", command)
         with TemporaryFile("w+", encoding="utf-8", errors="replace") as output_file:
             process = subprocess.Popen(
-                ["/bin/sh", "-lc", cmd],
+                ["/bin/sh", "-lc", command],
                 cwd=self.settings.cwd,
                 stdout=output_file,
                 stderr=subprocess.STDOUT,
@@ -191,7 +210,7 @@ class Explorer(Agent):
                 process.wait()
                 output_file.seek(0)
                 output = output_file.read(Invocation.MAX_OUTPUT_LENGTH)
-                logger.exception("shell_timed_out command=%r output=%r", cmd, output)
+                logger.exception("shell_timed_out command=%r output=%r", command, output)
                 raise RuntimeError(f"Command timed out after 30 seconds:\n{output}".rstrip()) from None
             output_file.seek(0)
             output = output_file.read(Invocation.MAX_OUTPUT_LENGTH)

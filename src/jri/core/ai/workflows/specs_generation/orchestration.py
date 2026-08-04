@@ -15,7 +15,7 @@ type SpecsResult = functional_analyst.Ambiguities | str
 logger = logging.getLogger(__name__)
 
 
-class SpecsGen:
+class SpecsGeneration:
     MAX_CYCLES = 10
 
     def __init__(self, settings: Settings) -> None:
@@ -69,16 +69,15 @@ class SpecsGen:
                 if explorer_report is None:
                     yield ai.ToolCallStarted("explorer", "Studying your existing project", "🔎")
                     explorer = ai.Explorer(self.settings.model_copy(update={"cwd": staging.path}))
-                    output: list[str] = []
-                    for event in explorer.send_message(
-                        "Study this repository generally. Report its structure, architecture, established patterns, "
-                        "development commands, and the constraints that new work in it must respect."
-                    ):
-                        if isinstance(event, ai.ToolCallStarted):
-                            output.clear()
-                        elif isinstance(event, ai.TextDelta):
-                            output.append(event.text)
-                    explorer_report = "".join(output).strip()
+                    # Nested under the row above, so closing that row
+                    # clears the rows the run left behind.
+                    explorer_report = (
+                        yield from explorer.report(
+                            "Study this repository generally. Report its structure, architecture, established "
+                            "patterns, development commands, and the constraints that new work in it must respect.",
+                            depth=1,
+                        )
+                    ).strip()
                     if not explorer_report:
                         raise SpecsError("Repository exploration produced no report.")
                     yield ai.ToolCallFinished("explorer", "Studied your existing project")

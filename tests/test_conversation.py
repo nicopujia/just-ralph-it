@@ -14,7 +14,7 @@ from jri.core.workspace import Workspace
 from tests.conftest import CreateRepository
 from tests.doubles.openai import FakeClient, call, failure, partial_reply, reply, response
 from tests.doubles.settings import build_settings
-from tests.doubles.specs_gen import InterruptibleSpecsGen
+from tests.doubles.specs_generation import InterruptibleSpecsGeneration
 
 
 def build_conversation(path: Path, client: FakeClient) -> Conversation:
@@ -139,7 +139,7 @@ def test_restores_ralph_readiness_after_an_interrupted_run(tmp_path: Path, monke
         FakeClient([response(call("ready", "just_ralph_it", show=True)), response(reply("Click Just Ralph It."))]),
     )
     list(conversation.chat("We're ready."))
-    monkeypatch.setattr("jri.core.conversation.SpecsGen", InterruptibleSpecsGen)
+    monkeypatch.setattr("jri.core.conversation.SpecsGeneration", InterruptibleSpecsGeneration)
 
     events = conversation.ralph()
     next(events)

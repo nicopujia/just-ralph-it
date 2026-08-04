@@ -21,7 +21,7 @@ from jri.lib import appearance
 from jri.lib.providers import codex
 
 from . import copy, styles
-from .states import InterviewerTurnState
+from .interviewer_turn import InterviewerTurnState
 from .widgets import MessageInput, MessagesContainer, ToolCallRow
 
 logger = logging.getLogger(__name__)
@@ -515,11 +515,11 @@ class App(TextualApp[None]):
     def _build_retry_button() -> Button:
         return Button(copy.RETRY, classes=styles.RETRY_BUTTON_CLASSES, compact=True)
 
-    def _call_from_thread(self, callback: Callable[..., Any], *args: object) -> None:
+    def _call_from_thread(self, callback: Callable[..., Any], *arguments: object) -> None:
         if not self.is_running:
             return
         try:
-            self.call_from_thread(callback, *args)
+            self.call_from_thread(callback, *arguments)
         except RuntimeError:
             if self.is_running:
                 raise

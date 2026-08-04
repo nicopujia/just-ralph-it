@@ -167,10 +167,8 @@ class Repository:
     def stage(self, paths: Sequence[str]) -> None:
         self._run("add", "--", *paths)
 
-    def commit(self, message: str, co_author: str) -> str:
-        # The co-author is required so every commit records who wrote
-        # it alongside the person Git credits as the author.
-        body = f"{message}\n\nCo-authored-by: {co_author}\n"
+    def commit(self, message: str, co_author: str | None = None) -> str:
+        body = f"{message}\n" if co_author is None else f"{message}\n\nCo-authored-by: {co_author}\n"
         self._run("commit", "--file=-", stdin=body.encode())
         return self.read_head()
 

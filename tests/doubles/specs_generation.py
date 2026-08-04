@@ -5,7 +5,7 @@ if TYPE_CHECKING:
     from jri.core.settings import Settings
 
 
-class InterruptibleSpecsGen:
+class InterruptibleSpecsGeneration:
     def __init__(self, _settings: "Settings") -> None:
         pass
 

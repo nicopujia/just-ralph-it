@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING, Any, Literal, cast, override
 
 from openai.types.responses import ResponseInputParam
 
-from jri.core import ai
 from jri.core.notes import Connection, Notebook, NoteId, ReadQuery, TopicId
 from jri.core.settings import Settings
 from jri.lib.models import estimate_tokens, get_context_limit
@@ -95,7 +94,7 @@ class Interviewer(Agent):
                     read without the user present to clarify them.
                     - Your output is the notes. Ralph builds from them, once the project is properly defined.
             """,
-            initial_ctx=[{"role": "assistant", "content": self.FIRST_MESSAGE}],
+            initial_context=[{"role": "assistant", "content": self.FIRST_MESSAGE}],
         )
 
     @override
@@ -144,18 +143,8 @@ class Interviewer(Agent):
         read_only=True,
     )
     def explore(self, query: str) -> Stream:
-        explorer = Explorer(self.settings)
-        latest_output: list[str] = []
-        for event in explorer.send_message(query):
-            match event:
-                case ai.ToolCallStarted():
-                    latest_output.clear()
-                    yield event
-                case ai.ToolCallFinished():
-                    yield event
-                case ai.TextDelta():
-                    latest_output.append(event.text)
-        yield ToolOutput("".join(latest_output))
+        report = yield from Explorer(self.settings).report(query)
+        yield ToolOutput(report)
 
     @tool(
         "Turn to a project topic by its name or ID, creating it when it does not exist.",

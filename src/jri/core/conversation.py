@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from jri.lib import files
 
 from . import paths
-from .ai import DEFAULT_SYMBOL, ChatEvent, Interviewer, SpecsGen, Tool
+from .ai import DEFAULT_SYMBOL, ChatEvent, Interviewer, SpecsGeneration, Tool
 from .exceptions import PersistenceError
 from .notes import Graph, Notebook, TopicId
 from .settings import Settings
@@ -66,6 +66,13 @@ class Turn(NamedTuple):
     items: list[InterviewItem]
 
 
+class Checkpoint(NamedTuple):
+    history_length: int
+    graph: Graph
+    active_topic_id: TopicId
+    ready_to_ralph: bool
+
+
 class Session(BaseModel):
     active_topic_id: TopicId
     initial_graph: Graph
@@ -84,6 +91,7 @@ class Conversation:
     def __init__(self, settings: Settings) -> None:
         self.notebook_file = settings.cwd / paths.NOTEBOOK_FILE
         self.session_file = settings.cwd / paths.SESSION_FILE
+        self.visualization_file = settings.cwd / paths.VISUALIZATION_FILE
 
         self.session_lock = Lock()
         self.settings = settings
@@ -107,21 +115,11 @@ class Conversation:
     def chat(self, message: str, cancelled: Event | None = None) -> Generator[ChatEvent]:
         self.logger.info("chat_started")
         self.logger.debug("chat_message message=%r", message)
-        checkpoint = (
-            len(self.interviewer.history),
-            self.notebook.graph.model_copy(deep=True),
-            self.interviewer.active_topic_id,
-            self.session.ready_to_ralph,
-        )
+        checkpoint = self._capture_checkpoint(len(self.interviewer.history))
         yield from self._respond(message, checkpoint, cancelled)
 
     def retry(self, cancelled: Event | None = None) -> Generator[ChatEvent]:
-        checkpoint = (
-            len(self.interviewer.history) - 1,
-            self.notebook.graph.model_copy(deep=True),
-            self.interviewer.active_topic_id,
-            self.session.ready_to_ralph,
-        )
+        checkpoint = self._capture_checkpoint(len(self.interviewer.history) - 1)
         message = cast("dict[str, str]", self.interviewer.history.pop())["content"]
         yield from self._respond(message, checkpoint, cancelled)
 
@@ -150,7 +148,7 @@ class Conversation:
     def ralph(self) -> Generator[ChatEvent]:
         self.update_session(ready_to_ralph=False)
         try:
-            result = yield from SpecsGen(self.settings).generate(self.session.active_spec_commit)
+            result = yield from SpecsGeneration(self.settings).generate(self.session.active_spec_commit)
         except BaseException:
             self.update_session(ready_to_ralph=True)
             raise
@@ -212,17 +210,23 @@ class Conversation:
             self.session = session
         self.logger.info("session_updated fields=%r interview_items=%d", list(values), len(self.session.interview))
 
-    def _respond(
-        self, message: str, checkpoint: tuple[int, Graph, str, bool], cancelled: Event | None
-    ) -> Generator[ChatEvent]:
+    def _capture_checkpoint(self, history_length: int) -> Checkpoint:
+        return Checkpoint(
+            history_length,
+            self.notebook.graph.model_copy(deep=True),
+            self.interviewer.active_topic_id,
+            self.session.ready_to_ralph,
+        )
+
+    def _respond(self, message: str, checkpoint: Checkpoint, cancelled: Event | None) -> Generator[ChatEvent]:
         try:
             yield from self.interviewer.send_message(message, cancelled)
             self._save_turn(stopped=cancelled is not None and cancelled.is_set())
         except Exception:
-            self.interviewer.history = self.interviewer.history[: checkpoint[0]]
-            self.notebook.restore(checkpoint[1])
-            self.interviewer.active_topic_id = checkpoint[2]
-            self.session = self.session.model_copy(update={"ready_to_ralph": checkpoint[3]})
+            self.interviewer.history = self.interviewer.history[: checkpoint.history_length]
+            self.notebook.restore(checkpoint.graph)
+            self.interviewer.active_topic_id = checkpoint.active_topic_id
+            self.session = self.session.model_copy(update={"ready_to_ralph": checkpoint.ready_to_ralph})
             self.interviewer.history.append({"role": "user", "content": message})
             self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
             self.logger.exception("chat_rolled_back")

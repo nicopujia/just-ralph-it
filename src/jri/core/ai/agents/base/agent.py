@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 class Agent:
     MAX_ROUNDS: ClassVar[int] = 50
 
-    initial_ctx: InitVar[ResponseInputParam | None] = None
+    initial_context: InitVar[ResponseInputParam | None] = None
 
     client: OpenAI
     model: str
@@ -37,7 +37,7 @@ class Agent:
     runner: "ai.LLMRunner" = field(init=False)
     failed_call_ids: list[str] = field(init=False, default_factory=list)
 
-    def __post_init__(self, initial_ctx: ResponseInputParam | None) -> None:
+    def __post_init__(self, initial_context: ResponseInputParam | None) -> None:
         self.tools = Tool.discover(self)
         self.runner = ai.LLMRunner(
             client=self.client,
@@ -48,7 +48,7 @@ class Agent:
             max_input_size=self.max_input_size,
         )
         self.prompt = self.runner.prompt
-        self.history = list(initial_ctx or [])
+        self.history = list(initial_context or [])
         self.history.insert(0, {"role": "system", "content": self.prompt})
 
     def get_context(self) -> ResponseInputParam:

@@ -34,15 +34,15 @@ def main() -> None:
     for name, description in (("chat", copy.CLI_CHAT_HELP), ("view", copy.CLI_VIEW_HELP)):
         subparsers.add_parser(name, help=description, description=description)
 
-    args = parser.parse_args()
-    if args.command is None:
+    arguments = parser.parse_args()
+    if arguments.command is None:
         parser.print_help()
         return
 
-    handlers = {"init": lambda: _initialize(force=args.force, yes=args.yes), "chat": _chat, "view": _view}
+    handlers = {"init": lambda: _initialize(force=arguments.force, yes=arguments.yes), "chat": _chat, "view": _view}
 
     try:
-        handlers[args.command]()
+        handlers[arguments.command]()
     except codex.AuthError as error:
         print(copy.AUTH_ERROR.format(error=error))
         raise SystemExit(1) from error
@@ -88,10 +88,9 @@ def _view() -> None:
     settings = _load_settings()
     logs.configure(settings)
     conversation = Conversation(settings)
-    visualization_file = settings.cwd / paths.VISUALIZATION_FILE
-    visualization_file.write_text(visualization.render(conversation.notebook.graph), encoding="utf-8")
-    print(visualization_file)
-    webbrowser.open(visualization_file.resolve().as_uri())
+    conversation.visualization_file.write_text(visualization.render(conversation.notebook.graph), encoding="utf-8")
+    print(conversation.visualization_file)
+    webbrowser.open(conversation.visualization_file.resolve().as_uri())
 
 
 def _load_settings() -> Settings:

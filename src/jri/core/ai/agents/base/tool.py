@@ -109,7 +109,7 @@ class Tool:
     strict: bool
     read_only: bool
     func: Callable[..., str | ResponseFunctionCallOutputItemListParam | Stream]
-    args_model: type[BaseModel]
+    arguments_model: type[BaseModel]
 
     @classmethod
     def discover(cls, owner: object) -> list[Self]:
@@ -121,13 +121,13 @@ class Tool:
                 continue
             annotations = get_type_hints(wrapped, include_extras=True)
             fields = {
-                param.name: (
-                    annotations.get(param.name, str),
-                    ... if param.default is inspect.Parameter.empty else param.default,
+                parameter.name: (
+                    annotations.get(parameter.name, str),
+                    ... if parameter.default is inspect.Parameter.empty else parameter.default,
                 )
-                for param in inspect.signature(func).parameters.values()
+                for parameter in inspect.signature(func).parameters.values()
             }
-            args_model = create_model(
+            arguments_model = create_model(
                 f"{func.__name__.title()}Args",
                 __config__=ConfigDict(extra="forbid"),
                 **fields,  # pyright: ignore[reportCallIssue, reportArgumentType]
@@ -142,14 +142,14 @@ class Tool:
                     strict=metadata.strict,
                     read_only=metadata.read_only,
                     func=func,
-                    args_model=args_model,
+                    arguments_model=arguments_model,
                 )
             )
         return tools
 
-    def format_label(self, label: str, args: str) -> str:
+    def format_label(self, label: str, arguments: str) -> str:
         try:
-            payload = self.args_model.model_validate_json(args, strict=True)
+            payload = self.arguments_model.model_validate_json(arguments, strict=True)
         except ValidationError:
             return self.name
         return label.format(**payload.model_dump())
@@ -157,10 +157,12 @@ class Tool:
     @property
     def definition(self) -> FunctionToolParam:
         if self.strict:
-            function = pydantic_function_tool(self.args_model, name=self.name, description=self.description)["function"]
+            function = pydantic_function_tool(self.arguments_model, name=self.name, description=self.description)[
+                "function"
+            ]
             parameters = cast("dict[str, object]", function.get("parameters"))
         else:
-            parameters = self.args_model.model_json_schema()
+            parameters = self.arguments_model.model_json_schema()
         return {
             "type": "function",
             "name": self.name,
@@ -169,13 +171,13 @@ class Tool:
             "strict": self.strict,
         }
 
-    def invoke(self, args: str) -> Invocation:
+    def invoke(self, arguments: str) -> Invocation:
         logger.info("invocation_started name=%s", self.name)
-        logger.debug("arguments name=%s arguments=%r", self.name, args)
+        logger.debug("arguments name=%s arguments=%r", self.name, arguments)
         failed = False
         try:
-            payload = self.args_model.model_validate_json(args, strict=True)
-            output = self.func(**{name: getattr(payload, name) for name in self.args_model.model_fields})
+            payload = self.arguments_model.model_validate_json(arguments, strict=True)
+            output = self.func(**{name: getattr(payload, name) for name in self.arguments_model.model_fields})
         except ValidationError as error:
             logger.exception("validation_failed name=%s", self.name)
             first = error.errors(include_url=False)[0]

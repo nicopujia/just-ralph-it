@@ -107,6 +107,18 @@ def test_commits_staged_paths_with_a_co_author(
     )
 
 
+def test_commits_staged_paths_without_a_co_author(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "README.md").write_text("second\n")
+    repository.stage(["README.md"])
+
+    commit = repository.commit("jri: test")
+
+    assert run_git(repository.path, "show", "-s", "--format=%B", commit) == "jri: test"
+
+
 def test_reports_which_revision_descends_from_which(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     first = repository.read_head()
