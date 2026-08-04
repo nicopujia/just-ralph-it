@@ -7,7 +7,7 @@ from textual.message import Message
 from textual.reactive import Reactive
 from textual.widgets import TextArea
 
-from jri.tui import constants as c
+from jri.tui import copy
 
 if TYPE_CHECKING:
     from textual.timer import Timer
@@ -18,24 +18,17 @@ class MessageInput(TextArea):
     BINDINGS = (
         Binding("enter", "submit", "Send message", show=False, priority=True),
         Binding("shift+enter,ctrl+j", "insert_newline", "Insert newline", show=False, priority=True),
-        Binding("ctrl+x", "message_history", c.MESSAGE_HISTORY_COPY, priority=True),
-        Binding("u", "previous_message", c.UNDO_MESSAGE_COPY, key_display=c.UNDO_MESSAGE_KEY_COPY, priority=True),
-        Binding("r", "next_message", c.REDO_MESSAGE_COPY, key_display=c.REDO_MESSAGE_KEY_COPY, priority=True),
-        Binding("t", "retry_message", c.RETRY_COPY, key_display=c.RETRY_KEY_COPY, priority=True),
-        Binding("j", "ralph", c.RALPH_BUTTON_COPY, key_display=c.RALPH_KEY_COPY, priority=True),
+        Binding("ctrl+x", "message_history", copy.MESSAGE_HISTORY, priority=True),
+        Binding("u", "previous_message", copy.UNDO_MESSAGE, key_display=copy.UNDO_MESSAGE_KEY, priority=True),
+        Binding("r", "next_message", copy.REDO_MESSAGE, key_display=copy.REDO_MESSAGE_KEY, priority=True),
+        Binding("t", "retry_message", copy.RETRY, key_display=copy.RETRY_KEY, priority=True),
+        Binding("j", "ralph", copy.RALPH_BUTTON, key_display=copy.RALPH_KEY, priority=True),
         Binding("ctrl+shift+z", "redo", "Redo", show=False),
     )
     is_ralph_ready: Reactive[bool] = Reactive(default=False, bindings=True)
     is_retry_ready: Reactive[bool] = Reactive(default=False, bindings=True)
     is_turn_active: Reactive[bool] = Reactive(default=False, bindings=True)
     _is_chord_open: Reactive[bool] = Reactive(default=False, bindings=True)
-
-    def __init__(self, messages: Iterable[str] = (), *, id_: str | None = None, placeholder: str = "") -> None:
-        super().__init__(id=id_, placeholder=placeholder)
-        self._messages = list(messages)
-        self._message_index = len(self._messages)
-        self._draft = ""
-        self._chord_timer: Timer | None = None
 
     @dataclass
     class Submitted(Message):
@@ -58,6 +51,13 @@ class MessageInput(TextArea):
 
     class RalphRequested(Message):
         pass
+
+    def __init__(self, messages: Iterable[str] = (), *, id_: str | None = None, placeholder: str = "") -> None:
+        super().__init__(id=id_, placeholder=placeholder)
+        self._messages = list(messages)
+        self._message_index = len(self._messages)
+        self._draft = ""
+        self._chord_timer: Timer | None = None
 
     def action_insert_newline(self) -> None:
         self.insert("\n")

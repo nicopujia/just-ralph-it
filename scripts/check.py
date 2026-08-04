@@ -9,8 +9,18 @@ import tomllib
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
-MODULE_GROUPS = ("dunder", "type", "constant", "variable", "function", "class", "private function", "private class")
-CLASS_GROUPS = ("constant", "magic method", "nested type", "method", "private method")
+MODULE_GROUPS = (
+    "dunder",
+    "type",
+    "constant",
+    "variable",
+    "private variable",
+    "function",
+    "class",
+    "private function",
+    "private class",
+)
+CLASS_GROUPS = ("constant", "nested type", "magic method", "method", "private method")
 
 
 def main() -> None:
@@ -87,13 +97,15 @@ def _rank_module(node: ast.stmt) -> int | None:
         case ast.Assign(targets=[ast.Name(id=name)]) | ast.AnnAssign(target=ast.Name(id=name)):
             if name.startswith("__") and name.endswith("__"):
                 return 0
-            return 2 if name.isupper() else 3
+            if name.isupper():
+                return 2
+            return 4 if name.startswith("_") else 3
         case ast.TypeAlias():
             return 1
         case ast.FunctionDef(name=name) | ast.AsyncFunctionDef(name=name):
-            return 6 if name.startswith("_") else 4
-        case ast.ClassDef(name=name):
             return 7 if name.startswith("_") else 5
+        case ast.ClassDef(name=name):
+            return 8 if name.startswith("_") else 6
         case _:
             return None
 
@@ -110,10 +122,10 @@ def _rank_class(node: ast.stmt) -> int | None:
             return 0
         case ast.FunctionDef(name=name) | ast.AsyncFunctionDef(name=name):
             if name.startswith("__") and name.endswith("__"):
-                return 1
+                return 2
             return 4 if name.startswith("_") else 3
         case ast.ClassDef() | ast.TypeAlias():
-            return 2
+            return 1
         case _:
             return None
 
