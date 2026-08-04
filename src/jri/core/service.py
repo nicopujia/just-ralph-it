@@ -12,7 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jri.lib import git
 
-from . import paths, visualization
+from . import paths
 from .ai import DEFAULT_SYMBOL, ChatEvent, Interviewer, SpecsGen
 from .exceptions import PersistenceError
 from .notes import Graph, Notebook, TopicId
@@ -281,17 +281,6 @@ class Service:
         self.interviewer.failed_call_ids = list(self.session.failed_call_ids)
         self.logger.info("restored interview_items=%d", len(self.session.interview))
         return turns, self.session.show_thinking_blocks
-
-    def visualize(self) -> Path:
-        """Write the note graph as a diagram document.
-
-        Returns:
-            The path the visualization was written to.
-        """
-
-        self.visualization_file.write_text(visualization.render(self.notebook.graph), encoding="utf-8")
-        self.logger.info("visualized path=%r", self.visualization_file)
-        return self.visualization_file
 
     def update_session(self, **values: object) -> None:
         """Persist trusted values in the current session.

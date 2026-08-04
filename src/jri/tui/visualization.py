@@ -2,7 +2,7 @@
 
 import html
 
-from .notes import Graph
+from jri.core.notes import Graph
 
 __all__ = ["render"]
 

@@ -17,7 +17,7 @@ from jri.core.settings import Settings
 from jri.lib import git
 from jri.lib.providers import codex
 
-from . import copy
+from . import copy, visualization
 from .app import App
 
 logger = logging.getLogger(__name__)
@@ -112,9 +112,10 @@ def _chat(settings: Settings) -> None:
 
 
 def _view(settings: Settings) -> None:
-    path = Service(settings).visualize()
-    print(path)
-    webbrowser.open(path.resolve().as_uri())
+    service = Service(settings)
+    service.visualization_file.write_text(visualization.render(service.notebook.graph), encoding="utf-8")
+    print(service.visualization_file)
+    webbrowser.open(service.visualization_file.resolve().as_uri())
 
 
 def _confirm_reset(project_dir: Path) -> bool:
