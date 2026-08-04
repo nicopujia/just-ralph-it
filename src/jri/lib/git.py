@@ -65,7 +65,10 @@ class Repository:
         if resolved_executable is None:
             raise NotInstalledError(f"Git executable not found: {executable}")
         candidate = Path(path).resolve()
-        candidate.mkdir(parents=True, exist_ok=True)
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise NotRepositoryError(f"Cannot initialize Git: {candidate}") from error
         result = subprocess.run(
             [resolved_executable, "-C", str(candidate), "init", "--quiet"], check=False, capture_output=True
         )

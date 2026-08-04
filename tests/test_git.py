@@ -261,9 +261,6 @@ def test_rejects_initializing_without_a_git_executable(tmp_path: Path) -> None:
     assert not (tmp_path / "project").exists()
 
 
-@pytest.mark.xfail(
-    strict=True, reason="Repository.init leaks FileExistsError instead of a git.Error when the path is a regular file"
-)
 def test_rejects_initializing_a_repository_over_a_file(tmp_path: Path) -> None:
     target = tmp_path / "project"
     target.write_text("not a directory\n")
