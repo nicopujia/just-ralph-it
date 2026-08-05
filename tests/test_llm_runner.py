@@ -68,6 +68,12 @@ def test_streams_the_reasoning_of_the_model(event_type: str) -> None:
     assert list(runner.respond([]).events) == [ReasoningDelta("weighing the options")]
 
 
+def test_streams_a_reply_the_provider_sent_whole() -> None:
+    runner = build_streaming_runner(response(reply("How often does it deploy?")))
+
+    assert list(runner.respond([]).events) == [TextDelta("How often does it deploy?")]
+
+
 def test_reports_a_response_without_any_output() -> None:
     runner = build_runner(response())
 

@@ -158,6 +158,7 @@ class LLMRunner:
     def _decode(
         stream: Iterable[ResponseStreamEvent], outputs_by_index: dict[int, dict[str, Any]]
     ) -> Generator[AgentEvent]:
+        streamed_indexes: set[int] = set()
         for event in stream:
             match event.type:
                 case (
@@ -167,9 +168,21 @@ class LLMRunner:
                 ):
                     yield ReasoningDelta(event.delta)
                 case "response.output_text.delta":
+                    streamed_indexes.add(event.output_index)
                     yield TextDelta(event.delta)
                 case "response.output_item.done":
-                    outputs_by_index[event.output_index] = cast("dict[str, Any]", event.item.to_dict())
+                    item = cast("dict[str, Any]", event.item.to_dict())
+                    outputs_by_index[event.output_index] = item
+                    # A turn is written down from what the stream says,
+                    # and only the provider decides whether a message
+                    # arrives in pieces or whole: a message no delta
+                    # announced says itself here, rather than leaving
+                    # the user a turn that reads as empty beside a
+                    # model context that holds the reply.
+                    if item.get("type") == "message" and event.output_index not in streamed_indexes:
+                        parts = cast("list[dict[str, Any]]", item.get("content", []))
+                        if text := "".join(part["text"] for part in parts if part.get("type") == "output_text"):
+                            yield TextDelta(text)
                 case "response.completed":
                     if usage := event.response.usage:
                         logger.info("context_usage input_tokens=%d", usage.input_tokens)

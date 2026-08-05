@@ -198,6 +198,16 @@ def test_restores_the_reasoning_a_turn_streamed() -> None:
     ]
 
 
+def test_records_a_reply_the_provider_sent_whole() -> None:
+    conversation = build_conversation(FakeClient([response(reply("How often does it deploy?"))]))
+
+    list(conversation.chat("It deploys automatically."))
+
+    turn = conversation.session.transcript[-1]
+    assert [(item.type, item.text) for item in turn.items] == [("assistant", "How often does it deploy?")]
+    assert turn.ending == "replied"
+
+
 def test_restores_an_interview_under_the_prompt_of_the_running_process() -> None:
     conversation = build_conversation(FakeClient([streamed_reply("How often does it deploy?")]))
     list(conversation.chat("It deploys automatically."))

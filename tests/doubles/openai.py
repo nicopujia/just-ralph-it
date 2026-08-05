@@ -21,11 +21,11 @@ def response(*outputs: dict[str, Any]) -> Round:
 
 
 def streamed_reply(text: str) -> Round:
-    return [SimpleNamespace(type="response.output_text.delta", delta=text), *response(reply(text))]
+    return [_delta(text), *response(reply(text))]
 
 
 def partial_reply(text: str) -> Round:
-    return [SimpleNamespace(type="response.output_text.delta", delta=text)]
+    return [_delta(text)]
 
 
 def reasoning(text: str, event_type: str) -> Round:
@@ -33,7 +33,7 @@ def reasoning(text: str, event_type: str) -> Round:
 
 
 def interrupted_reply(text: str) -> Round:
-    yield SimpleNamespace(type="response.output_text.delta", delta=text)
+    yield _delta(text)
     raise rate_limited()
 
 
@@ -76,6 +76,10 @@ def reply(text: str) -> dict[str, Any]:
 class FakeClient:
     def __init__(self, rounds: Iterable[Round | OpenAIError], *, parsed: Iterable[object] = ()) -> None:
         self.responses = _Responses(rounds, parsed)
+
+
+def _delta(text: str) -> SimpleNamespace:
+    return SimpleNamespace(type="response.output_text.delta", output_index=0, delta=text)
 
 
 class _Responses:
