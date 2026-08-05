@@ -64,7 +64,7 @@ class Explorer(Agent):
         # and then refused: `respond` rebuilds the definitions it offers
         # from `tools` on every call.
         if not settings.brave_search.api_key:
-            self.tools = [tool for tool in self.tools if tool.name != "search_web"]
+            self.tools = [capability for capability in self.tools if capability.name != "search_web"]
 
     # Only the last uninterrupted stretch of text is the report: a tool
     # call means the run was still gathering, so whatever it had said
