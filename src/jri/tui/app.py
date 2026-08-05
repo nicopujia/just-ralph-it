@@ -441,12 +441,14 @@ class App(TextualApp[None]):
         turn_state.tool_rows[event.call_id] = row
         await turn_state.container.mount(row)
 
+    # The affordance sits under the failure it answers, so a turn that
+    # failed again offers it below what it has just written rather than
+    # where the failure before it left one.
     async def _show_retry_button(self, turn_state: InterviewerTurnState) -> None:
-        if turn_state.retry_button is None:
-            turn_state.retry_button = self._build_retry_button()
-            await turn_state.container.mount(turn_state.retry_button)
-        turn_state.retry_button.display = True
-        turn_state.retry_button.disabled = False
+        if turn_state.retry_button is not None:
+            await turn_state.retry_button.remove()
+        turn_state.retry_button = self._build_retry_button()
+        await turn_state.container.mount(turn_state.retry_button)
 
     # --- Helpers ---------------------------------------------------- #
 
@@ -544,12 +546,22 @@ class App(TextualApp[None]):
     async def _retry(self, button: Button) -> None:
         container = cast("Vertical", button.parent)
         self.ralph_button.display = False
-        for child in list(container.children):
-            if child is not button:
-                await child.remove()
+        # A run reports into a turn the interview already wrote in, so
+        # asking for it again clears nothing: what the turn said before
+        # the run stays, exactly as it does when a second run is
+        # started from the button that starts the first.
+        is_ralphing = self.conversation.retried_work == "generation"
+        if is_ralphing:
+            self._show_ralphing()
+        else:
+            for child in list(container.children):
+                if child is not button:
+                    await child.remove()
         placeholder = Markdown(copy.INTERVIEWER_THINKING, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
         await container.mount(placeholder, before=button)
-        turn_state = InterviewerTurnState(container=container, placeholder=placeholder, retry_button=button)
+        turn_state = InterviewerTurnState(
+            container=container, placeholder=placeholder, retry_button=button, is_ralphing=is_ralphing
+        )
         self.active_turn_state = turn_state
         button.disabled = True
         self.last_escape_at = 0.0
@@ -557,13 +569,16 @@ class App(TextualApp[None]):
         self.messages_container.anchor()
         self._run_turn(self.conversation.retry(turn_state.cancelled), turn_state)
 
+    def _show_ralphing(self) -> None:
+        self.message_input.disabled = True
+        self.message_input.display = False
+        self.ralphing.display = True
+
     def _start_ralphing(self) -> None:
         if self.is_busy or not self.mounted_turns:
             return
         self.ralph_button.display = False
-        self.message_input.disabled = True
-        self.message_input.display = False
-        self.ralphing.display = True
+        self._show_ralphing()
         turn_state = InterviewerTurnState(container=self.mounted_turns[-1][1], placeholder=None, is_ralphing=True)
         self.active_turn_state = turn_state
         App.ALLOW_SELECT = False

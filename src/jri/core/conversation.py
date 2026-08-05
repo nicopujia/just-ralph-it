@@ -31,6 +31,9 @@ from .workspace import Workspace
 if TYPE_CHECKING:
     from openai.types.responses import ResponseInputItemParam
 
+# What a turn was last doing, and so what asking for it again re-runs.
+type Work = Literal["message", "generation", "reply"]
+
 
 class InterviewItem(BaseModel):
     type: Literal["assistant", "reasoning", "tool"]
@@ -47,6 +50,7 @@ class Turn(BaseModel):
     items: list[InterviewItem]
     ending: Ending = "replied"
     detail: str = ""
+    work: Work = "message"
 
     model_config = ConfigDict(extra="forbid")
 
@@ -102,6 +106,12 @@ class Conversation:
             update={"next_note_id": offer.next_note_id}
         )
 
+    # What `retry` would re-run, so the view showing the affordance and
+    # the conversation answering it read the same turn.
+    @property
+    def retried_work(self) -> Work:
+        return self.session.transcript[-1].work
+
     def chat(self, message: str, cancelled: Event | None = None) -> Generator[TurnEvent]:
         self.logger.info("chat_started")
         self.logger.debug("chat_message message=%r", message)
@@ -110,6 +120,13 @@ class Conversation:
         yield from self._report_turn(self.interviewer.send_message(message, cancelled), checkpoint, cancelled)
 
     def retry(self, cancelled: Event | None = None) -> Generator[TurnEvent]:
+        # A run that failed reported nothing to the interview and asked
+        # it for nothing, so there is no message to send again: the work
+        # to redo is the run, exactly as the button that starts one
+        # would redo it.
+        if self.retried_work == "generation":
+            yield from self.ralph(cancelled)
+            return
         # A generation report opens a turn exactly as a prompt does, so
         # the turn is sent again from whichever opened it. Truncating to
         # the last prompt would drop the report out of the history and
@@ -121,7 +138,7 @@ class Conversation:
         )
         item = cast("dict[str, Any]", self.interviewer.history[opening])
         checkpoint = self._capture_checkpoint(opening)
-        if item["role"] == "system":
+        if self.retried_work == "reply":
             self.interviewer.history = self.interviewer.history[: opening + 1]
             events = self.interviewer.respond(cancelled)
         else:
@@ -170,6 +187,7 @@ class Conversation:
         # A run started before any message opens a turn of its own.
         if not self.session.transcript:
             self.session.transcript.append(Turn(message="", items=[]))
+        self.session.transcript[-1].work = "generation"
         yield from self._report_turn(self._generate_specs(cancelled), checkpoint, cancelled)
 
     def restore(self) -> list[Turn]:
@@ -242,6 +260,10 @@ class Conversation:
             workflow_result = prompt.render(specification_generation_ambiguities=result.ambiguities)
         report: ResponseInputItemParam = {"role": "system", "content": workflow_result}
         self.interviewer.history.append(report)
+        # Past the report the run is spent, whatever the reply to it
+        # does: what asking again re-runs from here is that reply, and
+        # never the run the project already holds the commit of.
+        self.session.transcript[-1].work = "reply"
         # A run that reached a report consumed the notes it was offered,
         # whatever it concluded about them; one that never got there
         # leaves the offer standing for the user to spend again.

@@ -18,6 +18,11 @@ def generate_blocked(_settings: "Settings", _cancelled: Event | None = None) -> 
     raise RepositoryStateError("Your project has uncommitted changes.")
 
 
+def generate_failing(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
+    yield STARTED_ROW
+    raise RuntimeError("The architect could not be reached.")
+
+
 def generate_interrupted(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
     yield object()
 

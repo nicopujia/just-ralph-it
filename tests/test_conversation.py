@@ -26,8 +26,10 @@ from tests.doubles.openai import (
 from tests.doubles.settings import build_settings
 from tests.doubles.specs_generation import (
     COMMIT,
+    FINISHED_ROW,
     STARTED_ROW,
     generate_blocked,
+    generate_failing,
     generate_interrupted,
     generate_stopped,
     generate_succeeding,
@@ -466,6 +468,52 @@ def test_retries_the_reply_a_generation_report_opened(monkeypatch: pytest.Monkey
     reports = [item["content"] for item in conversation.session.interview[1:] if item.get("role") == "system"]
     assert reports == [f"Specification generation succeeded in Git commit {COMMIT}."]
     assert conversation.session.transcript[-1].message == "Build a reporting CLI."
+
+
+def test_runs_a_failed_generation_again_instead_of_the_message_before_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(
+        FakeClient([
+            response(call("ready", "offer_ralphing")),
+            streamed_reply("Click Just Ralph It."),
+            streamed_reply("The specifications are in."),
+        ])
+    )
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_failing)
+    list(conversation.ralph())
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+
+    events = list(conversation.retry())
+
+    assert events[-1] == TurnFinished("replied")
+    reports = [item["content"] for item in conversation.session.interview[1:] if item.get("role") == "system"]
+    assert reports == [f"Specification generation succeeded in Git commit {COMMIT}."]
+    # Sending the prompt again instead would re-run the interview turn
+    # the run reported into, leaving the user to ask for the run a
+    # second time from a reply they had already read.
+    assert [(item.type, item.text) for item in conversation.session.transcript[-1].items] == [
+        ("tool", "Offered Just Ralph It"),
+        ("assistant", "Click Just Ralph It."),
+        ("tool", STARTED_ROW.label),
+        ("tool", FINISHED_ROW.label),
+        ("assistant", "The specifications are in."),
+    ]
+
+
+def test_runs_a_failed_generation_again_after_restart(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(FakeClient([streamed_reply("Click Just Ralph It.")]))
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_failing)
+    list(conversation.ralph())
+
+    restarted = build_conversation(FakeClient([streamed_reply("The specifications are in.")]))
+    restarted.restore()
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+    events = list(restarted.retry())
+
+    assert events[-1] == TurnFinished("replied")
+    reports = [item["content"] for item in restarted.session.interview[1:] if item.get("role") == "system"]
+    assert reports == [f"Specification generation succeeded in Git commit {COMMIT}."]
 
 
 def test_restores_a_cancelled_interview_turn() -> None:
