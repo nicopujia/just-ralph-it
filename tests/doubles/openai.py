@@ -1,5 +1,6 @@
 import json
 from collections.abc import Iterable, Iterator
+from threading import Event
 from types import SimpleNamespace
 from typing import Any, Self, cast
 
@@ -35,6 +36,16 @@ def reasoning(text: str, event_type: str) -> Round:
 def interrupted_reply(text: str) -> Round:
     yield _delta(text)
     raise rate_limited()
+
+
+# A stop pressed while a response is still streaming. Nothing follows
+# the event the stop is read on, so a run that pulls another event is
+# one still waiting for a response it was told to abandon.
+def stopped_stream(cancelled: Event) -> Round:
+    yield _delta("{")
+    cancelled.set()
+    yield _delta('"outcome":')
+    raise AssertionError("A stopped stream must be closed rather than read to its end.")
 
 
 def rate_limited(hint: str | None = None, code: str | None = None) -> RateLimitError:
@@ -106,15 +117,11 @@ class _Responses:
 
 class _ParsedStream:
     def __init__(self, parsed: object) -> None:
-        self.events = cast("Round", parsed) if isinstance(parsed, list) else ()
-        # Like the SDK, aggregate the text of completed message items.
-        output_text = "".join(
-            content["text"]
-            for event in self.events
-            if event.type == "response.output_item.done" and event.item.to_dict()["type"] == "message"
-            for content in event.item.to_dict()["content"]
-        )
-        self.response = SimpleNamespace(output_parsed=None if self.events else parsed, output_text=output_text)
+        self.parsed = parsed
+        # A stream the run abandons has no end to read, so the events
+        # arrive one at a time rather than as a list read up front.
+        self.events = cast("Round", parsed) if isinstance(parsed, list | Iterator) else ()
+        self.delivered: list[SimpleNamespace] = []
 
     def __enter__(self) -> Self:
         return self
@@ -123,10 +130,19 @@ class _ParsedStream:
         return None
 
     def __iter__(self) -> Iterator[SimpleNamespace]:
-        return iter(self.events)
+        for event in self.events:
+            self.delivered.append(event)
+            yield event
 
     def get_final_response(self) -> SimpleNamespace:
-        return self.response
+        # Like the SDK, aggregate the text of completed message items.
+        output_text = "".join(
+            content["text"]
+            for event in self.delivered
+            if event.type == "response.output_item.done" and event.item.to_dict()["type"] == "message"
+            for content in event.item.to_dict()["content"]
+        )
+        return SimpleNamespace(output_parsed=None if self.events else self.parsed, output_text=output_text)
 
 
 class _Stream:

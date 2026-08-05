@@ -1,4 +1,5 @@
 from inspect import cleandoc
+from threading import Event
 from typing import Literal
 
 from openai.types.responses import ResponseInputParam
@@ -95,11 +96,12 @@ class FunctionalAnalyst:
             """,
         )
 
-    def write(self, context: Input) -> Result:
-        return self.runner.parse(self._build_input(context), Output).result
+    def write(self, context: Input, cancelled: Event) -> Result | None:
+        output = self.runner.parse(self._build_input(context), Output, cancelled)
+        return None if output is None else output.result
 
-    def repair(self, context: Input, patch: str, error: str) -> str:
-        return self.runner.parse(
+    def repair(self, context: Input, patch: str, error: str, cancelled: Event) -> str | None:
+        output = self.runner.parse(
             [
                 *self._build_input(context),
                 # Instructions of ours are told apart from the quoted
@@ -109,7 +111,9 @@ class FunctionalAnalyst:
                 {"role": "user", "content": prompt.render(rejected_patch=patch, git_error=error)},
             ],
             Patch,
-        ).patch
+            cancelled,
+        )
+        return None if output is None else output.patch
 
     def _build_input(self, context: Input) -> ResponseInputParam:
         return [

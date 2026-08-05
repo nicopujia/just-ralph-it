@@ -29,6 +29,7 @@ class ToolCallRow(Static):
         self.depth = depth
         self.frame_index = 0
         self.is_complete = is_complete
+        self.is_stopping = False
         self.outcome: Outcome = outcome
         self.detail = detail
         self.started_at = monotonic()
@@ -53,6 +54,13 @@ class ToolCallRow(Static):
             self.spinner_timer = None
         self.update_copy()
 
+    # A run needs a moment to reach the stop it was asked for, and a
+    # row still spinning under the label it opened with reads as a
+    # request that never landed.
+    def mark_stopping(self) -> None:
+        self.is_stopping = True
+        self.update_copy()
+
     def advance_spinner(self) -> None:
         if self.is_complete:
             return
@@ -66,7 +74,8 @@ class ToolCallRow(Static):
             self.update(Content(f"{symbol} {label}"))
             return
         elapsed = int(monotonic() - self.started_at)
-        content = Content(f"{self.SPINNER_FRAMES[self.frame_index]} {self.label}")
+        label = copy.TOOL_CALL_STOPPING.format(label=self.label) if self.is_stopping else self.label
+        content = Content(f"{self.SPINNER_FRAMES[self.frame_index]} {label}")
         if elapsed >= self.MIN_ELAPSED_SECONDS:
             content = content.append(Content.styled(f" {elapsed // 60}m {elapsed % 60:02d}s", "dim"))
         self.update(content)

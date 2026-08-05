@@ -1,3 +1,4 @@
+from threading import Event
 from typing import cast
 
 from jri.core.ai import functional_analyst
@@ -21,20 +22,20 @@ def read_request(client: FakeClient) -> str:
 def test_writes_a_specification_patch() -> None:
     client = FakeClient([], parsed=[functional_analyst.Output(result=PATCH)])
 
-    assert build_analyst(client).write(CONTEXT) == PATCH
+    assert build_analyst(client).write(CONTEXT, Event()) == PATCH
 
 
 def test_reports_ambiguities_instead_of_a_patch() -> None:
     ambiguities = functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=["JSON or plain text?"])
     client = FakeClient([], parsed=[functional_analyst.Output(result=ambiguities)])
 
-    assert build_analyst(client).write(CONTEXT) == ambiguities
+    assert build_analyst(client).write(CONTEXT, Event()) == ambiguities
 
 
 def test_asks_for_a_first_draft_from_the_notebook_alone() -> None:
     client = FakeClient([], parsed=[functional_analyst.Output(result=PATCH)])
 
-    build_analyst(client).write(CONTEXT)
+    build_analyst(client).write(CONTEXT, Event())
 
     request = read_request(client)
     assert "Current notebook:\n```\nDeploy from the main branch.\n```" in request
@@ -47,7 +48,7 @@ def test_revises_against_the_rejected_draft_and_the_architect_feedback() -> None
         update={"rejected_specs": "File: functional/behavior.md", "architect_feedback": ["Undefined totals."]}
     )
 
-    build_analyst(client).write(context)
+    build_analyst(client).write(context, Event())
 
     request = read_request(client)
     assert "Rejected functional draft:\n```\nFile: functional/behavior.md\n```" in request

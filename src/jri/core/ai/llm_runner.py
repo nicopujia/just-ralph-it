@@ -4,6 +4,7 @@ from collections.abc import Generator, Iterable, Sequence
 from dataclasses import dataclass
 from http import HTTPStatus
 from inspect import cleandoc
+from threading import Event
 from time import sleep
 from typing import Any, ClassVar, TypeVar, cast
 
@@ -74,15 +75,24 @@ class LLMRunner:
         outputs_by_index: dict[int, dict[str, Any]] = {}
         return Response(self._respond(context, tools, outputs_by_index), outputs_by_index)
 
-    def parse(self, context: ResponseInputParam, output_type: type[Result]) -> Result:
+    # A stop is answered with no result at all, since a structured
+    # output only half-streamed is no output. The loop reads the stop
+    # too: past a failed attempt, retrying would spend another whole
+    # call on a run the user has already left.
+    def parse(
+        self, context: ResponseInputParam, output_type: type[Result], cancelled: Event | None = None
+    ) -> Result | None:
         self._check_size(context)
+        cancelled = cancelled or Event()
         attempt = 1
-        while True:
+        while not cancelled.is_set():
             try:
-                return self._parse(context, output_type)
+                return self._parse(context, output_type, cancelled)
             except OpenAIError as error:
                 self._wait_to_retry(error, attempt)
                 attempt += 1
+        logger.info("parse_cancelled model=%s", self.model)
+        return None
 
     def _respond(
         self,
@@ -116,7 +126,7 @@ class LLMRunner:
             else:
                 return
 
-    def _parse(self, context: ResponseInputParam, output_type: type[Result]) -> Result:
+    def _parse(self, context: ResponseInputParam, output_type: type[Result], cancelled: Event) -> Result | None:
         logger.info("parse_started model=%s input_items=%d", self.model, len(context))
         with self.client.responses.stream(
             model=self.model,
@@ -130,6 +140,13 @@ class LLMRunner:
                 _diagnose(event)
                 if event.type == "response.output_text.delta":
                     streamed_text += event.delta
+                # A structured response is minutes of streaming, so the
+                # stop is read here rather than once it ends. Leaving
+                # the block closes the stream, and asking the stream for
+                # the response it never finished would wait for it.
+                if cancelled.is_set():
+                    logger.info("parse_cancelled model=%s", self.model)
+                    return None
             response = stream.get_final_response()
         text = response.output_text or streamed_text
         if response.output_parsed is not None:

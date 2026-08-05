@@ -21,12 +21,15 @@ MAX_PATCH_ATTEMPTS = 3
 logger = logging.getLogger(__name__)
 
 
-# A stop is answered between steps, so the longest it waits is the
-# model call already in flight, and it leaves the project as it found
-# it: everything a run writes before `Specs.accept` is written in a
-# worktree the run throws away, and the acceptance itself is the one
-# step no stop interrupts, since a half-applied patch or a staged
-# index would be worse than never stopping at all.
+# A stop is answered inside the model call as well as between the
+# steps, so the longest it waits is the stream event already in
+# flight rather than the minutes a whole call takes. A step that
+# answers with nothing is a step the user stopped, and a run that
+# stops leaves the project as it found it: everything a run writes
+# before `Specs.accept` is written in a worktree the run throws away,
+# and the acceptance itself is the one step no stop interrupts, since
+# a half-applied patch or a staged index would be worse than never
+# stopping at all.
 def generate(
     settings: Settings, cancelled: Event | None = None
 ) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished", None, SpecsResult | None]:
@@ -59,8 +62,8 @@ def generate(
         logger.info("specs_cycle_started cycle=%d", cycle)
         if cycle == 1:
             yield open_row
-        functional_result = analyst.write(functional_context)
-        if cancelled.is_set():
+        functional_result = analyst.write(functional_context, cancelled)
+        if functional_result is None:
             return None
         if isinstance(functional_result, functional_analyst.Ambiguities):
             logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.ambiguities))
@@ -78,7 +81,10 @@ def generate(
                 paths.FUNCTIONAL_SPECS_ROOT,
                 functional_result.patch,
                 partial(analyst.repair, functional_context),
+                cancelled,
             )
+            if cancelled.is_set():
+                return None
             functional = specs.read(staging.path, paths.FUNCTIONAL_SPECS_DIR)
             if not functional:
                 raise SpecsError("Functional specifications cannot be empty.")
@@ -118,8 +124,10 @@ def generate(
                 tracked_repository_tree=list(specs.repository.read_worktree_paths()),
                 explorer_report=explorer_report,
             )
-            architecture_result = designer.finish(context) if cycle == MAX_CYCLES else designer.design(context)
-            if cancelled.is_set():
+            architecture_result = (
+                designer.finish(context, cancelled) if cycle == MAX_CYCLES else designer.design(context, cancelled)
+            )
+            if architecture_result is None:
                 return None
             if isinstance(architecture_result, architect.Issues):
                 logger.info("specs_issues cycle=%d count=%d", cycle, len(architecture_result.issues))
@@ -148,7 +156,10 @@ def generate(
                 paths.ARCHITECTURE_SPECS_ROOT,
                 architecture_result.patch,
                 partial(designer.repair, context),
+                cancelled,
             )
+            if cancelled.is_set():
+                return None
             if not specs.read(staging.path, paths.ARCHITECTURE_SPECS_DIR):
                 raise SpecsError("Architecture specifications cannot be empty.")
             patch = staging.diff(baseline.commit, paths=(paths.FUNCTIONAL_SPECS_DIR, paths.ARCHITECTURE_SPECS_DIR))
@@ -175,7 +186,12 @@ def generate(
 # the model that wrote it. The safety validation runs on every try,
 # since a repaired patch is no more trusted than the first one.
 def _apply_patch(
-    specs: Specs, staging: git.Repository, root: str, patch: str, repair: Callable[[str, str], str]
+    specs: Specs,
+    staging: git.Repository,
+    root: str,
+    patch: str,
+    repair: Callable[[str, str, Event], str | None],
+    cancelled: Event,
 ) -> None:
     for attempt in range(1, MAX_PATCH_ATTEMPTS + 1):
         try:
@@ -192,6 +208,12 @@ def _apply_patch(
                     "project keeps the specifications it already had."
                 ) from error
             logger.info("patch_repair_requested root=%s attempt=%d", root, attempt)
-            patch = repair(patch, str(error))
+            repaired = repair(patch, str(error), cancelled)
+            # A repair the user stopped leaves the patch unapplied in a
+            # worktree the run is about to throw away, and the caller
+            # reads the stop rather than being told about it twice.
+            if repaired is None:
+                return
+            patch = repaired
         else:
             return

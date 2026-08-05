@@ -1,4 +1,5 @@
 from inspect import cleandoc
+from threading import Event
 from typing import Literal
 
 from openai.types.responses import ResponseInputParam
@@ -89,15 +90,17 @@ class Architect:
             """,
         )
 
-    def design(self, context: Input) -> Result:
-        output = self.runner.parse(self._build_input(context, self.runner.prompt), Output)
-        return output.result
+    def design(self, context: Input, cancelled: Event) -> Result | None:
+        output = self.runner.parse(self._build_input(context, self.runner.prompt), Output, cancelled)
+        return None if output is None else output.result
 
-    def finish(self, context: Input) -> Patch:
-        return self.runner.parse(self._build_input(context, f"{self.runner.prompt}\n\n{self.FINAL_PROMPT}"), Patch)
-
-    def repair(self, context: Input, patch: str, error: str) -> str:
+    def finish(self, context: Input, cancelled: Event) -> Patch | None:
         return self.runner.parse(
+            self._build_input(context, f"{self.runner.prompt}\n\n{self.FINAL_PROMPT}"), Patch, cancelled
+        )
+
+    def repair(self, context: Input, patch: str, error: str, cancelled: Event) -> str | None:
+        output = self.runner.parse(
             [
                 *self._build_input(context, self.runner.prompt),
                 # Instructions of ours are told apart from the quoted
@@ -107,7 +110,9 @@ class Architect:
                 {"role": "user", "content": prompt.render(rejected_patch=patch, git_error=error)},
             ],
             Patch,
-        ).patch
+            cancelled,
+        )
+        return None if output is None else output.patch
 
     @staticmethod
     def _build_input(context: Input, instructions: str) -> ResponseInputParam:

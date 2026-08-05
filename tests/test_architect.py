@@ -1,3 +1,4 @@
+from threading import Event
 from typing import cast
 
 from jri.core.ai import architect
@@ -20,14 +21,14 @@ def build_architect(client: FakeClient) -> architect.Architect:
 def test_designs_an_architecture_patch() -> None:
     client = FakeClient([], parsed=[architect.Output(result=PATCH)])
 
-    assert build_architect(client).design(CONTEXT) == PATCH
+    assert build_architect(client).design(CONTEXT, Event()) == PATCH
 
 
 def test_reports_functional_issues_instead_of_a_patch() -> None:
     issues = architect.Issues(outcome="functional_specification_issues", issues=["Undefined totals."])
     client = FakeClient([], parsed=[architect.Output(result=issues)])
 
-    result = build_architect(client).design(CONTEXT)
+    result = build_architect(client).design(CONTEXT, Event())
 
     assert result == issues
     assert client.responses.options[-1]["text_format"] is architect.Output
@@ -36,7 +37,7 @@ def test_reports_functional_issues_instead_of_a_patch() -> None:
 def test_leaves_the_final_pass_no_way_to_report_issues() -> None:
     client = FakeClient([], parsed=[PATCH])
 
-    assert build_architect(client).finish(CONTEXT) == PATCH
+    assert build_architect(client).finish(CONTEXT, Event()) == PATCH
     assert client.responses.options[-1]["text_format"] is architect.Patch
     prompt = cast("list[dict[str, object]]", client.responses.inputs[-1])[0]["content"]
     assert str(prompt).endswith(architect.Architect.FINAL_PROMPT)

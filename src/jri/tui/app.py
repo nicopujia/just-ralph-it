@@ -149,7 +149,7 @@ class App(TextualApp[None]):
     async def on_message_input_history_requested(self, event: MessageInput.HistoryRequested) -> None:
         if event.direction == "previous":
             if self.is_busy:
-                self._request_cancellation()
+                await self._request_cancellation()
                 return
             event.message_input.select_previous()
             if event.message_input.history_index < self.restored_turn_index:
@@ -227,12 +227,12 @@ class App(TextualApp[None]):
 
     # --- Actions ---------------------------------------------------- #
 
-    def action_cancel_turn(self) -> None:
+    async def action_cancel_turn(self) -> None:
         if not self.is_busy:
             return
         now = monotonic()
         if now - self.last_escape_at <= 1:
-            self._request_cancellation()
+            await self._request_cancellation()
             return
         self.last_escape_at = now
         self.notify(copy.CANCEL_TURN_CONFIRMATION, timeout=1)
@@ -420,7 +420,10 @@ class App(TextualApp[None]):
                 del turn_state.tool_rows[nested_call_id]
         turn_state.tool_rows[event.call_id].mark_complete(event.label, event.outcome, event.detail)
         if event.depth == 0:
-            turn_state.placeholder = Markdown(copy.INTERVIEWER_THINKING, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
+            turn_state.placeholder = Markdown(
+                copy.INTERVIEWER_STOPPING if turn_state.cancelled.is_set() else copy.INTERVIEWER_THINKING,
+                classes=styles.INTERVIEWER_MESSAGE_CLASSES,
+            )
             await turn_state.container.mount(turn_state.placeholder)
 
     @staticmethod
@@ -430,8 +433,13 @@ class App(TextualApp[None]):
             turn_state.placeholder = None
         turn_state.active_markdown, turn_state.active_markdown_text = None, ""
         turn_state.active_reasoning, turn_state.active_reasoning_text = None, ""
-        turn_state.tool_rows[event.call_id] = ToolCallRow(event.label, symbol=event.symbol, depth=event.depth)
-        await turn_state.container.mount(turn_state.tool_rows[event.call_id])
+        row = ToolCallRow(event.label, symbol=event.symbol, depth=event.depth)
+        # A step the run opens after the stop was asked for is a step
+        # already on its way out, so it opens saying so.
+        if turn_state.cancelled.is_set():
+            row.mark_stopping()
+        turn_state.tool_rows[event.call_id] = row
+        await turn_state.container.mount(row)
 
     async def _show_retry_button(self, turn_state: InterviewerTurnState) -> None:
         if turn_state.retry_button is None:
@@ -506,11 +514,21 @@ class App(TextualApp[None]):
             await interviewer_turn.remove()
         del self.mounted_turns[offset:]
 
-    def _request_cancellation(self) -> None:
-        if self.active_turn_state is not None and not self.active_turn_state.cancelled.is_set():
-            self.active_turn_state.cancelled.set()
-            self.notify(copy.CANCEL_TURN_STARTED, timeout=1)
-            logger.info("interviewer_turn_cancellation_requested")
+    # The run needs a moment to reach the stop it was asked for, and a
+    # model call takes minutes to reach one. So whatever the turn has
+    # on screen says so the instant it is asked, rather than spinning
+    # under the label it opened with until the run comes back.
+    async def _request_cancellation(self) -> None:
+        turn_state = self.active_turn_state
+        if turn_state is None or turn_state.cancelled.is_set():
+            return
+        turn_state.cancelled.set()
+        for row in turn_state.tool_rows.values():
+            row.mark_stopping()
+        self.notify(copy.CANCEL_TURN_STARTED, timeout=1)
+        logger.info("interviewer_turn_cancellation_requested")
+        if turn_state.placeholder is not None:
+            await turn_state.placeholder.update(copy.INTERVIEWER_STOPPING)
 
     async def _restore_history(self) -> None:
         if self.restored_turns:

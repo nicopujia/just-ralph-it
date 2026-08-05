@@ -46,6 +46,7 @@ INIT_RECREATED = (
 INIT_REPOSITORY = "Initialized a Git repository at {directory}."
 INSERT_NEWLINE = "Insert newline"
 INTERNAL_ERROR = "Something unexpected went wrong. Check the JRI log for details."
+INTERVIEWER_STOPPING = "_Stopping..._"
 INTERVIEWER_THINKING = "_Thinking..._"
 
 KEYMAP_PANEL = "Keymap"
@@ -79,6 +80,7 @@ TOOL_CALL_FAILED = "{label} — failed"
 TOOL_CALL_FAILED_SYMBOL = "✗"
 TOOL_CALL_STOPPED = "{label} — stopped"
 TOOL_CALL_STOPPED_SYMBOL = "⊘"
+TOOL_CALL_STOPPING = "{label} — stopping…"
 TURN_BLOCKED = "Stopped because of your project's state:\n\n{error}\n\nSort that out and try again."
 TURN_ERROR = """
 Something went wrong:

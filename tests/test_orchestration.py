@@ -1,4 +1,4 @@
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from pathlib import Path
 from threading import Event
 from typing import cast
@@ -10,7 +10,7 @@ from jri.core import paths
 from jri.core.ai import ToolCallFinished, ToolCallStarted, architect, functional_analyst, specs_generation
 from jri.core.exceptions import RepositoryStateError, SpecsError
 from tests.conftest import CreateRepository, RunGit
-from tests.doubles.openai import FakeClient, call, partial_reply, reply, response, streamed_reply
+from tests.doubles.openai import FakeClient, call, partial_reply, reply, response, stopped_stream, streamed_reply
 from tests.doubles.settings import build_settings
 from tests.doubles.workspace import install_workspace
 
@@ -72,9 +72,11 @@ def build_workspace(path: Path, create_repository: CreateRepository) -> None:
     install_workspace(path)
 
 
-def generate(client: FakeClient, stop_at: Row | None = None) -> tuple[list[Row], Result]:
+def generate(
+    client: FakeClient, stop_at: Row | None = None, cancelled: Event | None = None
+) -> tuple[list[Row], Result]:
     captured: list[Result] = []
-    cancelled = Event()
+    cancelled = cancelled or Event()
     settings = build_settings(client)
 
     def drive() -> Generator[Row]:
@@ -167,6 +169,47 @@ def test_stops_a_run_without_touching_the_project(
     assert not (tmp_path / paths.SPECS_DIR).exists()
     # Nothing staged and no worktree left behind: a stop that left
     # either would be worse than never stopping.
+    assert not run_git(tmp_path, "diff", "--cached")
+    assert len(run_git(tmp_path, "worktree", "list").splitlines()) == 1
+
+
+@pytest.mark.parametrize(
+    "queue_responses",
+    [
+        lambda cancelled: [stopped_stream(cancelled)],
+        lambda cancelled: [
+            functional_analyst.Output(
+                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
+            ),
+            stopped_stream(cancelled),
+        ],
+        lambda cancelled: [written_specs(), stopped_stream(cancelled)],
+        lambda cancelled: [
+            written_specs(),
+            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_UPDATE)),
+            stopped_stream(cancelled),
+        ],
+    ],
+    ids=["writing", "repairing-the-specifications", "designing", "repairing-the-architecture"],
+)
+def test_stops_a_run_while_a_model_is_still_answering(
+    queue_responses: Callable[[Event], list[object]],
+    tmp_path: Path,
+    create_repository: CreateRepository,
+    run_git: RunGit,
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    head = run_git(tmp_path, "rev-parse", "HEAD")
+    cancelled = Event()
+    client = FakeClient([streamed_reply("Repository report")], parsed=queue_responses(cancelled))
+
+    _, result = generate(client, cancelled=cancelled)
+
+    # A stop mid-answer ends the run where a stop between two steps
+    # does, rather than after the minutes that answer had left.
+    assert result is None
+    assert run_git(tmp_path, "rev-parse", "HEAD") == head
+    assert not (tmp_path / paths.SPECS_DIR).exists()
     assert not run_git(tmp_path, "diff", "--cached")
     assert len(run_git(tmp_path, "worktree", "list").splitlines()) == 1
 

@@ -1,3 +1,4 @@
+from threading import Event
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -18,6 +19,7 @@ from tests.doubles.openai import (
     rejection,
     reply,
     response,
+    stopped_stream,
     streamed_reply,
 )
 
@@ -43,19 +45,43 @@ def build_streaming_runner(*rounds: "Round | OpenAIError") -> LLMRunner:
 
 
 def test_returns_the_parsed_output() -> None:
-    assert build_runner(Output(answer="ready")).parse([], Output).answer == "ready"
+    assert build_runner(Output(answer="ready")).parse([], Output) == Output(answer="ready")
 
 
 def test_falls_back_to_the_aggregated_response_text() -> None:
     runner = build_runner(response(reply('{"answer": "aggregated"}')))
 
-    assert runner.parse([], Output).answer == "aggregated"
+    assert runner.parse([], Output) == Output(answer="aggregated")
 
 
 def test_falls_back_to_the_streamed_text() -> None:
     runner = build_runner(partial_reply('{"answer": "streamed"}'))
 
-    assert runner.parse([], Output).answer == "streamed"
+    assert runner.parse([], Output) == Output(answer="streamed")
+
+
+def test_stops_a_parse_between_the_events_of_its_stream() -> None:
+    cancelled = Event()
+
+    assert build_runner(stopped_stream(cancelled)).parse([], Output, cancelled) is None
+
+
+def test_asks_for_nothing_on_behalf_of_a_run_already_stopped() -> None:
+    cancelled = Event()
+    cancelled.set()
+    client = FakeClient([], parsed=[Output(answer="ready")])
+
+    assert LLMRunner(client=cast("OpenAI", client), model="test").parse([], Output, cancelled) is None
+    assert client.responses.options == []
+
+
+def test_stops_a_parse_rather_than_retrying_it_for_a_run_left_behind(monkeypatch: pytest.MonkeyPatch) -> None:
+    cancelled = Event()
+    monkeypatch.setattr("jri.core.ai.llm_runner.sleep", lambda _: cancelled.set())
+    client = FakeClient([], parsed=[rate_limited(), Output(answer="ready")])
+
+    assert LLMRunner(client=cast("OpenAI", client), model="test").parse([], Output, cancelled) is None
+    assert len(client.responses.options) == 1
 
 
 @pytest.mark.parametrize(
@@ -196,7 +222,7 @@ def test_retries_a_parsed_request_the_provider_rate_limited() -> None:
     client = FakeClient([], parsed=[rate_limited(), Output(answer="ready")])
     runner = LLMRunner(client=cast("OpenAI", client), model="test")
 
-    assert runner.parse([], Output).answer == "ready"
+    assert runner.parse([], Output) == Output(answer="ready")
 
 
 class Output(BaseModel):
