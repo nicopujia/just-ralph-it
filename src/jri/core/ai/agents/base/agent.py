@@ -54,11 +54,11 @@ class Agent:
     def get_context(self) -> ResponseInputParam:
         return self.history
 
-    def send_message(self, message: str, cancelled: Event | None = None) -> Generator["ai.ChatEvent"]:
+    def send_message(self, message: str, cancelled: Event | None = None) -> Generator["ai.AgentEvent"]:
         self.history.append({"role": "user", "content": message})
         yield from self.respond(cancelled)
 
-    def respond(self, cancelled: Event | None = None) -> Generator["ai.ChatEvent"]:
+    def respond(self, cancelled: Event | None = None) -> Generator["ai.AgentEvent"]:
         cancelled = cancelled or Event()
         logger.info("message_started agent=%s model=%s", type(self).__name__, self.model)
 
@@ -103,7 +103,7 @@ class Agent:
                 return
         raise ModelError(f"Agent exceeded the limit of {self.MAX_ROUNDS} response rounds.")
 
-    def _invoke(self, output: dict[str, object], tool: Tool | None, cancelled: Event) -> Generator["ai.ChatEvent"]:
+    def _invoke(self, output: dict[str, object], tool: Tool | None, cancelled: Event) -> Generator["ai.AgentEvent"]:
         name = cast("str", output["name"])
         arguments = cast("str", output["arguments"])
         call_id = cast("str", output["call_id"])

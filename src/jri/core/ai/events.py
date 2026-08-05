@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Literal
 
-type ChatEvent = ReasoningDelta | TextDelta | ToolCallStarted | ToolCallFinished
+type AgentEvent = ReasoningDelta | TextDelta | ToolCallStarted | ToolCallFinished
 type Outcome = Literal["done", "empty", "stopped", "failed"]
 
 

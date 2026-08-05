@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jri.lib import files, prompt
 
-from .ai import DEFAULT_SYMBOL, ChatEvent, Interviewer, Outcome, Tool, specs_generation
+from .ai import DEFAULT_SYMBOL, AgentEvent, Interviewer, Outcome, Tool, specs_generation
 from .exceptions import PersistenceError
 from .notes import Graph, Notebook, TopicId
 from .settings import Settings
@@ -122,13 +122,13 @@ class Conversation:
     def interviewer(self) -> Interviewer:
         return Interviewer(self.settings, self.notebook, lambda ready: self.update_session(ready_to_ralph=ready))
 
-    def chat(self, message: str, cancelled: Event | None = None) -> Generator[ChatEvent]:
+    def chat(self, message: str, cancelled: Event | None = None) -> Generator[AgentEvent]:
         self.logger.info("chat_started")
         self.logger.debug("chat_message message=%r", message)
         checkpoint = self._capture_checkpoint(len(self.interviewer.history))
         yield from self._respond(message, checkpoint, cancelled)
 
-    def retry(self, cancelled: Event | None = None) -> Generator[ChatEvent]:
+    def retry(self, cancelled: Event | None = None) -> Generator[AgentEvent]:
         # Whatever the turn left behind goes with it: only the prompt
         # that opened it is sent again.
         history_index = self._find_prompts()[-1]
@@ -157,7 +157,7 @@ class Conversation:
         self._save_turn()
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
-    def ralph(self) -> Generator[ChatEvent]:
+    def ralph(self) -> Generator[AgentEvent]:
         self.update_session(ready_to_ralph=False)
         try:
             result = yield from specs_generation.generate(self.settings)
@@ -243,7 +243,7 @@ class Conversation:
             self.session.ready_to_ralph,
         )
 
-    def _respond(self, message: str, checkpoint: Checkpoint, cancelled: Event | None) -> Generator[ChatEvent]:
+    def _respond(self, message: str, checkpoint: Checkpoint, cancelled: Event | None) -> Generator[AgentEvent]:
         try:
             yield from self.interviewer.send_message(message, cancelled)
             self._save_turn(stopped=cancelled is not None and cancelled.is_set())

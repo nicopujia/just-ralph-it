@@ -15,7 +15,7 @@ from pydantic import BaseModel, ValidationError
 
 from jri.core.exceptions import ModelError, UsageLimitError
 
-from .events import ChatEvent, ReasoningDelta, TextDelta
+from .events import AgentEvent, ReasoningDelta, TextDelta
 
 # A fence only bounds what the model has been told a fence is, so
 # every prompt this runner sends ends with the same notice.
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Response:
-    events: Generator[ChatEvent]
+    events: Generator[AgentEvent]
     outputs_by_index: dict[int, dict[str, Any]]
 
     @property
@@ -89,7 +89,7 @@ class LLMRunner:
         context: ResponseInputParam,
         tools: Sequence[FunctionToolParam],
         outputs_by_index: dict[int, dict[str, Any]],
-    ) -> Generator[ChatEvent]:
+    ) -> Generator[AgentEvent]:
         attempt = 1
         while True:
             streamed = False
@@ -157,7 +157,7 @@ class LLMRunner:
     @staticmethod
     def _decode(
         stream: Iterable[ResponseStreamEvent], outputs_by_index: dict[int, dict[str, Any]]
-    ) -> Generator[ChatEvent]:
+    ) -> Generator[AgentEvent]:
         for event in stream:
             match event.type:
                 case (

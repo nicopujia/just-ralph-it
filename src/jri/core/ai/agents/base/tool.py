@@ -59,7 +59,7 @@ class Invocation:
         self._outcome: ai.Outcome = "done"
         self._output: str | ResponseFunctionCallOutputItemListParam | None = None
 
-    def __iter__(self) -> Generator["ai.ChatEvent"]:
+    def __iter__(self) -> Generator["ai.AgentEvent"]:
         while True:
             try:
                 item = next(self.stream)

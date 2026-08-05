@@ -16,7 +16,7 @@ from textual.reactive import Reactive
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, LoadingIndicator, Markdown, Static
 
-from jri.core.ai import ChatEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
+from jri.core.ai import AgentEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
 from jri.core.conversation import Conversation
 from jri.core.exceptions import RepositoryStateError
 from jri.lib import appearance
@@ -394,7 +394,7 @@ class App(TextualApp[None]):
         self.restored_turn_index = start
         self.call_after_refresh(self._finish_restoring_history, old_scroll_y, old_max_scroll_y)
 
-    async def _render_chat_event(self, turn_state: InterviewerTurnState, chat_event: ChatEvent) -> None:
+    async def _render_chat_event(self, turn_state: InterviewerTurnState, chat_event: AgentEvent) -> None:
         if self.active_turn_state is not turn_state:
             logger.debug("chat_event_render_skipped type=%s", type(chat_event).__name__)
             return
