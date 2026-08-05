@@ -78,7 +78,26 @@ def test_leaves_the_percentages_and_braces_of_the_page_alone() -> None:
     page = render(build_graph())
 
     assert "width: 100%;" in page
-    assert "mermaid.initialize({ startOnLoad: false });" in page
+    assert 'mermaid.initialize({ startOnLoad: false, theme: "default" });' in page
+
+
+# The colours below only exist together: mermaid draws its edges in
+# #333 and its topic text in black, so the canvas they land on has to
+# be the light one they were chosen for, whatever scheme the browser
+# is following. Only a browser settles whether the page reads well;
+# what a test can settle is that neither half of the pin is dropped.
+def test_pins_the_page_to_the_scheme_the_graph_is_drawn_for() -> None:
+    page = render(build_graph())
+
+    assert "background: #fff;" in page
+    assert "color-scheme: light;" in page
+    assert 'theme: "default"' in page
+
+
+def test_opens_the_graph_at_its_top_instead_of_its_middle() -> None:
+    page = render(build_graph())
+
+    assert "center: false," in page
 
 
 def test_says_what_went_wrong_where_the_page_can_show_it() -> None:

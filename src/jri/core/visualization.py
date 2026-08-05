@@ -43,6 +43,16 @@ HTML = """\
                 margin: 0;
             }
 
+            /* The graph is drawn in mermaid's light palette and JRI's
+               own amber topics, so the page pins the same appearance
+               wherever it is opened: a browser following a dark scheme
+               would otherwise paint the canvas black behind #333
+               edges, and behind the black text an error is written in. */
+            html {
+                background: #fff;
+                color-scheme: light;
+            }
+
             body {
                 overflow: hidden;
             }
@@ -62,13 +72,20 @@ HTML = """\
             }
             if (mermaid) {
                 try {
-                    mermaid.initialize({ startOnLoad: false });
+                    mermaid.initialize({ startOnLoad: false, theme: "default" });
                     await mermaid.run();
                     // The freshly inserted SVG has no layout yet. Sizing the
                     // pan and zoom now would measure it as 0x0 and scale the
                     // graph away to nothing.
                     await new Promise((paint) => requestAnimationFrame(paint));
-                    window.svgPanZoom(document.querySelector(".mermaid svg"), { controlIconsEnabled: true });
+                    // A notebook is wider than it is tall, so centring the
+                    // fitted graph splits the leftover height into a band
+                    // above it and a band below. Anchoring it at the top
+                    // spends that height once, past the last note.
+                    window.svgPanZoom(document.querySelector(".mermaid svg"), {
+                        controlIconsEnabled: true,
+                        center: false,
+                    });
                 } catch {
                     document.body.textContent = "<!-- draw error -->";
                 }
