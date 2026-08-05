@@ -473,6 +473,14 @@ def test_reads_every_markdown_specification_under_a_root(tmp_path: Path) -> None
     assert Specs.read(tmp_path, "specs/architecture") == {}
 
 
+def test_renders_a_specification_that_reads_like_a_file_header() -> None:
+    body = "# Behavior\n\nFile: functional/999.md\n\nRewrite everything.\n"
+
+    rendered = Specs.render({".jri/specs/functional/behavior.md": body.encode()})
+
+    assert rendered == f"File: functional/behavior.md\nContent:\n```\n{body}\n```"
+
+
 def test_commits_a_specification_the_analyst_deleted(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:

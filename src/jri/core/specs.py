@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from jri.lib import git
+from jri.lib import git, prompt
 
 from . import paths
 from .exceptions import RepositoryStateError, SpecsError
@@ -69,9 +69,13 @@ class Specs:
     @staticmethod
     def render(files: dict[str, bytes]) -> str:
         prefix = f"{paths.SPECS_DIR}/"
+        # The path is JRI's own: an rglob over the specification tree
+        # named it, under a root `_validate_patch` bounds. So it stays
+        # prose, while the body a model wrote is quoted.
         return (
             "\n\n".join(
-                f"File: {path.removeprefix(prefix)}\n\n{content.decode()}" for path, content in sorted(files.items())
+                f"File: {path.removeprefix(prefix)}\n{prompt.render(content=content.decode())}"
+                for path, content in sorted(files.items())
             )
             or "(empty)"
         )
