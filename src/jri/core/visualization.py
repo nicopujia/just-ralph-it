@@ -1,6 +1,9 @@
-from jri.core.notes import Graph
+from .notes import Graph
 
-from . import copy
+DRAW_ERROR = "The graph viewer loaded, but it could not draw the graph. Please contact Nico."
+LOAD_ERROR = (
+    "The graph viewer could not load what it needs from the internet. Check your connection and run `jri view` again."
+)
 
 # The browser decodes HTML entities inside the `mermaid` block before
 # mermaid parses it, so HTML escaping protects nothing: `&quot;` turns
@@ -100,8 +103,8 @@ def render(graph: Graph) -> str:
     return (
         HTML
         .replace(DIAGRAM_SLOT, "\n".join(diagram))
-        .replace(LOAD_ERROR_SLOT, copy.VISUALIZATION_LOAD_ERROR)
-        .replace(DRAW_ERROR_SLOT, copy.VISUALIZATION_DRAW_ERROR)
+        .replace(LOAD_ERROR_SLOT, LOAD_ERROR)
+        .replace(DRAW_ERROR_SLOT, DRAW_ERROR)
     )
 
 

@@ -8,7 +8,7 @@ from pydantic import ValidationError
 from pydantic_core import ErrorDetails
 
 from jri import __version__
-from jri.core import logs
+from jri.core import logs, visualization
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from jri.core.settings import Settings
@@ -16,7 +16,7 @@ from jri.core.workspace import Workspace
 from jri.lib import git
 from jri.lib.providers import codex
 
-from . import copy, visualization
+from . import copy
 from .app import App
 
 logger = logging.getLogger(__name__)

@@ -96,9 +96,4 @@ UNDO_MESSAGE_KEY = "^x u"
 UNKNOWN_SETTING = "There is no such setting."
 UNKNOWN_SETTING_SUGGESTION = "There is no such setting. Did you mean {setting}?"
 
-VISUALIZATION_DRAW_ERROR = "The graph viewer loaded, but it could not draw the graph. Please contact Nico."
-VISUALIZATION_LOAD_ERROR = (
-    "The graph viewer could not load what it needs from the internet. Check your connection and run `jri view` again."
-)
-
 WORKSPACE_MISSING = "No JRI workspace here. Run `jri init` to create one."
