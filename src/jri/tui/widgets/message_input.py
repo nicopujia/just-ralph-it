@@ -20,11 +20,16 @@ class MessageInput(TextArea):
         Binding("enter", "submit", copy.SEND_MESSAGE, show=False, priority=True),
         Binding("shift+enter,ctrl+j", "insert_newline", copy.INSERT_NEWLINE, show=False, priority=True),
         Binding("ctrl+x", "message_history", copy.MESSAGE_HISTORY, priority=True),
-        Binding("u", "previous_message", copy.UNDO_MESSAGE, key_display=copy.UNDO_MESSAGE_KEY, priority=True),
-        Binding("r", "next_message", copy.REDO_MESSAGE, key_display=copy.REDO_MESSAGE_KEY, priority=True),
-        Binding("t", "retry_message", copy.RETRY, key_display=copy.RETRY_KEY, priority=True),
+        Binding(
+            "u", "previous_message", copy.UNDO_MESSAGE, key_display=copy.UNDO_MESSAGE_KEY, show=False, priority=True
+        ),
+        Binding("r", "next_message", copy.REDO_MESSAGE, key_display=copy.REDO_MESSAGE_KEY, show=False, priority=True),
+        Binding("t", "retry_message", copy.RETRY, key_display=copy.RETRY_KEY, show=False, priority=True),
         Binding("j", "ralph", copy.RALPH_BUTTON, key_display=copy.RALPH_KEY, priority=True),
-        Binding("ctrl+shift+z", "redo", copy.REDO, show=False),
+        # Its own action, rather than the one the text area binds ^y to,
+        # so the keymap panel gives it a row of its own instead of
+        # wrapping it under the row it would share, description-less.
+        Binding("ctrl+shift+z", "redo_edit", copy.REDO, show=False),
     )
     is_ralph_ready: Reactive[bool] = Reactive(default=False, bindings=True)
     is_retry_ready: Reactive[bool] = Reactive(default=False, bindings=True)
@@ -63,6 +68,9 @@ class MessageInput(TextArea):
     def action_insert_newline(self) -> None:
         self.insert("\n")
 
+    def action_redo_edit(self) -> None:
+        self.redo()
+
     @override
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action == "message_history":
@@ -71,9 +79,11 @@ class MessageInput(TextArea):
             # While the chord is open its keys belong to the chord, so
             # an unavailable one does nothing instead of falling through
             # to the text. Each action checks what it needs beforehand.
-            if self._is_chord_open:
-                return True
-            return None if action == "ralph" and self.is_ralph_ready and not self.is_turn_active else False
+            # Closed, the chord leaves its keys to the text, but the
+            # keymap panel still has to list the bindings the product
+            # is driven by, so they report themselves as unavailable
+            # rather than as absent.
+            return True if self._is_chord_open else None
         return super().check_action(action, parameters)
 
     def action_message_history(self) -> None:
