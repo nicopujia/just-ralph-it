@@ -87,7 +87,7 @@ Something went wrong:
 
 {error}
 
-Please try again or contact Nico.
+Try again. If it keeps happening, report it at https://github.com/nicopujia/just-ralph-it/issues.
 """.strip()
 TURN_EXHAUSTED = "Your ChatGPT or API usage limit has been reached. Check your plan and try again later."
 TURN_NO_RESPONSE = "_No response received._"

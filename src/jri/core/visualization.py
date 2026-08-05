@@ -1,6 +1,9 @@
 from .notes import Graph
 
-DRAW_ERROR = "The graph viewer loaded, but it could not draw the graph. Please contact Nico."
+DRAW_ERROR = (
+    "The graph viewer loaded, but it could not draw the graph. Report it at "
+    "https://github.com/nicopujia/just-ralph-it/issues."
+)
 LOAD_ERROR = (
     "The graph viewer could not load what it needs from the internet. Check your connection and run `jri view` again."
 )
