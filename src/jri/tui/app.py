@@ -552,7 +552,7 @@ class App(TextualApp[None]):
         if self.ralph_button.is_mounted:
             await self.ralph_button.remove()
         self.message_input.is_ralph_ready = False
-        if self.is_busy or not self.conversation.session.ready_to_ralph or not self.mounted_turns:
+        if self.is_busy or not self.conversation.is_ready_to_ralph or not self.mounted_turns:
             return
         self.ralph_button = Button(copy.RALPH_BUTTON, classes=styles.RALPH_BUTTON_CLASSES, compact=True)
         await self.mounted_turns[-1][1].mount(self.ralph_button)

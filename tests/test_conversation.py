@@ -211,14 +211,14 @@ def test_keeps_the_opening_message_of_a_session_saved_before_the_first_turn() ->
 
 def test_restores_ralph_readiness_after_restart() -> None:
     conversation = build_conversation(
-        FakeClient([response(call("ready", "just_ralph_it", show=True)), streamed_reply("Click Just Ralph It.")])
+        FakeClient([response(call("ready", "offer_ralphing")), streamed_reply("Click Just Ralph It.")])
     )
     list(conversation.chat("We're ready."))
 
     restarted = build_conversation(FakeClient([]))
     restarted.restore()
 
-    assert restarted.session.ready_to_ralph
+    assert restarted.is_ready_to_ralph
 
 
 def test_restores_the_thinking_blocks_preference_after_restart() -> None:
@@ -234,9 +234,9 @@ def test_restores_the_thinking_blocks_preference_after_restart() -> None:
 def test_rolls_back_ralph_readiness_when_the_turn_fails() -> None:
     conversation = build_conversation(
         FakeClient([
-            response(call("ready", "just_ralph_it", show=True)),
+            response(call("ready", "offer_ralphing")),
             streamed_reply("Click Just Ralph It."),
-            response(call("hide", "just_ralph_it", show=False)),
+            response(call("capture", "capture_notes", texts=["Ship every Friday."])),
             failure("provider failed"),
         ])
     )
@@ -245,24 +245,74 @@ def test_rolls_back_ralph_readiness_when_the_turn_fails() -> None:
     events = list(conversation.chat("Actually, one more thing."))
 
     assert events[-1] == TurnFinished("failed", "provider failed")
-    assert conversation.session.ready_to_ralph
+    assert conversation.is_ready_to_ralph
 
 
-def test_restores_ralph_readiness_after_an_interrupted_run(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_retires_the_offer_the_notes_moved_past() -> None:
     conversation = build_conversation(
-        FakeClient([response(call("ready", "just_ralph_it", show=True)), streamed_reply("Click Just Ralph It.")])
+        FakeClient([
+            response(call("ready", "offer_ralphing")),
+            streamed_reply("Click Just Ralph It."),
+            response(call("capture", "capture_notes", texts=["Ship every Friday."])),
+            streamed_reply("Noted."),
+        ])
+    )
+    list(conversation.chat("We're ready."))
+
+    list(conversation.chat("Actually, one more thing."))
+
+    assert not conversation.is_ready_to_ralph
+
+
+def test_keeps_the_offer_the_same_turn_kept_writing() -> None:
+    conversation = build_conversation(
+        FakeClient([
+            response(
+                call("ready", "offer_ralphing"),
+                call("capture", "capture_notes", texts=["Deploy from main.", "Roll back on failure."]),
+                call(
+                    "connect", "connect_notes", connections=[{"source_id": "n1", "target_id": "n2", "label": "guards"}]
+                ),
+            ),
+            streamed_reply("Click Just Ralph It."),
+        ])
+    )
+
+    list(conversation.chat("We're ready."))
+
+    assert conversation.is_ready_to_ralph
+
+
+def test_keeps_the_offer_an_interrupted_generation_never_consumed(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(
+        FakeClient([response(call("ready", "offer_ralphing")), streamed_reply("Click Just Ralph It.")])
     )
     list(conversation.chat("We're ready."))
     monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_interrupted)
 
     events = conversation.ralph()
     next(events)
-    assert not conversation.session.ready_to_ralph
     events.close()
 
     restarted = build_conversation(FakeClient([]))
     restarted.restore()
-    assert restarted.session.ready_to_ralph
+    assert restarted.is_ready_to_ralph
+
+
+def test_drops_the_offer_a_generation_consumed(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(
+        FakeClient([
+            response(call("ready", "offer_ralphing")),
+            streamed_reply("Click Just Ralph It."),
+            streamed_reply("The specifications are in."),
+        ])
+    )
+    list(conversation.chat("We're ready."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+
+    list(conversation.ralph())
+
+    assert not conversation.is_ready_to_ralph
 
 
 def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
@@ -319,6 +369,7 @@ def test_reports_a_finished_generation_without_barring_the_next_one(monkeypatch:
 
     reports = [item["content"] for item in conversation.session.interview[1:] if item.get("role") == "system"]
     assert reports == [f"Specification generation succeeded in Git commit {COMMIT}."]
+    assert not conversation.is_ready_to_ralph
 
 
 def test_rolls_back_the_notes_of_a_failed_reply_after_ralphing(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -655,10 +706,10 @@ def test_keeps_the_connections_between_replayed_notes_when_rewinding() -> None:
     ]
 
 
-def test_keeps_ralph_readiness_reached_before_the_rewind_point() -> None:
+def test_keeps_the_offer_made_before_the_rewind_point() -> None:
     conversation = build_conversation(
         FakeClient([
-            response(call("ready", "just_ralph_it", show=True)),
+            response(call("ready", "offer_ralphing")),
             streamed_reply("Click Just Ralph It."),
             streamed_reply("Noted."),
         ])
@@ -670,7 +721,7 @@ def test_keeps_ralph_readiness_reached_before_the_rewind_point() -> None:
 
     restarted = build_conversation(FakeClient([]))
     restarted.restore()
-    assert restarted.session.ready_to_ralph
+    assert restarted.is_ready_to_ralph
 
 
 def test_skips_read_only_tool_calls_when_rewinding() -> None:

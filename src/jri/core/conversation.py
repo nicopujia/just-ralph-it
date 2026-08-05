@@ -55,7 +55,6 @@ class Checkpoint(NamedTuple):
     history_length: int
     graph: Graph
     active_topic_id: TopicId
-    ready_to_ralph: bool
 
 
 class Session(BaseModel):
@@ -64,7 +63,7 @@ class Session(BaseModel):
     interview: list[dict[str, Any]] = Field(default_factory=list)
     transcript: list[Turn] = Field(default_factory=list)
     failed_call_ids: list[str] = Field(default_factory=list)
-    ready_to_ralph: bool = False
+    ready_graph: Graph | None = None
     show_thinking_blocks: bool = False
 
     model_config = ConfigDict(extra="forbid")
@@ -91,7 +90,17 @@ class Conversation:
 
     @cached_property
     def interviewer(self) -> Interviewer:
-        return Interviewer(self.settings, self.notebook, lambda ready: self.update_session(ready_to_ralph=ready))
+        return Interviewer(self.settings, self.notebook)
+
+    @property
+    def is_ready_to_ralph(self) -> bool:
+        # The next note ID is an allocator rather than content, and a
+        # notebook restored to a checkpoint keeps the highest one it
+        # reached, so ids a rolled back turn spent revoke nothing.
+        offer = self.session.ready_graph
+        return offer is not None and offer == self.notebook.graph.model_copy(
+            update={"next_note_id": offer.next_note_id}
+        )
 
     def chat(self, message: str, cancelled: Event | None = None) -> Generator[TurnEvent]:
         self.logger.info("chat_started")
@@ -128,11 +137,16 @@ class Conversation:
         # notes exactly as the calls that referenced them expect.
         self.notebook.restore(self.session.initial_graph, reuse_note_ids=True)
         self.interviewer.active_topic_id = self.notebook.initial_topic.id
-        self.session = self.session.model_copy(update={"ready_to_ralph": False})
+        self.session = self.session.model_copy(update={"ready_graph": None})
+        self.interviewer.offered_ralphing = False
 
         tools = {tool.name: tool for tool in self.interviewer.tools}
         for raw_item in self.interviewer.history:
             item = cast("dict[str, Any]", raw_item)
+            # An offer belongs to the turn that made it, so the prompt
+            # opening the next one retires whatever the replay re-made.
+            if item.get("role") == "user":
+                self.interviewer.offered_ralphing = False
             if item.get("type") != "function_call":
                 continue
             if item["call_id"] not in self.session.failed_call_ids:
@@ -143,6 +157,7 @@ class Conversation:
             active_topic_id=self.interviewer.active_topic_id,
             interview=self.interviewer.history,
             transcript=self.session.transcript,
+            **self._stamp_offer(),
         )
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
@@ -206,20 +221,10 @@ class Conversation:
         ]
 
     def _capture_checkpoint(self, history_length: int) -> Checkpoint:
-        return Checkpoint(
-            history_length,
-            self.notebook.graph.model_copy(deep=True),
-            self.interviewer.active_topic_id,
-            self.session.ready_to_ralph,
-        )
+        return Checkpoint(history_length, self.notebook.graph.model_copy(deep=True), self.interviewer.active_topic_id)
 
     def _generate_specs(self) -> Generator[AgentEvent]:
-        self.update_session(ready_to_ralph=False)
-        try:
-            result = yield from specs_generation.generate(self.settings)
-        except BaseException:
-            self.update_session(ready_to_ralph=True)
-            raise
+        result = yield from specs_generation.generate(self.settings)
 
         # An item joins the history for good, so it states what
         # happened and nothing else: what to do about it holds beyond
@@ -230,7 +235,10 @@ class Conversation:
             workflow_result = prompt.render(specification_generation_ambiguities=result.ambiguities)
         report: ResponseInputItemParam = {"role": "system", "content": workflow_result}
         self.interviewer.history.append(report)
-        self.update_session(interview=self.interviewer.history)
+        # A run that reached a report consumed the notes it was offered,
+        # whatever it concluded about them; one that never got there
+        # leaves the offer standing for the user to spend again.
+        self.update_session(interview=self.interviewer.history, ready_graph=None)
         yield from self.interviewer.respond()
 
     # The one place a turn is written down, and the one place it ends.
@@ -287,6 +295,7 @@ class Conversation:
             active_topic_id=self.interviewer.active_topic_id,
             interview=self.interviewer.history,
             transcript=self.session.transcript,
+            **self._stamp_offer(),
         )
         self.logger.info("turn_finished ending=%s interview_items=%d", ending, len(self.interviewer.history))
         yield TurnFinished(ending, turn.detail)
@@ -296,7 +305,16 @@ class Conversation:
         self.interviewer.history = self.interviewer.history[: checkpoint.history_length + 1]
         self.notebook.restore(checkpoint.graph)
         self.interviewer.active_topic_id = checkpoint.active_topic_id
-        self.session = self.session.model_copy(update={"ready_to_ralph": checkpoint.ready_to_ralph})
+        self.interviewer.offered_ralphing = False
+
+    # An offer is the notes it was made about, so the turn stamps it
+    # with the notebook it ends holding: the notes the model connects
+    # right after offering are part of what it offered.
+    def _stamp_offer(self) -> dict[str, Graph]:
+        if not self.interviewer.offered_ralphing:
+            return {}
+        self.interviewer.offered_ralphing = False
+        return {"ready_graph": self.notebook.graph.model_copy(deep=True)}
 
 
 def _record_event(turn: Turn, start: int, open_rows: list[ToolCallStarted], event: AgentEvent) -> None:

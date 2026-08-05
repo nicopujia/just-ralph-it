@@ -1,4 +1,3 @@
-from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast, override
 
@@ -21,12 +20,10 @@ class Interviewer(Agent):
     MIN_CONTEXT_TURNS = 10
     FIRST_MESSAGE = "What do you want to build?"
 
-    def __init__(
-        self, settings: Settings, notebook: Notebook, set_ready_to_ralph: Callable[[bool], None] | None = None
-    ) -> None:
+    def __init__(self, settings: Settings, notebook: Notebook) -> None:
         self.settings = settings
         self.notebook = notebook
-        self.set_ready_to_ralph = set_ready_to_ralph or (lambda _: None)
+        self.offered_ralphing = False
         self.initial_topic = notebook.initial_topic
         self.active_topic_id = self.initial_topic.id
         profile = settings.agents.interviewer
@@ -82,15 +79,11 @@ class Interviewer(Agent):
                     unless explicit migration or compatibility behavior requires it.
                     - Explicitly confirm which behavioral domains the user delegates to the Functional Analyst. Never
                     infer delegation. Record confirmed delegation in the project notes.
-                    - Once both you and the user agree the definition is complete, call `just_ralph_it` with
-                    `show=true`. Explain that this displays a button and that only the user can begin Ralphing by
-                    clicking it or pressing Ctrl+X, J.
-                    - If new information needs discussion after showing the button, call `just_ralph_it` with
-                    `show=false` before continuing.
+                    - Whenever you and the user agree the definition is complete, call `offer_ralphing`, and
+                    explain that this displays a button and that only the user can begin Ralphing by clicking it
+                    or pressing Ctrl+X, J.
                     - A finished generation ends nothing: confirm it concisely, discuss any ambiguity it reports
-                    with the user, and record what they answer. Keep interviewing, and once the user brings new
-                    information and you both agree the updated definition is complete again, call `just_ralph_it`
-                    with `show=true` again.
+                    with the user, record what they answer, and keep interviewing.
 
                 Constraints:
                     - Keep notes, IDs, connections, and files entirely on your side.
@@ -135,14 +128,17 @@ class Interviewer(Agent):
         return context
 
     @tool(
-        "Show or hide the user's Just Ralph It confirmation control without starting Ralphing.",
-        started_label="Updating Ralph readiness",
-        finished_label="Updated Ralph readiness",
+        (
+            "Offer the user the Just Ralph It control, without starting Ralphing. The offer covers the notes as "
+            "this turn leaves them, and stands until they change."
+        ),
+        started_label="Offering Just Ralph It",
+        finished_label="Offered Just Ralph It",
         symbol="✨",
     )
-    def just_ralph_it(self, *, show: bool) -> str:
-        self.set_ready_to_ralph(show)
-        return "The Just Ralph It button is now visible." if show else "The Just Ralph It button is now hidden."
+    def offer_ralphing(self) -> str:
+        self.offered_ralphing = True
+        return "Offered the Just Ralph It button."
 
     @tool(
         (
