@@ -85,10 +85,13 @@ def isolate_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def read_credential() -> ReadCredential:
+    # A contract nothing pays for is a contract nothing checks, and the
+    # run that asked for one is a release, so an unset key is a failure
+    # rather than the quiet pass a skip would be.
     def read(variable: str) -> str:
         value = os.environ.get(variable) or dotenv_values(ENV_FILE).get(variable)
         if not value:
-            pytest.skip(f"{variable} is unset, so nothing here can pay for a live call")
+            pytest.fail(f"{variable} must be set: nothing here can pay for the live call this checks")
         return value
 
     return read
