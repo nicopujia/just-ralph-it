@@ -76,12 +76,16 @@ class FunctionalAnalyst:
                     - The complete current notebook is authoritative. The notebook diff only shows
                       what changed since the accepted baseline; it never limits the scope of the
                       specifications.
-                    - Report every contradiction and material behavioral ambiguity found in the pass,
-                      not only the first.
+                    - Report every contradiction in the notebook, and every ambiguity whose
+                      alternatives the user would recognize as changing what the product does for
+                      them, not only the first.
                     - Make a behavioral decision only where the notebook explicitly delegates that
                       domain or exact decision.
-                    - Raise materially different behavioral alternatives as ambiguities, even inside a
-                      delegated domain.
+                    - Inside a delegated domain, decide and write the decision down: the delegation
+                      exists so the user does not have to rule on what they would not notice. Escalate
+                      there only where the alternatives change what the product does for them, judged
+                      against the project the notebook describes rather than the hardest project its
+                      words could describe.
                     - State every delegated decision explicitly and testably in the specifications.
                     - Architecture, code organization, dependencies, and implementation mechanics are
                       out of scope.
