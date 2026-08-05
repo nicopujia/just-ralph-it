@@ -654,6 +654,28 @@ def test_resends_the_prompt_when_retrying_a_turn_that_brought_no_reply() -> None
     assert ("assistant", "Retry succeeded.") in [(item.type, item.text) for item in turns[-1].items]
 
 
+# One prompt is the case where the newest, the oldest and the only one
+# are the same item, so it cannot tell which of them a retry re-sends.
+def test_retries_the_newest_of_several_prompts() -> None:
+    client = FakeClient([
+        streamed_reply("What should it report on?"),
+        failure("provider failed"),
+        streamed_reply("Retry succeeded."),
+    ])
+    conversation = build_conversation(client)
+    list(conversation.chat("Build a reporting CLI."))
+    list(conversation.chat("Deploy it automatically."))
+
+    list(conversation.retry())
+
+    context = cast("list[dict[str, object]]", client.responses.inputs[-1])
+    assert [item["content"] for item in context if item.get("role") == "user"] == [
+        "Build a reporting CLI.",
+        "Deploy it automatically.",
+    ]
+    assert context[-1]["content"] == "Deploy it automatically."
+
+
 def test_removes_knowledge_captured_after_the_rewind_point() -> None:
     conversation = build_conversation(
         FakeClient([
