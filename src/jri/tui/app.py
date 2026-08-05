@@ -308,7 +308,11 @@ class App(TextualApp[None]):
             self.ralphing.display = False
             self.message_input.display = True
             self.message_input.disabled = False
-        self.messages_container.scroll_end(animate=False)
+        # A turn ending is the last thing it renders, so it lands in
+        # view under the same rule every other thing the turn rendered
+        # landed under: the bottom is followed until the user scrolls
+        # off it, and a user reading further up stays where they are.
+        self._follow_bottom(turn_state)
         self.active_turn_state = None
         App.ALLOW_SELECT = True
         await self._sync_ralph_button()
