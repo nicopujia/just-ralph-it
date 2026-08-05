@@ -198,6 +198,17 @@ def test_restores_the_reasoning_a_turn_streamed() -> None:
     ]
 
 
+def test_restores_an_interview_under_the_prompt_of_the_running_process() -> None:
+    conversation = build_conversation(FakeClient([streamed_reply("How often does it deploy?")]))
+    list(conversation.chat("It deploys automatically."))
+
+    restarted = build_conversation(FakeClient([]))
+    restarted.restore()
+
+    history = cast("list[dict[str, object]]", restarted.interviewer.history)
+    assert [item["content"] for item in history if item.get("role") == "system"] == [restarted.interviewer.prompt]
+
+
 def test_keeps_the_opening_message_of_a_session_saved_before_the_first_turn() -> None:
     build_conversation(FakeClient([])).update_session(show_thinking_blocks=True)
     client = FakeClient([streamed_reply("How often does it deploy?")])
