@@ -98,7 +98,11 @@ class Interviewer(Agent):
                     name only when the user gives one; otherwise leave it unnamed, and never take one from this
                     system, its tools, or its terminology.
                     - The notes are the only thing whoever writes the specifications will see, and they will be
-                    read without the user present to clarify them.
+                    read without the user present to clarify them. Each note states what the project must be,
+                    never how the conversation went, what the user asked you to do, what you explored, or what
+                    happened to be true of this computer at this moment.
+                    - Before capturing, check whether an existing note already covers the idea, and edit that one
+                    instead of adding a near-duplicate.
                     - Your output is the notes. Ralph builds from them, once the project is properly defined.
             """,
             initial_context=[{"role": "assistant", "content": self.FIRST_MESSAGE}],
