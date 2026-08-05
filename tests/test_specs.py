@@ -6,6 +6,7 @@ from jri.core.ai import architect, functional_analyst
 from jri.core.conversation import Conversation
 from jri.core.exceptions import RepositoryStateError, SpecsError
 from jri.core.specs import Specs
+from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
@@ -307,10 +308,29 @@ def test_commits_specifications_onto_a_repository_without_commits(tmp_path: Path
         ".jri/notebook.yaml",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
-        "README.md",
     ]
     assert conversation.session.active_spec_commit == run_git(tmp_path, "rev-parse", "HEAD")
-    assert not run_git(tmp_path, "status", "--short")
+    assert run_git(tmp_path, "status", "--short") == "?? README.md"
+
+
+def test_leaves_the_project_untouched_when_a_hook_refuses_the_commit(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    hook = tmp_path / ".git/hooks/pre-commit"
+    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
+    conversation = build_conversation(tmp_path, successful_client())
+    before = run_git(tmp_path, "status", "--porcelain", "-uall")
+
+    with pytest.raises(git.Error):
+        list(conversation.ralph())
+
+    assert run_git(tmp_path, "status", "--porcelain", "-uall") == before
+    assert not (tmp_path / ".jri/specs").exists()
+    hook.unlink()
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
 
 
 def test_refuses_unrelated_changes_before_generation(

@@ -81,18 +81,16 @@ class Specs:
             raise RepositoryStateError("The project changed while specifications were being generated. Try again.")
         self._check_status(baseline.commit)
         self.repository.apply_patch(patch)
-        self.repository.stage(
-            (".",)
-            if baseline.commit is None
-            else (
-                paths.CONFIG_FILE,
-                paths.GITIGNORE_FILE,
-                paths.NOTEBOOK_FILE,
-                paths.FUNCTIONAL_SPECS_DIR,
-                paths.ARCHITECTURE_SPECS_DIR,
-            )
-        )
-        commit = self.repository.commit("jri: update specifications")
+        # The intent alone, so JRI never writes over content the user
+        # staged for a path of its own, and a crash before the commit
+        # leaves nothing behind for their next commit to pick up.
+        try:
+            self.repository.stage(paths.COMMITTED_PATHS, intent_to_add=True)
+            commit = self.repository.commit("jri: update specifications", paths=paths.COMMITTED_PATHS)
+        except git.Error:
+            self.repository.unstage(paths.COMMITTED_PATHS)
+            self.repository.apply_patch(patch, reverse=True)
+            raise
         logger.info("specs_committed commit=%s", commit)
         return commit
 

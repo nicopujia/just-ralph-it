@@ -120,6 +120,101 @@ def test_commits_staged_paths_without_a_co_author(
     assert run_git(repository.path, "show", "-s", "--format=%B", commit) == "jri: test"
 
 
+def test_commits_only_the_paths_it_names(tmp_path: Path, create_repository: CreateRepository, run_git: RunGit) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "notes.md").write_text("# Notes\n")
+    repository.stage(["notes.md"], intent_to_add=True)
+    (repository.path / "staged.txt").write_text("staged\n")
+    repository.stage(["staged.txt"])
+    (repository.path / "staged.txt").write_text("edited after staging\n")
+    (repository.path / "README.md").write_text("second\n")
+    (repository.path / "untracked.txt").write_text("untracked\n")
+
+    commit = repository.commit("jri: add notes", paths=["notes.md"])
+
+    assert repository.read_tree(commit) == {"README.md": b"# Project\n", "notes.md": b"# Notes\n"}
+    assert run_git(repository.path, "show", ":staged.txt") == "staged"
+    assert (repository.path / "staged.txt").read_text() == "edited after staging\n"
+    assert {(item.path, item.index, item.worktree) for item in repository.read_status()} == {
+        ("staged.txt", "A", "M"),
+        ("README.md", " ", "M"),
+        ("untracked.txt", "?", "?"),
+    }
+
+
+def test_commits_named_paths_into_a_repository_without_commits(tmp_path: Path) -> None:
+    repository = git.Repository.init(tmp_path / "project")
+    (repository.path / "notes.md").write_text("# Notes\n")
+    (repository.path / "secrets.env").write_text("SECRET=1\n")
+    repository.stage(["notes.md"], intent_to_add=True)
+
+    commit = repository.commit("jri: add notes", paths=["notes.md"])
+
+    assert repository.read_tree(commit) == {"notes.md": b"# Notes\n"}
+    assert repository.read_status() == (git.Status("secrets.env", "?", "?"),)
+
+
+def test_stages_only_the_intent_to_add_a_path(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "notes.md").write_text("# Notes\n")
+    (repository.path / "other.md").write_text("# Other\n")
+    repository.stage(["other.md"])
+
+    repository.stage(["notes.md"], intent_to_add=True)
+
+    assert repository.read_status() == (git.Status("notes.md", " ", "A"), git.Status("other.md", "A", " "))
+    commit = repository.commit("jri: add the other note")
+    assert run_git(repository.path, "show", "--format=", "--name-only", commit).splitlines() == ["other.md"]
+
+
+def test_unstages_the_paths_it_is_given(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "notes.md").write_text("# Notes\n")
+    (repository.path / "kept.md").write_text("# Kept\n")
+    repository.stage(["notes.md", "kept.md"])
+
+    repository.unstage(["notes.md"])
+
+    assert repository.read_status() == (git.Status("kept.md", "A", " "), git.Status("notes.md", "?", "?"))
+
+
+def test_unstages_the_paths_of_a_repository_without_commits(tmp_path: Path) -> None:
+    repository = git.Repository.init(tmp_path / "project")
+    (repository.path / "notes.md").write_text("# Notes\n")
+    repository.stage(["notes.md"], intent_to_add=True)
+
+    repository.unstage(["notes.md"])
+
+    assert repository.read_status() == (git.Status("notes.md", "?", "?"),)
+
+
+def test_reverses_a_patch_it_applied(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    patch = b"""\
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1 +1 @@
+-# Project
++# Renamed
+diff --git a/docs/notes.md b/docs/notes.md
+new file mode 100644
+--- /dev/null
++++ b/docs/notes.md
+@@ -0,0 +1 @@
++# Notes
+"""
+    repository.apply_patch(patch)
+
+    repository.apply_patch(patch, reverse=True)
+
+    assert (repository.path / "README.md").read_bytes() == b"# Project\n"
+    assert not (repository.path / "docs").exists()
+    assert repository.read_status() == ()
+
+
 def test_reports_which_revision_descends_from_which(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     first = repository.read_head()

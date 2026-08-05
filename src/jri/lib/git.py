@@ -157,7 +157,9 @@ class Repository:
                 if removal.returncode:
                     logger.warning("worktree_removal_failed location=%s", location)
 
-    def apply_patch(self, patch: bytes, *, index: bool = False, directory: str | None = None) -> None:
+    def apply_patch(
+        self, patch: bytes, *, index: bool = False, directory: str | None = None, reverse: bool = False
+    ) -> None:
         # Recount hunk line counts from the patch body: models
         # routinely miscount them while the body itself is correct.
         arguments = ["apply", "--recount"]
@@ -165,14 +167,28 @@ class Repository:
             arguments.append("--index")
         if directory is not None:
             arguments.append(f"--directory={directory}")
+        if reverse:
+            arguments.append("--reverse")
         self._run(*arguments, stdin=patch)
 
-    def stage(self, paths: Sequence[str]) -> None:
-        self._run("add", "--", *paths)
+    def stage(self, paths: Sequence[str], *, intent_to_add: bool = False) -> None:
+        arguments = ["add"]
+        if intent_to_add:
+            arguments.append("--intent-to-add")
+        self._run(*arguments, "--", *paths)
 
-    def commit(self, message: str, co_author: str | None = None) -> str:
+    def unstage(self, paths: Sequence[str]) -> None:
+        self._run("reset", "--quiet", "--", *paths)
+
+    def commit(self, message: str, co_author: str | None = None, *, paths: Sequence[str] = ()) -> str:
         body = f"{message}\n" if co_author is None else f"{message}\n\nCo-authored-by: {co_author}\n"
-        self._run("commit", "--file=-", stdin=body.encode())
+        # Named paths are read from the worktree and written to the
+        # index alone, so a commit of them carries nothing else and
+        # disturbs nothing else that is staged or modified.
+        arguments = ["commit", "--file=-"]
+        if paths:
+            arguments.extend(["--", *paths])
+        self._run(*arguments, stdin=body.encode())
         return self.read_head()
 
     def _run(
