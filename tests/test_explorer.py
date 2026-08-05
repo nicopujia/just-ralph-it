@@ -1,4 +1,5 @@
 import base64
+import logging
 import os
 import time
 from pathlib import Path
@@ -80,9 +81,13 @@ def test_rejects_a_file_over_the_input_size_limit(tmp_path: Path) -> None:
         build_explorer().read_files([path.name])
 
 
-def test_reports_unreadable_paths() -> None:
-    with pytest.raises(RuntimeError, match=r"missing\.txt"):
+def test_reports_unreadable_paths_without_logging_a_crash(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level(logging.INFO, logger="jri"), pytest.raises(RuntimeError, match=r"missing\.txt"):
         build_explorer().read_files(["missing.txt"])
+
+    record = next(record for record in caplog.records if record.message.startswith("read_failed"))
+    assert record.levelno == logging.WARNING
+    assert record.exc_info is None
 
 
 def test_runs_shell_commands_in_the_directory_it_was_given(tmp_path: Path) -> None:

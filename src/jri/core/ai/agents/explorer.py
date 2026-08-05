@@ -174,7 +174,11 @@ class Explorer(Agent):
                     raise RuntimeError(f"Could not read {path}: file exceeds {self.MAX_INPUT_SIZE} bytes.")
                 data = path.read_bytes()
             except OSError as error:
-                logger.exception("read_failed path=%r", path)
+                # A path the model guessed at is a miss it recovers from
+                # by reading somewhere else, so it is reported at the
+                # weight of the event: an ERROR with a traceback per
+                # missed guess buries the failures worth finding.
+                logger.warning("read_failed path=%r reason=%s", path, error.strerror)
                 raise RuntimeError(f"Could not read {path}: {error.strerror}") from error
 
             # The body is a sibling item the API concatenates onto this
