@@ -157,7 +157,7 @@ class Interviewer(Agent):
     )
     def explore(self, query: str) -> Stream:
         report = yield from Explorer(self.settings, Path.cwd()).report(query)
-        yield ToolOutput(report)
+        yield ToolOutput(report or "Exploration produced no report.", "done" if report else "empty")
 
     @tool(
         "Turn to a project topic by its name or ID, creating it when it does not exist.",

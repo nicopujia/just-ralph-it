@@ -231,7 +231,20 @@ def test_explores_reporting_nothing_when_the_run_ends_on_a_tool_call(tmp_path: P
     ])
     interviewer = build_interviewer(tmp_path, client)
 
-    assert list(interviewer.explore("cats"))[-1] == ToolOutput("")
+    assert list(interviewer.explore("cats"))[-1] == ToolOutput("Exploration produced no report.", "empty")
+
+
+def test_reports_an_exploration_that_found_nothing_as_empty(tmp_path: Path) -> None:
+    interviewer = build_interviewer(tmp_path, FakeClient([response()]))
+    explore = next(tool for tool in interviewer.tools if tool.name == "explore")
+
+    invocation = explore.invoke('{"query": "cats"}')
+    list(invocation)
+
+    # An empty output closed the row with the success symbol while
+    # handing the model nothing to read.
+    assert invocation.outcome == "empty"
+    assert invocation.output == "Exploration produced no report."
 
 
 def test_reports_a_failed_exploration_to_the_model(tmp_path: Path) -> None:
