@@ -12,7 +12,7 @@ CATALOG = {"openai/gpt-5.6-sol": {"limit": {"context": CONTEXT_LIMIT}}}
 # A catalog JRI cannot read answers exactly like one it never reached,
 # so a limit above the fallback is the whole contract at once: the
 # endpoint served, the shape parsed, and the shipped model found.
-@pytest.mark.usefixtures("reach_network")
+@pytest.mark.contract
 def test_reads_the_context_limit_the_catalog_really_publishes() -> None:
     assert get_context_limit(AgentProfiles().interviewer.model) > FALLBACK_CONTEXT_LIMIT
 

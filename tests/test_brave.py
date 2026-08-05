@@ -10,7 +10,7 @@ API_KEY_VARIABLE = "BRAVE_SEARCH_API_KEY"
 
 # Every other test here answers with a response this repository wrote,
 # so the field names below are the only ones Brave itself has agreed to.
-@pytest.mark.usefixtures("reach_network")
+@pytest.mark.contract
 def test_searches_the_endpoint_brave_really_serves(read_credential: ReadCredential) -> None:
     results = brave.search(read_credential(API_KEY_VARIABLE), "just ralph it")
 

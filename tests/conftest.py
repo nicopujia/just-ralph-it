@@ -12,19 +12,20 @@ import pytest
 from dotenv import dotenv_values
 
 from jri.lib import git
+from jri.lib.models import get_context_limit
 from tests.doubles.models import serve_catalog
 
 type CreateRepository = Callable[[Path], git.Repository]
 type ReadCredential = Callable[[str], str]
 type RunGit = Callable[..., str]
 
+# The mark a test wears to reach the endpoint it is about, and the only
+# thing that lets one through.
+CONTRACT_MARKER = "contract"
 # The file `jri chat` reads its keys from, so a live call is paid for
 # by the same credential the product uses.
 ENV_FILE = Path(__file__).parent.parent / ".env"
-NETWORK = tuple(
-    (module, name, getattr(module, name))
-    for module, name in ((socket, "getaddrinfo"), (socket, "create_connection"), (socket, "socket"), (httpx, "get"))
-)
+NETWORK = ((socket, "getaddrinfo"), (socket, "create_connection"), (socket, "socket"), (httpx, "get"))
 
 
 @pytest.fixture
@@ -55,8 +56,23 @@ def create_repository(run_git: RunGit) -> CreateRepository:
     return create
 
 
+# The outside world answers with what this repository wrote, so no test
+# needs a network to be deterministic. The one belief a double cannot
+# falsify is the wire contract it is the oracle for, so a test marked
+# `contract` -- and only such a test -- reaches the endpoint itself.
 @pytest.fixture(autouse=True)
-def isolate_model_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
+def isolate_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
+    if request.node.get_closest_marker(CONTRACT_MARKER):
+        # Nothing else clears it, and a limit an earlier test cached
+        # would answer in the endpoint's place.
+        get_context_limit.cache_clear()
+        return
+
+    def guard(*_: object, **__: object) -> Never:
+        raise OSError("Tests must not use the network.")
+
+    for module, name in NETWORK:
+        monkeypatch.setattr(module, name, guard)
     serve_catalog(monkeypatch)
 
 
@@ -65,26 +81,6 @@ def isolate_model_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture(autouse=True)
 def isolate_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.chdir(tmp_path)
-
-
-@pytest.fixture(autouse=True, scope="session")
-def block_network() -> Iterator[None]:
-    def guard(*_: object, **__: object) -> Never:
-        raise OSError("Tests must not use the network.")
-
-    for module, name, _ in NETWORK:
-        setattr(module, name, guard)
-    yield
-    for module, name, original in NETWORK:
-        setattr(module, name, original)
-
-
-# A wire contract is the one belief a double cannot falsify, so the
-# tests that check one reach the endpoint itself.
-@pytest.fixture
-def reach_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    for module, name, original in NETWORK:
-        monkeypatch.setattr(module, name, original)
 
 
 @pytest.fixture

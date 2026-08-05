@@ -4,10 +4,18 @@ import ast
 import shutil
 import subprocess
 import tomllib
+from argparse import ArgumentParser
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
 BUILD_DIR = ".dist"
+# A contract test reaches the endpoint it is the oracle for, so a check
+# a developer runs after every change leaves it out -- an aeroplane, a
+# hotel wifi or a DNS blip must not read as broken code -- and the
+# release gate asks for it, since a release is the moment a wire shape
+# nothing checked becomes a shape every user runs.
+CONTRACT_MARKER = "contract"
+CONTRACT_COMMAND = ("run", "--locked", "pytest", "-q", "-m", CONTRACT_MARKER)
 UV_COMMANDS = (
     ("build", "--no-sources", "--out-dir", BUILD_DIR),
     ("run", "--locked", "ruff", "format", "-q"),
@@ -19,6 +27,8 @@ UV_COMMANDS = (
         "--locked",
         "pytest",
         "-q",
+        "-m",
+        f"not {CONTRACT_MARKER}",
         "--cov=src/jri/core",
         "--cov=src/jri/lib",
         "--cov-report=term-missing",
@@ -47,6 +57,9 @@ TEST_SUPPORT_MODULES = frozenset({"__init__.py", "conftest.py"})
 
 
 def main() -> None:
+    parser = ArgumentParser()
+    parser.add_argument("--contracts", action="store_true")
+    arguments = parser.parse_args()
     root = Path(__file__).parent.parent
     source = root / "src"
     package = source / "jri"
@@ -61,7 +74,7 @@ def main() -> None:
     check_test_layout(package, tests)
     check_deferred_annotations(source, tests)
     check_docstrings(source, tests, scripts)
-    run_uv_commands(root)
+    run_uv_commands(root, contracts=arguments.contracts)
 
 
 def check_version(root: Path) -> None:
@@ -186,14 +199,14 @@ def check_docstrings(*roots: Path) -> None:
         )
 
 
-def run_uv_commands(root: Path) -> None:
+def run_uv_commands(root: Path, *, contracts: bool) -> None:
     uv = shutil.which("uv")
     if not uv:
         raise RuntimeError("uv must be installed")
     build_path = root / BUILD_DIR
     if build_path.exists():
         shutil.rmtree(build_path)
-    for command in UV_COMMANDS:
+    for command in (*UV_COMMANDS, CONTRACT_COMMAND) if contracts else UV_COMMANDS:
         subprocess.run([uv, *command], cwd=root, check=True)
 
 

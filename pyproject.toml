@@ -49,6 +49,10 @@ include = ["src", "tests"]
 typeCheckingMode = "standard"
 reportImplicitOverride = "error"
 
+[tool.pytest.ini_options]
+addopts = "--strict-markers"
+markers = ["contract: reaches the live endpoint it is the oracle for, so only `./scripts/check.py --contracts` runs it"]
+
 [tool.ruff]
 line-length = 120
 indent-width = 4
