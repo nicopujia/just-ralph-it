@@ -7,7 +7,6 @@ if TYPE_CHECKING:
     from openai.types.responses import ResponseFunctionCallOutputItemListParam
 
 
-KILOBYTE = 1024
 TRUNCATION_NOTICE = "[Output truncated. Try splitting into more targeted calls.]"
 
 
@@ -19,12 +18,14 @@ def build_tool(name: str) -> Tool:
     return build_tools(Toolbox())[name]
 
 
-# The two sizes below are the budget itself, stated by a caller
+# The three sizes below are the budget itself, stated by a caller
 # instead of read back off the constant: an expectation computed from
 # `MAX_OUTPUT_LENGTH` holds for every value that constant could take,
-# which is how a budget too small for a screenshot went unnoticed.
+# which is how a budget too small for a screenshot went unnoticed. They
+# are plain character counts, because that is what the budget counts:
+# a unit of 1024 would read them onto a scale it never used.
 def test_keeps_a_long_source_file_whole() -> None:
-    body = "x" * (90 * KILOBYTE)
+    body = "x" * 90_000
 
     invocation = Invocation(body)
     list(invocation)
@@ -33,7 +34,7 @@ def test_keeps_a_long_source_file_whole() -> None:
 
 
 def test_cuts_a_directory_listing_of_a_whole_monorepo() -> None:
-    invocation = Invocation("x" * (300 * KILOBYTE))
+    invocation = Invocation("x" * 300_000)
     list(invocation)
 
     output = cast("str", invocation.output)
