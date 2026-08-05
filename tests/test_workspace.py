@@ -30,7 +30,7 @@ def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
     assert list((tmp_path / paths.LOGS_DIR).iterdir()) == []
 
 
-def test_commits_the_project_when_it_creates_the_repository(tmp_path: Path, run_git: RunGit) -> None:
+def test_leaves_the_project_uncommitted_when_it_creates_the_repository(tmp_path: Path) -> None:
     (tmp_path / "main.py").write_text("print('hello')\n")
     (tmp_path / ".env").write_text("SECRET=1\n")
     (tmp_path / ".DS_Store").write_bytes(b"\x00")
@@ -38,21 +38,17 @@ def test_commits_the_project_when_it_creates_the_repository(tmp_path: Path, run_
     install_workspace(tmp_path)
 
     repository = git.Repository(tmp_path)
-    assert run_git(tmp_path, "show", "-s", "--format=%B") == (
-        "jri: initialize project\n\nCo-authored-by: ralphpujia <ralph@pujia.ar>"
-    )
-    assert run_git(tmp_path, "show", "-s", "--format=%(trailers:key=Co-authored-by,valueonly)") == (
-        "ralphpujia <ralph@pujia.ar>"
-    )
+    assert not repository.has_commit()
     assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text() == ".DS_Store\n.env\n.env.*\n"
-    assert set(repository.read_tracked_paths()) == {
+    # The secrets are ignored rather than untracked, so the first
+    # commit the user makes of their own project leaves them out.
+    assert {item.path for item in repository.read_status()} == {
         paths.PROJECT_GITIGNORE_FILE,
         paths.GITIGNORE_FILE,
         paths.CONFIG_FILE,
         paths.NOTEBOOK_FILE,
         "main.py",
     }
-    assert repository.read_status() == ()
 
 
 def test_keeps_an_existing_ignore_file_when_creating_the_repository(tmp_path: Path) -> None:
@@ -61,16 +57,6 @@ def test_keeps_an_existing_ignore_file_when_creating_the_repository(tmp_path: Pa
     install_workspace(tmp_path)
 
     assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text() == "build/\n"
-
-
-def test_keeps_secrets_out_of_the_initial_commit_of_an_already_ignoring_project(tmp_path: Path) -> None:
-    (tmp_path / paths.PROJECT_GITIGNORE_FILE).write_text("build/\n")
-    (tmp_path / ".env").write_text("SECRET=1\n")
-    (tmp_path / ".DS_Store").write_bytes(b"\x00")
-
-    install_workspace(tmp_path)
-
-    assert set(git.Repository(tmp_path).read_tracked_paths()).isdisjoint({".env", ".DS_Store"})
 
 
 def test_leaves_a_repository_without_commits_alone(tmp_path: Path, run_git: RunGit) -> None:

@@ -278,21 +278,15 @@ def test_commits_specifications_onto_a_freshly_initialized_project(tmp_path: Pat
 
     list(conversation.ralph())
 
-    assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
-        ".jri/specs/architecture/design.md",
-        ".jri/specs/functional/behavior.md",
-    ]
     assert run_git(tmp_path, "ls-tree", "-r", "--name-only", "HEAD").splitlines() == [
-        ".gitignore",
         ".jri/.gitignore",
         ".jri/config.yaml",
         ".jri/notebook.yaml",
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
-        "README.md",
     ]
     assert conversation.session.active_spec_commit == run_git(tmp_path, "rev-parse", "HEAD")
-    assert not run_git(tmp_path, "status", "--short")
+    assert run_git(tmp_path, "status", "--short").splitlines() == ["?? .gitignore", "?? README.md"]
 
 
 def test_commits_specifications_onto_a_repository_without_commits(tmp_path: Path, run_git: RunGit) -> None:

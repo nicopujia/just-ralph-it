@@ -13,7 +13,6 @@ from .repository import Repository
 @dataclass(frozen=True)
 class Workspace:
     PROJECT_IGNORES: ClassVar[tuple[str, ...]] = (".DS_Store", ".env", ".env.*")
-    INITIAL_COMMIT_MESSAGE: ClassVar[str] = "jri: initialize project"
 
     root: Path
 
@@ -62,7 +61,7 @@ class Workspace:
     # `Settings`, so locating a workspace never depends on loading one.
     def install(self, config: str, *, force: bool = False) -> "Installation":
         repository_created = git.find_root(self.root) is None
-        repository = Repository.init(self.root)
+        Repository.init(self.root)
         created = not self.config_file.exists()
         if force:
             for path in self.reset_paths:
@@ -83,14 +82,12 @@ class Workspace:
             separator = "" if not content or content.endswith("\n") else "\n"
             self.gitignore_file.write_text(f"{content}{separator}{'\n'.join(missing)}\n")
 
-        if repository_created:
-            if not self.project_gitignore_file.exists():
-                self.project_gitignore_file.write_text(f"{'\n'.join(self.PROJECT_IGNORES)}\n")
-            # The ignore file a project brought along is not JRI's to
-            # rewrite, so the commit JRI makes of a project it never saw
-            # leaves those patterns out whether or not they are ignored.
-            repository.stage((".", *(f":(exclude,glob)**/{pattern}" for pattern in self.PROJECT_IGNORES)))
-            repository.commit(self.INITIAL_COMMIT_MESSAGE)
+        # The ignore file a project brought along is not JRI's to
+        # rewrite, so only a repository JRI creates gets one, and what
+        # it holds is what keeps those patterns out of the first commit
+        # the user makes.
+        if repository_created and not self.project_gitignore_file.exists():
+            self.project_gitignore_file.write_text(f"{'\n'.join(self.PROJECT_IGNORES)}\n")
         return Installation(self, created=created, repository_created=repository_created)
 
 
