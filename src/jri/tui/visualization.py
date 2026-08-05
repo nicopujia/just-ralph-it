@@ -3,9 +3,13 @@ import html
 from jri.core.notes import Graph
 
 INDENTATION = "    " * 3
+# The template is mostly CSS and JavaScript, so it is full of braces and
+# percentages that neither `%` nor `format` would leave alone. The slot
+# is substituted literally instead.
+DIAGRAM_SLOT = "<!-- diagram -->"
 HTML = """\
 <!doctype html>
-<html>
+<html lang="en">
     <head>
         <meta charset="utf-8">
         <style>
@@ -23,7 +27,7 @@ HTML = """\
         <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
         <script type="module">
             try {
-            const { default: mermaid } = await import(
+                const { default: mermaid } = await import(
                     "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"
                 );
                 mermaid.initialize({ startOnLoad: false });
@@ -37,7 +41,7 @@ HTML = """\
     </head>
     <body>
         <pre class="mermaid">
-            %s
+            <!-- diagram -->
         </pre>
     </body>
 </html>\
@@ -63,7 +67,7 @@ def render(graph: Graph) -> str:
         f'{INDENTATION}{connection.source_id} -->|"{_escape(connection.label)}"| {connection.target_id}'
         for connection in graph.connections
     )
-    return HTML % "\n".join(diagram)
+    return HTML.replace(DIAGRAM_SLOT, "\n".join(diagram))
 
 
 def _escape(value: str) -> str:
