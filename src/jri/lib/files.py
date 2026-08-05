@@ -1,9 +1,24 @@
+from collections.abc import Sequence
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-__all__ = ["write_atomically"]
+__all__ = ["describe_paths", "write_atomically"]
 
+# Enough files to recognise the read by, before the list stops being a
+# sentence and starts being a column.
+MAX_DESCRIBED_PATHS = 3
 NEW_FILE_PERMISSIONS = 0o644
+
+
+# Paths as the person at this terminal would write them: from where
+# they are standing, and counted rather than listed once there are
+# more of them than a line holds.
+def describe_paths(paths: Sequence[str]) -> str:
+    described = [_shorten(path) for path in paths[:MAX_DESCRIBED_PATHS]]
+    if remaining := len(paths) - len(described):
+        described.append(f"{remaining} more")
+    last = described.pop() if described else ""
+    return f"{', '.join(described)} and {last}" if described else last
 
 
 def write_atomically(path: Path, content: str) -> None:
@@ -26,3 +41,20 @@ def write_atomically(path: Path, content: str) -> None:
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
         raise
+
+
+# A path is written from wherever the reader is standing: from here
+# when it is under here, from home when it is elsewhere under home,
+# and in full when it is neither.
+def _shorten(path: str) -> str:
+    expanded = Path(path).expanduser()
+    if not expanded.is_absolute():
+        return path
+    # The bases are the real directories the process reports, so the
+    # path is measured against them as one: a project reached through
+    # a symlinked parent is still the directory the reader is in.
+    resolved = expanded.resolve()
+    for base, prefix in ((Path.cwd(), ""), (Path.home(), "~/")):
+        if resolved.is_relative_to(base):
+            return prefix + resolved.relative_to(base).as_posix()
+    return str(expanded)

@@ -86,3 +86,27 @@ def test_keeps_the_previous_contents_when_the_write_fails(tmp_path: Path) -> Non
         files.write_atomically(target, UNENCODABLE_CONTENT)
 
     assert target.read_text(encoding="utf-8") == "first"
+
+
+def test_names_the_files_of_a_read_from_where_the_reader_stands() -> None:
+    root = Path.cwd()
+
+    described = files.describe_paths([str(root / "README.md"), str(root / "src" / "app.py")])
+
+    assert described == "README.md and src/app.py"
+
+
+def test_counts_the_files_of_a_read_too_long_to_name() -> None:
+    root = Path.cwd()
+
+    described = files.describe_paths([str(root / f"note{index}.md") for index in range(6)])
+
+    assert described == "note0.md, note1.md, note2.md and 3 more"
+
+
+def test_names_a_file_outside_the_working_directory_from_home() -> None:
+    assert files.describe_paths([str(Path.home() / "notes" / "idea.md")]) == "~/notes/idea.md"
+
+
+def test_names_a_file_under_neither_the_working_directory_nor_home_in_full() -> None:
+    assert files.describe_paths(["/etc/hosts"]) == "/etc/hosts"

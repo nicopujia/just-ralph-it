@@ -1,4 +1,5 @@
 import base64
+import json
 import logging
 import os
 import time
@@ -7,7 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from jri.core.ai import Explorer, Invocation
+from jri.core.ai import Explorer, Invocation, Tool
 from jri.lib import brave, youtube
 from tests.doubles.brave import RESULTS, FakeProvider, respond
 from tests.doubles.openai import FakeClient
@@ -24,6 +25,10 @@ UNDECODABLE = b"\xff\xfe\x00binary"
 
 def build_explorer(directory: Path | None = None) -> Explorer:
     return Explorer(build_settings(FakeClient([])), directory or Path.cwd())
+
+
+def find_read_files(explorer: Explorer) -> Tool:
+    return next(capability for capability in explorer.tools if capability.name == "read_files")
 
 
 def test_reads_a_selected_range_of_lines(tmp_path: Path) -> None:
@@ -257,6 +262,36 @@ def test_reports_a_page_that_never_answered(monkeypatch: pytest.MonkeyPatch) -> 
 
     with pytest.raises(RuntimeError, match="connection refused"):
         build_explorer().fetch_web_page("https://example.test/docs")
+
+
+def test_names_a_read_row_after_the_files_it_covers() -> None:
+    read_files = find_read_files(build_explorer())
+    arguments = json.dumps({
+        "paths": [str(Path.cwd() / "README.md"), str(Path.cwd() / "pyproject.toml"), "src/app.py", "uv.lock"],
+        "start_line": None,
+        "end_line": None,
+    })
+
+    assert read_files.format_label(read_files.finished_label, arguments) == (
+        "Read README.md, pyproject.toml, src/app.py and 1 more"
+    )
+
+
+# The row reads the arguments too, so a call whose row says "and 1
+# more" still reads every file the model asked for.
+def test_reads_the_paths_a_call_names_rather_than_the_row_describing_them(tmp_path: Path) -> None:
+    path = tmp_path / "example.txt"
+    path.write_text("one\n")
+    read_files = find_read_files(build_explorer(tmp_path))
+
+    invocation = read_files.invoke(json.dumps({"paths": [str(path)], "start_line": None, "end_line": None}))
+    list(invocation)
+
+    assert invocation.outcome == "done"
+    assert invocation.output == [
+        {"type": "input_text", "text": f"File:\n```\n{path}\n```"},
+        {"type": "input_text", "text": "Content:\n```\none\n\n```"},
+    ]
 
 
 def _is_running(pid: int) -> bool:

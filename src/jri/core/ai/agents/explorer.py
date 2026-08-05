@@ -11,15 +11,16 @@ from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryFile
 from threading import Event
-from typing import cast
+from typing import Annotated, cast
 
 import httpx
 from markdownify import MarkdownConverter
 from openai.types.responses import ResponseFunctionCallOutputItemListParam
+from pydantic import PlainSerializer
 
 from jri.core import ai
 from jri.core.settings import Settings, read_api_key
-from jri.lib import brave, credentials, prompt, youtube
+from jri.lib import brave, credentials, files, prompt, youtube
 
 from .base import Agent, Invocation, tool
 
@@ -166,8 +167,14 @@ class Explorer(Agent):
         symbol="📄",
         replayed=False,
     )
+    # The row a read opens is a sentence about files, so the paths
+    # reach the label as prose. Only the label dumps the arguments:
+    # the call itself is made with the list the model sent.
     def read_files(
-        self, paths: list[str], start_line: int | None = None, end_line: int | None = None
+        self,
+        paths: Annotated[list[str], PlainSerializer(files.describe_paths)],
+        start_line: int | None = None,
+        end_line: int | None = None,
     ) -> ResponseFunctionCallOutputItemListParam:
         logger.debug("read_paths paths=%r", paths)
         output: ResponseFunctionCallOutputItemListParam = []
