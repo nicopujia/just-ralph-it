@@ -638,6 +638,29 @@ def test_refuses_to_commit_when_the_specifications_moved_during_generation(
     assert find_accepted_commit(tmp_path) is None
 
 
+# Once JRI has accepted a generation, the commit it made holds the
+# specifications the baseline was read from, so a baseline taken from
+# that commit rather than from HEAD agrees with itself and sees nothing
+# move. Every run after the first is this one.
+def test_refuses_to_commit_when_the_specifications_moved_after_an_earlier_acceptance(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    accepted = find_accepted_commit(tmp_path)
+    restarted = build_conversation(tmp_path, updated_client())
+    restarted.restore()
+    events = restarted.ralph()
+    next(events)
+    (tmp_path / ".jri/specs/functional/stray.md").write_text("# Stray\n")
+    run_git(tmp_path, "add", ".jri/specs")
+    run_git(tmp_path, "commit", "-qm", "docs: write a specification by hand")
+
+    assert read_ending(events, "specifications changed during generation") == "blocked"
+
+    assert find_accepted_commit(tmp_path) == accepted
+
+
 def test_refuses_to_commit_when_the_notebook_moved_during_generation(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
