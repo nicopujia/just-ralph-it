@@ -289,3 +289,4 @@ connections:
 - n109 governs naming of current project artifact in n103
 - n109 governs naming of runtime artifact in n105
 - n109 governs naming of generated artifact in n106
+next_note_id: n110
