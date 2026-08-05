@@ -1,5 +1,7 @@
 from jri.core.notes import Graph
 
+from . import copy
+
 # The browser decodes HTML entities inside the `mermaid` block before
 # mermaid parses it, so HTML escaping protects nothing: `&quot;` turns
 # back into the `"` that ends a label. Mermaid's own entity codes
@@ -16,9 +18,11 @@ ESCAPES = str.maketrans({
 })
 INDENTATION = "    " * 3
 # The template is mostly CSS and JavaScript, so it is full of braces and
-# percentages that neither `%` nor `format` would leave alone. The slot
-# is substituted literally instead.
+# percentages that neither `%` nor `format` would leave alone. The slots
+# are substituted literally instead.
 DIAGRAM_SLOT = "<!-- diagram -->"
+DRAW_ERROR_SLOT = "<!-- draw error -->"
+LOAD_ERROR_SLOT = "<!-- load error -->"
 HTML = """\
 <!doctype html>
 <html lang="en">
@@ -38,16 +42,25 @@ HTML = """\
         </style>
         <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
         <script type="module">
+            let mermaid;
             try {
-                const { default: mermaid } = await import(
+                ({ default: mermaid } = await import(
                     "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"
-                );
-                mermaid.initialize({ startOnLoad: false });
-                await mermaid.run();
-                window.svgPanZoom(document.querySelector(".mermaid svg"), { controlIconsEnabled: true });
+                ));
+                if (!window.svgPanZoom) {
+                    throw new Error("svg-pan-zoom is missing");
+                }
             } catch {
-                document.body.textContent = "The graph viewer could not load its CDN resources. "
-                    + "Check your internet connection.";
+                document.body.textContent = "<!-- load error -->";
+            }
+            if (mermaid) {
+                try {
+                    mermaid.initialize({ startOnLoad: false });
+                    await mermaid.run();
+                    window.svgPanZoom(document.querySelector(".mermaid svg"), { controlIconsEnabled: true });
+                } catch {
+                    document.body.textContent = "<!-- draw error -->";
+                }
             }
         </script>
     </head>
@@ -79,7 +92,12 @@ def render(graph: Graph) -> str:
         f'{INDENTATION}{connection.source_id} -->|"{_escape(connection.label)}"| {connection.target_id}'
         for connection in graph.connections
     )
-    return HTML.replace(DIAGRAM_SLOT, "\n".join(diagram))
+    return (
+        HTML
+        .replace(DIAGRAM_SLOT, "\n".join(diagram))
+        .replace(LOAD_ERROR_SLOT, copy.VISUALIZATION_LOAD_ERROR)
+        .replace(DRAW_ERROR_SLOT, copy.VISUALIZATION_DRAW_ERROR)
+    )
 
 
 def _escape(value: str) -> str:
