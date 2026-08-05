@@ -50,7 +50,7 @@ typeCheckingMode = "standard"
 reportImplicitOverride = "error"
 
 [tool.pytest.ini_options]
-addopts = "--strict-markers"
+addopts = "--strict-markers -m 'not contract'"
 markers = ["contract: reaches the live endpoint it is the oracle for, so only `./scripts/check.py --contracts` runs it"]
 
 [tool.ruff]
