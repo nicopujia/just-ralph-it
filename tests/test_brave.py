@@ -11,7 +11,7 @@ def test_returns_the_generic_results_of_a_successful_search(monkeypatch: pytest.
 
     assert brave.search("search-key", "how to ralph") == RESULTS
     assert provider.calls == [
-        ({"query": "how to ralph"}, {"Accept": "application/json", "X-Subscription-Token": "search-key"})
+        ({"q": "how to ralph"}, {"Accept": "application/json", "X-Subscription-Token": "search-key"})
     ]
 
 

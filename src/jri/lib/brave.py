@@ -15,7 +15,7 @@ def search(api_key: str, query: str) -> list[dict[str, str]]:
     try:
         response = httpx.post(
             ENDPOINT,
-            json={"query": query},
+            json={"q": query},
             headers={"Accept": "application/json", "X-Subscription-Token": api_key},
             timeout=30.0,
         )
