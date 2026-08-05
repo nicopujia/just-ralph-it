@@ -123,6 +123,24 @@ def test_reports_a_repository_without_unmerged_paths(tmp_path: Path, create_repo
     assert not repository.has_conflicts()
 
 
+def test_reports_whether_a_commit_would_land_on_a_branch(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+
+    assert repository.is_on_branch()
+
+    run_git(repository.path, "checkout", "-q", "--detach", "HEAD")
+
+    assert not repository.is_on_branch()
+
+
+def test_reports_a_repository_without_commits_as_being_on_a_branch(tmp_path: Path) -> None:
+    repository = git.Repository.init(tmp_path / "project")
+
+    assert repository.is_on_branch()
+
+
 def test_moves_staged_paths_to_the_index_side_of_the_status(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:

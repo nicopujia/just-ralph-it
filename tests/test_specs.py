@@ -373,6 +373,81 @@ def test_refuses_to_start_during_a_merge(tmp_path: Path, create_repository: Crea
     assert run_git(tmp_path, "log", "--format=%s", "-1") == "docs: add a side note"
 
 
+def test_refuses_to_start_during_a_cherry_pick(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    base = run_git(tmp_path, "rev-parse", "HEAD")
+    (tmp_path / "README.md").write_text("mainline\n")
+    run_git(tmp_path, "commit", "-qam", "docs: write the mainline note")
+    mainline = run_git(tmp_path, "rev-parse", "HEAD")
+    run_git(tmp_path, "checkout", "-q", "-b", "side", base)
+    (tmp_path / "README.md").write_text("side\n")
+    run_git(tmp_path, "commit", "-qam", "docs: write the side note")
+    run_git(tmp_path, "cherry-pick", mainline, check=False)
+    conversation = build_conversation(tmp_path, FakeClient([]))
+
+    assert read_ending(conversation.ralph(), "Finish the merge or cherry-pick") == "blocked"
+
+    assert find_accepted_commit(tmp_path) is None
+
+
+def test_refuses_to_start_off_a_branch(tmp_path: Path, create_repository: CreateRepository, run_git: RunGit) -> None:
+    create_repository(tmp_path)
+    run_git(tmp_path, "checkout", "-q", "--detach", "HEAD")
+    conversation = build_conversation(tmp_path, FakeClient([]))
+
+    assert read_ending(conversation.ralph(), "not on a branch") == "blocked"
+
+    assert find_accepted_commit(tmp_path) is None
+
+
+def test_refuses_to_start_during_a_stopped_rebase(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    (tmp_path / "notes.md").write_text("# Notes\n")
+    run_git(tmp_path, "add", "notes.md")
+    run_git(tmp_path, "commit", "-qm", "docs: add a note")
+    # A rebase a command stopped, rather than a conflict, marks the
+    # state it left behind with none of the refs a rebase writes.
+    run_git(tmp_path, "rebase", "--exec", "false", "HEAD~1", check=False)
+    conversation = build_conversation(tmp_path, FakeClient([]))
+
+    assert read_ending(conversation.ralph(), "not on a branch") == "blocked"
+
+    assert find_accepted_commit(tmp_path) is None
+
+
+def test_commits_specifications_after_a_rebase_that_finished(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("GIT_EDITOR", "true")
+    create_repository(tmp_path)
+    mainline = run_git(tmp_path, "rev-parse", "--abbrev-ref", "HEAD")
+    run_git(tmp_path, "checkout", "-q", "-b", "side")
+    (tmp_path / "README.md").write_text("side\n")
+    run_git(tmp_path, "commit", "-qam", "docs: write the side note")
+    run_git(tmp_path, "checkout", "-q", mainline)
+    (tmp_path / "README.md").write_text("mainline\n")
+    run_git(tmp_path, "commit", "-qam", "docs: write the mainline note")
+    run_git(tmp_path, "checkout", "-q", "side")
+    run_git(tmp_path, "rebase", mainline, check=False)
+    (tmp_path / "README.md").write_text("resolved\n")
+    run_git(tmp_path, "add", "README.md")
+    run_git(tmp_path, "rebase", "--continue")
+    conversation = build_conversation(tmp_path, successful_client())
+    # Git keeps this behind once a conflicted rebase finishes, and
+    # clears it on nothing thereafter, so reading it is no way to ask
+    # whether a rebase is still under way.
+    assert run_git(tmp_path, "rev-parse", "--verify", "--quiet", "REBASE_HEAD^{commit}", check=False)
+
+    list(conversation.ralph())
+
+    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+
+
 def test_commits_specifications_onto_a_project_that_moved_during_generation(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:

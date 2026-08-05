@@ -20,9 +20,11 @@ def run_git() -> RunGit:
     executable = shutil.which("git")
     assert executable is not None
 
-    def run(path: Path, *arguments: str) -> str:
+    # Git reports the states it stops in as failures, so reaching one
+    # means running a command that is meant to come back non-zero.
+    def run(path: Path, *arguments: str, check: bool = True) -> str:
         return subprocess.run(
-            [executable, "-C", str(path), *arguments], check=True, capture_output=True, text=True
+            [executable, "-C", str(path), *arguments], check=check, capture_output=True, text=True
         ).stdout.strip()
 
     return run
