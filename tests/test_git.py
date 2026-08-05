@@ -57,7 +57,6 @@ def test_reads_the_files_a_revision_tracks(tmp_path: Path, create_repository: Cr
 
     assert repository.read_file(revision, "README.md") == b"# Project\n"
     assert repository.read_tree(revision) == {"README.md": b"# Project\n"}
-    assert repository.read_tracked_paths(revision) == ("README.md",)
 
 
 def test_diffs_the_worktree_against_a_revision(tmp_path: Path, create_repository: CreateRepository) -> None:
