@@ -101,13 +101,21 @@ class Specs:
         # the project ignores does not decide this: `.jri` is JRI's to
         # keep in Git, and a project that ignores it Ralphs like any
         # other rather than failing once the generation has run.
+        indexed = self.repository.read_staged_paths(paths.COMMITTED_PATHS)
         try:
             self.repository.stage(paths.COMMITTED_PATHS, intent_to_add=True, force=True)
             commit = self.repository.commit(
                 "jri: update specifications", trailers=(ACCEPTANCE_TRAILER,), paths=paths.COMMITTED_PATHS
             )
         except git.Error:
-            self.repository.unstage(paths.COMMITTED_PATHS)
+            # Only the entries the staging above added come back out.
+            # Resetting a path the user had staged themselves would
+            # throw their content away instead, since Git puts back
+            # whatever HEAD holds for it, and nothing at all when HEAD
+            # does not hold it yet.
+            added = [path for path in self.repository.read_staged_paths(paths.COMMITTED_PATHS) if path not in indexed]
+            if added:
+                self.repository.unstage(added)
             self.repository.apply_patch(patch, reverse=True)
             raise
         logger.info("specs_committed commit=%s", commit)

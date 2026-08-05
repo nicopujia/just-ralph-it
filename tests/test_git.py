@@ -245,6 +245,16 @@ def test_stages_only_the_intent_to_add_a_path(
     assert run_git(repository.path, "show", "--format=", "--name-only", commit).splitlines() == ["other.md"]
 
 
+def test_reads_the_paths_the_index_holds(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "notes.md").write_text("# Notes\n")
+    (repository.path / "untracked.md").write_text("# Untracked\n")
+    repository.stage(["notes.md"], intent_to_add=True)
+
+    assert repository.read_staged_paths() == ("README.md", "notes.md")
+    assert repository.read_staged_paths(["notes.md", "untracked.md"]) == ("notes.md",)
+
+
 def test_stages_a_path_the_project_ignores(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     (repository.path / ".gitignore").write_text("notes.md\n")

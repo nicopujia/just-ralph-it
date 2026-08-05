@@ -341,6 +341,27 @@ def test_leaves_the_project_untouched_when_a_hook_refuses_the_commit(
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
 
 
+def test_keeps_the_content_the_user_staged_when_a_hook_refuses_the_commit(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    hook = tmp_path / ".git/hooks/pre-commit"
+    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.chmod(0o755)
+    conversation = build_conversation(tmp_path, successful_client())
+    config = tmp_path / ".jri/config.yaml"
+    config.write_text("# The configuration the user staged.\n")
+    run_git(tmp_path, "add", ".jri/config.yaml")
+    config.write_text("# The configuration the user went on editing.\n")
+    index = run_git(tmp_path, "ls-files", "--stage")
+
+    assert read_ending(conversation.ralph()) == "failed"
+
+    assert run_git(tmp_path, "ls-files", "--stage") == index
+    assert run_git(tmp_path, "show", ":.jri/config.yaml") == "# The configuration the user staged."
+    assert config.read_text() == "# The configuration the user went on editing.\n"
+
+
 def test_refuses_specifications_left_uncommitted_before_generation(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:

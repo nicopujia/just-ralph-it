@@ -134,6 +134,10 @@ class Repository:
         output = self._run("ls-tree", "-r", "-z", "--name-only", revision).stdout
         return tuple(os.fsdecode(path) for path in output.split(b"\0") if path)
 
+    def read_staged_paths(self, paths: Sequence[str] = ()) -> tuple[str, ...]:
+        output = self._run("ls-files", "-z", "--", *paths).stdout
+        return tuple(os.fsdecode(path) for path in output.split(b"\0") if path)
+
     def read_worktree_paths(self) -> tuple[str, ...]:
         output = self._run("ls-files", "-co", "--exclude-standard", "-z").stdout
         return tuple(os.fsdecode(path) for path in output.split(b"\0") if path)
