@@ -147,10 +147,30 @@ class Specs:
         # only ever stops with the conflict that stopped it.
         if self.repository.has_conflicts() or self.repository.has_commit("MERGE_HEAD"):
             raise RepositoryStateError("Finish the merge or cherry-pick in progress before Ralphing.")
-        blockers = sorted(entry.path for entry in self.repository.read_status((paths.SPECS_DIR,)))
+        # The staging reaches past whatever the project ignores, so
+        # this reaches exactly as far, and over exactly what that
+        # staging takes: a file of the user's under a path of JRI's
+        # stays theirs however Git was told to treat it, and a check
+        # blind to those rules would let the commit sweep it up.
+        blockers = sorted(entry.path for entry in self.repository.read_status((paths.COMMITTED_SPECS,), ignored=True))
         if blockers:
             raise RepositoryStateError(
                 "Commit or remove these files before Ralphing:\n" + "\n".join(f"- {path}" for path in blockers)
+            )
+        # What `_validate_patch` refuses inside a patch, the tree JRI
+        # commits may not hold either: Git records a link as the text
+        # of its target, and `read` follows it to whatever it points
+        # at, so a link committed here is read back into a prompt as a
+        # file that was never JRI's to show anyone.
+        links = sorted(
+            path.relative_to(self.workspace.root).as_posix()
+            for path in (self.workspace.root / paths.SPECS_DIR).rglob("*.md")
+            if path.is_symlink()
+        )
+        if links:
+            raise RepositoryStateError(
+                "JRI writes plain files, and these are links. Replace them before Ralphing:\n"
+                + "\n".join(f"- {path}" for path in links)
             )
 
     @staticmethod

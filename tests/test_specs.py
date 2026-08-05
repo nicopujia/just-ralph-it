@@ -568,6 +568,44 @@ def test_commits_specifications_into_a_project_that_ignores_the_workspace(
     assert not run_git(tmp_path, "status", "--short")
 
 
+def test_refuses_a_handwritten_specification_the_project_ignores(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    (tmp_path / ".gitignore").write_text(".jri/\n")
+    run_git(tmp_path, "add", ".gitignore")
+    run_git(tmp_path, "commit", "-qm", "chore: ignore the workspace")
+    conversation = build_conversation(tmp_path, successful_client())
+    stray = tmp_path / ".jri/specs/functional/stray.md"
+    stray.parent.mkdir(parents=True)
+    stray.write_text("# Stray\n")
+
+    ending = read_ending(conversation.ralph(), r"Commit or remove these files before Ralphing:\n- \.jri/specs")
+
+    assert ending == "blocked"
+    assert find_accepted_commit(tmp_path) is None
+    assert stray.read_text() == "# Stray\n"
+
+
+def test_refuses_a_specification_git_holds_as_a_link(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    (tmp_path / "secret.txt").write_text("The password is hunter2.\n")
+    client = successful_client()
+    conversation = build_conversation(tmp_path, client)
+    link = tmp_path / ".jri/specs/functional/leak.md"
+    link.parent.mkdir(parents=True)
+    link.symlink_to(tmp_path / "secret.txt")
+    run_git(tmp_path, "add", ".jri/specs")
+    run_git(tmp_path, "commit", "-qm", "docs: link a specification by hand")
+
+    assert read_ending(conversation.ralph(), r"these are links.+\n- \.jri/specs/functional/leak\.md") == "blocked"
+
+    assert not any("hunter2" in str(item) for item in client.responses.inputs)
+    assert find_accepted_commit(tmp_path) is None
+
+
 def test_refuses_to_commit_when_the_specifications_moved_during_generation(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:

@@ -88,6 +88,16 @@ def test_reads_the_status_of_the_paths_it_is_given(tmp_path: Path, create_reposi
     assert repository.read_status(["missing"]) == ()
 
 
+def test_reads_the_status_of_a_path_the_project_ignores(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / ".gitignore").write_text("build/\n")
+    (repository.path / "build").mkdir()
+    (repository.path / "build" / "report.md").write_text("# Report\n")
+
+    assert repository.read_status(["build"]) == ()
+    assert repository.read_status(["build"], ignored=True) == (git.Status("build/report.md", "!", "!"),)
+
+
 def test_reads_the_status_of_paths_a_repository_without_commits_may_not_hold(tmp_path: Path) -> None:
     repository = git.Repository.init(tmp_path / "project")
     (repository.path / "notes.md").write_text("# Notes\n")

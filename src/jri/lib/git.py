@@ -91,8 +91,10 @@ class Repository:
     def read_head(self) -> str:
         return os.fsdecode(self._run("rev-parse", "HEAD").stdout).strip()
 
-    def read_status(self, paths: Sequence[str] = ()) -> tuple[Status, ...]:
+    def read_status(self, paths: Sequence[str] = (), *, ignored: bool = False) -> tuple[Status, ...]:
         command = ["status", "--porcelain=v1", "-z", "--untracked-files=all"]
+        if ignored:
+            command.append("--ignored")
         if paths:
             command.extend(["--", *paths])
         records = self._run(*command).stdout.split(b"\0")
