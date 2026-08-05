@@ -1,11 +1,11 @@
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from openai import BadRequestError, RateLimitError, omit
+from openai import omit
 from pydantic import BaseModel
 
 from jri.core.ai import LLMRunner, ReasoningDelta, TextDelta
-from jri.core.exceptions import ModelError
+from jri.core.exceptions import ModelError, UsageLimitError
 from tests.doubles.openai import (
     FakeClient,
     disconnection,
@@ -152,7 +152,7 @@ def test_waits_longer_after_each_rate_limit_left_unexplained(waits: list[float])
 def test_reports_a_rate_limit_that_outlasts_the_retries(waits: list[float]) -> None:
     runner = build_streaming_runner(*[rate_limited()] * LLMRunner.MAX_ATTEMPTS)
 
-    with pytest.raises(RateLimitError):
+    with pytest.raises(ModelError, match="Rate limit reached"):
         list(runner.respond([]).events)
 
     assert len(waits) == LLMRunner.MAX_ATTEMPTS - 1
@@ -161,7 +161,7 @@ def test_reports_a_rate_limit_that_outlasts_the_retries(waits: list[float]) -> N
 def test_reports_a_rejected_request_without_retrying(waits: list[float]) -> None:
     runner = build_streaming_runner(rejection(), streamed_reply("ready"))
 
-    with pytest.raises(BadRequestError):
+    with pytest.raises(ModelError, match="Unknown model"):
         list(runner.respond([]).events)
 
     assert waits == []
@@ -170,7 +170,7 @@ def test_reports_a_rejected_request_without_retrying(waits: list[float]) -> None
 def test_reports_an_exhausted_usage_limit_without_retrying(waits: list[float]) -> None:
     runner = build_streaming_runner(rate_limited(code="insufficient_quota"), streamed_reply("ready"))
 
-    with pytest.raises(RateLimitError):
+    with pytest.raises(UsageLimitError, match="Rate limit reached"):
         list(runner.respond([]).events)
 
     assert waits == []
@@ -179,7 +179,7 @@ def test_reports_an_exhausted_usage_limit_without_retrying(waits: list[float]) -
 def test_keeps_a_rate_limit_that_cut_a_started_reply_short(waits: list[float]) -> None:
     runner = build_streaming_runner(interrupted_reply("half"), streamed_reply("ready"))
 
-    with pytest.raises(RateLimitError):
+    with pytest.raises(ModelError, match="Rate limit reached"):
         list(runner.respond([]).events)
 
     assert waits == []

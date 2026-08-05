@@ -13,7 +13,7 @@ from openai.types.shared import ReasoningEffort
 from openai.types.shared_params import Reasoning
 from pydantic import BaseModel, ValidationError
 
-from jri.core.exceptions import ModelError
+from jri.core.exceptions import ModelError, UsageLimitError
 
 from .events import ChatEvent, ReasoningDelta, TextDelta
 
@@ -109,7 +109,7 @@ class LLMRunner:
                 # A turn the user already saw part of cannot start over
                 # without repeating what it said.
                 if streamed:
-                    raise
+                    raise _read_failure(error) from error
                 outputs_by_index.clear()
                 self._wait_to_retry(error, attempt)
                 attempt += 1
@@ -149,7 +149,7 @@ class LLMRunner:
 
     def _wait_to_retry(self, error: OpenAIError, attempt: int) -> None:
         if attempt >= self.MAX_ATTEMPTS or not _can_retry(error):
-            raise error
+            raise _read_failure(error) from error
         delay = min(_read_retry_hint(error) or self.RETRY_DELAY * 2 ** (attempt - 1), self.MAX_RETRY_DELAY)
         logger.warning("request_retrying model=%s attempt=%d delay=%.3f error=%s", self.model, attempt, delay, error)
         sleep(delay)
@@ -183,6 +183,16 @@ class LLMRunner:
         size = len(json.dumps(context).encode())
         if size > self.max_input_size:
             raise ModelError(f"Request context is {size} bytes, over the {self.max_input_size} byte limit.")
+
+
+# The provider's own exceptions are no `RuntimeError`, so they cross
+# every net JRI holds; here is where they become JRI's, and a budget
+# already spent is worth a name of its own, since it is the one
+# failure no amount of retrying or waiting ever clears.
+def _read_failure(error: OpenAIError) -> ModelError:
+    if isinstance(error, APIStatusError) and error.code in EXHAUSTION_CODES:
+        return UsageLimitError(str(error))
+    return ModelError(str(error))
 
 
 def _can_retry(error: OpenAIError) -> bool:
