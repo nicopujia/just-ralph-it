@@ -1,5 +1,7 @@
+from inspect import cleandoc
 from typing import Literal
 
+from openai.types.responses import ResponseInputParam
 from pydantic import BaseModel
 
 from jri.core import paths
@@ -32,6 +34,12 @@ class Output(BaseModel):
 
 
 class FunctionalAnalyst:
+    REPAIR_PROMPT = cleandoc("""
+        Git rejected the patch below. Return only a `specification_patch` carrying the same intended change,
+        rewritten so `git apply` accepts it against the accepted functional specifications. Hunks must not
+        overlap, and every context line must match its file exactly.
+    """)
+
     def __init__(self, settings: Settings) -> None:
         profile = settings.agents.functional_analyst
         self.runner = LLMRunner(
@@ -87,25 +95,33 @@ class FunctionalAnalyst:
         )
 
     def write(self, context: Input) -> Result:
+        return self.runner.parse(self._build_input(context), Output).result
+
+    def repair(self, context: Input, patch: str, error: str) -> str:
+        return self.runner.parse(
+            [
+                *self._build_input(context),
+                {"role": "user", "content": f"{self.REPAIR_PROMPT}\n\nRejected patch:\n{patch}\n\nGit error:\n{error}"},
+            ],
+            Patch,
+        ).patch
+
+    def _build_input(self, context: Input) -> ResponseInputParam:
         revision = ""
         if context.rejected_specs is not None:
             revision = (
                 "\n\nRejected functional draft:\n"
                 f"{context.rejected_specs}\n\nArchitect feedback:\n{context.architect_feedback or ''}"
             )
-        output = self.runner.parse(
-            [
-                {"role": "system", "content": self.runner.prompt},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Current notebook:\n{context.notebook}\n\n"
-                        f"Notebook diff from accepted baseline:\n{context.notebook_diff}\n\n"
-                        f"Accepted functional specifications:\n{context.accepted_specs}"
-                        f"{revision}"
-                    ),
-                },
-            ],
-            Output,
-        )
-        return output.result
+        return [
+            {"role": "system", "content": self.runner.prompt},
+            {
+                "role": "user",
+                "content": (
+                    f"Current notebook:\n{context.notebook}\n\n"
+                    f"Notebook diff from accepted baseline:\n{context.notebook_diff}\n\n"
+                    f"Accepted functional specifications:\n{context.accepted_specs}"
+                    f"{revision}"
+                ),
+            },
+        ]

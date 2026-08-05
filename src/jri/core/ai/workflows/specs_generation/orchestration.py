@@ -1,18 +1,21 @@
 import logging
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from difflib import unified_diff
+from functools import partial
 from pathlib import Path, PurePosixPath
 
 from jri.core import ai, paths
 from jri.core.exceptions import SpecsError
 from jri.core.settings import Settings
 from jri.core.specs import Specs
+from jri.lib import git
 
 from . import architect, functional_analyst
 
 type SpecsResult = functional_analyst.Ambiguities | str
 
 MAX_CYCLES = 10
+MAX_PATCH_ATTEMPTS = 3
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +28,18 @@ def generate(
     designer = architect.Architect(settings)
     baseline = specs.prepare(active_commit)
     explorer_report: str | None = None
-    feedback: str | None = None
-    rejected: str | None = None
+    functional_context = functional_analyst.Input(
+        notebook=baseline.notebook.decode(),
+        notebook_diff="".join(
+            unified_diff(
+                baseline.accepted_notebook.decode().splitlines(keepends=True),
+                baseline.notebook.decode().splitlines(keepends=True),
+                fromfile=f"a/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
+                tofile=f"b/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
+            )
+        ),
+        accepted_specs=specs.render(baseline.functional),
+    )
     open_row = ai.ToolCallStarted("functional", "Writing functional specifications from your project notes", "✍️")
 
     cycle = 0
@@ -38,22 +51,7 @@ def generate(
         logger.info("specs_cycle_started cycle=%d", cycle)
         if cycle == 1:
             yield open_row
-        functional_result = analyst.write(
-            functional_analyst.Input(
-                notebook=baseline.notebook.decode(),
-                notebook_diff="".join(
-                    unified_diff(
-                        baseline.accepted_notebook.decode().splitlines(keepends=True),
-                        baseline.notebook.decode().splitlines(keepends=True),
-                        fromfile=f"a/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
-                        tofile=f"b/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
-                    )
-                ),
-                accepted_specs=specs.render(baseline.functional),
-                rejected_specs=rejected,
-                architect_feedback=feedback,
-            )
-        )
+        functional_result = analyst.write(functional_context)
         if isinstance(functional_result, functional_analyst.Ambiguities):
             logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.ambiguities))
             yield ai.ToolCallFinished(open_row.call_id, "Found project details to clarify")
@@ -62,7 +60,13 @@ def generate(
             yield ai.ToolCallFinished(open_row.call_id, "Wrote functional specifications from your project notes")
 
         with specs.repository.open_worktree(baseline.commit) as staging:
-            specs.apply(staging, functional_result.patch, paths.FUNCTIONAL_SPECS_ROOT)
+            _apply_patch(
+                specs,
+                staging,
+                paths.FUNCTIONAL_SPECS_ROOT,
+                functional_result.patch,
+                partial(analyst.repair, functional_context),
+            )
             functional = specs.read(staging.path, paths.FUNCTIONAL_SPECS_DIR)
             if not functional:
                 raise SpecsError("Functional specifications cannot be empty.")
@@ -113,11 +117,21 @@ def generate(
                     "🗒️",
                 )
                 yield open_row
-                rejected = specs.render(functional)
-                feedback = "\n".join(f"- {issue}" for issue in architecture_result.issues)
+                functional_context = functional_context.model_copy(
+                    update={
+                        "rejected_specs": specs.render(functional),
+                        "architect_feedback": "\n".join(f"- {issue}" for issue in architecture_result.issues),
+                    }
+                )
                 continue
 
-            specs.apply(staging, architecture_result.patch, paths.ARCHITECTURE_SPECS_ROOT)
+            _apply_patch(
+                specs,
+                staging,
+                paths.ARCHITECTURE_SPECS_ROOT,
+                architecture_result.patch,
+                partial(designer.repair, context),
+            )
             if not specs.read(staging.path, paths.ARCHITECTURE_SPECS_DIR):
                 raise SpecsError("Architecture specifications cannot be empty.")
             patch = staging.diff(baseline.commit, paths=(paths.FUNCTIONAL_SPECS_DIR, paths.ARCHITECTURE_SPECS_DIR))
@@ -127,3 +141,24 @@ def generate(
             open_row.call_id, "Designed the project architecture" if cycle == 1 else open_row.label
         )
         return commit
+
+
+# A diff a model got slightly wrong is its mistake to correct, not a
+# reason to throw the whole run away, so the rejection goes back to
+# the model that wrote it. The safety validation runs on every try,
+# since a repaired patch is no more trusted than the first one.
+def _apply_patch(
+    specs: Specs, staging: git.Repository, root: str, patch: str, repair: Callable[[str, str], str]
+) -> None:
+    for attempt in range(1, MAX_PATCH_ATTEMPTS + 1):
+        try:
+            specs.apply(staging, patch, root)
+        except git.Error as error:
+            if attempt == MAX_PATCH_ATTEMPTS:
+                raise SpecsError(
+                    f"Git rejected the {root} specification patch on all {MAX_PATCH_ATTEMPTS} attempts:\n{error}"
+                ) from error
+            logger.info("patch_repair_requested root=%s attempt=%d", root, attempt)
+            patch = repair(patch, str(error))
+        else:
+            return

@@ -6,7 +6,6 @@ from jri.core.ai import architect, functional_analyst
 from jri.core.conversation import Conversation
 from jri.core.exceptions import RepositoryStateError, SpecsError
 from jri.core.specs import Specs
-from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
@@ -444,11 +443,20 @@ def test_commits_a_specification_the_analyst_deleted(
     assert not run_git(tmp_path, "status", "--short")
 
 
-def test_reports_a_valid_patch_that_git_cannot_apply(tmp_path: Path, create_repository: CreateRepository) -> None:
+def test_reports_a_valid_patch_that_git_never_applies(tmp_path: Path, create_repository: CreateRepository) -> None:
     create_repository(tmp_path)
-    conversation = build_conversation(tmp_path, build_client(FUNCTIONAL_UPDATE))
+    client = FakeClient(
+        [],
+        parsed=[
+            functional_analyst.Output(
+                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
+            ),
+            *[functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)] * 2,
+        ],
+    )
+    conversation = build_conversation(tmp_path, client)
 
-    with pytest.raises(git.Error):
+    with pytest.raises(SpecsError, match="Git rejected the functional specification patch on all 3 attempts"):
         list(conversation.ralph())
 
     assert conversation.session.active_spec_commit is None

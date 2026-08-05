@@ -55,6 +55,14 @@ deleted file mode 100644
 @@ -1 +0,0 @@
 -# Design
 """
+ARCHITECTURE_UPDATE = """\
+diff --git a/architecture/design.md b/architecture/design.md
+--- a/architecture/design.md
++++ b/architecture/design.md
+@@ -1 +1,2 @@
+ # Design
++Add a total accumulator.
+"""
 
 
 def build_workspace(path: Path, create_repository: CreateRepository) -> None:
@@ -302,6 +310,64 @@ def test_refuses_a_patch_that_deletes_every_architecture_specification(
 
     with pytest.raises(SpecsError, match="Architecture specifications cannot be empty"):
         generate(client, commit)
+
+
+def test_sends_a_rejected_functional_patch_back_to_the_analyst(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    client = FakeClient(
+        [streamed_reply("Repository report")],
+        parsed=[
+            functional_analyst.Output(
+                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
+            ),
+            functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_PATCH),
+            designed_architecture(),
+        ],
+    )
+
+    _, result = generate(client)
+
+    assert isinstance(result, str)
+    repair = next(prompt for prompt in read_prompts(client) if "Rejected patch:" in prompt)
+    assert FUNCTIONAL_UPDATE in repair
+    assert "Git error:" in repair
+
+
+def test_sends_a_rejected_architecture_patch_back_to_the_architect(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    client = FakeClient(
+        [streamed_reply("Repository report")],
+        parsed=[
+            written_specs(),
+            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_UPDATE)),
+            architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_PATCH),
+        ],
+    )
+
+    _, result = generate(client)
+
+    assert isinstance(result, str)
+    assert (tmp_path / paths.ARCHITECTURE_SPECS_DIR / "design.md").read_text() == "# Design\n"
+
+
+def test_refuses_a_repaired_patch_that_leaves_its_root(tmp_path: Path, create_repository: CreateRepository) -> None:
+    build_workspace(tmp_path, create_repository)
+    client = FakeClient(
+        [],
+        parsed=[
+            functional_analyst.Output(
+                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
+            ),
+            functional_analyst.Patch(outcome="specification_patch", patch=ARCHITECTURE_PATCH),
+        ],
+    )
+
+    with pytest.raises(SpecsError, match=r"cannot change `architecture/design\.md`"):
+        generate(client)
 
 
 def test_refuses_an_architecture_patch_that_leaves_its_root(

@@ -37,6 +37,11 @@ class Architect:
         This is the final architecture pass. Return only an `architecture_patch`. Resolve every remaining
         architectural choice yourself while preserving the functional specifications exactly.
     """)
+    REPAIR_PROMPT = cleandoc("""
+        Git rejected the patch below. Return only an `architecture_patch` carrying the same intended change,
+        rewritten so `git apply` accepts it against the accepted architecture. Hunks must not overlap, and
+        every context line must match its file exactly.
+    """)
 
     def __init__(self, settings: Settings) -> None:
         profile = settings.agents.architect
@@ -89,6 +94,15 @@ class Architect:
 
     def finish(self, context: Input) -> Patch:
         return self.runner.parse(self._build_input(context, f"{self.runner.prompt}\n\n{self.FINAL_PROMPT}"), Patch)
+
+    def repair(self, context: Input, patch: str, error: str) -> str:
+        return self.runner.parse(
+            [
+                *self._build_input(context, self.runner.prompt),
+                {"role": "user", "content": f"{self.REPAIR_PROMPT}\n\nRejected patch:\n{patch}\n\nGit error:\n{error}"},
+            ],
+            Patch,
+        ).patch
 
     @staticmethod
     def _build_input(context: Input, prompt: str) -> ResponseInputParam:
