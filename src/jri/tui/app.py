@@ -546,7 +546,7 @@ class App(TextualApp[None]):
         self.active_turn_state = turn_state
         App.ALLOW_SELECT = False
         self.messages_container.anchor()
-        self._run_turn(self.conversation.ralph(), turn_state)
+        self._run_turn(self.conversation.ralph(turn_state.cancelled), turn_state)
 
     async def _sync_ralph_button(self) -> None:
         if self.ralph_button.is_mounted:

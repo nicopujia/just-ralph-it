@@ -1,5 +1,6 @@
 from collections.abc import Generator
 from pathlib import Path
+from threading import Event
 from typing import cast
 
 import pytest
@@ -13,7 +14,7 @@ from tests.doubles.openai import FakeClient, call, partial_reply, reply, respons
 from tests.doubles.settings import build_settings
 from tests.doubles.workspace import install_workspace
 
-type Result = functional_analyst.Ambiguities | str
+type Result = functional_analyst.Ambiguities | str | None
 type Row = ToolCallStarted | ToolCallFinished
 
 ARCHITECTURE_PATCH = """\
@@ -71,14 +72,22 @@ def build_workspace(path: Path, create_repository: CreateRepository) -> None:
     install_workspace(path)
 
 
-def generate(client: FakeClient) -> tuple[list[Row], Result]:
+def generate(client: FakeClient, stop_at: Row | None = None) -> tuple[list[Row], Result]:
     captured: list[Result] = []
+    cancelled = Event()
     settings = build_settings(client)
 
     def drive() -> Generator[Row]:
-        captured.append((yield from specs_generation.generate(settings)))
+        captured.append((yield from specs_generation.generate(settings, cancelled)))
 
-    return list(drive()), captured[0]
+    rows: list[Row] = []
+    # A stop reaches the run while the row naming the step it
+    # interrupts is the one on screen.
+    for row in drive():
+        rows.append(row)
+        if row == stop_at:
+            cancelled.set()
+    return rows, captured[0]
 
 
 def commit_specs() -> None:
@@ -130,6 +139,53 @@ def test_returns_ambiguities_without_committing(
     ]
     assert run_git(tmp_path, "rev-parse", "HEAD") == head
     assert not (tmp_path / paths.SPECS_DIR).exists()
+
+
+@pytest.mark.parametrize(
+    "stop_at",
+    [
+        ToolCallStarted("functional", "Writing functional specifications from your project notes", "✍️"),
+        ToolCallStarted("architecture", "Designing the project architecture", "📐"),
+        ToolCallFinished("architecture", "Designed the project architecture", "done"),
+    ],
+    ids=["writing", "designing", "designed"],
+)
+def test_stops_a_run_without_touching_the_project(
+    stop_at: Row, tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    head = run_git(tmp_path, "rev-parse", "HEAD")
+    client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
+
+    rows, result = generate(client, stop_at)
+
+    assert result is None
+    # The run says nothing more, leaving the row the stop landed on
+    # for the turn to close.
+    assert rows[-1] == stop_at
+    assert run_git(tmp_path, "rev-parse", "HEAD") == head
+    assert not (tmp_path / paths.SPECS_DIR).exists()
+    # Nothing staged and no worktree left behind: a stop that left
+    # either would be worse than never stopping.
+    assert not run_git(tmp_path, "diff", "--cached")
+    assert len(run_git(tmp_path, "worktree", "list").splitlines()) == 1
+
+
+def test_stops_the_repository_study_without_calling_it_a_failure(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    # The only round the study is served, so a run that carried on
+    # would answer this call and then ask for a round nobody queued.
+    client = FakeClient(
+        [response(call("read", "read_files", paths=["README.md"]))], parsed=[written_specs(), designed_architecture()]
+    )
+
+    rows, result = generate(client, ToolCallStarted("explorer", "Studying your existing project", "🔎"))
+
+    assert result is None
+    assert read_rows(rows)[-1] == ("ToolCallStarted", "explorer", "Studying your existing project")
+    assert architect.Output not in [options.get("text_format") for options in client.responses.options]
 
 
 def test_reports_one_row_per_polishing_round(tmp_path: Path, create_repository: CreateRepository) -> None:

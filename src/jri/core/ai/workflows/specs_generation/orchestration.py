@@ -3,6 +3,7 @@ from collections.abc import Callable, Generator
 from difflib import unified_diff
 from functools import partial
 from pathlib import Path, PurePosixPath
+from threading import Event
 
 from jri.core import ai, paths
 from jri.core.exceptions import SpecsError
@@ -20,7 +21,16 @@ MAX_PATCH_ATTEMPTS = 3
 logger = logging.getLogger(__name__)
 
 
-def generate(settings: Settings) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished", None, SpecsResult]:
+# A stop is answered between steps, so the longest it waits is the
+# model call already in flight, and it leaves the project as it found
+# it: everything a run writes before `Specs.accept` is written in a
+# worktree the run throws away, and the acceptance itself is the one
+# step no stop interrupts, since a half-applied patch or a staged
+# index would be worse than never stopping at all.
+def generate(
+    settings: Settings, cancelled: Event | None = None
+) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished", None, SpecsResult | None]:
+    cancelled = cancelled or Event()
     specs = Specs(Path.cwd())
     analyst = functional_analyst.FunctionalAnalyst(settings)
     designer = architect.Architect(settings)
@@ -50,6 +60,8 @@ def generate(settings: Settings) -> Generator["ai.ToolCallStarted | ai.ToolCallF
         if cycle == 1:
             yield open_row
         functional_result = analyst.write(functional_context)
+        if cancelled.is_set():
+            return None
         if isinstance(functional_result, functional_analyst.Ambiguities):
             logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.ambiguities))
             yield ai.ToolCallFinished(open_row.call_id, "Found project details to clarify", "done")
@@ -86,8 +98,14 @@ def generate(settings: Settings) -> Generator["ai.ToolCallStarted | ai.ToolCallF
                             "Study this repository generally. Report its structure, architecture, established "
                             "patterns, development commands, and the constraints that new work in it must respect.",
                             depth=1,
+                            cancelled=cancelled,
                         )
                     ).strip()
+                # A study the user stopped is short of what it would
+                # have reported, which is no reason to call the run
+                # broken.
+                if cancelled.is_set():
+                    return None
                 if not explorer_report:
                     raise SpecsError("Repository exploration produced no report.")
                 yield ai.ToolCallFinished("explorer", "Studied your existing project", "done")
@@ -101,6 +119,8 @@ def generate(settings: Settings) -> Generator["ai.ToolCallStarted | ai.ToolCallF
                 explorer_report=explorer_report,
             )
             architecture_result = designer.finish(context) if cycle == MAX_CYCLES else designer.design(context)
+            if cancelled.is_set():
+                return None
             if isinstance(architecture_result, architect.Issues):
                 logger.info("specs_issues cycle=%d count=%d", cycle, len(architecture_result.issues))
                 # A polish row has no separate closing phrasing,
@@ -136,6 +156,11 @@ def generate(settings: Settings) -> Generator["ai.ToolCallStarted | ai.ToolCallF
         yield ai.ToolCallFinished(
             open_row.call_id, "Designed the project architecture" if cycle == 1 else open_row.label, "done"
         )
+        # The last moment a stop still costs the user nothing but the
+        # run: past the row below, the specifications are on their way
+        # into the project and the run sees it through.
+        if cancelled.is_set():
+            return None
         # Saving is a step of its own, so a project state that blocks
         # the commit closes the row naming it rather than the design
         # row, whose work was already done and is nowhere at fault.

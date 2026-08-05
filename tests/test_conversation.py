@@ -29,6 +29,7 @@ from tests.doubles.specs_generation import (
     STARTED_ROW,
     generate_blocked,
     generate_interrupted,
+    generate_stopped,
     generate_succeeding,
 )
 from tests.doubles.workspace import install_workspace
@@ -293,6 +294,43 @@ def test_keeps_the_offer_an_interrupted_generation_never_consumed(monkeypatch: p
     events = conversation.ralph()
     next(events)
     events.close()
+
+    restarted = build_conversation(FakeClient([]))
+    restarted.restore()
+    assert restarted.is_ready_to_ralph
+
+
+def test_stops_a_generation_the_user_asked_to_stop(monkeypatch: pytest.MonkeyPatch) -> None:
+    cancelled = Event()
+    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_stopped)
+
+    events = conversation.ralph(cancelled)
+    next(events)
+    cancelled.set()
+
+    # No round is left for the interviewer, so a run that reported a
+    # stopped generation to it would ask the provider for one.
+    assert list(events) == [
+        ToolCallFinished(STARTED_ROW.call_id, STARTED_ROW.label, "stopped"),
+        TurnFinished("stopped"),
+    ]
+    assert conversation.session.transcript[-1].items[-1].outcome == "stopped"
+
+
+def test_keeps_the_offer_a_stopped_generation_never_spent(monkeypatch: pytest.MonkeyPatch) -> None:
+    cancelled = Event()
+    conversation = build_conversation(
+        FakeClient([response(call("ready", "offer_ralphing")), streamed_reply("Click Just Ralph It.")])
+    )
+    list(conversation.chat("We're ready."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_stopped)
+
+    events = conversation.ralph(cancelled)
+    next(events)
+    cancelled.set()
+    list(events)
 
     restarted = build_conversation(FakeClient([]))
     restarted.restore()

@@ -10,6 +10,7 @@ from collections.abc import Generator
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryFile
+from threading import Event
 from typing import cast
 
 import httpx
@@ -68,9 +69,11 @@ class Explorer(Agent):
     # Only the last uninterrupted stretch of text is the report: a tool
     # call means the run was still gathering, so whatever it had said
     # before that is working-out rather than conclusion.
-    def report(self, query: str, depth: int = 0) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished", None, str]:
+    def report(
+        self, query: str, depth: int = 0, cancelled: Event | None = None
+    ) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished", None, str]:
         output: list[str] = []
-        for event in self.send_message(query):
+        for event in self.send_message(query, cancelled):
             match event:
                 case ai.ToolCallStarted():
                     output.clear()

@@ -161,14 +161,14 @@ class Conversation:
         )
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
-    def ralph(self) -> Generator[TurnEvent]:
+    def ralph(self, cancelled: Event | None = None) -> Generator[TurnEvent]:
         checkpoint = self._capture_checkpoint(len(self.interviewer.history))
         # A run reports into the turn the user is looking at, since its
         # rows and its reply answer the message that turn opened with.
         # A run started before any message opens a turn of its own.
         if not self.session.transcript:
             self.session.transcript.append(Turn(message="", items=[]))
-        yield from self._report_turn(self._generate_specs(), checkpoint, None)
+        yield from self._report_turn(self._generate_specs(cancelled), checkpoint, cancelled)
 
     def restore(self) -> list[Turn]:
         if not self.workspace.session_file.exists():
@@ -223,8 +223,13 @@ class Conversation:
     def _capture_checkpoint(self, history_length: int) -> Checkpoint:
         return Checkpoint(history_length, self.notebook.graph.model_copy(deep=True), self.interviewer.active_topic_id)
 
-    def _generate_specs(self) -> Generator[AgentEvent]:
-        result = yield from specs_generation.generate(self.settings)
+    def _generate_specs(self, cancelled: Event | None) -> Generator[AgentEvent]:
+        result = yield from specs_generation.generate(self.settings, cancelled)
+        # A run the user stopped reached no conclusion to report, and
+        # spent nothing to reach it: the offer stands, and the model
+        # hears about a run it would have nothing to say about.
+        if result is None:
+            return
 
         # An item joins the history for good, so it states what
         # happened and nothing else: what to do about it holds beyond
@@ -239,7 +244,7 @@ class Conversation:
         # whatever it concluded about them; one that never got there
         # leaves the offer standing for the user to spend again.
         self.update_session(interview=self.interviewer.history, ready_graph=None)
-        yield from self.interviewer.respond()
+        yield from self.interviewer.respond(cancelled)
 
     # The one place a turn is written down, and the one place it ends.
     # Both views read this recording rather than deriving their own, so
