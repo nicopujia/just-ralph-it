@@ -14,7 +14,7 @@ TURNS = 12
 
 
 def build_interviewer(path: Path, client: FakeClient | None = None) -> Interviewer:
-    return Interviewer(build_settings(path, client or FakeClient([])), Notebook(path / "notebook.yaml"))
+    return Interviewer(build_settings(client or FakeClient([])), Notebook(path / "notebook.yaml"))
 
 
 def test_keeps_at_least_ten_recent_turns_in_context(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:

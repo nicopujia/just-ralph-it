@@ -62,9 +62,9 @@ def build_workspace(path: Path, create_repository: CreateRepository) -> None:
     install_workspace(path)
 
 
-def generate(path: Path, client: FakeClient, active_commit: str | None = None) -> tuple[list[Row], Result]:
+def generate(client: FakeClient, active_commit: str | None = None) -> tuple[list[Row], Result]:
     captured: list[Result] = []
-    settings = build_settings(path, client)
+    settings = build_settings(client)
 
     def drive() -> Generator[Row]:
         captured.append((yield from specs_generation.generate(settings, active_commit)))
@@ -72,9 +72,9 @@ def generate(path: Path, client: FakeClient, active_commit: str | None = None) -
     return list(drive()), captured[0]
 
 
-def commit_specs(path: Path) -> str:
+def commit_specs() -> str:
     client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
-    _, commit = generate(path, client)
+    _, commit = generate(client)
     assert isinstance(commit, str)
     return commit
 
@@ -113,7 +113,7 @@ def test_returns_ambiguities_without_committing(
     ambiguities = functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=["JSON or plain text?"])
     client = FakeClient([], parsed=[functional_analyst.Output(result=ambiguities)])
 
-    rows, result = generate(tmp_path, client)
+    rows, result = generate(client)
 
     assert result == ambiguities
     assert read_rows(rows) == [
@@ -140,7 +140,7 @@ def test_reports_one_row_per_polishing_round(tmp_path: Path, create_repository: 
         ],
     )
 
-    rows, result = generate(tmp_path, client)
+    rows, result = generate(client)
 
     assert read_rows(rows) == [
         ("ToolCallStarted", "functional", "Writing functional specifications from your project notes"),
@@ -174,7 +174,7 @@ def test_finishes_the_open_polishing_round_when_ambiguities_appear(
         ],
     )
 
-    rows, _ = generate(tmp_path, client)
+    rows, _ = generate(client)
 
     assert read_rows(rows)[-2:] == [
         ("ToolCallStarted", "polish-1", "2 issues found. Polishing... (round 1)"),
@@ -199,7 +199,7 @@ def test_sends_the_architect_issues_back_to_the_functional_analyst(
         ],
     )
 
-    generate(tmp_path, client)
+    generate(client)
 
     revision = next(prompt for prompt in read_prompts(client) if "Rejected functional draft:" in prompt)
     assert "File: functional/behavior.md\n\n# Behavior" in revision
@@ -216,7 +216,7 @@ def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_r
     parsed.extend([written_specs(), architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_PATCH)])
     client = FakeClient([streamed_reply("Repository report")], parsed=parsed)
 
-    rows, result = generate(tmp_path, client)
+    rows, result = generate(client)
 
     assert client.responses.options[-1]["text_format"] is architect.Patch
     assert len([row for row in rows if isinstance(row, ToolCallStarted) and "polish" in row.call_id]) == (
@@ -237,7 +237,7 @@ def test_reports_only_the_explorer_text_that_follows_its_last_tool_call(
         parsed=[written_specs(), designed_architecture()],
     )
 
-    generate(tmp_path, client)
+    generate(client)
 
     report = next(prompt for prompt in read_prompts(client) if "Repository analysis report:" in prompt)
     assert report.endswith("Repository analysis report:\nFinal report")
@@ -248,14 +248,14 @@ def test_refuses_an_empty_repository_report(tmp_path: Path, create_repository: C
     client = FakeClient([response(reply(""))], parsed=[written_specs()])
 
     with pytest.raises(SpecsError, match="produced no report"):
-        generate(tmp_path, client)
+        generate(client)
 
 
 def test_refuses_a_patch_that_deletes_every_functional_specification(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    commit = commit_specs(tmp_path)
+    commit = commit_specs()
     client = FakeClient(
         [],
         parsed=[
@@ -266,14 +266,14 @@ def test_refuses_a_patch_that_deletes_every_functional_specification(
     )
 
     with pytest.raises(SpecsError, match="Functional specifications cannot be empty"):
-        generate(tmp_path, client, commit)
+        generate(client, commit)
 
 
 def test_refuses_a_patch_that_deletes_every_architecture_specification(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    commit = commit_specs(tmp_path)
+    commit = commit_specs()
     client = FakeClient(
         [streamed_reply("Repository report")],
         parsed=[
@@ -285,7 +285,7 @@ def test_refuses_a_patch_that_deletes_every_architecture_specification(
     )
 
     with pytest.raises(SpecsError, match="Architecture specifications cannot be empty"):
-        generate(tmp_path, client, commit)
+        generate(client, commit)
 
 
 def test_refuses_an_architecture_patch_that_leaves_its_root(
@@ -301,4 +301,4 @@ def test_refuses_an_architecture_patch_that_leaves_its_root(
     )
 
     with pytest.raises(SpecsError, match=r"cannot change `functional/behavior\.md`"):
-        generate(tmp_path, client)
+        generate(client)

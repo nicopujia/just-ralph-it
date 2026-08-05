@@ -46,6 +46,13 @@ def isolate_model_catalog(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_catalog(monkeypatch)
 
 
+# A JRI command runs inside the project it works on, so the code under
+# test reads the working directory rather than being told about it.
+@pytest.fixture(autouse=True)
+def isolate_cwd(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+
 @pytest.fixture(autouse=True, scope="session")
 def block_network() -> Iterator[None]:
     def guard(*_: object, **__: object) -> Never:

@@ -13,7 +13,7 @@ from tests.doubles.workspace import install_workspace
 
 def test_writes_a_log_file_for_every_run(tmp_path: Path) -> None:
     install_workspace(tmp_path)
-    settings = build_settings(tmp_path, FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
 
     logs.configure(settings)
     Conversation(settings)
@@ -28,4 +28,4 @@ def test_explains_when_the_log_file_cannot_be_created(tmp_path: Path) -> None:
     (tmp_path / paths.LOGS_DIR).write_text("not a directory")
 
     with pytest.raises(PersistenceError, match="Could not create the log file"):
-        logs.configure(build_settings(tmp_path, FakeClient([])))
+        logs.configure(build_settings(FakeClient([])))

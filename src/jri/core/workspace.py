@@ -18,7 +18,8 @@ class Workspace:
     root: Path
 
     @staticmethod
-    def find(cwd: Path) -> "Workspace":
+    def find() -> "Workspace":
+        cwd = Path.cwd()
         return Workspace(git.find_root(cwd) or cwd)
 
     @property

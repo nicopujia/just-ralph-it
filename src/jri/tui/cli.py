@@ -1,7 +1,6 @@
 import argparse
 import logging
 import webbrowser
-from pathlib import Path
 
 import yaml
 from dotenv import load_dotenv
@@ -55,7 +54,7 @@ def main() -> None:
 
 
 def _initialize(*, force: bool, yes: bool) -> None:
-    workspace = Workspace.find(Path.cwd().resolve())
+    workspace = Workspace.find()
     if force and not (yes or _confirm_reset(workspace)):
         print(copy.FORCE_CANCELLED)
         raise SystemExit(1)
@@ -95,13 +94,13 @@ def _view() -> None:
 
 
 def _load_settings() -> Settings:
-    workspace = Workspace.find(Path.cwd().resolve())
+    workspace = Workspace.find()
     if not workspace.config_file.exists():
         print(copy.WORKSPACE_MISSING)
         raise SystemExit(1)
     load_dotenv(workspace.root / ".env")
     try:
-        return Settings.load(workspace.root)
+        return Settings.load()
     except (ValidationError, yaml.YAMLError) as error:
         error_lines = (
             [_describe_issue(issue) for issue in error.errors()]

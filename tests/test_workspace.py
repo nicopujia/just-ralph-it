@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import yaml
 
 from jri.core import paths
@@ -84,17 +85,18 @@ def test_leaves_a_repository_without_commits_alone(tmp_path: Path, run_git: RunG
 
 
 def test_finds_the_workspace_at_the_root_of_the_enclosing_repository(
-    tmp_path: Path, create_repository: CreateRepository
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     repository = create_repository(tmp_path / "repo")
     nested = repository.path / "packages" / "app"
     nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
 
-    assert Workspace.find(nested).root == repository.path
+    assert Workspace.find().root == repository.path
 
 
 def test_falls_back_to_the_working_directory_outside_a_repository(tmp_path: Path) -> None:
-    assert Workspace.find(tmp_path).root == tmp_path
+    assert Workspace.find().root == tmp_path
 
 
 def test_initializes_a_workspace_inside_an_existing_repository(
@@ -171,7 +173,7 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
     (base_dir / "specs" / "old.md").write_text("old spec")
 
     install_workspace(tmp_path, force=True)
-    conversation = Conversation(build_settings(tmp_path, FakeClient([])))
+    conversation = Conversation(build_settings(FakeClient([])))
 
     assert conversation.restore() == []
     assert conversation.session.show_thinking_blocks is False

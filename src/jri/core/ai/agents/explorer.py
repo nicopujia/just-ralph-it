@@ -41,7 +41,7 @@ class Explorer(Agent):
 
                 Goal: Gather relevant context based on the given query.
 
-                Working directory: {self.settings.cwd}
+                Working directory: {Path.cwd()}
 
                 Output:
                     - A dense, concise, and purely factual report based exclusively on data from tool outputs.
@@ -157,9 +157,10 @@ class Explorer(Agent):
         logger.debug("read_paths paths=%r", paths)
         output: ResponseFunctionCallOutputItemListParam = []
         for raw_path in paths:
-            path = Path(raw_path).expanduser()
-            if not path.is_absolute():
-                path = self.settings.cwd / path
+            # Absolute throughout, so every path the report attributes a
+            # fact to names the file without the reader knowing the
+            # directory the run happened in.
+            path = Path(raw_path).expanduser().absolute()
             try:
                 if path.stat().st_size > self.MAX_INPUT_SIZE:
                     raise RuntimeError(f"Could not read {path}: file exceeds {self.MAX_INPUT_SIZE} bytes.")
@@ -189,21 +190,18 @@ class Explorer(Agent):
         logger.info("read_finished files=%d output_items=%d", len(paths), len(output))
         return output
 
+    @staticmethod
     @tool(
         f"Run a shell command on this machine (OS: {platform.system()}).",
         started_label="Running {command}",
         finished_label="Ran {command}",
         symbol="💻",
     )
-    def run_shell(self, command: str) -> str:
+    def run_shell(command: str) -> str:
         logger.debug("shell_command command=%r", command)
         with TemporaryFile("w+", encoding="utf-8", errors="replace") as output_file:
             process = subprocess.Popen(
-                ["/bin/sh", "-lc", command],
-                cwd=self.settings.cwd,
-                stdout=output_file,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
+                ["/bin/sh", "-lc", command], stdout=output_file, stderr=subprocess.STDOUT, start_new_session=True
             )
             try:
                 process.wait(timeout=30)

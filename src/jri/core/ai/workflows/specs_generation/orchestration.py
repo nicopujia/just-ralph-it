@@ -1,7 +1,7 @@
 import logging
 from collections.abc import Generator
 from difflib import unified_diff
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from jri.core import ai, paths
 from jri.core.exceptions import SpecsError
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 def generate(
     settings: Settings, active_commit: str | None
 ) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished", None, SpecsResult]:
-    specs = Specs(settings.cwd)
+    specs = Specs(Path.cwd())
     analyst = functional_analyst.FunctionalAnalyst(settings)
     designer = architect.Architect(settings)
     baseline = specs.prepare(active_commit)
@@ -72,7 +72,7 @@ def generate(
                 # Nested under the row above, so closing that row
                 # clears the rows the run left behind.
                 explorer_report = (
-                    yield from ai.Explorer(settings.model_copy(update={"cwd": staging.path})).report(
+                    yield from ai.Explorer(settings).report(
                         "Study this repository generally. Report its structure, architecture, established "
                         "patterns, development commands, and the constraints that new work in it must respect.",
                         depth=1,

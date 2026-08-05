@@ -1,7 +1,6 @@
 import difflib
 import os
 import textwrap
-from pathlib import Path
 from typing import Annotated, Literal, Self, cast
 
 import yaml
@@ -128,10 +127,6 @@ class Logging(BaseModel):
 
 
 class Settings(BaseModel):
-    # Not a setting: the directory a command runs in is what tells JRI
-    # which project to read the settings of, so the file has no say in
-    # it and never shows it.
-    cwd: Path = Field(default=Path(), exclude=True)
     llm: LLM = Field(default_factory=LLM, description="Provider every agent sends its model requests to.")
     brave_search: BraveSearch = Field(
         default_factory=BraveSearch,
@@ -153,12 +148,9 @@ class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     @classmethod
-    def load(cls, cwd: Path) -> Self:
-        config = yaml.safe_load(Workspace(cwd).config_file.read_text(encoding="utf-8"))
-        # The file has no say in the working directory, so it is set
-        # once the file itself has been validated — including whether
-        # it is a mapping at all.
-        return cls.model_validate({} if config is None else config).model_copy(update={"cwd": cwd})
+    def load(cls) -> Self:
+        config = yaml.safe_load(Workspace.find().config_file.read_text(encoding="utf-8"))
+        return cls.model_validate({} if config is None else config)
 
     @classmethod
     def render_config(cls) -> str:
@@ -173,8 +165,7 @@ class Settings(BaseModel):
             if not (isinstance(annotation, type) and issubclass(annotation, BaseModel)):
                 return None
             model = annotation
-        # Settings the file has no say in are not worth suggesting.
-        candidates = [name for name, field in model.model_fields.items() if not field.exclude]
+        candidates = list(model.model_fields)
         unknown = str(path[-1])
         matches = difflib.get_close_matches(unknown, candidates, n=1)
         if not matches:
@@ -202,8 +193,6 @@ def _render_settings(model: type[BaseModel], values: BaseModel | None, level: in
     indent = "  " * level
     entries: list[list[str]] = []
     for name, field in model.model_fields.items():
-        if field.exclude:
-            continue
         comment: list[str] = []
         for paragraph in (field.description or "").split("\n\n"):
             if comment:

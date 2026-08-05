@@ -121,7 +121,7 @@ new file mode 100644
 
 def build_conversation(path: Path, client: FakeClient) -> Conversation:
     install_workspace(path)
-    return Conversation(build_settings(path, client))
+    return Conversation(build_settings(client))
 
 
 def build_client(functional_patch: str, architecture_patch: str = ARCHITECTURE_PATCH) -> FakeClient:

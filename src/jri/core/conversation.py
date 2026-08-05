@@ -94,12 +94,12 @@ class Session(BaseModel):
 
 class Conversation:
     def __init__(self, settings: Settings) -> None:
-        self.workspace = Workspace(settings.cwd)
+        self.workspace = Workspace.find()
 
         self.session_lock = Lock()
         self.settings = settings
         self.logger = logging.getLogger(__name__)
-        self.logger.info("initialized cwd=%r", settings.cwd)
+        self.logger.info("initialized root=%r", self.workspace.root)
 
     @cached_property
     def notebook(self) -> Notebook:

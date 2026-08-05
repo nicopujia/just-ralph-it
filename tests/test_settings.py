@@ -28,10 +28,9 @@ def test_generates_a_configuration_that_round_trips_through_the_settings(tmp_pat
     (tmp_path / paths.CONFIG_FILE).parent.mkdir(exist_ok=True)
     (tmp_path / paths.CONFIG_FILE).write_text(Settings.render_config())
 
-    settings = Settings.load(tmp_path)
+    settings = Settings.load()
 
-    assert settings.model_dump() == Settings(cwd=tmp_path).model_dump()
-    assert settings.cwd == tmp_path
+    assert settings.model_dump() == Settings().model_dump()
     assert settings.llm.provider == "openai-subscription"
     assert settings.logging.level == "INFO"
     assert {name: agent["model"] for name, agent in settings.agents.model_dump().items()} == {
@@ -78,7 +77,7 @@ def test_reports_an_incomplete_configuration(tmp_path: Path) -> None:
     write_config(tmp_path, config)
 
     with pytest.raises(ValidationError, match=r"agents\.explorer\.model"):
-        Settings.load(tmp_path)
+        Settings.load()
 
 
 def test_reports_a_setting_it_does_not_know(tmp_path: Path) -> None:
@@ -87,7 +86,7 @@ def test_reports_a_setting_it_does_not_know(tmp_path: Path) -> None:
     write_config(tmp_path, config)
 
     with pytest.raises(ValidationError, match=r"agents\.designer"):
-        Settings.load(tmp_path)
+        Settings.load()
 
 
 def test_suggests_the_setting_a_mistyped_key_resembles() -> None:
@@ -103,7 +102,6 @@ def test_suggests_the_setting_an_abbreviated_key_begins() -> None:
 
 def test_suggests_nothing_for_a_key_no_setting_resembles() -> None:
     assert Settings.suggest_setting(("agents", "designer")) is None
-    assert Settings.suggest_setting(("cwdd",)) is None
     assert Settings.suggest_setting(("nowhere", "provder")) is None
 
 
@@ -117,7 +115,7 @@ def test_leaves_omitted_model_options_to_the_model(tmp_path: Path) -> None:
     config["agents"]["explorer"].pop("temperature", None)
     write_config(tmp_path, config)
 
-    settings = Settings.load(tmp_path)
+    settings = Settings.load()
 
     assert settings.agents.explorer.reasoning_effort is None
     assert settings.agents.explorer.temperature is None
@@ -129,7 +127,7 @@ def test_rejects_a_reasoning_effort_it_does_not_document(tmp_path: Path) -> None
     write_config(tmp_path, config)
 
     with pytest.raises(ValidationError, match=r"agents\.interviewer\.reasoning_effort"):
-        Settings.load(tmp_path)
+        Settings.load()
 
 
 def test_reads_api_keys_from_the_environment_variables_they_name(
@@ -142,7 +140,7 @@ def test_reads_api_keys_from_the_environment_variables_they_name(
     monkeypatch.setenv("PROVIDER_API_KEY", "provider-key")
     monkeypatch.setenv("SEARCH_API_KEY", "search-key")
 
-    settings = Settings.load(tmp_path)
+    settings = Settings.load()
 
     assert settings.llm.api_key == "PROVIDER_API_KEY"
     assert settings.brave_search.api_key == "SEARCH_API_KEY"
@@ -155,7 +153,7 @@ def test_reports_an_unset_environment_variable(tmp_path: Path) -> None:
     write_config(tmp_path, config)
 
     with pytest.raises(ValidationError, match="MISSING_API_KEY, but that environment variable is not set"):
-        Settings.load(tmp_path)
+        Settings.load()
 
 
 def test_requires_an_api_key_without_a_subscription(tmp_path: Path) -> None:
@@ -164,36 +162,36 @@ def test_requires_an_api_key_without_a_subscription(tmp_path: Path) -> None:
     write_config(tmp_path, config)
 
     with pytest.raises(ValidationError, match=r"llm\.api_key"):
-        Settings.load(tmp_path)
+        Settings.load()
 
 
 def test_falls_back_to_the_defaults_for_a_blank_configuration_file(tmp_path: Path) -> None:
     write_config_text(tmp_path, "  \n\n")
 
-    settings = Settings.load(tmp_path)
+    settings = Settings.load()
 
-    assert settings.model_dump() == Settings(cwd=tmp_path).model_dump()
+    assert settings.model_dump() == Settings().model_dump()
 
 
 def test_reports_a_configuration_file_that_is_not_yaml(tmp_path: Path) -> None:
     write_config_text(tmp_path, "llm: [unclosed\n")
 
     with pytest.raises(yaml.YAMLError):
-        Settings.load(tmp_path)
+        Settings.load()
 
 
 def test_reports_a_configuration_file_that_is_not_a_mapping(tmp_path: Path) -> None:
     write_config_text(tmp_path, "- llm\n- logging\n")
 
     with pytest.raises(ValidationError):
-        Settings.load(tmp_path)
+        Settings.load()
 
 
 def test_reports_a_section_without_a_body(tmp_path: Path) -> None:
     write_config_text(tmp_path, "llm:\n")
 
     with pytest.raises(ValidationError, match="llm"):
-        Settings.load(tmp_path)
+        Settings.load()
 
 
 @pytest.mark.parametrize("temperature", [-0.1, 2.5], ids=["below", "above"])
@@ -203,7 +201,7 @@ def test_rejects_a_temperature_outside_the_supported_range(tmp_path: Path, tempe
     write_config(tmp_path, config)
 
     with pytest.raises(ValidationError, match=r"agents\.explorer\.temperature"):
-        Settings.load(tmp_path)
+        Settings.load()
 
 
 @pytest.mark.parametrize("temperature", [0, 2], ids=["focused", "varied"])
@@ -212,7 +210,7 @@ def test_accepts_the_extremes_of_the_temperature_range(tmp_path: Path, temperatu
     config["agents"]["explorer"]["temperature"] = temperature
     write_config(tmp_path, config)
 
-    assert Settings.load(tmp_path).agents.explorer.temperature == temperature
+    assert Settings.load().agents.explorer.temperature == temperature
 
 
 def test_reports_an_unset_search_environment_variable(tmp_path: Path) -> None:
@@ -221,13 +219,13 @@ def test_reports_an_unset_search_environment_variable(tmp_path: Path) -> None:
     write_config(tmp_path, config)
 
     with pytest.raises(ValidationError, match=r"brave_search\.api_key names MISSING_SEARCH_API_KEY"):
-        Settings.load(tmp_path)
+        Settings.load()
 
 
 def test_reaches_the_subscription_through_the_codex_client(tmp_path: Path) -> None:
     write_config_text(tmp_path, Settings.render_config())
 
-    assert isinstance(Settings.load(tmp_path).llm.client, codex.Client)
+    assert isinstance(Settings.load().llm.client, codex.Client)
 
 
 def test_accepts_a_complete_subscription_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -237,7 +235,7 @@ def test_accepts_a_complete_subscription_login(tmp_path: Path, monkeypatch: pyte
     )
     write_config_text(tmp_path, Settings.render_config())
 
-    Settings.load(tmp_path).llm.validate_authentication()
+    Settings.load().llm.validate_authentication()
 
 
 def test_reports_a_missing_subscription_login(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -245,7 +243,7 @@ def test_reports_a_missing_subscription_login(tmp_path: Path, monkeypatch: pytes
     write_config_text(tmp_path, Settings.render_config())
 
     with pytest.raises(codex.AuthError):
-        Settings.load(tmp_path).llm.validate_authentication()
+        Settings.load().llm.validate_authentication()
 
 
 def test_needs_no_subscription_login_for_another_provider(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -255,7 +253,7 @@ def test_needs_no_subscription_login_for_another_provider(tmp_path: Path, monkey
     config["llm"] = {"provider": "https://api.openai.com/v1", "api_key": "PROVIDER_API_KEY"}
     write_config(tmp_path, config)
 
-    Settings.load(tmp_path).llm.validate_authentication()
+    Settings.load().llm.validate_authentication()
 
 
 def test_takes_every_setting_from_the_configuration_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -265,7 +263,7 @@ def test_takes_every_setting_from_the_configuration_file(tmp_path: Path, monkeyp
     monkeypatch.setenv("JRI_AGENTS_INTERVIEWER_MODEL", "environment-model")
     monkeypatch.setenv("JRI_LOGGING_LEVEL", "DEBUG")
 
-    settings = Settings.load(tmp_path)
+    settings = Settings.load()
 
     assert settings.agents.interviewer.model == "file-model"
     assert settings.agents.interviewer.reasoning_effort == "low"
