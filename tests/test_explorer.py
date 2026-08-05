@@ -16,6 +16,7 @@ from tests.doubles.settings import build_settings
 from tests.doubles.web import serve_chunks, serve_pages
 from tests.doubles.youtube import TRANSCRIPT, FakeApi
 
+KILOBYTE = 1024
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 UNDECODABLE = b"\xff\xfe\x00binary"
 
@@ -56,6 +57,23 @@ def test_reads_an_image_as_an_image_input(tmp_path: Path) -> None:
     assert result[1] == {
         "type": "input_image",
         "image_url": f"data:image/png;base64,{base64.b64encode(PNG_HEADER).decode()}",
+    }
+
+
+# The README promises local files "including images", and the size of
+# a real one is the whole promise: the tests above hold for an
+# eight-byte header whatever a tool call does with a screenshot.
+def test_reads_a_screenshot_at_the_size_a_screen_makes_one(tmp_path: Path) -> None:
+    path = tmp_path / "screenshot.png"
+    data = PNG_HEADER + b"\x00" * (150 * KILOBYTE)
+    path.write_bytes(data)
+
+    invocation = Invocation(build_explorer().read_files([path.name]))
+    list(invocation)
+
+    assert invocation.output[1] == {
+        "type": "input_image",
+        "image_url": f"data:image/png;base64,{base64.b64encode(data).decode()}",
     }
 
 
