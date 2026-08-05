@@ -1,7 +1,16 @@
 import pytest
 
 from jri.core.notes import Connection, Graph, Note, Topic
-from jri.core.visualization import DRAW_ERROR, LOAD_ERROR, render
+from jri.core.visualization import (
+    DIAGRAM_SLOT,
+    DRAW_ERROR,
+    DRAW_ERROR_SLOT,
+    HTML,
+    LIBRARIES,
+    LIBRARIES_DIR,
+    LIBRARIES_SLOT,
+    render,
+)
 
 
 def build_graph(*, name: str = "Delivery", text: str = "Runs in a terminal.", label: str = "supports") -> Graph:
@@ -103,6 +112,26 @@ def test_opens_the_graph_at_its_top_instead_of_its_middle() -> None:
 def test_says_what_went_wrong_where_the_page_can_show_it() -> None:
     page = render(build_graph())
 
-    assert LOAD_ERROR in page
     assert DRAW_ERROR in page
-    assert "<!--" not in page
+    assert DIAGRAM_SLOT not in page
+    assert DRAW_ERROR_SLOT not in page
+    assert LIBRARIES_SLOT not in page
+
+
+def test_carries_everything_the_page_runs_so_none_of_it_is_fetched() -> None:
+    page = render(build_graph())
+
+    # The rendered page quotes a URL to report a failure to, so the
+    # host the page would have to reach is looked for in the template.
+    assert "://" not in HTML
+    for name in LIBRARIES:
+        assert (LIBRARIES_DIR / name).read_text(encoding="utf-8") in page
+
+
+# A page that carries the libraries has to carry them as text inside a
+# `<script>`, and the element ends at the first `</script` the browser
+# reads, wherever it comes from. Everything after that would be parsed
+# as markup instead of run as code.
+def test_carries_libraries_that_cannot_end_the_element_holding_them() -> None:
+    for name in LIBRARIES:
+        assert "</script" not in (LIBRARIES_DIR / name).read_text(encoding="utf-8")

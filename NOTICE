@@ -1,2 +1,15 @@
 Just Ralph It
 Copyright 2026 Nicolás Pujia
+
+This product bundles the browser libraries the graph viewer runs, under
+src/jri/core/viewer/ and inside the page `jri view` writes. Each is
+distributed under the MIT License, whose terms travel with the copy:
+
+  mermaid 11.16.1
+  Copyright (c) 2014 - 2022 Knut Sveidqvist
+  https://github.com/mermaid-js/mermaid
+  (bundles further MIT-licensed work, whose notices it carries inline)
+
+  svg-pan-zoom 3.6.2
+  Copyright (c) 2009-2010 Andrea Leofreddi
+  https://github.com/bumbu/svg-pan-zoom
