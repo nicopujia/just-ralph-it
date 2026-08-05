@@ -37,18 +37,18 @@ def test_asks_for_a_first_draft_from_the_notebook_alone() -> None:
     build_analyst(client).write(CONTEXT)
 
     request = read_request(client)
-    assert "Current notebook:\nDeploy from the main branch." in request
+    assert "Current notebook:\n```\nDeploy from the main branch.\n```" in request
     assert "Rejected functional draft:" not in request
 
 
 def test_revises_against_the_rejected_draft_and_the_architect_feedback() -> None:
     client = FakeClient([], parsed=[functional_analyst.Output(result=PATCH)])
     context = CONTEXT.model_copy(
-        update={"rejected_specs": "File: functional/behavior.md", "architect_feedback": "- Undefined totals."}
+        update={"rejected_specs": "File: functional/behavior.md", "architect_feedback": ["Undefined totals."]}
     )
 
     build_analyst(client).write(context)
 
     request = read_request(client)
-    assert "Rejected functional draft:\nFile: functional/behavior.md" in request
-    assert "Architect feedback:\n- Undefined totals." in request
+    assert "Rejected functional draft:\n```\nFile: functional/behavior.md\n```" in request
+    assert "Architect feedback:\n  - Undefined totals." in request

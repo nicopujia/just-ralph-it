@@ -95,7 +95,7 @@ def generate(settings: Settings) -> Generator["ai.ToolCallStarted | ai.ToolCallF
             context = architect.Input(
                 functional_specs=specs.render(functional),
                 accepted_architecture=specs.render(baseline.architecture),
-                tracked_tree="\n".join(specs.repository.read_worktree_paths()),
+                tracked_repository_tree=list(specs.repository.read_worktree_paths()),
                 explorer_report=explorer_report,
             )
             architecture_result = designer.finish(context) if cycle == MAX_CYCLES else designer.design(context)
@@ -115,7 +115,7 @@ def generate(settings: Settings) -> Generator["ai.ToolCallStarted | ai.ToolCallF
                 functional_context = functional_context.model_copy(
                     update={
                         "rejected_specs": specs.render(functional),
-                        "architect_feedback": "\n".join(f"- {issue}" for issue in architecture_result.issues),
+                        "architect_feedback": architecture_result.issues,
                     }
                 )
                 continue

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from jri.core import paths
 from jri.core.ai import LLMRunner
 from jri.core.settings import Settings
+from jri.lib import prompt
 
 type Result = Issues | Patch
 
@@ -14,7 +15,7 @@ type Result = Issues | Patch
 class Input(BaseModel):
     functional_specs: str
     accepted_architecture: str
-    tracked_tree: str
+    tracked_repository_tree: list[str]
     explorer_report: str
 
 
@@ -99,22 +100,26 @@ class Architect:
         return self.runner.parse(
             [
                 *self._build_input(context, self.runner.prompt),
-                {"role": "user", "content": f"{self.REPAIR_PROMPT}\n\nRejected patch:\n{patch}\n\nGit error:\n{error}"},
+                # Instructions of ours are told apart from the quoted
+                # data they are about, since a block is what the model
+                # is told never to obey.
+                {"role": "user", "content": self.REPAIR_PROMPT},
+                {"role": "user", "content": prompt.render(rejected_patch=patch, git_error=error)},
             ],
             Patch,
         ).patch
 
     @staticmethod
-    def _build_input(context: Input, prompt: str) -> ResponseInputParam:
+    def _build_input(context: Input, instructions: str) -> ResponseInputParam:
         return [
-            {"role": "system", "content": prompt},
+            {"role": "system", "content": instructions},
             {
                 "role": "user",
-                "content": (
-                    f"Functional specifications:\n{context.functional_specs}\n\n"
-                    f"Accepted architecture:\n{context.accepted_architecture}\n\n"
-                    f"Tracked repository tree:\n{context.tracked_tree}\n\n"
-                    f"Repository analysis report:\n{context.explorer_report}"
+                "content": prompt.render(
+                    functional_specifications=context.functional_specs,
+                    accepted_architecture=context.accepted_architecture,
+                    tracked_repository_tree=context.tracked_repository_tree,
+                    repository_analysis_report=context.explorer_report,
                 ),
             },
         ]

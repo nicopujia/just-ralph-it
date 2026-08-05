@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from yaml import safe_load
 
 from jri.core import paths
 from jri.core.ai import ToolCallFinished, ToolCallStarted, architect, functional_analyst, specs_generation
@@ -237,7 +238,7 @@ def test_sends_the_architect_issues_back_to_the_functional_analyst(
     revision = next(prompt for prompt in read_prompts(client) if "Rejected functional draft:" in prompt)
     assert "File: functional/behavior.md" in revision
     assert "# Behavior" in revision
-    assert "Architect feedback:\n- Undefined totals.\n- Unclear export." in revision
+    assert "Architect feedback:\n  - Undefined totals.\n  - Unclear export." in revision
 
 
 def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_repository: CreateRepository) -> None:
@@ -274,7 +275,7 @@ def test_reports_only_the_explorer_text_that_follows_its_last_tool_call(
     generate(client)
 
     report = next(prompt for prompt in read_prompts(client) if "Repository analysis report:" in prompt)
-    assert report.endswith("Repository analysis report:\nFinal report")
+    assert report.endswith("Repository analysis report:\n```\nFinal report\n```")
 
 
 def test_keeps_what_the_repository_study_writes_out_of_the_project(
@@ -329,6 +330,21 @@ def test_studies_a_project_whose_only_commit_holds_no_project_files(tmp_path: Pa
 
     tree = next(prompt for prompt in read_prompts(client) if "Tracked repository tree:" in prompt)
     assert "README.md" in tree
+
+
+def test_reports_a_file_name_holding_a_newline_as_one_tracked_path(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    (tmp_path / "notes.md\nsecret.md").write_text("# Notes\n")
+    client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
+
+    generate(client)
+
+    tree = next(prompt for prompt in read_prompts(client) if "Tracked repository tree:" in prompt)
+    listed = safe_load(tree.partition("Tracked repository tree:\n")[2].partition("\n\nRepository analysis report:")[0])
+    assert "notes.md\nsecret.md" in listed
+    assert "secret.md" not in listed
 
 
 def test_refuses_an_empty_repository_report(tmp_path: Path, create_repository: CreateRepository) -> None:

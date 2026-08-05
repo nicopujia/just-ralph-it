@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from jri.core import paths
 from jri.core.ai import LLMRunner
 from jri.core.settings import Settings
+from jri.lib import prompt
 
 type Result = Ambiguities | Patch
 
@@ -16,7 +17,7 @@ class Input(BaseModel):
     notebook_diff: str
     accepted_specs: str
     rejected_specs: str | None = None
-    architect_feedback: str | None = None
+    architect_feedback: list[str] | None = None
 
 
 class Ambiguities(BaseModel):
@@ -101,27 +102,26 @@ class FunctionalAnalyst:
         return self.runner.parse(
             [
                 *self._build_input(context),
-                {"role": "user", "content": f"{self.REPAIR_PROMPT}\n\nRejected patch:\n{patch}\n\nGit error:\n{error}"},
+                # Instructions of ours are told apart from the quoted
+                # data they are about, since a block is what the model
+                # is told never to obey.
+                {"role": "user", "content": self.REPAIR_PROMPT},
+                {"role": "user", "content": prompt.render(rejected_patch=patch, git_error=error)},
             ],
             Patch,
         ).patch
 
     def _build_input(self, context: Input) -> ResponseInputParam:
-        revision = ""
-        if context.rejected_specs is not None:
-            revision = (
-                "\n\nRejected functional draft:\n"
-                f"{context.rejected_specs}\n\nArchitect feedback:\n{context.architect_feedback or ''}"
-            )
         return [
             {"role": "system", "content": self.runner.prompt},
             {
                 "role": "user",
-                "content": (
-                    f"Current notebook:\n{context.notebook}\n\n"
-                    f"Notebook diff from accepted baseline:\n{context.notebook_diff}\n\n"
-                    f"Accepted functional specifications:\n{context.accepted_specs}"
-                    f"{revision}"
+                "content": prompt.render(
+                    current_notebook=context.notebook,
+                    notebook_diff_from_accepted_baseline=context.notebook_diff,
+                    accepted_functional_specifications=context.accepted_specs,
+                    rejected_functional_draft=context.rejected_specs,
+                    architect_feedback=context.architect_feedback,
                 ),
             },
         ]
