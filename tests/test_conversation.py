@@ -343,7 +343,7 @@ def test_leaves_a_cancelled_turn_with_a_reply_unmarked() -> None:
     assert turns[-1] == ("Stop this one.", [InterviewItem("assistant", "Partial reply")])
 
 
-def test_clears_the_stopped_mark_on_the_next_turn() -> None:
+def test_keeps_the_stopped_mark_on_its_turn_when_a_later_one_ends() -> None:
     cancelled = Event()
     cancelled.set()
     conversation = build_conversation(FakeClient([[], response(reply("Carrying on."))]))
@@ -351,10 +351,25 @@ def test_clears_the_stopped_mark_on_the_next_turn() -> None:
     list(conversation.chat("Stop this one.", cancelled))
     list(conversation.chat("Carry on."))
 
+    turns = build_conversation(FakeClient([])).restore()
+    assert turns == [
+        ("Stop this one.", [InterviewItem("stopped")]),
+        ("Carry on.", [InterviewItem("assistant", "Carrying on.")]),
+    ]
+
+
+def test_clears_the_stopped_mark_when_its_turn_is_sent_again() -> None:
+    cancelled = Event()
+    cancelled.set()
+    conversation = build_conversation(FakeClient([[], response(reply(""))]))
+    list(conversation.chat("Stop this one.", cancelled))
+
+    list(conversation.retry())
+
     restarted = build_conversation(FakeClient([]))
     turns = restarted.restore()
-    assert not restarted.session.stopped_turn
-    assert [item.type for turn in turns for item in turn.items] == ["assistant"]
+    assert restarted.session.stopped_turn is None
+    assert turns == [("Stop this one.", [])]
 
 
 def test_keeps_the_stopped_mark_on_the_cancelled_turn_when_the_next_one_fails() -> None:

@@ -267,11 +267,19 @@ class Conversation:
         self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
 
     def _save_turn(self, *, stopped: bool = False) -> None:
+        # Naming the turn that was stopped keeps the mark on it when a
+        # later turn ends without one of its own. Only that same turn,
+        # sent again, drops it.
+        index = len(self._find_prompts()) - 1
+        if stopped:
+            stopped_turn = index
+        elif self.session.stopped_turn == index:
+            stopped_turn = None
+        else:
+            stopped_turn = self.session.stopped_turn
         self.update_session(
             active_topic_id=self.interviewer.active_topic_id,
             interview=self.interviewer.history,
             failed_turn_error=None,
-            # Naming the turn that was stopped keeps the mark on it when
-            # a later turn ends without one of its own.
-            stopped_turn=len(self._find_prompts()) - 1 if stopped else None,
+            stopped_turn=stopped_turn,
         )
