@@ -136,10 +136,15 @@ def generate(
                 raise SpecsError("Architecture specifications cannot be empty.")
             patch = staging.diff(baseline.commit, paths=(paths.FUNCTIONAL_SPECS_DIR, paths.ARCHITECTURE_SPECS_DIR))
 
-        commit = specs.accept(patch, baseline)
         yield ai.ToolCallFinished(
             open_row.call_id, "Designed the project architecture" if cycle == 1 else open_row.label
         )
+        # Saving is a step of its own, so a project state that blocks
+        # the commit closes the row naming it rather than the design
+        # row, whose work was already done and is nowhere at fault.
+        yield ai.ToolCallStarted("commit", "Saving the specifications to your project", "💾")
+        commit = specs.accept(patch, baseline)
+        yield ai.ToolCallFinished("commit", "Saved the specifications to your project")
         return commit
 
 

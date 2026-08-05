@@ -6,7 +6,7 @@ import pytest
 
 from jri.core import paths
 from jri.core.ai import ToolCallFinished, ToolCallStarted, architect, functional_analyst, specs_generation
-from jri.core.exceptions import SpecsError
+from jri.core.exceptions import RepositoryStateError, SpecsError
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, call, partial_reply, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
@@ -163,8 +163,32 @@ def test_reports_one_row_per_polishing_round(tmp_path: Path, create_repository: 
         ("ToolCallFinished", "polish-2", "1 issues found. Polishing... (round 2)"),
         ("ToolCallStarted", "polish-3", "2 issues found. Polishing... (round 3)"),
         ("ToolCallFinished", "polish-3", "2 issues found. Polishing... (round 3)"),
+        ("ToolCallStarted", "commit", "Saving the specifications to your project"),
+        ("ToolCallFinished", "commit", "Saved the specifications to your project"),
     ]
     assert isinstance(result, str)
+
+
+def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
+    rows: list[Row] = []
+
+    def block_the_project_once_the_design_lands() -> None:
+        for row in specs_generation.generate(build_settings(client), None):
+            rows.append(row)
+            if isinstance(row, ToolCallFinished) and row.call_id == "architecture":
+                (tmp_path / "uv.lock").write_text("blocked")
+
+    with pytest.raises(RepositoryStateError, match=r"uv\.lock"):
+        block_the_project_once_the_design_lands()
+
+    assert read_rows(rows)[-2:] == [
+        ("ToolCallFinished", "architecture", "Designed the project architecture"),
+        ("ToolCallStarted", "commit", "Saving the specifications to your project"),
+    ]
 
 
 def test_finishes_the_open_polishing_round_when_ambiguities_appear(
