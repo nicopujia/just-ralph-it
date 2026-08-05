@@ -291,6 +291,30 @@ def test_keeps_what_the_repository_study_writes_out_of_the_project(
     assert not run_git(tmp_path, "status", "--short")
 
 
+def test_studies_the_project_as_it_stands_on_disk(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "app.py").write_text("print('hello')\n")
+    run_git(tmp_path, "add", "src/app.py")
+    run_git(tmp_path, "commit", "-qm", "feat: add an application")
+    client = FakeClient(
+        [response(call("read", "read_files", paths=[paths.NOTEBOOK_FILE])), streamed_reply("Repository report")],
+        parsed=[written_specs(), designed_architecture()],
+    )
+
+    generate(client)
+
+    tree = next(prompt for prompt in read_prompts(client) if "Tracked repository tree:" in prompt)
+    assert "src/app.py" in tree
+    assert paths.NOTEBOOK_FILE in tree
+    instructions = next(prompt for prompt in read_prompts(client) if "Role: Explorer." in prompt)
+    directory = Path(instructions.split("Working directory: ")[1].splitlines()[0])
+    assert not directory.is_relative_to(tmp_path.resolve())
+    assert f"File: {directory / paths.NOTEBOOK_FILE}" in str(client.responses.inputs)
+
+
 def test_refuses_an_empty_repository_report(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient([response(reply(""))], parsed=[written_specs()])

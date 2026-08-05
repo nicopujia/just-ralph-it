@@ -75,18 +75,19 @@ def generate(
                 yield ai.ToolCallStarted("explorer", "Studying your existing project", "🔎")
                 # Nested under the row above, so closing that row
                 # clears the rows the run left behind. The study runs
-                # in the staging worktree, which holds the very commit
-                # the architect designs against: whatever a command of
-                # its own writes there dies with the worktree instead
-                # of dirtying the project and failing the state check
-                # this run still has to pass to commit.
-                explorer_report = (
-                    yield from ai.Explorer(settings, staging.path).report(
-                        "Study this repository generally. Report its structure, architecture, established "
-                        "patterns, development commands, and the constraints that new work in it must respect.",
-                        depth=1,
-                    )
-                ).strip()
+                # in a throwaway copy of the project as it stands on
+                # disk: whatever a command of its own writes there dies
+                # with the copy instead of dirtying the project, and
+                # what the architect designs against is the project the
+                # user has rather than the commit JRI happens to sit on.
+                with specs.repository.open_worktree(None) as project:
+                    explorer_report = (
+                        yield from ai.Explorer(settings, project.path).report(
+                            "Study this repository generally. Report its structure, architecture, established "
+                            "patterns, development commands, and the constraints that new work in it must respect.",
+                            depth=1,
+                        )
+                    ).strip()
                 if not explorer_report:
                     raise SpecsError("Repository exploration produced no report.")
                 yield ai.ToolCallFinished("explorer", "Studied your existing project")
@@ -96,11 +97,7 @@ def generate(
             context = architect.Input(
                 functional_specs=specs.render(functional),
                 accepted_architecture=specs.render(baseline.architecture),
-                tracked_tree="\n".join(
-                    specs.repository.read_tracked_paths(baseline.commit)
-                    if baseline.commit
-                    else specs.repository.read_worktree_paths()
-                ),
+                tracked_tree="\n".join(specs.repository.read_worktree_paths()),
                 explorer_report=explorer_report,
             )
             architecture_result = designer.finish(context) if cycle == MAX_CYCLES else designer.design(context)
