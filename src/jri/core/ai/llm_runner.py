@@ -2,10 +2,12 @@ import json
 import logging
 from collections.abc import Generator, Iterable, Sequence
 from dataclasses import dataclass
+from http import HTTPStatus
 from inspect import cleandoc
-from typing import Any, TypeVar, cast
+from time import sleep
+from typing import Any, ClassVar, TypeVar, cast
 
-from openai import Omit, OpenAI, omit
+from openai import APIConnectionError, APIStatusError, Omit, OpenAI, OpenAIError, omit
 from openai.types.responses import FunctionToolParam, ResponseInputParam, ResponseStreamEvent
 from openai.types.shared import ReasoningEffort
 from openai.types.shared_params import Reasoning
@@ -14,6 +16,12 @@ from pydantic import BaseModel, ValidationError
 from jri.core.exceptions import ModelError
 
 from .events import ChatEvent, ReasoningDelta, TextDelta
+
+TRANSIENT_STATUSES = frozenset({HTTPStatus.REQUEST_TIMEOUT, HTTPStatus.CONFLICT, HTTPStatus.TOO_MANY_REQUESTS})
+"""Statuses a later attempt can still succeed on."""
+
+EXHAUSTION_CODES = frozenset({"insufficient_quota", "usage_limit_reached", "billing_hard_limit_reached"})
+"""Codes of a spent budget, which no amount of waiting refills."""
 
 Result = TypeVar("Result", bound=BaseModel)
 
@@ -32,6 +40,11 @@ class Response:
 
 @dataclass(kw_only=True)
 class LLMRunner:
+    MAX_ATTEMPTS: ClassVar[int] = 4
+    RETRY_DELAY: ClassVar[float] = 2.0
+    """Seconds waited when the provider gives no hint; it doubles."""
+    MAX_RETRY_DELAY: ClassVar[float] = 30.0
+
     client: OpenAI
     model: str
     prompt: str = ""
@@ -54,6 +67,47 @@ class LLMRunner:
 
     def parse(self, context: ResponseInputParam, output_type: type[Result]) -> Result:
         self._check_size(context)
+        attempt = 1
+        while True:
+            try:
+                return self._parse(context, output_type)
+            except OpenAIError as error:
+                self._wait_to_retry(error, attempt)
+                attempt += 1
+
+    def _respond(
+        self,
+        context: ResponseInputParam,
+        tools: Sequence[FunctionToolParam],
+        outputs_by_index: dict[int, dict[str, Any]],
+    ) -> Generator[ChatEvent]:
+        attempt = 1
+        while True:
+            streamed = False
+            try:
+                with self.client.responses.create(
+                    model=self.model,
+                    input=context,
+                    tools=tools,
+                    reasoning=Reasoning(effort=self.reasoning_effort, summary="auto"),
+                    temperature=self.sampling,
+                    stream=True,
+                ) as stream:
+                    for event in self._decode(stream, outputs_by_index):
+                        streamed = True
+                        yield event
+            except OpenAIError as error:
+                # A turn the user already saw part of cannot start over
+                # without repeating what it said.
+                if streamed:
+                    raise
+                outputs_by_index.clear()
+                self._wait_to_retry(error, attempt)
+                attempt += 1
+            else:
+                return
+
+    def _parse(self, context: ResponseInputParam, output_type: type[Result]) -> Result:
         logger.info("parse_started model=%s input_items=%d", self.model, len(context))
         with self.client.responses.stream(
             model=self.model,
@@ -84,21 +138,12 @@ class LLMRunner:
         logger.debug("parse_output model=%s output=%r", self.model, parsed)
         return parsed
 
-    def _respond(
-        self,
-        context: ResponseInputParam,
-        tools: Sequence[FunctionToolParam],
-        outputs_by_index: dict[int, dict[str, Any]],
-    ) -> Generator[ChatEvent]:
-        with self.client.responses.create(
-            model=self.model,
-            input=context,
-            tools=tools,
-            reasoning=Reasoning(effort=self.reasoning_effort, summary="auto"),
-            temperature=self.sampling,
-            stream=True,
-        ) as stream:
-            yield from self._decode(stream, outputs_by_index)
+    def _wait_to_retry(self, error: OpenAIError, attempt: int) -> None:
+        if attempt >= self.MAX_ATTEMPTS or not _can_retry(error):
+            raise error
+        delay = min(_read_retry_hint(error) or self.RETRY_DELAY * 2 ** (attempt - 1), self.MAX_RETRY_DELAY)
+        logger.warning("request_retrying model=%s attempt=%d delay=%.3f error=%s", self.model, attempt, delay, error)
+        sleep(delay)
 
     @staticmethod
     def _decode(
@@ -129,6 +174,27 @@ class LLMRunner:
         size = len(json.dumps(context).encode())
         if size > self.max_input_size:
             raise ModelError(f"Request context is {size} bytes, over the {self.max_input_size} byte limit.")
+
+
+def _can_retry(error: OpenAIError) -> bool:
+    if isinstance(error, APIConnectionError):
+        return True
+    if not isinstance(error, APIStatusError) or error.code in EXHAUSTION_CODES:
+        return False
+    return error.status_code in TRANSIENT_STATUSES or error.status_code >= HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+def _read_retry_hint(error: OpenAIError) -> float | None:
+    # Seconds the provider itself asked to be waited, when it asked.
+    if not isinstance(error, APIStatusError):
+        return None
+    for header, seconds_per_unit in (("retry-after-ms", 0.001), ("retry-after", 1.0)):
+        value = error.response.headers.get(header)
+        try:
+            return float(cast("str", value)) * seconds_per_unit
+        except (TypeError, ValueError):
+            continue
+    return None
 
 
 def _diagnose(event: ResponseStreamEvent) -> None:

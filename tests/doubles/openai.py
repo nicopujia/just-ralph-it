@@ -3,7 +3,12 @@ from collections.abc import Iterable, Iterator
 from types import SimpleNamespace
 from typing import Any, Self, cast
 
+import httpx
+from openai import APIConnectionError, BadRequestError, OpenAIError, RateLimitError
+
 type Round = Iterable[SimpleNamespace]
+
+REQUEST = httpx.Request("POST", "https://provider.test/responses")
 
 
 def response(*outputs: dict[str, Any]) -> Round:
@@ -25,6 +30,26 @@ def partial_reply(text: str) -> Round:
 
 def reasoning(text: str, event_type: str) -> Round:
     return [SimpleNamespace(type=event_type, delta=text), *response()]
+
+
+def interrupted_reply(text: str) -> Round:
+    yield SimpleNamespace(type="response.output_text.delta", delta=text)
+    raise rate_limited()
+
+
+def rate_limited(hint: str | None = None, code: str | None = None) -> RateLimitError:
+    headers = {} if hint is None else {"retry-after-ms": hint}
+    response = httpx.Response(429, headers=headers, request=REQUEST)
+    return RateLimitError("Rate limit reached on tokens per min (TPM).", response=response, body={"code": code})
+
+
+def disconnection() -> APIConnectionError:
+    return APIConnectionError(request=REQUEST)
+
+
+def rejection() -> BadRequestError:
+    response = httpx.Response(400, request=REQUEST)
+    return BadRequestError("Unknown model.", response=response, body=None)
 
 
 def failure(message: str) -> Round:
@@ -49,26 +74,30 @@ def reply(text: str) -> dict[str, Any]:
 
 
 class FakeClient:
-    def __init__(self, rounds: Iterable[Round], *, parsed: Iterable[object] = ()) -> None:
+    def __init__(self, rounds: Iterable[Round | OpenAIError], *, parsed: Iterable[object] = ()) -> None:
         self.responses = _Responses(rounds, parsed)
 
 
 class _Responses:
-    def __init__(self, rounds: Iterable[Round], parsed: Iterable[object]) -> None:
+    def __init__(self, rounds: Iterable[Round | OpenAIError], parsed: Iterable[object]) -> None:
         self.rounds = iter(rounds)
         self.parsed = iter(parsed)
         self.inputs: list[object] = []
         self.options: list[dict[str, object]] = []
 
     def create(self, **options: object) -> "_Stream":
-        self.inputs.append(options["input"])
-        self.options.append(options)
-        return _Stream(next(self.rounds))
+        return _Stream(cast("Round", self._serve(self.rounds, options)))
 
     def stream(self, **options: object) -> "_ParsedStream":
+        return _ParsedStream(self._serve(self.parsed, options))
+
+    def _serve(self, source: Iterator[object], options: dict[str, object]) -> object:
         self.inputs.append(options["input"])
         self.options.append(options)
-        return _ParsedStream(next(self.parsed))
+        served = next(source)
+        if isinstance(served, OpenAIError):
+            raise served
+        return served
 
 
 class _ParsedStream:

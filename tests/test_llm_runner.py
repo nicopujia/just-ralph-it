@@ -1,27 +1,45 @@
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from openai import omit
+from openai import BadRequestError, RateLimitError, omit
 from pydantic import BaseModel
 
-from jri.core.ai import LLMRunner, ReasoningDelta
+from jri.core.ai import LLMRunner, ReasoningDelta, TextDelta
 from jri.core.exceptions import ModelError
 from tests.doubles.openai import (
     FakeClient,
+    disconnection,
     failed_response,
     incomplete_response,
+    interrupted_reply,
     partial_reply,
+    rate_limited,
     reasoning,
+    rejection,
     reply,
     response,
+    streamed_reply,
 )
 
 if TYPE_CHECKING:
-    from openai import OpenAI
+    from openai import OpenAI, OpenAIError
+
+    from tests.doubles.openai import Round
+
+
+@pytest.fixture
+def waits(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    delays: list[float] = []
+    monkeypatch.setattr("jri.core.ai.llm_runner.sleep", delays.append)
+    return delays
 
 
 def build_runner(parsed: object) -> LLMRunner:
     return LLMRunner(client=cast("OpenAI", FakeClient([], parsed=[parsed])), model="test")
+
+
+def build_streaming_runner(*rounds: "Round | OpenAIError") -> LLMRunner:
+    return LLMRunner(client=cast("OpenAI", FakeClient(rounds)), model="test")
 
 
 def test_returns_the_parsed_output() -> None:
@@ -99,6 +117,80 @@ def test_rejects_a_context_over_the_input_size_limit() -> None:
 
     with pytest.raises(ModelError, match="over the 10 byte limit"):
         runner.parse([{"role": "user", "content": "far too many bytes"}], Output)
+
+
+@pytest.mark.usefixtures("waits")
+def test_retries_a_reply_the_provider_rate_limited() -> None:
+    runner = build_streaming_runner(rate_limited(), streamed_reply("ready"))
+
+    assert list(runner.respond([]).events) == [TextDelta("ready")]
+
+
+def test_retries_a_reply_whose_connection_dropped(waits: list[float]) -> None:
+    runner = build_streaming_runner(disconnection(), streamed_reply("ready"))
+
+    assert list(runner.respond([]).events) == [TextDelta("ready")]
+    assert waits == [2.0]
+
+
+def test_waits_the_delay_the_provider_asked_for(waits: list[float]) -> None:
+    runner = build_streaming_runner(rate_limited("1157"), streamed_reply("ready"))
+
+    list(runner.respond([]).events)
+
+    assert waits == [1.157]
+
+
+def test_waits_longer_after_each_rate_limit_left_unexplained(waits: list[float]) -> None:
+    runner = build_streaming_runner(rate_limited(), rate_limited(), streamed_reply("ready"))
+
+    list(runner.respond([]).events)
+
+    assert waits == [2.0, 4.0]
+
+
+def test_reports_a_rate_limit_that_outlasts_the_retries(waits: list[float]) -> None:
+    runner = build_streaming_runner(*[rate_limited()] * LLMRunner.MAX_ATTEMPTS)
+
+    with pytest.raises(RateLimitError):
+        list(runner.respond([]).events)
+
+    assert len(waits) == LLMRunner.MAX_ATTEMPTS - 1
+
+
+def test_reports_a_rejected_request_without_retrying(waits: list[float]) -> None:
+    runner = build_streaming_runner(rejection(), streamed_reply("ready"))
+
+    with pytest.raises(BadRequestError):
+        list(runner.respond([]).events)
+
+    assert waits == []
+
+
+def test_reports_an_exhausted_usage_limit_without_retrying(waits: list[float]) -> None:
+    runner = build_streaming_runner(rate_limited(code="insufficient_quota"), streamed_reply("ready"))
+
+    with pytest.raises(RateLimitError):
+        list(runner.respond([]).events)
+
+    assert waits == []
+
+
+def test_keeps_a_rate_limit_that_cut_a_started_reply_short(waits: list[float]) -> None:
+    runner = build_streaming_runner(interrupted_reply("half"), streamed_reply("ready"))
+
+    with pytest.raises(RateLimitError):
+        list(runner.respond([]).events)
+
+    assert waits == []
+
+
+@pytest.mark.usefixtures("waits")
+def test_retries_a_parsed_request_the_provider_rate_limited() -> None:
+    client = FakeClient([], parsed=[rate_limited(), Output(answer="ready")])
+    runner = LLMRunner(client=cast("OpenAI", client), model="test")
+
+    assert runner.parse([], Output).answer == "ready"
 
 
 class Output(BaseModel):
