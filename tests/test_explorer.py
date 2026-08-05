@@ -16,6 +16,7 @@ from tests.doubles.settings import build_settings
 from tests.doubles.web import serve_chunks, serve_pages
 from tests.doubles.youtube import TRANSCRIPT, FakeApi
 
+CREDENTIAL = "OPENAI_API_KEY=sk-live-canary"
 KILOBYTE = 1024
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 UNDECODABLE = b"\xff\xfe\x00binary"
@@ -106,6 +107,21 @@ def test_reports_unreadable_paths_without_logging_a_crash(caplog: pytest.LogCapt
     record = next(record for record in caplog.records if record.message.startswith("read_failed"))
     assert record.levelno == logging.WARNING
     assert record.exc_info is None
+
+
+def test_refuses_to_read_a_file_that_holds_credentials(tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text(f"{CREDENTIAL}\n")
+    (tmp_path / "README.md").write_text("# Project\n")
+
+    result = build_explorer().read_files([".env", "README.md"])
+
+    assert not any(CREDENTIAL in str(item) for item in result)
+    assert result == [
+        {"type": "input_text", "text": f"File:\n```\n{tmp_path / '.env'}\n```"},
+        {"type": "input_text", "text": f"Read refused:\n```\n{Explorer.CREDENTIALS_REFUSAL}\n```"},
+        {"type": "input_text", "text": f"File:\n```\n{tmp_path / 'README.md'}\n```"},
+        {"type": "input_text", "text": "Content:\n```\n# Project\n\n```"},
+    ]
 
 
 def test_runs_shell_commands_in_the_directory_it_was_given(tmp_path: Path) -> None:
