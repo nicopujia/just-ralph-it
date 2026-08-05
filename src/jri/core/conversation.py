@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, cast
 from openai.types.responses import ResponseInputParam
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from jri.lib import files
+from jri.lib import files, prompt
 
 from .ai import DEFAULT_SYMBOL, ChatEvent, Interviewer, Tool, specs_generation
 from .exceptions import PersistenceError
@@ -164,16 +164,13 @@ class Conversation:
             self.update_session(ready_to_ralph=True)
             raise
 
+        # An item joins the history for good, so it states what
+        # happened and nothing else: what to do about it holds beyond
+        # the moment, and what holds beyond the moment is the prompt's.
         if isinstance(result, str):
-            workflow_result = (
-                f"Specification generation succeeded in Git commit {result}. Confirm completion concisely."
-            )
+            workflow_result = f"Specification generation succeeded in Git commit {result}."
         else:
-            workflow_result = (
-                "Specification generation found these behavioral ambiguities. Discuss them with the user and update "
-                "the notebook before offering Just Ralph It again:\n"
-                + "\n".join(f"- {item}" for item in result.ambiguities)
-            )
+            workflow_result = prompt.render(specification_generation_ambiguities=result.ambiguities)
         report: ResponseInputItemParam = {"role": "system", "content": workflow_result}
         checkpoint = self._capture_checkpoint(len(self.interviewer.history))
         self.interviewer.history.append(report)

@@ -255,7 +255,7 @@ def test_reports_a_finished_generation_without_barring_the_next_one(monkeypatch:
     list(conversation.ralph())
 
     reports = [item["content"] for item in conversation.session.interview[1:] if item.get("role") == "system"]
-    assert reports == [f"Specification generation succeeded in Git commit {COMMIT}. Confirm completion concisely."]
+    assert reports == [f"Specification generation succeeded in Git commit {COMMIT}."]
 
 
 def test_rolls_back_the_notes_of_a_failed_reply_after_ralphing(monkeypatch: pytest.MonkeyPatch) -> None:
