@@ -1,7 +1,19 @@
-import html
-
 from jri.core.notes import Graph
 
+# The browser decodes HTML entities inside the `mermaid` block before
+# mermaid parses it, so HTML escaping protects nothing: `&quot;` turns
+# back into the `"` that ends a label. Mermaid's own entity codes
+# survive that decoding and reach the parser as text.
+ESCAPES = str.maketrans({
+    "#": "#35;",
+    "&": "#amp;",
+    '"': "#quot;",
+    "<": "#lt;",
+    ">": "#gt;",
+    "`": "#96;",
+    "[": "#91;",
+    "]": "#93;",
+})
 INDENTATION = "    " * 3
 # The template is mostly CSS and JavaScript, so it is full of braces and
 # percentages that neither `%` nor `format` would leave alone. The slot
@@ -71,4 +83,4 @@ def render(graph: Graph) -> str:
 
 
 def _escape(value: str) -> str:
-    return html.escape(value, quote=True).replace("\n", "<br/>")
+    return value.translate(ESCAPES).replace("\n", "<br/>")
