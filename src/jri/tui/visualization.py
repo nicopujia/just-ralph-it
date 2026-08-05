@@ -57,6 +57,10 @@ HTML = """\
                 try {
                     mermaid.initialize({ startOnLoad: false });
                     await mermaid.run();
+                    // The freshly inserted SVG has no layout yet. Sizing the
+                    // pan and zoom now would measure it as 0x0 and scale the
+                    // graph away to nothing.
+                    await new Promise((paint) => requestAnimationFrame(paint));
                     window.svgPanZoom(document.querySelector(".mermaid svg"), { controlIconsEnabled: true });
                 } catch {
                     document.body.textContent = "<!-- draw error -->";
