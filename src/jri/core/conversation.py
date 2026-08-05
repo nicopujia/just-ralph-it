@@ -168,8 +168,7 @@ class Conversation:
         if isinstance(result, str):
             self.update_session(active_spec_commit=result)
             workflow_result = (
-                f"Specification generation succeeded in Git commit {result}. "
-                "Confirm completion concisely and do not show the Just Ralph It button again."
+                f"Specification generation succeeded in Git commit {result}. Confirm completion concisely."
             )
         else:
             workflow_result = (

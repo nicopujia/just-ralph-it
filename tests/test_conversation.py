@@ -13,7 +13,7 @@ from jri.core.exceptions import PersistenceError
 from tests.conftest import CreateRepository
 from tests.doubles.openai import FakeClient, call, failure, partial_reply, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
-from tests.doubles.specs_generation import generate_interrupted, generate_succeeding
+from tests.doubles.specs_generation import COMMIT, generate_interrupted, generate_succeeding
 from tests.doubles.workspace import install_workspace
 
 
@@ -246,6 +246,17 @@ def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
     turns = restarted.restore()
     assert InterviewItem("assistant", "Should the output be JSON or plain text?") in turns[-1].items
     assert restarted.session.active_spec_commit is None
+
+
+def test_reports_a_finished_generation_without_barring_the_next_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(FakeClient([response(reply("Understood.")), response(reply("All set."))]))
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+
+    list(conversation.ralph())
+
+    reports = [item["content"] for item in conversation.session.interview[1:] if item.get("role") == "system"]
+    assert reports == [f"Specification generation succeeded in Git commit {COMMIT}. Confirm completion concisely."]
 
 
 def test_rolls_back_the_notes_of_a_failed_reply_after_ralphing(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -82,6 +82,9 @@ class Interviewer(Agent):
                     clicking it or pressing Ctrl+X, J.
                     - If new information needs discussion after showing the button, call `just_ralph_it` with
                     `show=false` before continuing.
+                    - A finished generation ends nothing: keep interviewing, and once the user brings new
+                    information and you both agree the updated definition is complete again, call `just_ralph_it`
+                    with `show=true` again.
 
                 Constraints:
                     - Keep notes, IDs, connections, and files entirely on your side.
