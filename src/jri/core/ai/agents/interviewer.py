@@ -114,7 +114,7 @@ class Interviewer(Agent):
             "role": "system",
             "content": (
                 f"Current topic: {self.active_topic_id}\n\n"
-                "Project excerpt (where inactive-topic notes and connections are omitted):\n"
+                "Project excerpt (where inactive-topic notes are omitted):\n"
                 f"{self.notebook.render(self.active_topic_id)}"
             ),
         }

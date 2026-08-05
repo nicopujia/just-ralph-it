@@ -215,7 +215,8 @@ def test_renders_only_visible_topics_and_relevant_notes(tmp_path: Path) -> None:
             {"id": "t1", "name": "Project overview", "status": "open", "notes": {"n1": "Overview"}},
             {"id": "t2", "name": "Delivery", "status": "open", "notes": {"n2": "Deploy automatically."}},
             {"id": "t3", "name": "Security", "status": "open"},
-        ]
+        ],
+        "connections": ["n1 supports n2"],
     }
     assert security_context["topics"][1].get("notes") is None
     assert security_context["topics"][2]["notes"] == {"n3": "Encrypt credentials."}
@@ -225,7 +226,8 @@ def test_renders_an_empty_overview(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
 
     assert safe_load(notebook.render("t1")) == {
-        "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}]
+        "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {}}],
+        "connections": [],
     }
 
 

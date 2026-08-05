@@ -364,11 +364,13 @@ class Notebook:
             if topic_id is None or topic.id in {"t1", topic_id}:
                 data["notes"] = {note.id: note.text for note in graph.notes if note.topic_id == topic.id}
             topics.append(data)
-        data: dict[str, object] = {"topics": topics}
-        if topic_id is None:
-            data["connections"] = [
+        data: dict[str, object] = {
+            "topics": topics,
+            "connections": [
                 f"{connection.source_id} {connection.label} {connection.target_id}" for connection in graph.connections
-            ]
+            ],
+        }
+        if topic_id is None:
             data["next_note_id"] = graph.next_note_id
         return safe_dump(data, sort_keys=False, allow_unicode=True, width=10**9)
 
