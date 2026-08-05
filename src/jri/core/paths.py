@@ -18,8 +18,12 @@ FUNCTIONAL_SPECS_ROOT = "functional"
 ARCHITECTURE_SPECS_DIR = f"{SPECS_DIR}/{ARCHITECTURE_SPECS_ROOT}"
 FUNCTIONAL_SPECS_DIR = f"{SPECS_DIR}/{FUNCTIONAL_SPECS_ROOT}"
 
-# Everything JRI commits, and all a JRI commit ever holds.
-COMMITTED_PATHS = (CONFIG_FILE, GITIGNORE_FILE, NOTEBOOK_FILE, SPECS_DIR)
+# Everything JRI commits, and all a JRI commit ever holds. The
+# specifications answer to a pattern rather than to the directory
+# holding them, so that reaching past a project's ignore rules takes
+# the Markdown JRI wrote and never what else those rules were hiding.
+# `:(glob)` is how Git spells a pattern that crosses directories.
+COMMITTED_PATHS = (CONFIG_FILE, GITIGNORE_FILE, NOTEBOOK_FILE, f":(glob){SPECS_DIR}/**/*.md")
 
 # Everything a forced run deletes to re-create the workspace.
 RESET_PATHS = (SESSION_FILE, NOTEBOOK_FILE, VISUALIZATION_FILE, LOGS_DIR, SPECS_DIR)

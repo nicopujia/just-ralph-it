@@ -489,6 +489,31 @@ def test_commits_specifications_while_the_project_has_uncommitted_work(
     )
 
 
+def test_commits_specifications_into_a_project_that_ignores_the_workspace(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    (tmp_path / ".gitignore").write_text(".jri/\n.DS_Store\n")
+    run_git(tmp_path, "add", ".gitignore")
+    run_git(tmp_path, "commit", "-qm", "chore: ignore the workspace")
+    conversation = build_conversation(tmp_path, successful_client())
+    junk = tmp_path / ".jri/specs/functional/.DS_Store"
+    junk.parent.mkdir(parents=True)
+    junk.write_bytes(b"\x00")
+
+    list(conversation.ralph())
+
+    assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
+        ".jri/.gitignore",
+        ".jri/config.yaml",
+        ".jri/notebook.yaml",
+        ".jri/specs/architecture/design.md",
+        ".jri/specs/functional/behavior.md",
+    ]
+    assert junk.read_bytes() == b"\x00"
+    assert not run_git(tmp_path, "status", "--short")
+
+
 def test_refuses_to_commit_when_the_specifications_moved_during_generation(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:

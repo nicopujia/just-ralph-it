@@ -180,10 +180,12 @@ class Repository:
             arguments.append("--reverse")
         self._run(*arguments, stdin=patch)
 
-    def stage(self, paths: Sequence[str], *, intent_to_add: bool = False) -> None:
+    def stage(self, paths: Sequence[str], *, intent_to_add: bool = False, force: bool = False) -> None:
         arguments = ["add"]
         if intent_to_add:
             arguments.append("--intent-to-add")
+        if force:
+            arguments.append("--force")
         self._run(*arguments, "--", *paths)
 
     def unstage(self, paths: Sequence[str]) -> None:

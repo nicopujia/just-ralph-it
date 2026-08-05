@@ -245,6 +245,16 @@ def test_stages_only_the_intent_to_add_a_path(
     assert run_git(repository.path, "show", "--format=", "--name-only", commit).splitlines() == ["other.md"]
 
 
+def test_stages_a_path_the_project_ignores(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / ".gitignore").write_text("notes.md\n")
+    (repository.path / "notes.md").write_text("# Notes\n")
+
+    repository.stage(["notes.md"], force=True)
+
+    assert repository.read_status(["notes.md"]) == (git.Status("notes.md", "A", " "),)
+
+
 def test_unstages_the_paths_it_is_given(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     (repository.path / "notes.md").write_text("# Notes\n")

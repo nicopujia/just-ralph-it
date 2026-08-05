@@ -97,9 +97,12 @@ class Specs:
         self.repository.apply_patch(patch)
         # The intent alone, so JRI never writes over content the user
         # staged for a path of its own, and a crash before the commit
-        # leaves nothing behind for their next commit to pick up.
+        # leaves nothing behind for their next commit to pick up. What
+        # the project ignores does not decide this: `.jri` is JRI's to
+        # keep in Git, and a project that ignores it Ralphs like any
+        # other rather than failing once the generation has run.
         try:
-            self.repository.stage(paths.COMMITTED_PATHS, intent_to_add=True)
+            self.repository.stage(paths.COMMITTED_PATHS, intent_to_add=True, force=True)
             commit = self.repository.commit(
                 "jri: update specifications", trailers=(ACCEPTANCE_TRAILER,), paths=paths.COMMITTED_PATHS
             )
