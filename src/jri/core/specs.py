@@ -5,7 +5,7 @@ from pathlib import Path, PurePosixPath
 from jri.lib import git, prompt
 
 from . import paths
-from .exceptions import RepositoryStateError, SpecsError
+from .exceptions import PersistenceError, RepositoryStateError, SpecsError
 from .repository import Repository
 from .workspace import Workspace
 
@@ -31,7 +31,7 @@ class Specs:
         self.workspace = Workspace(self.repository.path)
 
     def prepare(self) -> Baseline:
-        notebook = self.workspace.notebook_file.read_bytes()
+        notebook = self._read_notebook()
         self._check_state()
         if not self.repository.has_commit():
             return Baseline(None, notebook, b"", {}, {})
@@ -91,7 +91,7 @@ class Specs:
         )
         if head_specs != baseline.functional | baseline.architecture:
             raise RepositoryStateError("The specifications changed during generation. Try again.")
-        if self.workspace.notebook_file.read_bytes() != baseline.notebook:
+        if self._read_notebook() != baseline.notebook:
             raise RepositoryStateError("The project notes changed during generation. Try again.")
         self._check_state()
         self.repository.apply_patch(patch)
@@ -112,6 +112,15 @@ class Specs:
             raise
         logger.info("specs_committed commit=%s", commit)
         return commit
+
+    def _read_notebook(self) -> bytes:
+        try:
+            return self.workspace.notebook_file.read_bytes()
+        except OSError as error:
+            logger.exception("notebook_read_failed path=%r", self.workspace.notebook_file)
+            raise PersistenceError(
+                f"Could not read the notebook file `{self.workspace.notebook_file}`: {error.strerror}"
+            ) from error
 
     def _check_state(self) -> None:
         # Off a branch, Git takes the commit and leaves it reachable

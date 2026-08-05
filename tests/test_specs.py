@@ -6,6 +6,7 @@ import pytest
 
 from jri.core.ai import Ending, TurnEvent, TurnFinished, architect, functional_analyst
 from jri.core.conversation import Conversation
+from jri.core.exceptions import PersistenceError
 from jri.core.specs import ACCEPTANCE_TRAILER, Specs
 from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
@@ -352,6 +353,15 @@ def test_refuses_specifications_left_uncommitted_before_generation(
     assert read_ending(conversation.ralph(), r"stray\.md") == "blocked"
 
     assert run_git(tmp_path, "log", "--oneline").count("\n") == 0
+
+
+def test_reports_a_notebook_file_it_cannot_read(tmp_path: Path, create_repository: CreateRepository) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    (tmp_path / ".jri/notebook.yaml").unlink()
+
+    with pytest.raises(PersistenceError, match="Could not read the notebook file"):
+        Specs(tmp_path).prepare()
 
 
 def test_refuses_to_start_during_a_merge(tmp_path: Path, create_repository: CreateRepository, run_git: RunGit) -> None:
