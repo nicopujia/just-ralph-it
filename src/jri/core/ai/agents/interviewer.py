@@ -1,10 +1,10 @@
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast, override
 
 from openai.types.responses import ResponseInputParam
 
 from jri.core.notes import Connection, Notebook, NoteId, ReadQuery, TopicId
 from jri.core.settings import Settings
+from jri.core.workspace import Workspace
 from jri.lib import prompt
 from jri.lib.models import estimate_tokens, get_context_limit
 
@@ -152,7 +152,7 @@ class Interviewer(Agent):
         read_only=True,
     )
     def explore(self, query: str) -> Stream:
-        report = yield from Explorer(self.settings, Path.cwd()).report(query)
+        report = yield from Explorer(self.settings, Workspace.find().root).report(query)
         yield ToolOutput(report or "Exploration produced no report.", "done" if report else "empty")
 
     @tool(

@@ -6,6 +6,7 @@ from yaml import safe_load
 
 from jri.core.ai import Interviewer, ToolCallStarted, ToolOutput
 from jri.core.notes import Connection, Notebook
+from tests.conftest import CreateRepository
 from tests.doubles.models import serve_catalog
 from tests.doubles.openai import FakeClient, call, failure, partial_reply, response, streamed_reply
 from tests.doubles.settings import build_settings
@@ -209,6 +210,22 @@ def test_counts_only_the_connections_it_removed(tmp_path: Path) -> None:
     assert interviewer.disconnect_notes([CONNECTION]) == "Disconnected 1 relationship(s)."
     assert interviewer.disconnect_notes([CONNECTION]) == "Disconnected 0 relationship(s)."
     assert interviewer.notebook.graph.connections == []
+
+
+def test_explores_from_the_root_of_the_enclosing_repository(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    nested = repository.path / "packages" / "app"
+    nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
+    client = FakeClient([streamed_reply("Cats are mammals.")])
+    interviewer = build_interviewer(tmp_path, client)
+
+    list(interviewer.explore("cats"))
+
+    instructions = cast("list[dict[str, str]]", client.responses.inputs[0])[0]["content"]
+    assert f"Working directory: {repository.path}\n" in instructions
 
 
 def test_explores_reporting_only_what_follows_the_last_nested_tool_call(tmp_path: Path) -> None:
