@@ -99,7 +99,7 @@ def test_reports_invalid_arguments_to_the_model() -> None:
     list(invocation)
 
     assert invocation.failed
-    assert cast("str", invocation.output).startswith("Tool call failed:")
+    assert cast("str", invocation.output).startswith("Tool call failed:\n```\n")
 
 
 def test_labels_a_call_by_its_tool_name_when_the_arguments_are_invalid() -> None:
@@ -115,7 +115,7 @@ def test_keeps_the_output_of_a_stream_that_fails_after_reporting_it() -> None:
     list(invocation)
 
     assert invocation.failed
-    assert invocation.output == "partial: one\n\nTool call failed: no more: one"
+    assert invocation.output == "partial: one\n\nTool call failed:\n```\nno more: one\n```"
 
 
 def test_keeps_the_structured_output_of_a_stream_that_fails_after_reporting_it() -> None:
@@ -126,7 +126,7 @@ def test_keeps_the_structured_output_of_a_stream_that_fails_after_reporting_it()
     assert invocation.failed
     assert invocation.output == [
         {"type": "input_text", "text": "partial: one"},
-        {"type": "input_text", "text": "Tool call failed: no more: one"},
+        {"type": "input_text", "text": "Tool call failed:\n```\nno more: one\n```"},
     ]
 
 

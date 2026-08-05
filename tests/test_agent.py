@@ -76,7 +76,7 @@ def test_tracks_the_calls_that_failed() -> None:
 
     list(agent.send_message("Go."))
 
-    assert read_outputs(agent) == ["Tool call failed: no can do: one", "echo: two"]
+    assert read_outputs(agent) == ["Tool call failed:\n```\nno can do: one\n```", "echo: two"]
     assert agent.failed_call_ids == ["broken"]
 
 

@@ -9,6 +9,7 @@ from openai.types.responses import FunctionToolParam, ResponseFunctionCallOutput
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
 from jri.core import ai
+from jri.lib import prompt
 
 type Stream = Generator[ai.ToolCallStarted | ai.ToolCallFinished | ToolOutput]
 
@@ -59,7 +60,7 @@ class Invocation:
                 return
             except (RuntimeError, TypeError, ValueError) as error:
                 logger.exception("stream_failed")
-                failure = f"Tool call failed: {error}"
+                failure = prompt.render(tool_call_failed=str(error))
                 # Whatever the stream already reported is real work, so
                 # the failure joins that output instead of replacing it.
                 if self._output is None:
@@ -197,11 +198,11 @@ class Tool:
         except ValidationError as error:
             logger.exception("validation_failed name=%s", self.name)
             first = error.errors(include_url=False)[0]
-            output = f"Tool call failed: {first['msg']}."
+            output = prompt.render(tool_call_failed=f"{first['msg']}.")
             failed = True
         except (RuntimeError, TypeError, ValueError) as error:
             logger.exception("invocation_failed name=%s", self.name)
-            output = f"Tool call failed: {error}"
+            output = prompt.render(tool_call_failed=str(error))
             failed = True
         logger.info("invocation_finished name=%s", self.name)
         logger.debug("output name=%s output=%r", self.name, output)

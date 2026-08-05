@@ -242,7 +242,7 @@ def test_reports_a_failed_exploration_to_the_model(tmp_path: Path) -> None:
     list(invocation)
 
     assert invocation.failed
-    assert invocation.output == "Tool call failed: The provider is unavailable."
+    assert invocation.output == "Tool call failed:\n```\nThe provider is unavailable.\n```"
 
 
 def test_reports_an_unwritable_notebook_to_the_model(tmp_path: Path) -> None:
@@ -256,4 +256,4 @@ def test_reports_an_unwritable_notebook_to_the_model(tmp_path: Path) -> None:
     list(invocation)
 
     assert invocation.failed
-    assert cast("str", invocation.output).startswith("Tool call failed: Could not save the notebook file")
+    assert cast("str", invocation.output).startswith("Tool call failed:\n```\nCould not save the notebook file")
