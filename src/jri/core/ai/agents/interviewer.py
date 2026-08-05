@@ -6,6 +6,7 @@ from openai.types.responses import ResponseInputParam
 
 from jri.core.notes import Connection, Notebook, NoteId, ReadQuery, TopicId
 from jri.core.settings import Settings
+from jri.lib import prompt
 from jri.lib.models import estimate_tokens, get_context_limit
 
 from .base import Agent, Stream, ToolOutput, tool
@@ -92,6 +93,8 @@ class Interviewer(Agent):
 
                 Constraints:
                     - Keep notes, IDs, connections, and files entirely on your side.
+                    - The project excerpt pinned to this conversation lists every topic, but holds the notes of the
+                    active topic and the overview alone; read the rest with `read_notes`.
                     - Express hierarchy and relationships as connections; keep each note's text to one
                     independently meaningful idea.
                     - The project is the user's. Its name, purpose, and scope come only from them. Note a project
@@ -112,10 +115,8 @@ class Interviewer(Agent):
     def get_context(self) -> ResponseInputParam:
         pinned: ResponseInputItemParam = {
             "role": "system",
-            "content": (
-                f"Current topic: {self.active_topic_id}\n\n"
-                "Project excerpt (where inactive-topic notes are omitted):\n"
-                f"{self.notebook.render(self.active_topic_id)}"
+            "content": prompt.render(
+                current_topic=self.active_topic_id, project_excerpt=self.notebook.render(self.active_topic_id)
             ),
         }
         turns: list[ResponseInputParam] = []
@@ -173,7 +174,7 @@ class Interviewer(Agent):
         if resolved.status == "trashed":
             raise ValueError(f"Topic `{resolved.id}` is trashed. Restore it before switching.")
         self.active_topic_id = resolved.id
-        return f"Switched to {resolved.id}: {resolved.name}"
+        return f"Switched to {resolved.id}."
 
     @tool(
         "Set a topic's status and optionally replace its summary.",
@@ -189,7 +190,7 @@ class Interviewer(Agent):
         topic = self.notebook.update_topic(topic_id, status, summary)
         if topic.id == self.active_topic_id and topic.status == "trashed":
             self.active_topic_id = self.initial_topic.id
-        return f"Updated {topic.id}: {topic.name} ({topic.status})"
+        return f"Updated {topic.id} ({topic.status})."
 
     @tool(
         (
@@ -207,11 +208,12 @@ class Interviewer(Agent):
         notes, connections = self.notebook.read(query or ReadQuery())
         if not notes:
             return "No notes found."
-        lines = [f"- {note.id}: {note.text}" for note in notes]
-        if connections:
-            lines.extend(["", "Connections"])
-            lines.extend(f"- {item.source_id} --{item.label}--> {item.target_id}" for item in connections)
-        return "\n".join(lines)
+        # An edge reads exactly as it does in the pinned excerpt, so
+        # the model meets one shape wherever it meets the notebook.
+        return prompt.render(
+            notes={note.id: note.text for note in notes},
+            connections=[f"{item.source_id} {item.label} {item.target_id}" for item in connections] or None,
+        )
 
     @tool(
         "Capture one or more independently meaningful notes under the active topic.",
@@ -221,7 +223,7 @@ class Interviewer(Agent):
     )
     def capture_notes(self, texts: list[str]) -> str:
         notes = self.notebook.add(texts, self.active_topic_id)
-        return "\n".join(f"Added {note.id}: {note.text}" for note in notes)
+        return f"Added notes: {', '.join(note.id for note in notes)}."
 
     @tool(
         "Edit one note's text without changing its connections.",
@@ -231,7 +233,7 @@ class Interviewer(Agent):
     )
     def edit_note(self, note_id: NoteId, text: str) -> str:
         note = self.notebook.edit(note_id, text)
-        return f"Edited {note.id}: {note.text}"
+        return f"Edited {note.id}."
 
     @tool(
         "Delete notes and every semantic connection touching them.",
