@@ -70,9 +70,14 @@ def generate(
             if explorer_report is None:
                 yield ai.ToolCallStarted("explorer", "Studying your existing project", "🔎")
                 # Nested under the row above, so closing that row
-                # clears the rows the run left behind.
+                # clears the rows the run left behind. The study runs
+                # in the staging worktree, which holds the very commit
+                # the architect designs against: whatever a command of
+                # its own writes there dies with the worktree instead
+                # of dirtying the project and failing the state check
+                # this run still has to pass to commit.
                 explorer_report = (
-                    yield from ai.Explorer(settings).report(
+                    yield from ai.Explorer(settings, staging.path).report(
                         "Study this repository generally. Report its structure, architecture, established "
                         "patterns, development commands, and the constraints that new work in it must respect.",
                         depth=1,

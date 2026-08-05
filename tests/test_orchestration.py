@@ -243,6 +243,22 @@ def test_reports_only_the_explorer_text_that_follows_its_last_tool_call(
     assert report.endswith("Repository analysis report:\nFinal report")
 
 
+def test_keeps_what_the_repository_study_writes_out_of_the_project(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    client = FakeClient(
+        [response(call("shell", "run_shell", command="touch uv.lock")), streamed_reply("Repository report")],
+        parsed=[written_specs(), designed_architecture()],
+    )
+
+    _, result = generate(client)
+
+    assert isinstance(result, str)
+    assert not (tmp_path / "uv.lock").exists()
+    assert not run_git(tmp_path, "status", "--short")
+
+
 def test_refuses_an_empty_repository_report(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient([response(reply(""))], parsed=[written_specs()])

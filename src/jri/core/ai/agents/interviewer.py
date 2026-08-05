@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast, override
 
 from openai.types.responses import ResponseInputParam
@@ -146,7 +147,7 @@ class Interviewer(Agent):
         read_only=True,
     )
     def explore(self, query: str) -> Stream:
-        report = yield from Explorer(self.settings).report(query)
+        report = yield from Explorer(self.settings, Path.cwd()).report(query)
         yield ToolOutput(report)
 
     @tool(

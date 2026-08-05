@@ -19,8 +19,8 @@ PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 UNDECODABLE = b"\xff\xfe\x00binary"
 
 
-def build_explorer() -> Explorer:
-    return Explorer(build_settings(FakeClient([])))
+def build_explorer(directory: Path | None = None) -> Explorer:
+    return Explorer(build_settings(FakeClient([])), directory or Path.cwd())
 
 
 def test_reads_a_selected_range_of_lines(tmp_path: Path) -> None:
@@ -72,10 +72,22 @@ def test_reports_unreadable_paths() -> None:
         build_explorer().read_files(["missing.txt"])
 
 
-def test_runs_shell_commands_in_the_working_directory(tmp_path: Path) -> None:
-    (tmp_path / "marker.txt").write_text("here\n")
+def test_runs_shell_commands_in_the_directory_it_was_given(tmp_path: Path) -> None:
+    directory = tmp_path / "elsewhere"
+    directory.mkdir()
+    (directory / "marker.txt").write_text("here\n")
 
-    assert "here\n" in build_explorer().run_shell("cat marker.txt")
+    assert "here\n" in build_explorer(directory).run_shell("cat marker.txt")
+
+
+def test_reads_relative_paths_from_the_directory_it_was_given(tmp_path: Path) -> None:
+    directory = tmp_path / "elsewhere"
+    directory.mkdir()
+    (directory / "notes.md").write_text("Notes\n")
+
+    result = build_explorer(directory).read_files(["notes.md"])
+
+    assert result[0] == {"type": "input_text", "text": f"File: {directory / 'notes.md'}"}
 
 
 def test_reports_a_failing_shell_command() -> None:
@@ -126,7 +138,7 @@ def test_searches_the_web_and_links_the_results(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("SEARCH_API_KEY", "search-key")
     provider = FakeProvider(respond(200, {"grounding": {"generic": RESULTS}}))
     monkeypatch.setattr(brave.httpx, "post", provider.post)
-    explorer = Explorer(build_settings(FakeClient([]), search_api_key="SEARCH_API_KEY"))
+    explorer = Explorer(build_settings(FakeClient([]), search_api_key="SEARCH_API_KEY"), Path.cwd())
 
     output = explorer.search_web("how to ralph")
 
