@@ -182,8 +182,14 @@ def _apply_patch(
             specs.apply(staging, patch, root)
         except git.Error as error:
             if attempt == MAX_PATCH_ATTEMPTS:
+                # Git's own rejection is a fact about a diff the user
+                # never saw, and it is already in the log twice over.
+                # What is theirs to know is that a run of theirs ended
+                # and what it left behind, which is nothing.
                 raise SpecsError(
-                    f"Git rejected the {root} specification patch on all {MAX_PATCH_ATTEMPTS} attempts:\n{error}"
+                    f"JRI could not write the {root} specifications it drafted, after "
+                    f"{MAX_PATCH_ATTEMPTS} attempts. Nothing was committed. Your notes stand, and your "
+                    "project keeps the specifications it already had."
                 ) from error
             logger.info("patch_repair_requested root=%s attempt=%d", root, attempt)
             patch = repair(patch, str(error))

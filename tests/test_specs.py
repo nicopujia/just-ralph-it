@@ -61,6 +61,14 @@ diff --git a/architecture/design.md b/architecture/design.md
  # Design
 +Add a total accumulator.
 """
+UNMATCHED_FUNCTIONAL_UPDATE = """\
+diff --git a/functional/behavior.md b/functional/behavior.md
+--- a/functional/behavior.md
++++ b/functional/behavior.md
+@@ -1 +1,2 @@
+ # Never written
++Total output is supported.
+"""
 SECTIONED_ARCHITECTURE_PATCH = """\
 diff --git a/architecture/design.md b/architecture/design.md
 new file mode 100644
@@ -784,10 +792,42 @@ def test_reports_a_valid_patch_that_git_never_applies(tmp_path: Path, create_rep
     )
     conversation = build_conversation(tmp_path, client)
 
-    assert read_ending(conversation.ralph(), "Git rejected the functional specification patch") == "failed"
+    finished = list(conversation.ralph())[-1]
 
+    assert isinstance(finished, TurnFinished)
+    assert finished.ending == "failed"
+    assert finished.detail == (
+        "JRI could not write the functional specifications it drafted, after 3 attempts. Nothing was "
+        "committed. Your notes stand, and your project keeps the specifications it already had."
+    )
     assert find_accepted_commit(tmp_path) is None
     assert not (tmp_path / ".jri/specs").exists()
+
+
+def test_keeps_the_accepted_specifications_when_a_patch_never_applies(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    first_spec_commit = find_accepted_commit(tmp_path)
+    client = FakeClient(
+        [],
+        parsed=[
+            functional_analyst.Output(
+                result=functional_analyst.Patch(outcome="specification_patch", patch=UNMATCHED_FUNCTIONAL_UPDATE)
+            ),
+            *[functional_analyst.Patch(outcome="specification_patch", patch=UNMATCHED_FUNCTIONAL_UPDATE)] * 2,
+        ],
+    )
+    conversation = build_conversation(tmp_path, client)
+    conversation.restore()
+    conversation.interviewer.notebook.add(["Report the totals too."], "t1")
+
+    assert read_ending(conversation.ralph(), "JRI could not write the functional specifications") == "failed"
+
+    assert find_accepted_commit(tmp_path) == first_spec_commit
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert [note.text for note in conversation.notebook.graph.notes] == ["Report the totals too."]
 
 
 @pytest.mark.parametrize(
