@@ -15,6 +15,7 @@ ESCAPES = str.maketrans({
     "`": "#96;",
     "[": "#91;",
     "]": "#93;",
+    "|": "#124;",
 })
 INDENTATION = "    " * 3
 # The template is mostly CSS and JavaScript, so it is full of braces and
