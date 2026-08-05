@@ -111,13 +111,22 @@ class Specs:
         return commit
 
     def _check_state(self) -> None:
-        # Git refuses a partial commit under a merge, and accepts one
-        # under a stopped rebase by writing it onto the detached HEAD
-        # the rebase replays onto, so neither is a state to start in.
-        if self.repository.has_conflicts() or any(
-            self.repository.has_commit(head) for head in ("MERGE_HEAD", "REBASE_HEAD")
-        ):
-            raise RepositoryStateError("Finish the merge, rebase, or cherry-pick in progress before Ralphing.")
+        # Off a branch, Git takes the commit and leaves it reachable
+        # only from where HEAD stands, so going back to the branch
+        # loses it: every stopped rebase, every bisect, and every
+        # checkout of a commit or a tag sits here. The refs a rebase
+        # writes cannot stand in for this, since one of them outlives
+        # the rebase and a rebase held at a break writes none at all.
+        if not self.repository.is_on_branch():
+            raise RepositoryStateError(
+                "Git is not on a branch, so JRI's commit would be lost. Check out a branch before Ralphing."
+            )
+        # A merge and a cherry-pick both keep the branch, and Git
+        # refuses a partial commit under either. A merge says so with
+        # MERGE_HEAD even when it merged cleanly, and a cherry-pick
+        # only ever stops with the conflict that stopped it.
+        if self.repository.has_conflicts() or self.repository.has_commit("MERGE_HEAD"):
+            raise RepositoryStateError("Finish the merge or cherry-pick in progress before Ralphing.")
         blockers = sorted(entry.path for entry in self.repository.read_status((paths.SPECS_DIR,)))
         if blockers:
             raise RepositoryStateError(

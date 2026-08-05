@@ -83,6 +83,11 @@ class Repository:
     def has_conflicts(self) -> bool:
         return bool(self._run("ls-files", "--unmerged", "-z").stdout)
 
+    def is_on_branch(self) -> bool:
+        # An unborn branch counts: HEAD names it before any commit
+        # exists, and that is where a first commit would land.
+        return self._run("symbolic-ref", "--quiet", "HEAD", check=False).returncode == 0
+
     def read_head(self) -> str:
         return os.fsdecode(self._run("rev-parse", "HEAD").stdout).strip()
 
