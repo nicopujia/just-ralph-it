@@ -7,6 +7,7 @@ if TYPE_CHECKING:
     from openai.types.responses import ResponseFunctionCallOutputItemListParam
 
 
+KILOBYTE = 1024
 TRUNCATION_NOTICE = "[Output truncated. Try splitting into more targeted calls.]"
 
 
@@ -18,13 +19,26 @@ def build_tool(name: str) -> Tool:
     return build_tools(Toolbox())[name]
 
 
-def test_truncates_long_text_output() -> None:
-    invocation = Invocation("x" * (Invocation.MAX_OUTPUT_LENGTH + 1))
+# The two sizes below are the budget itself, stated by a caller
+# instead of read back off the constant: an expectation computed from
+# `MAX_OUTPUT_LENGTH` holds for every value that constant could take,
+# which is how a budget too small for a screenshot went unnoticed.
+def test_keeps_a_long_source_file_whole() -> None:
+    body = "x" * (90 * KILOBYTE)
+
+    invocation = Invocation(body)
+    list(invocation)
+
+    assert invocation.output == body
+
+
+def test_cuts_a_directory_listing_of_a_whole_monorepo() -> None:
+    invocation = Invocation("x" * (300 * KILOBYTE))
     list(invocation)
 
     output = cast("str", invocation.output)
 
-    assert output == "x" * Invocation.MAX_OUTPUT_LENGTH + f"\n\n{TRUNCATION_NOTICE}"
+    assert output == "x" * 100_000 + f"\n\n{TRUNCATION_NOTICE}"
 
 
 def test_keeps_output_of_exactly_the_maximum_length() -> None:
