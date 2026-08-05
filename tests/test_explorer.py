@@ -148,8 +148,11 @@ def test_searches_the_web_and_links_the_results(monkeypatch: pytest.MonkeyPatch)
     assert provider.calls[0][1]["X-Subscription-Token"] == "search-key"
 
 
-def test_reports_web_search_as_unavailable_without_an_api_key() -> None:
-    assert build_explorer().search_web("how to ralph") == "Web search not available."
+def test_withholds_web_search_without_an_api_key() -> None:
+    with_key = Explorer(build_settings(FakeClient([]), search_api_key="SEARCH_API_KEY"), Path.cwd())
+
+    assert "search_web" not in [tool.name for tool in build_explorer().tools]
+    assert "search_web" in [tool.name for tool in with_key.tools]
 
 
 def test_fetches_a_page_as_markdown(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -10,6 +10,7 @@ from collections.abc import Generator
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryFile
+from typing import cast
 
 import httpx
 from markdownify import MarkdownConverter
@@ -50,7 +51,6 @@ class Explorer(Agent):
 
                 Tools:
                     - Prefer `fetch_web_page` for URLs and `read_files` for file contents, over `run_shell`.
-                    - Once `search_web` reports being unavailable, rely on the other tools for the rest of the run.
 
                 Constraints:
                     - Use `run_shell` only to observe: treat this machine as read-only.
@@ -59,6 +59,11 @@ class Explorer(Agent):
                     - State any ambiguity explicitly when the information you need is missing.
             """,
         )
+        # A capability this run does not have is absent, not advertised
+        # and then refused: `respond` rebuilds the definitions it offers
+        # from `tools` on every call.
+        if not settings.brave_search.api_key:
+            self.tools = [tool for tool in self.tools if tool.name != "search_web"]
 
     # Only the last uninterrupted stretch of text is the report: a tool
     # call means the run was still gathering, so whatever it had said
@@ -85,10 +90,7 @@ class Explorer(Agent):
     )
     def search_web(self, query: str) -> str:
         logger.debug("search_query query=%r", query)
-        if not self.settings.brave_search.api_key:
-            logger.info("search_finished available=False")
-            return "Web search not available."
-        results = brave.search(read_api_key(self.settings.brave_search.api_key), query)
+        results = brave.search(read_api_key(cast("str", self.settings.brave_search.api_key)), query)
         output = "\n".join(f"- [{result['title']}]({result['url']})" for result in results)
         logger.info("search_finished results=%d", len(results))
         return output
