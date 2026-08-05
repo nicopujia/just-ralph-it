@@ -153,11 +153,13 @@ class Conversation:
                 tools[item["name"]].replay(item["arguments"])
 
         del self.session.transcript[checkpoint_index:]
+        offer = self._stamp_offer()
+        self.interviewer.offered_ralphing = False
         self.update_session(
             active_topic_id=self.interviewer.active_topic_id,
             interview=self.interviewer.history,
             transcript=self.session.transcript,
-            **self._stamp_offer(),
+            **offer,
         )
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
@@ -296,11 +298,13 @@ class Conversation:
             yield closing
         turn.ending = ending
         turn.detail = str(failure) if failure is not None else ""
+        offer = self._stamp_offer()
+        self.interviewer.offered_ralphing = False
         self.update_session(
             active_topic_id=self.interviewer.active_topic_id,
             interview=self.interviewer.history,
             transcript=self.session.transcript,
-            **self._stamp_offer(),
+            **offer,
         )
         self.logger.info("turn_finished ending=%s interview_items=%d", ending, len(self.interviewer.history))
         yield TurnFinished(ending, turn.detail)
@@ -314,11 +318,12 @@ class Conversation:
 
     # An offer is the notes it was made about, so the turn stamps it
     # with the notebook it ends holding: the notes the model connects
-    # right after offering are part of what it offered.
+    # right after offering are part of what it offered. A turn that
+    # made no offer leaves the field out rather than clearing whatever
+    # an earlier turn stamped.
     def _stamp_offer(self) -> dict[str, Graph]:
         if not self.interviewer.offered_ralphing:
             return {}
-        self.interviewer.offered_ralphing = False
         return {"ready_graph": self.notebook.graph.model_copy(deep=True)}
 
 
