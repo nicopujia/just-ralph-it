@@ -55,7 +55,7 @@ def test_truncates_long_structured_output() -> None:
     assert len(result) == len(output) - 1
 
 
-def test_replaces_an_oversized_attachment_with_the_truncation_notice() -> None:
+def test_keeps_an_image_larger_than_the_text_budget() -> None:
     output = cast(
         "ResponseFunctionCallOutputItemListParam",
         [{"type": "input_image", "image_url": "x" * (Invocation.MAX_OUTPUT_LENGTH + 1)}],
@@ -63,9 +63,35 @@ def test_replaces_an_oversized_attachment_with_the_truncation_notice() -> None:
 
     invocation = Invocation(output)
     list(invocation)
-    result = cast("ResponseFunctionCallOutputItemListParam", invocation.output)
 
-    assert result == [{"type": "input_text", "text": TRUNCATION_NOTICE}]
+    assert invocation.output == output
+
+
+def test_keeps_a_file_larger_than_the_text_budget() -> None:
+    output = cast(
+        "ResponseFunctionCallOutputItemListParam",
+        [{"type": "input_file", "filename": "big.bin", "file_data": "x" * (Invocation.MAX_OUTPUT_LENGTH + 1)}],
+    )
+
+    invocation = Invocation(output)
+    list(invocation)
+
+    assert invocation.output == output
+
+
+def test_keeps_the_items_that_follow_an_oversized_image() -> None:
+    output = cast(
+        "ResponseFunctionCallOutputItemListParam",
+        [
+            {"type": "input_image", "image_url": "x" * (Invocation.MAX_OUTPUT_LENGTH + 1)},
+            {"type": "input_text", "text": "last"},
+        ],
+    )
+
+    invocation = Invocation(output)
+    list(invocation)
+
+    assert invocation.output == output
 
 
 def test_reports_invalid_arguments_to_the_model() -> None:

@@ -94,17 +94,18 @@ class Invocation:
             output: ResponseFunctionCallOutputItemListParam = []
             remaining = self.MAX_OUTPUT_LENGTH
             for item in self._output:
-                field = next((name for name in ("text", "image_url", "file_data") if name in item), None)
-                value = item[field] if field else ""
-                if not isinstance(value, str) or len(value) <= remaining:
+                # Images and files are already bounded by the
+                # model's own input limits, so only text spends
+                # this budget.
+                if item["type"] != "input_text":
                     output.append(item)
-                    remaining -= len(value)
+                    continue
+                if len(item["text"]) <= remaining:
+                    output.append(item)
+                    remaining -= len(item["text"])
                     continue
                 message = "\n\n[Output truncated. Try splitting into more targeted calls.]"
-                if item["type"] == "input_text":
-                    output.append({**item, "text": value[:remaining] + message})
-                else:
-                    output.append({"type": "input_text", "text": message.strip()})
+                output.append({**item, "text": item["text"][:remaining] + message})
                 break
             return output
         return self._output if self._output is not None else "Tool call failed: streaming tool returned no output."
