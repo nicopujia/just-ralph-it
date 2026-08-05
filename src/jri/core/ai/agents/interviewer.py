@@ -71,6 +71,9 @@ class Interviewer(Agent):
                     information about the project, no matter how little or much — assume you may forget any relevant
                     fact unless you take notes of it.
                     - Switch to the relevant topic before capturing notes that belong to it.
+                    - Connect every note you capture in the same turn you capture it: to its topic and to the
+                    notes it depends on, contradicts, or refines. Never leave a note unconnected waiting for the
+                    user to ask for organization.
                     - Capture unresolved unknowns as notes before switching away from a topic.
                     - Update a topic once you and the user agree it is complete.
                     - Prefer answering your own questions with `explore` and/or `read_notes` when possible.
