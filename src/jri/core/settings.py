@@ -1,11 +1,12 @@
 import difflib
 import os
 import textwrap
-from typing import Annotated, Literal, Self, cast
+from typing import Annotated, Literal, LiteralString, Self, cast
 
 import yaml
 from openai import OpenAI
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic_core import InitErrorDetails, PydanticCustomError
 
 from jri.lib.providers import codex
 
@@ -179,13 +180,15 @@ class Settings(BaseModel):
     @model_validator(mode="after")
     def validate_api_keys(self) -> "Settings":
         if self.llm.provider != "openai-subscription" and not self.llm.api_key:
-            raise ValueError(
-                "llm.api_key must name the environment variable holding the API key, "
-                "unless llm.provider is openai-subscription"
+            raise _reject_setting(
+                ("llm", "api_key"),
+                "must name the environment variable holding the API key, unless llm.provider is openai-subscription",
             )
         for section, variable in (("llm", self.llm.api_key), ("brave_search", self.brave_search.api_key)):
             if variable and variable not in os.environ:
-                raise ValueError(f"{section}.api_key names {variable}, but that environment variable is not set")
+                raise _reject_setting(
+                    (section, "api_key"), f"names {variable}, but that environment variable is not set"
+                )
         return self
 
 
@@ -213,3 +216,16 @@ def _render_settings(model: type[BaseModel], values: BaseModel | None, level: in
 
     lines = [line for entry in entries for line in ("", *entry)]
     return lines[1:]
+
+
+def _reject_setting(path: tuple[str, ...], message: str) -> ValidationError:
+    # A validation across settings still fails one of them, so it is
+    # reported against that setting rather than against the whole file.
+    return ValidationError.from_exception_data(
+        Settings.__name__,
+        [
+            InitErrorDetails(
+                type=PydanticCustomError("value_error", cast("LiteralString", message)), loc=path, input=None
+            )
+        ],
+    )

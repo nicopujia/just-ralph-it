@@ -218,8 +218,30 @@ def test_reports_an_unset_search_environment_variable(tmp_path: Path) -> None:
     config["brave_search"] = {"api_key": "MISSING_SEARCH_API_KEY"}
     write_config(tmp_path, config)
 
-    with pytest.raises(ValidationError, match=r"brave_search\.api_key names MISSING_SEARCH_API_KEY"):
+    with pytest.raises(ValidationError, match="MISSING_SEARCH_API_KEY, but that environment variable is not set"):
         Settings.load()
+
+
+def test_blames_the_setting_an_unset_environment_variable_belongs_to(tmp_path: Path) -> None:
+    config = yaml.safe_load(Settings.render_config())
+    config["brave_search"] = {"api_key": "MISSING_SEARCH_API_KEY"}
+    write_config(tmp_path, config)
+
+    with pytest.raises(ValidationError) as error:
+        Settings.load()
+
+    assert error.value.errors()[0]["loc"] == ("brave_search", "api_key")
+
+
+def test_blames_the_api_key_a_subscriptionless_provider_needs(tmp_path: Path) -> None:
+    config = yaml.safe_load(Settings.render_config())
+    config["llm"] = {"provider": "https://api.openai.com/v1"}
+    write_config(tmp_path, config)
+
+    with pytest.raises(ValidationError) as error:
+        Settings.load()
+
+    assert error.value.errors()[0]["loc"] == ("llm", "api_key")
 
 
 def test_reaches_the_subscription_through_the_codex_client(tmp_path: Path) -> None:
