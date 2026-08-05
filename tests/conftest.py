@@ -1,4 +1,5 @@
 import logging
+import os
 import shutil
 import socket
 import subprocess
@@ -6,13 +7,24 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Never
 
+import httpx
 import pytest
+from dotenv import dotenv_values
 
 from jri.lib import git
 from tests.doubles.models import serve_catalog
 
 type CreateRepository = Callable[[Path], git.Repository]
+type ReadCredential = Callable[[str], str]
 type RunGit = Callable[..., str]
+
+# The file `jri chat` reads its keys from, so a live call is paid for
+# by the same credential the product uses.
+ENV_FILE = Path(__file__).parent.parent / ".env"
+NETWORK = tuple(
+    (module, name, getattr(module, name))
+    for module, name in ((socket, "getaddrinfo"), (socket, "create_connection"), (socket, "socket"), (httpx, "get"))
+)
 
 
 @pytest.fixture
@@ -60,13 +72,30 @@ def block_network() -> Iterator[None]:
     def guard(*_: object, **__: object) -> Never:
         raise OSError("Tests must not use the network.")
 
-    blocked = ("getaddrinfo", "create_connection", "socket")
-    originals = {name: getattr(socket, name) for name in blocked}
-    for name in blocked:
-        setattr(socket, name, guard)
+    for module, name, _ in NETWORK:
+        setattr(module, name, guard)
     yield
-    for name, original in originals.items():
-        setattr(socket, name, original)
+    for module, name, original in NETWORK:
+        setattr(module, name, original)
+
+
+# A wire contract is the one belief a double cannot falsify, so the
+# tests that check one reach the endpoint itself.
+@pytest.fixture
+def reach_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    for module, name, original in NETWORK:
+        monkeypatch.setattr(module, name, original)
+
+
+@pytest.fixture
+def read_credential() -> ReadCredential:
+    def read(variable: str) -> str:
+        value = os.environ.get(variable) or dotenv_values(ENV_FILE).get(variable)
+        if not value:
+            pytest.skip(f"{variable} is unset, so nothing here can pay for a live call")
+        return value
+
+    return read
 
 
 @pytest.fixture(autouse=True)

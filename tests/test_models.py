@@ -1,11 +1,20 @@
 import httpx
 import pytest
 
+from jri.core.settings import AgentProfiles
 from jri.lib.models import FALLBACK_CONTEXT_LIMIT, estimate_tokens, get_context_limit
 from tests.doubles.models import serve_catalog, serve_outcome
 
 CONTEXT_LIMIT = 273_000
 CATALOG = {"openai/gpt-5.6-sol": {"limit": {"context": CONTEXT_LIMIT}}}
+
+
+# A catalog JRI cannot read answers exactly like one it never reached,
+# so a limit above the fallback is the whole contract at once: the
+# endpoint served, the shape parsed, and the shipped model found.
+@pytest.mark.usefixtures("reach_network")
+def test_reads_the_context_limit_the_catalog_really_publishes() -> None:
+    assert get_context_limit(AgentProfiles().interviewer.model) > FALLBACK_CONTEXT_LIMIT
 
 
 def test_reads_the_context_limit_of_a_catalogued_model(monkeypatch: pytest.MonkeyPatch) -> None:

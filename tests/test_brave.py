@@ -2,7 +2,20 @@ import httpx
 import pytest
 
 from jri.lib import brave
+from tests.conftest import ReadCredential
 from tests.doubles.brave import RESULTS, FakeProvider, respond
+
+API_KEY_VARIABLE = "BRAVE_SEARCH_API_KEY"
+
+
+# Every other test here answers with a response this repository wrote,
+# so the field names below are the only ones Brave itself has agreed to.
+@pytest.mark.usefixtures("reach_network")
+def test_searches_the_endpoint_brave_really_serves(read_credential: ReadCredential) -> None:
+    results = brave.search(read_credential(API_KEY_VARIABLE), "just ralph it")
+
+    assert results
+    assert all(result["title"] and result["url"] for result in results)
 
 
 def test_returns_the_generic_results_of_a_successful_search(monkeypatch: pytest.MonkeyPatch) -> None:
