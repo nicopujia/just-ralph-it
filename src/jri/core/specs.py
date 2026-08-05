@@ -54,7 +54,15 @@ class Specs:
     def apply(self, repository: git.Repository, patch: str, model_root: str) -> None:
         self._validate_patch(patch, model_root)
         try:
-            repository.apply_patch(patch.encode(), index=True, directory=paths.SPECS_DIR)
+            # A model writes hunks with no trailing context, which Git
+            # otherwise takes for a patch against the end of a file and
+            # refuses anywhere else. The lines a hunk quotes still have
+            # to be in the file, `_validate_patch` above still allows no
+            # path but a Markdown specification under the model's own
+            # root, and the worktree this lands in is one the run throws
+            # away -- so what a hunk gains is the freedom to sit
+            # elsewhere in a file JRI wrote and is about to diff.
+            repository.apply_patch(patch.encode(), index=True, directory=paths.SPECS_DIR, zero_context=True)
         except git.Error:
             # The patch is the only evidence of why generation failed.
             logger.exception("patch_rejected root=%s patch=%r", model_root, patch)

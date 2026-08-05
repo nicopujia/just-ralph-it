@@ -61,6 +61,24 @@ diff --git a/architecture/design.md b/architecture/design.md
  # Design
 +Add a total accumulator.
 """
+SECTIONED_ARCHITECTURE_PATCH = """\
+diff --git a/architecture/design.md b/architecture/design.md
+new file mode 100644
+--- /dev/null
++++ b/architecture/design.md
+@@ -0,0 +1,3 @@
++# Design
++The store keeps orders.
++Everything runs offline.
+"""
+CONTEXT_FREE_ARCHITECTURE_UPDATE = """\
+diff --git a/architecture/design.md b/architecture/design.md
+--- a/architecture/design.md
++++ b/architecture/design.md
+@@ -2 +2,2 @@
+ The store keeps orders.
++The reporter renders totals.
+"""
 FUNCTIONAL_PAIR_PATCH = """\
 diff --git a/functional/behavior.md b/functional/behavior.md
 new file mode 100644
@@ -199,6 +217,28 @@ def test_commits_specifications_whose_patch_miscounts_its_hunk(
 
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotals are supported.\n"
     assert find_accepted_commit(tmp_path) is not None
+
+
+# The second generation is where a patch stops creating files and
+# starts editing them, so it is the first one whose hunks carry
+# context at all -- and the models write none of it after the change.
+def test_commits_specifications_whose_patch_carries_no_trailing_context(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, build_client(FUNCTIONAL_PATCH, SECTIONED_ARCHITECTURE_PATCH)).ralph())
+    first_spec_commit = find_accepted_commit(tmp_path)
+    updated = build_conversation(tmp_path, build_client(FUNCTIONAL_UPDATE, CONTEXT_FREE_ARCHITECTURE_UPDATE))
+    updated.restore()
+
+    list(updated.ralph())
+
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == (
+        "# Design\nThe store keeps orders.\nThe reporter renders totals.\nEverything runs offline.\n"
+    )
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
+    assert find_accepted_commit(tmp_path) not in {None, first_spec_commit}
+    assert not run_git(tmp_path, "status", "--short")
 
 
 def test_updates_specs_after_restart_and_an_intervening_project_commit(

@@ -169,11 +169,26 @@ class Repository:
                     logger.warning("worktree_removal_failed location=%s", location)
 
     def apply_patch(
-        self, patch: bytes, *, index: bool = False, directory: str | None = None, reverse: bool = False
+        self,
+        patch: bytes,
+        *,
+        index: bool = False,
+        directory: str | None = None,
+        reverse: bool = False,
+        zero_context: bool = False,
     ) -> None:
         # Recount hunk line counts from the patch body: models
         # routinely miscount them while the body itself is correct.
         arguments = ["apply", "--recount"]
+        if zero_context:
+            # Lift the two pins Git puts on a hunk with too little
+            # context to be placed by: one holds a hunk without
+            # trailing context against the end of its file, the other
+            # holds a hunk whose header names line 1 against the start.
+            # What places a hunk without them is the lines it quotes,
+            # which still have to be in the file, at the occurrence
+            # nearest the line its own header names.
+            arguments.append("--unidiff-zero")
         if index:
             arguments.append("--index")
         if directory is not None:

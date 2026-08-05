@@ -7,6 +7,16 @@ import pytest
 from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
 
+CONTEXT_FREE_PATCH = b"""\
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -2 +2,2 @@
+ The store keeps orders.
++The reporter renders totals.
+"""
+SECTIONED_README = "# Store\nKeeps orders.\n\n# Reporter\nKeeps orders.\n"
+
 
 def test_rejects_a_missing_git_executable(tmp_path: Path) -> None:
     with pytest.raises(git.NotInstalledError):
@@ -355,6 +365,68 @@ def test_rejects_a_patch_that_does_not_apply(tmp_path: Path, create_repository: 
 
     with pytest.raises(git.Error):
         repository.apply_patch(patch)
+
+
+def test_applies_a_patch_whose_hunk_carries_no_trailing_context(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "README.md").write_text("# Project\nThe store keeps orders.\nEverything runs offline.\n")
+
+    repository.apply_patch(CONTEXT_FREE_PATCH, zero_context=True)
+
+    assert (repository.path / "README.md").read_text() == (
+        "# Project\nThe store keeps orders.\nThe reporter renders totals.\nEverything runs offline.\n"
+    )
+
+
+def test_rejects_a_patch_whose_hunk_carries_no_trailing_context(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "README.md").write_text("# Project\nThe store keeps orders.\nEverything runs offline.\n")
+
+    with pytest.raises(git.Error):
+        repository.apply_patch(CONTEXT_FREE_PATCH)
+
+
+def test_rejects_a_context_free_hunk_quoting_a_line_the_file_does_not_hold(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "README.md").write_text("# Project\nThe store keeps orders.\nEverything runs offline.\n")
+    patch = b"""\
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -2 +2 @@
+-The store never kept orders.
++The reporter renders totals.
+"""
+
+    with pytest.raises(git.Error):
+        repository.apply_patch(patch, zero_context=True)
+
+
+def test_places_a_context_free_hunk_at_the_line_its_header_names(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "README.md").write_text(SECTIONED_README)
+    patch = b"""\
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -2 +2,2 @@
+ Keeps orders.
++Renders totals.
+"""
+
+    repository.apply_patch(patch, zero_context=True)
+
+    assert (repository.path / "README.md").read_text() == (
+        "# Store\nKeeps orders.\nRenders totals.\n\n# Reporter\nKeeps orders.\n"
+    )
 
 
 def test_applies_a_patch_below_a_directory(tmp_path: Path, create_repository: CreateRepository) -> None:
