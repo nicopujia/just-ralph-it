@@ -318,7 +318,7 @@ class App(TextualApp[None]):
         await self._sync_ralph_button()
         self.set_focus(self.message_input)
         self._sync_retry_shortcut()
-        logger.info("turn_finished ending=%s", event.ending)
+        logger.info("turn_ending_rendered ending=%s", event.ending)
 
     async def _load_older_history(self, *, reveal_hidden: bool = True) -> None:
         if self.is_restoring_history:
