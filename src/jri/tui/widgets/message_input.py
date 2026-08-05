@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 
 class MessageInput(TextArea):
+    CHORD_ACTIONS = frozenset({"previous_message", "next_message", "retry_message", "ralph"})
     CHORD_TIMEOUT = 1.0
     BINDINGS = (
         Binding("enter", "submit", copy.SEND_MESSAGE, show=False, priority=True),
@@ -66,16 +67,13 @@ class MessageInput(TextArea):
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
         if action == "message_history":
             return not self.is_turn_active and not self._is_chord_open
-        if action == "ralph" and not self._is_chord_open:
-            return None if self.is_ralph_ready and not self.is_turn_active else False
-        if action == "previous_message":
-            return self._is_chord_open and self.history_index > 0
-        if action == "next_message":
-            return self._is_chord_open and self.history_index < self.message_count
-        if action == "retry_message":
-            return self._is_chord_open and self.is_retry_ready
-        if action == "ralph":
-            return self._is_chord_open and self.is_ralph_ready
+        if action in self.CHORD_ACTIONS:
+            # While the chord is open its keys belong to the chord, so
+            # an unavailable one does nothing instead of falling through
+            # to the text. Each action checks what it needs beforehand.
+            if self._is_chord_open:
+                return True
+            return None if action == "ralph" and self.is_ralph_ready and not self.is_turn_active else False
         return super().check_action(action, parameters)
 
     def action_message_history(self) -> None:
@@ -85,19 +83,23 @@ class MessageInput(TextArea):
 
     def action_previous_message(self) -> None:
         self._close_chord()
-        self.post_message(self.HistoryRequested(self, "previous"))
+        if self.history_index > 0:
+            self.post_message(self.HistoryRequested(self, "previous"))
 
     def action_next_message(self) -> None:
         self._close_chord()
-        self.post_message(self.HistoryRequested(self, "next"))
+        if self.history_index < self.message_count:
+            self.post_message(self.HistoryRequested(self, "next"))
 
     def action_retry_message(self) -> None:
         self._close_chord()
-        self.post_message(self.RetryRequested())
+        if self.is_retry_ready:
+            self.post_message(self.RetryRequested())
 
     def action_ralph(self) -> None:
         self._close_chord()
-        self.post_message(self.RalphRequested())
+        if self.is_ralph_ready:
+            self.post_message(self.RalphRequested())
 
     @property
     def history_index(self) -> int:
