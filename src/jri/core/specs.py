@@ -29,7 +29,7 @@ class Specs:
     def prepare(self, active_commit: str | None) -> Baseline:
         notebook = self.workspace.notebook_file.read_bytes()
         commit = self.repository.read_head() if self.repository.has_commit() else None
-        self._check_status(commit)
+        self._check_state()
         if active_commit is None:
             if commit is not None and self.repository.read_tree(commit, paths.SPECS_DIR):
                 raise RepositoryStateError("Existing specifications have no active JRI commit.")
@@ -76,10 +76,19 @@ class Specs:
         )
 
     def accept(self, patch: bytes, baseline: Baseline) -> str:
-        head = self.repository.read_head() if self.repository.has_commit() else None
-        if head != baseline.commit or self.workspace.notebook_file.read_bytes() != baseline.notebook:
-            raise RepositoryStateError("The project changed while specifications were being generated. Try again.")
-        self._check_status(baseline.commit)
+        # A commit the user makes mid-run moves HEAD without touching
+        # what this run is about, so what has to have held still is the
+        # specification tree the patch was written against.
+        head_specs = (
+            self.repository.read_tree(self.repository.read_head(), paths.SPECS_DIR)
+            if self.repository.has_commit()
+            else {}
+        )
+        if head_specs != baseline.functional | baseline.architecture:
+            raise RepositoryStateError("The specifications changed during generation. Try again.")
+        if self.workspace.notebook_file.read_bytes() != baseline.notebook:
+            raise RepositoryStateError("The project notes changed during generation. Try again.")
+        self._check_state()
         self.repository.apply_patch(patch)
         # The intent alone, so JRI never writes over content the user
         # staged for a path of its own, and a crash before the commit
@@ -94,15 +103,15 @@ class Specs:
         logger.info("specs_committed commit=%s", commit)
         return commit
 
-    def _check_status(self, baseline: str | None) -> None:
-        if baseline is None:
-            return
-        blockers = sorted({
-            path
-            for entry in self.repository.read_status()
-            for path in (entry.path, entry.original_path)
-            if path is not None and path not in {paths.CONFIG_FILE, paths.GITIGNORE_FILE, paths.NOTEBOOK_FILE}
-        })
+    def _check_state(self) -> None:
+        # Git refuses a partial commit under a merge, and accepts one
+        # under a stopped rebase by writing it onto the detached HEAD
+        # the rebase replays onto, so neither is a state to start in.
+        if self.repository.has_conflicts() or any(
+            self.repository.has_commit(head) for head in ("MERGE_HEAD", "REBASE_HEAD")
+        ):
+            raise RepositoryStateError("Finish the merge, rebase, or cherry-pick in progress before Ralphing.")
+        blockers = sorted(entry.path for entry in self.repository.read_status((paths.SPECS_DIR,)))
         if blockers:
             raise RepositoryStateError(
                 "Commit or remove these files before Ralphing:\n" + "\n".join(f"- {path}" for path in blockers)

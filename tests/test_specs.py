@@ -315,6 +315,8 @@ def test_leaves_the_project_untouched_when_a_hook_refuses_the_commit(
     hook.write_text("#!/bin/sh\nexit 1\n")
     hook.chmod(0o755)
     conversation = build_conversation(tmp_path, successful_client())
+    (tmp_path / "uv.lock").write_text("locked\n")
+    (tmp_path / "README.md").write_text("# Project, in progress\n")
     before = run_git(tmp_path, "status", "--porcelain", "-uall")
 
     with pytest.raises(git.Error):
@@ -327,20 +329,42 @@ def test_leaves_the_project_untouched_when_a_hook_refuses_the_commit(
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
 
 
-def test_refuses_unrelated_changes_before_generation(
+def test_refuses_specifications_left_uncommitted_before_generation(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
     conversation = build_conversation(tmp_path, FakeClient([]))
-    (tmp_path / "unrelated.txt").write_text("block")
+    stray = tmp_path / ".jri/specs/functional/stray.md"
+    stray.parent.mkdir(parents=True)
+    stray.write_text("# Stray\n")
 
-    with pytest.raises(RepositoryStateError, match=r"unrelated\.txt"):
+    with pytest.raises(RepositoryStateError, match=r"stray\.md"):
         list(conversation.ralph())
 
     assert run_git(tmp_path, "log", "--oneline").count("\n") == 0
 
 
-def test_refuses_to_commit_when_the_project_moved_during_generation(
+def test_refuses_to_start_during_a_merge(tmp_path: Path, create_repository: CreateRepository, run_git: RunGit) -> None:
+    create_repository(tmp_path)
+    base = run_git(tmp_path, "rev-parse", "HEAD")
+    (tmp_path / "main.md").write_text("# Main\n")
+    run_git(tmp_path, "add", "main.md")
+    run_git(tmp_path, "commit", "-qm", "docs: add a main note")
+    mainline = run_git(tmp_path, "rev-parse", "HEAD")
+    run_git(tmp_path, "checkout", "-q", "-b", "side", base)
+    (tmp_path / "side.md").write_text("# Side\n")
+    run_git(tmp_path, "add", "side.md")
+    run_git(tmp_path, "commit", "-qm", "docs: add a side note")
+    run_git(tmp_path, "merge", "--no-commit", "--no-ff", "-q", mainline)
+    conversation = build_conversation(tmp_path, FakeClient([]))
+
+    with pytest.raises(RepositoryStateError, match="Finish the merge"):
+        list(conversation.ralph())
+
+    assert run_git(tmp_path, "log", "--format=%s", "-1") == "docs: add a side note"
+
+
+def test_commits_specifications_onto_a_project_that_moved_during_generation(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
@@ -349,7 +373,52 @@ def test_refuses_to_commit_when_the_project_moved_during_generation(
     next(events)
     run_git(tmp_path, "commit", "--allow-empty", "-qm", "concurrent")
 
-    with pytest.raises(RepositoryStateError, match="changed while specifications were being generated"):
+    list(events)
+
+    assert conversation.session.active_spec_commit == run_git(tmp_path, "rev-parse", "HEAD")
+    assert run_git(tmp_path, "log", "-2", "--format=%s").splitlines() == ["jri: update specifications", "concurrent"]
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+
+
+def test_commits_specifications_while_the_project_has_uncommitted_work(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    conversation = build_conversation(tmp_path, successful_client())
+    (tmp_path / "uv.lock").write_text("locked\n")
+    (tmp_path / "README.md").write_text("# Project, in progress\n")
+
+    list(conversation.ralph())
+
+    assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
+        ".jri/.gitignore",
+        ".jri/config.yaml",
+        ".jri/notebook.yaml",
+        ".jri/specs/architecture/design.md",
+        ".jri/specs/functional/behavior.md",
+    ]
+    assert (tmp_path / "uv.lock").read_text() == "locked\n"
+    assert (tmp_path / "README.md").read_text() == "# Project, in progress\n"
+    assert git.Repository(tmp_path).read_status() == (
+        git.Status("README.md", " ", "M"),
+        git.Status("uv.lock", "?", "?"),
+    )
+
+
+def test_refuses_to_commit_when_the_specifications_moved_during_generation(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    conversation = build_conversation(tmp_path, successful_client())
+    events = conversation.ralph()
+    next(events)
+    stray = tmp_path / ".jri/specs/functional/stray.md"
+    stray.parent.mkdir(parents=True)
+    stray.write_text("# Stray\n")
+    run_git(tmp_path, "add", ".jri/specs")
+    run_git(tmp_path, "commit", "-qm", "docs: write a specification by hand")
+
+    with pytest.raises(RepositoryStateError, match="specifications changed during generation"):
         list(events)
 
     assert conversation.session.active_spec_commit is None
@@ -364,23 +433,10 @@ def test_refuses_to_commit_when_the_notebook_moved_during_generation(
     next(events)
     conversation.interviewer.notebook.add(["Captured while generating."], "t1")
 
-    with pytest.raises(RepositoryStateError, match="changed while specifications were being generated"):
+    with pytest.raises(RepositoryStateError, match="project notes changed during generation"):
         list(events)
 
     assert conversation.session.active_spec_commit is None
-
-
-def test_refuses_a_project_file_renamed_onto_a_workspace_path(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    conversation = build_conversation(tmp_path, FakeClient([]))
-    run_git(tmp_path, "mv", "-f", "README.md", ".jri/config.yaml")
-
-    with pytest.raises(RepositoryStateError, match=r"README\.md"):
-        list(conversation.ralph())
-
-    assert run_git(tmp_path, "log", "--oneline").count("\n") == 0
 
 
 def test_refuses_existing_specifications_without_an_active_commit(

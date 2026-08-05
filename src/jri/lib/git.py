@@ -80,11 +80,17 @@ class Repository:
         arguments = ("rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}")
         return self._run(*arguments, check=False).returncode == 0
 
+    def has_conflicts(self) -> bool:
+        return bool(self._run("ls-files", "--unmerged", "-z").stdout)
+
     def read_head(self) -> str:
         return os.fsdecode(self._run("rev-parse", "HEAD").stdout).strip()
 
-    def read_status(self) -> tuple[Status, ...]:
-        records = self._run("status", "--porcelain=v1", "-z", "--untracked-files=all").stdout.split(b"\0")
+    def read_status(self, paths: Sequence[str] = ()) -> tuple[Status, ...]:
+        command = ["status", "--porcelain=v1", "-z", "--untracked-files=all"]
+        if paths:
+            command.extend(["--", *paths])
+        records = self._run(*command).stdout.split(b"\0")
         entries: list[Status] = []
         position = 0
         while position < len(records) and records[position]:

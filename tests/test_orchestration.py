@@ -180,9 +180,11 @@ def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
         for row in specs_generation.generate(build_settings(client), None):
             rows.append(row)
             if isinstance(row, ToolCallFinished) and row.call_id == "architecture":
-                (tmp_path / "uv.lock").write_text("blocked")
+                stray = tmp_path / paths.FUNCTIONAL_SPECS_DIR / "stray.md"
+                stray.parent.mkdir(parents=True)
+                stray.write_text("blocked")
 
-    with pytest.raises(RepositoryStateError, match=r"uv\.lock"):
+    with pytest.raises(RepositoryStateError, match=r"stray\.md"):
         block_the_project_once_the_design_lands()
 
     assert read_rows(rows)[-2:] == [
@@ -313,6 +315,20 @@ def test_studies_the_project_as_it_stands_on_disk(
     directory = Path(instructions.split("Working directory: ")[1].splitlines()[0])
     assert not directory.is_relative_to(tmp_path.resolve())
     assert f"File: {directory / paths.NOTEBOOK_FILE}" in str(client.responses.inputs)
+
+
+def test_studies_a_project_whose_only_commit_holds_no_project_files(tmp_path: Path, run_git: RunGit) -> None:
+    run_git(tmp_path, "init", "-q")
+    (tmp_path / "README.md").write_text("# Project\n")
+    install_workspace(tmp_path)
+    run_git(tmp_path, "add", paths.WORKSPACE_DIR)
+    run_git(tmp_path, "commit", "-qm", "jri: update specifications")
+    client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
+
+    generate(client)
+
+    tree = next(prompt for prompt in read_prompts(client) if "Tracked repository tree:" in prompt)
+    assert "README.md" in tree
 
 
 def test_refuses_an_empty_repository_report(tmp_path: Path, create_repository: CreateRepository) -> None:

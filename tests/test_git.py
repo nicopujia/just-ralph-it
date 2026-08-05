@@ -79,6 +79,50 @@ def test_reports_changed_and_untracked_paths(tmp_path: Path, create_repository: 
     }
 
 
+def test_reads_the_status_of_the_paths_it_is_given(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "docs").mkdir()
+    (repository.path / "docs" / "guide.md").write_text("# Guide\n")
+    (repository.path / "README.md").write_text("second\n")
+
+    assert repository.read_status(["docs"]) == (git.Status("docs/guide.md", "?", "?"),)
+    assert repository.read_status(["missing"]) == ()
+
+
+def test_reads_the_status_of_paths_a_repository_without_commits_may_not_hold(tmp_path: Path) -> None:
+    repository = git.Repository.init(tmp_path / "project")
+    (repository.path / "notes.md").write_text("# Notes\n")
+
+    assert repository.read_status(["notes.md"]) == (git.Status("notes.md", "?", "?"),)
+    assert repository.read_status(["missing"]) == ()
+
+
+def test_reports_a_repository_with_unmerged_paths(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    base = repository.read_head()
+    (repository.path / "README.md").write_text("theirs\n")
+    repository.stage(["README.md"])
+    theirs = repository.commit("jri: write theirs")
+    run_git(repository.path, "reset", "-q", "--hard", base)
+    (repository.path / "README.md").write_text("ours\n")
+    repository.stage(["README.md"])
+    ours = repository.commit("jri: write ours")
+
+    run_git(repository.path, "read-tree", "-m", base, ours, theirs)
+
+    assert repository.has_conflicts()
+
+
+def test_reports_a_repository_without_unmerged_paths(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "README.md").write_text("second\n")
+    repository.stage(["README.md"])
+
+    assert not repository.has_conflicts()
+
+
 def test_moves_staged_paths_to_the_index_side_of_the_status(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
