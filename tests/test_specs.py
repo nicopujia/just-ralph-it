@@ -520,6 +520,29 @@ def test_commits_specifications_while_the_project_has_uncommitted_work(
     )
 
 
+def test_commits_specifications_while_the_project_has_work_staged(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    conversation = build_conversation(tmp_path, successful_client())
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/app.py").write_text("print('half done')\n")
+    run_git(tmp_path, "add", "src/app.py")
+    staged = run_git(tmp_path, "ls-files", "--stage", "src/app.py")
+
+    list(conversation.ralph())
+
+    assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
+        ".jri/.gitignore",
+        ".jri/config.yaml",
+        ".jri/notebook.yaml",
+        ".jri/specs/architecture/design.md",
+        ".jri/specs/functional/behavior.md",
+    ]
+    assert run_git(tmp_path, "ls-files", "--stage", "src/app.py") == staged
+    assert run_git(tmp_path, "status", "--short") == "A  src/app.py"
+
+
 def test_commits_specifications_into_a_project_that_ignores_the_workspace(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
