@@ -724,7 +724,7 @@ def test_keeps_the_offer_made_before_the_rewind_point() -> None:
     assert restarted.is_ready_to_ralph
 
 
-def test_skips_read_only_tool_calls_when_rewinding() -> None:
+def test_skips_tool_calls_that_are_not_replayed_when_rewinding() -> None:
     # Only the rounds a run without a second exploration needs, so
     # replaying `explore` would starve the turn after the rewind.
     conversation = build_conversation(

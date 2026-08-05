@@ -28,11 +28,11 @@ def tool(
     finished_label: str,
     symbol: str = DEFAULT_SYMBOL,
     strict: bool = True,
-    read_only: bool = False,
+    replayed: bool = True,
 ) -> Callable[[Callable[Params, Return]], Callable[Params, Return]]:
     def mark_as_tool(func: Callable[Params, Return]) -> Callable[Params, Return]:
         setattr(
-            func, Tool.METADATA_ATTR, _Metadata(description, started_label, finished_label, symbol, strict, read_only)
+            func, Tool.METADATA_ATTR, _Metadata(description, started_label, finished_label, symbol, strict, replayed)
         )
         return func
 
@@ -137,7 +137,7 @@ class Tool:
     finished_label: str
     symbol: str
     strict: bool
-    read_only: bool
+    replayed: bool
     func: Callable[..., str | ResponseFunctionCallOutputItemListParam | Stream]
     arguments_model: type[BaseModel]
 
@@ -172,7 +172,7 @@ class Tool:
                     finished_label=metadata.finished_label,
                     symbol=metadata.symbol,
                     strict=metadata.strict,
-                    read_only=metadata.read_only,
+                    replayed=metadata.replayed,
                     func=func,
                     arguments_model=arguments_model,
                 )
@@ -227,7 +227,7 @@ class Tool:
         return Invocation(output, failed=failed, detail=detail)
 
     def replay(self, arguments: str) -> None:
-        if self.read_only:
+        if not self.replayed:
             return
         list(self.invoke(arguments))
 
@@ -239,4 +239,4 @@ class _Metadata:
     finished_label: str
     symbol: str
     strict: bool
-    read_only: bool
+    replayed: bool

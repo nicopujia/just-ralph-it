@@ -170,7 +170,7 @@ def test_marks_a_stream_abandoned_before_its_output_as_failed() -> None:
     assert invocation.outcome == "failed"
 
 
-def test_skips_replaying_a_read_only_tool() -> None:
+def test_skips_a_tool_that_is_not_replayed() -> None:
     toolbox = Toolbox()
     tools = build_tools(toolbox)
 
@@ -201,7 +201,7 @@ class Toolbox:
         self.recorded.append(text)
         return f"recorded: {text}"
 
-    @tool("Look at the text.", started_label="Peeking {text}", finished_label="Peeked {text}", read_only=True)
+    @tool("Look at the text.", started_label="Peeking {text}", finished_label="Peeked {text}", replayed=False)
     def peek(self, text: str) -> str:
         self.recorded.append(text)
         return f"peeked: {text}"

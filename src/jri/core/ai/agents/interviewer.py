@@ -149,7 +149,7 @@ class Interviewer(Agent):
         started_label="Exploring {query}",
         finished_label="Explored {query}",
         symbol="🔎",
-        read_only=True,
+        replayed=False,
     )
     def explore(self, query: str) -> Stream:
         report = yield from Explorer(self.settings, Workspace.find().root).report(query)
@@ -199,7 +199,7 @@ class Interviewer(Agent):
         finished_label="Read notes",
         symbol="📖",
         strict=False,
-        read_only=True,
+        replayed=False,
     )
     def read_notes(self, query: ReadQuery | None = None) -> str:
         notes, connections = self.notebook.read(query or ReadQuery())

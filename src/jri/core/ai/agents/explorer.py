@@ -86,7 +86,7 @@ class Explorer(Agent):
         started_label="Searching the web for {query}",
         finished_label="Searched the web for {query}",
         symbol="🔎",
-        read_only=True,
+        replayed=False,
     )
     def search_web(self, query: str) -> str:
         logger.debug("search_query query=%r", query)
@@ -100,7 +100,7 @@ class Explorer(Agent):
         started_label="Fetching {url}",
         finished_label="Fetched {url}",
         symbol="🌐",
-        read_only=True,
+        replayed=False,
     )
     def fetch_web_page(self, url: str) -> str:
         logger.debug("fetch_url url=%r", url)
@@ -152,7 +152,7 @@ class Explorer(Agent):
         started_label="Reading {paths}",
         finished_label="Read {paths}",
         symbol="📄",
-        read_only=True,
+        replayed=False,
     )
     def read_files(
         self, paths: list[str], start_line: int | None = None, end_line: int | None = None
