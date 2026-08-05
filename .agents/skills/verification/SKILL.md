@@ -1,17 +1,14 @@
 ---
 name: verification
-description: Workflow to thoroughly verify your changes. Use when making substantial changes.
+description: Verify changes thoroughly. Use when making substantial changes.
 ---
+# Verification
+Implementation ≠ done. Test and polish as a human would, one step at a time:
 
-# Verification process
-
-Once you implement anything into codebase, the work is not done yet. You must test and polish your changes as a human would do. For that, stick to the following workflow in the order specified, one step at a time:
-
-## Stage 1: Thorough Testing
-
-1. First, cheaply test your changes with `./scripts/check.py` and running one-off Python scripts that test the new code.
-2. If you find issues, spin a subagent to address them and then go back to step 1 until you don't have more issues.
-3. Spin subagent(s) to manually test (via `tmux`) your changes *as a real user would use JRI in production*, sending real messages to real models, and judging the behavior and answers quality. For example:
+## Stage 1: Thorough testing
+1. Cheap first: `./scripts/check.py` + one-off Python scripts against the new code.
+2. Issues → subagent fixes → back to 1. Repeat until clean.
+3. Subagent(s) manually test via `tmux` *as a real user would use JRI in production*: real messages, real models, judging behavior and answer quality. Example:
     ```bash
     smoke_dir="$(mktemp -d)"
     cp .env "$smoke_dir/.env"
@@ -23,28 +20,23 @@ Once you implement anything into codebase, the work is not done yet. You must te
     tmux kill-window -t jri:smoke
     rm -rf "$smoke_dir"
     ```
-    Note that this is example is very bounded. The scope of the manual test depends on the scope of the change made. You have to judge whether it is enough to send just one message or if your changes should be tested with one, or even more, conversations, and which should be the length and complexity of those conversations. After making your judgement, prompt your testing subagents accordingly.
-4. If you find issues, judge whether they make sense. If they do, spin a subagent to address them and then go back to step 3 until you don't have more meaningful issues. Otherwise, proceed to the following stage.
+    Very bounded example. Scope scales with the change: judge how many conversations, how long, how complex — then prompt testing subagents accordingly.
+4. Issues → judge whether they're real. Real → subagent fixes → back to 3. Else → stage 2.
 
-## Stage 2: Ruthless Refactoring
+## Stage 2: Ruthless refactoring
+Minimize diff LOC additions (logic + prompts, not docs) preserving behavior and style.
 
-Reduce diff LOC additions (only logic-wise, not docs-wise) as much as possible while preserving expected behavior and code style. For that, perform various subagents rounds using the following prompt:
-```md
-Based on @AGENTS.md guidelines, how can the diff or diff-related code be simplified? Review for over-engineering or bad code style, both on `src/` and `tests/`.
-```
-The subagent will suggest some simplification approaches. You have to judge which ones make sense and which ones are not aligned with the original intent. Tell the subagent to apply the ones that make sense.
+Each round, a fresh subagent audits the diff and diff-adjacent code across `src/` and `tests/` against @AGENTS.md, hunting over-engineering and style violations. Require every finding in one pass — each round costs a full re-analysis, so a partial list is a defect even when every item in it is real.
 
-Then, perform another round, spinning another subagent with the same prompt. Repeat that loop until either
-- the subagent does not find any simplification approaches, or
-- no simplification approach is aligned with the original spec.
+Judge each finding against original intent; have the subagent apply the aligned ones. New subagent, repeat until:
+- no findings, or
+- no finding aligns with original spec.
+
+Fresh subagent per round: one that already argued for its own suggestions won't attack them.
 
 ## Stage 3: Final smoke test
+One more round post-refactor, lighter than stage 1 — just confirm nothing broke.
 
-After refactoring, do one more testing round, though less thoroughly than on stage 1, just to ensure you didn't break anything.
-
----
-
-## Important considerations
-
-- Only treat committed code as an example to follow; dirty changes are disposable.
-- To judge whether behavior is correct or not, study the [project concept document](https://nicolaspujia.com/just-ralph-it.md) and think if they are aligned with it.
+## Notes
+- Only committed code is exemplary; dirty changes are disposable.
+- Judge correctness against the [project concept document](https://nicolaspujia.com/just-ralph-it.md).
