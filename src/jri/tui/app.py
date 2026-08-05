@@ -1,11 +1,10 @@
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Generator, Iterable
 from dataclasses import dataclass, field
 from threading import Event
 from time import monotonic
 from typing import Any, ClassVar, cast, override
 
-from openai import OpenAIError
 from textual import work
 from textual.app import App as TextualApp
 from textual.app import ComposeResult, SystemCommand
@@ -16,14 +15,24 @@ from textual.reactive import Reactive
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, LoadingIndicator, Markdown, Static
 
-from jri.core.ai import AgentEvent, ReasoningDelta, TextDelta, ToolCallFinished, ToolCallStarted
+from jri.core.ai import (
+    AgentEvent,
+    Ending,
+    ReasoningDelta,
+    TextDelta,
+    ToolCallFinished,
+    ToolCallStarted,
+    TurnEvent,
+    TurnFinished,
+)
 from jri.core.conversation import Conversation
-from jri.core.exceptions import RepositoryStateError
 from jri.lib import appearance
-from jri.lib.providers import codex
 
 from . import copy, styles
 from .widgets import MessageInput, MessagesContainer, ToolCallRow
+
+# The endings a user can do something about by asking again.
+RETRYABLE_ENDINGS = frozenset[Ending]({"empty", "failed", "exhausted"})
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +48,7 @@ class InterviewerTurnState:
     tool_rows: dict[str, ToolCallRow] = field(default_factory=dict)
     retry_button: Button | None = None
     follow_bottom: bool = True
+    is_ralphing: bool = False
     cancelled: Event = field(default_factory=Event)
 
 
@@ -204,7 +214,7 @@ class App(TextualApp[None]):
 
         self._hide_older_history()
         self.messages_container.anchor()
-        self._send_message(user_message, turn_state)
+        self._run_turn(self.conversation.chat(user_message, turn_state.cancelled), turn_state)
 
     async def on_mount(self) -> None:
         await self._restore_history()
@@ -253,106 +263,25 @@ class App(TextualApp[None]):
     # --- Workers ---------------------------------------------------- #
 
     @work(thread=True)
-    def _ralph(self, turn_state: InterviewerTurnState) -> None:
-        events = self.conversation.ralph()
-        error: Exception | None = None
+    def _run_turn(self, events: Generator[TurnEvent], turn_state: InterviewerTurnState) -> None:
+        # The turn ends with a `TurnFinished` whatever happens, so this
+        # worker never leaves a row spinning on an event that the
+        # conversation could not get as far as yielding.
+        finished = TurnFinished("failed", copy.INTERNAL_ERROR)
         try:
             for event in events:
-                self._call_from_thread(self._render_chat_event, turn_state, event)
-        except Exception as caught:
-            logger.exception("ralphing_failed")
-            error = caught
+                if isinstance(event, TurnFinished):
+                    finished = event
+                    continue
+                self._call_from_thread(self._render_agent_event, turn_state, event)
+        except Exception as error:
+            logger.exception("turn_worker_failed")
+            finished = TurnFinished("failed", str(error))
         finally:
             events.close()
-            self._call_from_thread(self._finish_ralphing, turn_state, error)
-
-    @work(thread=True)
-    def _send_message(self, user_message: str | None, turn_state: InterviewerTurnState) -> None:
-        replied = False
-        error_copy: str | None = None
-        chat_events = (
-            self.conversation.retry(turn_state.cancelled)
-            if user_message is None
-            else self.conversation.chat(user_message, turn_state.cancelled)
-        )
-        try:
-            for chat_event in chat_events:
-                if isinstance(chat_event, TextDelta) and chat_event.text:
-                    replied = True
-                self._call_from_thread(self._render_chat_event, turn_state, chat_event)
-        except OpenAIError as error:
-            logger.exception("interviewer_provider_failed")
-            error_text = str(error).lower()
-            error_copy = (
-                copy.LLM_USAGE_LIMIT
-                if any(term in error_text for term in ("usage limit", "quota", "available balance", "out of budget"))
-                else copy.INTERVIEWER_ERROR.format(error=error)
-            )
-        except (codex.AuthError, RuntimeError) as error:
-            logger.exception("interviewer_worker_failed")
-            error_copy = copy.INTERVIEWER_ERROR.format(error=error)
-        except Exception:
-            logger.exception("interviewer_worker_failed_unexpectedly")
-            error_copy = copy.INTERNAL_ERROR
-        finally:
-            chat_events.close()
-            if turn_state.cancelled.is_set():
-                self._call_from_thread(self._finish_cancelled_turn, turn_state)
-            elif self.active_turn_state is turn_state:
-                if error_copy is not None:
-                    self.conversation.update_session(failed_turn_error=error_copy)
-                    self._call_from_thread(self._finish_failed_turn, turn_state, error_copy)
-                elif not replied:
-                    self._call_from_thread(self._finish_empty_turn, turn_state)
-            self._call_from_thread(self._reset_message_input, turn_state)
+            self._call_from_thread(self._finish_turn, turn_state, finished)
 
     # --- Callbacks -------------------------------------------------- #
-
-    async def _finish_cancelled_turn(self, turn_state: InterviewerTurnState) -> None:
-        if self.active_turn_state is not turn_state:
-            return
-        for call_id, row in list(turn_state.tool_rows.items()):
-            if not row.is_complete:
-                await row.remove()
-                del turn_state.tool_rows[call_id]
-        if not turn_state.active_markdown_text:
-            await self._render_interviewer_status(turn_state, copy.INTERVIEWER_STOPPED)
-        self.messages_container.scroll_end(animate=False)
-        logger.info("interviewer_turn_cancelled")
-
-    async def _finish_empty_turn(self, turn_state: InterviewerTurnState) -> None:
-        await self._render_interviewer_status(turn_state, copy.INTERVIEWER_NO_RESPONSE)
-        await self._show_retry_button(turn_state)
-
-    async def _finish_failed_turn(self, turn_state: InterviewerTurnState, error_copy: str) -> None:
-        await self._render_interviewer_status(turn_state, error_copy, styles.INTERVIEWER_ERROR_CLASSES)
-        await self._show_retry_button(turn_state)
-
-    async def _finish_ralphing(self, turn_state: InterviewerTurnState, error: Exception | None) -> None:
-        if self.active_turn_state is not turn_state:
-            return
-        if error is not None:
-            for row in turn_state.tool_rows.values():
-                if not row.is_complete:
-                    row.mark_complete(copy.RALPH_INTERRUPTED, "failed")
-                    break
-            # A repository the user has to sort out is not a crash.
-            blocked = isinstance(error, RepositoryStateError)
-            await turn_state.container.mount(
-                Markdown(
-                    (copy.RALPH_BLOCKED if blocked else copy.RALPH_ERROR).format(error=error),
-                    classes=styles.INTERVIEWER_MESSAGE_CLASSES if blocked else styles.INTERVIEWER_ERROR_CLASSES,
-                )
-            )
-        elif turn_state.placeholder is not None:
-            await self._render_interviewer_status(turn_state, copy.INTERVIEWER_NO_RESPONSE)
-        self.ralphing.display = False
-        self.message_input.display = True
-        self.message_input.disabled = False
-        self.active_turn_state = None
-        App.ALLOW_SELECT = True
-        await self._sync_ralph_button()
-        self.set_focus(self.message_input)
 
     def _finish_restoring_history(self, old_scroll_y: float, old_max_scroll_y: int) -> None:
         self.messages_container.scroll_to(
@@ -360,6 +289,32 @@ class App(TextualApp[None]):
         )
         self.is_restoring_history = False
         self._sync_retry_shortcut()
+
+    async def _finish_turn(self, turn_state: InterviewerTurnState, event: TurnFinished) -> None:
+        if self.active_turn_state is not turn_state:
+            return
+        content, classes = _describe_ending(event.ending, event.detail)
+        if content:
+            await self._render_interviewer_status(turn_state, content, classes)
+        elif turn_state.placeholder is not None:
+            # A turn with nothing left to say leaves no thinking notice
+            # behind: the recording holds no such item, and the restored
+            # view reads that recording.
+            await turn_state.placeholder.remove()
+            turn_state.placeholder = None
+        if event.ending in RETRYABLE_ENDINGS:
+            await self._show_retry_button(turn_state)
+        if turn_state.is_ralphing:
+            self.ralphing.display = False
+            self.message_input.display = True
+            self.message_input.disabled = False
+        self.messages_container.scroll_end(animate=False)
+        self.active_turn_state = None
+        App.ALLOW_SELECT = True
+        await self._sync_ralph_button()
+        self.set_focus(self.message_input)
+        self._sync_retry_shortcut()
+        logger.info("turn_finished ending=%s", event.ending)
 
     async def _load_older_history(self, *, reveal_hidden: bool = True) -> None:
         if self.is_restoring_history:
@@ -394,22 +349,22 @@ class App(TextualApp[None]):
         self.restored_turn_index = start
         self.call_after_refresh(self._finish_restoring_history, old_scroll_y, old_max_scroll_y)
 
-    async def _render_chat_event(self, turn_state: InterviewerTurnState, chat_event: AgentEvent) -> None:
+    async def _render_agent_event(self, turn_state: InterviewerTurnState, agent_event: AgentEvent) -> None:
         if self.active_turn_state is not turn_state:
-            logger.debug("chat_event_render_skipped type=%s", type(chat_event).__name__)
+            logger.debug("agent_event_render_skipped type=%s", type(agent_event).__name__)
             return
         if turn_state.retry_button is not None:
             turn_state.retry_button.display = False
 
-        match chat_event:
+        match agent_event:
             case ReasoningDelta():
-                await self._render_reasoning_delta(turn_state, chat_event)
+                await self._render_reasoning_delta(turn_state, agent_event)
             case TextDelta():
-                await self._render_text_delta(turn_state, chat_event)
+                await self._render_text_delta(turn_state, agent_event)
             case ToolCallStarted():
-                await self._render_tool_call_started(turn_state, chat_event)
+                await self._render_tool_call_started(turn_state, agent_event)
             case ToolCallFinished():
-                await self._render_tool_call_finished(turn_state, chat_event)
+                await self._render_tool_call_finished(turn_state, agent_event)
         self._follow_bottom(turn_state)
 
     async def _render_interviewer_status(
@@ -423,16 +378,6 @@ class App(TextualApp[None]):
             turn_state.placeholder.set_classes(classes)
             await turn_state.placeholder.update(content)
         self._follow_bottom(turn_state)
-
-    def _reset_message_input(self, turn_state: InterviewerTurnState) -> None:
-        if self.active_turn_state is not turn_state:
-            return
-        self.active_turn_state = None
-        App.ALLOW_SELECT = True
-        self.set_focus(self.message_input)
-        self._sync_retry_shortcut()
-        self.run_worker(self._sync_ralph_button())
-        logger.debug("message_input_reset")
 
     def _stop_following_bottom(self) -> None:
         if self.active_turn_state is not None:
@@ -497,21 +442,11 @@ class App(TextualApp[None]):
         restored_turns: list[tuple[Markdown, Vertical]] = []
         for turn in self.restored_turns[start:end]:
             interviewer_items: list[Button | Markdown | ToolCallRow] = []
-            failed = False
             for item in turn.items:
                 if item.type == "reasoning":
                     reasoning_block = Markdown(item.text, classes=styles.INTERVIEWER_REASONING_CLASSES)
                     reasoning_block.display = self.is_reasoning_visible
                     interviewer_items.append(reasoning_block)
-                    continue
-                if item.type == "error":
-                    failed = True
-                    interviewer_items.append(Markdown(item.text, classes=styles.INTERVIEWER_ERROR_CLASSES))
-                    continue
-                if item.type == "stopped":
-                    interviewer_items.append(
-                        Markdown(copy.INTERVIEWER_STOPPED, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
-                    )
                     continue
                 interviewer_items.append(
                     ToolCallRow(
@@ -520,7 +455,10 @@ class App(TextualApp[None]):
                     if item.type == "tool"
                     else Markdown(item.text, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
                 )
-            if failed or not interviewer_items:
+            content, classes = _describe_ending(turn.ending, turn.detail)
+            if content:
+                interviewer_items.append(Markdown(content, classes=classes))
+            if turn.ending in RETRYABLE_ENDINGS:
                 interviewer_items.append(self._build_retry_button())
             restored_turns.append((
                 Markdown(turn.message, classes=styles.USER_MESSAGE_CLASSES),
@@ -595,7 +533,7 @@ class App(TextualApp[None]):
         self.last_escape_at = 0.0
         App.ALLOW_SELECT = False
         self.messages_container.anchor()
-        self._send_message(None, turn_state)
+        self._run_turn(self.conversation.retry(turn_state.cancelled), turn_state)
 
     def _start_ralphing(self) -> None:
         if self.is_busy or not self.mounted_turns:
@@ -604,11 +542,11 @@ class App(TextualApp[None]):
         self.message_input.disabled = True
         self.message_input.display = False
         self.ralphing.display = True
-        turn_state = InterviewerTurnState(container=self.mounted_turns[-1][1], placeholder=None)
+        turn_state = InterviewerTurnState(container=self.mounted_turns[-1][1], placeholder=None, is_ralphing=True)
         self.active_turn_state = turn_state
         App.ALLOW_SELECT = False
         self.messages_container.anchor()
-        self._ralph(turn_state)
+        self._run_turn(self.conversation.ralph(), turn_state)
 
     async def _sync_ralph_button(self) -> None:
         if self.ralph_button.is_mounted:
@@ -624,3 +562,23 @@ class App(TextualApp[None]):
         self.message_input.is_retry_ready = any(
             button.display for button in self.query(f".{styles.RETRY_BUTTON_CLASSES}")
         )
+
+
+# Every ending is answered here and nowhere else, so the live view and
+# the restored one say the same thing, and one left unanswered is a
+# return type this function cannot satisfy.
+def _describe_ending(ending: Ending, detail: str) -> tuple[str, str]:
+    match ending:
+        case "replied":
+            return "", styles.INTERVIEWER_MESSAGE_CLASSES
+        case "empty":
+            return copy.TURN_NO_RESPONSE, styles.INTERVIEWER_MESSAGE_CLASSES
+        case "stopped":
+            return copy.TURN_STOPPED, styles.INTERVIEWER_MESSAGE_CLASSES
+        case "failed":
+            return copy.TURN_ERROR.format(error=detail), styles.INTERVIEWER_ERROR_CLASSES
+        case "exhausted":
+            return copy.TURN_EXHAUSTED, styles.INTERVIEWER_ERROR_CLASSES
+        # A repository the user has to sort out is not a crash.
+        case "blocked":
+            return copy.TURN_BLOCKED.format(error=detail), styles.INTERVIEWER_MESSAGE_CLASSES

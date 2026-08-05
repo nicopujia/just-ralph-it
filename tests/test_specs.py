@@ -1,10 +1,11 @@
+import re
+from collections.abc import Iterable
 from pathlib import Path
 
 import pytest
 
-from jri.core.ai import architect, functional_analyst
+from jri.core.ai import Ending, TurnEvent, TurnFinished, architect, functional_analyst
 from jri.core.conversation import Conversation
-from jri.core.exceptions import RepositoryStateError, SpecsError
 from jri.core.specs import ACCEPTANCE_TRAILER, Specs
 from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
@@ -122,6 +123,13 @@ new file mode 100644
 def build_conversation(path: Path, client: FakeClient) -> Conversation:
     install_workspace(path)
     return Conversation(build_settings(client))
+
+
+def read_ending(events: Iterable[TurnEvent], reason: str = "") -> Ending:
+    finished = list(events)[-1]
+    assert isinstance(finished, TurnFinished)
+    assert re.search(reason, finished.detail), finished.detail
+    return finished.ending
 
 
 def find_accepted_commit(path: Path) -> str | None:
@@ -323,8 +331,7 @@ def test_leaves_the_project_untouched_when_a_hook_refuses_the_commit(
     (tmp_path / "README.md").write_text("# Project, in progress\n")
     before = run_git(tmp_path, "status", "--porcelain", "-uall")
 
-    with pytest.raises(git.Error):
-        list(conversation.ralph())
+    assert read_ending(conversation.ralph()) == "failed"
 
     assert run_git(tmp_path, "status", "--porcelain", "-uall") == before
     assert not (tmp_path / ".jri/specs").exists()
@@ -342,8 +349,7 @@ def test_refuses_specifications_left_uncommitted_before_generation(
     stray.parent.mkdir(parents=True)
     stray.write_text("# Stray\n")
 
-    with pytest.raises(RepositoryStateError, match=r"stray\.md"):
-        list(conversation.ralph())
+    assert read_ending(conversation.ralph(), r"stray\.md") == "blocked"
 
     assert run_git(tmp_path, "log", "--oneline").count("\n") == 0
 
@@ -362,8 +368,7 @@ def test_refuses_to_start_during_a_merge(tmp_path: Path, create_repository: Crea
     run_git(tmp_path, "merge", "--no-commit", "--no-ff", "-q", mainline)
     conversation = build_conversation(tmp_path, FakeClient([]))
 
-    with pytest.raises(RepositoryStateError, match="Finish the merge"):
-        list(conversation.ralph())
+    assert read_ending(conversation.ralph(), "Finish the merge") == "blocked"
 
     assert run_git(tmp_path, "log", "--format=%s", "-1") == "docs: add a side note"
 
@@ -422,8 +427,7 @@ def test_refuses_to_commit_when_the_specifications_moved_during_generation(
     run_git(tmp_path, "add", ".jri/specs")
     run_git(tmp_path, "commit", "-qm", "docs: write a specification by hand")
 
-    with pytest.raises(RepositoryStateError, match="specifications changed during generation"):
-        list(events)
+    assert read_ending(events, "specifications changed during generation") == "blocked"
 
     assert find_accepted_commit(tmp_path) is None
 
@@ -437,8 +441,7 @@ def test_refuses_to_commit_when_the_notebook_moved_during_generation(
     next(events)
     conversation.interviewer.notebook.add(["Captured while generating."], "t1")
 
-    with pytest.raises(RepositoryStateError, match="project notes changed during generation"):
-        list(events)
+    assert read_ending(events, "project notes changed during generation") == "blocked"
 
     assert find_accepted_commit(tmp_path) is None
 
@@ -454,8 +457,7 @@ def test_refuses_specifications_jri_never_accepted(
     run_git(tmp_path, "commit", "-qm", "add specifications")
     conversation = build_conversation(tmp_path, FakeClient([]))
 
-    with pytest.raises(RepositoryStateError, match="specifications JRI did not write"):
-        list(conversation.ralph())
+    assert read_ending(conversation.ralph(), "specifications JRI did not write") == "blocked"
 
 
 def test_reads_every_markdown_specification_under_a_root(tmp_path: Path) -> None:
@@ -513,8 +515,7 @@ def test_reports_a_valid_patch_that_git_never_applies(tmp_path: Path, create_rep
     )
     conversation = build_conversation(tmp_path, client)
 
-    with pytest.raises(SpecsError, match="Git rejected the functional specification patch on all 3 attempts"):
-        list(conversation.ralph())
+    assert read_ending(conversation.ralph(), "Git rejected the functional specification patch") == "failed"
 
     assert find_accepted_commit(tmp_path) is None
     assert not (tmp_path / ".jri/specs").exists()
@@ -567,8 +568,7 @@ def test_refuses_specifications_edited_outside_jri(
     run_git(tmp_path, "add", ".jri/specs")
     run_git(tmp_path, "commit", "-qm", "docs: edit specifications")
 
-    with pytest.raises(RepositoryStateError, match="differ from the ones JRI accepted"):
-        list(conversation.ralph())
+    assert read_ending(conversation.ralph(), "differ from the ones JRI accepted") == "blocked"
 
 
 def test_refuses_architecture_specifications_edited_outside_jri(
@@ -581,8 +581,7 @@ def test_refuses_architecture_specifications_edited_outside_jri(
     run_git(tmp_path, "add", ".jri/specs")
     run_git(tmp_path, "commit", "-qm", "docs: edit the architecture")
 
-    with pytest.raises(RepositoryStateError, match="differ from the ones JRI accepted"):
-        list(conversation.ralph())
+    assert read_ending(conversation.ralph(), "differ from the ones JRI accepted") == "blocked"
 
 
 @pytest.mark.parametrize(
@@ -646,5 +645,4 @@ def test_refuses_unsafe_specification_patch(
     )
     conversation = build_conversation(tmp_path, client)
 
-    with pytest.raises(SpecsError, match=reason):
-        list(conversation.ralph())
+    assert read_ending(conversation.ralph(), reason) == "failed"

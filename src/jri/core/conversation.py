@@ -9,8 +9,21 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jri.lib import files, prompt
 
-from .ai import DEFAULT_SYMBOL, AgentEvent, Interviewer, Outcome, Tool, specs_generation
-from .exceptions import PersistenceError
+from .ai import (
+    DEFAULT_SYMBOL,
+    AgentEvent,
+    Ending,
+    Interviewer,
+    Outcome,
+    ReasoningDelta,
+    TextDelta,
+    ToolCallFinished,
+    ToolCallStarted,
+    TurnEvent,
+    TurnFinished,
+    specs_generation,
+)
+from .exceptions import PersistenceError, RepositoryStateError, UsageLimitError
 from .notes import Graph, Notebook, TopicId
 from .settings import Settings
 from .workspace import Workspace
@@ -19,64 +32,23 @@ if TYPE_CHECKING:
     from openai.types.responses import ResponseInputItemParam
 
 
-def read_turns(history: ResponseInputParam, tools: list[Tool], session: "Session") -> list["Turn"]:
-    tools_by_name = {tool.name: tool for tool in tools}
-    failed_call_ids = set(session.failed_call_ids)
-    turns: list[Turn] = []
-    for raw_item in history[2:]:
-        item = cast("dict[str, Any]", raw_item)
-        if item.get("role") == "user" and item.get("content"):
-            turns.append(Turn(cast("str", item["content"]), []))
-            continue
-        if not turns:
-            continue
-        if item.get("type") == "function_call":
-            tool = tools_by_name[item["name"]]
-            turns[-1].items.append(
-                InterviewItem(
-                    "tool",
-                    tool.format_label(tool.finished_label, item["arguments"]),
-                    tool.symbol,
-                    "failed" if item["call_id"] in failed_call_ids else "done",
-                )
-            )
-            continue
-        if item.get("type") == "reasoning":
-            summary = "".join(part["text"] for part in item["summary"] if part["type"] == "summary_text")
-            reasoning = "".join(part["text"] for part in item.get("content", []) if part["type"] == "reasoning_text")
-            if summary or reasoning:
-                turns[-1].items.append(InterviewItem("reasoning", summary or reasoning))
-            continue
-        if item.get("role") != "assistant" or "content" not in item:
-            continue
-        content = item["content"]
-        text = (
-            content
-            if isinstance(content, str)
-            else "".join(part["text"] for part in content if part["type"] == "output_text")
-        )
-        if text:
-            turns[-1].items.append(InterviewItem("assistant", text))
-    if turns and session.failed_turn_error:
-        turns[-1].items.append(InterviewItem("error", session.failed_turn_error))
-    elif session.stopped_turn is not None and session.stopped_turn < len(turns):
-        stopped = turns[session.stopped_turn]
-        if all(item.type != "assistant" for item in stopped.items):
-            stopped.items.append(InterviewItem("stopped"))
-    return turns
-
-
-class InterviewItem(NamedTuple):
-    type: Literal["assistant", "reasoning", "tool", "error", "stopped"]
+class InterviewItem(BaseModel):
+    type: Literal["assistant", "reasoning", "tool"]
     text: str = ""
     symbol: str = DEFAULT_SYMBOL
     outcome: Outcome = "done"
     detail: str = ""
 
+    model_config = ConfigDict(extra="forbid")
 
-class Turn(NamedTuple):
+
+class Turn(BaseModel):
     message: str
     items: list[InterviewItem]
+    ending: Ending = "replied"
+    detail: str = ""
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class Checkpoint(NamedTuple):
@@ -90,9 +62,8 @@ class Session(BaseModel):
     active_topic_id: TopicId
     initial_graph: Graph
     interview: list[dict[str, Any]] = Field(default_factory=list)
+    transcript: list[Turn] = Field(default_factory=list)
     failed_call_ids: list[str] = Field(default_factory=list)
-    failed_turn_error: str | None = None
-    stopped_turn: int | None = None
     ready_to_ralph: bool = False
     show_thinking_blocks: bool = False
 
@@ -122,20 +93,33 @@ class Conversation:
     def interviewer(self) -> Interviewer:
         return Interviewer(self.settings, self.notebook, lambda ready: self.update_session(ready_to_ralph=ready))
 
-    def chat(self, message: str, cancelled: Event | None = None) -> Generator[AgentEvent]:
+    def chat(self, message: str, cancelled: Event | None = None) -> Generator[TurnEvent]:
         self.logger.info("chat_started")
         self.logger.debug("chat_message message=%r", message)
         checkpoint = self._capture_checkpoint(len(self.interviewer.history))
-        yield from self._respond(message, checkpoint, cancelled)
+        self.session.transcript.append(Turn(message=message, items=[]))
+        yield from self._report_turn(self.interviewer.send_message(message, cancelled), checkpoint, cancelled)
 
-    def retry(self, cancelled: Event | None = None) -> Generator[AgentEvent]:
-        # Whatever the turn left behind goes with it: only the prompt
-        # that opened it is sent again.
-        history_index = self._find_prompts()[-1]
-        message = cast("str", cast("dict[str, Any]", self.interviewer.history[history_index])["content"])
-        checkpoint = self._capture_checkpoint(history_index)
-        self.interviewer.history = self.interviewer.history[:history_index]
-        yield from self._respond(message, checkpoint, cancelled)
+    def retry(self, cancelled: Event | None = None) -> Generator[TurnEvent]:
+        # A generation report opens a turn exactly as a prompt does, so
+        # the turn is sent again from whichever opened it. Truncating to
+        # the last prompt would drop the report out of the history and
+        # leave the model answering a run it never heard about.
+        opening = max(
+            index
+            for index, item in enumerate(self.interviewer.history)
+            if cast("dict[str, Any]", item).get("role") in {"user", "system"}
+        )
+        item = cast("dict[str, Any]", self.interviewer.history[opening])
+        checkpoint = self._capture_checkpoint(opening)
+        if item["role"] == "system":
+            self.interviewer.history = self.interviewer.history[: opening + 1]
+            events = self.interviewer.respond(cancelled)
+        else:
+            self.interviewer.history = self.interviewer.history[:opening]
+            events = self.interviewer.send_message(cast("str", item["content"]), cancelled)
+        self.session.transcript[-1] = Turn(message=self.session.transcript[-1].message, items=[])
+        yield from self._report_turn(events, checkpoint, cancelled)
 
     def rewind(self, checkpoint_index: int) -> None:
         history_index = self._find_prompts()[checkpoint_index]
@@ -154,35 +138,22 @@ class Conversation:
             if item["call_id"] not in self.session.failed_call_ids:
                 tools[item["name"]].replay(item["arguments"])
 
-        self._save_turn()
+        del self.session.transcript[checkpoint_index:]
+        self.update_session(
+            active_topic_id=self.interviewer.active_topic_id,
+            interview=self.interviewer.history,
+            transcript=self.session.transcript,
+        )
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
-    def ralph(self) -> Generator[AgentEvent]:
-        self.update_session(ready_to_ralph=False)
-        try:
-            result = yield from specs_generation.generate(self.settings)
-        except BaseException:
-            self.update_session(ready_to_ralph=True)
-            raise
-
-        # An item joins the history for good, so it states what
-        # happened and nothing else: what to do about it holds beyond
-        # the moment, and what holds beyond the moment is the prompt's.
-        if isinstance(result, str):
-            workflow_result = f"Specification generation succeeded in Git commit {result}."
-        else:
-            workflow_result = prompt.render(specification_generation_ambiguities=result.ambiguities)
-        report: ResponseInputItemParam = {"role": "system", "content": workflow_result}
+    def ralph(self) -> Generator[TurnEvent]:
         checkpoint = self._capture_checkpoint(len(self.interviewer.history))
-        self.interviewer.history.append(report)
-        self.update_session(interview=self.interviewer.history)
-        try:
-            yield from self.interviewer.respond()
-            self._save_turn()
-        except Exception:
-            self._roll_back(checkpoint, report)
-            self.logger.exception("ralph_rolled_back")
-            raise
+        # A run reports into the turn the user is looking at, since its
+        # rows and its reply answer the message that turn opened with.
+        # A run started before any message opens a turn of its own.
+        if not self.session.transcript:
+            self.session.transcript.append(Turn(message="", items=[]))
+        yield from self._report_turn(self._generate_specs(), checkpoint, None)
 
     def restore(self) -> list[Turn]:
         if not self.workspace.session_file.exists():
@@ -193,7 +164,6 @@ class Conversation:
             topics = {topic.id: topic for topic in self.notebook.graph.topics if topic.status != "trashed"}
             topics[self.session.active_topic_id]
             history = self._read_interview()
-            turns = read_turns(history, self.interviewer.tools, self.session)
         except (OSError, ValidationError, LookupError, TypeError) as error:
             raise PersistenceError(
                 f"Invalid session file `{self.workspace.session_file}`. Delete it to start a new conversation, "
@@ -203,7 +173,7 @@ class Conversation:
         self.interviewer.active_topic_id = self.session.active_topic_id
         self.interviewer.failed_call_ids = list(self.session.failed_call_ids)
         self.logger.info("restored interview_items=%d", len(self.session.interview))
-        return turns
+        return self.session.transcript
 
     def update_session(self, **values: object) -> None:
         with self.session_lock:
@@ -243,39 +213,121 @@ class Conversation:
             self.session.ready_to_ralph,
         )
 
-    def _respond(self, message: str, checkpoint: Checkpoint, cancelled: Event | None) -> Generator[AgentEvent]:
+    def _generate_specs(self) -> Generator[AgentEvent]:
+        self.update_session(ready_to_ralph=False)
         try:
-            yield from self.interviewer.send_message(message, cancelled)
-            self._save_turn(stopped=cancelled is not None and cancelled.is_set())
-        except Exception:
-            self._roll_back(checkpoint, {"role": "user", "content": message})
-            self.logger.exception("chat_rolled_back")
+            result = yield from specs_generation.generate(self.settings)
+        except BaseException:
+            self.update_session(ready_to_ralph=True)
             raise
-        self.logger.info("chat_finished interview_items=%d", len(self.interviewer.history))
 
-    # What opened the turn outlives it, so the user can retry it.
-    def _roll_back(self, checkpoint: Checkpoint, opening: "ResponseInputItemParam") -> None:
-        self.interviewer.history = self.interviewer.history[: checkpoint.history_length]
-        self.notebook.restore(checkpoint.graph)
-        self.interviewer.active_topic_id = checkpoint.active_topic_id
-        self.session = self.session.model_copy(update={"ready_to_ralph": checkpoint.ready_to_ralph})
-        self.interviewer.history.append(opening)
-        self.update_session(active_topic_id=self.interviewer.active_topic_id, interview=self.interviewer.history)
-
-    def _save_turn(self, *, stopped: bool = False) -> None:
-        # Naming the turn that was stopped keeps the mark on it when a
-        # later turn ends without one of its own. Only that same turn,
-        # sent again, drops it.
-        index = len(self._find_prompts()) - 1
-        if stopped:
-            stopped_turn = index
-        elif self.session.stopped_turn == index:
-            stopped_turn = None
+        # An item joins the history for good, so it states what
+        # happened and nothing else: what to do about it holds beyond
+        # the moment, and what holds beyond the moment is the prompt's.
+        if isinstance(result, str):
+            workflow_result = f"Specification generation succeeded in Git commit {result}."
         else:
-            stopped_turn = self.session.stopped_turn
+            workflow_result = prompt.render(specification_generation_ambiguities=result.ambiguities)
+        report: ResponseInputItemParam = {"role": "system", "content": workflow_result}
+        self.interviewer.history.append(report)
+        self.update_session(interview=self.interviewer.history)
+        yield from self.interviewer.respond()
+
+    # The one place a turn is written down, and the one place it ends.
+    # Both views read this recording rather than deriving their own, so
+    # the restored conversation is the one the user watched.
+    def _report_turn(
+        self, events: Generator[AgentEvent], checkpoint: Checkpoint, cancelled: Event | None
+    ) -> Generator[TurnEvent]:
+        turn = self.session.transcript[-1]
+        start = len(turn.items)
+        open_rows: list[ToolCallStarted] = []
+        failure: Exception | None = None
+        try:
+            for event in events:
+                _record_event(turn, start, open_rows, event)
+                yield event
+        except Exception as error:
+            # What the user already saw stays written down; what the
+            # turn changed behind it does not.
+            self._roll_back(checkpoint)
+            self.logger.exception("turn_failed")
+            failure = error
+        finally:
+            events.close()
+
+        stopped = cancelled is not None and cancelled.is_set()
+        replied = any(item.type == "assistant" for item in turn.items[start:])
+        if isinstance(failure, UsageLimitError):
+            ending: Ending = "exhausted"
+        elif isinstance(failure, RepositoryStateError):
+            ending = "blocked"
+        elif failure is not None:
+            ending = "failed"
+        elif replied:
+            ending = "replied"
+        elif stopped:
+            ending = "stopped"
+        else:
+            ending = "empty"
+
+        # A row still open when the turn ended is closed here, with a
+        # real event, so the recording and the renderer take it through
+        # the one path they already have for a call that finished.
+        for row in reversed(open_rows):
+            closing = ToolCallFinished(row.call_id, row.label, "stopped" if stopped else "failed", depth=row.depth)
+            if not row.depth:
+                turn.items.append(
+                    InterviewItem(type="tool", text=row.label, symbol=row.symbol, outcome=closing.outcome)
+                )
+            yield closing
+        turn.ending = ending
+        turn.detail = str(failure) if failure is not None else ""
         self.update_session(
             active_topic_id=self.interviewer.active_topic_id,
             interview=self.interviewer.history,
-            failed_turn_error=None,
-            stopped_turn=stopped_turn,
+            transcript=self.session.transcript,
         )
+        self.logger.info("turn_finished ending=%s interview_items=%d", ending, len(self.interviewer.history))
+        yield TurnFinished(ending, turn.detail)
+
+    # What opened the turn outlives it, so the user can retry it.
+    def _roll_back(self, checkpoint: Checkpoint) -> None:
+        self.interviewer.history = self.interviewer.history[: checkpoint.history_length + 1]
+        self.notebook.restore(checkpoint.graph)
+        self.interviewer.active_topic_id = checkpoint.active_topic_id
+        self.session = self.session.model_copy(update={"ready_to_ralph": checkpoint.ready_to_ralph})
+
+
+def _record_event(turn: Turn, start: int, open_rows: list[ToolCallStarted], event: AgentEvent) -> None:
+    match event:
+        case ToolCallStarted():
+            open_rows.append(event)
+        case ToolCallFinished():
+            symbol = DEFAULT_SYMBOL
+            for index, row in enumerate(open_rows):
+                if row.call_id == event.call_id:
+                    symbol = row.symbol
+                    # Whatever opened after a row is nested under it,
+                    # so closing that row closes them with it.
+                    del open_rows[index:]
+                    break
+            if not event.depth:
+                turn.items.append(
+                    InterviewItem(
+                        type="tool", text=event.label, symbol=symbol, outcome=event.outcome, detail=event.detail
+                    )
+                )
+        case TextDelta():
+            _record_text(turn, start, "assistant", event.text)
+        case ReasoningDelta():
+            _record_text(turn, start, "reasoning", event.text)
+
+
+def _record_text(turn: Turn, start: int, type_: Literal["assistant", "reasoning"], text: str) -> None:
+    # Only an item this turn appended can be extended; one left by an
+    # earlier turn is finished text.
+    if len(turn.items) > start and turn.items[-1].type == type_:
+        turn.items[-1].text += text
+    else:
+        turn.items.append(InterviewItem(type=type_, text=text))

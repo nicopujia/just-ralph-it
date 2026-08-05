@@ -7,13 +7,30 @@ from typing import cast
 import pytest
 
 from jri.core import paths
-from jri.core.ai import Interviewer, functional_analyst
-from jri.core.conversation import Conversation, InterviewItem
+from jri.core.ai import Interviewer, ToolCallFinished, ToolCallStarted, TurnFinished, functional_analyst
+from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from tests.conftest import CreateRepository
-from tests.doubles.openai import FakeClient, call, failure, partial_reply, reply, response, streamed_reply
+from tests.doubles.openai import (
+    FakeClient,
+    Round,
+    call,
+    failure,
+    partial_reply,
+    rate_limited,
+    rejection,
+    reply,
+    response,
+    streamed_reply,
+)
 from tests.doubles.settings import build_settings
-from tests.doubles.specs_generation import COMMIT, generate_interrupted, generate_succeeding
+from tests.doubles.specs_generation import (
+    COMMIT,
+    STARTED_ROW,
+    generate_blocked,
+    generate_interrupted,
+    generate_succeeding,
+)
 from tests.doubles.workspace import install_workspace
 
 
@@ -39,6 +56,61 @@ def test_reads_the_notes_without_reaching_the_provider() -> None:
     assert [topic.id for topic in conversation.notebook.graph.topics] == ["t1"]
 
 
+@pytest.mark.parametrize(
+    ("last_round", "finished"),
+    [
+        (streamed_reply("Noted."), TurnFinished("replied")),
+        (response(), TurnFinished("empty")),
+        (failure("provider failed"), TurnFinished("failed", "provider failed")),
+        (
+            rate_limited(code="insufficient_quota"),
+            TurnFinished("exhausted", "Rate limit reached on tokens per min (TPM)."),
+        ),
+    ],
+    ids=["replied", "empty", "failed", "exhausted"],
+)
+def test_ends_every_turn_with_its_rows_closed(last_round: object, finished: TurnFinished) -> None:
+    conversation = build_conversation(
+        FakeClient([response(call("switch", "switch_topic", topic="Delivery")), cast("Round", last_round)])
+    )
+
+    events = list(conversation.chat("Deploy from main."))
+
+    assert [event.call_id for event in events if isinstance(event, ToolCallStarted)] == [
+        event.call_id for event in events if isinstance(event, ToolCallFinished)
+    ]
+    assert events[-1] == finished
+
+
+def test_closes_the_row_a_blocked_run_left_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_blocked)
+
+    events = list(conversation.ralph())
+
+    assert events[-2] == ToolCallFinished(STARTED_ROW.call_id, STARTED_ROW.label, "failed")
+    assert events[-1] == TurnFinished("blocked", "Your project has uncommitted changes.")
+    assert conversation.session.transcript[-1].items[-1].outcome == "failed"
+
+
+def test_keeps_a_turn_alive_when_a_provider_failure_hits_a_tool() -> None:
+    conversation = build_conversation(
+        FakeClient([
+            response(call("explore", "explore", query="deployment options")),
+            rejection(),
+            streamed_reply("I could not look that up."),
+        ])
+    )
+
+    events = list(conversation.chat("What are the deployment options?"))
+
+    assert [(event.call_id, event.outcome) for event in events if isinstance(event, ToolCallFinished)] == [
+        ("explore", "failed")
+    ]
+    assert events[-1] == TurnFinished("replied")
+
+
 def test_restores_a_completed_interview_turn() -> None:
     conversation = build_conversation(
         FakeClient([
@@ -46,7 +118,7 @@ def test_restores_a_completed_interview_turn() -> None:
                 call("switch", "switch_topic", topic="Delivery"),
                 call("capture", "capture_notes", texts=["Deploy from the main branch."]),
             ),
-            response(reply("How should failed deployments be handled?")),
+            streamed_reply("How should failed deployments be handled?"),
         ])
     )
 
@@ -73,9 +145,9 @@ def test_groups_every_restored_item_under_the_prompt_that_caused_it() -> None:
     conversation = build_conversation(
         FakeClient([
             response(call("switch", "switch_topic", topic="Delivery")),
-            response(reply("Noted.")),
+            streamed_reply("Noted."),
             response(call("capture", "capture_notes", texts=["Deploy from the main branch."])),
-            response(reply("Anything else?")),
+            streamed_reply("Anything else?"),
         ])
     )
     list(conversation.chat("First prompt."))
@@ -94,69 +166,40 @@ def test_restores_a_tool_call_that_failed_as_a_failure() -> None:
     conversation = build_conversation(
         FakeClient([
             response(call("edit", "edit_note", note_id="n9", text="Deploy from the main branch.")),
-            response(reply("Which note did you mean?")),
+            streamed_reply("Which note did you mean?"),
         ])
     )
     list(conversation.chat("Fix that note."))
 
     turns = build_conversation(FakeClient([])).restore()
 
-    assert turns[-1].items[0] == InterviewItem("tool", "Edited note", "✏️", "failed")
+    item = turns[-1].items[0]
+    assert (item.type, item.text, item.symbol, item.outcome) == ("tool", "Edited note", "✏️", "failed")
 
 
-def test_restores_the_reasoning_summary_of_a_turn() -> None:
+def test_restores_the_reasoning_a_turn_streamed() -> None:
     conversation = build_conversation(
         FakeClient([
-            response(
-                {"type": "reasoning", "summary": [{"type": "summary_text", "text": "Weighing the options."}]},
-                reply("How often does it deploy?"),
-            )
+            [
+                SimpleNamespace(type="response.reasoning_summary_text.delta", delta="Weighing "),
+                SimpleNamespace(type="response.reasoning_summary_text.delta", delta="the options."),
+                *streamed_reply("How often does it deploy?"),
+            ]
         ])
     )
     list(conversation.chat("It deploys automatically."))
 
     turns = build_conversation(FakeClient([])).restore()
 
-    assert turns[-1].items == [
-        InterviewItem("reasoning", "Weighing the options."),
-        InterviewItem("assistant", "How often does it deploy?"),
+    assert [(item.type, item.text) for item in turns[-1].items] == [
+        ("reasoning", "Weighing the options."),
+        ("assistant", "How often does it deploy?"),
     ]
-
-
-def test_falls_back_to_the_raw_reasoning_of_a_turn_without_a_summary() -> None:
-    conversation = build_conversation(
-        FakeClient([
-            response(
-                {
-                    "type": "reasoning",
-                    "summary": [],
-                    "content": [{"type": "reasoning_text", "text": "Deployment cadence is still unknown."}],
-                },
-                reply("How often does it deploy?"),
-            )
-        ])
-    )
-    list(conversation.chat("It deploys automatically."))
-
-    turns = build_conversation(FakeClient([])).restore()
-
-    assert turns[-1].items[0] == InterviewItem("reasoning", "Deployment cadence is still unknown.")
-
-
-def test_hides_a_reasoning_item_that_carries_no_text() -> None:
-    conversation = build_conversation(
-        FakeClient([response({"type": "reasoning", "summary": []}, reply("How often does it deploy?"))])
-    )
-    list(conversation.chat("It deploys automatically."))
-
-    turns = build_conversation(FakeClient([])).restore()
-
-    assert turns[-1].items == [InterviewItem("assistant", "How often does it deploy?")]
 
 
 def test_keeps_the_opening_message_of_a_session_saved_before_the_first_turn() -> None:
     build_conversation(FakeClient([])).update_session(show_thinking_blocks=True)
-    client = FakeClient([response(reply("How often does it deploy?"))])
+    client = FakeClient([streamed_reply("How often does it deploy?")])
     restarted = build_conversation(client)
     restarted.restore()
 
@@ -168,7 +211,7 @@ def test_keeps_the_opening_message_of_a_session_saved_before_the_first_turn() ->
 
 def test_restores_ralph_readiness_after_restart() -> None:
     conversation = build_conversation(
-        FakeClient([response(call("ready", "just_ralph_it", show=True)), response(reply("Click Just Ralph It."))])
+        FakeClient([response(call("ready", "just_ralph_it", show=True)), streamed_reply("Click Just Ralph It.")])
     )
     list(conversation.chat("We're ready."))
 
@@ -192,22 +235,22 @@ def test_rolls_back_ralph_readiness_when_the_turn_fails() -> None:
     conversation = build_conversation(
         FakeClient([
             response(call("ready", "just_ralph_it", show=True)),
-            response(reply("Click Just Ralph It.")),
+            streamed_reply("Click Just Ralph It."),
             response(call("hide", "just_ralph_it", show=False)),
             failure("provider failed"),
         ])
     )
     list(conversation.chat("We're ready."))
 
-    with pytest.raises(RuntimeError, match="provider failed"):
-        list(conversation.chat("Actually, one more thing."))
+    events = list(conversation.chat("Actually, one more thing."))
 
+    assert events[-1] == TurnFinished("failed", "provider failed")
     assert conversation.session.ready_to_ralph
 
 
 def test_restores_ralph_readiness_after_an_interrupted_run(monkeypatch: pytest.MonkeyPatch) -> None:
     conversation = build_conversation(
-        FakeClient([response(call("ready", "just_ralph_it", show=True)), response(reply("Click Just Ralph It."))])
+        FakeClient([response(call("ready", "just_ralph_it", show=True)), streamed_reply("Click Just Ralph It.")])
     )
     list(conversation.chat("We're ready."))
     monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_interrupted)
@@ -229,7 +272,7 @@ def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
     install_workspace(tmp_path)
     ambiguity = "Choose whether output is JSON or plain text."
     client = FakeClient(
-        [response(reply("Understood.")), response(reply("Should the output be JSON or plain text?"))],
+        [streamed_reply("Understood."), streamed_reply("Should the output be JSON or plain text?")],
         parsed=[
             functional_analyst.Output(
                 result=functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=[ambiguity])
@@ -244,11 +287,31 @@ def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
     assert any(ambiguity in item.get("content", "") for item in conversation.session.interview)
     restarted = build_conversation(FakeClient([]))
     turns = restarted.restore()
-    assert InterviewItem("assistant", "Should the output be JSON or plain text?") in turns[-1].items
+    assert ("assistant", "Should the output be JSON or plain text?") in [
+        (item.type, item.text) for item in turns[-1].items
+    ]
+
+
+def test_restores_a_just_ralph_it_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(
+        FakeClient([streamed_reply("Understood."), streamed_reply("The specifications are in.")])
+    )
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+    list(conversation.ralph())
+
+    turns = build_conversation(FakeClient([])).restore()
+
+    assert [(item.type, item.text) for item in turns[-1].items] == [
+        ("assistant", "Understood."),
+        ("tool", "Saved the specifications to your project"),
+        ("assistant", "The specifications are in."),
+    ]
+    assert turns[-1].ending == "replied"
 
 
 def test_reports_a_finished_generation_without_barring_the_next_one(monkeypatch: pytest.MonkeyPatch) -> None:
-    conversation = build_conversation(FakeClient([response(reply("Understood.")), response(reply("All set."))]))
+    conversation = build_conversation(FakeClient([streamed_reply("Understood."), streamed_reply("All set.")]))
     list(conversation.chat("Build a reporting CLI."))
     monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
 
@@ -261,7 +324,7 @@ def test_reports_a_finished_generation_without_barring_the_next_one(monkeypatch:
 def test_rolls_back_the_notes_of_a_failed_reply_after_ralphing(monkeypatch: pytest.MonkeyPatch) -> None:
     conversation = build_conversation(
         FakeClient([
-            response(reply("Understood.")),
+            streamed_reply("Understood."),
             response(call("capture", "capture_notes", texts=["Ship every Friday."])),
             failure("provider failed"),
         ])
@@ -269,12 +332,30 @@ def test_rolls_back_the_notes_of_a_failed_reply_after_ralphing(monkeypatch: pyte
     list(conversation.chat("Build a reporting CLI."))
     monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
 
-    with pytest.raises(RuntimeError, match="provider failed"):
-        list(conversation.ralph())
+    events = list(conversation.ralph())
 
+    assert events[-1] == TurnFinished("failed", "provider failed")
     reopened = build_conversation(FakeClient([]))
     reopened.restore()
     assert [note.text for note in reopened.notebook.graph.notes] == []
+
+
+def test_retries_the_reply_a_generation_report_opened(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(
+        FakeClient([streamed_reply("Understood."), failure("provider failed"), streamed_reply("The specs are in.")])
+    )
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+    list(conversation.ralph())
+
+    events = list(conversation.retry())
+
+    assert events[-1] == TurnFinished("replied")
+    # Sending the last prompt again instead would drop the report the
+    # reply is about out of the model's history.
+    reports = [item["content"] for item in conversation.session.interview[1:] if item.get("role") == "system"]
+    assert reports == [f"Specification generation succeeded in Git commit {COMMIT}."]
+    assert conversation.session.transcript[-1].message == "Build a reporting CLI."
 
 
 def test_restores_a_cancelled_interview_turn() -> None:
@@ -293,7 +374,7 @@ def test_restores_a_cancelled_interview_turn() -> None:
 
 def test_keeps_a_cancelled_reply_in_the_model_context() -> None:
     cancelled = Event()
-    client = FakeClient([partial_reply("Partial reply"), response(reply("Next reply"))])
+    client = FakeClient([partial_reply("Partial reply"), streamed_reply("Next reply")])
     conversation = build_conversation(client)
     events = conversation.chat("Keep this prompt.", cancelled)
     next(events)
@@ -326,7 +407,7 @@ def test_marks_a_cancelled_turn_without_a_reply_as_stopped() -> None:
     list(conversation.chat("Stop this one.", cancelled))
 
     turns = build_conversation(FakeClient([])).restore()
-    assert turns[-1] == ("Stop this one.", [InterviewItem("stopped")])
+    assert (turns[-1].message, turns[-1].items, turns[-1].ending) == ("Stop this one.", [], "stopped")
 
 
 def test_leaves_a_cancelled_turn_with_a_reply_unmarked() -> None:
@@ -339,22 +420,20 @@ def test_leaves_a_cancelled_turn_with_a_reply_unmarked() -> None:
     list(events)
 
     turns = build_conversation(FakeClient([])).restore()
-    assert turns[-1] == ("Stop this one.", [InterviewItem("assistant", "Partial reply")])
+    assert [(item.type, item.text) for item in turns[-1].items] == [("assistant", "Partial reply")]
+    assert turns[-1].ending == "replied"
 
 
 def test_keeps_the_stopped_mark_on_its_turn_when_a_later_one_ends() -> None:
     cancelled = Event()
     cancelled.set()
-    conversation = build_conversation(FakeClient([[], response(reply("Carrying on."))]))
+    conversation = build_conversation(FakeClient([[], streamed_reply("Carrying on.")]))
 
     list(conversation.chat("Stop this one.", cancelled))
     list(conversation.chat("Carry on."))
 
     turns = build_conversation(FakeClient([])).restore()
-    assert turns == [
-        ("Stop this one.", [InterviewItem("stopped")]),
-        ("Carry on.", [InterviewItem("assistant", "Carrying on.")]),
-    ]
+    assert [(turn.message, turn.ending) for turn in turns] == [("Stop this one.", "stopped"), ("Carry on.", "replied")]
 
 
 def test_clears_the_stopped_mark_when_its_turn_is_sent_again() -> None:
@@ -365,10 +444,8 @@ def test_clears_the_stopped_mark_when_its_turn_is_sent_again() -> None:
 
     list(conversation.retry())
 
-    restarted = build_conversation(FakeClient([]))
-    turns = restarted.restore()
-    assert restarted.session.stopped_turn is None
-    assert turns == [("Stop this one.", [])]
+    turns = build_conversation(FakeClient([])).restore()
+    assert [(turn.message, turn.items, turn.ending) for turn in turns] == [("Stop this one.", [], "empty")]
 
 
 def test_keeps_the_stopped_mark_on_the_cancelled_turn_when_the_next_one_fails() -> None:
@@ -377,16 +454,18 @@ def test_keeps_the_stopped_mark_on_the_cancelled_turn_when_the_next_one_fails() 
     conversation = build_conversation(FakeClient([[], failure("provider failed")]))
     list(conversation.chat("Stop this one.", cancelled))
 
-    with pytest.raises(RuntimeError, match="provider failed"):
-        list(conversation.chat("Deploy it automatically."))
+    list(conversation.chat("Deploy it automatically."))
 
     turns = build_conversation(FakeClient([])).restore()
-    assert turns == [("Stop this one.", [InterviewItem("stopped")]), ("Deploy it automatically.", [])]
+    assert [(turn.message, turn.ending) for turn in turns] == [
+        ("Stop this one.", "stopped"),
+        ("Deploy it automatically.", "failed"),
+    ]
 
 
 def test_leaves_valid_history_when_a_tool_call_is_cancelled() -> None:
     cancelled = Event()
-    client = FakeClient([response(call("switch", "switch_topic", topic="Delivery")), response(reply("Still works."))])
+    client = FakeClient([response(call("switch", "switch_topic", topic="Delivery")), streamed_reply("Still works.")])
     conversation = build_conversation(client)
     events = conversation.chat("Switch topics.", cancelled)
 
@@ -405,7 +484,7 @@ def test_rolls_back_the_changes_of_a_failed_turn() -> None:
     conversation = build_conversation(
         FakeClient([
             response(call("first-capture", "capture_notes", texts=["The project has a terminal UI."])),
-            response(reply("What should it display?")),
+            streamed_reply("What should it display?"),
             response(
                 call("switch", "switch_topic", topic="Delivery"),
                 call("second-capture", "capture_notes", texts=["Deploy automatically."]),
@@ -419,9 +498,9 @@ def test_rolls_back_the_changes_of_a_failed_turn() -> None:
     active_topic_id = conversation.interviewer.active_topic_id
     notebook_file = conversation.workspace.notebook_file.read_bytes()
 
-    with pytest.raises(RuntimeError, match="provider failed"):
-        list(conversation.chat("Deploy it automatically."))
+    events = list(conversation.chat("Deploy it automatically."))
 
+    assert events[-1] == TurnFinished("failed", "provider failed")
     assert conversation.interviewer.notebook.graph.model_dump() == {**graph, "next_note_id": "n3"}
     assert conversation.interviewer.history == [*history, {"role": "user", "content": "Deploy it automatically."}]
     assert conversation.interviewer.active_topic_id == active_topic_id
@@ -430,76 +509,32 @@ def test_rolls_back_the_changes_of_a_failed_turn() -> None:
     )
 
 
-def test_restores_the_prompt_of_a_failed_turn() -> None:
+def test_restores_the_ending_of_a_turn_that_failed() -> None:
     conversation = build_conversation(FakeClient([failure("provider failed")]))
 
-    with pytest.raises(RuntimeError, match="provider failed"):
-        list(conversation.chat("Deploy it automatically."))
+    list(conversation.chat("Deploy it automatically."))
 
     turns = build_conversation(FakeClient([])).restore()
-    assert turns[-1] == ("Deploy it automatically.", [])
+    assert (turns[-1].message, turns[-1].items) == ("Deploy it automatically.", [])
+    assert (turns[-1].ending, turns[-1].detail) == ("failed", "provider failed")
 
 
 def test_retries_a_failed_turn_after_restart() -> None:
     conversation = build_conversation(FakeClient([failure("provider failed")]))
+    list(conversation.chat("Deploy it automatically."))
 
-    with pytest.raises(RuntimeError, match="provider failed"):
-        list(conversation.chat("Deploy it automatically."))
-
-    restarted = build_conversation(FakeClient([response(reply("Retry succeeded."))]))
+    restarted = build_conversation(FakeClient([streamed_reply("Retry succeeded.")]))
     restarted.restore()
     list(restarted.retry())
 
     turns = build_conversation(FakeClient([])).restore()
     assert [turn.message for turn in turns] == ["Deploy it automatically."]
-    assert ("assistant", "Retry succeeded.") in [(item.type, item.text) for item in turns[-1].items]
-
-
-def test_restores_the_error_of_a_failed_turn() -> None:
-    conversation = build_conversation(FakeClient([failure("provider failed")]))
-
-    with pytest.raises(RuntimeError, match="provider failed"):
-        list(conversation.chat("Deploy it automatically."))
-    conversation.update_session(failed_turn_error="The provider failed.")
-
-    turns = build_conversation(FakeClient([])).restore()
-    assert turns[-1] == ("Deploy it automatically.", [InterviewItem("error", "The provider failed.")])
-
-
-def test_clears_the_failed_turn_error_on_a_successful_retry() -> None:
-    conversation = build_conversation(FakeClient([failure("provider failed"), response(reply("Retry succeeded."))]))
-
-    with pytest.raises(RuntimeError, match="provider failed"):
-        list(conversation.chat("Deploy it automatically."))
-    conversation.update_session(failed_turn_error="The provider failed.")
-    list(conversation.retry())
-
-    restarted = build_conversation(FakeClient([]))
-    turns = restarted.restore()
-    assert restarted.session.failed_turn_error is None
-    assert [item.type for item in turns[-1].items] == ["assistant"]
-
-
-def test_clears_the_failed_turn_error_on_a_cancelled_retry() -> None:
-    cancelled = Event()
-    conversation = build_conversation(FakeClient([failure("provider failed"), partial_reply("Partial reply")]))
-
-    with pytest.raises(RuntimeError, match="provider failed"):
-        list(conversation.chat("Deploy it automatically."))
-    conversation.update_session(failed_turn_error="The provider failed.")
-    events = conversation.retry(cancelled)
-    next(events)
-    cancelled.set()
-    list(events)
-
-    restarted = build_conversation(FakeClient([]))
-    turns = restarted.restore()
-    assert restarted.session.failed_turn_error is None
-    assert [item.type for item in turns[-1].items] == ["assistant"]
+    assert [(item.type, item.text) for item in turns[-1].items] == [("assistant", "Retry succeeded.")]
+    assert turns[-1].ending == "replied"
 
 
 def test_resends_the_prompt_when_retrying_a_turn_that_brought_no_reply() -> None:
-    conversation = build_conversation(FakeClient([response(reply("")), response(reply("Retry succeeded."))]))
+    conversation = build_conversation(FakeClient([response(reply("")), streamed_reply("Retry succeeded.")]))
     list(conversation.chat("Deploy it automatically."))
 
     list(conversation.retry())
@@ -509,22 +544,6 @@ def test_resends_the_prompt_when_retrying_a_turn_that_brought_no_reply() -> None
     assert ("assistant", "Retry succeeded.") in [(item.type, item.text) for item in turns[-1].items]
 
 
-def test_clears_the_failed_turn_error_when_rewinding() -> None:
-    conversation = build_conversation(FakeClient([response(reply("What should it display?")), failure("provider")]))
-
-    list(conversation.chat("It has a terminal UI."))
-    with pytest.raises(RuntimeError, match="provider"):
-        list(conversation.chat("Deploy it automatically."))
-    conversation.update_session(failed_turn_error="The provider failed.")
-    conversation.rewind(1)
-
-    restarted = build_conversation(FakeClient([]))
-    turns = restarted.restore()
-    assert restarted.session.failed_turn_error is None
-    assert [turn.message for turn in turns] == ["It has a terminal UI."]
-    assert [item.type for item in turns[-1].items] == ["assistant"]
-
-
 def test_removes_knowledge_captured_after_the_rewind_point() -> None:
     conversation = build_conversation(
         FakeClient([
@@ -532,17 +551,17 @@ def test_removes_knowledge_captured_after_the_rewind_point() -> None:
                 call("delivery-switch", "switch_topic", topic="Delivery"),
                 call("delivery-capture", "capture_notes", texts=["Deploy from main."]),
             ),
-            response(reply("Delivery captured.")),
+            streamed_reply("Delivery captured."),
             response(
                 call("security-switch", "switch_topic", topic="Security"),
                 call("security-capture", "capture_notes", texts=["Encrypt stored credentials."]),
             ),
-            response(reply("Security captured.")),
+            streamed_reply("Security captured."),
             response(
                 call("billing-switch", "switch_topic", topic="Billing"),
                 call("billing-capture", "capture_notes", texts=["Charge monthly."]),
             ),
-            response(reply("Billing captured.")),
+            streamed_reply("Billing captured."),
         ])
     )
     list(conversation.chat("Deploy from main."))
@@ -568,9 +587,9 @@ def test_skips_failed_and_cancelled_tool_calls_when_rewinding() -> None:
     conversation = build_conversation(
         FakeClient([
             response(call("failed", "switch_topic", topic="")),
-            response(reply("That topic was invalid.")),
+            streamed_reply("That topic was invalid."),
             response(call("cancelled", "switch_topic", topic="Delivery")),
-            response(reply("Latest turn.")),
+            streamed_reply("Latest turn."),
         ])
     )
     list(conversation.chat("Try an invalid topic."))
@@ -598,7 +617,7 @@ def test_skips_cancelled_tool_calls_when_rewinding_after_restart() -> None:
     cancelled.set()
     list(events)
 
-    restarted = build_conversation(FakeClient([response(reply("Latest turn."))]))
+    restarted = build_conversation(FakeClient([streamed_reply("Latest turn.")]))
     restarted.restore()
     list(restarted.chat("Keep this only until rewind."))
     restarted.rewind(1)
@@ -618,9 +637,9 @@ def test_keeps_the_connections_between_replayed_notes_when_rewinding() -> None:
                     "connect", "connect_notes", connections=[{"source_id": "n1", "target_id": "n2", "label": "guards"}]
                 ),
             ),
-            response(reply("Delivery captured.")),
+            streamed_reply("Delivery captured."),
             response(call("billing-capture", "capture_notes", texts=["Charge monthly."])),
-            response(reply("Billing captured.")),
+            streamed_reply("Billing captured."),
         ])
     )
     list(conversation.chat("Deploy from main."))
@@ -640,8 +659,8 @@ def test_keeps_ralph_readiness_reached_before_the_rewind_point() -> None:
     conversation = build_conversation(
         FakeClient([
             response(call("ready", "just_ralph_it", show=True)),
-            response(reply("Click Just Ralph It.")),
-            response(reply("Noted.")),
+            streamed_reply("Click Just Ralph It."),
+            streamed_reply("Noted."),
         ])
     )
     list(conversation.chat("We're ready."))
@@ -661,9 +680,9 @@ def test_skips_read_only_tool_calls_when_rewinding() -> None:
         FakeClient([
             response(call("explore", "explore", query="deployment options")),
             streamed_reply("Deployments run from the main branch."),
-            response(reply("Here is what I found.")),
-            response(reply("Understood.")),
-            response(reply("Anything else?")),
+            streamed_reply("Here is what I found."),
+            streamed_reply("Understood."),
+            streamed_reply("Anything else?"),
         ])
     )
     list(conversation.chat("What are the deployment options?"))
@@ -674,11 +693,11 @@ def test_skips_read_only_tool_calls_when_rewinding() -> None:
 
     turns = build_conversation(FakeClient([])).restore()
     assert [turn.message for turn in turns] == ["What are the deployment options?", "Let's talk about billing."]
-    assert turns[-1].items == [InterviewItem("assistant", "Anything else?")]
+    assert [(item.type, item.text) for item in turns[-1].items] == [("assistant", "Anything else?")]
 
 
 def test_stores_the_session_as_compact_json() -> None:
-    conversation = build_conversation(FakeClient([response(reply("Noted."))]))
+    conversation = build_conversation(FakeClient([streamed_reply("Noted.")]))
 
     list(conversation.chat("Deploy the project automatically."))
 

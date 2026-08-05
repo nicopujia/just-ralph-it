@@ -45,21 +45,10 @@ INIT_RECREATED = (
 )
 INIT_REPOSITORY = "Initialized a Git repository at {directory}."
 INSERT_NEWLINE = "Insert newline"
-INTERNAL_ERROR = "Something unexpected went wrong. Check the JRI log for details and try again."
-INTERVIEWER_ERROR = """
-Something went wrong while talking to the interviewer:
-
-{error}
-
-Please try again or contact Nico.
-""".strip()
-INTERVIEWER_NO_RESPONSE = "_No response received._"
-INTERVIEWER_STOPPED = "_Response stopped._"
+INTERNAL_ERROR = "Something unexpected went wrong. Check the JRI log for details."
 INTERVIEWER_THINKING = "_Thinking..._"
 
 KEYMAP_PANEL = "Keymap"
-
-LLM_USAGE_LIMIT = "Your ChatGPT or API usage limit has been reached. Check your plan and try again later."
 
 MESSAGE_HISTORY = "Message history"
 MESSAGE_INPUT_INITIAL_PLACEHOLDER = Interviewer.FIRST_MESSAGE
@@ -70,10 +59,7 @@ NEXT_COMMAND = "Next command"
 PERSISTENCE_ERROR = "Persistence failed: {error}"
 
 RALPHING = "Ralphing... [dim](don't close this window)[/dim]"
-RALPH_BLOCKED = "Ralphing stopped because of your project's state:\n\n{error}\n\nSort that out and Ralph again."
 RALPH_BUTTON = "Just Ralph It"
-RALPH_ERROR = "Could not finish specifications:\n\n{error}"
-RALPH_INTERRUPTED = "Could not finish specifications"
 RALPH_KEY = "^x j"
 REDO = "Redo"
 REDO_MESSAGE = "Redo message"
@@ -93,6 +79,17 @@ TOOL_CALL_FAILED = "{label} — failed"
 TOOL_CALL_FAILED_SYMBOL = "✗"
 TOOL_CALL_STOPPED = "{label} — stopped"
 TOOL_CALL_STOPPED_SYMBOL = "⊘"
+TURN_BLOCKED = "Stopped because of your project's state:\n\n{error}\n\nSort that out and try again."
+TURN_ERROR = """
+Something went wrong:
+
+{error}
+
+Please try again or contact Nico.
+""".strip()
+TURN_EXHAUSTED = "Your ChatGPT or API usage limit has been reached. Check your plan and try again later."
+TURN_NO_RESPONSE = "_No response received._"
+TURN_STOPPED = "_Response stopped._"
 
 UNDO_MESSAGE = "Undo message"
 UNDO_MESSAGE_KEY = "^x u"

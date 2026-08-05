@@ -2,7 +2,9 @@ from dataclasses import dataclass
 from typing import Literal
 
 type AgentEvent = ReasoningDelta | TextDelta | ToolCallStarted | ToolCallFinished
+type Ending = Literal["replied", "empty", "stopped", "failed", "exhausted", "blocked"]
 type Outcome = Literal["done", "empty", "stopped", "failed"]
+type TurnEvent = AgentEvent | TurnFinished
 
 
 @dataclass(frozen=True)
@@ -32,3 +34,12 @@ class ToolCallFinished:
     outcome: Outcome
     detail: str = ""
     depth: int = 0
+
+
+# The last event of every turn, and the one an agent, a tool or a
+# workflow cannot yield: they are typed `AgentEvent`, which does not
+# hold it, so only the conversation declares a turn over.
+@dataclass(frozen=True)
+class TurnFinished:
+    ending: Ending
+    detail: str = ""
