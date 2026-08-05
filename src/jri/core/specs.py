@@ -157,16 +157,20 @@ class Specs:
             raise RepositoryStateError(
                 "Commit or remove these files before Ralphing:\n" + "\n".join(f"- {path}" for path in blockers)
             )
-        # What `_validate_patch` refuses inside a patch, the tree JRI
-        # commits may not hold either: Git records a link as the text
-        # of its target, and `read` follows it to whatever it points
-        # at, so a link committed here is read back into a prompt as a
-        # file that was never JRI's to show anyone.
-        links = sorted(
-            path.relative_to(self.workspace.root).as_posix()
-            for path in (self.workspace.root / paths.SPECS_DIR).rglob("*.md")
-            if path.is_symlink()
+        # What `_validate_patch` refuses inside a patch, the files JRI
+        # commits may not be either. Git records a link as the text of
+        # its target, so the notebook comes back out of the commit as a
+        # path where the notes should be, and a specification read out
+        # of a worktree is whatever the link points at -- a file that
+        # was never JRI's to show a model. These are `COMMITTED_PATHS`
+        # again, as the filesystem rather than Git spells them.
+        committed = (
+            self.workspace.config_file,
+            self.workspace.gitignore_file,
+            self.workspace.notebook_file,
+            *(self.workspace.root / paths.SPECS_DIR).rglob("*.md"),
         )
+        links = sorted(path.relative_to(self.workspace.root).as_posix() for path in committed if path.is_symlink())
         if links:
             raise RepositoryStateError(
                 "JRI writes plain files, and these are links. Replace them before Ralphing:\n"

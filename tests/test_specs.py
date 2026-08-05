@@ -606,6 +606,20 @@ def test_refuses_a_specification_git_holds_as_a_link(
     assert find_accepted_commit(tmp_path) is None
 
 
+def test_refuses_a_notebook_git_would_hold_as_a_link(tmp_path: Path, create_repository: CreateRepository) -> None:
+    create_repository(tmp_path)
+    conversation = build_conversation(tmp_path, successful_client())
+    notebook = tmp_path / ".jri/notebook.yaml"
+    shared = tmp_path.parent / "shared-notes.yaml"
+    shared.write_text(notebook.read_text())
+    notebook.unlink()
+    notebook.symlink_to(shared)
+
+    assert read_ending(conversation.ralph(), r"these are links.+\n- \.jri/notebook\.yaml") == "blocked"
+
+    assert find_accepted_commit(tmp_path) is None
+
+
 def test_refuses_to_commit_when_the_specifications_moved_during_generation(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
