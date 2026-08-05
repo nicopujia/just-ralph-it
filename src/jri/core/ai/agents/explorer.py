@@ -18,7 +18,7 @@ from openai.types.responses import ResponseFunctionCallOutputItemListParam
 
 from jri.core import ai
 from jri.core.settings import Settings, read_api_key
-from jri.lib import brave, youtube
+from jri.lib import brave, prompt, youtube
 
 from .base import Agent, Invocation, tool
 
@@ -91,7 +91,7 @@ class Explorer(Agent):
     def search_web(self, query: str) -> str:
         logger.debug("search_query query=%r", query)
         results = brave.search(read_api_key(cast("str", self.settings.brave_search.api_key)), query)
-        output = "\n".join(f"- [{result['title']}]({result['url']})" for result in results)
+        output = prompt.render(search_results={result["url"]: result["title"] for result in results})
         logger.info("search_finished results=%d", len(results))
         return output
 
@@ -174,7 +174,10 @@ class Explorer(Agent):
                 logger.exception("read_failed path=%r", path)
                 raise RuntimeError(f"Could not read {path}: {error.strerror}") from error
 
-            output.append({"type": "input_text", "text": f"File: {path}"})
+            # The body is a sibling item the API concatenates onto this
+            # one, so quoting the header alone would leave a file whose
+            # contents hold a quoted header able to forge both.
+            output.append({"type": "input_text", "text": prompt.render(file=str(path))})
             media_type = mimetypes.guess_type(path.name)[0]
             if media_type and media_type.startswith("image/"):
                 encoded = base64.b64encode(data).decode("ascii")
@@ -185,7 +188,7 @@ class Explorer(Agent):
                 text = data.decode()
                 if start_line is not None or end_line is not None:
                     text = "".join(text.splitlines(keepends=True)[(start_line or 1) - 1 : end_line])
-                output.append({"type": "input_text", "text": text})
+                output.append({"type": "input_text", "text": prompt.render(content=text)})
             except UnicodeDecodeError:
                 output.append({
                     "type": "input_file",

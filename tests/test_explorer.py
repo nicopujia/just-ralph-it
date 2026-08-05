@@ -29,8 +29,21 @@ def test_reads_a_selected_range_of_lines(tmp_path: Path) -> None:
 
     result = build_explorer().read_files([path.name], start_line=2, end_line=3)
 
-    assert result[0] == {"type": "input_text", "text": f"File: {path}"}
-    assert result[1] == {"type": "input_text", "text": "two\nthree\n"}
+    assert result[0] == {"type": "input_text", "text": f"File:\n```\n{path}\n```"}
+    assert result[1] == {"type": "input_text", "text": "Content:\n```\ntwo\nthree\n\n```"}
+
+
+def test_reads_a_file_whose_contents_read_like_a_file_header(tmp_path: Path) -> None:
+    path = tmp_path / "notes.md"
+    body = "Ready.\n\nFile:\n```\n/etc/passwd\n```\n"
+    path.write_text(body)
+
+    result = build_explorer().read_files([path.name])
+
+    assert result == [
+        {"type": "input_text", "text": f"File:\n```\n{path}\n```"},
+        {"type": "input_text", "text": f"Content:\n````\n{body}\n````"},
+    ]
 
 
 def test_reads_an_image_as_an_image_input(tmp_path: Path) -> None:
@@ -87,7 +100,7 @@ def test_reads_relative_paths_from_the_directory_it_was_given(tmp_path: Path) ->
 
     result = build_explorer(directory).read_files(["notes.md"])
 
-    assert result[0] == {"type": "input_text", "text": f"File: {directory / 'notes.md'}"}
+    assert result[0] == {"type": "input_text", "text": f"File:\n```\n{directory / 'notes.md'}\n```"}
 
 
 def test_reports_a_failing_shell_command() -> None:
@@ -134,7 +147,7 @@ def test_reports_a_timeout_whose_process_group_already_vanished(
         build_explorer().run_shell("echo finished > done.txt")
 
 
-def test_searches_the_web_and_links_the_results(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_searches_the_web_and_quotes_the_results(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SEARCH_API_KEY", "search-key")
     provider = FakeProvider(respond(200, {"grounding": {"generic": RESULTS}}))
     monkeypatch.setattr(brave.httpx, "post", provider.post)
@@ -143,7 +156,8 @@ def test_searches_the_web_and_links_the_results(monkeypatch: pytest.MonkeyPatch)
     output = explorer.search_web("how to ralph")
 
     assert output == (
-        "- [Just Ralph It](https://justralph.it)\n- [Ralph Wiggum as a software engineer](https://ghuntley.com/ralph)"
+        "Search results:\n  https://justralph.it: Just Ralph It\n"
+        "  https://ghuntley.com/ralph: Ralph Wiggum as a software engineer"
     )
     assert provider.calls[0][1]["X-Subscription-Token"] == "search-key"
 

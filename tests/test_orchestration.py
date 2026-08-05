@@ -315,7 +315,7 @@ def test_studies_the_project_as_it_stands_on_disk(
     instructions = next(prompt for prompt in read_prompts(client) if "Role: Explorer." in prompt)
     directory = Path(instructions.split("Working directory: ")[1].splitlines()[0])
     assert not directory.is_relative_to(tmp_path.resolve())
-    assert f"File: {directory / paths.NOTEBOOK_FILE}" in str(client.responses.inputs)
+    assert str(directory / paths.NOTEBOOK_FILE) in str(client.responses.inputs)
 
 
 def test_studies_a_project_whose_only_commit_holds_no_project_files(tmp_path: Path, run_git: RunGit) -> None:
