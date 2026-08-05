@@ -88,9 +88,9 @@ def test_reports_which_finished_calls_of_a_round_failed() -> None:
 
     events = list(agent.send_message("Go."))
 
-    assert [(event.call_id, event.failed) for event in events if isinstance(event, ToolCallFinished)] == [
-        ("broken", True),
-        ("working", False),
+    assert [(event.call_id, event.outcome) for event in events if isinstance(event, ToolCallFinished)] == [
+        ("broken", "failed"),
+        ("working", "done"),
     ]
 
 
@@ -105,6 +105,33 @@ def test_stops_a_streaming_tool_call_when_cancelled() -> None:
 
     assert [event.call_id for event in yielded if isinstance(event, ToolCallStarted)] == ["streamed", "first-step"]
     assert agent.narrated == ["first-step"]
+
+
+def test_closes_every_call_it_opened_when_cancelled() -> None:
+    cancelled = Event()
+    agent = build_agent([response(call("streamed", "narrate", text="one"))])
+    events = agent.send_message("Go.", cancelled)
+
+    yielded = [next(events), next(events)]
+    cancelled.set()
+    yielded.extend(events)
+
+    assert [(event.call_id, event.outcome) for event in yielded if isinstance(event, ToolCallFinished)] == [
+        ("streamed", "stopped")
+    ]
+
+
+def test_opens_no_row_for_a_call_cancelled_before_it_ran() -> None:
+    cancelled = Event()
+    agent = build_agent([response(call("streamed", "narrate", text="one"), call("later", "echo", text="two"))])
+    events = agent.send_message("Go.", cancelled)
+
+    next(events)
+    cancelled.set()
+    yielded = list(events)
+
+    rows = [event.call_id for event in yielded if isinstance(event, ToolCallStarted | ToolCallFinished)]
+    assert "later" not in rows
 
 
 def test_answers_every_call_of_a_round_that_cancellation_interrupted() -> None:

@@ -101,7 +101,7 @@ def test_restores_a_tool_call_that_failed_as_a_failure() -> None:
 
     turns = build_conversation(FakeClient([])).restore()
 
-    assert turns[-1].items[0] == InterviewItem("tool", "Edited note", "✏️", failed=True)
+    assert turns[-1].items[0] == InterviewItem("tool", "Edited note", "✏️", "failed")
 
 
 def test_restores_the_reasoning_summary_of_a_turn() -> None:

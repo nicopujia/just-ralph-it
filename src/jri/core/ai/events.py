@@ -1,6 +1,8 @@
 from dataclasses import dataclass
+from typing import Literal
 
 type ChatEvent = ReasoningDelta | TextDelta | ToolCallStarted | ToolCallFinished
+type Outcome = Literal["done", "empty", "stopped", "failed"]
 
 
 @dataclass(frozen=True)
@@ -21,9 +23,12 @@ class ToolCallStarted:
     depth: int = 0
 
 
+# A call that finished says how it went, so no default lets a row be
+# closed without answering that.
 @dataclass(frozen=True)
 class ToolCallFinished:
     call_id: str
     label: str
-    failed: bool = False
+    outcome: Outcome
+    detail: str = ""
     depth: int = 0

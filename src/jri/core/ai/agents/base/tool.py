@@ -42,14 +42,21 @@ def tool(
 @dataclass(frozen=True)
 class ToolOutput:
     value: str | ResponseFunctionCallOutputItemListParam
+    outcome: "ai.Outcome" = "done"
 
 
 class Invocation:
+    # Enough of a reason to recognise on a row, cut before it wraps.
+    MAX_DETAIL_LENGTH = 120
     MAX_OUTPUT_LENGTH = 100_000
 
-    def __init__(self, output: str | ResponseFunctionCallOutputItemListParam | Stream, *, failed: bool = False) -> None:
+    def __init__(
+        self, output: str | ResponseFunctionCallOutputItemListParam | Stream, *, failed: bool = False, detail: str = ""
+    ) -> None:
         self.stream = output if isinstance(output, Iterator) else iter((ToolOutput(output),))
         self._failed = failed
+        self._detail = detail
+        self._outcome: ai.Outcome = "done"
         self._output: str | ResponseFunctionCallOutputItemListParam | None = None
 
     def __iter__(self) -> Generator["ai.ChatEvent"]:
@@ -70,19 +77,27 @@ class Invocation:
                 else:
                     self._output = [*self._output, {"type": "input_text", "text": failure}]
                 self._failed = True
+                self._detail = str(error)
                 return
             if isinstance(item, ToolOutput):
                 self._output = item.value
+                self._outcome = item.outcome
                 logger.debug("stream_output output=%r", item.value)
             else:
                 logger.debug("stream_event value=%r", item)
                 yield replace(item, depth=item.depth + 1)
 
     @property
-    def failed(self) -> bool:
+    def detail(self) -> str:
+        # The reason comes from the exception, never from reading the
+        # rendered output back: that output is quoted inside a fence.
+        return self._detail.partition("\n")[0][: self.MAX_DETAIL_LENGTH]
+
+    @property
+    def outcome(self) -> "ai.Outcome":
         # A stream left without an output has none to report, however
         # far it got, so the call it stands for did not succeed.
-        return self._failed or self._output is None
+        return "failed" if self._failed or self._output is None else self._outcome
 
     @property
     def output(self) -> str | ResponseFunctionCallOutputItemListParam:
@@ -192,21 +207,24 @@ class Tool:
         logger.info("invocation_started name=%s", self.name)
         logger.debug("arguments name=%s arguments=%r", self.name, arguments)
         failed = False
+        detail = ""
         try:
             payload = self.arguments_model.model_validate_json(arguments, strict=True)
             output = self.func(**{name: getattr(payload, name) for name in self.arguments_model.model_fields})
         except ValidationError as error:
             logger.exception("validation_failed name=%s", self.name)
             first = error.errors(include_url=False)[0]
-            output = prompt.render(tool_call_failed=f"{first['msg']}.")
+            detail = f"{first['msg']}."
+            output = prompt.render(tool_call_failed=detail)
             failed = True
         except (RuntimeError, TypeError, ValueError) as error:
             logger.exception("invocation_failed name=%s", self.name)
-            output = prompt.render(tool_call_failed=str(error))
+            detail = str(error)
+            output = prompt.render(tool_call_failed=detail)
             failed = True
         logger.info("invocation_finished name=%s", self.name)
         logger.debug("output name=%s output=%r", self.name, output)
-        return Invocation(output, failed=failed)
+        return Invocation(output, failed=failed, detail=detail)
 
     def replay(self, arguments: str) -> None:
         if self.read_only:

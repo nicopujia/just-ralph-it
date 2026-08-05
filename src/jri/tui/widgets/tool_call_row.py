@@ -3,7 +3,7 @@ from time import monotonic
 from textual.content import Content
 from textual.widgets import Static
 
-from jri.core.ai import DEFAULT_SYMBOL
+from jri.core.ai import DEFAULT_SYMBOL, Outcome
 from jri.tui import copy, styles
 
 
@@ -18,7 +18,8 @@ class ToolCallRow(Static):
         *,
         symbol: str = DEFAULT_SYMBOL,
         is_complete: bool = False,
-        has_failed: bool = False,
+        outcome: Outcome = "done",
+        detail: str = "",
         depth: int = 0,
     ) -> None:
         super().__init__(classes=styles.TOOL_CALL_ROW_CLASSES)
@@ -28,7 +29,8 @@ class ToolCallRow(Static):
         self.depth = depth
         self.frame_index = 0
         self.is_complete = is_complete
-        self.has_failed = has_failed
+        self.outcome: Outcome = outcome
+        self.detail = detail
         self.started_at = monotonic()
         self.spinner_timer = None
 
@@ -41,10 +43,11 @@ class ToolCallRow(Static):
         if self.spinner_timer is not None:
             self.spinner_timer.stop()
 
-    def mark_complete(self, label: str, *, has_failed: bool = False) -> None:
+    def mark_complete(self, label: str, outcome: Outcome, detail: str = "") -> None:
         self.is_complete = True
         self.label = label
-        self.has_failed = has_failed
+        self.outcome = outcome
+        self.detail = detail
         if self.spinner_timer is not None:
             self.spinner_timer.stop()
             self.spinner_timer = None
@@ -58,9 +61,8 @@ class ToolCallRow(Static):
 
     def update_copy(self) -> None:
         if self.is_complete:
-            self.set_class(self.has_failed, styles.TOOL_CALL_ROW_FAILED_CLASSES)
-            symbol = copy.TOOL_CALL_FAILED_SYMBOL if self.has_failed else self.symbol
-            label = copy.TOOL_CALL_FAILED.format(label=self.label) if self.has_failed else self.label
+            self.set_class(self.outcome == "failed", styles.TOOL_CALL_ROW_FAILED_CLASSES)
+            symbol, label = _describe_outcome(self.outcome, self.symbol, self.label, self.detail)
             self.update(Content(f"{symbol} {label}"))
             return
         elapsed = int(monotonic() - self.started_at)
@@ -68,3 +70,22 @@ class ToolCallRow(Static):
         if elapsed >= self.MIN_ELAPSED_SECONDS:
             content = content.append(Content.styled(f" {elapsed // 60}m {elapsed % 60:02d}s", "dim"))
         self.update(content)
+
+
+# Every outcome is answered here and nowhere else, so no call site ever
+# picks a symbol, and one left unanswered is a return type this function
+# cannot satisfy.
+def _describe_outcome(outcome: Outcome, symbol: str, label: str, detail: str) -> tuple[str, str]:
+    match outcome:
+        case "done":
+            return symbol, label
+        case "empty":
+            return copy.TOOL_CALL_EMPTY_SYMBOL, label
+        case "stopped":
+            return copy.TOOL_CALL_STOPPED_SYMBOL, copy.TOOL_CALL_STOPPED.format(label=label)
+        case "failed":
+            return copy.TOOL_CALL_FAILED_SYMBOL, (
+                copy.TOOL_CALL_DETAILED.format(label=label, detail=detail)
+                if detail
+                else copy.TOOL_CALL_FAILED.format(label=label)
+            )

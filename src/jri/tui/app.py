@@ -334,7 +334,7 @@ class App(TextualApp[None]):
         if error is not None:
             for row in turn_state.tool_rows.values():
                 if not row.is_complete:
-                    row.mark_complete(copy.RALPH_INTERRUPTED)
+                    row.mark_complete(copy.RALPH_INTERRUPTED, "failed")
                     break
             # A repository the user has to sort out is not a crash.
             blocked = isinstance(error, RepositoryStateError)
@@ -469,7 +469,7 @@ class App(TextualApp[None]):
             if nested_row.depth > event.depth:
                 await nested_row.remove()
                 del turn_state.tool_rows[nested_call_id]
-        turn_state.tool_rows[event.call_id].mark_complete(event.label, has_failed=event.failed)
+        turn_state.tool_rows[event.call_id].mark_complete(event.label, event.outcome, event.detail)
         if event.depth == 0:
             turn_state.placeholder = Markdown(copy.INTERVIEWER_THINKING, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
             await turn_state.container.mount(turn_state.placeholder)
@@ -514,7 +514,9 @@ class App(TextualApp[None]):
                     )
                     continue
                 interviewer_items.append(
-                    ToolCallRow(item.text, symbol=item.symbol, is_complete=True, has_failed=item.failed)
+                    ToolCallRow(
+                        item.text, symbol=item.symbol, is_complete=True, outcome=item.outcome, detail=item.detail
+                    )
                     if item.type == "tool"
                     else Markdown(item.text, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
                 )

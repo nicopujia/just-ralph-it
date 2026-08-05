@@ -107,26 +107,34 @@ class Agent:
         name = cast("str", output["name"])
         arguments = cast("str", output["arguments"])
         call_id = cast("str", output["call_id"])
-        yield ai.ToolCallStarted(
-            call_id=call_id,
-            label=tool.format_label(tool.started_label, arguments) if tool else name,
-            symbol=tool.symbol if tool else DEFAULT_SYMBOL,
-        )
+        # A call already cancelled opens no row, and a row this opens is
+        # closed before it returns, so no row it left behind is anyone
+        # else's to sweep. The row reaches the user before this resumes,
+        # so a stop pressed while looking at it still stops the call.
+        opened = not cancelled.is_set()
+        if opened:
+            yield ai.ToolCallStarted(
+                call_id=call_id,
+                label=tool.format_label(tool.started_label, arguments) if tool else name,
+                symbol=tool.symbol if tool else DEFAULT_SYMBOL,
+            )
         if cancelled.is_set():
-            self.failed_call_ids.append(call_id)
-            self.history.append({"type": "function_call_output", "call_id": call_id, "output": "Tool call cancelled."})
-            return
-        invocation = tool.invoke(arguments) if tool else Invocation(f"Unknown tool `{name}`.", failed=True)
+            invocation = Invocation("Tool call cancelled.", failed=True)
+        elif tool:
+            invocation = tool.invoke(arguments)
+        else:
+            invocation = Invocation(f"Unknown tool `{name}`.", failed=True)
         for event in invocation:
             yield event
             if cancelled.is_set():
                 break
-        if invocation.failed:
+        if invocation.outcome == "failed":
             self.failed_call_ids.append(call_id)
         self.history.append({"type": "function_call_output", "call_id": call_id, "output": invocation.output})
-        if not cancelled.is_set():
+        if opened:
             yield ai.ToolCallFinished(
                 call_id=call_id,
                 label=tool.format_label(tool.finished_label, arguments) if tool else name,
-                failed=invocation.failed,
+                outcome="stopped" if cancelled.is_set() else invocation.outcome,
+                detail="" if cancelled.is_set() else invocation.detail,
             )

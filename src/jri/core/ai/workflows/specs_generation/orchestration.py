@@ -52,10 +52,12 @@ def generate(settings: Settings) -> Generator["ai.ToolCallStarted | ai.ToolCallF
         functional_result = analyst.write(functional_context)
         if isinstance(functional_result, functional_analyst.Ambiguities):
             logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.ambiguities))
-            yield ai.ToolCallFinished(open_row.call_id, "Found project details to clarify")
+            yield ai.ToolCallFinished(open_row.call_id, "Found project details to clarify", "done")
             return functional_result
         if cycle == 1:
-            yield ai.ToolCallFinished(open_row.call_id, "Wrote functional specifications from your project notes")
+            yield ai.ToolCallFinished(
+                open_row.call_id, "Wrote functional specifications from your project notes", "done"
+            )
 
         with specs.repository.open_worktree(baseline.commit) as staging:
             _apply_patch(
@@ -88,7 +90,7 @@ def generate(settings: Settings) -> Generator["ai.ToolCallStarted | ai.ToolCallF
                     ).strip()
                 if not explorer_report:
                     raise SpecsError("Repository exploration produced no report.")
-                yield ai.ToolCallFinished("explorer", "Studied your existing project")
+                yield ai.ToolCallFinished("explorer", "Studied your existing project", "done")
                 open_row = ai.ToolCallStarted("architecture", "Designing the project architecture", "📐")
                 yield open_row
 
@@ -104,7 +106,7 @@ def generate(settings: Settings) -> Generator["ai.ToolCallStarted | ai.ToolCallF
                 # A polish row has no separate closing phrasing,
                 # so it closes under the label it opened with.
                 yield ai.ToolCallFinished(
-                    open_row.call_id, "Drafted the project architecture" if cycle == 1 else open_row.label
+                    open_row.call_id, "Drafted the project architecture" if cycle == 1 else open_row.label, "done"
                 )
                 open_row = ai.ToolCallStarted(
                     f"polish-{cycle}",
@@ -132,14 +134,14 @@ def generate(settings: Settings) -> Generator["ai.ToolCallStarted | ai.ToolCallF
             patch = staging.diff(baseline.commit, paths=(paths.FUNCTIONAL_SPECS_DIR, paths.ARCHITECTURE_SPECS_DIR))
 
         yield ai.ToolCallFinished(
-            open_row.call_id, "Designed the project architecture" if cycle == 1 else open_row.label
+            open_row.call_id, "Designed the project architecture" if cycle == 1 else open_row.label, "done"
         )
         # Saving is a step of its own, so a project state that blocks
         # the commit closes the row naming it rather than the design
         # row, whose work was already done and is nowhere at fault.
         yield ai.ToolCallStarted("commit", "Saving the specifications to your project", "💾")
         commit = specs.accept(patch, baseline)
-        yield ai.ToolCallFinished("commit", "Saved the specifications to your project")
+        yield ai.ToolCallFinished("commit", "Saved the specifications to your project", "done")
         return commit
 
 

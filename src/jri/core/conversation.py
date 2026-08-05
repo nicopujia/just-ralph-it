@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from jri.lib import files, prompt
 
-from .ai import DEFAULT_SYMBOL, ChatEvent, Interviewer, Tool, specs_generation
+from .ai import DEFAULT_SYMBOL, ChatEvent, Interviewer, Outcome, Tool, specs_generation
 from .exceptions import PersistenceError
 from .notes import Graph, Notebook, TopicId
 from .settings import Settings
@@ -37,7 +37,7 @@ def read_turns(history: ResponseInputParam, tools: list[Tool], session: "Session
                     "tool",
                     tool.format_label(tool.finished_label, item["arguments"]),
                     tool.symbol,
-                    item["call_id"] in failed_call_ids,
+                    "failed" if item["call_id"] in failed_call_ids else "done",
                 )
             )
             continue
@@ -70,7 +70,8 @@ class InterviewItem(NamedTuple):
     type: Literal["assistant", "reasoning", "tool", "error", "stopped"]
     text: str = ""
     symbol: str = DEFAULT_SYMBOL
-    failed: bool = False
+    outcome: Outcome = "done"
+    detail: str = ""
 
 
 class Turn(NamedTuple):

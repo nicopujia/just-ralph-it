@@ -241,7 +241,7 @@ def test_reports_a_failed_exploration_to_the_model(tmp_path: Path) -> None:
     invocation = explore.invoke('{"query": "cats"}')
     list(invocation)
 
-    assert invocation.failed
+    assert invocation.outcome == "failed"
     assert invocation.output == "Tool call failed:\n```\nThe provider is unavailable.\n```"
 
 
@@ -255,5 +255,5 @@ def test_reports_an_unwritable_notebook_to_the_model(tmp_path: Path) -> None:
     invocation = capture_notes.invoke('{"texts": ["A requirement"]}')
     list(invocation)
 
-    assert invocation.failed
+    assert invocation.outcome == "failed"
     assert cast("str", invocation.output).startswith("Tool call failed:\n```\nCould not save the notebook file")

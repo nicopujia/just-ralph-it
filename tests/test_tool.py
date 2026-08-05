@@ -98,7 +98,7 @@ def test_reports_invalid_arguments_to_the_model() -> None:
     invocation = build_tool("echo").invoke('{"text": 7}')
     list(invocation)
 
-    assert invocation.failed
+    assert invocation.outcome == "failed"
     assert cast("str", invocation.output).startswith("Tool call failed:\n```\n")
 
 
@@ -114,7 +114,7 @@ def test_keeps_the_output_of_a_stream_that_fails_after_reporting_it() -> None:
 
     list(invocation)
 
-    assert invocation.failed
+    assert invocation.outcome == "failed"
     assert invocation.output == "partial: one\n\nTool call failed:\n```\nno more: one\n```"
 
 
@@ -123,11 +123,31 @@ def test_keeps_the_structured_output_of_a_stream_that_fails_after_reporting_it()
 
     list(invocation)
 
-    assert invocation.failed
+    assert invocation.outcome == "failed"
     assert invocation.output == [
         {"type": "input_text", "text": "partial: one"},
         {"type": "input_text", "text": "Tool call failed:\n```\nno more: one\n```"},
     ]
+
+
+def test_reports_the_reason_a_call_failed() -> None:
+    invocation = build_tool("give_up_loudly").invoke('{"text": "x"}')
+
+    list(invocation)
+
+    # The reason comes from the exception, so the fence the output is
+    # rendered in never reaches it.
+    assert invocation.detail == "x" * Invocation.MAX_DETAIL_LENGTH
+    assert cast("str", invocation.output).startswith("partial: x\n\nTool call failed:")
+
+
+def test_reports_an_output_that_says_nothing_as_empty() -> None:
+    invocation = build_tool("find_nothing").invoke('{"text": "one"}')
+
+    list(invocation)
+
+    assert invocation.outcome == "empty"
+    assert invocation.output == "nothing found: one"
 
 
 def test_reports_a_stream_that_never_produced_an_output() -> None:
@@ -135,7 +155,7 @@ def test_reports_a_stream_that_never_produced_an_output() -> None:
 
     list(invocation)
 
-    assert invocation.failed
+    assert invocation.outcome == "failed"
     assert cast("str", invocation.output).startswith("Tool call failed:")
 
 
@@ -147,7 +167,7 @@ def test_marks_a_stream_abandoned_before_its_output_as_failed() -> None:
     # A call reported to the model as failed
     # must not be replayed on rewind.
     assert cast("str", invocation.output).startswith("Tool call failed:")
-    assert invocation.failed
+    assert invocation.outcome == "failed"
 
 
 def test_skips_replaying_a_read_only_tool() -> None:
@@ -196,6 +216,17 @@ class Toolbox:
         self.recorded.append(text)
         yield ToolOutput(f"partial: {text}")
         raise ValueError(f"no more: {text}")
+
+    @tool("Give up loudly.", started_label="Giving up on {text}", finished_label="Gave up on {text}")
+    def give_up_loudly(self, text: str) -> Generator[ToolOutput]:
+        self.recorded.append(text)
+        yield ToolOutput(f"partial: {text}")
+        raise ValueError(f"{text * 200}\nThe rest of the story.")
+
+    @tool("Find nothing.", started_label="Searching for {text}", finished_label="Searched for {text}")
+    def find_nothing(self, text: str) -> Generator[ToolOutput]:
+        self.recorded.append(text)
+        yield ToolOutput(f"nothing found: {text}", "empty")
 
     @tool("Give up after listing.", started_label="Giving up on {text}", finished_label="Gave up on {text}")
     def give_up_after_listing(self, text: str) -> Generator[ToolOutput]:
