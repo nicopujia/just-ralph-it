@@ -1,5 +1,6 @@
 from time import monotonic
 
+from textual.content import Content
 from textual.widgets import Static
 
 from jri.core.ai import DEFAULT_SYMBOL
@@ -47,8 +48,10 @@ class ToolCallRow(Static):
 
     def update_copy(self) -> None:
         if self.is_complete:
-            self.update(f"{self.symbol} {self.label}")
+            self.update(Content(f"{self.symbol} {self.label}"))
             return
         elapsed = int(monotonic() - self.started_at)
-        suffix = f" [dim]{elapsed // 60}m {elapsed % 60:02d}s[/dim]" if elapsed >= self.MIN_ELAPSED_SECONDS else ""
-        self.update(f"{self.SPINNER_FRAMES[self.frame_index]} {self.label}{suffix}")
+        copy = Content(f"{self.SPINNER_FRAMES[self.frame_index]} {self.label}")
+        if elapsed >= self.MIN_ELAPSED_SECONDS:
+            copy = copy.append(Content.styled(f" {elapsed // 60}m {elapsed % 60:02d}s", "dim"))
+        self.update(copy)
