@@ -245,7 +245,6 @@ def test_asks_the_interviewer_about_the_ambiguities_ralph_found(
     restarted = build_conversation(FakeClient([]))
     turns = restarted.restore()
     assert InterviewItem("assistant", "Should the output be JSON or plain text?") in turns[-1].items
-    assert restarted.session.active_spec_commit is None
 
 
 def test_reports_a_finished_generation_without_barring_the_next_one(monkeypatch: pytest.MonkeyPatch) -> None:

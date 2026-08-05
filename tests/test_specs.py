@@ -5,7 +5,7 @@ import pytest
 from jri.core.ai import architect, functional_analyst
 from jri.core.conversation import Conversation
 from jri.core.exceptions import RepositoryStateError, SpecsError
-from jri.core.specs import Specs
+from jri.core.specs import ACCEPTANCE_TRAILER, Specs
 from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
@@ -124,6 +124,10 @@ def build_conversation(path: Path, client: FakeClient) -> Conversation:
     return Conversation(build_settings(client))
 
 
+def find_accepted_commit(path: Path) -> str | None:
+    return git.Repository(path).find_commit(ACCEPTANCE_TRAILER)
+
+
 def build_client(functional_patch: str, architecture_patch: str = ARCHITECTURE_PATCH) -> FakeClient:
     return FakeClient(
         [streamed_reply("Repository report"), response(reply("Specifications ready."))],
@@ -155,7 +159,7 @@ def test_commits_complete_specification_bundle(
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
     assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
     assert run_git(tmp_path, "show", "-s", "--format=%B") == (
-        "jri: update specifications\n\nCo-authored-by: ralphpujia <ralph@pujia.ar>"
+        "jri: update specifications\n\nCo-authored-by: ralphpujia <ralph@pujia.ar>\nJRI-Specifications: accepted"
     )
     assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
         ".jri/.gitignore",
@@ -185,7 +189,7 @@ def test_commits_specifications_whose_patch_miscounts_its_hunk(
     list(conversation.ralph())
 
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotals are supported.\n"
-    assert conversation.session.active_spec_commit is not None
+    assert find_accepted_commit(tmp_path) is not None
 
 
 def test_updates_specs_after_restart_and_an_intervening_project_commit(
@@ -194,7 +198,7 @@ def test_updates_specs_after_restart_and_an_intervening_project_commit(
     create_repository(tmp_path)
     conversation = build_conversation(tmp_path, successful_client())
     list(conversation.ralph())
-    first_spec_commit = conversation.session.active_spec_commit
+    first_spec_commit = find_accepted_commit(tmp_path)
     assert first_spec_commit is not None
 
     changelog = tmp_path / "CHANGELOG.md"
@@ -205,12 +209,12 @@ def test_updates_specs_after_restart_and_an_intervening_project_commit(
 
     restarted = build_conversation(tmp_path, updated_client())
     restarted.restore()
-    assert restarted.session.active_spec_commit == first_spec_commit
+    assert find_accepted_commit(tmp_path) == first_spec_commit
     restarted.interviewer.notebook.add(["Add a total output record."], "t1")
 
     list(restarted.ralph())
 
-    second_spec_commit = restarted.session.active_spec_commit
+    second_spec_commit = find_accepted_commit(tmp_path)
     assert second_spec_commit is not None
     assert second_spec_commit != first_spec_commit
     run_git(tmp_path, "merge-base", "--is-ancestor", first_spec_commit, second_spec_commit)
@@ -231,7 +235,7 @@ def test_updates_specs_after_restart_and_an_intervening_project_commit(
     ]
     reopened = build_conversation(tmp_path, FakeClient([]))
     reopened.restore()
-    assert reopened.session.active_spec_commit == second_spec_commit
+    assert find_accepted_commit(tmp_path) == second_spec_commit
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -285,7 +289,7 @@ def test_commits_specifications_onto_a_freshly_initialized_project(tmp_path: Pat
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
-    assert conversation.session.active_spec_commit == run_git(tmp_path, "rev-parse", "HEAD")
+    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
     assert run_git(tmp_path, "status", "--short").splitlines() == ["?? .gitignore", "?? README.md"]
 
 
@@ -303,7 +307,7 @@ def test_commits_specifications_onto_a_repository_without_commits(tmp_path: Path
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
-    assert conversation.session.active_spec_commit == run_git(tmp_path, "rev-parse", "HEAD")
+    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
     assert run_git(tmp_path, "status", "--short") == "?? README.md"
 
 
@@ -375,7 +379,7 @@ def test_commits_specifications_onto_a_project_that_moved_during_generation(
 
     list(events)
 
-    assert conversation.session.active_spec_commit == run_git(tmp_path, "rev-parse", "HEAD")
+    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
     assert run_git(tmp_path, "log", "-2", "--format=%s").splitlines() == ["jri: update specifications", "concurrent"]
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
 
@@ -421,7 +425,7 @@ def test_refuses_to_commit_when_the_specifications_moved_during_generation(
     with pytest.raises(RepositoryStateError, match="specifications changed during generation"):
         list(events)
 
-    assert conversation.session.active_spec_commit is None
+    assert find_accepted_commit(tmp_path) is None
 
 
 def test_refuses_to_commit_when_the_notebook_moved_during_generation(
@@ -436,10 +440,10 @@ def test_refuses_to_commit_when_the_notebook_moved_during_generation(
     with pytest.raises(RepositoryStateError, match="project notes changed during generation"):
         list(events)
 
-    assert conversation.session.active_spec_commit is None
+    assert find_accepted_commit(tmp_path) is None
 
 
-def test_refuses_existing_specifications_without_an_active_commit(
+def test_refuses_specifications_jri_never_accepted(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
@@ -450,32 +454,7 @@ def test_refuses_existing_specifications_without_an_active_commit(
     run_git(tmp_path, "commit", "-qm", "add specifications")
     conversation = build_conversation(tmp_path, FakeClient([]))
 
-    with pytest.raises(RepositoryStateError, match="no active JRI commit"):
-        list(conversation.ralph())
-
-
-def test_refuses_active_commit_missing_from_git(tmp_path: Path) -> None:
-    conversation = build_conversation(tmp_path, FakeClient([]))
-    conversation.update_session(active_spec_commit="0" * 40)
-
-    with pytest.raises(RepositoryStateError, match="missing from Git"):
-        list(conversation.ralph())
-
-
-def test_refuses_active_commit_unreachable_from_head(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    initial = run_git(tmp_path, "rev-parse", "HEAD")
-    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n")
-    run_git(tmp_path, "add", "CHANGELOG.md")
-    run_git(tmp_path, "commit", "-qm", "docs: add changelog")
-    abandoned = run_git(tmp_path, "rev-parse", "HEAD")
-    run_git(tmp_path, "reset", "-q", "--hard", initial)
-    conversation = build_conversation(tmp_path, FakeClient([]))
-    conversation.update_session(active_spec_commit=abandoned)
-
-    with pytest.raises(RepositoryStateError, match="not reachable from HEAD"):
+    with pytest.raises(RepositoryStateError, match="specifications JRI did not write"):
         list(conversation.ralph())
 
 
@@ -529,7 +508,7 @@ def test_reports_a_valid_patch_that_git_never_applies(tmp_path: Path, create_rep
     with pytest.raises(SpecsError, match="Git rejected the functional specification patch on all 3 attempts"):
         list(conversation.ralph())
 
-    assert conversation.session.active_spec_commit is None
+    assert find_accepted_commit(tmp_path) is None
     assert not (tmp_path / ".jri/specs").exists()
 
 
@@ -567,7 +546,7 @@ def test_accepts_specifications_that_read_like_patch_metadata(
     list(conversation.ralph())
 
     assert (tmp_path / ".jri/specs" / path).read_text() == content
-    assert conversation.session.active_spec_commit is not None
+    assert find_accepted_commit(tmp_path) is not None
 
 
 def test_refuses_specifications_edited_outside_jri(
@@ -580,7 +559,7 @@ def test_refuses_specifications_edited_outside_jri(
     run_git(tmp_path, "add", ".jri/specs")
     run_git(tmp_path, "commit", "-qm", "docs: edit specifications")
 
-    with pytest.raises(RepositoryStateError, match="differ from the active JRI commit"):
+    with pytest.raises(RepositoryStateError, match="differ from the ones JRI accepted"):
         list(conversation.ralph())
 
 
@@ -594,7 +573,7 @@ def test_refuses_architecture_specifications_edited_outside_jri(
     run_git(tmp_path, "add", ".jri/specs")
     run_git(tmp_path, "commit", "-qm", "docs: edit the architecture")
 
-    with pytest.raises(RepositoryStateError, match="differ from the active JRI commit"):
+    with pytest.raises(RepositoryStateError, match="differ from the ones JRI accepted"):
         list(conversation.ralph())
 
 

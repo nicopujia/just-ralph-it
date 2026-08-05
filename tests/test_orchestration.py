@@ -70,21 +70,20 @@ def build_workspace(path: Path, create_repository: CreateRepository) -> None:
     install_workspace(path)
 
 
-def generate(client: FakeClient, active_commit: str | None = None) -> tuple[list[Row], Result]:
+def generate(client: FakeClient) -> tuple[list[Row], Result]:
     captured: list[Result] = []
     settings = build_settings(client)
 
     def drive() -> Generator[Row]:
-        captured.append((yield from specs_generation.generate(settings, active_commit)))
+        captured.append((yield from specs_generation.generate(settings)))
 
     return list(drive()), captured[0]
 
 
-def commit_specs() -> str:
+def commit_specs() -> None:
     client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
     _, commit = generate(client)
     assert isinstance(commit, str)
-    return commit
 
 
 def written_specs() -> functional_analyst.Output:
@@ -177,7 +176,7 @@ def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
     rows: list[Row] = []
 
     def block_the_project_once_the_design_lands() -> None:
-        for row in specs_generation.generate(build_settings(client), None):
+        for row in specs_generation.generate(build_settings(client)):
             rows.append(row)
             if isinstance(row, ToolCallFinished) and row.call_id == "architecture":
                 stray = tmp_path / paths.FUNCTIONAL_SPECS_DIR / "stray.md"
@@ -343,7 +342,7 @@ def test_refuses_a_patch_that_deletes_every_functional_specification(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    commit = commit_specs()
+    commit_specs()
     client = FakeClient(
         [],
         parsed=[
@@ -354,14 +353,14 @@ def test_refuses_a_patch_that_deletes_every_functional_specification(
     )
 
     with pytest.raises(SpecsError, match="Functional specifications cannot be empty"):
-        generate(client, commit)
+        generate(client)
 
 
 def test_refuses_a_patch_that_deletes_every_architecture_specification(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    commit = commit_specs()
+    commit_specs()
     client = FakeClient(
         [streamed_reply("Repository report")],
         parsed=[
@@ -373,7 +372,7 @@ def test_refuses_a_patch_that_deletes_every_architecture_specification(
     )
 
     with pytest.raises(SpecsError, match="Architecture specifications cannot be empty"):
-        generate(client, commit)
+        generate(client)
 
 
 def test_sends_a_rejected_functional_patch_back_to_the_analyst(

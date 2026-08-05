@@ -20,13 +20,11 @@ MAX_PATCH_ATTEMPTS = 3
 logger = logging.getLogger(__name__)
 
 
-def generate(
-    settings: Settings, active_commit: str | None
-) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished", None, SpecsResult]:
+def generate(settings: Settings) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished", None, SpecsResult]:
     specs = Specs(Path.cwd())
     analyst = functional_analyst.FunctionalAnalyst(settings)
     designer = architect.Architect(settings)
-    baseline = specs.prepare(active_commit)
+    baseline = specs.prepare()
     explorer_report: str | None = None
     functional_context = functional_analyst.Input(
         notebook=baseline.notebook.decode(),

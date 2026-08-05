@@ -93,7 +93,6 @@ class Session(BaseModel):
     failed_turn_error: str | None = None
     stopped_turn: int | None = None
     ready_to_ralph: bool = False
-    active_spec_commit: str | None = None
     show_thinking_blocks: bool = False
 
     model_config = ConfigDict(extra="forbid")
@@ -160,13 +159,12 @@ class Conversation:
     def ralph(self) -> Generator[ChatEvent]:
         self.update_session(ready_to_ralph=False)
         try:
-            result = yield from specs_generation.generate(self.settings, self.session.active_spec_commit)
+            result = yield from specs_generation.generate(self.settings)
         except BaseException:
             self.update_session(ready_to_ralph=True)
             raise
 
         if isinstance(result, str):
-            self.update_session(active_spec_commit=result)
             workflow_result = (
                 f"Specification generation succeeded in Git commit {result}. Confirm completion concisely."
             )

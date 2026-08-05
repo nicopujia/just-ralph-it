@@ -105,11 +105,9 @@ class Repository:
             position += 1
         return tuple(entries)
 
-    def is_ancestor(self, ancestor: str, descendant: str = "HEAD") -> bool:
-        result = self._run("merge-base", "--is-ancestor", ancestor, descendant, check=False)
-        if result.returncode not in {0, 1}:
-            self._raise(result)
-        return result.returncode == 0
+    def find_commit(self, text: str, revision: str = "HEAD") -> str | None:
+        arguments = ("log", "--max-count=1", "--format=%H", "--fixed-strings", f"--grep={text}", revision)
+        return os.fsdecode(self._run(*arguments).stdout).strip() or None
 
     def read_file(self, revision: str, path: str) -> bytes:
         return self._run("show", f"{revision}:{path}").stdout
@@ -186,8 +184,8 @@ class Repository:
     def unstage(self, paths: Sequence[str]) -> None:
         self._run("reset", "--quiet", "--", *paths)
 
-    def commit(self, message: str, co_author: str | None = None, *, paths: Sequence[str] = ()) -> str:
-        body = f"{message}\n" if co_author is None else f"{message}\n\nCo-authored-by: {co_author}\n"
+    def commit(self, message: str, trailers: Sequence[str] = (), *, paths: Sequence[str] = ()) -> str:
+        body = f"{message}\n\n{'\n'.join(trailers)}\n" if trailers else f"{message}\n"
         # Named paths are read from the worktree and written to the
         # index alone, so a commit of them carries nothing else and
         # disturbs nothing else that is staged or modified.

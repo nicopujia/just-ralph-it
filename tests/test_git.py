@@ -138,21 +138,21 @@ def test_moves_staged_paths_to_the_index_side_of_the_status(
     }
 
 
-def test_commits_staged_paths_with_a_co_author(
+def test_records_every_trailer_it_is_given(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     repository = create_repository(tmp_path / "repo")
     (repository.path / "README.md").write_text("second\n")
     repository.stage(["README.md"])
 
-    commit = repository.commit("jri: test", "Test Person <test@example.com>")
+    commit = repository.commit("jri: test", ["Co-authored-by: Test Person <test@example.com>", "JRI-Test: accepted"])
 
     assert run_git(repository.path, "show", "-s", "--format=%B", commit) == (
-        "jri: test\n\nCo-authored-by: Test Person <test@example.com>"
+        "jri: test\n\nCo-authored-by: Test Person <test@example.com>\nJRI-Test: accepted"
     )
 
 
-def test_commits_staged_paths_without_a_co_author(
+def test_commits_staged_paths_without_any_trailer(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     repository = create_repository(tmp_path / "repo")
@@ -162,6 +162,20 @@ def test_commits_staged_paths_without_a_co_author(
     commit = repository.commit("jri: test")
 
     assert run_git(repository.path, "show", "-s", "--format=%B", commit) == "jri: test"
+
+
+def test_finds_the_last_commit_whose_message_holds_the_text(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "README.md").write_text("second\n")
+    repository.stage(["README.md"])
+    marked = repository.commit("jri: test", ["JRI-Test: accepted"])
+    (repository.path / "README.md").write_text("third\n")
+    run_git(repository.path, "commit", "-qam", "docs: a commit of the user's own")
+
+    assert repository.find_commit("JRI-Test: accepted") == marked
+    assert repository.find_commit("JRI-Test: rejected") is None
 
 
 def test_commits_only_the_paths_it_names(tmp_path: Path, create_repository: CreateRepository, run_git: RunGit) -> None:
@@ -257,17 +271,6 @@ new file mode 100644
     assert (repository.path / "README.md").read_bytes() == b"# Project\n"
     assert not (repository.path / "docs").exists()
     assert repository.read_status() == ()
-
-
-def test_reports_which_revision_descends_from_which(tmp_path: Path, create_repository: CreateRepository) -> None:
-    repository = create_repository(tmp_path / "repo")
-    first = repository.read_head()
-    (repository.path / "README.md").write_text("second\n")
-    repository.stage(["README.md"])
-    second = repository.commit("jri: test", "Test Person <test@example.com>")
-
-    assert repository.is_ancestor(first, second)
-    assert not repository.is_ancestor(second, first)
 
 
 def test_reports_renames_with_their_original_path(
@@ -434,15 +437,6 @@ def test_reports_which_revisions_name_a_commit(
     assert repository.has_commit(first)
     assert not repository.has_commit("no-such-revision")
     assert not repository.has_commit(blob)
-
-
-def test_rejects_comparing_against_a_revision_that_does_not_exist(
-    tmp_path: Path, create_repository: CreateRepository
-) -> None:
-    repository = create_repository(tmp_path / "repo")
-
-    with pytest.raises(git.Error):
-        repository.is_ancestor("no-such-revision")
 
 
 def test_reports_deleted_paths_on_the_side_they_were_deleted_from(

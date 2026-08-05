@@ -9,6 +9,10 @@ from .exceptions import RepositoryStateError, SpecsError
 from .repository import Repository
 from .workspace import Workspace
 
+# What the commit that accepted a generation calls itself, so Git can
+# answer which commit that was.
+ACCEPTANCE_TRAILER = "JRI-Specifications: accepted"
+
 logger = logging.getLogger(__name__)
 
 
@@ -26,28 +30,25 @@ class Specs:
         self.repository = Repository(path)
         self.workspace = Workspace(self.repository.path)
 
-    def prepare(self, active_commit: str | None) -> Baseline:
+    def prepare(self) -> Baseline:
         notebook = self.workspace.notebook_file.read_bytes()
-        commit = self.repository.read_head() if self.repository.has_commit() else None
         self._check_state()
-        if active_commit is None:
-            if commit is not None and self.repository.read_tree(commit, paths.SPECS_DIR):
-                raise RepositoryStateError("Existing specifications have no active JRI commit.")
+        if not self.repository.has_commit():
+            return Baseline(None, notebook, b"", {}, {})
+        commit = self.repository.read_head()
+        specs = self.repository.read_tree(commit, paths.SPECS_DIR)
+        accepted = self.repository.find_commit(ACCEPTANCE_TRAILER)
+        if accepted is None:
+            if specs:
+                raise RepositoryStateError("Git holds specifications JRI did not write. Remove them before Ralphing.")
             return Baseline(commit, notebook, b"", {}, {})
-        if commit is None or not self.repository.has_commit(active_commit):
-            raise RepositoryStateError("The active specification commit is missing from Git.")
-        if not self.repository.is_ancestor(active_commit, commit):
-            raise RepositoryStateError("The active specification commit is not reachable from HEAD.")
-        functional = self.repository.read_tree(active_commit, paths.FUNCTIONAL_SPECS_DIR)
-        architecture = self.repository.read_tree(active_commit, paths.ARCHITECTURE_SPECS_DIR)
-        if (
-            self.repository.read_tree(commit, paths.FUNCTIONAL_SPECS_DIR) != functional
-            or self.repository.read_tree(commit, paths.ARCHITECTURE_SPECS_DIR) != architecture
-        ):
-            raise RepositoryStateError("Checked-out specifications differ from the active JRI commit.")
-        logger.info("baseline_prepared head=%s active=%s functional=%d", commit, active_commit, len(functional))
+        functional = self.repository.read_tree(accepted, paths.FUNCTIONAL_SPECS_DIR)
+        architecture = self.repository.read_tree(accepted, paths.ARCHITECTURE_SPECS_DIR)
+        if specs != functional | architecture:
+            raise RepositoryStateError("Checked-out specifications differ from the ones JRI accepted.")
+        logger.info("baseline_prepared head=%s accepted=%s functional=%d", commit, accepted, len(functional))
         return Baseline(
-            commit, notebook, self.repository.read_file(active_commit, paths.NOTEBOOK_FILE), functional, architecture
+            commit, notebook, self.repository.read_file(accepted, paths.NOTEBOOK_FILE), functional, architecture
         )
 
     def apply(self, repository: git.Repository, patch: str, model_root: str) -> None:
@@ -95,7 +96,9 @@ class Specs:
         # leaves nothing behind for their next commit to pick up.
         try:
             self.repository.stage(paths.COMMITTED_PATHS, intent_to_add=True)
-            commit = self.repository.commit("jri: update specifications", paths=paths.COMMITTED_PATHS)
+            commit = self.repository.commit(
+                "jri: update specifications", trailers=(ACCEPTANCE_TRAILER,), paths=paths.COMMITTED_PATHS
+            )
         except git.Error:
             self.repository.unstage(paths.COMMITTED_PATHS)
             self.repository.apply_patch(patch, reverse=True)

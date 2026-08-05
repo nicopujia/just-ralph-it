@@ -7,10 +7,10 @@ if TYPE_CHECKING:
 COMMIT = "1a2b3c4"
 
 
-def generate_interrupted(_settings: "Settings", _active_commit: str | None) -> Iterator[object]:
+def generate_interrupted(_settings: "Settings") -> Iterator[object]:
     yield object()
 
 
-def generate_succeeding(_settings: "Settings", _active_commit: str | None) -> Generator[object, None, str]:
+def generate_succeeding(_settings: "Settings") -> Generator[object, None, str]:
     yield object()
     return COMMIT
