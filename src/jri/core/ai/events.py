@@ -25,4 +25,5 @@ class ToolCallStarted:
 class ToolCallFinished:
     call_id: str
     label: str
+    failed: bool = False
     depth: int = 0

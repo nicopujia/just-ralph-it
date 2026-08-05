@@ -89,6 +89,8 @@ SHOW_THINKING_BLOCKS = "Show thinking blocks"
 THINKING_BLOCKS = "Thinking blocks"
 THINKING_BLOCKS_COMMAND = "Toggle model's chain-of-thought (reasoning) text blocks."
 TITLE = "Just Ralph It"
+TOOL_CALL_FAILED = "{label} — failed"
+TOOL_CALL_FAILED_SYMBOL = "✗"
 
 UNDO_MESSAGE = "Undo message"
 UNDO_MESSAGE_KEY = "^x u"

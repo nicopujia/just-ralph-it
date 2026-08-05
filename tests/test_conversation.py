@@ -90,6 +90,20 @@ def test_groups_every_restored_item_under_the_prompt_that_caused_it() -> None:
     assert turns[1].items[-1].text == "Anything else?"
 
 
+def test_restores_a_tool_call_that_failed_as_a_failure() -> None:
+    conversation = build_conversation(
+        FakeClient([
+            response(call("edit", "edit_note", note_id="n9", text="Deploy from the main branch.")),
+            response(reply("Which note did you mean?")),
+        ])
+    )
+    list(conversation.chat("Fix that note."))
+
+    turns = build_conversation(FakeClient([])).restore()
+
+    assert turns[-1].items[0] == InterviewItem("tool", "Edited note", "✏️", failed=True)
+
+
 def test_restores_the_reasoning_summary_of_a_turn() -> None:
     conversation = build_conversation(
         FakeClient([

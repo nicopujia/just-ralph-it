@@ -80,6 +80,20 @@ def test_tracks_the_calls_that_failed() -> None:
     assert agent.failed_call_ids == ["broken"]
 
 
+def test_reports_which_finished_calls_of_a_round_failed() -> None:
+    agent = build_agent([
+        response(call("broken", "fail", text="one"), call("working", "echo", text="two")),
+        response(reply("Done.")),
+    ])
+
+    events = list(agent.send_message("Go."))
+
+    assert [(event.call_id, event.failed) for event in events if isinstance(event, ToolCallFinished)] == [
+        ("broken", True),
+        ("working", False),
+    ]
+
+
 def test_stops_a_streaming_tool_call_when_cancelled() -> None:
     cancelled = Event()
     agent = build_agent([response(call("streamed", "narrate", text="one"))])

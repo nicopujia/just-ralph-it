@@ -16,6 +16,7 @@ RETRY_BUTTON_CLASSES = "retry-button"
 THEME_DARK = "ansi-dark"
 THEME_LIGHT = "ansi-light"
 TOOL_CALL_ROW_CLASSES = "tool-call-row"
+TOOL_CALL_ROW_FAILED_CLASSES = "tool-call-row-failed"
 
 USER_MESSAGE_CLASSES = "user-message"
 
@@ -121,5 +122,10 @@ Header {{
     padding-left: 2;
     text-opacity: 70%;
     text-style: dim;
+}}
+
+.{TOOL_CALL_ROW_FAILED_CLASSES} {{
+    color: ansi_bright_red;
+    text-opacity: 100%;
 }}
 """.strip()

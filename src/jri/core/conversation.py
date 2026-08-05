@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 def read_turns(history: ResponseInputParam, tools: list[Tool], session: "Session") -> list["Turn"]:
     tools_by_name = {tool.name: tool for tool in tools}
+    failed_call_ids = set(session.failed_call_ids)
     turns: list[Turn] = []
     for raw_item in history[2:]:
         item = cast("dict[str, Any]", raw_item)
@@ -32,7 +33,12 @@ def read_turns(history: ResponseInputParam, tools: list[Tool], session: "Session
         if item.get("type") == "function_call":
             tool = tools_by_name[item["name"]]
             turns[-1].items.append(
-                InterviewItem("tool", tool.format_label(tool.finished_label, item["arguments"]), tool.symbol)
+                InterviewItem(
+                    "tool",
+                    tool.format_label(tool.finished_label, item["arguments"]),
+                    tool.symbol,
+                    item["call_id"] in failed_call_ids,
+                )
             )
             continue
         if item.get("type") == "reasoning":
@@ -64,6 +70,7 @@ class InterviewItem(NamedTuple):
     type: Literal["assistant", "reasoning", "tool", "error", "stopped"]
     text: str = ""
     symbol: str = DEFAULT_SYMBOL
+    failed: bool = False
 
 
 class Turn(NamedTuple):

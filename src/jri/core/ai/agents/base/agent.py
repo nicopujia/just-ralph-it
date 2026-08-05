@@ -126,5 +126,7 @@ class Agent:
         self.history.append({"type": "function_call_output", "call_id": call_id, "output": invocation.output})
         if not cancelled.is_set():
             yield ai.ToolCallFinished(
-                call_id=call_id, label=tool.format_label(tool.finished_label, arguments) if tool else name
+                call_id=call_id,
+                label=tool.format_label(tool.finished_label, arguments) if tool else name,
+                failed=invocation.failed,
             )
