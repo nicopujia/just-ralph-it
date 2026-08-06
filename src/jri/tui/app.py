@@ -453,6 +453,12 @@ class App(TextualApp[None]):
     # --- Helpers ---------------------------------------------------- #
 
     def _build_restored_turns(self, start: int, end: int) -> list[tuple[Markdown, Vertical]]:
+        # Retrying re-runs the conversation's last turn, so that turn is
+        # the only one the affordance asking for it can sit under. The
+        # newest turns restore first, so the last turn is in the batch
+        # built before anything is mounted, and every batch after it is
+        # older than a turn already on screen.
+        retried_turn = None if self.mounted_turns else self.restored_turns[-1]
         restored_turns: list[tuple[Markdown, Vertical]] = []
         for turn in self.restored_turns[start:end]:
             interviewer_items: list[Button | Markdown | ToolCallRow] = []
@@ -472,7 +478,7 @@ class App(TextualApp[None]):
             content, classes = _describe_ending(turn.ending, turn.detail)
             if content:
                 interviewer_items.append(Markdown(content, classes=classes))
-            if turn.ending in RETRYABLE_ENDINGS:
+            if turn.ending in RETRYABLE_ENDINGS and turn is retried_turn:
                 interviewer_items.append(self._build_retry_button())
             restored_turns.append((
                 Markdown(turn.message, classes=styles.USER_MESSAGE_CLASSES),
