@@ -2,6 +2,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal, override
 
+from textual import events
 from textual.binding import Binding
 from textual.message import Message
 from textual.reactive import Reactive
@@ -85,6 +86,10 @@ class MessageInput(TextArea):
             # bindings the product is driven by, so they report
             # themselves as unavailable rather than as absent.
             return True if self.is_shortcuts_open else None
+        # Open, the shortcuts own the keyboard, so every other binding
+        # this box has stands down and its key closes them instead.
+        if self.is_shortcuts_open:
+            return False
         return super().check_action(action, parameters)
 
     def action_open_shortcuts(self) -> None:
@@ -154,6 +159,18 @@ class MessageInput(TextArea):
     def watch_is_turn_active(self) -> None:
         if self.is_turn_active:
             self.is_shortcuts_open = False
+
+    # No key pressed while the shortcuts are open may reach the draft:
+    # the reader who opened them was not typing prose. Escape answers
+    # them through its own binding, so it alone bubbles; anything else
+    # stops here, ahead of the text area's own handler and of the
+    # bindings the key would otherwise bubble into.
+    @override
+    async def _on_key(self, event: events.Key) -> None:
+        if self.is_shortcuts_open and event.key != "escape":
+            self.is_shortcuts_open = False
+            event.prevent_default()
+            event.stop()
 
     def _load(self, value: str) -> None:
         self.text = value
