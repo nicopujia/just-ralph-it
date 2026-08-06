@@ -77,7 +77,7 @@ class LLM(BaseModel):
         default="openai-subscription",
         description=(
             'Either "openai-subscription", to reuse a ChatGPT subscription through the Codex CLI, or the base URL '
-            "of any OpenAI-compatible provider, such as https://api.openai.com/v1.\n\n"
+            "of any OpenAI-compatible provider, such as https://api.openai.com/v1\n\n"
             "The subscription needs the Codex CLI (https://learn.chatgpt.com/docs/codex/cli) to store its "
             'credentials in a file, so set `cli_auth_credentials_store = "file"` in ~/.codex/config.toml and run '
             "`codex login`."
