@@ -41,6 +41,16 @@ def build_conversation(client: FakeClient) -> Conversation:
     return Conversation(build_settings(client))
 
 
+# A session recorded by a JRI whose tools have been renamed since.
+def rename_recorded_calls(conversation: Conversation, name: str) -> None:
+    session_file = conversation.workspace.session_file
+    session = json.loads(session_file.read_text(encoding="utf-8"))
+    for item in session["interview"]:
+        if item.get("type") == "function_call":
+            item["name"] = name
+    session_file.write_text(json.dumps(session), encoding="utf-8")
+
+
 def test_leaves_the_workspace_untouched_until_a_command_reads_it(tmp_path: Path) -> None:
     install_workspace(tmp_path)
     (tmp_path / paths.NOTEBOOK_FILE).unlink()
@@ -923,6 +933,51 @@ def test_skips_tool_calls_that_are_not_replayed_when_rewinding() -> None:
     turns = build_conversation(FakeClient([])).restore()
     assert [turn.message for turn in turns] == ["What are the deployment options?", "Let's talk about billing."]
     assert [(item.type, item.text) for item in turns[-1].items] == [("assistant", "Anything else?")]
+
+
+def test_refuses_a_rewind_through_a_tool_this_version_no_longer_has() -> None:
+    conversation = build_conversation(
+        FakeClient([
+            response(call("capture", "capture_notes", texts=["Deploy from main."])),
+            streamed_reply("Delivery captured."),
+            streamed_reply("Noted."),
+        ])
+    )
+    list(conversation.chat("Deploy from main."))
+    list(conversation.chat("One more thing."))
+    rename_recorded_calls(conversation, "record_notes")
+
+    restarted = build_conversation(FakeClient([]))
+    restarted.restore()
+
+    with pytest.raises(PersistenceError, match="record_notes"):
+        restarted.rewind(1)
+
+    reopened = build_conversation(FakeClient([]))
+    assert [turn.message for turn in reopened.restore()] == ["Deploy from main.", "One more thing."]
+    assert [note.text for note in reopened.notebook.graph.notes] == ["Deploy from main."]
+
+
+def test_rewinds_to_before_a_tool_this_version_no_longer_has() -> None:
+    conversation = build_conversation(
+        FakeClient([
+            streamed_reply("Tell me more."),
+            response(call("capture", "capture_notes", texts=["Deploy from main."])),
+            streamed_reply("Delivery captured."),
+            streamed_reply("Noted."),
+        ])
+    )
+    list(conversation.chat("Build a reporting CLI."))
+    list(conversation.chat("Deploy from main."))
+    rename_recorded_calls(conversation, "record_notes")
+
+    restarted = build_conversation(FakeClient([]))
+    restarted.restore()
+    restarted.rewind(0)
+
+    reopened = build_conversation(FakeClient([]))
+    assert reopened.restore() == []
+    assert reopened.notebook.graph.notes == []
 
 
 def test_stores_the_session_as_compact_json() -> None:

@@ -155,6 +155,29 @@ class Conversation:
 
     def rewind(self, checkpoint_index: int) -> None:
         history_index = self._find_prompts()[checkpoint_index]
+        kept = [cast("dict[str, Any]", item) for item in self.interviewer.history[:history_index]]
+        tools = {tool.name: tool for tool in self.interviewer.tools}
+        # The notes are rebuilt by replaying the calls below, so a call
+        # this JRI cannot make is a notebook it cannot rebuild. It says
+        # so before rolling anything back, rather than half way through.
+        missing = next(
+            (
+                item["name"]
+                for item in kept
+                if item.get("type") == "function_call"
+                and item["call_id"] not in self.session.failed_call_ids
+                and item["name"] not in tools
+            ),
+            None,
+        )
+        if missing is not None:
+            self.logger.info("rewind_refused checkpoint=%d tool=%s", checkpoint_index, missing)
+            raise PersistenceError(
+                f"This conversation calls `{missing}`, which this version of JRI no longer has, so the notes "
+                "cannot be rebuilt as they were. Nothing changed: rewind to a message before that call, or "
+                "keep going from here."
+            )
+
         self.interviewer.history = self.interviewer.history[:history_index]
         # The calls kept are replayed below, so they have to name their
         # notes exactly as the calls that referenced them expect.
@@ -163,9 +186,7 @@ class Conversation:
         self.session = self.session.model_copy(update={"ready_graph": None})
         self.interviewer.offered_ralphing = False
 
-        tools = {tool.name: tool for tool in self.interviewer.tools}
-        for raw_item in self.interviewer.history:
-            item = cast("dict[str, Any]", raw_item)
+        for item in kept:
             # An offer belongs to the turn that made it, so the prompt
             # opening the next one retires whatever the replay re-made.
             if item.get("role") == "user":

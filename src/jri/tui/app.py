@@ -26,6 +26,7 @@ from jri.core.ai import (
     TurnFinished,
 )
 from jri.core.conversation import Conversation
+from jri.core.exceptions import PersistenceError
 from jri.lib import appearance
 
 from . import copy, styles
@@ -201,7 +202,17 @@ class App(TextualApp[None]):
         self.ralph_button.display = False
 
         if event.history_index is not None:
-            self.conversation.rewind(event.history_index)
+            # A refused rewind changes nothing, so the message asking
+            # for one is not sent and the offer on screen still stands.
+            # The name it reports is the provider's, so it reaches the
+            # screen as text rather than as markup of this terminal's.
+            try:
+                self.conversation.rewind(event.history_index)
+            except PersistenceError as error:
+                logger.info("message_submission_ignored reason=rewind_refused")
+                self.notify(str(error), severity="error", markup=False)
+                await self._sync_ralph_button()
+                return
             await self._remove_turns(event.history_index)
             self.restored_turns = self.restored_turns[: event.history_index]
             self.restored_turn_index = min(self.restored_turn_index, event.history_index)
