@@ -182,11 +182,19 @@ class App(TextualApp[None]):
             await self._retry(retry_buttons[-1])
 
     async def on_message_input_submitted(self, event: MessageInput.Submitted) -> None:
+        user_message = event.value.strip()
+
+        # The one word the box takes as an instruction rather than as
+        # something to say, so a reader typing what leaves every other
+        # terminal editor leaves this one too.
+        if user_message == copy.QUIT_COMMAND:
+            logger.info("quit_requested source=message")
+            await self.action_quit()
+            return
+
         if self.is_busy:
             logger.info("message_submission_ignored reason=turn_active")
             return
-
-        user_message = event.value.strip()
 
         if not user_message:
             event.message_input.text = ""

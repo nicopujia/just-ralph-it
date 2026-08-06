@@ -63,6 +63,7 @@ NEXT_COMMAND = "Next command"
 PERSISTENCE_ERROR = "Persistence failed: {error}"
 
 QUIT = "Quit"
+QUIT_COMMAND = ":q"
 
 RALPHING = "Ralphing... [dim](don't close this window)[/dim]"
 RALPH_BUTTON = "Just Ralph It"
