@@ -160,18 +160,28 @@ class MessageInput(TextArea):
         if self.is_turn_active:
             self.is_shortcuts_open = False
 
-    # No key pressed while the shortcuts are open may reach the draft:
-    # the reader who opened them was not typing prose. Escape answers
-    # them through its own binding, so it alone bubbles; anything else
-    # stops here, ahead of the text area's own handler and of the
-    # bindings the key would otherwise bubble into.
+    # Nothing typed while the shortcuts are open may reach the draft:
+    # the reader who opened them was not typing prose. A terminal sends
+    # that typing as keys, or as one `Paste` where bracketed paste is
+    # on, and those are the two doors the text area edits through.
+    # Escape answers the shortcuts through its own binding, so it alone
+    # bubbles; anything else stops here, ahead of the text area's own
+    # handlers and of the bindings it would otherwise bubble into.
     @override
     async def _on_key(self, event: events.Key) -> None:
         if self.is_shortcuts_open and event.key != "escape":
-            self.is_shortcuts_open = False
-            event.prevent_default()
-            event.stop()
+            self._refuse(event)
+
+    @override
+    async def _on_paste(self, event: events.Paste) -> None:
+        if self.is_shortcuts_open:
+            self._refuse(event)
 
     def _load(self, value: str) -> None:
         self.text = value
         self.move_cursor(self.document.end)
+
+    def _refuse(self, event: events.Event) -> None:
+        self.is_shortcuts_open = False
+        event.prevent_default()
+        event.stop()
