@@ -1,5 +1,9 @@
+import logging
 from collections.abc import Generator
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Annotated, cast
+
+import pytest
+from pydantic import PlainSerializer
 
 from jri.core.ai import Invocation, Tool, ToolCallStarted, ToolOutput, tool
 
@@ -16,6 +20,12 @@ def build_tools(owner: object) -> dict[str, Tool]:
 
 def build_tool(name: str) -> Tool:
     return build_tools(Toolbox())[name]
+
+
+# A label whose wording reaches for something that can refuse it, the
+# way naming a file reaches for a filesystem that may not answer.
+def fail_to_describe(text: str) -> str:
+    raise RuntimeError(f"Could not describe {text}.")
 
 
 # The three sizes below are the budget itself, stated by a caller
@@ -122,6 +132,23 @@ def test_labels_a_call_by_its_tool_name_when_the_arguments_are_invalid() -> None
 
     assert discovered.format_label(discovered.started_label, '{"text": 7}') == "echo"
     assert discovered.format_label(discovered.started_label, '{"text": "one"}') == "Echoing one"
+
+
+# A row is decoration, so one nothing can word costs its own wording
+# and nothing else: the call runs, and the log says the label failed,
+# so a label no argument could ever word is still findable.
+def test_keeps_a_call_whose_label_cannot_be_worded(caplog: pytest.LogCaptureFixture) -> None:
+    discovered = build_tool("describe")
+
+    with caplog.at_level(logging.INFO, logger="jri"):
+        label = discovered.format_label(discovered.started_label, '{"text": "one"}')
+        invocation = discovered.invoke('{"text": "one"}')
+        list(invocation)
+
+    assert label == "describe"
+    assert invocation.outcome == "done"
+    assert invocation.output == "described: one"
+    assert any(record.message.startswith("label_failed") for record in caplog.records)
 
 
 def test_keeps_the_output_of_a_stream_that_fails_after_reporting_it() -> None:
@@ -242,6 +269,11 @@ class Toolbox:
     def find_nothing(self, text: str) -> Generator[ToolOutput]:
         self.recorded.append(text)
         yield ToolOutput(f"nothing found: {text}", "empty")
+
+    @tool("Describe the text.", started_label="Describing {text}", finished_label="Described {text}")
+    def describe(self, text: Annotated[str, PlainSerializer(fail_to_describe)]) -> str:
+        self.recorded.append(text)
+        return f"described: {text}"
 
     @tool("Give up after listing.", started_label="Giving up on {text}", finished_label="Gave up on {text}")
     def give_up_after_listing(self, text: str) -> Generator[ToolOutput]:

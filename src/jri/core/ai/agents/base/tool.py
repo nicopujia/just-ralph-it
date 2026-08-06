@@ -179,12 +179,20 @@ class Tool:
             )
         return tools
 
+    # A row is decoration, so nothing wording one reaches for can cost
+    # the call it describes: arguments the model is free to be wrong
+    # about are dumped here, and dumping them may touch a filesystem
+    # that answers with an error. A row nothing can word carries the
+    # tool's name, and says in the log that it could not be worded.
     def format_label(self, label: str, arguments: str) -> str:
         try:
             payload = self.arguments_model.model_validate_json(arguments, strict=True)
+            return label.format(**payload.model_dump())
         except ValidationError:
             return self.name
-        return label.format(**payload.model_dump())
+        except Exception:
+            logger.exception("label_failed name=%s", self.name)
+            return self.name
 
     @property
     def definition(self) -> FunctionToolParam:
