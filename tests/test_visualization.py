@@ -4,16 +4,7 @@ from pathlib import Path
 import pytest
 
 from jri.core.notes import Connection, Graph, Note, Topic
-from jri.core.visualization import (
-    DIAGRAM_SLOT,
-    DRAW_ERROR,
-    DRAW_ERROR_SLOT,
-    HTML,
-    LIBRARIES,
-    LIBRARIES_DIR,
-    LIBRARIES_SLOT,
-    render,
-)
+from jri.core.visualization import DRAW_ERROR, LOAD_ERROR, render
 
 # Where the project declares the tracker it takes reports at, so a
 # message offering one is read against the declaration and not against
@@ -130,46 +121,28 @@ def test_names_the_tracker_the_project_declares_for_reports() -> None:
 def test_says_what_went_wrong_where_the_page_can_show_it() -> None:
     page = render(build_graph())
 
+    assert LOAD_ERROR in page
     assert DRAW_ERROR in page
-    assert DIAGRAM_SLOT not in page
-    assert DRAW_ERROR_SLOT not in page
-    assert LIBRARIES_SLOT not in page
+    assert "<!--" not in page
 
 
-def test_carries_everything_the_page_runs_so_none_of_it_is_fetched() -> None:
-    page = render(build_graph())
-
-    # The rendered page quotes a URL to report a failure to, so the
-    # host the page would have to reach is looked for in the template.
-    assert "://" not in HTML
-    for name in LIBRARIES:
-        assert (LIBRARIES_DIR / name).read_text(encoding="utf-8") in page
-
-
-# Carrying the libraries is half of it: the page's own script reaches
-# each of them by the global name it defines, and a library left out of
-# the page leaves that name undefined. The call then throws inside the
-# `try` after mermaid has already drawn the graph, so the handler wipes
-# the drawn graph and leaves the error string in its place. Each pair
-# below is a call the script makes and the assignment that gives it
-# something to call; a library upgrade that moves the assignment has to
-# say here where the global comes from now.
+# The page's script reaches each library by the global name it defines,
+# and a library the page never fetches leaves that name undefined.
+# Dropping a name from the page is invisible to a test that reads the
+# page for what it fetches alone, since a page that fetches nothing and
+# calls nothing is consistent. Each pair below is a call the script
+# makes and the URL that gives it something to call; a library moved to
+# another host or version has to say here where the global comes from.
 @pytest.mark.parametrize(
-    ("call", "definition"),
-    [("await mermaid.run();", 'globalThis["mermaid"]'), ("window.svgPanZoom(", "svgPanZoom=")],
+    ("call", "source"),
+    [
+        ("await mermaid.run();", "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"),
+        ("window.svgPanZoom(", "https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"),
+    ],
     ids=["mermaid", "svg-pan-zoom"],
 )
-def test_carries_a_definition_for_every_global_its_script_calls(call: str, definition: str) -> None:
+def test_fetches_a_source_for_every_global_its_script_calls(call: str, source: str) -> None:
     page = render(build_graph())
 
     assert call in page
-    assert definition in page
-
-
-# A page that carries the libraries has to carry them as text inside a
-# `<script>`, and the element ends at the first `</script` the browser
-# reads, wherever it comes from. Everything after that would be parsed
-# as markup instead of run as code.
-def test_carries_libraries_that_cannot_end_the_element_holding_them() -> None:
-    for name in LIBRARIES:
-        assert "</script" not in (LIBRARIES_DIR / name).read_text(encoding="utf-8")
+    assert source in page

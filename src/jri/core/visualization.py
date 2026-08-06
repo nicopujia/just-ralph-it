@@ -1,20 +1,17 @@
-from pathlib import Path
-
 from .notes import Graph
 from .support import ISSUES_URL
 
 DRAW_ERROR = f"The graph viewer loaded, but it could not draw the graph. Report it at {ISSUES_URL}."
-
-# `jri view` is the one command that reads nothing but the user's own
-# notebook, so it is the one command that must not need a network.
-# The libraries that draw the graph ship with JRI and are written into
-# the page, which costs 3.6 MB of minified JavaScript: mermaid's module
-# build weighs 30 KB and then fetches 26 more chunks while it runs, so
-# the bundled build is the only one that can be carried at all. The
-# page is `.jri/visualization.html`, which Git ignores and every `jri
-# view` rewrites, so the weight lands on disk and nowhere else.
-LIBRARIES_DIR = Path(__file__).parent / "viewer"
-LIBRARIES = ("mermaid.min.js", "svg-pan-zoom.min.js")
+# The page fetches what draws it rather than carrying it. Nothing JRI
+# does works offline -- every interview turn is a call to a model
+# provider -- so a viewer that survives a lost network survives alone,
+# and the self-contained mermaid build that would buy it weighs 3.6 MB
+# in the wheel and again in every page `jri view` writes. What the
+# fetch costs is stated instead: a failure to load says so, and says
+# what to do about it.
+LOAD_ERROR = (
+    "The graph viewer could not load what it needs from the internet. Check your connection and run `jri view` again."
+)
 
 # The browser decodes HTML entities inside the `mermaid` block before
 # mermaid parses it, so HTML escaping protects nothing: `&quot;` turns
@@ -37,7 +34,7 @@ INDENTATION = "    " * 3
 # are substituted literally instead.
 DIAGRAM_SLOT = "<!-- diagram -->"
 DRAW_ERROR_SLOT = "<!-- draw error -->"
-LIBRARIES_SLOT = "<!-- libraries -->"
+LOAD_ERROR_SLOT = "<!-- load error -->"
 HTML = """\
 <!doctype html>
 <html lang="en">
@@ -65,25 +62,38 @@ HTML = """\
                 overflow: hidden;
             }
         </style>
-        <!-- libraries -->
+        <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.2/dist/svg-pan-zoom.min.js"></script>
         <script type="module">
+            let mermaid;
             try {
-                mermaid.initialize({ startOnLoad: false, theme: "default" });
-                await mermaid.run();
-                // The freshly inserted SVG has no layout yet. Sizing the
-                // pan and zoom now would measure it as 0x0 and scale the
-                // graph away to nothing.
-                await new Promise((paint) => requestAnimationFrame(paint));
-                // A notebook is wider than it is tall, so centring the
-                // fitted graph splits the leftover height into a band
-                // above it and a band below. Anchoring it at the top
-                // spends that height once, past the last note.
-                window.svgPanZoom(document.querySelector(".mermaid svg"), {
-                    controlIconsEnabled: true,
-                    center: false,
-                });
+                ({ default: mermaid } = await import(
+                    "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs"
+                ));
+                if (!window.svgPanZoom) {
+                    throw new Error("svg-pan-zoom is missing");
+                }
             } catch {
-                document.body.textContent = "<!-- draw error -->";
+                document.body.textContent = "<!-- load error -->";
+            }
+            if (mermaid) {
+                try {
+                    mermaid.initialize({ startOnLoad: false, theme: "default" });
+                    await mermaid.run();
+                    // The freshly inserted SVG has no layout yet. Sizing the
+                    // pan and zoom now would measure it as 0x0 and scale the
+                    // graph away to nothing.
+                    await new Promise((paint) => requestAnimationFrame(paint));
+                    // A notebook is wider than it is tall, so centring the
+                    // fitted graph splits the leftover height into a band
+                    // above it and a band below. Anchoring it at the top
+                    // spends that height once, past the last note.
+                    window.svgPanZoom(document.querySelector(".mermaid svg"), {
+                        controlIconsEnabled: true,
+                        center: false,
+                    });
+                } catch {
+                    document.body.textContent = "<!-- draw error -->";
+                }
             }
         </script>
     </head>
@@ -118,13 +128,8 @@ def render(graph: Graph) -> str:
     return (
         HTML
         .replace(DIAGRAM_SLOT, "\n".join(diagram))
+        .replace(LOAD_ERROR_SLOT, LOAD_ERROR)
         .replace(DRAW_ERROR_SLOT, DRAW_ERROR)
-        # Last, so the substitutions above read a page of JRI's size
-        # rather than one carrying megabytes of somebody else's.
-        .replace(
-            LIBRARIES_SLOT,
-            "\n".join(f"<script>{(LIBRARIES_DIR / name).read_text(encoding='utf-8')}</script>" for name in LIBRARIES),
-        )
     )
 
 
