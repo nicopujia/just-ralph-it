@@ -46,7 +46,6 @@ class InterviewerTurnState:
     active_reasoning: Markdown | None = None
     active_reasoning_text: str = ""
     tool_rows: dict[str, ToolCallRow] = field(default_factory=dict)
-    retry_button: Button | None = None
     follow_bottom: bool = True
     is_ralphing: bool = False
     cancelled: Event = field(default_factory=Event)
@@ -178,9 +177,7 @@ class App(TextualApp[None]):
             self._start_ralphing()
 
     async def on_message_input_retry_requested(self) -> None:
-        retry_buttons = [
-            button for button in self.query(Button) if button.has_class(styles.RETRY_BUTTON_CLASSES) and button.display
-        ]
+        retry_buttons = list(self.query(Button).filter(f".{styles.RETRY_BUTTON_CLASSES}"))
         if retry_buttons and not self.is_busy:
             await self._retry(retry_buttons[-1])
 
@@ -372,8 +369,6 @@ class App(TextualApp[None]):
         if self.active_turn_state is not turn_state:
             logger.debug("agent_event_render_skipped type=%s", type(agent_event).__name__)
             return
-        if turn_state.retry_button is not None:
-            turn_state.retry_button.display = False
 
         match agent_event:
             case ReasoningDelta():
@@ -460,10 +455,7 @@ class App(TextualApp[None]):
     # failed again offers it below what it has just written rather than
     # where the failure before it left one.
     async def _show_retry_button(self, turn_state: InterviewerTurnState) -> None:
-        if turn_state.retry_button is not None:
-            await turn_state.retry_button.remove()
-        turn_state.retry_button = self._build_retry_button()
-        await turn_state.container.mount(turn_state.retry_button)
+        await turn_state.container.mount(self._build_retry_button())
 
     # --- Helpers ---------------------------------------------------- #
 
@@ -581,6 +573,11 @@ class App(TextualApp[None]):
     async def _retry(self, button: Button) -> None:
         container = cast("Vertical", button.parent)
         self.ralph_button.display = False
+        # The affordance answers a failure, so it goes out with the
+        # failure it answers: what is on offer while the run it asked
+        # for is under way is stopping that run, not asking again.
+        await button.remove()
+        self._sync_retry_shortcut()
         # A run reports into a turn the interview already wrote in, so
         # asking for it again clears nothing: what the turn said before
         # the run stays, exactly as it does when a second run is
@@ -590,15 +587,11 @@ class App(TextualApp[None]):
             self._show_ralphing()
         else:
             for child in list(container.children):
-                if child is not button:
-                    await child.remove()
+                await child.remove()
         placeholder = Markdown(copy.INTERVIEWER_THINKING, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
-        await container.mount(placeholder, before=button)
-        turn_state = InterviewerTurnState(
-            container=container, placeholder=placeholder, retry_button=button, is_ralphing=is_ralphing
-        )
+        await container.mount(placeholder)
+        turn_state = InterviewerTurnState(container=container, placeholder=placeholder, is_ralphing=is_ralphing)
         self.active_turn_state = turn_state
-        button.disabled = True
         self.last_escape_at = 0.0
         App.ALLOW_SELECT = False
         self.messages_container.anchor()
@@ -631,9 +624,7 @@ class App(TextualApp[None]):
         self.message_input.is_ralph_ready = True
 
     def _sync_retry_shortcut(self) -> None:
-        self.message_input.is_retry_ready = any(
-            button.display for button in self.query(f".{styles.RETRY_BUTTON_CLASSES}")
-        )
+        self.message_input.is_retry_ready = bool(self.query(f".{styles.RETRY_BUTTON_CLASSES}"))
 
     # Textual's footer picks its entries by the `show` a binding is
     # declared with, so a mode that changes which keys are on offer
