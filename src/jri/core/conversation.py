@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 type Work = Literal["message", "generation", "reply"]
 
 
-class InterviewItem(BaseModel):
+class Item(BaseModel):
     type: Literal["assistant", "reasoning", "tool"]
     text: str = ""
     symbol: str = DEFAULT_SYMBOL
@@ -47,7 +47,7 @@ class InterviewItem(BaseModel):
 
 class Turn(BaseModel):
     message: str
-    items: list[InterviewItem]
+    items: list[Item]
     # A run that failed and a message that failed leave the interview
     # in the same state, so nothing reads this back out of a session
     # that never wrote it. A turn states it, and a file from before it
@@ -323,9 +323,7 @@ class Conversation:
         for row in reversed(open_rows):
             closing = ToolCallFinished(row.call_id, row.label, "stopped" if stopped else "failed", depth=row.depth)
             if not row.depth:
-                turn.items.append(
-                    InterviewItem(type="tool", text=row.label, symbol=row.symbol, outcome=closing.outcome)
-                )
+                turn.items.append(Item(type="tool", text=row.label, symbol=row.symbol, outcome=closing.outcome))
             yield closing
         turn.ending = ending
         turn.detail = str(failure) if failure is not None else ""
@@ -373,9 +371,7 @@ def _record_event(turn: Turn, start: int, open_rows: list[ToolCallStarted], even
                     break
             if not event.depth:
                 turn.items.append(
-                    InterviewItem(
-                        type="tool", text=event.label, symbol=symbol, outcome=event.outcome, detail=event.detail
-                    )
+                    Item(type="tool", text=event.label, symbol=symbol, outcome=event.outcome, detail=event.detail)
                 )
         case TextDelta():
             _record_text(turn, start, "assistant", event.text)
@@ -389,4 +385,4 @@ def _record_text(turn: Turn, start: int, type_: Literal["assistant", "reasoning"
     if len(turn.items) > start and turn.items[-1].type == type_:
         turn.items[-1].text += text
     else:
-        turn.items.append(InterviewItem(type=type_, text=text))
+        turn.items.append(Item(type=type_, text=text))
