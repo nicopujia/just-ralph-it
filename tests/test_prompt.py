@@ -54,6 +54,34 @@ def test_quotes_a_rendered_block_inside_a_longer_fence() -> None:
     assert len(read_fence(outer)) > len(read_fence(inner))
 
 
+def test_ends_the_block_a_cut_leaves_open() -> None:
+    quoted = prompt.render(code="```python\nprint()\n```")
+    rendered = prompt.render(text=quoted)
+
+    cut = prompt.truncate(rendered, len(rendered) - 10)
+
+    # The fence is spent out of the length asked for, not added to it,
+    # and nothing but the text that was cut reaches the block.
+    assert len(cut) == len(rendered) - 10
+    assert quoted.startswith(read_block(cut))
+
+
+def test_ends_only_the_block_a_cut_lands_in() -> None:
+    first = prompt.render(first="`" * 40)
+    rendered = prompt.render(first="`" * 40, second="two" * 20)
+
+    cut = prompt.truncate(rendered, len(rendered) - 10)
+
+    assert cut.startswith(f"{first}\n\nSecond:\n{prompt.FENCE * prompt.MIN_FENCE_LENGTH}\n")
+    assert cut.endswith(f"\n{prompt.FENCE * prompt.MIN_FENCE_LENGTH}")
+
+
+def test_keeps_text_that_fits_the_length_whole() -> None:
+    rendered = prompt.render(text="one")
+
+    assert prompt.truncate(rendered, len(rendered)) == rendered
+
+
 def test_titles_each_block_after_the_name_it_was_given() -> None:
     rendered = prompt.render(architect_feedback=["Undefined totals."], git_error="fatal: bad revision")
 

@@ -6,12 +6,17 @@ import pytest
 from pydantic import PlainSerializer
 
 from jri.core.ai import Invocation, Tool, ToolCallStarted, ToolOutput, tool
+from jri.lib import prompt
 
 if TYPE_CHECKING:
     from openai.types.responses import ResponseFunctionCallOutputItemListParam
 
 
 TRUNCATION_NOTICE = "[Output truncated. Try splitting into more targeted calls.]"
+# A payload holding a run of backticks is quoted inside a longer fence,
+# so what the cut has to leave room for is not three characters.
+QUOTED_RUN = "`" * 40
+QUOTING_FENCE = "`" * 41
 
 
 def build_tools(owner: object) -> dict[str, Tool]:
@@ -57,6 +62,41 @@ def test_keeps_output_of_exactly_the_maximum_length() -> None:
     list(invocation)
 
     assert invocation.output == "x" * Invocation.MAX_OUTPUT_LENGTH
+
+
+# A model is told that nothing inside a block is JRI talking to it, so
+# a notice cut into one says nothing, and a block left open takes
+# whatever follows it as more of the text it quotes.
+def test_ends_the_block_a_cut_output_leaves_open() -> None:
+    quoted = prompt.render(content=f"{QUOTED_RUN}\n" + "x" * Invocation.MAX_OUTPUT_LENGTH)
+
+    invocation = Invocation(quoted)
+    list(invocation)
+    output = cast("str", invocation.output)
+
+    assert output.startswith(f"Content:\n{QUOTING_FENCE}\n")
+    assert output.endswith(f"\n{QUOTING_FENCE}\n\n{TRUNCATION_NOTICE}")
+    assert len(output) == Invocation.MAX_OUTPUT_LENGTH + len(f"\n\n{TRUNCATION_NOTICE}")
+
+
+def test_ends_the_block_a_cut_structured_output_leaves_open() -> None:
+    quoted = prompt.render(content=f"{QUOTED_RUN}\n" + "x" * Invocation.MAX_OUTPUT_LENGTH)
+    output = cast(
+        "ResponseFunctionCallOutputItemListParam",
+        [
+            {"type": "input_text", "text": prompt.render(file="/projects/notes.md")},
+            {"type": "input_text", "text": quoted},
+        ],
+    )
+
+    invocation = Invocation(output)
+    list(invocation)
+    result = cast("ResponseFunctionCallOutputItemListParam", invocation.output)
+
+    truncated = cast("dict[str, str]", result[1])["text"]
+    assert result[0] == output[0]
+    assert truncated.startswith(f"Content:\n{QUOTING_FENCE}\n")
+    assert truncated.endswith(f"\n{QUOTING_FENCE}\n\n{TRUNCATION_NOTICE}")
 
 
 def test_truncates_long_structured_output() -> None:

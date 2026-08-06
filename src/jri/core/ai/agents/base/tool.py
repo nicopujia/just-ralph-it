@@ -49,6 +49,9 @@ class Invocation:
     # Enough of a reason to recognise on a row, cut before it wraps.
     MAX_DETAIL_LENGTH = 120
     MAX_OUTPUT_LENGTH = 100_000
+    # JRI speaking, so it lands past the block the cut output closes:
+    # a model is told nothing inside a block is JRI talking to it.
+    TRUNCATION_NOTICE = "\n\n[Output truncated. Try splitting into more targeted calls.]"
 
     def __init__(
         self, output: str | ResponseFunctionCallOutputItemListParam | Stream, *, failed: bool = False, detail: str = ""
@@ -100,10 +103,7 @@ class Invocation:
     @property
     def output(self) -> str | ResponseFunctionCallOutputItemListParam:
         if isinstance(self._output, str) and len(self._output) > self.MAX_OUTPUT_LENGTH:
-            return (
-                self._output[: self.MAX_OUTPUT_LENGTH]
-                + "\n\n[Output truncated. Try splitting into more targeted calls.]"
-            )
+            return prompt.truncate(self._output, self.MAX_OUTPUT_LENGTH) + self.TRUNCATION_NOTICE
         if isinstance(self._output, list):
             output: ResponseFunctionCallOutputItemListParam = []
             remaining = self.MAX_OUTPUT_LENGTH
@@ -118,8 +118,7 @@ class Invocation:
                     output.append(item)
                     remaining -= len(item["text"])
                     continue
-                message = "\n\n[Output truncated. Try splitting into more targeted calls.]"
-                output.append({**item, "text": item["text"][:remaining] + message})
+                output.append({**item, "text": prompt.truncate(item["text"], remaining) + self.TRUNCATION_NOTICE})
                 break
             return output
         return self._output if self._output is not None else "Tool call failed: streaming tool returned no output."
