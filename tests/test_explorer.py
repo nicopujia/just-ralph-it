@@ -100,12 +100,13 @@ def test_refuses_a_line_range_that_covers_nothing(tmp_path: Path, start_line: in
         build_explorer().read_files([path.name], start_line=start_line, end_line=end_line)
 
 
-def test_refuses_a_line_range_that_starts_past_the_end_of_a_file(tmp_path: Path) -> None:
+@pytest.mark.parametrize("end_line", [None, 10], ids=["open-ended", "bounded"])
+def test_refuses_a_line_range_that_starts_past_the_end_of_a_file(tmp_path: Path, end_line: int | None) -> None:
     path = tmp_path / "example.txt"
     path.write_text("one\ntwo\nthree\n")
 
     with pytest.raises(RuntimeError, match="it ends at line 3, before line 4"):
-        build_explorer().read_files([path.name], start_line=4)
+        build_explorer().read_files([path.name], start_line=4, end_line=end_line)
 
 
 def test_reads_a_file_whose_contents_read_like_a_file_header(tmp_path: Path) -> None:
