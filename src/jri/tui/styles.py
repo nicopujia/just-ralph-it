@@ -44,21 +44,24 @@ Header {{
 }}
 
 #{MESSAGE_INPUT_ID}, .{RALPHING_CLASSES} {{
+    margin: 1;
+}}
+
+#{MESSAGE_INPUT_ID} {{
     height: auto;
     max-height: 16;
-    margin: 1;
 }}
 
 /* The panel stands where the message input stood, so it is that box:
    the border, padding and colours below are the ones the text area
-   draws for itself, which no rule of ours can reach. */
+   draws for itself, which no rule of ours can reach. Its height is the
+   input's own, measured at the swap, so no rule sets one here. */
 .{RALPHING_CLASSES} {{
     display: none;
     padding: 0 1;
     border: tall $border;
     background: $surface;
     color: $foreground;
-    content-align: center middle;
 }}
 
 .{RALPHING_CLASSES} LoadingIndicator {{

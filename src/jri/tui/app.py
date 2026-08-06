@@ -594,7 +594,11 @@ class App(TextualApp[None]):
         self.messages_container.anchor()
         self._run_turn(self.conversation.retry(turn_state.cancelled), turn_state)
 
+    # The panel stands in the space the message input was occupying, so
+    # it takes the height that box had rather than the one its own line
+    # of content asks for.
     def _show_ralphing(self) -> None:
+        self.ralphing.styles.height = self.message_input.outer_size.height
         self.message_input.disabled = True
         self.message_input.display = False
         self.ralphing.display = True
