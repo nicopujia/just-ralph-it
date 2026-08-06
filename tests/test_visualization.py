@@ -1,3 +1,6 @@
+import tomllib
+from pathlib import Path
+
 import pytest
 
 from jri.core.notes import Connection, Graph, Note, Topic
@@ -11,6 +14,11 @@ from jri.core.visualization import (
     LIBRARIES_SLOT,
     render,
 )
+
+# Where the project declares the tracker it takes reports at, so a
+# message offering one is read against the declaration and not against
+# a second copy of the same string.
+PYPROJECT = Path(__file__).parent.parent / "pyproject.toml"
 
 
 def build_graph(*, name: str = "Delivery", text: str = "Runs in a terminal.", label: str = "supports") -> Graph:
@@ -107,6 +115,16 @@ def test_opens_the_graph_at_its_top_instead_of_its_middle() -> None:
     page = render(build_graph())
 
     assert "center: false," in page
+
+
+# A viewer that cannot draw has one thing left to offer, and it is the
+# address: the sentence around it can be reworded, but a message that
+# names a failure and nowhere to take it puts the reader back where a
+# first name with no channel behind it left them.
+def test_names_the_tracker_the_project_declares_for_reports() -> None:
+    tracker = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]["urls"]["Issues"]
+
+    assert tracker in render(build_graph())
 
 
 def test_says_what_went_wrong_where_the_page_can_show_it() -> None:
