@@ -63,10 +63,21 @@ class CommandPalette(TextualCommandPalette):
 
 
 class App(TextualApp[None]):
+    # The footer carries the three ways out of whatever the reader is
+    # looking at, and nothing else: every other binding is `show=False`
+    # and lives in the keymap panel the first of them opens. A hint
+    # that is always there teaches nothing after the first minute, and
+    # the footer is the one line the terminal never gives back.
     BINDINGS: ClassVar[list[BindingType]] = [
         Binding("ctrl+k", "toggle_keymap_panel", copy.KEYMAP_PANEL, priority=True),
-        Binding("escape", "cancel_turn", copy.CANCEL_TURN, key_display=copy.CANCEL_TURN_KEY),
-        Binding("ctrl+t", "toggle_reasoning", copy.THINKING_BLOCKS, priority=True),
+        # Declared rather than left to Textual's own, which describes
+        # itself as "palette" and which the footer only ever renders
+        # docked to the right -- so it stays hidden from the run of
+        # keys and reaches the footer through that door alone.
+        Binding("ctrl+p", "command_palette", copy.COMMAND_PALETTE, show=False, priority=True),
+        Binding("ctrl+q", "quit", copy.QUIT, priority=True),
+        Binding("escape", "cancel_turn", copy.CANCEL_TURN, key_display=copy.CANCEL_TURN_KEY, show=False),
+        Binding("ctrl+t", "toggle_reasoning", copy.THINKING_BLOCKS, show=False, priority=True),
     ]
     HISTORY_BATCH_SIZE = 15
     TITLE = copy.TITLE
@@ -119,7 +130,7 @@ class App(TextualApp[None]):
             yield Static()
         yield self.message_input
         yield self.ralphing
-        yield Footer(show_command_palette=False)
+        yield Footer()
 
     @override
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:

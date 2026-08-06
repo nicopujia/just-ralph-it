@@ -19,13 +19,13 @@ class MessageInput(TextArea):
     BINDINGS = (
         Binding("enter", "submit", copy.SEND_MESSAGE, show=False, priority=True),
         Binding("shift+enter,ctrl+j", "insert_newline", copy.INSERT_NEWLINE, show=False, priority=True),
-        Binding("ctrl+x", "message_history", copy.MESSAGE_HISTORY, priority=True),
+        Binding("ctrl+x", "message_history", copy.MESSAGE_HISTORY, show=False, priority=True),
         Binding(
             "u", "previous_message", copy.UNDO_MESSAGE, key_display=copy.UNDO_MESSAGE_KEY, show=False, priority=True
         ),
         Binding("r", "next_message", copy.REDO_MESSAGE, key_display=copy.REDO_MESSAGE_KEY, show=False, priority=True),
         Binding("t", "retry_message", copy.RETRY, key_display=copy.RETRY_KEY, show=False, priority=True),
-        Binding("j", "ralph", copy.RALPH_BUTTON, key_display=copy.RALPH_KEY, priority=True),
+        Binding("j", "ralph", copy.RALPH_BUTTON, key_display=copy.RALPH_KEY, show=False, priority=True),
         # Its own action, rather than the one the text area binds ^y to,
         # so the keymap panel gives it a row of its own instead of
         # wrapping it under the row it would share, description-less.

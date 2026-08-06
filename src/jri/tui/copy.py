@@ -18,6 +18,7 @@ CLI_INIT_HELP = "Set the project up with the default JRI configuration."
 CLI_VERSION_HELP = "Show the JRI version and exit."
 CLI_VIEW_HELP = "Visualize the notes graph."
 CLI_YES_HELP = "Answer yes to the confirmation --force asks for."
+COMMAND_PALETTE = "Command palette"
 CONFIG_ERROR = """Invalid configuration.
 Set or fix these settings in .jri/config.yaml:
 
@@ -50,7 +51,7 @@ INTERNAL_ERROR = "Something unexpected went wrong. Check the JRI log for details
 INTERVIEWER_STOPPING = "_Stopping..._"
 INTERVIEWER_THINKING = "_Thinking..._"
 
-KEYMAP_PANEL = "Keymap"
+KEYMAP_PANEL = "Full keymap"
 
 MESSAGE_HISTORY = "Message history"
 MESSAGE_INPUT_INITIAL_PLACEHOLDER = Interviewer.FIRST_MESSAGE
@@ -59,6 +60,8 @@ MESSAGE_INPUT_PLACEHOLDER = "Share your thoughts"
 NEXT_COMMAND = "Next command"
 
 PERSISTENCE_ERROR = "Persistence failed: {error}"
+
+QUIT = "Quit"
 
 RALPHING = "Ralphing... [dim](don't close this window)[/dim]"
 RALPH_BUTTON = "Just Ralph It"
