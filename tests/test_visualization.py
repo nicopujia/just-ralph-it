@@ -128,6 +128,26 @@ def test_carries_everything_the_page_runs_so_none_of_it_is_fetched() -> None:
         assert (LIBRARIES_DIR / name).read_text(encoding="utf-8") in page
 
 
+# Carrying the libraries is half of it: the page's own script reaches
+# each of them by the global name it defines, and a library left out of
+# the page leaves that name undefined. The call then throws inside the
+# `try` after mermaid has already drawn the graph, so the handler wipes
+# the drawn graph and leaves the error string in its place. Each pair
+# below is a call the script makes and the assignment that gives it
+# something to call; a library upgrade that moves the assignment has to
+# say here where the global comes from now.
+@pytest.mark.parametrize(
+    ("call", "definition"),
+    [("await mermaid.run();", 'globalThis["mermaid"]'), ("window.svgPanZoom(", "svgPanZoom=")],
+    ids=["mermaid", "svg-pan-zoom"],
+)
+def test_carries_a_definition_for_every_global_its_script_calls(call: str, definition: str) -> None:
+    page = render(build_graph())
+
+    assert call in page
+    assert definition in page
+
+
 # A page that carries the libraries has to carry them as text inside a
 # `<script>`, and the element ends at the first `</script` the browser
 # reads, wherever it comes from. Everything after that would be parsed
