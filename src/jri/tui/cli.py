@@ -91,10 +91,14 @@ def _view() -> None:
     settings = _load_settings()
     logs.configure(settings)
     conversation = Conversation(settings)
+    graph = conversation.notebook.graph
     visualization_file = conversation.workspace.visualization_file
-    visualization_file.write_text(visualization.render(conversation.notebook.graph), encoding="utf-8")
-    print(visualization_file)
-    webbrowser.open(visualization_file.resolve().as_uri())
+    visualization_file.write_text(visualization.render(graph), encoding="utf-8")
+    # Whether a browser opened is the browser's answer to give: over
+    # SSH, or on a machine with none installed, it is no.
+    opened = webbrowser.open(visualization_file.resolve().as_uri())
+    print((copy.VIEW_OPENED if opened else copy.VIEW_UNOPENED).format(file=files.shorten_path(visualization_file)))
+    print(copy.VIEW_NEXT_STEPS if graph.notes else copy.VIEW_NO_NOTES)
 
 
 def _load_settings() -> Settings:
