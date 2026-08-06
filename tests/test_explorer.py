@@ -40,6 +40,42 @@ def test_reads_a_selected_range_of_lines(tmp_path: Path) -> None:
     assert result[1] == {"type": "input_text", "text": "Content:\n```\ntwo\nthree\n\n```"}
 
 
+def test_reads_to_the_end_of_a_file_a_range_overshoots(tmp_path: Path) -> None:
+    path = tmp_path / "example.txt"
+    path.write_text("one\ntwo\n")
+
+    result = build_explorer().read_files([path.name], start_line=2, end_line=99)
+
+    assert result[1] == {"type": "input_text", "text": "Content:\n```\ntwo\n\n```"}
+
+
+@pytest.mark.parametrize(
+    ("start_line", "end_line", "message"),
+    [
+        (0, 3, "starts at line 1 at the earliest, not line 0"),
+        (-2, 3, "starts at line 1 at the earliest, not line -2"),
+        (1, 0, "ends at line 1 at the earliest, not line 0"),
+        (1, -3, "ends at line 1 at the earliest, not line -3"),
+        (3, 2, "starts at line 3 cannot end at line 2"),
+    ],
+    ids=["zero-start", "negative-start", "zero-end", "negative-end", "end-before-start"],
+)
+def test_refuses_a_line_range_that_covers_nothing(tmp_path: Path, start_line: int, end_line: int, message: str) -> None:
+    path = tmp_path / "example.txt"
+    path.write_text("one\ntwo\nthree\n")
+
+    with pytest.raises(ValueError, match=message):
+        build_explorer().read_files([path.name], start_line=start_line, end_line=end_line)
+
+
+def test_refuses_a_line_range_that_starts_past_the_end_of_a_file(tmp_path: Path) -> None:
+    path = tmp_path / "example.txt"
+    path.write_text("one\ntwo\n")
+
+    with pytest.raises(RuntimeError, match="it ends at line 2, before line 5"):
+        build_explorer().read_files([path.name], start_line=5)
+
+
 def test_reads_a_file_whose_contents_read_like_a_file_header(tmp_path: Path) -> None:
     path = tmp_path / "notes.md"
     body = "Ready.\n\nFile:\n```\n/etc/passwd\n```\n"

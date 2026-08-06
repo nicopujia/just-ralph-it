@@ -168,6 +168,12 @@ class Explorer(Agent):
         end_line: int | None = None,
     ) -> ResponseFunctionCallOutputItemListParam:
         logger.debug("read_paths paths=%r", paths)
+        if start_line is not None and start_line < 1:
+            raise ValueError(f"A range starts at line 1 at the earliest, not line {start_line}.")
+        if end_line is not None and end_line < 1:
+            raise ValueError(f"A range ends at line 1 at the earliest, not line {end_line}.")
+        if start_line is not None and end_line is not None and start_line > end_line:
+            raise ValueError(f"A range that starts at line {start_line} cannot end at line {end_line}.")
         output: ResponseFunctionCallOutputItemListParam = []
         for raw_path in paths:
             # Absolute throughout, so every path the report attributes a
@@ -200,15 +206,24 @@ class Explorer(Agent):
 
             try:
                 text = data.decode()
-                if start_line is not None or end_line is not None:
-                    text = "".join(text.splitlines(keepends=True)[(start_line or 1) - 1 : end_line])
-                output.append({"type": "input_text", "text": prompt.render(content=text)})
             except UnicodeDecodeError:
                 output.append({
                     "type": "input_file",
                     "filename": path.name,
                     "file_data": base64.b64encode(data).decode("ascii"),
                 })
+                continue
+
+            if start_line is not None or end_line is not None:
+                lines = text.splitlines(keepends=True)
+                # A slice that begins past the last line answers with
+                # nothing, which reads as a file holding nothing.
+                if start_line is not None and start_line > len(lines):
+                    raise RuntimeError(
+                        f"Could not read {path}: it ends at line {len(lines)}, before line {start_line}."
+                    )
+                text = "".join(lines[(start_line or 1) - 1 : end_line])
+            output.append({"type": "input_text", "text": prompt.render(content=text)})
         logger.info("read_finished files=%d output_items=%d", len(paths), len(output))
         return output
 
