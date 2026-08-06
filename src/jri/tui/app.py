@@ -10,7 +10,7 @@ from textual.app import App as TextualApp
 from textual.app import ComposeResult, SystemCommand
 from textual.binding import Binding, BindingType
 from textual.command import CommandPalette as TextualCommandPalette
-from textual.containers import Horizontal, Vertical
+from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import Reactive
 from textual.screen import Screen
 from textual.widgets import Button, Footer, Header, LoadingIndicator, Markdown, Static
@@ -115,6 +115,7 @@ class App(TextualApp[None]):
         )
         self.ralph_button = Button(copy.RALPH_BUTTON, classes=styles.RALPH_BUTTON_CLASSES, compact=True)
         self.ralphing = Horizontal(LoadingIndicator(), Static(copy.RALPHING), classes=styles.RALPHING_CLASSES)
+        self.input_box = Container(self.message_input, self.ralphing, id=styles.INPUT_BOX_ID)
         self.shortcut_hints = Static(classes=styles.SHORTCUT_HINTS_CLASSES)
         self.footer = Footer()
 
@@ -129,8 +130,7 @@ class App(TextualApp[None]):
         yield Header(show_clock=True)
         with self.messages_container:
             yield Static()
-        yield self.message_input
-        yield self.ralphing
+        yield self.input_box
         yield self.shortcut_hints
         yield self.footer
 
@@ -332,7 +332,6 @@ class App(TextualApp[None]):
             await self._show_retry_button(turn_state)
         if turn_state.is_ralphing:
             self.ralphing.display = False
-            self.message_input.display = True
             self.message_input.disabled = False
         self._follow_bottom(turn_state)
         self.active_turn_state = None
@@ -605,13 +604,11 @@ class App(TextualApp[None]):
         self.messages_container.anchor()
         self._run_turn(self.conversation.retry(turn_state.cancelled), turn_state)
 
-    # The panel stands in the space the message input was occupying, so
-    # it takes the height that box had rather than the one its own line
-    # of content asks for.
+    # The panel covers the message input rather than replacing it, so
+    # the box both are in goes on being measured by the input for as
+    # long as the run lasts.
     def _show_ralphing(self) -> None:
-        self.ralphing.styles.height = self.message_input.outer_size.height
         self.message_input.disabled = True
-        self.message_input.display = False
         self.ralphing.display = True
 
     def _start_ralphing(self) -> None:

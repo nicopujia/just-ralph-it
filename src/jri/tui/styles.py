@@ -1,5 +1,6 @@
 # Alphabetical order, blank line between initial letters
 
+INPUT_BOX_ID = "input-box"
 INTERVIEWER_ERROR_CLASSES = "interviewer-error"
 INTERVIEWER_MESSAGE_CLASSES = "interviewer-message"
 INTERVIEWER_REASONING_CLASSES = "interviewer-reasoning"
@@ -43,21 +44,29 @@ Header {{
     height: 1fr;
 }}
 
-#{MESSAGE_INPUT_ID}, .{RALPHING_CLASSES} {{
+/* The two faces of the box the reader writes in share one space, so
+   the space is what sets its own size and the faces fill it. */
+#{INPUT_BOX_ID} {{
     margin: 1;
+    height: auto;
+    layers: message ralphing;
 }}
 
 #{MESSAGE_INPUT_ID} {{
+    layer: message;
     height: auto;
     max-height: 16;
 }}
 
 /* The panel stands where the message input stood, so it is that box:
    the border, padding and colours below are the ones the text area
-   draws for itself, which no rule of ours can reach. Its height is the
-   input's own, measured at the swap, so no rule sets one here. */
+   draws for itself, which no rule of ours can reach. It covers the
+   input rather than replacing it, so the input goes on measuring the
+   space for both and a rewrapping resize moves them together. */
 .{RALPHING_CLASSES} {{
+    layer: ralphing;
     display: none;
+    height: 100%;
     padding: 0 1;
     border: tall $border;
     background: $surface;
