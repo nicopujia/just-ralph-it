@@ -71,23 +71,27 @@ class Workspace:
                     path.unlink(missing_ok=True)
         self.directory.mkdir(exist_ok=True, parents=True)
         if created or force:
-            self.config_file.write_text(config, encoding="utf-8")
+            self.config_file.write_text(config, encoding="utf-8", newline="\n")
         Notebook(self.notebook_file)
         self.logs_dir.mkdir(exist_ok=True)
 
         ignored = [path.name for path in (self.session_file, self.logs_dir, self.visualization_file)]
-        content = self.gitignore_file.read_text() if self.gitignore_file.exists() else ""
+        content = self.gitignore_file.read_text(encoding="utf-8") if self.gitignore_file.exists() else ""
         missing = [name for name in ignored if name not in content.splitlines()]
         if missing:
             separator = "" if not content or content.endswith("\n") else "\n"
-            self.gitignore_file.write_text(f"{content}{separator}{'\n'.join(missing)}\n")
+            self.gitignore_file.write_text(
+                f"{content}{separator}{'\n'.join(missing)}\n", encoding="utf-8", newline="\n"
+            )
 
         # The ignore file a project brought along is not JRI's to
         # rewrite, so only a repository JRI creates gets one, and what
         # it holds is what keeps those patterns out of the first commit
         # the user makes.
         if repository_created and not self.project_gitignore_file.exists():
-            self.project_gitignore_file.write_text(f"{'\n'.join(self.PROJECT_IGNORES)}\n")
+            self.project_gitignore_file.write_text(
+                f"{'\n'.join(self.PROJECT_IGNORES)}\n", encoding="utf-8", newline="\n"
+            )
         return Installation(self, created=created, repository_created=repository_created)
 
 

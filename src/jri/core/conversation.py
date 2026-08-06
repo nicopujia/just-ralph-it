@@ -204,7 +204,7 @@ class Conversation:
             self.logger.info("restore_skipped reason=no_session_file")
             return []
         try:
-            self.session = Session.model_validate_json(self.workspace.session_file.read_text())
+            self.session = Session.model_validate_json(self.workspace.session_file.read_bytes())
             topics = {topic.id: topic for topic in self.notebook.graph.topics if topic.status != "trashed"}
             topics[self.session.active_topic_id]
             history = self._read_interview()

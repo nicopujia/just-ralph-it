@@ -111,9 +111,9 @@ def isolate_logging() -> Iterator[None]:
 @pytest.fixture(autouse=True)
 def isolate_git(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
     config = tmp_path_factory.mktemp("git") / "config"
-    config.write_text("[core]\n\texcludesFile = /dev/null\n\tattributesFile = /dev/null\n")
+    config.write_text(f"[core]\n\texcludesFile = {os.devnull}\n\tattributesFile = {os.devnull}\n")
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(config))
-    monkeypatch.setenv("GIT_CONFIG_SYSTEM", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
     monkeypatch.setenv("GIT_AUTHOR_NAME", "Test User")
     monkeypatch.setenv("GIT_AUTHOR_EMAIL", "test@example.com")
     monkeypatch.setenv("GIT_COMMITTER_NAME", "Test User")

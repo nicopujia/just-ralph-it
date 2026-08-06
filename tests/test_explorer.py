@@ -174,10 +174,10 @@ def test_reports_a_failing_shell_command() -> None:
     assert "nope" in str(failure.value)
 
 
-def test_reads_at_most_the_maximum_shell_output() -> None:
-    length = Invocation.MAX_OUTPUT_LENGTH + 100
+def test_reads_at_most_the_maximum_shell_output(tmp_path: Path) -> None:
+    (tmp_path / "wide.txt").write_text("x" * (Invocation.MAX_OUTPUT_LENGTH + 100))
 
-    output = build_explorer().run_shell(f"head -c {length} /dev/zero | tr '\\0' 'x'")
+    output = build_explorer().run_shell("cat wide.txt")
 
     assert output == "x" * Invocation.MAX_OUTPUT_LENGTH
 

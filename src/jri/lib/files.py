@@ -47,7 +47,10 @@ def write_atomically(path: Path, content: str) -> None:
     target = path.resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
     try:
-        with NamedTemporaryFile("w", dir=target.parent, delete=False, encoding="utf-8") as file:
+        # A file JRI writes is in JRI's own format rather than the
+        # platform's, so it carries the line ending it is read back
+        # with and the same bytes reach Git on every machine.
+        with NamedTemporaryFile("w", dir=target.parent, delete=False, encoding="utf-8", newline="\n") as file:
             temporary_path = Path(file.name)
             file.write(content)
         # The temporary file is readable by its owner alone, so the

@@ -556,6 +556,15 @@ def test_rejects_a_session_saved_before_a_turn_recorded_its_work() -> None:
         build_conversation(FakeClient([])).restore()
 
 
+def test_rejects_a_session_file_that_is_not_utf_8() -> None:
+    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
+    list(conversation.chat("Build a reporting CLI."))
+    conversation.workspace.session_file.write_bytes(b'{"active_topic_id": "\xff"}')
+
+    with pytest.raises(PersistenceError, match=r"Delete it .*--force"):
+        build_conversation(FakeClient([])).restore()
+
+
 def test_restores_a_cancelled_interview_turn() -> None:
     cancelled = Event()
     conversation = build_conversation(FakeClient([partial_reply("Partial reply")]))

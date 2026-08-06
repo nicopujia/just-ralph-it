@@ -5,19 +5,28 @@ import sys
 from collections.abc import Generator
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from importlib import import_module
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import Lock
-from typing import Any, cast, override
+from typing import TYPE_CHECKING, Any, cast, override
 
 import httpx
 from openai import DefaultHttpxClient, OpenAI
 from openai._models import FinalRequestOptions
 
-__all__ = ["Auth", "AuthError", "Client"]
+# Neither module exists on the platform the other one is for, so only
+# the platform's own is imported when this runs. A checker does not
+# narrow by platform, so it is handed both and reads the calls into
+# each of them instead of the `Any` a dynamic import would leave.
+if TYPE_CHECKING:
+    import fcntl
+    import msvcrt
+elif sys.platform == "win32":
+    import msvcrt
+else:
+    import fcntl
 
-file_lock: Any = import_module("msvcrt" if sys.platform == "win32" else "fcntl")
+__all__ = ["Auth", "AuthError", "Client"]
 
 
 class AuthError(Exception): ...
@@ -68,12 +77,12 @@ class Auth(httpx.Auth):
 
     def _read(self) -> dict[str, Any]:
         try:
-            data = json.loads(self.path.read_text())
+            data = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError as error:
             raise AuthError(
                 'No file-based Codex login found. Set `cli_auth_credentials_store = "file"` and run `codex login`.'
             ) from error
-        except (OSError, json.JSONDecodeError) as error:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
             raise AuthError("The Codex login cannot be read. Run `codex login` again.") from error
         if not isinstance(data, dict):
             raise AuthError("The Codex login is invalid. Run `codex login` again.")
@@ -137,19 +146,26 @@ class Auth(httpx.Auth):
     @contextmanager
     def _file_lock(self) -> Generator[None]:
         lock_path = self.path.with_suffix(f".{self.originator}.lock")
-        with lock_path.open("w") as lock_file:
+        # The file is never anything but a handle to lock, and opening
+        # it for writing would truncate it, which Windows refuses while
+        # another process holds a lock over the bytes being dropped.
+        with os.fdopen(os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600), "r+b") as lock_file:
+            descriptor = lock_file.fileno()
             if sys.platform == "win32":
-                file_lock.locking(lock_file.fileno(), file_lock.LK_LOCK, 1)
+                # `locking` covers bytes from wherever the descriptor
+                # is, and waits by retrying ten times a second apart
+                # rather than indefinitely as `flock` does.
+                msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
             else:
-                file_lock.flock(lock_file, file_lock.LOCK_EX)
+                fcntl.flock(descriptor, fcntl.LOCK_EX)
             try:
                 yield
             finally:
                 if sys.platform == "win32":
-                    lock_file.seek(0)
-                    file_lock.locking(lock_file.fileno(), file_lock.LK_UNLCK, 1)
+                    os.lseek(descriptor, 0, os.SEEK_SET)
+                    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
                 else:
-                    file_lock.flock(lock_file, file_lock.LOCK_UN)
+                    fcntl.flock(descriptor, fcntl.LOCK_UN)
 
     def _write(self, data: dict[str, Any]) -> None:
         temporary_path: Path | None = None
@@ -157,7 +173,7 @@ class Auth(httpx.Auth):
             self.path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
             # A temporary file is readable by its owner alone, which is
             # what the login replacing it with must stay.
-            with NamedTemporaryFile("w", encoding="utf-8", dir=self.path.parent, delete=False) as file:
+            with NamedTemporaryFile("w", encoding="utf-8", newline="\n", dir=self.path.parent, delete=False) as file:
                 temporary_path = Path(file.name)
                 file.write(f"{json.dumps(data, indent=2)}\n")
             temporary_path.replace(self.path)

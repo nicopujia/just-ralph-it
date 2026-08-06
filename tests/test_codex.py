@@ -71,6 +71,13 @@ def test_reports_an_unusable_login(tmp_path: Path, contents: str, reason: str) -
         codex.Auth(ORIGINATOR).validate()
 
 
+def test_reports_a_login_that_is_not_utf_8(tmp_path: Path) -> None:
+    (tmp_path / "auth.json").write_bytes(b'{"auth_mode": "chatgpt\xff"}')
+
+    with pytest.raises(codex.AuthError, match="cannot be read"):
+        codex.Auth(ORIGINATOR).validate()
+
+
 def test_reports_a_login_the_filesystem_refuses_to_hand_over(tmp_path: Path) -> None:
     (tmp_path / "auth.json").mkdir()
 

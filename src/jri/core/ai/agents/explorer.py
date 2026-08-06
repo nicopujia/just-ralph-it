@@ -4,8 +4,10 @@ import logging
 import mimetypes
 import os
 import platform
+import shutil
 import signal
 import subprocess
+import sys
 from collections.abc import Generator
 from dataclasses import replace
 from pathlib import Path
@@ -242,19 +244,32 @@ class Explorer(Agent):
     )
     def run_shell(self, command: str) -> str:
         logger.debug("shell_command command=%r", command)
+        # Windows has no `/bin/sh`, and its interpreter reads a command
+        # line by rules `list2cmdline` does not write, so it is handed
+        # the line itself: `/d` drops whatever the registry would run
+        # first, and `/s` makes it strip the outer quotes and take the
+        # rest verbatim. Elsewhere a login shell gives the command the
+        # PATH the person's own terminal would.
+        arguments = (
+            f'"{os.environ.get("COMSPEC", "cmd.exe")}" /d /s /c "{command}"'
+            if sys.platform == "win32"
+            else ["/bin/sh", "-lc", command]
+        )
         with TemporaryFile("w+", encoding="utf-8", errors="replace") as output_file:
             process = subprocess.Popen(
-                ["/bin/sh", "-lc", command],
+                arguments,
                 cwd=self.directory,
                 stdout=output_file,
                 stderr=subprocess.STDOUT,
+                # POSIX only, and ignored elsewhere: the command leads a
+                # session of its own, so everything it starts is one
+                # group to stop.
                 start_new_session=True,
             )
             try:
                 process.wait(timeout=30)
             except subprocess.TimeoutExpired:
-                with contextlib.suppress(ProcessLookupError):
-                    os.killpg(process.pid, signal.SIGKILL)
+                _stop_process_tree(process.pid)
                 process.wait()
                 output_file.seek(0)
                 output = output_file.read(Invocation.MAX_OUTPUT_LENGTH)
@@ -262,10 +277,25 @@ class Explorer(Agent):
                 raise RuntimeError(f"Command timed out after 30 seconds:\n{output}".rstrip()) from None
             output_file.seek(0)
             output = output_file.read(Invocation.MAX_OUTPUT_LENGTH)
-        with contextlib.suppress(ProcessLookupError):
-            os.killpg(process.pid, signal.SIGKILL)
+        _stop_process_tree(process.pid)
         if process.returncode != 0:
             logger.error("shell_failed return_code=%d output_characters=%d", process.returncode, len(output))
             raise RuntimeError(f"Command exited with status {process.returncode}:\n{output}".rstrip())
         logger.info("shell_finished return_code=%d output_characters=%d", process.returncode, len(output))
         return output
+
+
+def _stop_process_tree(pid: int) -> None:
+    if sys.platform != "win32":
+        # The pid of a session leader is its process group's, and the
+        # group outlives the leader for as long as anything it started
+        # runs, so a reaped shell still names what it left behind.
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(pid, signal.SIGKILL)
+        return
+    # Windows has no group to signal: `taskkill` walks the tree from
+    # the shell down, and a shell that has already exited leaves it
+    # nothing to walk, so a background process outlives the call.
+    executable = shutil.which("taskkill")
+    if executable is not None:
+        subprocess.run([executable, "/F", "/T", "/PID", str(pid)], check=False, capture_output=True)

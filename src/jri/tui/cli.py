@@ -93,7 +93,7 @@ def _view() -> None:
     conversation = Conversation(settings)
     graph = conversation.notebook.graph
     visualization_file = conversation.workspace.visualization_file
-    visualization_file.write_text(visualization.render(graph), encoding="utf-8")
+    visualization_file.write_text(visualization.render(graph), encoding="utf-8", newline="\n")
     # Whether a browser opened is the browser's answer to give: over
     # SSH, or on a machine with none installed, it is no.
     opened = webbrowser.open(visualization_file.resolve().as_uri())
