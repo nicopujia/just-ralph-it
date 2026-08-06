@@ -631,6 +631,11 @@ class App(TextualApp[None]):
         self.message_input.is_ralph_ready = False
         if self.is_busy or not self.conversation.is_ready_to_ralph or not self.mounted_turns:
             return
+        # A retry that re-runs the generation starts the very run this
+        # button starts, so the offer stays on screen once, under the
+        # name the failure it answers gave it.
+        if self.query(f".{styles.RETRY_BUTTON_CLASSES}") and self.conversation.retried_work == "generation":
+            return
         self.ralph_button = Button(copy.RALPH_BUTTON, classes=styles.RALPH_BUTTON_CLASSES, compact=True)
         await self.mounted_turns[-1][1].mount(self.ralph_button)
         self.message_input.is_ralph_ready = True
