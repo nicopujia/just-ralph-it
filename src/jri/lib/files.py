@@ -10,9 +10,6 @@ MAX_DESCRIBED_PATHS = 3
 NEW_FILE_PERMISSIONS = 0o644
 
 
-# Paths as the person at this terminal would write them: from where
-# they are standing, and counted rather than listed once there are
-# more of them than a line holds.
 def describe_paths(paths: Sequence[str]) -> str:
     described = [shorten_path(Path(path)) for path in paths[:MAX_DESCRIBED_PATHS]]
     if remaining := len(paths) - len(described):
@@ -21,9 +18,6 @@ def describe_paths(paths: Sequence[str]) -> str:
     return f"{', '.join(described)} and {last}" if described else last
 
 
-# A path is written from wherever the reader is standing: from here
-# when it is under here, from home when it is elsewhere under home,
-# and in full when it is neither.
 def shorten_path(path: Path) -> str:
     expanded = path.expanduser()
     if not expanded.is_absolute():
@@ -39,8 +33,6 @@ def shorten_path(path: Path) -> str:
 
 
 def write_atomically(path: Path, content: str) -> None:
-    # Readers see either the previous contents or the new ones, so a
-    # process killed mid-write leaves nothing half-written behind.
     temporary_path: Path | None = None
     # A symlink names the file whose contents to rewrite, not the entry
     # to replace, and the replacement must land on its filesystem.

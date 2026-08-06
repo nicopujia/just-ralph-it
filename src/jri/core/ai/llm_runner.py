@@ -234,7 +234,6 @@ def _can_retry(error: OpenAIError) -> bool:
 
 
 def _read_retry_hint(error: OpenAIError) -> float | None:
-    # Seconds the provider itself asked to be waited, when it asked.
     if not isinstance(error, APIStatusError):
         return None
     for header, seconds_per_unit in (("retry-after-ms", 0.001), ("retry-after", 1.0)):

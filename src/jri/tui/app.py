@@ -31,7 +31,6 @@ from jri.lib import appearance
 from . import copy, styles
 from .widgets import MessageInput, MessagesContainer, ToolCallRow
 
-# The endings a user can do something about by asking again.
 RETRYABLE_ENDINGS = frozenset[Ending]({"empty", "failed", "exhausted"})
 
 logger = logging.getLogger(__name__)
@@ -184,9 +183,6 @@ class App(TextualApp[None]):
     async def on_message_input_submitted(self, event: MessageInput.Submitted) -> None:
         user_message = event.value.strip()
 
-        # The one word the box takes as an instruction rather than as
-        # something to say, so a reader typing what leaves every other
-        # terminal editor leaves this one too.
         if user_message == copy.QUIT_COMMAND:
             logger.info("quit_requested source=message")
             await self.action_quit()
@@ -221,9 +217,8 @@ class App(TextualApp[None]):
         placeholder = Markdown(copy.INTERVIEWER_THINKING, classes=styles.INTERVIEWER_MESSAGE_CLASSES)
         turn_state = InterviewerTurnState(container=interviewer_turn, placeholder=placeholder)
         self.active_turn_state = turn_state
-        # Textual may hit-test a block after update() detaches it.
-        # Disable selection to avoid dereferencing its missing parent.
-        # In other words, this prevents a crash from a Textual bug.
+        # Textual may hit-test a block after update() detaches it, and
+        # dereferences the parent it no longer has.
         App.ALLOW_SELECT = False
         self.mounted_turns.append((user_message_widget, interviewer_turn))
 
@@ -328,10 +323,6 @@ class App(TextualApp[None]):
             self.ralphing.display = False
             self.message_input.display = True
             self.message_input.disabled = False
-        # A turn ending is the last thing it renders, so it lands in
-        # view under the same rule every other thing the turn rendered
-        # landed under: the bottom is followed until the user scrolls
-        # off it, and a user reading further up stays where they are.
         self._follow_bottom(turn_state)
         self.active_turn_state = None
         App.ALLOW_SELECT = True
@@ -452,8 +443,6 @@ class App(TextualApp[None]):
         turn_state.active_markdown, turn_state.active_markdown_text = None, ""
         turn_state.active_reasoning, turn_state.active_reasoning_text = None, ""
         row = ToolCallRow(event.label, symbol=event.symbol, depth=event.depth)
-        # A step the run opens after the stop was asked for is a step
-        # already on its way out, so it opens saying so.
         if turn_state.cancelled.is_set():
             row.mark_stopping()
         turn_state.tool_rows[event.call_id] = row

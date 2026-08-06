@@ -110,8 +110,6 @@ class Conversation:
             update={"next_note_id": offer.next_note_id}
         )
 
-    # What `retry` would re-run, so the view showing the affordance and
-    # the conversation answering it read the same turn.
     @property
     def retried_work(self) -> Work:
         return self.session.transcript[-1].work
@@ -192,7 +190,6 @@ class Conversation:
         checkpoint = self._capture_checkpoint(len(self.interviewer.history))
         # A run reports into the turn the user is looking at, since its
         # rows and its reply answer the message that turn opened with.
-        # A run started before any message opens a turn of its own.
         if self.session.transcript:
             self.session.transcript[-1].work = "generation"
         else:

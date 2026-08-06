@@ -54,9 +54,6 @@ class ToolCallRow(Static):
             self.spinner_timer = None
         self.update_copy()
 
-    # A run needs a moment to reach the stop it was asked for, and a
-    # row still spinning under the label it opened with reads as a
-    # request that never landed.
     def mark_stopping(self) -> None:
         self.is_stopping = True
         self.update_copy()

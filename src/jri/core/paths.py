@@ -27,5 +27,4 @@ COMMITTED_SPECS = f":(glob){SPECS_DIR}/**/*.md"
 # Everything JRI commits, and all a JRI commit ever holds.
 COMMITTED_PATHS = (CONFIG_FILE, GITIGNORE_FILE, NOTEBOOK_FILE, COMMITTED_SPECS)
 
-# Everything a forced run deletes to re-create the workspace.
 RESET_PATHS = (SESSION_FILE, NOTEBOOK_FILE, VISUALIZATION_FILE, LOGS_DIR, SPECS_DIR)

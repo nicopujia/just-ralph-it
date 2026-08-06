@@ -95,8 +95,6 @@ class Invocation:
 
     @property
     def outcome(self) -> "ai.Outcome":
-        # A stream left without an output has none to report, however
-        # far it got, so the call it stands for did not succeed.
         return "failed" if self._failed or self._output is None else self._outcome
 
     @property
@@ -182,8 +180,7 @@ class Tool:
     # A row is decoration, so nothing wording one reaches for can cost
     # the call it describes: arguments the model is free to be wrong
     # about are dumped here, and dumping them may touch a filesystem
-    # that answers with an error. A row nothing can word carries the
-    # tool's name, and says in the log that it could not be worded.
+    # that answers with an error.
     def format_label(self, label: str, arguments: str) -> str:
         try:
             payload = self.arguments_model.model_validate_json(arguments, strict=True)

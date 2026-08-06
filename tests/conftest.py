@@ -19,8 +19,6 @@ type CreateRepository = Callable[[Path], git.Repository]
 type ReadCredential = Callable[[str], str]
 type RunGit = Callable[..., str]
 
-# The mark a test wears to reach the endpoint it is about, and the only
-# thing that lets one through.
 CONTRACT_MARKER = "contract"
 # The file `jri chat` reads its keys from, so a live call is paid for
 # by the same credential the product uses.
