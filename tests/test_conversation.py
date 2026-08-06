@@ -544,10 +544,10 @@ def test_replies_again_after_the_retry_of_a_reply_failed(monkeypatch: pytest.Mon
 def test_rejects_a_session_saved_before_a_turn_recorded_its_work() -> None:
     conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
     list(conversation.chat("Build a reporting CLI."))
-    stored = json.loads(conversation.workspace.session_file.read_text())
+    stored = json.loads(conversation.workspace.session_file.read_bytes())
     for turn in stored["transcript"]:
         del turn["work"]
-    conversation.workspace.session_file.write_text(json.dumps(stored))
+    conversation.workspace.session_file.write_bytes(json.dumps(stored).encode())
 
     # A run that failed and a message that failed leave the interview
     # in the same state, so a turn that never recorded which it was is

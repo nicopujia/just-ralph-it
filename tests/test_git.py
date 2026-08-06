@@ -15,7 +15,7 @@ diff --git a/README.md b/README.md
  The store keeps orders.
 +The reporter renders totals.
 """
-SECTIONED_README = "# Store\nKeeps orders.\n\n# Reporter\nKeeps orders.\n"
+SECTIONED_README = b"# Store\nKeeps orders.\n\n# Reporter\nKeeps orders.\n"
 
 
 def test_rejects_a_missing_git_executable(tmp_path: Path) -> None:
@@ -63,7 +63,7 @@ def test_finds_worktree_root_from_any_subdirectory(tmp_path: Path, create_reposi
 def test_reads_the_files_a_revision_tracks(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     revision = repository.read_head()
-    (repository.path / "README.md").write_text("second\n")
+    (repository.path / "README.md").write_bytes(b"second\n")
 
     assert repository.read_file(revision, "README.md") == b"# Project\n"
     assert repository.read_tree(revision) == {"README.md": b"# Project\n"}
@@ -72,15 +72,15 @@ def test_reads_the_files_a_revision_tracks(tmp_path: Path, create_repository: Cr
 def test_diffs_the_worktree_against_a_revision(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     revision = repository.read_head()
-    (repository.path / "README.md").write_text("second\n")
+    (repository.path / "README.md").write_bytes(b"second\n")
 
     assert b"+second" in repository.diff(revision, paths=["README.md"])
 
 
 def test_reports_changed_and_untracked_paths(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "README.md").write_text("second\n")
-    (repository.path / "new file.txt").write_text("new\n")
+    (repository.path / "README.md").write_bytes(b"second\n")
+    (repository.path / "new file.txt").write_bytes(b"new\n")
 
     assert {(item.path, item.index, item.worktree) for item in repository.read_status()} == {
         ("README.md", " ", "M"),
@@ -91,8 +91,8 @@ def test_reports_changed_and_untracked_paths(tmp_path: Path, create_repository: 
 def test_reads_the_status_of_the_paths_it_is_given(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     (repository.path / "docs").mkdir()
-    (repository.path / "docs" / "guide.md").write_text("# Guide\n")
-    (repository.path / "README.md").write_text("second\n")
+    (repository.path / "docs" / "guide.md").write_bytes(b"# Guide\n")
+    (repository.path / "README.md").write_bytes(b"second\n")
 
     assert repository.read_status(["docs"]) == (git.Status("docs/guide.md", "?", "?"),)
     assert repository.read_status(["missing"]) == ()
@@ -100,9 +100,9 @@ def test_reads_the_status_of_the_paths_it_is_given(tmp_path: Path, create_reposi
 
 def test_reads_the_status_of_a_path_the_project_ignores(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / ".gitignore").write_text("build/\n")
+    (repository.path / ".gitignore").write_bytes(b"build/\n")
     (repository.path / "build").mkdir()
-    (repository.path / "build" / "report.md").write_text("# Report\n")
+    (repository.path / "build" / "report.md").write_bytes(b"# Report\n")
 
     assert repository.read_status(["build"]) == ()
     assert repository.read_status(["build"], ignored=True) == (git.Status("build/report.md", "!", "!"),)
@@ -110,7 +110,7 @@ def test_reads_the_status_of_a_path_the_project_ignores(tmp_path: Path, create_r
 
 def test_reads_the_status_of_paths_a_repository_without_commits_may_not_hold(tmp_path: Path) -> None:
     repository = git.Repository.init(tmp_path / "project")
-    (repository.path / "notes.md").write_text("# Notes\n")
+    (repository.path / "notes.md").write_bytes(b"# Notes\n")
 
     assert repository.read_status(["notes.md"]) == (git.Status("notes.md", "?", "?"),)
     assert repository.read_status(["missing"]) == ()
@@ -121,11 +121,11 @@ def test_reports_a_repository_with_unmerged_paths(
 ) -> None:
     repository = create_repository(tmp_path / "repo")
     base = repository.read_head()
-    (repository.path / "README.md").write_text("theirs\n")
+    (repository.path / "README.md").write_bytes(b"theirs\n")
     repository.stage(["README.md"])
     theirs = repository.commit("jri: write theirs")
     run_git(repository.path, "reset", "-q", "--hard", base)
-    (repository.path / "README.md").write_text("ours\n")
+    (repository.path / "README.md").write_bytes(b"ours\n")
     repository.stage(["README.md"])
     ours = repository.commit("jri: write ours")
 
@@ -136,7 +136,7 @@ def test_reports_a_repository_with_unmerged_paths(
 
 def test_reports_a_repository_without_unmerged_paths(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "README.md").write_text("second\n")
+    (repository.path / "README.md").write_bytes(b"second\n")
     repository.stage(["README.md"])
 
     assert not repository.has_conflicts()
@@ -164,8 +164,8 @@ def test_moves_staged_paths_to_the_index_side_of_the_status(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "README.md").write_text("second\n")
-    (repository.path / "new file.txt").write_text("new\n")
+    (repository.path / "README.md").write_bytes(b"second\n")
+    (repository.path / "new file.txt").write_bytes(b"new\n")
 
     repository.stage(["README.md", "new file.txt"])
 
@@ -179,7 +179,7 @@ def test_records_every_trailer_it_is_given(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "README.md").write_text("second\n")
+    (repository.path / "README.md").write_bytes(b"second\n")
     repository.stage(["README.md"])
 
     commit = repository.commit("jri: test", ["Co-authored-by: Test Person <test@example.com>", "JRI-Test: accepted"])
@@ -193,7 +193,7 @@ def test_commits_staged_paths_without_any_trailer(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "README.md").write_text("second\n")
+    (repository.path / "README.md").write_bytes(b"second\n")
     repository.stage(["README.md"])
 
     commit = repository.commit("jri: test")
@@ -205,10 +205,10 @@ def test_finds_the_last_commit_whose_message_holds_the_text(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "README.md").write_text("second\n")
+    (repository.path / "README.md").write_bytes(b"second\n")
     repository.stage(["README.md"])
     marked = repository.commit("jri: test", ["JRI-Test: accepted"])
-    (repository.path / "README.md").write_text("third\n")
+    (repository.path / "README.md").write_bytes(b"third\n")
     run_git(repository.path, "commit", "-qam", "docs: a commit of the user's own")
 
     assert repository.find_commit("JRI-Test: accepted") == marked
@@ -217,13 +217,13 @@ def test_finds_the_last_commit_whose_message_holds_the_text(
 
 def test_commits_only_the_paths_it_names(tmp_path: Path, create_repository: CreateRepository, run_git: RunGit) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "notes.md").write_text("# Notes\n")
+    (repository.path / "notes.md").write_bytes(b"# Notes\n")
     repository.stage(["notes.md"], intent_to_add=True)
-    (repository.path / "staged.txt").write_text("staged\n")
+    (repository.path / "staged.txt").write_bytes(b"staged\n")
     repository.stage(["staged.txt"])
-    (repository.path / "staged.txt").write_text("edited after staging\n")
-    (repository.path / "README.md").write_text("second\n")
-    (repository.path / "untracked.txt").write_text("untracked\n")
+    (repository.path / "staged.txt").write_bytes(b"edited after staging\n")
+    (repository.path / "README.md").write_bytes(b"second\n")
+    (repository.path / "untracked.txt").write_bytes(b"untracked\n")
 
     commit = repository.commit("jri: add notes", paths=["notes.md"])
 
@@ -239,8 +239,8 @@ def test_commits_only_the_paths_it_names(tmp_path: Path, create_repository: Crea
 
 def test_commits_named_paths_into_a_repository_without_commits(tmp_path: Path) -> None:
     repository = git.Repository.init(tmp_path / "project")
-    (repository.path / "notes.md").write_text("# Notes\n")
-    (repository.path / "secrets.env").write_text("SECRET=1\n")
+    (repository.path / "notes.md").write_bytes(b"# Notes\n")
+    (repository.path / "secrets.env").write_bytes(b"SECRET=1\n")
     repository.stage(["notes.md"], intent_to_add=True)
 
     commit = repository.commit("jri: add notes", paths=["notes.md"])
@@ -253,8 +253,8 @@ def test_stages_only_the_intent_to_add_a_path(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "notes.md").write_text("# Notes\n")
-    (repository.path / "other.md").write_text("# Other\n")
+    (repository.path / "notes.md").write_bytes(b"# Notes\n")
+    (repository.path / "other.md").write_bytes(b"# Other\n")
     repository.stage(["other.md"])
 
     repository.stage(["notes.md"], intent_to_add=True)
@@ -266,8 +266,8 @@ def test_stages_only_the_intent_to_add_a_path(
 
 def test_reads_the_paths_the_index_holds(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "notes.md").write_text("# Notes\n")
-    (repository.path / "untracked.md").write_text("# Untracked\n")
+    (repository.path / "notes.md").write_bytes(b"# Notes\n")
+    (repository.path / "untracked.md").write_bytes(b"# Untracked\n")
     repository.stage(["notes.md"], intent_to_add=True)
 
     assert repository.read_staged_paths() == ("README.md", "notes.md")
@@ -276,8 +276,8 @@ def test_reads_the_paths_the_index_holds(tmp_path: Path, create_repository: Crea
 
 def test_stages_a_path_the_project_ignores(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / ".gitignore").write_text("notes.md\n")
-    (repository.path / "notes.md").write_text("# Notes\n")
+    (repository.path / ".gitignore").write_bytes(b"notes.md\n")
+    (repository.path / "notes.md").write_bytes(b"# Notes\n")
 
     repository.stage(["notes.md"], force=True)
 
@@ -286,8 +286,8 @@ def test_stages_a_path_the_project_ignores(tmp_path: Path, create_repository: Cr
 
 def test_unstages_the_paths_it_is_given(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "notes.md").write_text("# Notes\n")
-    (repository.path / "kept.md").write_text("# Kept\n")
+    (repository.path / "notes.md").write_bytes(b"# Notes\n")
+    (repository.path / "kept.md").write_bytes(b"# Kept\n")
     repository.stage(["notes.md", "kept.md"])
 
     repository.unstage(["notes.md"])
@@ -297,7 +297,7 @@ def test_unstages_the_paths_it_is_given(tmp_path: Path, create_repository: Creat
 
 def test_unstages_the_paths_of_a_repository_without_commits(tmp_path: Path) -> None:
     repository = git.Repository.init(tmp_path / "project")
-    (repository.path / "notes.md").write_text("# Notes\n")
+    (repository.path / "notes.md").write_bytes(b"# Notes\n")
     repository.stage(["notes.md"], intent_to_add=True)
 
     repository.unstage(["notes.md"])
@@ -335,7 +335,7 @@ def test_reports_renames_with_their_original_path(
 ) -> None:
     repository = create_repository(tmp_path / "repo")
     run_git(repository.path, "mv", "README.md", "docs.md")
-    (repository.path / "untracked.md").write_text("new\n")
+    (repository.path / "untracked.md").write_bytes(b"new\n")
 
     status = repository.read_status()
 
@@ -347,9 +347,9 @@ def test_reports_renames_with_their_original_path(
 
 def test_applies_a_patch_to_the_worktree_and_the_index(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "README.md").write_text("updated\n")
+    (repository.path / "README.md").write_bytes(b"updated\n")
     patch = repository.diff("HEAD", paths=["README.md"])
-    (repository.path / "README.md").write_text("# Project\n")
+    (repository.path / "README.md").write_bytes(b"# Project\n")
     repository.stage(["README.md"])
 
     repository.apply_patch(patch, index=True)
@@ -360,7 +360,7 @@ def test_applies_a_patch_to_the_worktree_and_the_index(tmp_path: Path, create_re
 
 def test_rejects_a_patch_that_does_not_apply(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "README.md").write_text("updated\n")
+    (repository.path / "README.md").write_bytes(b"updated\n")
     patch = repository.diff("HEAD", paths=["README.md"])
 
     with pytest.raises(git.Error):
@@ -371,7 +371,7 @@ def test_applies_a_patch_whose_hunk_carries_no_trailing_context(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "README.md").write_text("# Project\nThe store keeps orders.\nEverything runs offline.\n")
+    (repository.path / "README.md").write_bytes(b"# Project\nThe store keeps orders.\nEverything runs offline.\n")
 
     repository.apply_patch(CONTEXT_FREE_PATCH, zero_context=True)
 
@@ -384,7 +384,7 @@ def test_rejects_a_patch_whose_hunk_carries_no_trailing_context(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "README.md").write_text("# Project\nThe store keeps orders.\nEverything runs offline.\n")
+    (repository.path / "README.md").write_bytes(b"# Project\nThe store keeps orders.\nEverything runs offline.\n")
 
     with pytest.raises(git.Error):
         repository.apply_patch(CONTEXT_FREE_PATCH)
@@ -394,7 +394,7 @@ def test_rejects_a_context_free_hunk_quoting_a_line_the_file_does_not_hold(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "README.md").write_text("# Project\nThe store keeps orders.\nEverything runs offline.\n")
+    (repository.path / "README.md").write_bytes(b"# Project\nThe store keeps orders.\nEverything runs offline.\n")
     patch = b"""\
 diff --git a/README.md b/README.md
 --- a/README.md
@@ -412,7 +412,7 @@ def test_places_a_context_free_hunk_at_the_line_its_header_names(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "README.md").write_text(SECTIONED_README)
+    (repository.path / "README.md").write_bytes(SECTIONED_README)
     patch = b"""\
 diff --git a/README.md b/README.md
 --- a/README.md
@@ -461,11 +461,11 @@ def test_snapshots_the_working_tree_when_no_revision_is_given(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "README.md").write_text("uncommitted edit\n")
+    (repository.path / "README.md").write_bytes(b"uncommitted edit\n")
     (repository.path / "docs").mkdir()
-    (repository.path / "docs" / "new.md").write_text("# New\n")
-    (repository.path / ".gitignore").write_text("*.log\n")
-    (repository.path / "noise.log").write_text("ignored\n")
+    (repository.path / "docs" / "new.md").write_bytes(b"# New\n")
+    (repository.path / ".gitignore").write_bytes(b"*.log\n")
+    (repository.path / "noise.log").write_bytes(b"ignored\n")
 
     with repository.open_worktree(None) as snapshot:
         assert (snapshot.path / "README.md").read_text() == "uncommitted edit\n"
@@ -482,7 +482,7 @@ def test_keeps_the_project_untouched_while_a_snapshot_worktree_is_open(
 
     with repository.open_worktree(None) as snapshot:
         location = snapshot.path
-        (snapshot.path / "README.md").write_text("changed in the snapshot\n")
+        (snapshot.path / "README.md").write_bytes(b"changed in the snapshot\n")
 
     assert (repository.path / "README.md").read_text() == "# Project\n"
     assert repository.read_status() == ()
@@ -524,7 +524,7 @@ def test_rejects_initializing_without_a_git_executable(tmp_path: Path) -> None:
 
 def test_rejects_initializing_a_repository_over_a_file(tmp_path: Path) -> None:
     target = tmp_path / "project"
-    target.write_text("not a directory\n")
+    target.write_bytes(b"not a directory\n")
 
     with pytest.raises(git.Error):
         git.Repository.init(target)
@@ -562,7 +562,7 @@ def test_reports_deleted_paths_on_the_side_they_were_deleted_from(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     repository = create_repository(tmp_path / "repo")
-    (repository.path / "notes.md").write_text("notes\n")
+    (repository.path / "notes.md").write_bytes(b"notes\n")
     repository.stage(["notes.md"])
     repository.commit("jri: add notes")
 
@@ -599,7 +599,7 @@ def test_reads_binary_content_as_raw_bytes(tmp_path: Path, create_repository: Cr
 def test_reads_only_the_tree_below_the_requested_path(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     (repository.path / "docs").mkdir()
-    (repository.path / "docs" / "guide.md").write_text("# Guide\n")
+    (repository.path / "docs" / "guide.md").write_bytes(b"# Guide\n")
     repository.stage(["docs"])
     revision = repository.commit("jri: add docs")
 

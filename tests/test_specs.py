@@ -9,7 +9,7 @@ from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from jri.core.specs import ACCEPTANCE_TRAILER, Specs
 from jri.lib import git
-from tests.conftest import CreateRepository, RunGit
+from tests.conftest import CreateLink, CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
 from tests.doubles.workspace import install_workspace
@@ -373,7 +373,7 @@ def test_leaves_the_project_untouched_when_a_hook_refuses_the_commit(
 ) -> None:
     create_repository(tmp_path)
     hook = tmp_path / ".git/hooks/pre-commit"
-    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.write_bytes(b"#!/bin/sh\nexit 1\n")
     hook.chmod(0o755)
     conversation = build_conversation(tmp_path, successful_client())
     (tmp_path / "uv.lock").write_text("locked\n")
@@ -394,7 +394,7 @@ def test_keeps_the_content_the_user_staged_when_a_hook_refuses_the_commit(
 ) -> None:
     create_repository(tmp_path)
     hook = tmp_path / ".git/hooks/pre-commit"
-    hook.write_text("#!/bin/sh\nexit 1\n")
+    hook.write_bytes(b"#!/bin/sh\nexit 1\n")
     hook.chmod(0o755)
     conversation = build_conversation(tmp_path, successful_client())
     config = tmp_path / ".jri/config.yaml"
@@ -636,7 +636,7 @@ def test_refuses_a_handwritten_specification_the_project_ignores(
 
 
 def test_refuses_a_specification_git_holds_as_a_link(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+    tmp_path: Path, create_repository: CreateRepository, create_link: CreateLink, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
     (tmp_path / "secret.txt").write_text("The password is hunter2.\n")
@@ -644,7 +644,7 @@ def test_refuses_a_specification_git_holds_as_a_link(
     conversation = build_conversation(tmp_path, client)
     link = tmp_path / ".jri/specs/functional/leak.md"
     link.parent.mkdir(parents=True)
-    link.symlink_to(tmp_path / "secret.txt")
+    create_link(link, tmp_path / "secret.txt")
     run_git(tmp_path, "add", ".jri/specs")
     run_git(tmp_path, "commit", "-qm", "docs: link a specification by hand")
 
@@ -654,14 +654,16 @@ def test_refuses_a_specification_git_holds_as_a_link(
     assert find_accepted_commit(tmp_path) is None
 
 
-def test_refuses_a_notebook_git_would_hold_as_a_link(tmp_path: Path, create_repository: CreateRepository) -> None:
+def test_refuses_a_notebook_git_would_hold_as_a_link(
+    tmp_path: Path, create_repository: CreateRepository, create_link: CreateLink
+) -> None:
     create_repository(tmp_path)
     conversation = build_conversation(tmp_path, successful_client())
     notebook = tmp_path / ".jri/notebook.yaml"
     shared = tmp_path.parent / "shared-notes.yaml"
-    shared.write_text(notebook.read_text())
+    shared.write_bytes(notebook.read_bytes())
     notebook.unlink()
-    notebook.symlink_to(shared)
+    create_link(notebook, shared)
 
     assert read_ending(conversation.ralph(), r"these are links.+\n- \.jri/notebook\.yaml") == "blocked"
 

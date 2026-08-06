@@ -15,6 +15,7 @@ from jri.lib import git
 from jri.lib.models import read_context_limit
 from tests.doubles.models import serve_catalog
 
+type CreateLink = Callable[[Path, Path], None]
 type CreateRepository = Callable[[Path], git.Repository]
 type ReadCredential = Callable[[str], str]
 type RunGit = Callable[..., str]
@@ -42,11 +43,24 @@ def run_git() -> RunGit:
 
 
 @pytest.fixture
+def create_link() -> CreateLink:
+    def create(path: Path, target: Path) -> None:
+        try:
+            path.symlink_to(target)
+        except OSError as error:
+            pytest.skip(f"a link needs a privilege this machine withholds: {error}")
+
+    return create
+
+
+@pytest.fixture
 def create_repository(run_git: RunGit) -> CreateRepository:
     def create(path: Path) -> git.Repository:
         path.mkdir(parents=True, exist_ok=True)
         run_git(path, "init", "-q")
-        (path / "README.md").write_text("# Project\n")
+        # Git and the assertions read the bytes back, and the line
+        # ending a platform would put in them is not JRI's.
+        (path / "README.md").write_bytes(b"# Project\n")
         run_git(path, "add", "README.md")
         run_git(path, "commit", "-qm", "initial")
         return git.Repository(path)

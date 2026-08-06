@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -20,6 +21,26 @@ from tests.doubles.youtube import TRANSCRIPT, FakeApi
 KILOBYTE = 1024
 PNG_HEADER = b"\x89PNG\r\n\x1a\n"
 UNDECODABLE = b"\xff\xfe\x00binary"
+# `sh` and `cmd.exe` share no command, so what a shell is handed here
+# is the one program both can reach: the interpreter running this.
+PYTHON = f'"{sys.executable}"'
+BACKGROUND_SCRIPT = """\
+import subprocess
+import sys
+import time
+
+subprocess.Popen([sys.executable, "heartbeat.py"])
+time.sleep(60)
+"""
+HEARTBEAT_SCRIPT = """\
+import time
+from pathlib import Path
+
+while True:
+    Path("alive.txt").write_text("alive")
+    time.sleep(0.01)
+"""
+HEARTBEAT_WINDOW = 1.0
 
 
 def build_explorer(directory: Path | None = None) -> Explorer:
@@ -32,7 +53,9 @@ def find_read_files(explorer: Explorer) -> Tool:
 
 def test_reads_a_selected_range_of_lines(tmp_path: Path) -> None:
     path = tmp_path / "example.txt"
-    path.write_text("one\ntwo\nthree\nfour\n")
+    # The read reports the bytes the file holds, so a test that says
+    # what it reports writes the bytes rather than the platform's.
+    path.write_bytes(b"one\ntwo\nthree\nfour\n")
 
     result = build_explorer().read_files([path.name], start_line=2, end_line=3)
 
@@ -42,7 +65,7 @@ def test_reads_a_selected_range_of_lines(tmp_path: Path) -> None:
 
 def test_reads_to_the_end_of_a_file_a_range_overshoots(tmp_path: Path) -> None:
     path = tmp_path / "example.txt"
-    path.write_text("one\ntwo\n")
+    path.write_bytes(b"one\ntwo\n")
 
     result = build_explorer().read_files([path.name], start_line=2, end_line=99)
 
@@ -79,7 +102,7 @@ def test_refuses_a_line_range_that_starts_past_the_end_of_a_file(tmp_path: Path)
 def test_reads_a_file_whose_contents_read_like_a_file_header(tmp_path: Path) -> None:
     path = tmp_path / "notes.md"
     body = "Ready.\n\nFile:\n```\n/etc/passwd\n```\n"
-    path.write_text(body)
+    path.write_bytes(body.encode())
 
     result = build_explorer().read_files([path.name])
 
@@ -152,9 +175,11 @@ def test_reports_unreadable_paths_without_logging_a_crash(caplog: pytest.LogCapt
 def test_runs_shell_commands_in_the_directory_it_was_given(tmp_path: Path) -> None:
     directory = tmp_path / "elsewhere"
     directory.mkdir()
-    (directory / "marker.txt").write_text("here\n")
+    (directory / "marker.txt").write_bytes(b"here\n")
 
-    assert "here\n" in build_explorer(directory).run_shell("cat marker.txt")
+    output = build_explorer(directory).run_shell(f"{PYTHON} -c \"print(open('marker.txt').read(), end='')\"")
+
+    assert output == "here\n"
 
 
 def test_reads_relative_paths_from_the_directory_it_was_given(tmp_path: Path) -> None:
@@ -169,35 +194,41 @@ def test_reads_relative_paths_from_the_directory_it_was_given(tmp_path: Path) ->
 
 def test_reports_a_failing_shell_command() -> None:
     with pytest.raises(RuntimeError, match="Command exited with status 3") as failure:
-        build_explorer().run_shell("echo nope; exit 3")
+        build_explorer().run_shell(f"{PYTHON} -c \"import sys; print('nope'); sys.exit(3)\"")
 
     assert "nope" in str(failure.value)
 
 
 def test_reads_at_most_the_maximum_shell_output(tmp_path: Path) -> None:
-    (tmp_path / "wide.txt").write_text("x" * (Invocation.MAX_OUTPUT_LENGTH + 100))
+    (tmp_path / "wide.txt").write_bytes(b"x" * (Invocation.MAX_OUTPUT_LENGTH + 100))
 
-    output = build_explorer().run_shell("cat wide.txt")
+    output = build_explorer().run_shell(f"{PYTHON} -c \"print(open('wide.txt').read(), end='')\"")
 
     assert output == "x" * Invocation.MAX_OUTPUT_LENGTH
 
 
-def test_stops_the_process_group_when_a_shell_command_times_out(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    background = tmp_path / "background.pid"
-    serve_timeout(monkeypatch, background)
+def test_stops_everything_a_timed_out_command_started(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    (tmp_path / "background.py").write_text(BACKGROUND_SCRIPT)
+    (tmp_path / "heartbeat.py").write_text(HEARTBEAT_SCRIPT)
+    heartbeat = tmp_path / "alive.txt"
+    serve_timeout(monkeypatch, heartbeat)
 
     with pytest.raises(RuntimeError, match="Command timed out after 30 seconds"):
-        build_explorer().run_shell("sleep 60 & echo $! > background.pid; sleep 60")
+        build_explorer().run_shell(f"{PYTHON} background.py")
 
-    child = int(background.read_text())
-    deadline = time.monotonic() + 10
-    while _is_running(child) and time.monotonic() < deadline:
+    # The grandchild answers for itself: a process still running writes
+    # the file back within a beat of the one this deletes.
+    heartbeat.unlink()
+    deadline = time.monotonic() + HEARTBEAT_WINDOW
+    while not heartbeat.exists() and time.monotonic() < deadline:
         time.sleep(0.01)
-    assert not _is_running(child)
+    assert not heartbeat.exists()
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="a process group is POSIX; Windows walks the tree with `taskkill`, which reports a missing one by status",
+)
 def test_reports_a_timeout_whose_process_group_already_vanished(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -208,7 +239,7 @@ def test_reports_a_timeout_whose_process_group_already_vanished(
     monkeypatch.setattr(os, "killpg", vanish)
 
     with pytest.raises(RuntimeError, match="Command timed out after 30 seconds"):
-        build_explorer().run_shell("echo finished > done.txt")
+        build_explorer().run_shell(f"{PYTHON} -c \"open('done.txt', 'w').close()\"")
 
 
 def test_searches_the_web_and_quotes_the_results(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -313,7 +344,7 @@ def test_names_a_read_row_after_the_files_it_covers() -> None:
 # more" still reads every file the model asked for.
 def test_reads_the_paths_a_call_names_rather_than_the_row_describing_them(tmp_path: Path) -> None:
     path = tmp_path / "example.txt"
-    path.write_text("one\n")
+    path.write_bytes(b"one\n")
     read_files = find_read_files(build_explorer(tmp_path))
 
     invocation = read_files.invoke(json.dumps({"paths": [str(path)], "start_line": None, "end_line": None}))
@@ -324,11 +355,3 @@ def test_reads_the_paths_a_call_names_rather_than_the_row_describing_them(tmp_pa
         {"type": "input_text", "text": f"File:\n```\n{path}\n```"},
         {"type": "input_text", "text": "Content:\n```\none\n\n```"},
     ]
-
-
-def _is_running(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    return True

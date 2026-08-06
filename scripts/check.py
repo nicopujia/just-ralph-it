@@ -78,8 +78,10 @@ def main() -> None:
 
 
 def check_version(root: Path) -> None:
-    version = tomllib.loads((root / "pyproject.toml").read_text())["project"]["version"]
-    if f'__version__ = "{version}"' not in (root / "src" / "jri" / "__init__.py").read_text():
+    # This repository is UTF-8, and a machine whose own encoding is not
+    # would read a source file holding an emoji as something else.
+    version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
+    if f'__version__ = "{version}"' not in (root / "src" / "jri" / "__init__.py").read_text(encoding="utf-8"):
         raise RuntimeError(f"jri.__version__ must be {version}, as pyproject.toml says")
 
 
@@ -88,7 +90,9 @@ def check_member_order(*roots: Path) -> None:
         line
         for root in roots
         for path in sorted(root.rglob("*.py"))
-        for line in _find_disorder(ast.parse(path.read_text()).body, _rank_module, MODULE_GROUPS, path, "module")
+        for line in _find_disorder(
+            ast.parse(path.read_text(encoding="utf-8")).body, _rank_module, MODULE_GROUPS, path, "module"
+        )
     ]
     if disorder:
         raise RuntimeError("Members must follow the documented order:\n" + "\n".join(disorder))
@@ -99,7 +103,7 @@ def check_constant_publicity(*roots: Path) -> None:
         line
         for root in roots
         for path in sorted(root.rglob("*.py"))
-        for line in _find_private_constants(ast.parse(path.read_text()).body, path)
+        for line in _find_private_constants(ast.parse(path.read_text(encoding="utf-8")).body, path)
     ]
     if private:
         raise RuntimeError("Module constants must be public:\n" + "\n".join(private))

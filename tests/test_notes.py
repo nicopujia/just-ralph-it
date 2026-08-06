@@ -176,7 +176,7 @@ def test_stores_notes_in_a_compact_schema(tmp_path: Path) -> None:
         Connection(source_id=first.id, target_id=third.id, label="strongly supports"),
     ])
 
-    data = safe_load(notebook.path.read_text())
+    data = safe_load(notebook.path.read_text(encoding="utf-8"))
 
     assert data == {
         "topics": [

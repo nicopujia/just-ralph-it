@@ -1,8 +1,10 @@
+import sys
 from pathlib import Path
 
 import pytest
 
 from jri.lib import files
+from tests.conftest import CreateLink
 
 # A lone surrogate is the shortest string utf-8 cannot encode.
 UNENCODABLE_CONTENT = "\ud800"
@@ -36,6 +38,9 @@ def test_empties_a_file_whose_new_contents_are_empty(tmp_path: Path) -> None:
     assert target.read_bytes() == b""
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="a mode is POSIX; `chmod` on Windows sets the read-only flag and nothing else"
+)
 def test_keeps_the_permissions_of_the_file_it_replaces(tmp_path: Path) -> None:
     target = tmp_path / "file.txt"
     target.write_text("first", encoding="utf-8")
@@ -46,11 +51,11 @@ def test_keeps_the_permissions_of_the_file_it_replaces(tmp_path: Path) -> None:
     assert target.stat().st_mode & 0o777 == READABLE_BY_EVERYONE
 
 
-def test_writes_through_a_symlink_instead_of_replacing_it(tmp_path: Path) -> None:
+def test_writes_through_a_symlink_instead_of_replacing_it(tmp_path: Path, create_link: CreateLink) -> None:
     target = tmp_path / "file.txt"
     target.write_text("first", encoding="utf-8")
     link = tmp_path / "link.txt"
-    link.symlink_to(target)
+    create_link(link, target)
 
     files.write_atomically(link, "second")
 
@@ -62,7 +67,9 @@ def test_leaves_no_temporary_file_behind_when_the_write_fails(tmp_path: Path) ->
     occupied = tmp_path / "occupied"
     occupied.mkdir()
 
-    with pytest.raises(IsADirectoryError):
+    # Every platform refuses to put a file where a directory is; the
+    # error each refuses with is its own.
+    with pytest.raises(OSError, match="occupied"):
         files.write_atomically(occupied, "content")
 
     assert list(tmp_path.iterdir()) == [occupied]

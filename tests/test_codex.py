@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 from typing import Any, cast
 
@@ -315,6 +316,10 @@ def test_reports_a_refresh_the_sibling_process_left_without_an_account(
     assert json.loads((tmp_path / "auth.json").read_text())["tokens"] == sibling
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="a directory that refuses a write is an access list on Windows, and `chmod` writes no list",
+)
 def test_reports_a_refreshed_login_that_cannot_be_saved(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "read-only"
     home.mkdir()
