@@ -263,15 +263,27 @@ def test_stops_fetching_a_page_at_the_size_cap(monkeypatch: pytest.MonkeyPatch) 
 def test_reports_a_page_the_host_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_pages(monkeypatch, lambda _request: httpx.Response(404, text="Not found"))
 
-    with pytest.raises(RuntimeError, match=r"Could not fetch https://example\.test/missing"):
+    # The row a fetch opens names the URL, so a reason that names it
+    # again is the same address read twice.
+    with pytest.raises(RuntimeError, match=r"^404 Not Found$"):
         build_explorer().fetch_web_page("https://example.test/missing")
 
 
 def test_reports_a_url_that_cannot_be_requested(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_pages(monkeypatch, lambda _request: httpx.Response(200, text="Reached"))
 
-    with pytest.raises(RuntimeError, match="Could not fetch"):
+    with pytest.raises(RuntimeError, match="Invalid non-printable ASCII character in URL"):
         build_explorer().fetch_web_page("https://example.test/\x00")
+
+
+def test_reports_a_page_whose_failure_carries_no_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    def time_out(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectTimeout("")
+
+    serve_pages(monkeypatch, time_out)
+
+    with pytest.raises(RuntimeError, match=r"^ConnectTimeout$"):
+        build_explorer().fetch_web_page("https://example.test/docs")
 
 
 def test_reports_a_page_that_never_answered(monkeypatch: pytest.MonkeyPatch) -> None:

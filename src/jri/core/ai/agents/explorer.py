@@ -134,9 +134,16 @@ class Explorer(Agent):
                     str(error.response.url),
                     error.response.status_code,
                 )
+                # The row this reason lands on already names the URL,
+                # and httpx words a status failure with the URL in it.
+                reason = f"{error.response.status_code} {error.response.reason_phrase}"
             else:
                 logger.exception("fetch_failed url=%r", url)
-            raise RuntimeError(f"Could not fetch {url}: {error}") from error
+                # A timeout reaches here saying nothing about itself,
+                # and a failure that asserts nothing is one neither the
+                # model nor the reader can act on.
+                reason = str(error) or type(error).__name__
+            raise RuntimeError(reason) from error
         response_body = data.decode(response.encoding or "utf-8", errors="replace")
         output = MarkdownConverter().convert(response_body)
         logger.info("fetch_finished status_code=%d characters=%d", response.status_code, len(output))
