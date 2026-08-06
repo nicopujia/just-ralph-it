@@ -47,7 +47,7 @@ INIT_RECREATED = (
     "Re-created the JRI workspace at {directory}, replacing its configuration, notes, conversation, logs, "
     "and specifications."
 )
-INIT_REPOSITORY = "Initialized a Git repository at {directory}."
+INIT_REPOSITORY = "Initialized a Git repository here."
 INSERT_NEWLINE = "Insert newline"
 INTERNAL_ERROR = "Something unexpected went wrong. Check the JRI log for details."
 INTERVIEWER_STOPPING = "_Stopping..._"

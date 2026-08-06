@@ -13,7 +13,7 @@ from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from jri.core.settings import Settings
 from jri.core.workspace import Workspace
-from jri.lib import git
+from jri.lib import files, git
 from jri.lib.providers import codex
 
 from . import copy
@@ -59,11 +59,15 @@ def _initialize(*, force: bool, yes: bool) -> None:
         print(copy.FORCE_CANCELLED)
         raise SystemExit(1)
     installation = workspace.install(Settings.render_config(), force=force)
+    # A repository is created only where the command was run: a
+    # workspace inside one already has its root, and the path a
+    # relative line would name here is `.`.
     if installation.repository_created:
-        print(copy.INIT_REPOSITORY.format(directory=workspace.root))
+        print(copy.INIT_REPOSITORY)
     reset_copy = copy.INIT_RECREATED if force else copy.INIT_EXISTING
-    print((copy.INIT_CREATED if installation.created else reset_copy).format(directory=workspace.directory))
-    print(copy.INIT_NEXT_STEPS.format(config_file=workspace.config_file))
+    directory = files.shorten_path(workspace.directory)
+    print((copy.INIT_CREATED if installation.created else reset_copy).format(directory=directory))
+    print(copy.INIT_NEXT_STEPS.format(config_file=files.shorten_path(workspace.config_file)))
 
 
 def _chat() -> None:
@@ -127,7 +131,7 @@ def _confirm_reset(workspace: Workspace) -> bool:
     existing = [target for target in (workspace.config_file, *workspace.reset_paths) if target.exists()]
     if not existing:
         return True
-    print(copy.FORCE_WARNING.format(paths="\n".join(f"- {target}" for target in existing)))
+    print(copy.FORCE_WARNING.format(paths="\n".join(f"- {files.shorten_path(target)}" for target in existing)))
     try:
         return input(copy.FORCE_PROMPT).strip().casefold() in {"y", "yes"}
     except EOFError:
