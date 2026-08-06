@@ -10,12 +10,20 @@ CATALOG: dict[str, Any] = {"test": {"limit": {"context": CONTEXT_LIMIT}}}
 
 
 def serve_catalog(monkeypatch: pytest.MonkeyPatch, catalog: object = CATALOG, *, status_code: int = 200) -> None:
-    request = httpx.Request("GET", ENDPOINT)
-    serve_outcome(monkeypatch, httpx.Response(status_code, json=catalog, request=request))
+    serve_outcome(monkeypatch, build_response(catalog, status_code=status_code))
 
 
-def serve_outcome(monkeypatch: pytest.MonkeyPatch, outcome: httpx.Response | httpx.HTTPError) -> None:
+def build_response(catalog: object = CATALOG, *, status_code: int = 200) -> httpx.Response:
+    return httpx.Response(status_code, json=catalog, request=httpx.Request("GET", ENDPOINT))
+
+
+def serve_outcome(monkeypatch: pytest.MonkeyPatch, *outcomes: httpx.Response | httpx.HTTPError) -> None:
+    remaining = list(outcomes)
+
+    # The last outcome answers every call after it, so a test says how
+    # many times the endpoint changes its mind and nothing more.
     def get(_url: str, **_options: object) -> httpx.Response:
+        outcome = remaining.pop(0) if len(remaining) > 1 else remaining[0]
         if isinstance(outcome, httpx.HTTPError):
             raise outcome
         return outcome

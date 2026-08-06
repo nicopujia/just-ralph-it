@@ -3,7 +3,7 @@ import pytest
 
 from jri.core.settings import AgentProfiles
 from jri.lib.models import estimate_tokens, get_context_limit
-from tests.doubles.models import serve_catalog, serve_outcome
+from tests.doubles.models import build_response, serve_catalog, serve_outcome
 
 CONTEXT_LIMIT = 273_000
 CATALOG = {"openai/gpt-5.6-sol": {"limit": {"context": CONTEXT_LIMIT}}}
@@ -90,6 +90,20 @@ def test_falls_back_when_the_catalog_response_is_unusable(
     serve_outcome(monkeypatch, outcome)
 
     assert get_context_limit("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
+
+
+def test_reads_the_catalog_again_after_a_read_that_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_outcome(monkeypatch, httpx.ConnectError("connection refused"), build_response(CATALOG))
+
+    assert get_context_limit("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
+    assert get_context_limit("openai/gpt-5.6-sol", FALLBACK) == CONTEXT_LIMIT
+
+
+def test_reads_the_catalog_once_for_a_model_it_answered_for(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_outcome(monkeypatch, build_response(CATALOG), httpx.ConnectError("connection refused"))
+
+    assert get_context_limit("openai/gpt-5.6-sol", FALLBACK) == CONTEXT_LIMIT
+    assert get_context_limit("openai/gpt-5.6-sol", FALLBACK) == CONTEXT_LIMIT
 
 
 def test_estimates_tokens_from_the_byte_size_of_the_payload() -> None:

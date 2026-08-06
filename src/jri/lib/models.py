@@ -1,4 +1,5 @@
 import json
+import logging
 from functools import cache
 from typing import cast, overload
 
@@ -7,6 +8,8 @@ import httpx
 __all__ = ["estimate_tokens", "get_context_limit", "read_context_limit"]
 
 ENDPOINT = "https://models.dev/models.json"
+
+logger = logging.getLogger(__name__)
 
 
 @overload
@@ -18,18 +21,21 @@ def get_context_limit(model: str, fallback: None = None) -> int | None: ...
 
 
 def get_context_limit(model: str, fallback: int | None = None) -> int | None:
-    limit = read_context_limit(model)
+    try:
+        limit = read_context_limit(model)
+    except (RuntimeError, TypeError):
+        logger.exception("catalog_read_failed model=%r", model)
+        limit = None
     return fallback if limit is None else limit
 
 
 # The answer worth keeping is the catalog's own: a fallback belongs to
-# the caller that offered it.
+# the caller that offered it. And `cache` keeps what a call returned,
+# never what it raised, so a catalog JRI could not read is read again
+# on the next call instead of answering for the rest of the process.
 @cache
 def read_context_limit(model: str) -> int | None:
-    try:
-        catalog = _fetch_catalog()
-    except (RuntimeError, TypeError):
-        return None
+    catalog = _fetch_catalog()
     entry = catalog.get(model)
     if entry is None:
         suffix = model.rsplit("/", 1)[-1]
