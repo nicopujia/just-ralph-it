@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import pytest
@@ -59,3 +60,11 @@ def test_finds_credentials_a_credential_name_points_away_from(tmp_path: Path) ->
     link.symlink_to(tmp_path / "settings.txt")
 
     assert credentials.holds_credentials(link)
+
+
+def test_passes_over_a_hard_link_no_name_tells_from_an_ordinary_file(tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text("OPENAI_API_KEY=sk-live-canary\n")
+    link = tmp_path / "notes.txt"
+    os.link(tmp_path / ".env", link)
+
+    assert not credentials.holds_credentials(link)
