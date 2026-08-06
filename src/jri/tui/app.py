@@ -12,7 +12,7 @@ from textual.binding import Binding, BindingType
 from textual.command import CommandPalette as TextualCommandPalette
 from textual.containers import Container, Horizontal, Vertical
 from textual.reactive import Reactive
-from textual.screen import Screen
+from textual.screen import Screen as TextualScreen
 from textual.widgets import Button, Footer, Header, LoadingIndicator, Markdown, Static
 
 from jri.core.ai import (
@@ -59,6 +59,17 @@ class CommandPalette(TextualCommandPalette):
 
     def action_previous_command(self) -> None:
         self._action_command_list("cursor_up")
+
+
+class Screen(TextualScreen[None]):
+    # The shortcuts are the message input's, and the input answers them
+    # only while the screen it is on is the one the terminal is talking
+    # to. Whatever goes over this screen -- the command palette today,
+    # anything pushed tomorrow -- takes those keys with it, so the mode
+    # they belong to ends here rather than leaving hints up over keys
+    # that now answer somewhere else.
+    def on_screen_suspend(self) -> None:
+        self.query_one(MessageInput).is_shortcuts_open = False
 
 
 class App(TextualApp[None]):
@@ -135,7 +146,11 @@ class App(TextualApp[None]):
         yield self.footer
 
     @override
-    def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
+    def get_default_screen(self) -> Screen:
+        return Screen()
+
+    @override
+    def get_system_commands(self, screen: TextualScreen[object]) -> Iterable[SystemCommand]:
         for command in super().get_system_commands(screen):
             if command.title != "Maximize":
                 yield command
