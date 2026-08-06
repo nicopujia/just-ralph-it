@@ -10,6 +10,11 @@ __all__ = ["render", "truncate"]
 FENCE = "`"
 MIN_FENCE_LENGTH = 3
 STRUCTURE_INDENTATION = "  "
+# The breaks the serializer writes, and no others: str.splitlines()
+# also ends a line on \v, \f and the separators YAML holds inside a
+# scalar, and drops the character it ended on, so a break the text
+# itself carries would reach the model folded into a space.
+YAML_LINE_BREAK = re.compile(r"[\n\x85\u2028\u2029]")
 
 
 def render(**blocks: str | list[str] | dict[str, str] | None) -> str:
@@ -27,7 +32,8 @@ def render(**blocks: str | list[str] | dict[str, str] | None) -> str:
             # already writes with, so no item can forge a sibling and
             # no fence has to stand between them.
             dumped = safe_dump(value, sort_keys=False, allow_unicode=True, width=10**9)
-            rendered.append(f"{title}:\n" + "\n".join(STRUCTURE_INDENTATION + line for line in dumped.splitlines()))
+            indented = YAML_LINE_BREAK.sub(f"\\g<0>{STRUCTURE_INDENTATION}", dumped.removesuffix("\n"))
+            rendered.append(f"{title}:\n{STRUCTURE_INDENTATION}{indented}")
     return "\n\n".join(rendered)
 
 

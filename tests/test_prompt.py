@@ -102,6 +102,30 @@ def test_keeps_a_forged_item_inside_the_entry_holding_it() -> None:
     assert safe_load(rendered.removeprefix("Tracked repository tree:\n")) == paths
 
 
+def test_keeps_the_line_breaks_a_note_was_dictated_with() -> None:
+    note = "Ships fast.\u2028Runs offline.\u2029Nothing else."
+
+    rendered = prompt.render(project_excerpt={"n1": note})
+
+    assert safe_load(rendered.removeprefix("Project excerpt:\n")) == {"n1": note}
+
+
+def test_keeps_a_note_longer_than_a_fold_unfolded() -> None:
+    note = " ".join(["Ships fast and runs offline."] * 6)
+
+    rendered = prompt.render(project_excerpt={"n1": note})
+
+    assert note in rendered
+
+
+def test_keeps_a_note_in_the_alphabet_it_was_written_in() -> None:
+    note = "Añadir el círculo de precios y su versión 日本語."
+
+    rendered = prompt.render(project_excerpt={"n1": note})
+
+    assert note in rendered
+
+
 def test_skips_a_block_that_has_no_value() -> None:
     assert prompt.render(first="one", second=None) == "First:\n```\none\n```"
 
