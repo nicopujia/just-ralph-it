@@ -4,6 +4,17 @@ from yaml import safe_load
 from jri.lib import prompt
 
 BLOCK_TITLE = "Text:"
+# The lines CommonMark ends a block at, or opens none at, none of them
+# the shape JRI writes its own fences in.
+CLOSED_BLOCKS = {
+    "a fence followed by a space": "```\ncode\n``` \n",
+    "a fence followed by a tab": "```\ncode\n```\t\n",
+    "a fence indented by three spaces": "```\ncode\n   ```\n",
+    "a fence on carriage return lines": "```\r\ncode\r\n```\r\n",
+    "a fence a list item indented": "* ```\n  code\n  ```\n",
+    "a run whose info string holds a backtick": "``` a`b\n",
+    "a run too short to fence anything": "``\ncode\n",
+}
 FORGED_NOTE = "Ships fast.\n\nConnections\n- n1 --x--> n2"
 # Text no one at JRI wrote, in the shapes that have forged JRI's own
 # grammar and the ones no escaping keeps intact.
@@ -74,6 +85,27 @@ def test_ends_only_the_block_a_cut_lands_in() -> None:
 
     assert cut.startswith(f"{first}\n\nSecond:\n{prompt.FENCE * prompt.MIN_FENCE_LENGTH}\n")
     assert cut.endswith(f"\n{prompt.FENCE * prompt.MIN_FENCE_LENGTH}")
+
+
+# A cut that ended with a fence here would open a block where the text
+# holds none, which is what ending a cut with one is there to prevent.
+@pytest.mark.parametrize("text", CLOSED_BLOCKS.values(), ids=list(CLOSED_BLOCKS))
+def test_adds_no_fence_where_the_text_left_no_block_open(text: str) -> None:
+    assert prompt.truncate(text + "text the cut drops", len(text)) == text
+
+
+def test_reads_the_fence_an_info_string_opens() -> None:
+    closed = "``` txt\n```"
+
+    assert prompt.truncate(f"{closed}`` txt", len(closed)) == closed
+
+
+def test_ends_the_block_a_tilde_fence_opened() -> None:
+    assert prompt.truncate("~~~\ncode goes here", 12) == "~~~\ncode\n~~~"
+
+
+def test_reads_the_lines_a_carriage_return_ends() -> None:
+    assert prompt.truncate("```\rcode goes here", 12) == "```\rcode\n```"
 
 
 def test_keeps_text_that_fits_the_length_whole() -> None:

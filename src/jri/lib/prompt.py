@@ -8,6 +8,13 @@ __all__ = ["render", "truncate"]
 # than any backtick run the text holds, so nothing the text says can
 # close the block quoting it, nor the blocks enclosing that one.
 FENCE = "`"
+# The characters CommonMark opens a fence with, the most spaces it
+# lets one be indented by, and the breaks it ends a line on: a fence
+# read by any other rule closes a block the text had left open, or
+# leaves open one the text had closed.
+FENCE_CHARACTERS = frozenset({FENCE, "~"})
+MARKDOWN_LINE_BREAK = re.compile(r"\r\n|[\r\n]")
+MAX_FENCE_INDENTATION = 3
 MIN_FENCE_LENGTH = 3
 STRUCTURE_INDENTATION = "  "
 # The breaks the serializer writes, and no others: str.splitlines()
@@ -53,15 +60,42 @@ def truncate(text: str, length: int) -> str:
 
 def _close_block(text: str) -> str:
     fence = ""
-    for line in text.split("\n"):
-        # A block ends at the first run of its own fence or longer,
-        # whatever the runs inside it look like, so one block is open
-        # at a time -- and the half a run a cut leaves behind opens
-        # one, nothing telling a reader it is half of anything.
-        if line.strip(FENCE) or len(line) < MIN_FENCE_LENGTH:
+    for line in MARKDOWN_LINE_BREAK.split(text):
+        margin = line.lstrip(" ")
+        if margin[:1] not in FENCE_CHARACTERS:
             continue
+        character = margin[0]
+        run = len(margin) - len(margin.lstrip(character))
+        if run < MIN_FENCE_LENGTH:
+            continue
+        indentation = len(line) - len(margin)
+        rest = margin[run:]
         if not fence:
-            fence = line
-        elif len(line) >= len(fence):
+            # An indented fence met with no block open either opens one
+            # of the document's or closes one a list item or a quote
+            # opened at the indentation it holds its content at, and
+            # the line alone does not say which. Nothing past a line
+            # that reads both ways can be closed: a fence ending a cut
+            # where the text had closed its block opens a block, which
+            # is the very thing ending a cut is meant to spare the
+            # sentence that follows.
+            if indentation:
+                return ""
+            # A backtick fence carries no backtick in the info string it
+            # opens with -- and the half a run a cut leaves behind opens
+            # a block, nothing telling a reader it is half of anything.
+            if character == FENCE and FENCE in rest:
+                continue
+            fence = character * run
+        # A block ends at a run of its own character, its own length or
+        # longer, indented no further than a fence may be and followed
+        # by nothing but spaces and tabs, so one block is open at a time
+        # whatever the runs inside it look like.
+        elif (
+            indentation <= MAX_FENCE_INDENTATION
+            and character == fence[0]
+            and run >= len(fence)
+            and not rest.strip(" \t")
+        ):
             fence = ""
     return f"\n{fence}" if fence else ""
