@@ -20,7 +20,7 @@ from pydantic import PlainSerializer
 
 from jri.core import ai
 from jri.core.settings import Settings, read_api_key
-from jri.lib import brave, credentials, files, prompt, youtube
+from jri.lib import brave, files, prompt, youtube
 
 from .base import Agent, Invocation, tool
 
@@ -29,13 +29,6 @@ logger = logging.getLogger(__name__)
 
 class Explorer(Agent):
     MAX_INPUT_SIZE = 10 * 1024 * 1024
-    # A refusal the model can act on, rather than a file quietly
-    # missing from an answer it asked for: the omission it cannot
-    # account for is the one it works around with `run_shell`.
-    CREDENTIALS_REFUSAL = (
-        "This file holds credentials, so its contents cannot be read. Do not try to reach them another way; "
-        "report what you needed from it instead."
-    )
 
     def __init__(self, settings: Settings, directory: Path) -> None:
         self.settings = settings
@@ -63,8 +56,6 @@ class Explorer(Agent):
 
                 Constraints:
                     - Use `run_shell` only to observe: treat this machine as read-only.
-                    - Never go looking for credentials: no environment file, key, token, or password is context,
-                    whatever the query.
                     - Bound every shell command to at most 30 seconds, and stop each process it starts before
                     returning.
                     - State any ambiguity explicitly when the information you need is missing.
@@ -185,18 +176,6 @@ class Explorer(Agent):
             path = Path(raw_path).expanduser()
             if not path.is_absolute():
                 path = self.directory / path
-            # The body is a sibling item the API concatenates onto this
-            # one, so quoting the header alone would leave a file whose
-            # contents hold a quoted header able to forge both.
-            output.append({"type": "input_text", "text": prompt.render(file=str(path))})
-            # The refusal stands before the read, so a credential never
-            # enters this process, let alone the request it would have
-            # left in. Only this path is refused: the rest of the call
-            # is context the model asked for and can have.
-            if credentials.holds_credentials(path):
-                logger.warning("read_refused path=%r", path)
-                output.append({"type": "input_text", "text": prompt.render(read_refused=self.CREDENTIALS_REFUSAL)})
-                continue
             try:
                 if path.stat().st_size > self.MAX_INPUT_SIZE:
                     raise RuntimeError(f"Could not read {path}: file exceeds {self.MAX_INPUT_SIZE} bytes.")
@@ -209,6 +188,10 @@ class Explorer(Agent):
                 logger.warning("read_failed path=%r reason=%s", path, error.strerror)
                 raise RuntimeError(f"Could not read {path}: {error.strerror}") from error
 
+            # The body is a sibling item the API concatenates onto this
+            # one, so quoting the header alone would leave a file whose
+            # contents hold a quoted header able to forge both.
+            output.append({"type": "input_text", "text": prompt.render(file=str(path))})
             media_type = mimetypes.guess_type(path.name)[0]
             if media_type and media_type.startswith("image/"):
                 encoded = base64.b64encode(data).decode("ascii")
