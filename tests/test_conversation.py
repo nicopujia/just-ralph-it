@@ -516,6 +516,46 @@ def test_runs_a_failed_generation_again_after_restart(monkeypatch: pytest.Monkey
     assert reports == [f"Specification generation succeeded in Git commit {COMMIT}."]
 
 
+def test_replies_again_after_the_retry_of_a_reply_failed(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(
+        FakeClient([
+            streamed_reply("Understood."),
+            failure("provider failed"),
+            failure("provider failed again"),
+            streamed_reply("The specifications are in."),
+        ])
+    )
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+    list(conversation.ralph())
+    list(conversation.retry())
+
+    events = list(conversation.retry())
+
+    assert events[-1] == TurnFinished("replied")
+    # Retrying it as a message instead would drop the report the reply
+    # is about and put what JRI wrote in it to the model as something
+    # the user had typed.
+    assert [item.get("content") for item in conversation.session.interview if item.get("role") == "user"] == [
+        "Build a reporting CLI."
+    ]
+
+
+def test_rejects_a_session_saved_before_a_turn_recorded_its_work() -> None:
+    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
+    list(conversation.chat("Build a reporting CLI."))
+    stored = json.loads(conversation.workspace.session_file.read_text())
+    for turn in stored["transcript"]:
+        del turn["work"]
+    conversation.workspace.session_file.write_text(json.dumps(stored))
+
+    # A run that failed and a message that failed leave the interview
+    # in the same state, so a turn that never recorded which it was is
+    # one nothing can ask for again.
+    with pytest.raises(PersistenceError, match=r"Delete it .*--force"):
+        build_conversation(FakeClient([])).restore()
+
+
 def test_restores_a_cancelled_interview_turn() -> None:
     cancelled = Event()
     conversation = build_conversation(FakeClient([partial_reply("Partial reply")]))

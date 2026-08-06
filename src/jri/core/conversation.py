@@ -48,9 +48,13 @@ class InterviewItem(BaseModel):
 class Turn(BaseModel):
     message: str
     items: list[InterviewItem]
+    # A run that failed and a message that failed leave the interview
+    # in the same state, so nothing reads this back out of a session
+    # that never wrote it. A turn states it, and a file from before it
+    # is one to start again from rather than one to retry blindly.
+    work: Work
     ending: Ending = "replied"
     detail: str = ""
-    work: Work = "message"
 
     model_config = ConfigDict(extra="forbid")
 
@@ -116,15 +120,16 @@ class Conversation:
         self.logger.info("chat_started")
         self.logger.debug("chat_message message=%r", message)
         checkpoint = self._capture_checkpoint(len(self.interviewer.history))
-        self.session.transcript.append(Turn(message=message, items=[]))
+        self.session.transcript.append(Turn(message=message, items=[], work="message"))
         yield from self._report_turn(self.interviewer.send_message(message, cancelled), checkpoint, cancelled)
 
     def retry(self, cancelled: Event | None = None) -> Generator[TurnEvent]:
+        work = self.retried_work
         # A run that failed reported nothing to the interview and asked
         # it for nothing, so there is no message to send again: the work
         # to redo is the run, exactly as the button that starts one
         # would redo it.
-        if self.retried_work == "generation":
+        if work == "generation":
             yield from self.ralph(cancelled)
             return
         # A generation report opens a turn exactly as a prompt does, so
@@ -138,13 +143,16 @@ class Conversation:
         )
         item = cast("dict[str, Any]", self.interviewer.history[opening])
         checkpoint = self._capture_checkpoint(opening)
-        if self.retried_work == "reply":
+        if work == "reply":
             self.interviewer.history = self.interviewer.history[: opening + 1]
             events = self.interviewer.respond(cancelled)
         else:
             self.interviewer.history = self.interviewer.history[:opening]
             events = self.interviewer.send_message(cast("str", item["content"]), cancelled)
-        self.session.transcript[-1] = Turn(message=self.session.transcript[-1].message, items=[])
+        # The turn is doing again what it was doing, so a retry that
+        # fails is asked for again the same way, rather than sending a
+        # report the interview opened the turn with as a message.
+        self.session.transcript[-1] = Turn(message=self.session.transcript[-1].message, items=[], work=work)
         yield from self._report_turn(events, checkpoint, cancelled)
 
     def rewind(self, checkpoint_index: int) -> None:
@@ -185,9 +193,10 @@ class Conversation:
         # A run reports into the turn the user is looking at, since its
         # rows and its reply answer the message that turn opened with.
         # A run started before any message opens a turn of its own.
-        if not self.session.transcript:
-            self.session.transcript.append(Turn(message="", items=[]))
-        self.session.transcript[-1].work = "generation"
+        if self.session.transcript:
+            self.session.transcript[-1].work = "generation"
+        else:
+            self.session.transcript.append(Turn(message="", items=[], work="generation"))
         yield from self._report_turn(self._generate_specs(cancelled), checkpoint, cancelled)
 
     def restore(self) -> list[Turn]:
