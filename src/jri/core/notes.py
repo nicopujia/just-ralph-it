@@ -282,6 +282,32 @@ class Notebook:
     def render(self, topic_id: TopicId) -> str:
         return self._dump(self.graph, topic_id)
 
+    # A trashed topic is thinking the user threw away, so a document
+    # written for a model outside this conversation carries neither it,
+    # its notes, nor an edge touching either.
+    @classmethod
+    def exclude_trashed(cls, document: bytes) -> str:
+        if not document:
+            return ""
+        try:
+            graph = cls._parse(safe_load(document))
+        except (AttributeError, KeyError, OSError, TypeError, ValueError, YAMLError) as error:
+            logger.exception("document_parse_failed")
+            raise PersistenceError("The notebook document cannot be read.") from error
+        topics = [topic for topic in graph.topics if topic.status != "trashed"]
+        notes = [note for note in graph.notes if note.topic_id in {topic.id for topic in topics}]
+        visible = {topic.id for topic in topics} | {note.id for note in notes}
+        return cls._dump(
+            Graph(
+                topics=topics,
+                notes=notes,
+                connections=[
+                    item for item in graph.connections if item.source_id in visible and item.target_id in visible
+                ],
+                next_note_id=graph.next_note_id,
+            )
+        )
+
     def _traverse(self, query: ReadQuery, by_id: dict[str, Note]) -> tuple[dict[str, Note], set[str]]:
         frontier = set(query.traverse_from or [])
         unknown = frontier - (by_id.keys() | {topic.id for topic in self.graph.topics})

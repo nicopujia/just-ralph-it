@@ -222,6 +222,38 @@ def test_renders_only_visible_topics_and_relevant_notes(tmp_path: Path) -> None:
     assert security_context["topics"][2]["notes"] == {"n3": "Encrypt credentials."}
 
 
+def test_excludes_a_trashed_topic_from_a_document(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    discarded = notebook.add_topic("Discarded")
+    notebook.add(["Overview"], "t1")
+    notebook.add(["Do not build this."], discarded.id)
+    notebook.connect([Connection(source_id="n1", target_id="n2", label="supersedes")])
+    notebook.update_topic(discarded.id, "trashed")
+
+    assert safe_load(Notebook.exclude_trashed(notebook.path.read_bytes())) == {
+        "topics": [{"id": "t1", "name": "Project overview", "status": "open", "notes": {"n1": "Overview"}}],
+        "connections": [],
+        "next_note_id": "n3",
+    }
+
+
+def test_leaves_a_document_holding_no_trashed_topic_as_it_stands(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    notebook.add(["Overview"], "t1")
+    notebook.update_topic(notebook.add_topic("Delivery").id, "done", "Settled.")
+
+    assert Notebook.exclude_trashed(notebook.path.read_bytes()) == notebook.path.read_text()
+
+
+def test_reads_a_notebook_never_written_as_an_empty_document() -> None:
+    assert not Notebook.exclude_trashed(b"")
+
+
+def test_reports_a_notebook_document_that_cannot_be_read() -> None:
+    with pytest.raises(PersistenceError, match="cannot be read"):
+        Notebook.exclude_trashed(b"nonsense")
+
+
 def test_renders_an_empty_overview(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
 

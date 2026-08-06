@@ -9,6 +9,8 @@ from yaml import safe_load
 from jri.core import paths
 from jri.core.ai import ToolCallFinished, ToolCallStarted, architect, functional_analyst, specs_generation
 from jri.core.exceptions import RepositoryStateError, SpecsError
+from jri.core.notes import Notebook
+from jri.core.specs import ACCEPTANCE_TRAILER
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.openai import FakeClient, call, partial_reply, reply, response, stopped_stream, streamed_reply
 from tests.doubles.settings import build_settings
@@ -141,6 +143,43 @@ def test_returns_ambiguities_without_committing(
     ]
     assert run_git(tmp_path, "rev-parse", "HEAD") == head
     assert not (tmp_path / paths.SPECS_DIR).exists()
+
+
+def test_writes_specifications_from_the_topics_the_user_kept(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    notebook = Notebook(tmp_path / paths.NOTEBOOK_FILE)
+    notebook.add(["Ship a web app."], "t1")
+    discarded = notebook.add_topic("Discarded")
+    notebook.add(["Build a rocket instead."], discarded.id)
+    notebook.update_topic(discarded.id, "trashed")
+    client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
+
+    generate(client)
+
+    prompts = read_prompts(client)
+    assert any("Ship a web app." in prompt for prompt in prompts)
+    assert not any("Build a rocket instead." in prompt for prompt in prompts)
+
+
+def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    (tmp_path / paths.NOTEBOOK_FILE).write_text("nonsense\n")
+    run_git(tmp_path, "add", "--force", paths.NOTEBOOK_FILE)
+    run_git(tmp_path, "commit", "-qm", f"jri: update specifications\n\n{ACCEPTANCE_TRAILER}")
+    (tmp_path / paths.NOTEBOOK_FILE).unlink()
+    Notebook(tmp_path / paths.NOTEBOOK_FILE).add(["Ship a web app."], "t1")
+    client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
+
+    _, result = generate(client)
+
+    assert isinstance(result, str)
+    prompts = read_prompts(client)
+    assert any("Ship a web app." in prompt for prompt in prompts)
+    assert not any("nonsense" in prompt for prompt in prompts)
 
 
 @pytest.mark.parametrize(

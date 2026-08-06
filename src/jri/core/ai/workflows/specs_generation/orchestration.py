@@ -6,9 +6,10 @@ from pathlib import Path, PurePosixPath
 from threading import Event
 
 from jri.core import ai, paths
-from jri.core.exceptions import SpecsError
+from jri.core.exceptions import PersistenceError, SpecsError
+from jri.core.notes import Notebook
 from jri.core.settings import Settings
-from jri.core.specs import Specs
+from jri.core.specs import Baseline, Specs
 from jri.lib import git
 
 from . import architect, functional_analyst
@@ -39,18 +40,7 @@ def generate(
     designer = architect.Architect(settings)
     baseline = specs.prepare()
     explorer_report: str | None = None
-    functional_context = functional_analyst.Input(
-        notebook=baseline.notebook.decode(),
-        notebook_diff="".join(
-            unified_diff(
-                baseline.accepted_notebook.decode().splitlines(keepends=True),
-                baseline.notebook.decode().splitlines(keepends=True),
-                fromfile=f"a/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
-                tofile=f"b/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
-            )
-        ),
-        accepted_specs=specs.render(baseline.functional),
-    )
+    functional_context = _build_functional_context(specs, baseline)
     open_row = ai.ToolCallStarted("functional", "Writing functional specifications from your project notes", "✍️")
 
     cycle = 0
@@ -179,6 +169,33 @@ def generate(
         commit = specs.accept(patch, baseline)
         yield ai.ToolCallFinished("commit", "Saved the specifications to your project", "done")
         return commit
+
+
+# A trashed topic is thinking the user threw away, so the analyst
+# reads the notebook without it -- on both sides of the diff, since a
+# document filtered against a raw one reports every topic ever trashed
+# as a change this generation has to answer for.
+def _build_functional_context(specs: Specs, baseline: Baseline) -> functional_analyst.Input:
+    notebook = Notebook.exclude_trashed(baseline.notebook)
+    try:
+        accepted_notebook = Notebook.exclude_trashed(baseline.accepted_notebook)
+    # A notebook JRI can no longer read says nothing about what
+    # changed, and there is already a state for that: the diff a first
+    # generation shows, against no accepted baseline at all.
+    except PersistenceError:
+        accepted_notebook = ""
+    return functional_analyst.Input(
+        notebook=notebook,
+        notebook_diff="".join(
+            unified_diff(
+                accepted_notebook.splitlines(keepends=True),
+                notebook.splitlines(keepends=True),
+                fromfile=f"a/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
+                tofile=f"b/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
+            )
+        ),
+        accepted_specs=specs.render(baseline.functional),
+    )
 
 
 # A diff a model got slightly wrong is its mistake to correct, not a
