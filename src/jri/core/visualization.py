@@ -1,11 +1,9 @@
 from pathlib import Path
 
 from .notes import Graph
+from .support import ISSUES_URL
 
-DRAW_ERROR = (
-    "The graph viewer loaded, but it could not draw the graph. Report it at "
-    "https://github.com/nicopujia/just-ralph-it/issues."
-)
+DRAW_ERROR = f"The graph viewer loaded, but it could not draw the graph. Report it at {ISSUES_URL}."
 
 # `jri view` is the one command that reads nothing but the user's own
 # notebook, so it is the one command that must not need a network.

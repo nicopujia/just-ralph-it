@@ -1,4 +1,5 @@
 from jri.core.ai import Interviewer
+from jri.core.support import ISSUES_URL
 
 # Alphabetical order, blank line between initial letters
 
@@ -82,13 +83,7 @@ TOOL_CALL_STOPPED = "{label} — stopped"
 TOOL_CALL_STOPPED_SYMBOL = "⊘"
 TOOL_CALL_STOPPING = "{label} — stopping…"
 TURN_BLOCKED = "Stopped because of your project's state:\n\n{error}\n\nSort that out and try again."
-TURN_ERROR = """
-Something went wrong:
-
-{error}
-
-Try again. If it keeps happening, report it at https://github.com/nicopujia/just-ralph-it/issues.
-""".strip()
+TURN_ERROR = f"Something went wrong:\n\n{{error}}\n\nTry again. If it keeps happening, report it at {ISSUES_URL}."
 TURN_EXHAUSTED = "Your ChatGPT or API usage limit has been reached. Check your plan and try again later."
 TURN_NO_RESPONSE = "_No response received._"
 TURN_STOPPED = "_Response stopped._"
