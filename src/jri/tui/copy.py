@@ -92,7 +92,10 @@ TOOL_CALL_STOPPED = "{label} — stopped"
 TOOL_CALL_STOPPED_SYMBOL = "⊘"
 TOOL_CALL_STOPPING = "{label} — stopping…"
 TURN_BLOCKED = "Stopped because of your project's state:\n\n{error}\n\nSort that out and try again."
-TURN_ERROR = f"Something went wrong:\n\n{{error}}\n\nTry again. If it keeps happening, report it at {ISSUES_URL}."
+TURN_ERROR = (
+    f"Something went wrong:\n\n{{error}}\n\nTry again. If it keeps happening, report it at {ISSUES_URL} "
+    "and attach the .jri/ directory as a zip."
+)
 TURN_EXHAUSTED = "Your ChatGPT or API usage limit has been reached. Check your plan and try again later."
 TURN_NO_RESPONSE = "_No response received._"
 TURN_STOPPED = "_Response stopped._"
