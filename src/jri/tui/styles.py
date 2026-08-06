@@ -13,6 +13,8 @@ RALPHING_CLASSES = "ralphing"
 
 RETRY_BUTTON_CLASSES = "retry-button"
 
+SHORTCUT_HINTS_CLASSES = "shortcut-hints"
+
 THEME_DARK = "ansi-dark"
 THEME_LIGHT = "ansi-light"
 TOOL_CALL_ROW_CLASSES = "tool-call-row"
@@ -66,6 +68,15 @@ Header {{
 .{RALPHING_CLASSES} Static {{
     width: auto;
     height: 1;
+}}
+
+.{SHORTCUT_HINTS_CLASSES} {{
+    display: none;
+    dock: bottom;
+    height: 1;
+    padding-left: 1;
+    background: $footer-background;
+    color: $footer-foreground;
 }}
 
 .{USER_MESSAGE_CLASSES} {{

@@ -18,6 +18,8 @@ CLI_INIT_HELP = "Set the project up with the default JRI configuration."
 CLI_VERSION_HELP = "Show the JRI version and exit."
 CLI_VIEW_HELP = "Visualize the notes graph."
 CLI_YES_HELP = "Answer yes to the confirmation --force asks for."
+CLOSE_SHORTCUTS = "Close"
+CLOSE_SHORTCUTS_KEY = "Esc"
 COMMAND_PALETTE = "Command palette"
 CONFIG_ERROR = """Invalid configuration.
 Set or fix these settings in .jri/config.yaml:
@@ -53,7 +55,6 @@ INTERVIEWER_THINKING = "_Thinking..._"
 
 KEYMAP_PANEL = "Full keymap"
 
-MESSAGE_HISTORY = "Message history"
 MESSAGE_INPUT_INITIAL_PLACEHOLDER = Interviewer.FIRST_MESSAGE
 MESSAGE_INPUT_PLACEHOLDER = "Share your thoughts"
 
@@ -66,13 +67,17 @@ QUIT = "Quit"
 RALPHING = "Ralphing... [dim](don't close this window)[/dim]"
 RALPH_BUTTON = "Just Ralph It"
 RALPH_KEY = "^x j"
+RALPH_LETTER = "j"
 REDO = "Redo"
 REDO_MESSAGE = "Redo message"
 REDO_MESSAGE_KEY = "^x r"
+REDO_MESSAGE_LETTER = "r"
 RETRY = "Try again"
 RETRY_KEY = "^x t"
+RETRY_LETTER = "t"
 
 SEND_MESSAGE = "Send message"
+SHORTCUTS = "Shortcuts"
 SHOW_THINKING_BLOCKS = "Show thinking blocks"
 
 THINKING_BLOCKS = "Thinking blocks"
@@ -93,6 +98,7 @@ TURN_STOPPED = "_Response stopped._"
 
 UNDO_MESSAGE = "Undo message"
 UNDO_MESSAGE_KEY = "^x u"
+UNDO_MESSAGE_LETTER = "u"
 UNKNOWN_SETTING = "There is no such setting."
 UNKNOWN_SETTING_SUGGESTION = "There is no such setting. Did you mean {setting}?"
 

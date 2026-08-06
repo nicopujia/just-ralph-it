@@ -116,6 +116,8 @@ class App(TextualApp[None]):
         )
         self.ralph_button = Button(copy.RALPH_BUTTON, classes=styles.RALPH_BUTTON_CLASSES, compact=True)
         self.ralphing = Horizontal(LoadingIndicator(), Static(copy.RALPHING), classes=styles.RALPHING_CLASSES)
+        self.shortcut_hints = Static(classes=styles.SHORTCUT_HINTS_CLASSES)
+        self.footer = Footer()
 
     @override
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
@@ -130,7 +132,8 @@ class App(TextualApp[None]):
             yield Static()
         yield self.message_input
         yield self.ralphing
-        yield Footer()
+        yield self.shortcut_hints
+        yield self.footer
 
     @override
     def get_system_commands(self, screen: Screen) -> Iterable[SystemCommand]:
@@ -228,6 +231,7 @@ class App(TextualApp[None]):
         self._run_turn(self.conversation.chat(user_message, turn_state.cancelled), turn_state)
 
     async def on_mount(self) -> None:
+        self.watch(self.message_input, "is_shortcuts_open", self._sync_shortcut_hints)
         await self._restore_history()
         await self._sync_ralph_button()
         self.set_focus(self.message_input)
@@ -501,6 +505,20 @@ class App(TextualApp[None]):
     def _build_retry_button() -> Button:
         return Button(copy.RETRY, classes=styles.RETRY_BUTTON_CLASSES, compact=True)
 
+    def _build_shortcut_hints(self) -> str:
+        message_input = self.message_input
+        hints = (
+            (copy.CLOSE_SHORTCUTS_KEY, copy.CLOSE_SHORTCUTS, True),
+            (copy.UNDO_MESSAGE_LETTER, copy.UNDO_MESSAGE, message_input.history_index > 0),
+            (copy.REDO_MESSAGE_LETTER, copy.REDO_MESSAGE, message_input.history_index < message_input.message_count),
+            (copy.RETRY_LETTER, copy.RETRY, message_input.is_retry_ready),
+            (copy.RALPH_LETTER, copy.RALPH_BUTTON, message_input.is_ralph_ready),
+        )
+        return "  ".join(
+            f"[b]{key}[/b] {label}" if is_available else f"[dim]{key} {label}[/dim]"
+            for key, label, is_available in hints
+        )
+
     def _call_from_thread(self, callback: Callable[..., Any], *arguments: object) -> None:
         if not self.is_running:
             return
@@ -616,6 +634,17 @@ class App(TextualApp[None]):
         self.message_input.is_retry_ready = any(
             button.display for button in self.query(f".{styles.RETRY_BUTTON_CLASSES}")
         )
+
+    # Textual's footer picks its entries by the `show` a binding is
+    # declared with, so a mode that changes which keys are on offer
+    # cannot be rendered there: the hints it puts up are this bar,
+    # which takes the footer's place for as long as the mode is open.
+    def _sync_shortcut_hints(self) -> None:
+        is_open = self.message_input.is_shortcuts_open
+        if is_open:
+            self.shortcut_hints.update(self._build_shortcut_hints())
+        self.shortcut_hints.display = is_open
+        self.footer.display = not is_open
 
 
 # Every ending is answered here and nowhere else, so the live view and

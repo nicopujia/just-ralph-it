@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, override
+from typing import Literal, override
 
 from textual.binding import Binding
 from textual.message import Message
@@ -9,17 +9,14 @@ from textual.widgets import TextArea
 
 from jri.tui import copy
 
-if TYPE_CHECKING:
-    from textual.timer import Timer
-
 
 class MessageInput(TextArea):
-    CHORD_ACTIONS = frozenset({"previous_message", "next_message", "retry_message", "ralph"})
-    CHORD_TIMEOUT = 1.0
+    SHORTCUT_ACTIONS = frozenset({"previous_message", "next_message", "retry_message", "ralph"})
     BINDINGS = (
         Binding("enter", "submit", copy.SEND_MESSAGE, show=False, priority=True),
         Binding("shift+enter,ctrl+j", "insert_newline", copy.INSERT_NEWLINE, show=False, priority=True),
-        Binding("ctrl+x", "message_history", copy.MESSAGE_HISTORY, show=False, priority=True),
+        Binding("ctrl+x", "open_shortcuts", copy.SHORTCUTS, show=False, priority=True),
+        Binding("escape", "close_shortcuts", copy.CLOSE_SHORTCUTS, key_display=copy.CLOSE_SHORTCUTS_KEY, show=False),
         Binding(
             "u", "previous_message", copy.UNDO_MESSAGE, key_display=copy.UNDO_MESSAGE_KEY, show=False, priority=True
         ),
@@ -33,8 +30,8 @@ class MessageInput(TextArea):
     )
     is_ralph_ready: Reactive[bool] = Reactive(default=False, bindings=True)
     is_retry_ready: Reactive[bool] = Reactive(default=False, bindings=True)
+    is_shortcuts_open: Reactive[bool] = Reactive(default=False, bindings=True)
     is_turn_active: Reactive[bool] = Reactive(default=False, bindings=True)
-    _is_chord_open: Reactive[bool] = Reactive(default=False, bindings=True)
 
     @dataclass
     class Submitted(Message):
@@ -63,7 +60,6 @@ class MessageInput(TextArea):
         self._messages = list(messages)
         self._message_index = len(self._messages)
         self._draft = ""
-        self._chord_timer: Timer | None = None
 
     def action_insert_newline(self) -> None:
         self.insert("\n")
@@ -73,41 +69,47 @@ class MessageInput(TextArea):
 
     @override
     def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
-        if action == "message_history":
-            return not self.is_turn_active and not self._is_chord_open
-        if action in self.CHORD_ACTIONS:
-            # While the chord is open its keys belong to the chord, so
-            # an unavailable one does nothing instead of falling through
-            # to the text. Each action checks what it needs beforehand.
-            # Closed, the chord leaves its keys to the text, but the
-            # keymap panel still has to list the bindings the product
-            # is driven by, so they report themselves as unavailable
-            # rather than as absent.
-            return True if self._is_chord_open else None
+        if action == "open_shortcuts":
+            return not self.is_turn_active and not self.is_shortcuts_open
+        # Escape means "leave the shortcuts" only while they are open;
+        # closed, the binding steps aside so that `esc esc` reaches the
+        # turn it stops.
+        if action == "close_shortcuts":
+            return self.is_shortcuts_open
+        if action in self.SHORTCUT_ACTIONS:
+            # While the shortcuts are open their letters belong to them,
+            # so an unavailable one does nothing instead of falling
+            # through to the text. Each action checks what it needs
+            # beforehand. Closed, the shortcuts leave their letters to
+            # the text, but the keymap panel still has to list the
+            # bindings the product is driven by, so they report
+            # themselves as unavailable rather than as absent.
+            return True if self.is_shortcuts_open else None
         return super().check_action(action, parameters)
 
-    def action_message_history(self) -> None:
-        self._close_chord()
-        self._is_chord_open = True
-        self._chord_timer = self.set_timer(self.CHORD_TIMEOUT, self._close_chord)
+    def action_open_shortcuts(self) -> None:
+        self.is_shortcuts_open = True
+
+    def action_close_shortcuts(self) -> None:
+        self.is_shortcuts_open = False
 
     def action_previous_message(self) -> None:
-        self._close_chord()
+        self.is_shortcuts_open = False
         if self.history_index > 0:
             self.post_message(self.HistoryRequested(self, "previous"))
 
     def action_next_message(self) -> None:
-        self._close_chord()
+        self.is_shortcuts_open = False
         if self.history_index < self.message_count:
             self.post_message(self.HistoryRequested(self, "next"))
 
     def action_retry_message(self) -> None:
-        self._close_chord()
+        self.is_shortcuts_open = False
         if self.is_retry_ready:
             self.post_message(self.RetryRequested())
 
     def action_ralph(self) -> None:
-        self._close_chord()
+        self.is_shortcuts_open = False
         if self.is_ralph_ready:
             self.post_message(self.RalphRequested())
 
@@ -146,11 +148,12 @@ class MessageInput(TextArea):
     def on_blur(self) -> None:
         self.focus()
 
-    def _close_chord(self) -> None:
-        if self._chord_timer is not None:
-            self._chord_timer.stop()
-            self._chord_timer = None
-        self._is_chord_open = False
+    # A turn started from the shortcuts -- or from the message the
+    # shortcuts were open over -- takes Escape for itself, so the
+    # shortcuts are gone by the time it can be stopped.
+    def watch_is_turn_active(self) -> None:
+        if self.is_turn_active:
+            self.is_shortcuts_open = False
 
     def _load(self, value: str) -> None:
         self.text = value
