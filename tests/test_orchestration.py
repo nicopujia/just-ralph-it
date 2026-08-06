@@ -209,6 +209,12 @@ def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
     prompts = read_prompts(client)
     assert any("Ship a web app." in prompt for prompt in prompts)
     assert not any("nonsense" in prompt for prompt in prompts)
+    diff = next(prompt for prompt in prompts if "Notebook diff from accepted baseline:" in prompt)
+    # A baseline JRI cannot read is no baseline: the whole notebook
+    # arrives as additions, the state a first generation reports,
+    # rather than as the nothing-changed an unreadable one would.
+    assert "@@ -0,0 +1," in diff
+    assert "+    n1: Ship a web app." in diff
 
 
 @pytest.mark.parametrize(
