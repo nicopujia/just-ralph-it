@@ -72,6 +72,15 @@ def test_reads_to_the_end_of_a_file_a_range_overshoots(tmp_path: Path) -> None:
     assert result[1] == {"type": "input_text", "text": "Content:\n```\ntwo\n\n```"}
 
 
+def test_reads_the_last_line_of_a_file_a_range_starts_on(tmp_path: Path) -> None:
+    path = tmp_path / "example.txt"
+    path.write_bytes(b"one\ntwo\nthree\n")
+
+    result = build_explorer().read_files([path.name], start_line=3)
+
+    assert result[1] == {"type": "input_text", "text": "Content:\n```\nthree\n\n```"}
+
+
 @pytest.mark.parametrize(
     ("start_line", "end_line", "message"),
     [
@@ -93,10 +102,10 @@ def test_refuses_a_line_range_that_covers_nothing(tmp_path: Path, start_line: in
 
 def test_refuses_a_line_range_that_starts_past_the_end_of_a_file(tmp_path: Path) -> None:
     path = tmp_path / "example.txt"
-    path.write_text("one\ntwo\n")
+    path.write_text("one\ntwo\nthree\n")
 
-    with pytest.raises(RuntimeError, match="it ends at line 2, before line 5"):
-        build_explorer().read_files([path.name], start_line=5)
+    with pytest.raises(RuntimeError, match="it ends at line 3, before line 4"):
+        build_explorer().read_files([path.name], start_line=4)
 
 
 def test_reads_a_file_whose_contents_read_like_a_file_header(tmp_path: Path) -> None:
