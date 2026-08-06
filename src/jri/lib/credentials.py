@@ -5,23 +5,29 @@ __all__ = ["holds_credentials"]
 # Where a developer machine keeps its secrets, by the convention each
 # name answers to rather than by what any one project does with it:
 # environment files, private keys, registry logins, credential stores,
-# and the two directories whose every file is key material. Only names
-# whose whole purpose is to hold a credential belong here; a config
-# file that happens to cache a token is a race no list of names wins.
+# and the directories whose every file is key material. Only names
+# whose whole purpose is to hold a credential belong here, and each is
+# the name a standard tool writes one under; a config file that
+# happens to cache a token is a race no list of names wins.
 PATTERNS = (
     ".env",
     ".env.*",
+    ".envrc",
     "*.pem",
     "id_rsa",
     "id_ed25519",
+    "id_ecdsa",
+    "id_dsa",
     ".netrc",
     ".git-credentials",
     ".npmrc",
     ".pypirc",
+    ".pgpass",
     "credentials",
     "credentials.json",
     ".codex/auth.json",
     ".aws/**",
+    ".gnupg/**",
     ".ssh/**",
 )
 

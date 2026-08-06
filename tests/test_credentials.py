@@ -8,17 +8,22 @@ from jri.lib import credentials
 SECRET_NAMES = (
     ".env",
     ".env.production",
+    ".envrc",
     "deploy.pem",
     "id_rsa",
     "id_ed25519",
+    "id_ecdsa",
+    "id_dsa",
     ".netrc",
     ".git-credentials",
     ".npmrc",
     ".pypirc",
+    ".pgpass",
     "credentials",
     "credentials.json",
     ".codex/auth.json",
     ".aws/config",
+    ".gnupg/pubring.kbx",
     ".ssh/known_hosts",
 )
 ORDINARY_NAMES = (
@@ -28,6 +33,7 @@ ORDINARY_NAMES = (
     "environment.yml",
     "notes.env.md",
     "credentials.md",
+    "id_ed25519.pub",
     "src/settings.py",
 )
 
