@@ -163,6 +163,35 @@ def test_writes_specifications_from_the_topics_the_user_kept(
     assert not any("Build a rocket instead." in prompt for prompt in prompts)
 
 
+def test_writes_specifications_without_diffing_the_topics_the_user_threw_away(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    notebook = Notebook(tmp_path / paths.NOTEBOOK_FILE)
+    notebook.add(["Ship a web app."], "t1")
+    discarded = notebook.add_topic("Discarded")
+    notebook.add(["Build a rocket instead."], discarded.id)
+    notebook.update_topic(discarded.id, "trashed")
+    commit_specs()
+    Notebook(tmp_path / paths.NOTEBOOK_FILE).add(["Export the data as CSV."], "t1")
+    client = FakeClient(
+        [streamed_reply("Repository report")],
+        parsed=[
+            functional_analyst.Output(
+                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
+            ),
+            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_UPDATE)),
+        ],
+    )
+
+    _, result = generate(client)
+
+    assert isinstance(result, str)
+    diff = next(prompt for prompt in read_prompts(client) if "Notebook diff from accepted baseline:" in prompt)
+    assert "Export the data as CSV." in diff
+    assert "Build a rocket instead." not in diff
+
+
 def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
