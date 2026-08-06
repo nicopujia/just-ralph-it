@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 
 class Interviewer(Agent):
     CONTEXT_THRESHOLD = 0.4
+    FALLBACK_CONTEXT_LIMIT = 100_000
     MIN_CONTEXT_TURNS = 10
     FIRST_MESSAGE = "What do you want to build?"
 
@@ -121,7 +122,7 @@ class Interviewer(Agent):
             turns[-1].append(raw_item)
         tools = [tool.definition for tool in self.tools]
         context: ResponseInputParam = [self.history[0], pinned, *(item for turn in turns for item in turn)]
-        budget = get_context_limit(self.model) * self.CONTEXT_THRESHOLD
+        budget = get_context_limit(self.model, self.FALLBACK_CONTEXT_LIMIT) * self.CONTEXT_THRESHOLD
         while len(turns) > self.MIN_CONTEXT_TURNS and estimate_tokens(context, tools) > budget:
             turns.pop(0)
             context = [self.history[0], pinned, *(item for turn in turns for item in turn)]

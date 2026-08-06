@@ -12,7 +12,7 @@ import pytest
 from dotenv import dotenv_values
 
 from jri.lib import git
-from jri.lib.models import get_context_limit
+from jri.lib.models import read_context_limit
 from tests.doubles.models import serve_catalog
 
 type CreateRepository = Callable[[Path], git.Repository]
@@ -65,7 +65,7 @@ def isolate_network(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPa
     if request.node.get_closest_marker(CONTRACT_MARKER):
         # Nothing else clears it, and a limit an earlier test cached
         # would answer in the endpoint's place.
-        get_context_limit.cache_clear()
+        read_context_limit.cache_clear()
         return
 
     def guard(*_: object, **__: object) -> Never:

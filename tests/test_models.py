@@ -2,19 +2,20 @@ import httpx
 import pytest
 
 from jri.core.settings import AgentProfiles
-from jri.lib.models import FALLBACK_CONTEXT_LIMIT, estimate_tokens, get_context_limit
+from jri.lib.models import estimate_tokens, get_context_limit
 from tests.doubles.models import serve_catalog, serve_outcome
 
 CONTEXT_LIMIT = 273_000
 CATALOG = {"openai/gpt-5.6-sol": {"limit": {"context": CONTEXT_LIMIT}}}
+FALLBACK = 9_000
 
 
-# A catalog JRI cannot read answers exactly like one it never reached,
-# so a limit above the fallback is the whole contract at once: the
-# endpoint served, the shape parsed, and the shipped model found.
+# A catalog JRI cannot read answers with nothing, so a limit at all is
+# the whole contract at once: the endpoint served, the shape parsed,
+# and the shipped model found.
 @pytest.mark.contract
 def test_reads_the_context_limit_the_catalog_really_publishes() -> None:
-    assert get_context_limit(AgentProfiles().interviewer.model) > FALLBACK_CONTEXT_LIMIT
+    assert get_context_limit(AgentProfiles().interviewer.model) is not None
 
 
 def test_reads_the_context_limit_of_a_catalogued_model(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -43,7 +44,13 @@ def test_matches_a_model_offered_under_another_provider(monkeypatch: pytest.Monk
 def test_falls_back_when_the_catalog_cannot_answer(monkeypatch: pytest.MonkeyPatch, catalog: object) -> None:
     serve_catalog(monkeypatch, catalog)
 
-    assert get_context_limit("gpt-5.6-sol") == FALLBACK_CONTEXT_LIMIT
+    assert get_context_limit("gpt-5.6-sol", FALLBACK) == FALLBACK
+
+
+def test_answers_with_nothing_when_no_fallback_is_offered(monkeypatch: pytest.MonkeyPatch) -> None:
+    serve_catalog(monkeypatch, {})
+
+    assert get_context_limit("gpt-5.6-sol") is None
 
 
 @pytest.mark.parametrize(
@@ -54,7 +61,7 @@ def test_falls_back_when_the_catalog_cannot_answer(monkeypatch: pytest.MonkeyPat
 def test_falls_back_when_a_catalog_entry_is_malformed(monkeypatch: pytest.MonkeyPatch, catalog: object) -> None:
     serve_catalog(monkeypatch, catalog)
 
-    assert get_context_limit("openai/gpt-5.6-sol") == FALLBACK_CONTEXT_LIMIT
+    assert get_context_limit("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
 
 
 def test_prefers_an_exact_match_over_an_ambiguous_suffix(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -66,7 +73,7 @@ def test_prefers_an_exact_match_over_an_ambiguous_suffix(monkeypatch: pytest.Mon
 def test_falls_back_when_the_catalog_is_unreachable(monkeypatch: pytest.MonkeyPatch) -> None:
     serve_catalog(monkeypatch, CATALOG, status_code=503)
 
-    assert get_context_limit("openai/gpt-5.6-sol") == FALLBACK_CONTEXT_LIMIT
+    assert get_context_limit("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
 
 
 @pytest.mark.parametrize(
@@ -82,7 +89,7 @@ def test_falls_back_when_the_catalog_response_is_unusable(
 ) -> None:
     serve_outcome(monkeypatch, outcome)
 
-    assert get_context_limit("openai/gpt-5.6-sol") == FALLBACK_CONTEXT_LIMIT
+    assert get_context_limit("openai/gpt-5.6-sol", FALLBACK) == FALLBACK
 
 
 def test_estimates_tokens_from_the_byte_size_of_the_payload() -> None:
