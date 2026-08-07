@@ -54,17 +54,24 @@ MAX_IMPORT_DEPTH = 3
 # what they export rather than leaving every name reachable.
 PUBLIC_API_PACKAGE = "lib"
 TEST_SUPPORT_MODULES = frozenset({"__init__.py", "conftest.py"})
+# `uv version` reaches pyproject.toml and the lockfile; every other
+# file spelling the version out is here, with the line it spells it on,
+# so a release has one list to bump and this one to answer to.
+VERSION_COPIES = {Path("src/jri/__init__.py"): '__version__ = "{version}"'}
 
 
 def main() -> None:
     parser = ArgumentParser()
     parser.add_argument("--contracts", action="store_true")
     arguments = parser.parse_args()
-    root = Path(__file__).parent.parent
+    check_project(Path(__file__).parent.parent, contracts=arguments.contracts)
+
+
+def check_project(root: Path, *, contracts: bool) -> None:
     source = root / "src"
     package = source / "jri"
     tests = root / "tests"
-    scripts = Path(__file__).parent
+    scripts = root / "scripts"
     check_version(root)
     check_member_order(source, tests)
     check_constant_publicity(source, tests)
@@ -74,15 +81,24 @@ def main() -> None:
     check_test_layout(package, tests)
     check_deferred_annotations(source, tests)
     check_docstrings(source, tests, scripts)
-    run_uv_commands(root, contracts=arguments.contracts)
+    run_uv_commands(root, contracts=contracts)
+
+
+def read_version(root: Path) -> str:
+    # This repository is UTF-8, and a machine whose own encoding is not
+    # would read a source file holding an emoji as something else.
+    return tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
 
 
 def check_version(root: Path) -> None:
-    # This repository is UTF-8, and a machine whose own encoding is not
-    # would read a source file holding an emoji as something else.
-    version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]["version"]
-    if f'__version__ = "{version}"' not in (root / "src" / "jri" / "__init__.py").read_text(encoding="utf-8"):
-        raise RuntimeError(f"jri.__version__ must be {version}, as pyproject.toml says")
+    version = read_version(root)
+    stale = [
+        str(root / path)
+        for path, spelling in VERSION_COPIES.items()
+        if spelling.format(version=version) not in (root / path).read_text(encoding="utf-8")
+    ]
+    if stale:
+        raise RuntimeError(f"Every copy of the version must be {version}, as pyproject.toml says:\n" + "\n".join(stale))
 
 
 def check_member_order(*roots: Path) -> None:
