@@ -147,7 +147,10 @@ class App(TextualApp[None]):
 
     @override
     def get_default_screen(self) -> Screen:
-        return Screen()
+        # The id Textual gives the screen it would have put here: this
+        # one adds a suspend hook and changes nothing else, so anything
+        # looking the first screen up by id still finds it.
+        return Screen(id="_default")
 
     @override
     def get_system_commands(self, screen: TextualScreen[object]) -> Iterable[SystemCommand]:
