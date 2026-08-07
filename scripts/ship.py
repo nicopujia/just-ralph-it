@@ -40,7 +40,9 @@ def main() -> None:
     check_number(root, version)
     remote, ref = read_upstream(git, root)
     check_tag(git, root, remote, version)
+    check_upstream(git, root, remote, ref)
     check_changes(git, root, frozenset())
+    head = _read_git(git, root, "rev-parse", "HEAD")
     bump_version(uv, root, version)
     try:
         # publish.yml gates a release on this exact run, so a release
@@ -49,16 +51,20 @@ def main() -> None:
         # The gate lets `ruff --fix` rewrite what it fixes, and a commit
         # of the version alone would push a tree nothing checked.
         check_changes(git, root, frozenset(BUMPED_PATHS))
+        subprocess.run([git, *COMMIT_COMMAND, "--", *BUMPED_PATHS], cwd=root, check=True)
+        # The refspec leaves `push.default` no say in which branches go,
+        # and `--follow-tags` is refused because publish.yml releases
+        # whatever a `v` tag points at and no tag here has passed the
+        # gate this run just ran.
+        subprocess.run([git, "push", "--no-follow-tags", remote, f"HEAD:{ref}"], cwd=root, check=True)
     except (RuntimeError, subprocess.CalledProcessError):
-        # The bump is this script's own edit, so a release turned down
-        # after it takes the edit back out.
-        subprocess.run([git, "restore", "--", *BUMPED_PATHS], cwd=root, check=True)
+        # The bump and the commit holding it are this script's own, and
+        # the remote can take a commit while the gate runs, so a release
+        # turned down at the push takes both back out rather than
+        # leaving a `chore: version` for a release that never went out.
+        subprocess.run([git, "reset", "--soft", head], cwd=root, check=True)
+        subprocess.run([git, "restore", "--staged", "--worktree", "--", *BUMPED_PATHS], cwd=root, check=True)
         raise
-    subprocess.run([git, *COMMIT_COMMAND, "--", *BUMPED_PATHS], cwd=root, check=True)
-    # The refspec leaves `push.default` no say in which branches go, and
-    # `--follow-tags` is refused because publish.yml releases whatever a
-    # `v` tag points at and no tag here has passed the gate just run.
-    subprocess.run([git, "push", "--no-follow-tags", remote, f"HEAD:{ref}"], cwd=root, check=True)
 
 
 def check_number(root: Path, version: str) -> None:
@@ -84,6 +90,21 @@ def check_tag(git: str, root: Path, remote: str, version: str) -> None:
     tag = f"{TAG_PREFIX}{version}"
     if _read_git(git, root, "tag", "--list", tag) or _read_git(git, root, "ls-remote", "--tags", remote, tag):
         raise RuntimeError(f"{tag} exists already, so {version} is a release that has gone out")
+
+
+def check_upstream(git: str, root: Path, remote: str, ref: str) -> None:
+    line = _read_git(git, root, "ls-remote", remote, ref)
+    if not line:
+        return
+    upstream = line.split()[0]
+    # A commit this repository does not hold is one this branch cannot
+    # hold either, so `merge-base` is read by its exit code and the
+    # fatal it prints over an unknown name is not passed on.
+    reached = subprocess.run(
+        [git, "merge-base", "--is-ancestor", upstream, "HEAD"], cwd=root, check=False, stderr=subprocess.DEVNULL
+    )
+    if reached.returncode:
+        raise RuntimeError(f"{ref} on {remote} is at {upstream}, which this branch does not hold, so a push is refused")
 
 
 def check_changes(git: str, root: Path, allowed: frozenset[str]) -> None:
