@@ -1,68 +1,57 @@
+import sys
 import threading
 import time
 from pathlib import Path
 
-from jri.lib.lock import Lock
+import pytest
+
+from jri.lib.lock import Lock, LockError
 from tests.doubles.lock import hold, take
 
-HELD_FOR = 0.2
+HELD_FOR = 0.5
 
 
-def test_refuses_a_lock_another_process_holds(tmp_path: Path) -> None:
+def test_frees_the_lock_when_the_block_it_was_taken_for_ends(tmp_path: Path) -> None:
     path = tmp_path / "lock"
 
-    with hold(path):
-        taken = Lock(path).acquire()
+    with Lock(path):
+        pass
 
-    assert not taken
-
-
-def test_frees_the_lock_a_killed_holder_never_released(tmp_path: Path) -> None:
-    path = tmp_path / "lock"
-    lock = Lock(path)
-
-    with hold(path) as holder:
-        holder.kill()
-        holder.wait()
-        taken = take(lock)
-
-    lock.release()
-    assert taken
+    assert take(path)
 
 
 def test_waits_for_the_lock_a_holder_has_not_dropped_yet(tmp_path: Path) -> None:
     path = tmp_path / "lock"
-    waiting = Lock(path)
 
     with hold(path) as holder:
         started = time.monotonic()
         # The holder is killed rather than asked to let go, so what the
         # wait ends on is the operating system and nothing of JRI's.
         threading.Timer(HELD_FOR, holder.kill).start()
-        taken = waiting.acquire(wait=True)
+        taken = take(path)
         waited = time.monotonic() - started
 
-    waiting.release()
     assert taken
     assert waited >= HELD_FOR
 
 
-def test_refuses_a_lock_this_process_already_holds(tmp_path: Path) -> None:
-    path = tmp_path / "lock"
-    held = Lock(path)
-    held.acquire()
+@pytest.mark.skipif(sys.platform == "win32", reason="a directory that refuses a write is an access list `chmod` cannot")
+def test_reports_a_lock_file_it_cannot_open(tmp_path: Path) -> None:
+    unwritable = tmp_path / "unwritable"
+    unwritable.mkdir(mode=0o500)
 
-    taken = Lock(path).acquire()
+    try:
+        with pytest.raises(LockError, match="cannot be opened"), Lock(unwritable / "lock"):
+            pass
+    finally:
+        unwritable.chmod(0o700)
 
-    held.release()
-    assert not taken
 
+def test_reports_a_lock_path_that_is_not_a_file(tmp_path: Path) -> None:
+    path = tmp_path / "directory"
+    path.mkdir()
 
-def test_holds_the_lock_for_the_block_it_was_taken_for(tmp_path: Path) -> None:
-    path = tmp_path / "lock"
+    with pytest.raises(LockError, match="cannot be opened"), Lock(path):
+        pass
 
-    with Lock(path):
-        held = Lock.is_held(path)
-
-    assert held
-    assert not Lock.is_held(path)
+    assert path.is_dir()

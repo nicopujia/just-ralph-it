@@ -5,8 +5,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from jri.lib.lock import Lock
-
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
@@ -16,13 +14,23 @@ HOLDER = """
 import sys, time
 from pathlib import Path
 from jri.lib.lock import Lock
-lock = Lock(Path(sys.argv[1]))
-lock.acquire(wait=True)
-Path(sys.argv[2]).touch()
-time.sleep(30)
+
+with Lock(Path(sys.argv[1])):
+    Path(sys.argv[2]).touch()
+    time.sleep(30)
 """
 POLL = 0.01
-TIMEOUT = 10
+TAKER = """
+import sys
+from pathlib import Path
+from jri.lib.lock import Lock
+
+with Lock(Path(sys.argv[1])):
+    pass
+"""
+# A lock its holder's death freed is taken as soon as it is asked for,
+# so this is only ever waited out by a lock that never came back.
+TIMEOUT = 5
 
 
 @contextmanager
@@ -40,12 +48,11 @@ def hold(path: Path) -> "Iterator[subprocess.Popen[bytes]]":
         holder.wait()
 
 
-def take(lock: Lock) -> bool:
-    # Windows hands a dead holder's range back when it gets round to
-    # it, so the wait is the platform's rather than the lock's.
-    deadline = time.monotonic() + TIMEOUT
-    while not lock.acquire():
-        if time.monotonic() > deadline:
-            return False
-        time.sleep(POLL)
-    return True
+def take(path: Path) -> bool:
+    # The lock is asked for in a process of its own, so a lock that
+    # never comes back ends the test rather than hanging the suite.
+    try:
+        taker = subprocess.run([sys.executable, "-c", TAKER, str(path)], timeout=TIMEOUT, check=False)
+    except subprocess.TimeoutExpired:
+        return False
+    return taker.returncode == 0

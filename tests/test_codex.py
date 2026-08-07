@@ -340,6 +340,24 @@ def test_reports_a_refreshed_login_that_cannot_be_saved(tmp_path: Path, monkeypa
         home.chmod(0o700)
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="a directory that refuses a write is an access list on Windows, and `chmod` writes no list",
+)
+def test_reports_a_refresh_whose_lock_cannot_be_taken(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "read-only"
+    home.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(home))
+    write_login(home, {"access_token": build_token(0), "refresh_token": "refresh", "account_id": "account"})
+    home.chmod(0o500)
+
+    try:
+        with pytest.raises(codex.AuthError, match="could not be locked"):
+            codex.Auth(ORIGINATOR).validate()
+    finally:
+        home.chmod(0o700)
+
+
 def test_leaves_no_scratch_file_behind_when_saving_the_login_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

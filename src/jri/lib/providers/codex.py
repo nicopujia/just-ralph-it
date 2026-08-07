@@ -2,7 +2,8 @@ import base64
 import json
 import os
 import threading
-from collections.abc import Generator
+from collections.abc import Generator, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -12,7 +13,7 @@ import httpx
 from openai import DefaultHttpxClient, OpenAI
 from openai._models import FinalRequestOptions
 
-from jri.lib.lock import Lock
+from jri.lib.lock import Lock, LockError
 
 __all__ = ["Auth", "AuthError", "Client"]
 
@@ -87,8 +88,19 @@ class Auth(httpx.Auth):
         except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError):
             return True
 
+    @contextmanager
+    def _lock_login(self) -> Iterator[None]:
+        # A lock beside the login is as reachable as the login itself,
+        # so the login's own failure is what a lock nothing can take
+        # has to arrive as.
+        try:
+            with self.file_lock:
+                yield
+        except LockError as error:
+            raise AuthError("The Codex login could not be locked for a refresh.") from error
+
     def _refresh(self, refresh_token: str) -> dict[str, str]:
-        with self.lock, self.file_lock:
+        with self.lock, self._lock_login():
             current = self._read()
             tokens = current.get("tokens")
             # Spending the refresh token is irreversible, so the login
