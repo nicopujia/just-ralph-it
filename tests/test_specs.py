@@ -782,6 +782,68 @@ def test_keeps_the_acceptance_a_killed_run_had_already_committed(
     assert not run_git(tmp_path, "status", "--short")
 
 
+@pytest.mark.parametrize(
+    "damage",
+    [b"", b'{"accepted": "93db9f5480', b"\x9c\x00 not a record of anything"],
+    ids=["truncated-to-nothing", "truncated-mid-json", "corrupted-bytes"],
+)
+def test_starts_over_a_record_it_cannot_read(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, damage: bytes
+) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "commit", kill_the_run_after_committing)
+    record = Workspace(tmp_path).acceptance_file
+    record.write_bytes(damage)
+    restarted = build_conversation(tmp_path, updated_client())
+    restarted.restore()
+
+    assert read_ending(restarted.ralph()) == "replied"
+
+    assert not record.exists()
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
+    assert not run_git(tmp_path, "status", "--short")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a file that refuses a read is an access list `chmod` cannot write")
+def test_starts_over_a_record_the_operating_system_refuses(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "commit", kill_the_run_after_committing)
+    record = Workspace(tmp_path).acceptance_file
+    record.chmod(0o000)
+    restarted = build_conversation(tmp_path, updated_client())
+    restarted.restore()
+
+    assert read_ending(restarted.ralph()) == "replied"
+
+    assert not record.exists()
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
+    assert not run_git(tmp_path, "status", "--short")
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="a directory that refuses a write is an access list `chmod` cannot write"
+)
+def test_reports_a_record_it_can_neither_read_nor_remove(tmp_path: Path, create_repository: CreateRepository) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "commit", kill_the_run_after_committing)
+    record = Workspace(tmp_path).acceptance_file
+    record.write_bytes(b"")
+    record.parent.chmod(0o500)
+
+    try:
+        ending = read_ending(
+            build_conversation(tmp_path, updated_client()).ralph(),
+            rf"Could not remove the acceptance record `{re.escape(str(record))}`",
+        )
+    finally:
+        record.parent.chmod(0o700)
+
+    assert ending == "failed"
+    assert record.exists()
+
+
 def test_ignores_a_record_of_an_acceptance_the_worktree_no_longer_holds(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:

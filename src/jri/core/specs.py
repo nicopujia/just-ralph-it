@@ -7,7 +7,7 @@ from itertools import pairwise
 from pathlib import Path, PurePosixPath
 from tempfile import TemporaryDirectory
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from jri.lib import files, git, prompt
 from jri.lib.lock import Lock
@@ -177,7 +177,7 @@ class Specs:
             except git.Error:
                 self._undo_acceptance(acceptance)
                 raise
-            self.workspace.acceptance_file.unlink(missing_ok=True)
+            self._drop_acceptance()
         logger.info("specs_committed commit=%s", commit)
         return commit
 
@@ -199,7 +199,7 @@ class Specs:
         # that point the patch is the project's: reversing it would
         # delete specifications the user has.
         if accepted != acceptance.accepted:
-            self.workspace.acceptance_file.unlink(missing_ok=True)
+            self._drop_acceptance()
             logger.info("acceptance_committed commit=%s", accepted)
             return
         self._undo_acceptance(acceptance)
@@ -233,10 +233,32 @@ class Specs:
                 f"`{self.repository.index_lock_file}` before Ralphing."
             )
 
+    # A record JRI cannot read says nothing about the run that wrote
+    # it: not what that run applied, not what it staged, not whether
+    # it is still there. So it stops being evidence and goes, rather
+    # than standing in front of every run after it -- and whatever the
+    # run it described left in the worktree, `_check_state` names.
     def _read_acceptance(self) -> Acceptance | None:
         if not self.workspace.acceptance_file.exists():
             return None
-        return Acceptance.model_validate_json(self.workspace.acceptance_file.read_bytes())
+        try:
+            return Acceptance.model_validate_json(self.workspace.acceptance_file.read_bytes())
+        except (OSError, ValidationError):
+            logger.exception("acceptance_unreadable path=%s", self.workspace.acceptance_file)
+            self._drop_acceptance()
+            return None
+
+    # The record is JRI's own file, and a run that cannot take it away
+    # leaves every run after it reading the same one, so what it says
+    # about that is JRI's own rather than the operating system's.
+    def _drop_acceptance(self) -> None:
+        try:
+            self.workspace.acceptance_file.unlink(missing_ok=True)
+        except OSError as error:
+            logger.exception("acceptance_removal_failed path=%r", self.workspace.acceptance_file)
+            raise PersistenceError(
+                f"Could not remove the acceptance record `{self.workspace.acceptance_file}`: {error.strerror}"
+            ) from error
 
     def _undo_acceptance(self, acceptance: Acceptance) -> None:
         intended = self._rebuild_writes(acceptance)
@@ -276,7 +298,7 @@ class Specs:
             self.repository.unstage(added)
         for file_patch in reversible:
             self.repository.apply_patch(file_patch.encode(), reverse=True)
-        self.workspace.acceptance_file.unlink(missing_ok=True)
+        self._drop_acceptance()
         logger.info("acceptance_undone unstaged=%d reversed=%d", len(added), len(reversible))
 
     # What a write of the acceptance's was cut off part way through
