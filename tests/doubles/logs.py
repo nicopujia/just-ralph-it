@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 import sys
 import time
@@ -77,6 +78,44 @@ def run_beside(workspace: Path, *, bound: int, batches: "Sequence[int]", padding
     assert run.returncode == 0
 
 
+# Every way a path the log needs can stop being what it must be, save
+# the ones a privilege this process does not have would have to make.
+def sabotage(workspace: Path, kind: str) -> None:
+    logs_dir = workspace / paths.LOGS_DIR
+    log_file = workspace / paths.LOG_FILE
+    lock_file = workspace / paths.LOG_LOCK_FILE
+    nowhere = workspace / "nowhere"
+    match kind:
+        case "the directory gone":
+            shutil.rmtree(logs_dir)
+        case "a file on the directory":
+            shutil.rmtree(logs_dir)
+            logs_dir.write_text("not a directory", encoding="utf-8")
+        case "a link going nowhere on the directory":
+            shutil.rmtree(logs_dir)
+            logs_dir.symlink_to(nowhere)
+        case "a directory nothing may enter":
+            logs_dir.chmod(0o000)
+        case "a directory on the log file":
+            _put_a_directory_on(log_file)
+        case "a link going nowhere on the log file":
+            log_file.unlink()
+            log_file.symlink_to(nowhere / log_file.name)
+        case "a log file nothing may write":
+            log_file.chmod(0o444)
+        case "a directory on the rotated file":
+            _put_a_directory_on(log_file.with_name(f"{log_file.name}.1"))
+        case "a directory on the session's opening":
+            _put_a_directory_on(log_file.with_name(f"{log_file.name}.2"))
+        case "a directory on the lock":
+            _put_a_directory_on(lock_file)
+        case "a link going nowhere on the lock":
+            lock_file.unlink(missing_ok=True)
+            lock_file.symlink_to(nowhere / lock_file.name)
+        case _:
+            raise AssertionError(kind)
+
+
 class Turns:
     def __init__(self, directory: Path) -> None:
         self.directory = directory
@@ -86,6 +125,11 @@ class Turns:
 
     def wait_for(self, turn: int) -> None:
         _wait_for(self.directory / f"{turn}.done")
+
+
+def _put_a_directory_on(path: Path) -> None:
+    path.unlink(missing_ok=True)
+    path.mkdir()
 
 
 def _wait_for(path: Path) -> None:

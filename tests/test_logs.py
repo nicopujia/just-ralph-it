@@ -1,7 +1,8 @@
 import logging
 import os
 import re
-import shutil
+import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -11,7 +12,7 @@ from jri import __version__
 from jri.core import logs, paths
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
-from tests.doubles.logs import list_log_files, read_session_log, run_beside
+from tests.doubles.logs import list_log_files, read_session_log, run_beside, sabotage
 from tests.doubles.openai import FakeClient
 from tests.doubles.settings import build_settings
 from tests.doubles.workspace import install_workspace
@@ -32,6 +33,23 @@ OVERSIZED_RECORDS = 40
 # record either run wrote is still there to read.
 RECORD_PADDING = "x" * 200
 RECORDS_PER_RUN = 200
+# The states `tests.doubles.logs.sabotage` knows how to leave behind.
+# What is missing from this list is what no unprivileged process can
+# make: a file the immutable or the append-only attribute is set on, a
+# device node, and a filesystem with nothing left on it.
+SABOTAGED_PATHS = (
+    "the directory gone",
+    "a file on the directory",
+    "a link going nowhere on the directory",
+    "a directory nothing may enter",
+    "a directory on the log file",
+    "a link going nowhere on the log file",
+    "a log file nothing may write",
+    "a directory on the rotated file",
+    "a directory on the session's opening",
+    "a directory on the lock",
+    "a link going nowhere on the lock",
+)
 SMALL_LOG_FILE_BYTES = 64 * 1024
 # What the first run writes for as long as the second is busy with the
 # oversized ones, so the two of them are on the lock together.
@@ -39,6 +57,9 @@ SMALL_RECORDS = 2000
 STAMP = re.compile(r"^\[([\d-]+ [\d:,]+)\]", re.MULTILINE)
 TURN_RECORDS = 3
 TURNS = 2
+# A write that never comes back is what the pipe below is pinned
+# against, so the record is made from a thread this outlives.
+WRITE_SECONDS = 10
 
 
 def test_appends_a_run_to_the_log_the_session_already_has(tmp_path: Path) -> None:
@@ -98,16 +119,46 @@ def test_keeps_the_opening_of_a_session_that_fills_the_files_over_and_over(tmp_p
     assert FAILURE_RECORD in log
 
 
-def test_writes_on_when_a_reset_takes_the_log_directory_away(tmp_path: Path) -> None:
+@pytest.mark.parametrize("kind", SABOTAGED_PATHS)
+def test_writes_on_when_a_path_the_log_needs_is_not_what_it_must_be(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
     install_workspace(tmp_path)
     settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    monkeypatch.setattr(logs, "LOG_FILE_BYTES", SMALL_LOG_FILE_BYTES)
     logs.configure(settings)
     logger = logging.getLogger("jri")
     logger.info(OPENING_RECORD)
 
-    shutil.rmtree(tmp_path / paths.LOGS_DIR)
+    try:
+        sabotage(tmp_path, kind)
+    except OSError as error:
+        pytest.skip(f"this machine withholds what the sabotage needs: {error}")
+    # Past the bound above, so the record that lands last has been
+    # through a rename as well as through an append.
+    for _ in range(SMALL_LOG_FILE_BYTES // FILLING_RECORD_BYTES + 1):
+        logger.info("x" * FILLING_RECORD_BYTES)
     logger.info(FAILURE_RECORD)
 
+    # Reading the directory back is itself the assertion that no name
+    # the log rotates through still holds something else.
+    assert FAILURE_RECORD in read_session_log(tmp_path)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="no pipe of Windows' own answers to a path")
+def test_writes_on_when_a_pipe_stands_on_the_log_file(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    logs.configure(settings)
+    logger = logging.getLogger("jri")
+    (tmp_path / paths.LOG_FILE).unlink()
+    os.mkfifo(tmp_path / paths.LOG_FILE)
+
+    writing = threading.Thread(target=logger.info, args=(FAILURE_RECORD,), daemon=True)
+    writing.start()
+    writing.join(WRITE_SECONDS)
+
+    assert not writing.is_alive(), "the open on a pipe nobody reads never came back, and the lock went with it"
     assert FAILURE_RECORD in read_session_log(tmp_path)
 
 
@@ -203,8 +254,10 @@ def test_reads_back_in_time_order_when_two_runs_write_at_once(tmp_path: Path) ->
 
 
 def test_explains_when_the_log_file_cannot_be_created(tmp_path: Path) -> None:
-    (tmp_path / paths.WORKSPACE_DIR).mkdir()
-    (tmp_path / paths.LOGS_DIR).write_text("not a directory")
+    # The workspace directory holds the notebook, the configuration and
+    # the specifications, so what stands on that name is not the log's
+    # to clear the way it clears its own.
+    (tmp_path / paths.WORKSPACE_DIR).write_text("not a directory")
 
     with pytest.raises(PersistenceError, match="Could not create the log file"):
         logs.configure(build_settings(FakeClient([])))

@@ -1,6 +1,10 @@
 import contextlib
 import itertools
 import logging
+import os
+import shutil
+import stat
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import override
@@ -25,6 +29,18 @@ from .workspace import Workspace
 # the window drops and nothing here puts back.
 KEPT_LOG_FILES = 3
 LOG_FILE_BYTES = 5 * 1024 * 1024
+# `open` works out the flags the mode it was handed needs and these go
+# on top of them. A link on the log's name would put the records
+# wherever it points, which is how a run writes outside `.jri`; a pipe
+# on that name blocks the open until somebody reads, which hangs the
+# run with the log's lock in its hand. Windows has neither flag, and no
+# pipe of its own answers to a path, so a link there is followed.
+LOG_FILE_FLAGS = 0
+if sys.platform != "win32":
+    LOG_FILE_FLAGS = os.O_NOFOLLOW | os.O_NONBLOCK
+# What `open` would have created the file with, so the umask still
+# decides who besides the owner may read a run's records.
+LOG_FILE_PERMISSIONS = 0o666
 # A record reaches the file whole or not at all, so one longer than the
 # file bound would leave a file past that bound and take every record
 # before it down on the rotation the next one makes. What grows this
@@ -53,14 +69,14 @@ TRUNCATION_NOTICE = "... [{dropped} bytes dropped]"
 def configure(settings: Settings) -> None:
     workspace = Workspace.find()
     log_file = workspace.log_file
+    handler = SessionLog(log_file, workspace.log_lock_file)
     try:
-        workspace.logs_dir.mkdir(exist_ok=True, parents=True)
+        handler.repair()
         # A log nothing may write to is worth saying at the start,
         # since every record after this is dropped rather than reported.
         log_file.touch()
     except OSError as error:
         raise PersistenceError(f"Could not create the log file `{log_file}`: {error.strerror}") from error
-    handler = SessionLog(log_file, workspace.log_lock_file)
     # One file now holds runs that overlap and runs made by different
     # releases, which a file per run used to tell apart by existing, so
     # the line carries both rather than a banner a configured level
@@ -101,37 +117,104 @@ class SessionLog(logging.Handler):
         # A record that cannot be written is dropped rather than
         # reported, since the stream `logging` reports on is the
         # terminal a `jri chat` screen holds. So nothing is left to
-        # notice a directory that went, and `jri init --force` beside a
-        # running session takes this one: a run whose records all land
-        # inside it is silent from there until somebody else happens to
-        # put it back. It puts the directory back itself instead, and
-        # asks before making it, since one that is there answers a
-        # `stat` and costs a raised `FileExistsError` every record.
-        with contextlib.suppress(OSError, LockError):
-            if not self.file.parent.exists():
-                self.file.parent.mkdir(parents=True, exist_ok=True)
-            # Both `jri chat` and `jri view` configure logging, so two
-            # runs of one session write to this file at once, and the
-            # rename a rotation makes moves it out from under whichever
-            # run did not make it: stamping, reading the size, rotating
-            # and appending all happen under one lock.
-            with self.file_lock:
-                stamp = datetime.now(UTC).astimezone().strftime(LOG_TIME_FORMAT)[:-LOG_TIME_MICROSECOND_DIGITS]
-                line = LOG_STAMP.format(time=stamp).encode() + body + b"\n"
-                size = self.file.stat().st_size if self.file.exists() else 0
-                if size and size + len(line) > LOG_FILE_BYTES:
-                    self._rotate()
-                with self.file.open("ab") as stream:
-                    stream.write(line)
+        # notice a path of the log's that has stopped being what it
+        # must be -- a `jri init --force` beside a running session
+        # takes the directory, and a run whose records all land inside
+        # it is silent from there until somebody else happens to put it
+        # right. The write that finds a path wrong is the write that
+        # repairs it, so the records that find them right pay a lock, a
+        # `lstat` and an open, and nothing for the look.
+        try:
+            self._write(body)
+        except (OSError, LockError):
+            with contextlib.suppress(OSError, LockError):
+                self.repair()
+                self._write(body)
+
+    # Whatever stands on a path the log needs and is not what the log
+    # needs there is put right rather than worked around: this
+    # directory and the files under it are JRI's own, `jri init
+    # --force` empties them, and nothing outside the run is going to
+    # notice. A mode is set back, since the records the file already
+    # holds are worth more than a fresh one; anything else -- a
+    # directory, a link, a pipe -- is removed, since none of them holds
+    # a record of the log's to lose.
+    def repair(self) -> None:
+        directory = self.file.parent
+        if directory.is_symlink() or not directory.is_dir():
+            # The name and never a tree: the runs of a session repair
+            # beside each other, and one that finds no directory here
+            # must not empty the real one another has made in the
+            # meantime and is writing into now.
+            with contextlib.suppress(OSError):
+                directory.unlink()
+        directory.mkdir(parents=True, exist_ok=True)
+        _grant_owner_access(directory)
+        for path in (*self.kept_files, self.file_lock.path):
+            if path.is_symlink() or (path.exists() and not path.is_file()):
+                _discard(path)
+            else:
+                _grant_owner_access(path)
+
+    def _write(self, body: bytes) -> None:
+        # Both `jri chat` and `jri view` configure logging, so two runs
+        # of one session write to this file at once, and the rename a
+        # rotation makes moves it out from under whichever run did not
+        # make it: stamping, reading the size, rotating and appending
+        # all happen under one lock.
+        with self.file_lock:
+            stamp = datetime.now(UTC).astimezone().strftime(LOG_TIME_FORMAT)[:-LOG_TIME_MICROSECOND_DIGITS]
+            line = LOG_STAMP.format(time=stamp).encode() + body + b"\n"
+            try:
+                # The size of the file the open below will write to,
+                # which is that file and never what a link standing on
+                # its name points at.
+                size = self.file.lstat().st_size
+            except FileNotFoundError:
+                size = 0
+            if size and size + len(line) > LOG_FILE_BYTES:
+                self._rotate()
+            with open(self.file, "ab", opener=_open_the_log) as stream:
+                stream.write(line)
 
     def _rotate(self) -> None:
         opening, *window = self.kept_files
         # The first rotation is the one that would drop the front of
         # the session, so that is the file it freezes; every rotation
-        # after it walks the window and leaves the opening alone.
-        if not opening.exists():
+        # after it walks the window and leaves the opening alone. A
+        # name holding anything but a file of the log's is a name
+        # holding no records, so the rename goes ahead and fails, which
+        # is what brings the repair.
+        if not opening.is_file():
             self.file.replace(opening)
             return
         for older, newer in itertools.pairwise(window):
-            if newer.exists():
+            if newer.is_file():
                 newer.replace(older)
+
+
+# Removing is best effort: an immutable file needs a privilege JRI does
+# not have, and one path that will not go must leave the next one to be
+# repaired anyway.
+def _discard(path: Path) -> None:
+    with contextlib.suppress(OSError):
+        if path.is_dir() and not path.is_symlink():
+            shutil.rmtree(path)
+        else:
+            path.unlink()
+
+
+def _grant_owner_access(path: Path) -> None:
+    with contextlib.suppress(OSError):
+        mode = path.stat().st_mode
+        # A directory nothing may enter is a directory nothing may
+        # write in, empty or read the rotated files out of. The mode
+        # goes back only as far as the user the run belongs to, so what
+        # was set for anybody else stands.
+        wanted = mode | (stat.S_IRWXU if stat.S_ISDIR(mode) else stat.S_IRUSR | stat.S_IWUSR)
+        if wanted != mode:
+            path.chmod(wanted)
+
+
+def _open_the_log(path: str, flags: int) -> int:
+    return os.open(path, flags | LOG_FILE_FLAGS, LOG_FILE_PERMISSIONS)
