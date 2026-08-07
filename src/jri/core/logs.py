@@ -1,6 +1,7 @@
 import contextlib
 import itertools
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import override
 
@@ -26,6 +27,20 @@ LOG_FILE_BYTES = 5 * 1024 * 1024
 # so the rest goes and what went is counted on the line. This must stay
 # under `LOG_FILE_BYTES` for the bound over the files to hold.
 LOG_RECORD_BYTES = 64 * 1024
+# A record is stamped where it is written rather than where it is made.
+# The runs of one session take turns over the file, so the order it
+# reads back in is the order the lock hands out, and `%(asctime)s` is
+# stamped at creation: a run that spends a millisecond formatting a
+# large record lands it behind records its neighbour created later, and
+# the truncation cutting such a record down is time spent inside that
+# window. The width is fixed, so what a record has room for is known
+# before the stamp exists.
+LOG_STAMP = "[{time}] "
+LOG_STAMP_BYTES = len(LOG_STAMP.format(time="0000-00-00 00:00:00,000"))
+# `%f` carries microseconds and the log is stamped to the millisecond,
+# so the last three digits of a stamp go.
+LOG_TIME_FORMAT = "%Y-%m-%d %H:%M:%S,%f"
+LOG_TIME_MICROSECOND_DIGITS = 3
 TRUNCATION_NOTICE = "... [{dropped} bytes dropped]"
 
 
@@ -44,9 +59,7 @@ def configure(settings: Settings) -> None:
     # releases, which a file per run used to tell apart by existing, so
     # the line carries both rather than a banner a configured level
     # could keep out of the file the report is made from.
-    handler.setFormatter(
-        logging.Formatter(f"[%(asctime)s] [{__version__}] [%(process)d] [%(levelname)s] [%(name)s] %(message)s")
-    )
+    handler.setFormatter(logging.Formatter(f"[{__version__}] [%(process)d] [%(levelname)s] [%(name)s] %(message)s"))
     application_logger = logging.getLogger("jri")
     application_logger.setLevel(settings.logging.level)
     application_logger.addHandler(handler)
@@ -66,24 +79,29 @@ class SessionLog(logging.Handler):
 
     @override
     def emit(self, record: logging.LogRecord) -> None:
-        line = self.format(record).encode()
-        if len(line) > LOG_RECORD_BYTES:
-            # The notice takes its own room out of the bound, and the
-            # widest count it can carry is the length it is measured
-            # against, so what is left is never past the bound.
-            room = LOG_RECORD_BYTES - len(TRUNCATION_NOTICE.format(dropped=len(line)))
-            kept = line[:room].decode("utf-8", errors="ignore").encode()
-            dropped = len(line) - len(kept)
-            line = kept + TRUNCATION_NOTICE.format(dropped=dropped).encode()
-        line += b"\n"
+        # Rendering a record costs what the record is long, so it is
+        # done out here: a run holding the lock for the milliseconds a
+        # large record takes is a run every other one waits behind.
+        body = self.format(record).encode()
+        if LOG_STAMP_BYTES + len(body) > LOG_RECORD_BYTES:
+            # The stamp and the notice take their room out of the
+            # bound, and the widest count the notice can carry is the
+            # length it is measured against, so what is left is never
+            # past the bound.
+            room = LOG_RECORD_BYTES - LOG_STAMP_BYTES - len(TRUNCATION_NOTICE.format(dropped=len(body)))
+            kept = body[:room].decode("utf-8", errors="ignore").encode()
+            dropped = len(body) - len(kept)
+            body = kept + TRUNCATION_NOTICE.format(dropped=dropped).encode()
         # Both `jri chat` and `jri view` configure logging, so two runs
         # of one session write to this file at once, and the rename a
         # rotation makes moves it out from under whichever run did not
-        # make it: reading the size, rotating and appending all happen
-        # under one lock. A record that cannot be written is dropped
-        # rather than reported, since the stream `logging` reports on
-        # is the terminal a `jri chat` screen holds.
+        # make it: stamping, reading the size, rotating and appending
+        # all happen under one lock. A record that cannot be written is
+        # dropped rather than reported, since the stream `logging`
+        # reports on is the terminal a `jri chat` screen holds.
         with contextlib.suppress(OSError, LockError), self.file_lock:
+            stamp = datetime.now(UTC).astimezone().strftime(LOG_TIME_FORMAT)[:-LOG_TIME_MICROSECOND_DIGITS]
+            line = LOG_STAMP.format(time=stamp).encode() + body + b"\n"
             size = self.file.stat().st_size if self.file.exists() else 0
             if size and size + len(line) > LOG_FILE_BYTES:
                 self._rotate()

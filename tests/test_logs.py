@@ -19,12 +19,21 @@ EARLIER_RUN = "[an earlier run] left this"
 # Big enough to fill the files below in few records, and inside the
 # bound a record has, so what fills them are whole records.
 FILLING_RECORD_BYTES = 32 * 1024
+# Past the bound a record has, so the second run spends the
+# milliseconds its formatting and its truncation cost between making a
+# record and taking the lock -- the window records made later land in.
+OVERSIZED_PADDING = "y" * (logs.LOG_RECORD_BYTES * 4)
+OVERSIZED_RECORDS = 40
 # Wide enough that the records two runs write pass the bound below
 # without reaching twice it, so exactly one rotation happens and every
 # record either run wrote is still there to read.
 RECORD_PADDING = "x" * 200
 RECORDS_PER_RUN = 200
 SMALL_LOG_FILE_BYTES = 64 * 1024
+# What the first run writes for as long as the second is busy with the
+# oversized ones, so the two of them are on the lock together.
+SMALL_RECORDS = 2000
+STAMP = re.compile(r"^\[([\d-]+ [\d:,]+)\]", re.MULTILINE)
 TURN_RECORDS = 3
 TURNS = 2
 
@@ -138,6 +147,27 @@ def test_keeps_every_record_two_runs_of_a_session_write_at_once(
     log = read_session_log(tmp_path)
     for run in ("CHAT", "VIEW"):
         assert re.findall(rf"{run} 0 (\d+)", log) == [str(index) for index in range(RECORDS_PER_RUN)]
+
+
+def test_reads_back_in_time_order_when_two_runs_write_at_once(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    logs.configure(settings)
+    logger = logging.getLogger("jri.chat")
+
+    with run_beside(
+        tmp_path, bound=logs.LOG_FILE_BYTES, batches=[OVERSIZED_RECORDS], padding=OVERSIZED_PADDING
+    ) as turns:
+        turns.start(0)
+        for index in range(SMALL_RECORDS):
+            logger.info("CHAT 0 %d", index)
+        turns.wait_for(0)
+
+    log = read_session_log(tmp_path)
+    assert len(re.findall(r"VIEW 0 \d+", log)) == OVERSIZED_RECORDS
+    stamps = STAMP.findall(log)
+    assert len(stamps) == SMALL_RECORDS + OVERSIZED_RECORDS
+    assert stamps == sorted(stamps), "a record reached the file behind one stamped after it"
 
 
 def test_explains_when_the_log_file_cannot_be_created(tmp_path: Path) -> None:
