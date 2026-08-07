@@ -18,6 +18,15 @@ from .workspace import Workspace
 # drops the conversation -- is what clears the directory holding it.
 KEPT_LOG_FILES = 2
 LOG_FILE_BYTES = 5 * 1024 * 1024
+# A record reaches the file whole or not at all, so one longer than the
+# file bound would leave a file past that bound and take every record
+# before it down on the rotation the next one makes. What grows this
+# far is a page fetched, a file read or a model's output logged at
+# DEBUG, and it is the front of such a record that names what happened,
+# so the rest goes and what went is counted on the line. This must stay
+# under `LOG_FILE_BYTES` for the bound over the files to hold.
+LOG_RECORD_BYTES = 64 * 1024
+TRUNCATION_NOTICE = "... [{dropped} bytes dropped]"
 
 
 def configure(settings: Settings) -> None:
@@ -57,7 +66,16 @@ class SessionLog(logging.Handler):
 
     @override
     def emit(self, record: logging.LogRecord) -> None:
-        line = f"{self.format(record)}\n".encode()
+        line = self.format(record).encode()
+        if len(line) > LOG_RECORD_BYTES:
+            # The notice takes its own room out of the bound, and the
+            # widest count it can carry is the length it is measured
+            # against, so what is left is never past the bound.
+            room = LOG_RECORD_BYTES - len(TRUNCATION_NOTICE.format(dropped=len(line)))
+            kept = line[:room].decode("utf-8", errors="ignore").encode()
+            dropped = len(line) - len(kept)
+            line = kept + TRUNCATION_NOTICE.format(dropped=dropped).encode()
+        line += b"\n"
         # Both `jri chat` and `jri view` configure logging, so two runs
         # of one session write to this file at once, and the rename a
         # rotation makes moves it out from under whichever run did not
