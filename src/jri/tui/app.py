@@ -172,7 +172,7 @@ class App(TextualApp[None]):
         if event.button.has_class(styles.RETRY_BUTTON_CLASSES):
             await self._retry(event.button)
         elif event.button.has_class(styles.RALPH_BUTTON_CLASSES):
-            self._start_ralphing()
+            await self._start_ralphing()
 
     async def on_message_input_history_requested(self, event: MessageInput.HistoryRequested) -> None:
         if event.direction == "previous":
@@ -187,9 +187,9 @@ class App(TextualApp[None]):
             event.message_input.select_next()
             self._preview_history()
 
-    def on_message_input_ralph_requested(self) -> None:
+    async def on_message_input_ralph_requested(self) -> None:
         if self.ralph_button.is_mounted and self.ralph_button.display and not self.is_busy:
-            self._start_ralphing()
+            await self._start_ralphing()
 
     async def on_message_input_retry_requested(self) -> None:
         retry_buttons = list(self.query(Button).filter(f".{styles.RETRY_BUTTON_CLASSES}"))
@@ -231,9 +231,7 @@ class App(TextualApp[None]):
             await self._remove_turns(event.history_index)
             self.restored_turns = self.restored_turns[: event.history_index]
             self.restored_turn_index = min(self.restored_turn_index, event.history_index)
-        for retry_button in self.query(f".{styles.RETRY_BUTTON_CLASSES}"):
-            await retry_button.remove()
-        self._sync_retry_shortcut()
+        await self._clear_retry_buttons()
         event.message_input.remember(user_message)
         event.message_input.placeholder = copy.MESSAGE_INPUT_PLACEHOLDER
         self.last_escape_at = 0.0
@@ -542,6 +540,16 @@ class App(TextualApp[None]):
             if self.is_running:
                 raise
 
+    # The affordance answers a failure by re-running whatever the turn
+    # was last doing, so every way of starting a run takes the standing
+    # ones out with it: a retry left over from an earlier failure would
+    # re-run the work the newest run leaves behind, which is not the
+    # work the failure it sits under names.
+    async def _clear_retry_buttons(self) -> None:
+        for retry_button in self.query(f".{styles.RETRY_BUTTON_CLASSES}"):
+            await retry_button.remove()
+        self._sync_retry_shortcut()
+
     def _follow_bottom(self, turn_state: InterviewerTurnState) -> None:
         if turn_state.follow_bottom:
             self.messages_container.anchor()
@@ -595,11 +603,9 @@ class App(TextualApp[None]):
     async def _retry(self, button: Button) -> None:
         container = cast("Vertical", button.parent)
         self.ralph_button.display = False
-        # The affordance answers a failure, so it goes out with the
-        # failure it answers: what is on offer while the run it asked
-        # for is under way is stopping that run, not asking again.
-        await button.remove()
-        self._sync_retry_shortcut()
+        # What is on offer while the run the retry asked for is under
+        # way is stopping that run, not asking again.
+        await self._clear_retry_buttons()
         # A run reports into a turn the interview already wrote in, so
         # asking for it again clears nothing: what the turn said before
         # the run stays, exactly as it does when a second run is
@@ -626,10 +632,11 @@ class App(TextualApp[None]):
         self.message_input.disabled = True
         self.ralphing.display = True
 
-    def _start_ralphing(self) -> None:
+    async def _start_ralphing(self) -> None:
         if self.is_busy or not self.mounted_turns:
             return
         self.ralph_button.display = False
+        await self._clear_retry_buttons()
         self._show_ralphing()
         turn_state = InterviewerTurnState(container=self.mounted_turns[-1][1], placeholder=None, is_ralphing=True)
         self.active_turn_state = turn_state
