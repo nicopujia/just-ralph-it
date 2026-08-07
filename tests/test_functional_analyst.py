@@ -53,3 +53,16 @@ def test_revises_against_the_rejected_draft_and_the_architect_feedback() -> None
     request = read_request(client)
     assert "Rejected functional draft:\n```\nFile: functional/behavior.md\n```" in request
     assert "Architect feedback:\n  - Undefined totals." in request
+
+
+# A model copies the tail of the rule it followed into the
+# specification it writes, so every rule that can return `ambiguities`
+# states the delegation gate itself: a qualifier standing elsewhere in
+# the prompt does not travel with the copy.
+def test_gates_every_escalation_on_what_the_notebook_delegated() -> None:
+    prompt = build_analyst(FakeClient([])).runner.prompt.replace("\n      ", " ")
+
+    escalations = [rule for rule in prompt.split("\n    - ") if "ambiguities" in rule]
+
+    assert escalations
+    assert [rule for rule in escalations if "the notebook has not delegated" not in rule] == []

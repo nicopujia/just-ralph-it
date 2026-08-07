@@ -66,7 +66,7 @@ class FunctionalAnalyst:
                 "\n"
                 "Output:\n"
                 "    - Return `ambiguities` when any unresolved behavioral decision blocks a single\n"
-                "      faithful implementation.\n"
+                "      faithful implementation and the notebook has not delegated it to you by name.\n"
                 "    - Otherwise return `specification_patch` containing a standard Git unified diff\n"
                 "      against the supplied accepted functional specifications. Restrict the patch to\n"
                 f"      Markdown files under `{paths.FUNCTIONAL_SPECS_ROOT}/`.\n"
@@ -95,7 +95,8 @@ class FunctionalAnalyst:
                 "    - The rejected draft is context only. Produce a complete replacement patch from\n"
                 "      the accepted baseline.\n"
                 "    - Escalate feedback as ambiguities when it requires user authority, exposes\n"
-                "      contradictory requirements, or has materially different behavioral solutions."
+                "      contradictory requirements, or has materially different behavioral solutions\n"
+                "      whose choice the notebook has not delegated to you by name."
             ),
         )
 
