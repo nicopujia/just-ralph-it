@@ -1,5 +1,6 @@
 import logging
 from dataclasses import dataclass
+from itertools import pairwise
 from pathlib import Path, PurePosixPath
 
 from pydantic import BaseModel, ConfigDict
@@ -168,14 +169,6 @@ class Specs:
             self.workspace.acceptance_file.unlink(missing_ok=True)
             logger.info("acceptance_committed commit=%s", accepted)
             return
-        try:
-            self.repository.apply_patch(acceptance.patch.encode(), reverse=True, check=True)
-        except git.Error:
-            # What is there is no longer what JRI wrote, so it is not
-            # JRI's to remove. The record stays, and whatever the user
-            # has to sort out `_check_state` names below.
-            logger.info("acceptance_undo_refused accepted=%s", acceptance.accepted)
-            return
         self._undo_acceptance(acceptance)
 
     def _record_acceptance(self, acceptance: Acceptance) -> None:
@@ -188,6 +181,20 @@ class Specs:
         return Acceptance.model_validate_json(self.workspace.acceptance_file.read_bytes())
 
     def _undo_acceptance(self, acceptance: Acceptance) -> None:
+        # The whole patch first: a kill that lands past the application
+        # is the ordinary one, and Git weighs the lot in a single pass.
+        if self._can_apply(acceptance.patch, reverse=True):
+            reversible = (acceptance.patch,)
+        else:
+            self._remove_empty_writes()
+            reversible = self._plan_undo(acceptance.patch)
+        if reversible is None:
+            # What is there is neither what JRI wrote nor what stood
+            # before it, so it is not JRI's to remove. The record
+            # stays, and whatever the user has to sort out
+            # `_check_state` names.
+            logger.info("acceptance_undo_refused accepted=%s", acceptance.accepted)
+            return
         # Only the entries the acceptance staged come back out.
         # Resetting a path the user had staged themselves would throw
         # their content away instead, since Git puts back whatever HEAD
@@ -198,9 +205,58 @@ class Specs:
         ]
         if added:
             self.repository.unstage(added)
-        self.repository.apply_patch(acceptance.patch.encode(), reverse=True)
+        for file_patch in reversible:
+            self.repository.apply_patch(file_patch.encode(), reverse=True)
         self.workspace.acceptance_file.unlink(missing_ok=True)
-        logger.info("acceptance_undone unstaged=%d", len(added))
+        logger.info("acceptance_undone unstaged=%d reversed=%d", len(added), len(reversible))
+
+    # `git apply` makes a file before it writes it, so a kill can leave
+    # one made and still empty. A specification of nothing is not a
+    # specification, and one Git never tracked came from the write this
+    # is undoing, so there is nothing in it for anyone to lose. The
+    # links `_check_state` refuses are left for it to name.
+    def _remove_empty_writes(self) -> None:
+        tracked = self.repository.read_staged_paths((paths.COMMITTED_SPECS,))
+        for path in (self.workspace.root / paths.SPECS_DIR).rglob("*.md"):
+            relative = path.relative_to(self.workspace.root).as_posix()
+            if not path.is_symlink() and path.is_file() and not path.stat().st_size and relative not in tracked:
+                path.unlink()
+                logger.info("empty_write_removed path=%s", relative)
+
+    # `git apply` validates a whole patch and only then writes it, file
+    # by file, so a kill inside it leaves an arbitrary prefix of the
+    # patch on disk -- the state reversing the whole recorded patch
+    # refuses, and the state an acceptance is killed in. So each file
+    # is weighed on its own: one Git can reverse is one the acceptance
+    # wrote, one Git can still apply is one the kill never reached, and
+    # one that is neither the user has since edited. That last one
+    # takes the whole undo with it, because a file JRI cannot put back
+    # is a file the user has to decide about, and deciding means seeing
+    # it beside the rest of what the run left.
+    def _plan_undo(self, patch: str) -> tuple[str, ...] | None:
+        reversible: list[str] = []
+        for file_patch in self._split_patch(patch):
+            if self._can_apply(file_patch, reverse=True):
+                reversible.append(file_patch)
+            elif not self._can_apply(file_patch, reverse=False):
+                return None
+        return tuple(reversible)
+
+    def _can_apply(self, patch: str, *, reverse: bool) -> bool:
+        try:
+            self.repository.apply_patch(patch.encode(), check=True, reverse=reverse)
+        except git.Error:
+            return False
+        return True
+
+    @staticmethod
+    def _split_patch(patch: str) -> list[str]:
+        lines = patch.splitlines(keepends=True)
+        # Only the metadata of a patch says what it changes, and every
+        # line of a hunk body carries a prefix, so a header at column
+        # zero is the header it reads as.
+        bounds = [*(number for number, line in enumerate(lines) if line.startswith("diff --git ")), len(lines)]
+        return ["".join(lines[start:end]) for start, end in pairwise(bounds)]
 
     def _read_notebook(self) -> bytes:
         try:

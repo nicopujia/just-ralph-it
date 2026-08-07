@@ -149,13 +149,16 @@ new file mode 100644
 """
 # The methods a kill below stands in for, captured before it does, so
 # a stand-in can still run the real one.
+APPLY = git.Repository.apply_patch
 COMMIT = git.Repository.commit
 STAGE = git.Repository.stage
 
 
 # A signal is not an exception a run unwinds from, and nothing here
-# catches `KeyboardInterrupt`, so what these leave on disk is what a
-# `SIGKILL` at the same instruction would leave.
+# catches `KeyboardInterrupt`, so what these three leave on disk is
+# what a `SIGKILL` at the same instruction would leave. The states no
+# instruction boundary can leave at all are the two doubles after
+# them.
 def kill_the_run_before_staging(
     repository: git.Repository, paths: Sequence[str], *, intent_to_add: bool = False, force: bool = False
 ) -> None:
@@ -174,6 +177,50 @@ def kill_the_run_after_committing(
 ) -> Never:
     COMMIT(repository, message, trailers, paths=paths)
     raise KeyboardInterrupt
+
+
+# `git apply` validates a whole patch and only then writes it, file by
+# file, so a kill inside it leaves a prefix of the patch on disk -- a
+# state no `KeyboardInterrupt` can reach, since the writing happens in
+# a subprocess where nothing at a Python instruction boundary lands.
+# Git itself writes the first file the acceptance patch names here and
+# nothing writes the rest, which is that state exactly. The arguments
+# are the ones a run reaches this with, so a call it cannot stand in
+# for fails rather than standing in wrongly.
+def kill_the_run_amid_applying(
+    repository: git.Repository,
+    patch: bytes,
+    *,
+    index: bool = False,
+    directory: str | None = None,
+    zero_context: bool = False,
+) -> None:
+    # The acceptance is the only application that stages nothing.
+    if index:
+        APPLY(repository, patch, index=index, directory=directory, zero_context=zero_context)
+        return
+    APPLY(repository, patch.partition(b"\ndiff --git ")[0] + b"\n")
+    raise KeyboardInterrupt
+
+
+# The same kill, landing in the window `git apply` spends between
+# making a file and writing it: measured over twelve real `SIGKILL`s
+# during an acceptance, seven left a file of exactly nought bytes
+# behind the prefix they had written, and none left a part-written
+# one.
+def kill_the_run_amid_writing(
+    repository: git.Repository,
+    patch: bytes,
+    *,
+    index: bool = False,
+    directory: str | None = None,
+    zero_context: bool = False,
+) -> None:
+    if not index:
+        unwritten = repository.path / ".jri/specs/functional/behavior.md"
+        unwritten.parent.mkdir(parents=True, exist_ok=True)
+        unwritten.touch()
+    kill_the_run_amid_applying(repository, patch, index=index, directory=directory, zero_context=zero_context)
 
 
 def build_conversation(path: Path, client: FakeClient) -> Conversation:
@@ -453,6 +500,41 @@ def test_undoes_the_acceptance_a_killed_run_left_in_the_worktree(
     kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
     assert find_accepted_commit(tmp_path) is None
+
+    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
+
+    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert not run_git(tmp_path, "status", "--short")
+
+
+def test_undoes_the_acceptance_a_killed_run_left_half_applied(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "apply_patch", kill_the_run_amid_applying)
+    # Git wrote the first file the patch names and died before the
+    # second, so the worktree holds neither the specifications the
+    # acceptance was writing nor the ones the project had.
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
+
+    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
+
+    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert not run_git(tmp_path, "status", "--short")
+
+
+def test_undoes_the_acceptance_a_killed_write_left_empty(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "apply_patch", kill_the_run_amid_writing)
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_bytes() == b""
 
     assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
 
