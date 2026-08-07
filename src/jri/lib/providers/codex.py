@@ -1,30 +1,18 @@
 import base64
 import json
 import os
-import sys
+import threading
 from collections.abc import Generator
-from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from threading import Lock
-from typing import TYPE_CHECKING, Any, cast, override
+from typing import Any, cast, override
 
 import httpx
 from openai import DefaultHttpxClient, OpenAI
 from openai._models import FinalRequestOptions
 
-# Neither module exists on the platform the other one is for, so only
-# the platform's own is imported when this runs. A checker does not
-# narrow by platform, so it is handed both and reads the calls into
-# each of them instead of the `Any` a dynamic import would leave.
-if TYPE_CHECKING:
-    import fcntl
-    import msvcrt
-elif sys.platform == "win32":
-    import msvcrt
-else:
-    import fcntl
+from jri.lib.lock import Lock
 
 __all__ = ["Auth", "AuthError", "Client"]
 
@@ -41,7 +29,8 @@ class Auth(httpx.Auth):
         # applications lock the login file under their own name.
         self.originator = originator
         self.path = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "auth.json"
-        self.lock = Lock()
+        self.lock = threading.Lock()
+        self.file_lock = Lock(self.path.with_suffix(f".{originator}.lock"))
 
     @override
     def sync_auth_flow(self, request: httpx.Request) -> Generator[httpx.Request, httpx.Response]:
@@ -99,7 +88,7 @@ class Auth(httpx.Auth):
             return True
 
     def _refresh(self, refresh_token: str) -> dict[str, str]:
-        with self.lock, self._file_lock():
+        with self.lock, self.file_lock:
             current = self._read()
             tokens = current.get("tokens")
             # Spending the refresh token is irreversible, so the login
@@ -142,30 +131,6 @@ class Auth(httpx.Auth):
             current["last_refresh"] = datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
             self._write(current)
             return {"access_token": access_token, "refresh_token": new_refresh_token, "account_id": account_id}
-
-    @contextmanager
-    def _file_lock(self) -> Generator[None]:
-        lock_path = self.path.with_suffix(f".{self.originator}.lock")
-        # The file is never anything but a handle to lock, and opening
-        # it for writing would truncate it, which Windows refuses while
-        # another process holds a lock over the bytes being dropped.
-        with os.fdopen(os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600), "r+b") as lock_file:
-            descriptor = lock_file.fileno()
-            if sys.platform == "win32":
-                # `locking` covers bytes from wherever the descriptor
-                # is, and waits by retrying ten times a second apart
-                # rather than indefinitely as `flock` does.
-                msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
-            else:
-                fcntl.flock(descriptor, fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                if sys.platform == "win32":
-                    os.lseek(descriptor, 0, os.SEEK_SET)
-                    msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
-                else:
-                    fcntl.flock(descriptor, fcntl.LOCK_UN)
 
     def _write(self, data: dict[str, Any]) -> None:
         temporary_path: Path | None = None
