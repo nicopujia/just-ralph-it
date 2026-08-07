@@ -8,6 +8,10 @@ from pathlib import Path
 
 import check
 
+# The gate's own `compileall` writes these under `src` on every run
+# and uv_build keeps them out of the wheel and the sdist alike, so
+# they are the one thing there a release does not carry.
+CACHE_PATHSPEC = ":(exclude,glob)**/__pycache__/**"
 COMMIT_MESSAGE = "chore: version"
 NUMBER_PATTERN = re.compile(r"\d+\.\d+\.\d+")
 # publish.yml releases whatever a `v` tag points at, so the tags are
@@ -79,16 +83,17 @@ def check_tag(git: str, root: Path, remote: str, version: str) -> None:
 
 
 def check_changes(git: str, root: Path, allowed: frozenset[str]) -> None:
-    # An untracked file under `src` is built into the wheel and lands
-    # in no commit, so it counts as a change like any other. So does a
-    # change the index holds and the worktree does not, which the gate
-    # never reads and `bump_version` overwrites where it lands on a
-    # bumped path, and so does an entry marked assume-unchanged or
-    # skip-worktree, which git compares to neither.
+    # `uv build` copies `src` off the filesystem, so a file under it
+    # that no commit holds ships in the wheel however .gitignore reads
+    # it. A change the index holds and the worktree does not is one the
+    # gate never reads and `bump_version` overwrites where it lands on
+    # a bumped path. An entry marked assume-unchanged or skip-worktree
+    # is one git compares to neither side.
     changed = {
         *_read_git(git, root, "diff", "--name-only", "HEAD").splitlines(),
         *_read_git(git, root, "diff", "--name-only", "--cached", "HEAD").splitlines(),
         *_read_git(git, root, "ls-files", "--others", "--exclude-standard").splitlines(),
+        *_read_git(git, root, "ls-files", "--others", "--", "src", CACHE_PATHSPEC).splitlines(),
         *(line[2:] for line in _read_git(git, root, "ls-files", "-v").splitlines() if not line.startswith("H ")),
     }
     if unexpected := sorted(changed - allowed):
