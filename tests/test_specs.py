@@ -20,6 +20,7 @@ from tests.doubles.acceptance import (
     bound_the_acceptance_writes,
     kill_amid_moving_the_branch,
     kill_amid_staging,
+    kill_amid_writing_the_commit,
     open_a_commit_window,
     read_git_locks,
 )
@@ -786,6 +787,60 @@ def test_keeps_the_acceptance_a_killed_run_had_already_committed(
     assert find_accepted_commit(tmp_path) == accepted
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
     assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert not run_git(tmp_path, "status", "--short")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a hook that kills its own Git needs a shell and `kill`")
+@pytest.mark.parametrize("window", ["written", "past"])
+def test_keeps_the_acceptance_the_git_a_hook_killed_had_already_committed(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, window: str
+) -> None:
+    create_repository(tmp_path)
+
+    with open_a_commit_window(tmp_path, window, KILL_THE_GIT):
+        ending = read_ending(build_conversation(tmp_path, successful_client()).ralph())
+
+    # Git came back non-zero over a commit it had written, and the run
+    # that read that as a commit it had not written used to reverse the
+    # patch back out from under it.
+    assert ending == "replied"
+    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert not run_git(tmp_path, "status", "--short")
+    assert not Workspace(tmp_path).acceptance_file.exists()
+
+    restarted = build_conversation(tmp_path, updated_client())
+    restarted.restore()
+
+    assert read_ending(restarted.ralph()) == "replied"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
+def test_keeps_the_acceptance_a_killed_run_wrote_before_git_copied_the_index(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    kill_amid_writing_the_commit(tmp_path, ACCEPTANCE_PATCH)
+    accepted = find_accepted_commit(tmp_path)
+    # The index Git committed from never reached the project, so every
+    # path the commit holds reads as one the index deleted, and the
+    # specification among them stops every run after.
+    assert accepted == run_git(tmp_path, "rev-parse", "HEAD")
+    assert run_git(tmp_path, "diff", "--cached", "--name-only", "HEAD").splitlines() == [
+        ".jri/.gitignore",
+        ".jri/config.yaml",
+        ".jri/notebook.yaml",
+        ".jri/specs/functional/behavior.md",
+    ]
+
+    baseline = Specs(tmp_path).prepare()
+
+    assert baseline.accepted == accepted
+    assert not Workspace(tmp_path).acceptance_file.exists()
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
     assert not run_git(tmp_path, "status", "--short")
 
 

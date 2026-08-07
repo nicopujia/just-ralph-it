@@ -179,9 +179,11 @@ class Specs:
                     "jri: update specifications", trailers=(ACCEPTANCE_TRAILER,), paths=paths.COMMITTED_PATHS
                 )
             except git.Error:
-                self._undo_acceptance(acceptance)
-                raise
-            self._drop_acceptance()
+                commit = self._settle_acceptance(acceptance)
+                if commit is None:
+                    raise
+            else:
+                self._drop_acceptance()
         logger.info("specs_committed commit=%s", commit)
         return commit
 
@@ -198,15 +200,7 @@ class Specs:
         # Undoing writes the index, so a lock still standing here would
         # come back as Git's own words about a path inside `.git`.
         self._check_locks()
-        accepted = self.repository.find_commit(ACCEPTANCE_TRAILER) if self.repository.has_commit() else None
-        # The kill may have landed after Git wrote the commit, and past
-        # that point the patch is the project's: reversing it would
-        # delete specifications the user has.
-        if accepted != acceptance.accepted:
-            self._drop_acceptance()
-            logger.info("acceptance_committed commit=%s", accepted)
-            return
-        self._undo_acceptance(acceptance)
+        self._settle_acceptance(acceptance)
 
     # Git's own guard against two commands writing one file at once,
     # so JRI takes one away only where it can say whose it is: a
@@ -263,6 +257,35 @@ class Specs:
             raise PersistenceError(
                 f"Could not remove the acceptance record `{self.workspace.acceptance_file}`: {error.strerror}"
             ) from error
+
+    # How Git's command ended is not what Git wrote: a death past the
+    # reference transaction -- an out-of-memory kill, a `pkill git`, a
+    # hook of the project's whose Git is killed -- comes back non-zero
+    # over a commit that is written, and a kill of the whole run comes
+    # back as nothing at all. So both are answered the same way, by
+    # asking the project which commit carries the trailer rather than
+    # asking Git how it went, and a commit that is there is the
+    # project's from then on: reversing its patch would delete
+    # specifications the user has, and leave every run after it
+    # refusing over the deletion.
+    def _settle_acceptance(self, acceptance: Acceptance) -> str | None:
+        accepted = self.repository.find_commit(ACCEPTANCE_TRAILER) if self.repository.has_commit() else None
+        if accepted == acceptance.accepted:
+            self._undo_acceptance(acceptance)
+            return None
+        # A commit of named paths is written from an index of Git's own
+        # and only then copied over the one the project keeps, so a
+        # death between the two leaves the commit holding what JRI
+        # staged and the index holding the intent to add it -- every
+        # specification in the commit reported deleted, which stops
+        # every run after. Git's own last step, taken here because Git
+        # did not reach it: past the commit, what the index holds for a
+        # path of JRI's is what the commit holds.
+        if accepted is not None:
+            self.repository.unstage(paths.COMMITTED_PATHS)
+        self._drop_acceptance()
+        logger.info("acceptance_committed commit=%s", accepted)
+        return accepted
 
     def _undo_acceptance(self, acceptance: Acceptance) -> None:
         intended = self._rebuild_writes(acceptance)
