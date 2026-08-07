@@ -51,6 +51,17 @@ def rename_recorded_calls(conversation: Conversation, name: str) -> None:
     session_file.write_text(json.dumps(session), encoding="utf-8")
 
 
+# A session recorded by a JRI whose tool took a value this one refuses
+# once it is running.
+def rewrite_recorded_call(conversation: Conversation, name: str, **arguments: object) -> None:
+    session_file = conversation.workspace.session_file
+    session = json.loads(session_file.read_text(encoding="utf-8"))
+    for item in session["interview"]:
+        if item.get("type") == "function_call" and item["name"] == name:
+            item["arguments"] = json.dumps({**json.loads(item["arguments"]), **arguments})
+    session_file.write_text(json.dumps(session), encoding="utf-8")
+
+
 # A session recorded by a JRI whose tool took a parameter this one no
 # longer accepts.
 def rename_recorded_parameter(conversation: Conversation, old: str, new: str) -> None:
@@ -988,12 +999,60 @@ def test_refuses_a_rewind_through_a_call_this_version_no_longer_accepts() -> Non
     restarted = build_conversation(FakeClient([]))
     restarted.restore()
 
-    with pytest.raises(PersistenceError, match="capture_notes"):
+    # Decided before the notebook is touched at all, so what it reports
+    # is the call this version cannot make rather than a failure it
+    # went and provoked.
+    with pytest.raises(PersistenceError, match="`capture_notes` in a way this version of JRI cannot make again"):
         restarted.rewind(1)
 
     reopened = build_conversation(FakeClient([]))
     assert [turn.message for turn in reopened.restore()] == ["Deploy from main.", "One more thing."]
     assert [note.text for note in reopened.notebook.graph.notes] == ["Deploy from main."]
+
+
+def test_refuses_a_rewind_whose_replay_fails_inside_a_tool_that_took_the_call() -> None:
+    conversation = build_conversation(
+        FakeClient([
+            response(
+                call("switch", "switch_topic", topic="Delivery"),
+                call("capture", "capture_notes", texts=["Deploy from main."]),
+                call("ready", "offer_ralphing"),
+                call("trash", "update_topic", topic_id="t2", status="trashed"),
+            ),
+            streamed_reply("Delivery trashed."),
+            streamed_reply("Noted."),
+        ])
+    )
+    list(conversation.chat("Deploy from main."))
+    list(conversation.chat("One more thing."))
+    rewrite_recorded_call(conversation, "update_topic", topic_id="t1")
+
+    restarted = build_conversation(
+        FakeClient([response(call("more", "capture_notes", texts=["Roll back on failure."])), streamed_reply("Noted.")])
+    )
+    restarted.restore()
+
+    with pytest.raises(PersistenceError, match="cannot be trashed"):
+        restarted.rewind(1)
+    list(restarted.chat("Carry on."))
+
+    reopened = build_conversation(FakeClient([]))
+    turns = reopened.restore()
+    offer = reopened.session.ready_graph
+    assert [turn.message for turn in turns] == ["Deploy from main.", "One more thing.", "Carry on."]
+    assert [item["content"] for item in reopened.session.interview if item.get("role") == "user"] == [
+        "Deploy from main.",
+        "One more thing.",
+        "Carry on.",
+    ]
+    assert [(topic.id, topic.status) for topic in reopened.notebook.graph.topics] == [("t1", "open"), ("t2", "trashed")]
+    assert [note.text for note in reopened.notebook.graph.notes] == ["Deploy from main.", "Roll back on failure."]
+    assert reopened.interviewer.active_topic_id == "t1"
+    # The offer the refused rewind replayed belongs to no turn of this
+    # conversation, so what stands is the one the user was looking at.
+    assert offer is not None
+    assert [note.text for note in offer.notes] == ["Deploy from main."]
+    assert not reopened.is_ready_to_ralph
 
 
 def test_rewinds_through_a_call_only_a_tool_it_never_replays_no_longer_accepts() -> None:

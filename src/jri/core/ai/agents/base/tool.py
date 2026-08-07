@@ -9,6 +9,7 @@ from openai.types.responses import FunctionToolParam, ResponseFunctionCallOutput
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
 from jri.core import ai
+from jri.core.exceptions import ReplayError
 from jri.lib import prompt
 
 type Stream = Generator[ai.ToolCallStarted | ai.ToolCallFinished | ToolOutput]
@@ -233,7 +234,13 @@ class Tool:
     def replay(self, arguments: str) -> None:
         if not self.replayed:
             return
-        list(self.invoke(arguments))
+        invocation = self.invoke(arguments)
+        list(invocation)
+        # `invoke` answers a failure by rendering it for the model to
+        # read, and a replay has no model: the caller is the only one
+        # who can act on work this could not do a second time.
+        if invocation.outcome == "failed":
+            raise ReplayError(invocation.detail)
 
 
 @dataclass(frozen=True)

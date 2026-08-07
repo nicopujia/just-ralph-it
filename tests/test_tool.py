@@ -6,6 +6,7 @@ import pytest
 from pydantic import PlainSerializer
 
 from jri.core.ai import Invocation, Tool, ToolCallStarted, ToolOutput, tool
+from jri.core.exceptions import ReplayError
 from jri.lib import prompt
 
 if TYPE_CHECKING:
@@ -260,6 +261,26 @@ def test_skips_a_tool_that_is_not_replayed() -> None:
     tools["record"].replay('{"text": "two"}')
 
     assert toolbox.recorded == ["two"]
+
+
+# A replay has no model to hand a rendered failure to, so the caller
+# rebuilding from it is the only one who can be told.
+def test_reports_a_replayed_call_that_could_not_be_made_again() -> None:
+    tools = build_tools(Toolbox())
+
+    with pytest.raises(ReplayError, match="no more: one"):
+        tools["give_up"].replay('{"text": "one"}')
+
+    with pytest.raises(ReplayError, match=r"Field required\."):
+        tools["record"].replay("{}")
+
+
+def test_stays_silent_when_a_tool_that_is_not_replayed_could_not_be_called() -> None:
+    toolbox = Toolbox()
+
+    build_tools(toolbox)["peek"].replay('{"note": "one"}')
+
+    assert toolbox.recorded == []
 
 
 def test_discovers_the_tools_an_owner_inherits() -> None:

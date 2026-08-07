@@ -8,6 +8,9 @@ class Error(RuntimeError):
 class PersistenceError(Error): ...
 
 
+class ReplayError(Error): ...
+
+
 class RepositoryStateError(Error): ...
 
 

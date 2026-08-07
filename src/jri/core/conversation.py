@@ -24,7 +24,7 @@ from .ai import (
     TurnFinished,
     specs_generation,
 )
-from .exceptions import PersistenceError, RepositoryStateError, UsageLimitError
+from .exceptions import PersistenceError, ReplayError, RepositoryStateError, UsageLimitError
 from .notes import Graph, Notebook, TopicId
 from .settings import Settings
 from .workspace import Workspace
@@ -180,7 +180,15 @@ class Conversation:
                 "call, or keep going from here."
             )
 
-        self.interviewer.history = self.interviewer.history[:history_index]
+        # Everything the replay is about to move. A turn ends with the
+        # offer retired, so what the rewind holds of it is the graph
+        # the session stamped rather than the flag.
+        session = self.session
+        history = self.interviewer.history
+        graph = self.notebook.graph.model_copy(deep=True)
+        active_topic_id = self.interviewer.active_topic_id
+
+        self.interviewer.history = history[:history_index]
         # The calls kept are replayed below, so they have to name their
         # notes exactly as the calls that referenced them expect.
         self.notebook.restore(self.session.initial_graph, reuse_note_ids=True)
@@ -188,15 +196,16 @@ class Conversation:
         self.session = self.session.model_copy(update={"ready_graph": None})
         self.interviewer.offered_ralphing = False
 
-        for item in kept:
-            # An offer belongs to the turn that made it, so the prompt
-            # opening the next one retires whatever the replay re-made.
-            if item.get("role") == "user":
-                self.interviewer.offered_ralphing = False
-            if item.get("type") != "function_call":
-                continue
-            if item["call_id"] not in self.session.failed_call_ids:
-                tools[item["name"]].replay(item["arguments"])
+        try:
+            self._replay(kept, tools)
+        except Exception:
+            self.session = session
+            self.interviewer.history = history
+            self.notebook.restore(graph)
+            self.interviewer.active_topic_id = active_topic_id
+            self.interviewer.offered_ralphing = False
+            self.logger.info("rewind_failed checkpoint=%d", checkpoint_index)
+            raise
 
         del self.session.transcript[checkpoint_index:]
         offer = self._stamp_offer()
@@ -271,6 +280,23 @@ class Conversation:
 
     def _capture_checkpoint(self, history_length: int) -> Checkpoint:
         return Checkpoint(history_length, self.notebook.graph.model_copy(deep=True), self.interviewer.active_topic_id)
+
+    def _replay(self, kept: list[dict[str, Any]], tools: dict[str, Tool]) -> None:
+        for item in kept:
+            # An offer belongs to the turn that made it, so the prompt
+            # opening the next one retires whatever the replay re-made.
+            if item.get("role") == "user":
+                self.interviewer.offered_ralphing = False
+            if item.get("type") != "function_call" or item["call_id"] in self.session.failed_call_ids:
+                continue
+            try:
+                tools[item["name"]].replay(item["arguments"])
+            except ReplayError as error:
+                raise PersistenceError(
+                    f"This conversation calls `{item['name']}`, and calling it again failed, so the notes "
+                    "cannot be rebuilt as they were. Nothing changed: rewind to a message before that call, "
+                    f"or keep going from here. The call reported: {error}"
+                ) from error
 
     def _generate_specs(self, cancelled: Event | None) -> Generator[AgentEvent]:
         result = yield from specs_generation.generate(self.settings, cancelled)
