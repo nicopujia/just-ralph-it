@@ -223,6 +223,23 @@ def kill_the_run_amid_writing(
     kill_the_run_amid_applying(repository, patch, index=index, directory=directory, zero_context=zero_context)
 
 
+# The same kill again, landing in the window `git apply` spends with
+# the file it is rewriting removed: polling one during a real
+# acceptance reads it back missing there, which is how this window was
+# found.
+def kill_the_run_amid_rewriting(
+    repository: git.Repository,
+    patch: bytes,
+    *,
+    index: bool = False,
+    directory: str | None = None,
+    zero_context: bool = False,
+) -> None:
+    if not index:
+        (repository.path / ".jri/specs/functional/behavior.md").unlink()
+    kill_the_run_amid_applying(repository, patch, index=index, directory=directory, zero_context=zero_context)
+
+
 def build_conversation(path: Path, client: FakeClient) -> Conversation:
     install_workspace(path)
     return Conversation(build_settings(client))
@@ -541,6 +558,30 @@ def test_undoes_the_acceptance_a_killed_write_left_empty(
     assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
     assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert not run_git(tmp_path, "status", "--short")
+
+
+def test_undoes_the_acceptance_a_killed_rewrite_left_unwritten(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    accepted = find_accepted_commit(tmp_path)
+    with pytest.MonkeyPatch.context() as killed:
+        killed.setattr(git.Repository, "apply_patch", kill_the_run_amid_rewriting)
+        conversation = build_conversation(tmp_path, updated_client())
+        conversation.restore()
+        with pytest.raises(KeyboardInterrupt):
+            list(conversation.ralph())
+    assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
+    restarted = build_conversation(tmp_path, updated_client())
+    restarted.restore()
+
+    assert read_ending(restarted.ralph()) == "replied"
+
+    assert find_accepted_commit(tmp_path) not in {None, accepted}
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\nAdd a total accumulator.\n"
     assert not run_git(tmp_path, "status", "--short")
 
 

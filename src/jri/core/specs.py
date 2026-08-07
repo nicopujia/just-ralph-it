@@ -186,7 +186,7 @@ class Specs:
         if self._can_apply(acceptance.patch, reverse=True):
             reversible = (acceptance.patch,)
         else:
-            self._remove_empty_writes()
+            self._repair_writes(acceptance.accepted)
             reversible = self._plan_undo(acceptance.patch)
         if reversible is None:
             # What is there is neither what JRI wrote nor what stood
@@ -210,18 +210,29 @@ class Specs:
         self.workspace.acceptance_file.unlink(missing_ok=True)
         logger.info("acceptance_undone unstaged=%d reversed=%d", len(added), len(reversible))
 
-    # `git apply` makes a file before it writes it, so a kill can leave
-    # one made and still empty. A specification of nothing is not a
-    # specification, and one Git never tracked came from the write this
-    # is undoing, so there is nothing in it for anyone to lose. The
+    # `git apply` writes a file by removing it and making it again, so
+    # a kill inside it leaves one gone, or made and still empty.
+    # Neither is a specification and neither holds anything for anyone
+    # to lose, so what Git tracks comes back from the commit that holds
+    # it and what Git never tracked, being this write's own, goes. The
     # links `_check_state` refuses are left for it to name.
-    def _remove_empty_writes(self) -> None:
+    def _repair_writes(self, accepted: str | None) -> None:
         tracked = self.repository.read_staged_paths((paths.COMMITTED_SPECS,))
         for path in (self.workspace.root / paths.SPECS_DIR).rglob("*.md"):
             relative = path.relative_to(self.workspace.root).as_posix()
             if not path.is_symlink() and path.is_file() and not path.stat().st_size and relative not in tracked:
                 path.unlink()
                 logger.info("empty_write_removed path=%s", relative)
+        if accepted is None:
+            return
+        unwritten = [path for path in tracked if not self._holds_content(self.workspace.root / path)]
+        if unwritten:
+            self.repository.restore(accepted, unwritten)
+            logger.info("unwritten_specs_restored count=%d", len(unwritten))
+
+    @staticmethod
+    def _holds_content(path: Path) -> bool:
+        return path.is_symlink() or (path.is_file() and bool(path.stat().st_size))
 
     # `git apply` validates a whole patch and only then writes it, file
     # by file, so a kill inside it leaves an arbitrary prefix of the

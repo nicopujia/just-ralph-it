@@ -305,6 +305,20 @@ def test_unstages_the_paths_of_a_repository_without_commits(tmp_path: Path) -> N
     assert repository.read_status() == (git.Status("notes.md", "?", "?"),)
 
 
+def test_restores_only_the_paths_it_is_given(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "notes.md").write_bytes(b"# Notes\n")
+    repository.stage(["notes.md"])
+    repository.commit("docs: add notes")
+    (repository.path / "notes.md").unlink()
+    (repository.path / "README.md").write_bytes(b"# Edited\n")
+
+    repository.restore("HEAD", ["notes.md"])
+
+    assert (repository.path / "notes.md").read_bytes() == b"# Notes\n"
+    assert (repository.path / "README.md").read_bytes() == b"# Edited\n"
+
+
 def test_reverses_a_patch_it_applied(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     patch = b"""\

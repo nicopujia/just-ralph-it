@@ -211,6 +211,9 @@ class Repository:
     def unstage(self, paths: Sequence[str]) -> None:
         self._run("reset", "--quiet", "--", *paths)
 
+    def restore(self, revision: str, paths: Sequence[str]) -> None:
+        self._run("checkout", revision, "--", *paths)
+
     def commit(self, message: str, trailers: Sequence[str] = (), *, paths: Sequence[str] = ()) -> str:
         body = f"{message}\n\n{'\n'.join(trailers)}\n" if trailers else f"{message}\n"
         # Named paths are read from the worktree and written to the
