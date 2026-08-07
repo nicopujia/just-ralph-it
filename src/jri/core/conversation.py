@@ -17,6 +17,7 @@ from .ai import (
     Outcome,
     ReasoningDelta,
     TextDelta,
+    Tool,
     ToolCallFinished,
     ToolCallStarted,
     TurnEvent,
@@ -157,25 +158,26 @@ class Conversation:
         history_index = self._find_prompts()[checkpoint_index]
         kept = [cast("dict[str, Any]", item) for item in self.interviewer.history[:history_index]]
         tools = {tool.name: tool for tool in self.interviewer.tools}
-        # The notes are rebuilt by replaying the calls below, so a call
-        # this JRI cannot make is a notebook it cannot rebuild. It says
-        # so before rolling anything back, rather than half way through.
-        missing = next(
+        # The notes are rebuilt by replaying the calls below, so what
+        # decides a rewind is whether the replay would make them again,
+        # not whether the name is one JRI still answers to. It says so
+        # before rolling anything back, rather than half way through.
+        unreplayable = next(
             (
                 item["name"]
                 for item in kept
                 if item.get("type") == "function_call"
                 and item["call_id"] not in self.session.failed_call_ids
-                and item["name"] not in tools
+                and not _can_replay(tools.get(item["name"]), item["arguments"])
             ),
             None,
         )
-        if missing is not None:
-            self.logger.info("rewind_refused checkpoint=%d tool=%s", checkpoint_index, missing)
+        if unreplayable is not None:
+            self.logger.info("rewind_refused checkpoint=%d tool=%s", checkpoint_index, unreplayable)
             raise PersistenceError(
-                f"This conversation calls `{missing}`, which this version of JRI no longer has, so the notes "
-                "cannot be rebuilt as they were. Nothing changed: rewind to a message before that call, or "
-                "keep going from here."
+                f"This conversation calls `{unreplayable}` in a way this version of JRI cannot make again, so "
+                "the notes cannot be rebuilt as they were. Nothing changed: rewind to a message before that "
+                "call, or keep going from here."
             )
 
         self.interviewer.history = self.interviewer.history[:history_index]
@@ -372,6 +374,24 @@ class Conversation:
         if not self.interviewer.offered_ralphing:
             return {}
         return {"ready_graph": self.notebook.graph.model_copy(deep=True)}
+
+
+# A tool that is never replayed makes nothing again, whatever it was
+# called with, so no argument of its can cost a note; a replayed one
+# has to still accept the call, since `invoke` answers arguments it no
+# longer takes with a failure rendered for a model a rewind does not
+# have. Nothing records which of the two a tool JRI no longer has was,
+# so that one counts as notes at stake.
+def _can_replay(tool: Tool | None, arguments: str) -> bool:
+    if tool is None:
+        return False
+    if not tool.replayed:
+        return True
+    try:
+        tool.arguments_model.model_validate_json(arguments, strict=True)
+    except ValidationError:
+        return False
+    return True
 
 
 def _record_event(turn: Turn, start: int, open_rows: list[ToolCallStarted], event: AgentEvent) -> None:

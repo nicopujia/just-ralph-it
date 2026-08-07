@@ -51,6 +51,21 @@ def rename_recorded_calls(conversation: Conversation, name: str) -> None:
     session_file.write_text(json.dumps(session), encoding="utf-8")
 
 
+# A session recorded by a JRI whose tool took a parameter this one no
+# longer accepts.
+def rename_recorded_parameter(conversation: Conversation, old: str, new: str) -> None:
+    session_file = conversation.workspace.session_file
+    session = json.loads(session_file.read_text(encoding="utf-8"))
+    for item in session["interview"]:
+        if item.get("type") != "function_call":
+            continue
+        arguments = json.loads(item["arguments"])
+        if old in arguments:
+            arguments[new] = arguments.pop(old)
+            item["arguments"] = json.dumps(arguments)
+    session_file.write_text(json.dumps(session), encoding="utf-8")
+
+
 def test_leaves_the_workspace_untouched_until_a_command_reads_it(tmp_path: Path) -> None:
     install_workspace(tmp_path)
     (tmp_path / paths.NOTEBOOK_FILE).unlink()
@@ -956,6 +971,74 @@ def test_refuses_a_rewind_through_a_tool_this_version_no_longer_has() -> None:
     reopened = build_conversation(FakeClient([]))
     assert [turn.message for turn in reopened.restore()] == ["Deploy from main.", "One more thing."]
     assert [note.text for note in reopened.notebook.graph.notes] == ["Deploy from main."]
+
+
+def test_refuses_a_rewind_through_a_call_this_version_no_longer_accepts() -> None:
+    conversation = build_conversation(
+        FakeClient([
+            response(call("capture", "capture_notes", texts=["Deploy from main."])),
+            streamed_reply("Delivery captured."),
+            streamed_reply("Noted."),
+        ])
+    )
+    list(conversation.chat("Deploy from main."))
+    list(conversation.chat("One more thing."))
+    rename_recorded_parameter(conversation, "texts", "notes")
+
+    restarted = build_conversation(FakeClient([]))
+    restarted.restore()
+
+    with pytest.raises(PersistenceError, match="capture_notes"):
+        restarted.rewind(1)
+
+    reopened = build_conversation(FakeClient([]))
+    assert [turn.message for turn in reopened.restore()] == ["Deploy from main.", "One more thing."]
+    assert [note.text for note in reopened.notebook.graph.notes] == ["Deploy from main."]
+
+
+def test_rewinds_through_a_call_only_a_tool_it_never_replays_no_longer_accepts() -> None:
+    conversation = build_conversation(
+        FakeClient([
+            response(
+                call("read", "read_notes", query={"text": "delivery"}),
+                call("capture", "capture_notes", texts=["Deploy from main."]),
+            ),
+            streamed_reply("Delivery captured."),
+            streamed_reply("Noted."),
+        ])
+    )
+    list(conversation.chat("Deploy from main."))
+    list(conversation.chat("One more thing."))
+    rename_recorded_parameter(conversation, "query", "filter")
+
+    restarted = build_conversation(FakeClient([]))
+    restarted.restore()
+    restarted.rewind(1)
+
+    reopened = build_conversation(FakeClient([]))
+    assert [turn.message for turn in reopened.restore()] == ["Deploy from main."]
+    assert [note.text for note in reopened.notebook.graph.notes] == ["Deploy from main."]
+
+
+def test_rewinds_through_a_failed_call_to_a_tool_this_version_no_longer_has() -> None:
+    conversation = build_conversation(
+        FakeClient([
+            response(call("failed", "switch_topic", topic="")),
+            streamed_reply("That topic was invalid."),
+            streamed_reply("Noted."),
+        ])
+    )
+    list(conversation.chat("Switch to nothing."))
+    list(conversation.chat("One more thing."))
+    rename_recorded_calls(conversation, "change_topic")
+
+    restarted = build_conversation(FakeClient([]))
+    restarted.restore()
+    restarted.rewind(1)
+
+    reopened = build_conversation(FakeClient([]))
+    assert [turn.message for turn in reopened.restore()] == ["Switch to nothing."]
+    assert [topic.name for topic in reopened.notebook.graph.topics] == ["Project overview"]
 
 
 def test_rewinds_to_before_a_tool_this_version_no_longer_has() -> None:
