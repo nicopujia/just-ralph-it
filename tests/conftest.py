@@ -115,7 +115,7 @@ def isolate_logging() -> Iterator[None]:
     level, propagate, existing = logger.level, logger.propagate, list(logger.handlers)
     yield
     for handler in logger.handlers:
-        if handler not in existing and isinstance(handler, logging.FileHandler):
+        if handler not in existing:
             handler.close()
     logger.handlers, logger.level, logger.propagate = existing, level, propagate
 

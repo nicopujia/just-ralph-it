@@ -58,6 +58,10 @@ class Workspace:
         return self.root / paths.LOG_FILE
 
     @property
+    def log_lock_file(self) -> Path:
+        return self.root / paths.LOG_LOCK_FILE
+
+    @property
     def generation_dir(self) -> Path:
         return self.root / paths.GENERATION_DIR
 

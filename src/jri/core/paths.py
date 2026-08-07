@@ -15,6 +15,9 @@ ACCEPTANCE_FILE = f"{GENERATION_DIR}/acceptance.json"
 LOGS_DIR = f"{WORKSPACE_DIR}/logs"
 
 LOG_FILE = f"{LOGS_DIR}/jri.log"
+# Rotation renames the log, so what the runs of a session take turns
+# over is a file no rename ever moves out from under them.
+LOG_LOCK_FILE = f"{LOGS_DIR}/.lock"
 
 SPECS_DIR = f"{WORKSPACE_DIR}/specs"
 
