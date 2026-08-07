@@ -1,5 +1,6 @@
 import os
 import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -7,6 +8,7 @@ import pytest
 
 from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
+from tests.doubles.acceptance import KILL_THE_GIT, TAKE_THE_LOCK, open_a_commit_window, read_git_locks
 
 CONTEXT_FREE_PATCH = b"""\
 diff --git a/README.md b/README.md
@@ -109,13 +111,67 @@ def test_reads_the_status_of_a_path_the_project_ignores(tmp_path: Path, create_r
     assert repository.read_status(["build"], ignored=True) == (git.Status("build/report.md", "!", "!"),)
 
 
-def test_names_the_file_git_guards_the_index_with(tmp_path: Path, create_repository: CreateRepository) -> None:
+def test_keeps_the_lock_that_was_standing_before_a_command_of_its_own(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
     repository = create_repository(tmp_path)
-
-    repository.index_lock_file.touch()
+    index_lock = tmp_path / ".git/index.lock"
+    index_lock.touch()
 
     with pytest.raises(git.Error, match=r"index\.lock"):
         repository.stage(("README.md",))
+
+    assert read_git_locks(tmp_path) == (index_lock,)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a hook that takes a lock needs a shell and `touch`")
+def test_keeps_the_lock_another_command_took_while_its_own_ran(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+
+    with open_a_commit_window(tmp_path, "past", TAKE_THE_LOCK):
+        repository.commit("second", paths=("README.md",))
+
+    assert read_git_locks(tmp_path) == (tmp_path / ".git/index.lock",)
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="a directory that refuses a write is an access list `chmod` cannot write"
+)
+def test_leaves_the_lock_it_is_refused_the_removal_of(tmp_path: Path) -> None:
+    directory = tmp_path / "guarded"
+    directory.mkdir()
+    lock = directory / "index.lock"
+    lock.touch()
+    directory.chmod(0o500)
+
+    try:
+        git.Locks((directory,)).release(())
+    finally:
+        directory.chmod(0o700)
+
+    assert lock.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a hook that kills its own Git needs a shell and `kill`")
+@pytest.mark.parametrize("window", ["index", "branch"])
+def test_frees_the_locks_the_git_it_started_died_holding(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, window: str
+) -> None:
+    repository = create_repository(tmp_path)
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+
+    with open_a_commit_window(tmp_path, window, KILL_THE_GIT), pytest.raises(git.Error):
+        repository.commit("second", paths=("README.md",))
+
+    assert read_git_locks(tmp_path) == ()
+    # The commit the kill cut short never landed, and the next command
+    # runs as though the locks it would have met had never been made.
+    assert run_git(tmp_path, "log", "--format=%s") == "initial"
+    assert repository.commit("second", paths=("README.md",))
+    assert run_git(tmp_path, "log", "--format=%s").splitlines() == ["second", "initial"]
 
 
 def test_leaves_the_index_alone_where_a_read_would_only_be_refreshing_it(

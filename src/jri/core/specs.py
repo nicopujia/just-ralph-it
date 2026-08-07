@@ -37,13 +37,16 @@ class Baseline:
 # An acceptance under way, written down before it touches the project
 # so that undoing it never depends on reading the worktree back: the
 # patch is what was applied, `accepted` is the acceptance commit the
-# project held before it, `indexed` the paths Git already tracked, and
-# `pid` the run carrying it out, so a lock left in `.git` beside this
-# is told from one the run reading it is holding right now.
+# project held before it, `indexed` the paths Git already tracked,
+# `locked` the locks Git already held, so one this acceptance goes on
+# to leave is told from one that was there before it, and `pid` the
+# run carrying it out, so a lock left in `.git` beside this is told
+# from one the run reading it is holding right now.
 class Acceptance(BaseModel):
     accepted: str | None
     patch: str
     indexed: tuple[str, ...]
+    locked: tuple[str, ...]
     pid: int
 
     model_config = ConfigDict(extra="forbid")
@@ -140,6 +143,7 @@ class Specs:
             accepted=baseline.accepted,
             patch=patch.decode(),
             indexed=self.repository.read_staged_paths(paths.COMMITTED_PATHS),
+            locked=tuple(str(path) for path in self.repository.locks.standing),
             pid=os.getpid(),
         )
         self.workspace.open_generation_dir()
@@ -190,10 +194,10 @@ class Specs:
         acceptance = self._read_acceptance()
         if acceptance is None:
             return
-        self._release_index_lock(acceptance)
+        self._release_locks(acceptance)
         # Undoing writes the index, so a lock still standing here would
         # come back as Git's own words about a path inside `.git`.
-        self._check_index_lock()
+        self._check_locks()
         accepted = self.repository.find_commit(ACCEPTANCE_TRAILER) if self.repository.has_commit() else None
         # The kill may have landed after Git wrote the commit, and past
         # that point the patch is the project's: reversing it would
@@ -204,33 +208,33 @@ class Specs:
             return
         self._undo_acceptance(acceptance)
 
-    # Git's own guard against two commands writing the index at once,
-    # so JRI takes it away only where it can say whose it is: a record
-    # says an acceptance was under way, a pid that is not this one says
-    # the run doing it was another, and a lock the operating system has
-    # already dropped says that run is dead. Anything else is a lock
-    # JRI cannot account for, and `_check_index_lock` names it instead.
-    def _release_index_lock(self, acceptance: Acceptance) -> None:
-        index_lock_file = self.repository.index_lock_file
-        if not index_lock_file.exists():
-            return
+    # Git's own guard against two commands writing one file at once,
+    # so JRI takes one away only where it can say whose it is: a
+    # record says an acceptance was under way and names the locks Git
+    # already held when it opened, so a lock standing now that is not
+    # among them is one that acceptance left; a pid that is not this
+    # one says the run doing it was another; and a lock the operating
+    # system has already dropped says that run is dead. Anything else
+    # is a lock JRI cannot account for, and `_check_locks` names it
+    # instead.
+    def _release_locks(self, acceptance: Acceptance) -> None:
         if acceptance.pid == os.getpid() or Lock(self.workspace.acceptance_lock_file).is_held():
             return
-        index_lock_file.unlink(missing_ok=True)
-        logger.info("index_lock_released path=%s", index_lock_file)
+        self.repository.locks.release([Path(path) for path in acceptance.locked])
 
-    # Whichever Git command meets this file next says so and stops,
-    # which is a message about a path inside `.git` in the middle of a
-    # run about specifications. What a killed acceptance of JRI's left
-    # is already gone by here, so what stands is either a command
-    # running now or one nothing of JRI's accounts for -- and either
-    # way the user is the one who can tell which, once they are told
-    # which file it is.
-    def _check_index_lock(self) -> None:
-        if self.repository.index_lock_file.exists():
+    # Whichever Git command meets one of these files next says so and
+    # stops, which is a message about a path inside `.git` in the
+    # middle of a run about specifications. What a killed acceptance of
+    # JRI's left is already gone by here, so what stands is either a
+    # command running now or one nothing of JRI's accounts for -- and
+    # either way the user is the one who can tell which, once they are
+    # told which files they are.
+    def _check_locks(self) -> None:
+        blocking = self.repository.locks.blocking
+        if blocking:
             raise RepositoryStateError(
-                "Git's index is locked. Wait for the command holding it, or, if none is running, remove "
-                f"`{self.repository.index_lock_file}` before Ralphing."
+                "Git is locked. Wait for the command holding it, or, if none is running, remove these before "
+                "Ralphing:\n" + "\n".join(f"- {path}" for path in blocking)
             )
 
     # A record JRI cannot read says nothing about the run that wrote
@@ -407,7 +411,7 @@ class Specs:
             ) from error
 
     def _check_state(self) -> None:
-        self._check_index_lock()
+        self._check_locks()
         # Off a branch, Git takes the commit and leaves it reachable
         # only from where HEAD stands, so going back to the branch
         # loses it: every stopped rebase, every bisect, and every

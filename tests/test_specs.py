@@ -15,7 +15,14 @@ from jri.core.specs import ACCEPTANCE_TRAILER, Specs
 from jri.core.workspace import Workspace
 from jri.lib import git
 from tests.conftest import CreateLink, CreateRepository, RunGit
-from tests.doubles.acceptance import bound_the_acceptance_writes, kill_amid_staging
+from tests.doubles.acceptance import (
+    KILL_THE_GIT,
+    bound_the_acceptance_writes,
+    kill_amid_moving_the_branch,
+    kill_amid_staging,
+    open_a_commit_window,
+    read_git_locks,
+)
 from tests.doubles.lock import hold
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
@@ -861,27 +868,56 @@ def test_ignores_a_record_of_an_acceptance_the_worktree_no_longer_holds(
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
-def test_frees_the_index_lock_an_acceptance_a_kill_reached_left_in_git(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+@pytest.mark.parametrize(
+    ("kill", "held"),
+    [(kill_amid_staging, "index.lock"), (kill_amid_moving_the_branch, "HEAD.lock")],
+    ids=["index", "branch"],
+)
+def test_frees_the_locks_an_acceptance_a_kill_reached_left_in_git(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, kill: Callable[[Path, bytes], None], held: str
 ) -> None:
-    repository = create_repository(tmp_path)
+    create_repository(tmp_path)
     install_workspace(tmp_path)
-    kill_amid_staging(tmp_path, ACCEPTANCE_PATCH)
-    assert repository.index_lock_file.exists()
+    kill(tmp_path, ACCEPTANCE_PATCH)
+    assert (tmp_path / ".git" / held).exists()
 
     assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
 
-    assert not repository.index_lock_file.exists()
+    assert read_git_locks(tmp_path) == ()
     assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
     assert not run_git(tmp_path, "status", "--short")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a hook that kills its own Git needs a shell and `kill`")
+def test_frees_the_locks_the_git_a_run_that_lives_on_started_died_holding(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    accepted = find_accepted_commit(tmp_path)
+    with open_a_commit_window(tmp_path, "index", KILL_THE_GIT):
+        assert read_ending(build_conversation(tmp_path, updated_client()).ralph(), "Git command failed") == "failed"
+    # The run that lived through it undid its own acceptance and took
+    # its record with it, so nothing is left to say whose a lock is by
+    # the time the next run reads the project.
+    assert not Workspace(tmp_path).acceptance_file.exists()
+    assert read_git_locks(tmp_path) == ()
+
+    restarted = build_conversation(tmp_path, updated_client())
+    restarted.restore()
+
+    assert read_ending(restarted.ralph()) == "replied"
+    assert find_accepted_commit(tmp_path) not in {None, accepted}
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
+    assert not run_git(tmp_path, "status", "--short")
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
-def test_keeps_the_index_lock_a_run_that_is_still_there_may_hold(
+def test_keeps_the_locks_a_run_that_is_still_there_may_hold(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
-    repository = create_repository(tmp_path)
+    create_repository(tmp_path)
     install_workspace(tmp_path)
     kill_amid_staging(tmp_path, ACCEPTANCE_PATCH)
 
@@ -889,43 +925,64 @@ def test_keeps_the_index_lock_a_run_that_is_still_there_may_hold(
     # acceptance that may be under way, and a lock in `.git` is what
     # one under way is meant to have.
     with hold(Workspace(tmp_path).acceptance_lock_file):
-        ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Git's index is locked")
+        ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Git is locked")
 
     assert ending == "blocked"
-    assert repository.index_lock_file.exists()
+    assert (tmp_path / ".git/index.lock").exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
+def test_keeps_the_lock_that_was_already_standing_when_the_acceptance_opened(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    # A lock over a branch this run never moves, left by whatever left
+    # it: the acceptance that opens beside it did not make it, and the
+    # record it writes says so.
+    spare = tmp_path / ".git/refs/heads/spare.lock"
+    spare.touch()
+    kill_amid_staging(tmp_path, ACCEPTANCE_PATCH)
+
+    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
+
+    assert read_git_locks(tmp_path) == (spare,)
+    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
+    assert not run_git(tmp_path, "status", "--short")
 
 
 def test_keeps_the_index_lock_the_run_recorded_beside_it_never_left(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
-    repository = create_repository(tmp_path)
+    create_repository(tmp_path)
     kill_a_run(tmp_path, "commit", kill_the_run_before_committing)
     # The record names this very process, which no kill ever reached,
     # so the lock beside it was left by something else.
-    repository.index_lock_file.touch()
+    index_lock = tmp_path / ".git/index.lock"
+    index_lock.touch()
 
-    ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Git's index is locked")
+    ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Git is locked")
 
     assert ending == "blocked"
-    assert repository.index_lock_file.exists()
+    assert index_lock.exists()
 
 
-def test_names_the_index_lock_no_record_of_its_own_accounts_for(
-    tmp_path: Path, create_repository: CreateRepository
-) -> None:
-    repository = create_repository(tmp_path)
+def test_names_the_locks_no_record_of_its_own_accounts_for(tmp_path: Path, create_repository: CreateRepository) -> None:
+    create_repository(tmp_path)
     # What a Git of the user's leaves when something kills it: JRI has
-    # no record saying the file is its own, so it names it rather than
-    # taking away the guard Git put there.
-    repository.index_lock_file.touch()
+    # no record saying the files are its own, so it names them rather
+    # than taking away the guard Git put there.
+    locks = (tmp_path / ".git/index.lock", tmp_path / ".git/HEAD.lock")
+    for lock in locks:
+        lock.touch()
 
     ending = read_ending(
         build_conversation(tmp_path, successful_client()).ralph(),
-        rf"Git's index is locked\..*remove `{re.escape(str(repository.index_lock_file))}` before Ralphing\.",
+        r"Git is locked\..*remove these before Ralphing:\n" + "\n".join(rf"- {re.escape(str(lock))}" for lock in locks),
     )
 
     assert ending == "blocked"
-    assert repository.index_lock_file.exists()
+    assert all(lock.exists() for lock in locks)
 
 
 def test_leaves_a_leftover_the_user_changed_for_the_user_to_sort_out(

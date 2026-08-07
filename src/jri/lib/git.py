@@ -3,13 +3,13 @@ import os
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Generator, Sequence
+from collections.abc import Collection, Generator, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Self
+from typing import ClassVar, Self
 
-__all__ = ["Error", "NotInstalledError", "NotRepositoryError", "Repository", "Status", "find_root"]
+__all__ = ["Error", "Locks", "NotInstalledError", "NotRepositoryError", "Repository", "Status", "find_root"]
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +41,55 @@ class Status:
     original_path: str | None = None
 
 
+# Git's guard against two commands writing one file at once, and the
+# only shape it ever has: the file's own name with `.lock` after it,
+# made where the file lives, written into and renamed over the file. So
+# a command that dies in between leaves one standing, and every later
+# command that wants that file refuses. `directories` are where a
+# repository's own locks live and `written` the files its commands
+# write, which is what tells a lock that stops one from a lock that
+# does not.
+@dataclass(frozen=True)
+class Locks:
+    SUFFIX: ClassVar[str] = ".lock"
+    # Where a lock says nothing about a command of this repository's:
+    # `gc` and `maintenance` lock the object store, which nothing run
+    # here ever waits for, and every other worktree keeps its own
+    # directory, which its own `Repository` answers for.
+    UNGUARDED: ClassVar[frozenset[str]] = frozenset({"objects", "worktrees"})
+
+    directories: tuple[Path, ...]
+    written: tuple[Path, ...] = ()
+
+    @property
+    def standing(self) -> frozenset[Path]:
+        found: set[Path] = set()
+        for root in set(self.directories):
+            for directory, names, files in os.walk(root):
+                names[:] = [name for name in names if name not in self.UNGUARDED]
+                found.update(Path(directory) / name for name in files if name.endswith(self.SUFFIX))
+        return frozenset(found)
+
+    @property
+    def blocking(self) -> tuple[Path, ...]:
+        locks = (Path(f"{path}{self.SUFFIX}") for path in self.written)
+        return tuple(lock for lock in locks if lock.exists())
+
+    # What stands now and did not stand then, and nothing else: a lock
+    # another command already held when this one began is that
+    # command's, whatever became of this one.
+    def release(self, standing: Collection[Path]) -> None:
+        for path in self.standing - frozenset(standing):
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                # Windows refuses to unlink a file another process
+                # holds open, which is a lock that is being held.
+                logger.exception("git_lock_release_failed path=%s", path)
+            else:
+                logger.info("git_lock_released path=%s", path)
+
+
 class Repository:
     def __init__(self, path: Path | str, executable: str = "git") -> None:
         resolved_executable = shutil.which(executable)
@@ -49,19 +98,31 @@ class Repository:
         self.executable = Path(resolved_executable)
         candidate = Path(path).resolve()
         result = subprocess.run(
-            [str(self.executable), "-C", str(candidate), "rev-parse", "--show-toplevel", "--absolute-git-dir"],
+            [
+                str(self.executable),
+                "-C",
+                str(candidate),
+                "rev-parse",
+                "--show-toplevel",
+                "--absolute-git-dir",
+                "--git-common-dir",
+            ],
             check=False,
             capture_output=True,
         )
         if result.returncode:
             raise NotRepositoryError(os.fsdecode(result.stderr).strip() or f"Not a Git worktree: {candidate}")
-        # Git answers the two in the order they were asked for, and the
-        # directory holding the repository is not `.git` under the
+        # Git answers the three in the order they were asked for, and
+        # the directory holding the repository is not `.git` under the
         # worktree wherever a link, a `GIT_DIR` or a second worktree
-        # puts it somewhere else.
-        top_level, git_directory = os.fsdecode(result.stdout).splitlines()
+        # puts it somewhere else. A second worktree has a directory of
+        # its own for what is only its -- its index, its HEAD -- and
+        # shares the first one's for what every worktree has in common,
+        # which Git answers for relative to where it was asked.
+        top_level, git_directory, common_directory = os.fsdecode(result.stdout).splitlines()
         self.path = Path(top_level).resolve()
         self._git_directory = Path(git_directory).resolve()
+        self._common_directory = (candidate / common_directory).resolve()
 
     @classmethod
     def init(cls, path: Path | str, executable: str = "git") -> Self:
@@ -82,13 +143,17 @@ class Repository:
             raise NotRepositoryError(os.fsdecode(result.stderr).strip() or f"Cannot initialize Git: {candidate}")
         return cls(candidate, executable)
 
-    # Git's guard against two commands writing the index at once: it
-    # makes this file, writes the new index into it and renames it over
-    # the index, so a command that dies in between leaves it standing
-    # and every later one refuses.
+    # The files every command run here writes, so the only locks that
+    # ever stop one: the index, and the two refs a commit moves. An
+    # unborn branch counts, since HEAD names the branch a first commit
+    # would land on before that commit exists.
     @property
-    def index_lock_file(self) -> Path:
-        return self._git_directory / "index.lock"
+    def locks(self) -> Locks:
+        branch = os.fsdecode(self._run("symbolic-ref", "--quiet", "HEAD", check=False).stdout).strip()
+        written = [self._git_directory / "index", self._git_directory / "HEAD"]
+        if branch:
+            written.append(self._common_directory / branch)
+        return replace(self._locks, written=tuple(written))
 
     def has_commit(self, revision: str = "HEAD") -> bool:
         arguments = ("rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}")
@@ -247,11 +312,41 @@ class Repository:
         # lock standing over a repository nothing was changing. This
         # drops the write and nothing else: a command that has to have
         # the lock, like a commit, still takes it.
-        command = [str(self.executable), "--no-optional-locks", "-C", str(self.path), *arguments]
+        command = [
+            str(self.executable),
+            "--no-optional-locks",
+            # A commit hands the repository to a `git maintenance` of
+            # Git's own that outlives it, holds the object store behind
+            # it and repacks everything the caller has. That is work
+            # nothing here asked for, and a lock the command that ended
+            # cannot answer for.
+            "-c",
+            "maintenance.auto=false",
+            "-C",
+            str(self.path),
+            *arguments,
+        ]
+        locks = self._locks
+        standing = locks.standing
         result = subprocess.run(command, input=stdin, check=False, capture_output=True)
+        # Git takes its own locks away as a command of its ends, by an
+        # exit handler for the ending it chose and by a handler for the
+        # signals it is asked to stop at, so one that came back with
+        # nothing wrong left none. One that came back wrong may have
+        # been killed where neither handler reaches -- and it is reaped
+        # by the time this reads, which is what makes a lock it left a
+        # lock nothing is holding.
+        if result.returncode:
+            locks.release(standing)
         if check and result.returncode:
             self._raise(result)
         return result
+
+    # What a command of this repository's can leave a lock in, asked
+    # for without asking Git anything, since asking would run a command.
+    @property
+    def _locks(self) -> Locks:
+        return Locks((self._git_directory, self._common_directory))
 
     @staticmethod
     def _raise(result: subprocess.CompletedProcess[bytes]) -> None:
