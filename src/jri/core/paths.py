@@ -4,7 +4,6 @@ WORKSPACE_DIR = ".jri"
 
 CONFIG_FILE = f"{WORKSPACE_DIR}/config.yaml"
 GITIGNORE_FILE = f"{WORKSPACE_DIR}/.gitignore"
-LOGS_DIR = f"{WORKSPACE_DIR}/logs"
 NOTEBOOK_FILE = f"{WORKSPACE_DIR}/notebook.yaml"
 SESSION_FILE = f"{WORKSPACE_DIR}/session.json"
 VISUALIZATION_FILE = f"{WORKSPACE_DIR}/visualization.html"
@@ -13,6 +12,10 @@ GENERATION_DIR = f"{WORKSPACE_DIR}/generation"
 
 ACCEPTANCE_FILE = f"{GENERATION_DIR}/acceptance.json"
 GENERATION_GITIGNORE_FILE = f"{GENERATION_DIR}/.gitignore"
+
+LOGS_DIR = f"{WORKSPACE_DIR}/logs"
+
+LOG_FILE = f"{LOGS_DIR}/jri.log"
 
 SPECS_DIR = f"{WORKSPACE_DIR}/specs"
 

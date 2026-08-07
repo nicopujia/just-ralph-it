@@ -54,6 +54,10 @@ class Workspace:
         return self.root / paths.LOGS_DIR
 
     @property
+    def log_file(self) -> Path:
+        return self.root / paths.LOG_FILE
+
+    @property
     def generation_dir(self) -> Path:
         return self.root / paths.GENERATION_DIR
 
