@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from jri.lib.lock import Lock, LockError
-from tests.doubles.lock import hold, take
+from tests.doubles.lock import hold, read_fork_child, runs, take
 
 HELD_FOR = 0.5
 
@@ -32,6 +32,25 @@ def test_waits_for_the_lock_a_holder_has_not_dropped_yet(tmp_path: Path) -> None
         waited = time.monotonic() - started
 
     assert taken
+    assert waited >= HELD_FOR
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="`fork` is the one way of copying a descriptor Windows has not")
+def test_frees_the_lock_a_killed_holder_left_to_a_process_it_forked(tmp_path: Path) -> None:
+    path = tmp_path / "lock"
+
+    with hold(path, forking=True) as holder:
+        started = time.monotonic()
+        threading.Timer(HELD_FOR, holder.kill).start()
+        taken = take(path)
+        waited = time.monotonic() - started
+        inherited = runs(read_fork_child(path))
+
+    assert inherited, "the forked process died before it could hold on to the lock"
+    assert taken
+    # The forked process outlives the holder either way, so a wait that
+    # ended early is the child having dropped a lock that was not its
+    # own to drop, and a wait that never ends is the child keeping one.
     assert waited >= HELD_FOR
 
 

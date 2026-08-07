@@ -22,6 +22,11 @@ __all__ = ["Lock", "LockError"]
 LOCKED_BYTES = 1
 LOCK_FILE_PERMISSIONS = 0o600
 
+# The descriptor a lock is held on lives here rather than on the lock,
+# so that a forked child can close every one it inherited without the
+# locks that took them being reachable from it.
+_descriptors: "dict[Lock, int]" = {}
+
 
 class LockError(Exception): ...
 
@@ -29,7 +34,6 @@ class LockError(Exception): ...
 class Lock:
     def __init__(self, path: Path) -> None:
         self.path = path
-        self._descriptor: int | None = None
 
     def __enter__(self) -> Self:
         try:
@@ -40,6 +44,10 @@ class Lock:
             descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR, LOCK_FILE_PERMISSIONS)
         except OSError as error:
             raise LockError(f"The lock file {self.path} cannot be opened.") from error
+        # A fork copies every descriptor the process has open, so this
+        # one is written down before the wait for the range and not
+        # after it: a child forked while the wait is on has it too.
+        _descriptors[self] = descriptor
         taken = False
         try:
             if sys.platform == "win32":
@@ -56,16 +64,36 @@ class Lock:
             # A descriptor no lock was taken on is a descriptor nothing
             # will close, since only a held lock is released.
             if not taken:
+                del _descriptors[self]
                 os.close(descriptor)
-        self._descriptor = descriptor
         return self
 
     def __exit__(self, *_: object) -> None:
-        if self._descriptor is not None:
+        # A block a forked child inherited has nothing left to release,
+        # since the descriptor it was entered on is gone from the child.
+        descriptor = _descriptors.pop(self, None)
+        if descriptor is not None:
             if sys.platform == "win32":
-                os.lseek(self._descriptor, 0, os.SEEK_SET)
-                msvcrt.locking(self._descriptor, msvcrt.LK_UNLCK, LOCKED_BYTES)
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, LOCKED_BYTES)
             else:
-                fcntl.flock(self._descriptor, fcntl.LOCK_UN)
-            os.close(self._descriptor)
-            self._descriptor = None
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
+
+
+def _drop_inherited() -> None:
+    # The lock belongs to the open file the two processes now share, so
+    # a child that unlocked would drop the lock its parent still holds.
+    # Closing takes away only this process's share of it.
+    for descriptor in _descriptors.values():
+        os.close(descriptor)
+    _descriptors.clear()
+
+
+if sys.platform != "win32":
+    # `os.open` hands back a descriptor `exec` closes, so a process
+    # `subprocess` starts never sees this one. `fork` copies it anyway,
+    # and the lock stands for as long as any copy of the open file it
+    # was taken on is open, so a forked child outliving the holder
+    # would keep a lock the holder's death was supposed to drop.
+    os.register_at_fork(after_in_child=_drop_inherited)
