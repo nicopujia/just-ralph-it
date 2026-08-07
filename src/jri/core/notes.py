@@ -14,6 +14,32 @@ type TopicId = Annotated[str, Field(pattern=r"^t\d+$")]
 type NoteId = Annotated[str, Field(pattern=r"^n\d+$")]
 type NodeId = Annotated[str, Field(pattern=r"^[nt]\d+$")]
 
+# A note is written under its topic in the file, and the viewer draws
+# that containment itself, so an edge between the two whose label only
+# names the containment restates what is already there. An edge saying
+# anything else, or reaching any other topic, is left alone.
+CONTAINMENT_LABELS = frozenset({
+    "belongs in",
+    "belongs to",
+    "belongs under",
+    "contains",
+    "groups",
+    "has",
+    "holds",
+    "in",
+    "includes",
+    "is contained by",
+    "is contained in",
+    "is grouped under",
+    "is in",
+    "is part of",
+    "is under",
+    "is within",
+    "part of",
+    "under",
+    "within",
+})
+
 logger = logging.getLogger(__name__)
 
 
@@ -236,10 +262,16 @@ class Notebook:
         if len(requested) != len(set(requested)):
             raise ValueError("Connections in a request must be unique.")
         for connection in connections:
-            self._find_node(graph, connection.source_id)
-            self._find_node(graph, connection.target_id)
+            source = self._find_node(graph, connection.source_id)
+            target = self._find_node(graph, connection.target_id)
             if not connection.label.strip():
                 raise ValueError("Connection labels cannot be blank.")
+            if self._restates_containment(source, target, connection.label):
+                raise ValueError(
+                    f"`{connection.source_id}` and `{connection.target_id}` are a note and the topic already "
+                    f"holding it, so `{connection.label}` states nothing further. Label what else relates them, "
+                    "or leave them unconnected."
+                )
             if tuple(connection.model_dump().values()) not in existing:
                 graph.connections.append(connection)
         self._save(graph)
@@ -420,3 +452,11 @@ class Notebook:
             if node.id == node_id:
                 return node
         raise ValueError(f"Unknown topic or note `{node_id}`.")
+
+    @staticmethod
+    def _restates_containment(source: Topic | Note, target: Topic | Note, label: str) -> bool:
+        note = next((node for node in (source, target) if isinstance(node, Note)), None)
+        topic = next((node for node in (source, target) if isinstance(node, Topic)), None)
+        if note is None or topic is None or topic.id != note.topic_id:
+            return False
+        return " ".join(label.split()).casefold() in CONTAINMENT_LABELS

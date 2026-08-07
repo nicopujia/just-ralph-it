@@ -479,6 +479,54 @@ def test_counts_only_the_connections_a_request_changes(tmp_path: Path) -> None:
     assert Notebook(notebook.path).graph.connections == []
 
 
+@pytest.mark.parametrize(
+    "label",
+    ["contains", "Belongs To", "part of", "IN", "  is   part  of "],
+    ids=["plain", "cased", "inverse", "bare", "spaced"],
+)
+def test_refuses_a_connection_that_only_repeats_where_a_note_already_sits(tmp_path: Path, label: str) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    delivery = notebook.add_topic("Delivery")
+    notebook.add(["First"], delivery.id)
+
+    with pytest.raises(ValueError, match="states nothing further"):
+        notebook.connect([Connection(source_id=delivery.id, target_id="n1", label=label)])
+    with pytest.raises(ValueError, match="states nothing further"):
+        notebook.connect([Connection(source_id="n1", target_id=delivery.id, label=label)])
+
+    assert notebook.graph.connections == []
+    assert Notebook(notebook.path).graph.connections == []
+
+
+def test_keeps_a_connection_that_says_more_than_where_a_note_sits(tmp_path: Path) -> None:
+    notebook = Notebook(tmp_path / "notebook.yaml")
+    delivery = notebook.add_topic("Delivery")
+    notebook.add(["First"], delivery.id)
+    beyond = Connection(source_id=delivery.id, target_id="n1", label="is answered by")
+    elsewhere = Connection(source_id="n1", target_id="t1", label="belongs to")
+
+    assert notebook.connect([beyond, elsewhere]) == len([beyond, elsewhere])
+    assert Notebook(notebook.path).graph.connections == [beyond, elsewhere]
+
+
+# A notebook written before the refusal keeps what it holds: nothing
+# rewrites it, so the file has to load and the edge has to be reachable
+# by the only tool that removes one.
+def test_loads_a_notebook_already_holding_a_containment_connection(tmp_path: Path) -> None:
+    path = tmp_path / "notebook.yaml"
+    path.write_text(
+        "topics:\n- id: t1\n  name: Overview\n  status: open\n  notes: {n1: First}\n"
+        "connections: [t1 contains n1]\nnext_note_id: n2",
+        encoding="utf-8",
+    )
+    notebook = Notebook(path)
+    stored = Connection(source_id="t1", target_id="n1", label="contains")
+
+    assert notebook.graph.connections == [stored]
+    assert notebook.disconnect([stored]) == 1
+    assert Notebook(path).graph.connections == []
+
+
 def test_stores_a_stripped_topic_name_and_finds_it_by_id_or_name(tmp_path: Path) -> None:
     notebook = Notebook(tmp_path / "notebook.yaml")
 
@@ -521,7 +569,7 @@ def test_returns_the_connections_between_the_notes_it_reaches(tmp_path: Path) ->
     notebook.add(["Second"], delivery.id)
     notebook.add(["Third"], "t1")
     crossed = Connection(source_id="t1", target_id=delivery.id, label="relates to")
-    entered = Connection(source_id="t1", target_id="n1", label="contains")
+    entered = Connection(source_id="t1", target_id="n1", label="is answered by")
     followed = Connection(source_id="n1", target_id="n2", label="requires")
     unreached = Connection(source_id="n2", target_id="n3", label="requires")
     notebook.connect([crossed, entered, followed, unreached])
