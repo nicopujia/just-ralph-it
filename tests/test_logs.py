@@ -1,6 +1,7 @@
 import logging
 import os
 import re
+import shutil
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,9 +17,11 @@ from tests.doubles.settings import build_settings
 from tests.doubles.workspace import install_workspace
 
 EARLIER_RUN = "[an earlier run] left this"
+FAILURE_RECORD = "THE BUG HAPPENED HERE"
 # Big enough to fill the files below in few records, and inside the
 # bound a record has, so what fills them are whole records.
 FILLING_RECORD_BYTES = 32 * 1024
+OPENING_RECORD = "THE SESSION OPENED HERE"
 # Past the bound a record has, so the second run spends the
 # milliseconds its formatting and its truncation cost between making a
 # record and taking the lock -- the window records made later land in.
@@ -77,6 +80,35 @@ def test_bounds_the_files_and_the_bytes_a_long_session_leaves(tmp_path: Path) ->
     files = list_log_files(tmp_path)
     assert len(files) == logs.KEPT_LOG_FILES
     assert all(file.stat().st_size <= logs.LOG_FILE_BYTES for file in files)
+
+
+def test_keeps_the_opening_of_a_session_that_fills_the_files_over_and_over(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+
+    logs.configure(settings)
+    logger = logging.getLogger("jri")
+    logger.info(OPENING_RECORD)
+    for _ in range(logs.LOG_FILE_BYTES // FILLING_RECORD_BYTES * (logs.KEPT_LOG_FILES + 1)):
+        logger.info("x" * FILLING_RECORD_BYTES)
+    logger.info(FAILURE_RECORD)
+
+    log = read_session_log(tmp_path)
+    assert OPENING_RECORD in log
+    assert FAILURE_RECORD in log
+
+
+def test_writes_on_when_a_reset_takes_the_log_directory_away(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    logs.configure(settings)
+    logger = logging.getLogger("jri")
+    logger.info(OPENING_RECORD)
+
+    shutil.rmtree(tmp_path / paths.LOGS_DIR)
+    logger.info(FAILURE_RECORD)
+
+    assert FAILURE_RECORD in read_session_log(tmp_path)
 
 
 def test_keeps_the_records_before_one_longer_than_the_whole_file(tmp_path: Path) -> None:

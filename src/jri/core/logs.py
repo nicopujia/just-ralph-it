@@ -17,7 +17,13 @@ from .workspace import Workspace
 # `jri view` beside it reports on the same notes. So the runs of one
 # session append to one file, and what ends a session -- the reset that
 # drops the conversation -- is what clears the directory holding it.
-KEPT_LOG_FILES = 2
+# The oldest of these files is the session's opening, written once and
+# never rotated again: a report is made by zipping this directory up,
+# and a session that fills the window over and over would otherwise
+# hand over its last few minutes and nothing of how it was set up. What
+# the directory cannot promise is the middle of such a session, which
+# the window drops and nothing here puts back.
+KEPT_LOG_FILES = 3
 LOG_FILE_BYTES = 5 * 1024 * 1024
 # A record reaches the file whole or not at all, so one longer than the
 # file bound would leave a file past that bound and take every record
@@ -70,8 +76,8 @@ class SessionLog(logging.Handler):
     def __init__(self, file: Path, lock_file: Path) -> None:
         super().__init__()
         self.file = file
-        # Oldest first, so rotation walks the pairs in order and the
-        # file falling off the end is the one the first rename lands on.
+        # Oldest first: the opening, then the window rotation walks in
+        # order, then the file being written to now.
         self.kept_files = tuple(
             file.with_name(f"{file.name}.{index}") if index else file for index in reversed(range(KEPT_LOG_FILES))
         )
@@ -92,23 +98,40 @@ class SessionLog(logging.Handler):
             kept = body[:room].decode("utf-8", errors="ignore").encode()
             dropped = len(body) - len(kept)
             body = kept + TRUNCATION_NOTICE.format(dropped=dropped).encode()
-        # Both `jri chat` and `jri view` configure logging, so two runs
-        # of one session write to this file at once, and the rename a
-        # rotation makes moves it out from under whichever run did not
-        # make it: stamping, reading the size, rotating and appending
-        # all happen under one lock. A record that cannot be written is
-        # dropped rather than reported, since the stream `logging`
-        # reports on is the terminal a `jri chat` screen holds.
-        with contextlib.suppress(OSError, LockError), self.file_lock:
-            stamp = datetime.now(UTC).astimezone().strftime(LOG_TIME_FORMAT)[:-LOG_TIME_MICROSECOND_DIGITS]
-            line = LOG_STAMP.format(time=stamp).encode() + body + b"\n"
-            size = self.file.stat().st_size if self.file.exists() else 0
-            if size and size + len(line) > LOG_FILE_BYTES:
-                self._rotate()
-            with self.file.open("ab") as stream:
-                stream.write(line)
+        # A record that cannot be written is dropped rather than
+        # reported, since the stream `logging` reports on is the
+        # terminal a `jri chat` screen holds. So nothing is left to
+        # notice a directory that went, and `jri init --force` beside a
+        # running session takes this one: a run whose records all land
+        # inside it is silent from there until somebody else happens to
+        # put it back. It puts the directory back itself instead, and
+        # asks before making it, since one that is there answers a
+        # `stat` and costs a raised `FileExistsError` every record.
+        with contextlib.suppress(OSError, LockError):
+            if not self.file.parent.exists():
+                self.file.parent.mkdir(parents=True, exist_ok=True)
+            # Both `jri chat` and `jri view` configure logging, so two
+            # runs of one session write to this file at once, and the
+            # rename a rotation makes moves it out from under whichever
+            # run did not make it: stamping, reading the size, rotating
+            # and appending all happen under one lock.
+            with self.file_lock:
+                stamp = datetime.now(UTC).astimezone().strftime(LOG_TIME_FORMAT)[:-LOG_TIME_MICROSECOND_DIGITS]
+                line = LOG_STAMP.format(time=stamp).encode() + body + b"\n"
+                size = self.file.stat().st_size if self.file.exists() else 0
+                if size and size + len(line) > LOG_FILE_BYTES:
+                    self._rotate()
+                with self.file.open("ab") as stream:
+                    stream.write(line)
 
     def _rotate(self) -> None:
-        for older, newer in itertools.pairwise(self.kept_files):
+        opening, *window = self.kept_files
+        # The first rotation is the one that would drop the front of
+        # the session, so that is the file it freezes; every rotation
+        # after it walks the window and leaves the opening alone.
+        if not opening.exists():
+            self.file.replace(opening)
+            return
+        for older, newer in itertools.pairwise(window):
             if newer.exists():
                 newer.replace(older)
