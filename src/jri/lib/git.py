@@ -172,6 +172,7 @@ class Repository:
         self,
         patch: bytes,
         *,
+        check: bool = False,
         index: bool = False,
         directory: str | None = None,
         reverse: bool = False,
@@ -195,6 +196,8 @@ class Repository:
             arguments.append(f"--directory={directory}")
         if reverse:
             arguments.append("--reverse")
+        if check:
+            arguments.append("--check")
         self._run(*arguments, stdin=patch)
 
     def stage(self, paths: Sequence[str], *, intent_to_add: bool = False, force: bool = False) -> None:

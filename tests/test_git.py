@@ -367,6 +367,25 @@ def test_rejects_a_patch_that_does_not_apply(tmp_path: Path, create_repository: 
         repository.apply_patch(patch)
 
 
+def test_checks_a_patch_without_applying_it(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "repo")
+    patch = b"""\
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1 +1 @@
+-# Project
++# Renamed
+"""
+
+    repository.apply_patch(patch, check=True)
+
+    assert (repository.path / "README.md").read_bytes() == b"# Project\n"
+    assert repository.read_status() == ()
+    with pytest.raises(git.Error):
+        repository.apply_patch(patch, check=True, reverse=True)
+
+
 def test_applies_a_patch_whose_hunk_carries_no_trailing_context(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:

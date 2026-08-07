@@ -1,6 +1,8 @@
 import re
-from collections.abc import Iterable
+import shutil
+from collections.abc import Iterable, Sequence
 from pathlib import Path
+from typing import Never
 
 import pytest
 
@@ -145,6 +147,33 @@ new file mode 100644
 @@ -0,0 +1 @@
 +# User guide
 """
+# The methods a kill below stands in for, captured before it does, so
+# a stand-in can still run the real one.
+COMMIT = git.Repository.commit
+STAGE = git.Repository.stage
+
+
+# A signal is not an exception a run unwinds from, and nothing here
+# catches `KeyboardInterrupt`, so what these leave on disk is what a
+# `SIGKILL` at the same instruction would leave.
+def kill_the_run_before_staging(
+    repository: git.Repository, paths: Sequence[str], *, intent_to_add: bool = False, force: bool = False
+) -> None:
+    # The acceptance is the only staging that records an intent.
+    if intent_to_add:
+        raise KeyboardInterrupt
+    STAGE(repository, paths, intent_to_add=intent_to_add, force=force)
+
+
+def kill_the_run_before_committing(*_: object, **__: object) -> Never:
+    raise KeyboardInterrupt
+
+
+def kill_the_run_after_committing(
+    repository: git.Repository, message: str, trailers: Sequence[str] = (), *, paths: Sequence[str] = ()
+) -> Never:
+    COMMIT(repository, message, trailers, paths=paths)
+    raise KeyboardInterrupt
 
 
 def build_conversation(path: Path, client: FakeClient) -> Conversation:
@@ -181,6 +210,13 @@ def successful_client() -> FakeClient:
 
 def updated_client() -> FakeClient:
     return build_client(FUNCTIONAL_UPDATE, ARCHITECTURE_UPDATE)
+
+
+def kill_a_run(path: Path, method: str, kill: object) -> None:
+    with pytest.MonkeyPatch.context() as killed:
+        killed.setattr(git.Repository, method, kill)
+        with pytest.raises(KeyboardInterrupt):
+            list(build_conversation(path, successful_client()).ralph())
 
 
 def test_commits_complete_specification_bundle(
@@ -408,6 +444,99 @@ def test_keeps_the_content_the_user_staged_when_a_hook_refuses_the_commit(
     assert run_git(tmp_path, "ls-files", "--stage") == index
     assert run_git(tmp_path, "show", ":.jri/config.yaml") == "# The configuration the user staged."
     assert config.read_text() == "# The configuration the user went on editing.\n"
+
+
+def test_undoes_the_acceptance_a_killed_run_left_in_the_worktree(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert find_accepted_commit(tmp_path) is None
+
+    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
+
+    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert not run_git(tmp_path, "status", "--short")
+
+
+def test_undoes_the_acceptance_a_killed_run_left_staged(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "commit", kill_the_run_before_committing)
+    # The staging the acceptance had already done outlives the run too,
+    # so undoing the patch alone would leave every path staged as added
+    # and missing from the worktree.
+    assert git.Repository(tmp_path).read_status() == (
+        git.Status(".jri/.gitignore", " ", "A"),
+        git.Status(".jri/config.yaml", " ", "A"),
+        git.Status(".jri/notebook.yaml", " ", "A"),
+        git.Status(".jri/specs/architecture/design.md", " ", "A"),
+        git.Status(".jri/specs/functional/behavior.md", " ", "A"),
+    )
+
+    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
+
+    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert not run_git(tmp_path, "status", "--short")
+
+
+def test_keeps_the_acceptance_a_killed_run_had_already_committed(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "commit", kill_the_run_after_committing)
+    accepted = find_accepted_commit(tmp_path)
+
+    baseline = Specs(tmp_path).prepare()
+
+    assert baseline.accepted == accepted
+    assert find_accepted_commit(tmp_path) == accepted
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert not run_git(tmp_path, "status", "--short")
+
+
+def test_ignores_a_record_of_an_acceptance_the_worktree_no_longer_holds(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
+    # What a user does today to escape the refusal: delete what JRI
+    # wrote. The record of it outlives the files it names.
+    shutil.rmtree(tmp_path / ".jri/specs")
+
+    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
+
+    assert find_accepted_commit(tmp_path) == run_git(tmp_path, "rev-parse", "HEAD")
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert not run_git(tmp_path, "status", "--short")
+
+
+def test_leaves_a_leftover_the_user_changed_for_the_user_to_sort_out(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
+    leftover = tmp_path / ".jri/specs/functional/behavior.md"
+    leftover.write_text("# Behavior\nEdited by hand.\n")
+
+    ending = read_ending(
+        build_conversation(tmp_path, successful_client()).ralph(),
+        r"Commit or remove these files before Ralphing:\n"
+        r"- \.jri/specs/architecture/design\.md\n- \.jri/specs/functional/behavior\.md",
+    )
+
+    assert ending == "blocked"
+    # One file JRI can no longer undo holds back the whole record, so
+    # the other leftover stays where the user can see it too.
+    assert leftover.read_text() == "# Behavior\nEdited by hand.\n"
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert find_accepted_commit(tmp_path) is None
 
 
 def test_refuses_specifications_left_uncommitted_before_generation(

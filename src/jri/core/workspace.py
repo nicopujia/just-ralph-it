@@ -54,8 +54,32 @@ class Workspace:
         return self.root / paths.LOGS_DIR
 
     @property
+    def generation_dir(self) -> Path:
+        return self.root / paths.GENERATION_DIR
+
+    @property
+    def generation_gitignore_file(self) -> Path:
+        return self.root / paths.GENERATION_GITIGNORE_FILE
+
+    @property
+    def acceptance_file(self) -> Path:
+        return self.root / paths.ACCEPTANCE_FILE
+
+    @property
     def reset_paths(self) -> tuple[Path, ...]:
         return tuple(self.root / path for path in paths.RESET_PATHS)
+
+    # What a run writes down while it works, and never what it commits.
+    def open_generation_dir(self) -> Path:
+        self.generation_dir.mkdir(exist_ok=True, parents=True)
+        # `*` answers for the file stating it too, so the directory is
+        # invisible without a rule the project has to carry -- and so
+        # to `ls-files -co --exclude-standard`, which is both the tree
+        # a run copies for the Explorer and the one it sends the
+        # architect.
+        if not self.generation_gitignore_file.exists():
+            self.generation_gitignore_file.write_text("*\n", encoding="utf-8", newline="\n")
+        return self.generation_dir
 
     # The rendered configuration comes in rather than being read from
     # `Settings`, so locating a workspace never depends on loading one.

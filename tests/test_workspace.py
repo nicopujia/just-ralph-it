@@ -175,6 +175,37 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
     assert (base_dir / ".gitignore").read_text() == "custom-cache\nsession.json\nlogs\nvisualization.html\n"
 
 
+def test_keeps_a_run_directory_out_of_the_project(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    workspace = install_workspace(tmp_path).workspace
+    repository = git.Repository(tmp_path)
+    tracked = repository.read_worktree_paths()
+    status = run_git(tmp_path, "status", "--porcelain", "-uall")
+
+    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
+
+    assert repository.read_worktree_paths() == tracked
+    assert run_git(tmp_path, "status", "--porcelain", "-uall") == status
+    assert run_git(tmp_path, "check-ignore", "-v", f"{paths.GENERATION_DIR}/journal.jsonl") == (
+        f"{paths.GENERATION_GITIGNORE_FILE}:1:*\t{paths.GENERATION_DIR}/journal.jsonl"
+    )
+    # The rule ignores the file stating it, so nothing of the run
+    # reaches a commit the user makes of everything they have.
+    run_git(tmp_path, "add", "-A")
+    assert not [path for path in repository.read_staged_paths() if path.startswith(paths.GENERATION_DIR)]
+
+
+def test_clears_a_run_directory_a_reset_asks_for(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
+
+    install_workspace(tmp_path, force=True)
+
+    assert not workspace.generation_dir.exists()
+
+
 def test_keeps_the_rest_of_the_project_when_resetting_the_workspace(tmp_path: Path) -> None:
     for name in (paths.ARCHITECTURE_SPECS_ROOT, paths.FUNCTIONAL_SPECS_ROOT, "src"):
         (tmp_path / name).mkdir()

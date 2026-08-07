@@ -2,7 +2,9 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from jri.lib import git, prompt
+from pydantic import BaseModel, ConfigDict
+
+from jri.lib import files, git, prompt
 
 from . import paths
 from .exceptions import PersistenceError, RepositoryStateError, SpecsError
@@ -19,10 +21,23 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class Baseline:
     commit: str | None
+    accepted: str | None
     notebook: bytes
     accepted_notebook: bytes
     functional: dict[str, bytes]
     architecture: dict[str, bytes]
+
+
+# An acceptance under way, written down before it touches the project
+# so that undoing it never depends on reading the worktree back: the
+# patch is what was applied, `accepted` is the acceptance commit the
+# project held before it, and `indexed` the paths Git already tracked.
+class Acceptance(BaseModel):
+    accepted: str | None
+    patch: str
+    indexed: tuple[str, ...]
+
+    model_config = ConfigDict(extra="forbid")
 
 
 class Specs:
@@ -32,23 +47,29 @@ class Specs:
 
     def prepare(self) -> Baseline:
         notebook = self._read_notebook()
+        self._reconcile()
         self._check_state()
         if not self.repository.has_commit():
-            return Baseline(None, notebook, b"", {}, {})
+            return Baseline(None, None, notebook, b"", {}, {})
         commit = self.repository.read_head()
         specs = self.repository.read_tree(commit, paths.SPECS_DIR)
         accepted = self.repository.find_commit(ACCEPTANCE_TRAILER)
         if accepted is None:
             if specs:
                 raise RepositoryStateError("Git holds specifications JRI did not write. Remove them before Ralphing.")
-            return Baseline(commit, notebook, b"", {}, {})
+            return Baseline(commit, None, notebook, b"", {}, {})
         functional = self.repository.read_tree(accepted, paths.FUNCTIONAL_SPECS_DIR)
         architecture = self.repository.read_tree(accepted, paths.ARCHITECTURE_SPECS_DIR)
         if specs != functional | architecture:
             raise RepositoryStateError("Checked-out specifications differ from the ones JRI accepted.")
         logger.info("baseline_prepared head=%s accepted=%s functional=%d", commit, accepted, len(functional))
         return Baseline(
-            commit, notebook, self.repository.read_file(accepted, paths.NOTEBOOK_FILE), functional, architecture
+            commit,
+            accepted,
+            notebook,
+            self.repository.read_file(accepted, paths.NOTEBOOK_FILE),
+            functional,
+            architecture,
         )
 
     def apply(self, repository: git.Repository, patch: str, model_root: str) -> None:
@@ -102,32 +123,84 @@ class Specs:
         if self._read_notebook() != baseline.notebook:
             raise RepositoryStateError("The project notes changed during generation. Try again.")
         self._check_state()
+        # Written down before the project is touched, so that undoing
+        # this acceptance never has to be worked out from what a run
+        # left behind -- least of all by a run that is not the one that
+        # left it.
+        acceptance = Acceptance(
+            accepted=baseline.accepted,
+            patch=patch.decode(),
+            indexed=self.repository.read_staged_paths(paths.COMMITTED_PATHS),
+        )
+        self._record_acceptance(acceptance)
         self.repository.apply_patch(patch)
-        # The intent alone, so JRI never writes over content the user
-        # staged for a path of its own, and a crash before the commit
-        # leaves nothing behind for their next commit to pick up. What
-        # the project ignores does not decide this: `.jri` is JRI's to
-        # keep in Git, and a project that ignores it Ralphs like any
-        # other rather than failing once the generation has run.
-        indexed = self.repository.read_staged_paths(paths.COMMITTED_PATHS)
         try:
+            # The intent alone, so JRI never writes over content the
+            # user staged for a path of its own. What the project
+            # ignores does not decide this: `.jri` is JRI's to keep in
+            # Git, and a project that ignores it Ralphs like any other
+            # rather than failing once the generation has run.
             self.repository.stage(paths.COMMITTED_PATHS, intent_to_add=True, force=True)
             commit = self.repository.commit(
                 "jri: update specifications", trailers=(ACCEPTANCE_TRAILER,), paths=paths.COMMITTED_PATHS
             )
         except git.Error:
-            # Only the entries the staging above added come back out.
-            # Resetting a path the user had staged themselves would
-            # throw their content away instead, since Git puts back
-            # whatever HEAD holds for it, and nothing at all when HEAD
-            # does not hold it yet.
-            added = [path for path in self.repository.read_staged_paths(paths.COMMITTED_PATHS) if path not in indexed]
-            if added:
-                self.repository.unstage(added)
-            self.repository.apply_patch(patch, reverse=True)
+            self._undo_acceptance(acceptance)
             raise
+        self.workspace.acceptance_file.unlink(missing_ok=True)
         logger.info("specs_committed commit=%s", commit)
         return commit
+
+    # An acceptance the operating system killed halfway leaves JRI's
+    # own specifications in the worktree with no commit holding them,
+    # and every later run refuses to start over them. The offer that
+    # starts a run stands through that refusal, so without this the
+    # only way out is for the user to delete files JRI wrote.
+    def _reconcile(self) -> None:
+        acceptance = self._read_acceptance()
+        if acceptance is None:
+            return
+        accepted = self.repository.find_commit(ACCEPTANCE_TRAILER) if self.repository.has_commit() else None
+        # The kill may have landed after Git wrote the commit, and past
+        # that point the patch is the project's: reversing it would
+        # delete specifications the user has.
+        if accepted != acceptance.accepted:
+            self.workspace.acceptance_file.unlink(missing_ok=True)
+            logger.info("acceptance_committed commit=%s", accepted)
+            return
+        try:
+            self.repository.apply_patch(acceptance.patch.encode(), reverse=True, check=True)
+        except git.Error:
+            # What is there is no longer what JRI wrote, so it is not
+            # JRI's to remove. The record stays, and whatever the user
+            # has to sort out `_check_state` names below.
+            logger.info("acceptance_undo_refused accepted=%s", acceptance.accepted)
+            return
+        self._undo_acceptance(acceptance)
+
+    def _record_acceptance(self, acceptance: Acceptance) -> None:
+        self.workspace.open_generation_dir()
+        files.write_atomically(self.workspace.acceptance_file, acceptance.model_dump_json())
+
+    def _read_acceptance(self) -> Acceptance | None:
+        if not self.workspace.acceptance_file.exists():
+            return None
+        return Acceptance.model_validate_json(self.workspace.acceptance_file.read_bytes())
+
+    def _undo_acceptance(self, acceptance: Acceptance) -> None:
+        # Only the entries the acceptance staged come back out.
+        # Resetting a path the user had staged themselves would throw
+        # their content away instead, since Git puts back whatever HEAD
+        # holds for it, and nothing at all when HEAD does not hold it
+        # yet.
+        added = [
+            path for path in self.repository.read_staged_paths(paths.COMMITTED_PATHS) if path not in acceptance.indexed
+        ]
+        if added:
+            self.repository.unstage(added)
+        self.repository.apply_patch(acceptance.patch.encode(), reverse=True)
+        self.workspace.acceptance_file.unlink(missing_ok=True)
+        logger.info("acceptance_undone unstaged=%d", len(added))
 
     def _read_notebook(self) -> bytes:
         try:
