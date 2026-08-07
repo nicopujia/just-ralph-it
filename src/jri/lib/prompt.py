@@ -17,10 +17,10 @@ MARKDOWN_LINE_BREAK = re.compile(r"\r\n|[\r\n]")
 MAX_FENCE_INDENTATION = 3
 MIN_FENCE_LENGTH = 3
 STRUCTURE_INDENTATION = "  "
-# The breaks the serializer writes, and no others: str.splitlines()
-# also ends a line on \v, \f and the separators YAML holds inside a
-# scalar, and drops the character it ended on, so a break the text
-# itself carries would reach the model folded into a space.
+# The breaks the serializer writes raw, escaping every other one, and
+# after which it writes its own indentation: the block's indentation
+# goes there too, or a line a value's own break opens sits at the depth
+# an entry does and reads as one.
 YAML_LINE_BREAK = re.compile(r"[\n\x85\u2028\u2029]")
 
 

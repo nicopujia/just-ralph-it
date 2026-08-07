@@ -31,6 +31,7 @@ HOSTILE_TEXTS = {
     "nothing": "",
     "one line": "A single line.",
 }
+LINE_BREAKS = "\n\v\f\r\x1c\x1d\x1e\x85\u2028\u2029"
 
 
 def read_fence(rendered: str) -> str:
@@ -132,6 +133,19 @@ def test_keeps_a_forged_item_inside_the_entry_holding_it() -> None:
     rendered = prompt.render(tracked_repository_tree=paths)
 
     assert safe_load(rendered.removeprefix("Tracked repository tree:\n")) == paths
+
+
+@pytest.mark.parametrize("line_break", LINE_BREAKS, ids=[f"U+{ord(character):04X}" for character in LINE_BREAKS])
+def test_indents_every_line_of_a_value_under_the_entry_holding_it(line_break: str) -> None:
+    rendered = prompt.render(project_excerpt={"n1": f"Ships fast.{line_break}n2: Runs offline."})
+
+    # A reader that is not a YAML parser ends a line wherever
+    # str.splitlines() does and reads what sits at an entry's own depth
+    # as another entry, so every line the value opens has to sit deeper
+    # than the one holding it. A line with nothing on it reads as none.
+    entry, *rest = rendered.removeprefix("Project excerpt:\n").splitlines()
+    depth = len(entry) - len(entry.lstrip(" "))
+    assert all(len(line) - len(line.lstrip(" ")) > depth for line in rest if line.strip())
 
 
 def test_keeps_the_line_breaks_a_note_was_dictated_with() -> None:
