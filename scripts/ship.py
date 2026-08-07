@@ -4,7 +4,9 @@ import os
 import re
 import shutil
 import subprocess
+import tomllib
 from argparse import ArgumentParser
+from collections.abc import Iterator
 from pathlib import Path
 
 import check
@@ -20,6 +22,10 @@ CACHE_PATHSPEC = ":(exclude,glob)**/__pycache__/**"
 # a hook.
 COMMIT_COMMAND = ("-c", f"core.hooksPath={os.devnull}", "commit", "--only", "--message", "chore: version")
 NUMBER_PATTERN = re.compile(r"\d+\.\d+\.\d+")
+# The two modes git gives a file whose bytes are the blob's own. A
+# carried path held under any other -- a link, a gitlink -- names
+# bytes the build reads from wherever the entry points instead.
+REGULAR_MODES = frozenset({"100644", "100755"})
 # publish.yml releases whatever a `v` tag points at, so the tags are
 # the record of what went out and pyproject.toml only says what is next.
 TAG_PREFIX = "v"
@@ -109,21 +115,25 @@ def check_upstream(git: str, root: Path, remote: str, ref: str) -> None:
 
 
 def check_changes(git: str, root: Path, allowed: frozenset[str]) -> None:
-    # `uv build` copies `src` off the filesystem, so a file under it
-    # that no commit holds ships in the wheel however .gitignore reads
-    # it. A change the index holds and the worktree does not is one the
+    # `uv build` copies the paths it carries off the filesystem, so
+    # whatever sits at one of them ships however git reads it: a file
+    # no commit holds whatever .gitignore says, or an entry git holds
+    # as a link or a gitlink, whose bytes come from wherever it points.
+    # A change the index holds and the worktree does not is one the
     # gate never reads and `bump_version` overwrites where it lands on
     # a bumped path. An entry marked assume-unchanged or skip-worktree
     # is one git compares to neither side.
+    carried = _read_carried(root)
     changed = {
         *_read_git(git, root, "diff", "--name-only", "HEAD").splitlines(),
         *_read_git(git, root, "diff", "--name-only", "--cached", "HEAD").splitlines(),
         *_read_git(git, root, "ls-files", "--others", "--exclude-standard").splitlines(),
-        *_read_git(git, root, "ls-files", "--others", "--", "src", CACHE_PATHSPEC).splitlines(),
+        *_read_git(git, root, "ls-files", "--others", "--", *carried, CACHE_PATHSPEC).splitlines(),
         *(line[2:] for line in _read_git(git, root, "ls-files", "-v").splitlines() if not line.startswith("H ")),
+        *_find_unheld(git, root, carried),
     }
     if unexpected := sorted(changed - allowed):
-        raise RuntimeError("A release goes out of a tree holding nothing else:\n" + "\n".join(unexpected))
+        raise RuntimeError("A release carries what a commit holds and nothing else:\n" + "\n".join(unexpected))
 
 
 def bump_version(uv: str, root: Path, version: str) -> None:
@@ -134,6 +144,37 @@ def bump_version(uv: str, root: Path, version: str) -> None:
         text = copy.read_text(encoding="utf-8")
         bumped = text.replace(spelling.format(version=current), spelling.format(version=version))
         copy.write_text(bumped, encoding="utf-8")
+
+
+def _find_unheld(git: str, root: Path, carried: tuple[str, ...]) -> Iterator[str]:
+    # `-z` and a format of its own leave the name whole, where the
+    # quoting git falls back on writes a path nothing answers to.
+    records = _read_git(
+        git, root, "ls-files", "-z", "--format=%(objectmode) %(objectname) %(path)", "--", *carried
+    ).split("\0")
+    entries = [record.split(" ", 2) for record in records if record]
+    yield from (path for mode, _, path in entries if mode not in REGULAR_MODES)
+    # `--no-filters` hashes the bytes on disk, which are the bytes the
+    # build copies: a `.gitattributes` filter, a working-tree encoding
+    # and a second name for one inode each leave a worktree git calls
+    # clean over a blob holding something else. A path git holds as a
+    # regular file and the filesystem does not is a deletion or a
+    # typechange the diffs above already name, so hashing it would only
+    # fail.
+    regular = [entry for entry in entries if entry[0] in REGULAR_MODES and (root / entry[2]).is_file()]
+    hashed = _read_git(git, root, "hash-object", "--no-filters", "--", *(entry[2] for entry in regular)).splitlines()
+    yield from (entry[2] for entry, blob in zip(regular, hashed, strict=True) if entry[1] != blob)
+
+
+def _read_carried(root: Path) -> tuple[str, ...]:
+    # The wheel takes the module off `src`, and the sdist adds
+    # pyproject.toml, the readme and the licences -- which the wheel
+    # carries too, in its metadata and beside it.
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))["project"]
+    licences = [
+        path.relative_to(root).as_posix() for pattern in project["license-files"] for path in root.glob(pattern)
+    ]
+    return ("src", "pyproject.toml", project["readme"], *licences)
 
 
 def _read_releases(git: str, root: Path, remote: str) -> list[tuple[int, ...]]:
