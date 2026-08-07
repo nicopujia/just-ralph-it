@@ -1,7 +1,8 @@
+import json
 import re
 import shutil
 import sys
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from pathlib import Path
 from typing import Never
 
@@ -9,12 +10,12 @@ import pytest
 
 from jri.core.ai import Ending, TurnEvent, TurnFinished, architect, functional_analyst
 from jri.core.conversation import Conversation
-from jri.core.exceptions import PersistenceError
+from jri.core.exceptions import PersistenceError, SpecsError
 from jri.core.specs import ACCEPTANCE_TRAILER, Specs
 from jri.core.workspace import Workspace
 from jri.lib import git
 from tests.conftest import CreateLink, CreateRepository, RunGit
-from tests.doubles.acceptance import kill_amid_staging
+from tests.doubles.acceptance import bound_the_acceptance_writes, kill_amid_staging
 from tests.doubles.lock import hold
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
@@ -161,6 +162,39 @@ new file mode 100644
 @@ -0,0 +1 @@
 +# User guide
 """
+# A specification far longer than `WRITE_BOUND`, so a write the kernel
+# cuts off at that bound leaves a beginning of one behind. The update
+# rewrites a single line, which `git apply` carries out by writing the
+# whole file again, and its record stays well under the bound so that
+# what the bound is ever met by is the write of the specification.
+REFERENCE_SPEC_LINES = tuple(f"Reporting requirement {number} of the ledger." for number in range(500))
+REFERENCE_SPEC_PATCH = (
+    "diff --git a/.jri/specs/functional/reference.md b/.jri/specs/functional/reference.md\n"
+    "new file mode 100644\n"
+    "--- /dev/null\n"
+    "+++ b/.jri/specs/functional/reference.md\n"
+    f"@@ -0,0 +1,{len(REFERENCE_SPEC_LINES)} @@\n" + "".join(f"+{line}\n" for line in REFERENCE_SPEC_LINES)
+).encode()
+REFERENCE_SPEC_UPDATE = (
+    "diff --git a/.jri/specs/functional/reference.md b/.jri/specs/functional/reference.md\n"
+    "--- a/.jri/specs/functional/reference.md\n"
+    "+++ b/.jri/specs/functional/reference.md\n"
+    "@@ -1,2 +1,2 @@\n"
+    f"-{REFERENCE_SPEC_LINES[0]}\n"
+    f"+{REFERENCE_SPEC_LINES[0]} Revised.\n"
+    f" {REFERENCE_SPEC_LINES[1]}\n"
+).encode()
+# A patch against a specification the project never had, so nothing
+# JRI can check out makes a worktree it applies to.
+UNREBUILDABLE_PATCH = """\
+diff --git a/.jri/specs/functional/reference.md b/.jri/specs/functional/reference.md
+--- a/.jri/specs/functional/reference.md
++++ b/.jri/specs/functional/reference.md
+@@ -1 +1,2 @@
+ Reporting requirement 0 of the ledger.
++Reporting requirement 1 of the ledger.
+"""
+WRITE_BOUND = 2048
 # The methods a kill below stands in for, captured before it does, so
 # a stand-in can still run the real one.
 APPLY = git.Repository.apply_patch
@@ -252,6 +286,22 @@ def kill_the_run_amid_rewriting(
     if not index:
         (repository.path / ".jri/specs/functional/behavior.md").unlink()
     kill_the_run_amid_applying(repository, patch, index=index, directory=directory, zero_context=zero_context)
+
+
+# Git answering that it could not write, which is an error a run
+# unwinds from rather than a kill. Only the write into the project
+# fails: the undo works out what the acceptance was writing by
+# applying the same patch in a worktree of its own, and one that could
+# not run would leave the undo nothing to go on. The arguments are the
+# ones an acceptance and its undo reach this with, so a call it cannot
+# stand in for fails rather than standing in wrongly.
+def fail_the_acceptance_write(root: Path) -> Callable[..., None]:
+    def apply_patch(repository: git.Repository, patch: bytes, *, check: bool = False, reverse: bool = False) -> None:
+        if repository.path == root and not (check or reverse):
+            raise git.Error("Git command failed.")
+        APPLY(repository, patch, check=check, reverse=reverse)
+
+    return apply_patch
 
 
 def build_conversation(path: Path, client: FakeClient) -> Conversation:
@@ -597,6 +647,100 @@ def test_undoes_the_acceptance_a_killed_rewrite_left_unwritten(
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
     assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\nAdd a total accumulator.\n"
     assert not run_git(tmp_path, "status", "--short")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a bound on the size of a write is `resource`, absent here")
+def test_undoes_the_acceptance_a_kernel_file_bound_cut_short(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    specs.accept(REFERENCE_SPEC_PATCH, specs.prepare())
+    reference = tmp_path / ".jri/specs/functional/reference.md"
+    accepted = reference.read_bytes()
+
+    report = bound_the_acceptance_writes(tmp_path, REFERENCE_SPEC_UPDATE, WRITE_BOUND)
+
+    # The kernel cut `git apply` off inside its own write, so what
+    # stands is neither the specification the acceptance was writing
+    # nor the one the project had. The undo met the same bound, which
+    # is a disk that is still full, so the record outlives the run.
+    torn = reference.read_bytes()
+    assert torn
+    assert torn != accepted
+    assert len(torn) < len(accepted)
+    assert "JRI could not write the specifications into your project" in report
+    assert (tmp_path / ".jri/generation/acceptance.json").exists()
+
+    assert read_ending(build_conversation(tmp_path, successful_client()).ralph()) == "replied"
+
+    assert reference.read_bytes() == accepted
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert not run_git(tmp_path, "status", "--short")
+
+
+def test_reports_the_acceptance_write_git_could_not_finish(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+
+    with pytest.MonkeyPatch.context() as failed:
+        failed.setattr(git.Repository, "apply_patch", fail_the_acceptance_write(specs.repository.path))
+        with pytest.raises(SpecsError, match="JRI could not write the specifications into your project"):
+            specs.accept(ACCEPTANCE_PATCH, baseline)
+
+    # The run that could not write takes back what it wrote, so the
+    # next one starts where this one found the project.
+    assert not (tmp_path / ".jri/generation/acceptance.json").exists()
+    assert not (tmp_path / ".jri/specs").exists()
+    assert not run_git(tmp_path, "diff", "--cached", "--name-only")
+
+
+def test_puts_back_the_specification_a_killed_acceptance_deleted(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, build_client(FUNCTIONAL_PAIR_PATCH)).ralph())
+    accepted = find_accepted_commit(tmp_path)
+    with pytest.MonkeyPatch.context() as killed:
+        killed.setattr(git.Repository, "stage", kill_the_run_before_staging)
+        conversation = build_conversation(tmp_path, build_client(FUNCTIONAL_DELETION_PATCH, ARCHITECTURE_UPDATE))
+        conversation.restore()
+        with pytest.raises(KeyboardInterrupt):
+            list(conversation.ralph())
+    exports = tmp_path / ".jri/specs/functional/exports.md"
+    assert not exports.exists()
+
+    Specs(tmp_path).prepare()
+
+    assert exports.read_text() == "# Exports\n"
+    assert find_accepted_commit(tmp_path) == accepted
+    assert not run_git(tmp_path, "status", "--short")
+
+
+def test_leaves_the_leftovers_of_an_acceptance_it_cannot_rebuild(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
+    record = Workspace(tmp_path).acceptance_file
+    record.write_text(json.dumps(json.loads(record.read_text()) | {"patch": UNREBUILDABLE_PATCH}))
+
+    ending = read_ending(
+        build_conversation(tmp_path, successful_client()).ralph(),
+        r"Commit or remove these files before Ralphing:\n"
+        r"- \.jri/specs/architecture/design\.md\n- \.jri/specs/functional/behavior\.md",
+    )
+
+    assert ending == "blocked"
+    # A record JRI cannot rebuild says nothing about any path, so every
+    # leftover stays where the user can see it.
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
 
 
 def test_undoes_the_acceptance_a_killed_run_left_staged(

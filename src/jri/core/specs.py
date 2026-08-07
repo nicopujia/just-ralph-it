@@ -1,8 +1,11 @@
 import logging
 import os
+from collections.abc import Generator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
+from tempfile import TemporaryDirectory
 
 from pydantic import BaseModel, ConfigDict
 
@@ -147,7 +150,20 @@ class Specs:
         # there without asking a pid the system may have handed on.
         with Lock(self.workspace.acceptance_lock_file):
             files.write_atomically(self.workspace.acceptance_file, acceptance.model_dump_json())
-            self.repository.apply_patch(patch)
+            try:
+                self.repository.apply_patch(patch)
+            except git.Error as error:
+                # A write the kernel cuts off -- a full disk, a quota, a
+                # file limit -- dies inside Git with part of a
+                # specification where a whole one was going, which is
+                # this run's to take back rather than the next run's to
+                # meet. Git's own words about it are in the log: what
+                # they are about is a patch of JRI's the user never saw.
+                logger.exception("acceptance_write_failed characters=%d", len(patch))
+                self._undo_acceptance(acceptance)
+                raise SpecsError(
+                    "JRI could not write the specifications into your project, so nothing was committed. Try again."
+                ) from error
             try:
                 # The intent alone, so JRI never writes over content the
                 # user staged for a path of its own. What the project
@@ -223,18 +239,29 @@ class Specs:
         return Acceptance.model_validate_json(self.workspace.acceptance_file.read_bytes())
 
     def _undo_acceptance(self, acceptance: Acceptance) -> None:
-        # The whole patch first: a kill that lands past the application
-        # is the ordinary one, and Git weighs the lot in a single pass.
-        if self._can_apply(acceptance.patch, reverse=True):
-            reversible = (acceptance.patch,)
-        else:
-            self._repair_writes(acceptance.accepted)
-            reversible = self._plan_undo(acceptance.patch)
+        intended = self._rebuild_writes(acceptance)
+        reversible: tuple[str, ...] | None = None
+        if intended is not None:
+            # What a cut-off write left goes back first, because Git
+            # weighs a patch by the lines its hunks quote and nothing
+            # else: a file the write stopped part way through still
+            # holds those lines, so reversing the patch over it
+            # succeeds and leaves the rest of the file gone for good.
+            self._repair_writes(acceptance.accepted, intended)
+            # The whole patch next: a kill that lands past the
+            # application is the ordinary one, and Git weighs the lot
+            # in a single pass.
+            reversible = (
+                (acceptance.patch,)
+                if self._can_apply(acceptance.patch, reverse=True)
+                else self._plan_undo(acceptance.patch)
+            )
         if reversible is None:
-            # What is there is neither what JRI wrote nor what stood
-            # before it, so it is not JRI's to remove. The record
-            # stays, and whatever the user has to sort out
-            # `_check_state` names.
+            # What is there is neither what JRI wrote, nor a beginning
+            # of it, nor what stood before it -- or JRI cannot say what
+            # it was writing there at all. Either way it is not JRI's
+            # to remove: the record stays, and whatever the user has to
+            # sort out `_check_state` names.
             logger.info("acceptance_undo_refused accepted=%s", acceptance.accepted)
             return
         # Only the entries the acceptance staged come back out.
@@ -252,29 +279,66 @@ class Specs:
         self.workspace.acceptance_file.unlink(missing_ok=True)
         logger.info("acceptance_undone unstaged=%d reversed=%d", len(added), len(reversible))
 
-    # `git apply` writes a file by removing it and making it again, so
-    # a kill inside it leaves one gone, or made and still empty.
-    # Neither is a specification and neither holds anything for anyone
-    # to lose, so what Git tracks comes back from the commit that holds
-    # it and what Git never tracked, being this write's own, goes. The
-    # links `_check_state` refuses are left for it to name.
-    def _repair_writes(self, accepted: str | None) -> None:
+    # What a write of the acceptance's was cut off part way through
+    # holds nothing for anyone to lose, so what Git tracks comes back
+    # from the commit that holds it, and what Git never tracked, being
+    # this write's own, goes. The links `_check_state` refuses are left
+    # for it to name.
+    def _repair_writes(self, accepted: str | None, intended: dict[str, bytes]) -> None:
         tracked = self.repository.read_staged_paths((paths.COMMITTED_SPECS,))
         for path in (self.workspace.root / paths.SPECS_DIR).rglob("*.md"):
             relative = path.relative_to(self.workspace.root).as_posix()
-            if not path.is_symlink() and path.is_file() and not path.stat().st_size and relative not in tracked:
+            if relative not in tracked and path.is_file() and self._holds_part_of(path, intended.get(relative)):
                 path.unlink()
-                logger.info("empty_write_removed path=%s", relative)
+                logger.info("part_written_spec_removed path=%s", relative)
         if accepted is None:
             return
-        unwritten = [path for path in tracked if not self._holds_content(self.workspace.root / path)]
+        unwritten = [path for path in tracked if self._holds_part_of(self.workspace.root / path, intended.get(path))]
         if unwritten:
             self.repository.restore(accepted, unwritten)
-            logger.info("unwritten_specs_restored count=%d", len(unwritten))
+            logger.info("part_written_specs_restored count=%d", len(unwritten))
 
+    # What the acceptance was writing where, worked out rather than
+    # recorded: the patch is in the record and what stood before it is
+    # in the commit the record names, so applying the one to the other
+    # is the worktree the acceptance would have left had nothing cut it
+    # off. A rebuild Git cannot carry out says nothing about any path,
+    # and an undo with nothing to say leaves every leftover standing.
+    def _rebuild_writes(self, acceptance: Acceptance) -> dict[str, bytes] | None:
+        try:
+            with self._open_pre_image(acceptance.accepted) as pre_image:
+                pre_image.apply_patch(acceptance.patch.encode())
+                return self.read(pre_image.path, paths.SPECS_DIR)
+        except git.Error:
+            logger.exception("acceptance_rebuild_failed accepted=%s", acceptance.accepted)
+            return None
+
+    # Where the acceptance was writing: the commit the record names,
+    # checked out on its own, or a repository holding nothing at all
+    # where a first acceptance found no specification of JRI's.
+    @contextmanager
+    def _open_pre_image(self, accepted: str | None) -> Generator[git.Repository]:
+        if accepted is not None:
+            with self.repository.open_worktree(accepted) as worktree:
+                yield worktree
+            return
+        with TemporaryDirectory(prefix="jri-rebuild-") as directory:
+            yield git.Repository.init(directory)
+
+    # What a write cut off leaves where a specification was going: the
+    # file gone, since `git apply` removes one before making it again,
+    # or a beginning of what was going there, which is where a bound
+    # the kernel puts on the write stops it. Neither is the
+    # specification the acceptance was writing and neither is the one
+    # that stood before it. A path the rebuild holds nothing for is one
+    # the acceptance meant gone -- a deletion, the far side of a rename
+    # -- so what stands there is nobody's to put back.
     @staticmethod
-    def _holds_content(path: Path) -> bool:
-        return path.is_symlink() or (path.is_file() and bool(path.stat().st_size))
+    def _holds_part_of(path: Path, intended: bytes | None) -> bool:
+        if intended is None or path.is_symlink():
+            return False
+        content = path.read_bytes() if path.is_file() else b""
+        return content != intended and intended.startswith(content)
 
     # `git apply` validates a whole patch and only then writes it, file
     # by file, so a kill inside it leaves an arbitrary prefix of the

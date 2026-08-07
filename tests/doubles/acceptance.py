@@ -19,10 +19,38 @@ from jri.core.specs import Specs
 specs = Specs(Path(sys.argv[1]))
 specs.accept(sys.stdin.buffer.read(), specs.prepare())
 """
+# The same acceptance under a bound the kernel puts on every file the
+# process writes from there on, which is what a full disk, a quota or a
+# CI file limit is: `git apply` dies inside its own `write(2)`, where no
+# Python instruction boundary reaches, and the undo that follows meets
+# the same bound the acceptance did. Bytecode stays unwritten so the
+# bound is only ever met by a write of the acceptance's own.
+BOUNDED_ACCEPTANCE = """
+import resource
+import sys
+from pathlib import Path
+from jri.core.specs import Specs
+
+specs = Specs(Path(sys.argv[1]))
+baseline = specs.prepare()
+patch = sys.stdin.buffer.read()
+resource.setrlimit(resource.RLIMIT_FSIZE, (int(sys.argv[2]), resource.getrlimit(resource.RLIMIT_FSIZE)[1]))
+specs.accept(patch, baseline)
+"""
 POLL = 0.0002
 # An acceptance nothing kills is over in well under a second, so this
 # is only ever waited out by one that never reached Git at all.
 TIMEOUT = 60
+
+
+def bound_the_acceptance_writes(root: Path, patch: bytes, limit: int) -> str:
+    result = subprocess.run(
+        [sys.executable, "-B", "-c", BOUNDED_ACCEPTANCE, str(root), str(limit)],
+        check=False,
+        input=patch,
+        capture_output=True,
+    )
+    return os.fsdecode(result.stderr)
 
 
 def kill_amid_staging(root: Path, patch: bytes) -> None:
