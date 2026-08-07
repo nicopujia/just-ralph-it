@@ -23,6 +23,7 @@ from types import SimpleNamespace
 from jri.core import logs
 
 bound, turns = int(sys.argv[1]), Path(sys.argv[2])
+padding = Path(sys.argv[4]).read_text(encoding="utf-8")
 logs.LOG_FILE_BYTES = bound
 logs.configure(SimpleNamespace(logging=SimpleNamespace(level="INFO")))
 logger = logging.getLogger("jri.view")
@@ -31,7 +32,7 @@ for turn, size in enumerate(int(batch) for batch in sys.argv[3].split(",")):
     while not (turns / str(turn)).exists():
         time.sleep(0.01)
     for index in range(size):
-        logger.info("VIEW %d %d %s", turn, index, sys.argv[4])
+        logger.info("VIEW %d %d %s", turn, index, padding)
     (turns / f"{turn}.done").touch()
 logging.shutdown()
 """
@@ -52,7 +53,13 @@ def read_session_log(workspace: Path) -> str:
 def run_beside(workspace: Path, *, bound: int, batches: "Sequence[int]", padding: str = "") -> "Iterator[Turns]":
     turns = workspace / "turns"
     turns.mkdir()
-    arguments = (str(bound), str(turns), ",".join(str(batch) for batch in batches), padding)
+    # An argument is capped at `MAX_ARG_STRLEN` -- 128 KiB on Linux --
+    # and a record the size the log bounds is what these runs are for,
+    # so the payload reaches the second run as a file rather than as
+    # one of its arguments.
+    padding_file = workspace / "padding"
+    padding_file.write_text(padding, encoding="utf-8")
+    arguments = (str(bound), str(turns), ",".join(str(batch) for batch in batches), str(padding_file))
     run = subprocess.Popen(
         [sys.executable, "-c", SECOND_RUN, *arguments], cwd=workspace, stderr=subprocess.PIPE, text=True
     )
