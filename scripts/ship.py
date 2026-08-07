@@ -1,5 +1,6 @@
 #!/usr/bin/env -S uv run --script
 
+import os
 import re
 import shutil
 import subprocess
@@ -12,7 +13,12 @@ import check
 # and uv_build keeps them out of the wheel and the sdist alike, so
 # they are the one thing there a release does not carry.
 CACHE_PATHSPEC = ":(exclude,glob)**/__pycache__/**"
-COMMIT_MESSAGE = "chore: version"
+# `--only` writes the paths it names, but it writes them through a
+# temporary index git hands the pre-commit hook in GIT_INDEX_FILE, and
+# a formatter hook that stages what it rewrites has that in the commit
+# -- any path, read by the gate or not. Nothing under `os.devnull` is
+# a hook.
+COMMIT_COMMAND = ("-c", f"core.hooksPath={os.devnull}", "commit", "--only", "--message", "chore: version")
 NUMBER_PATTERN = re.compile(r"\d+\.\d+\.\d+")
 # publish.yml releases whatever a `v` tag points at, so the tags are
 # the record of what went out and pyproject.toml only says what is next.
@@ -48,12 +54,10 @@ def main() -> None:
         # after it takes the edit back out.
         subprocess.run([git, "restore", "--", *BUMPED_PATHS], cwd=root, check=True)
         raise
-    # `--only` writes the paths named as the worktree holds them and
-    # takes nothing else the index carries. The refspec leaves
-    # `push.default` no say in which branches go, and `--follow-tags`
-    # is refused because publish.yml releases whatever a `v` tag points
-    # at and no tag here has passed the gate this run just ran.
-    subprocess.run([git, "commit", "--only", "--message", COMMIT_MESSAGE, "--", *BUMPED_PATHS], cwd=root, check=True)
+    subprocess.run([git, *COMMIT_COMMAND, "--", *BUMPED_PATHS], cwd=root, check=True)
+    # The refspec leaves `push.default` no say in which branches go, and
+    # `--follow-tags` is refused because publish.yml releases whatever a
+    # `v` tag points at and no tag here has passed the gate just run.
     subprocess.run([git, "push", "--no-follow-tags", remote, f"HEAD:{ref}"], cwd=root, check=True)
 
 
