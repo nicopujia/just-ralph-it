@@ -18,7 +18,7 @@ class ToolCallRow(Static):
         *,
         symbol: str = DEFAULT_SYMBOL,
         is_complete: bool = False,
-        outcome: Outcome = "done",
+        outcome: Outcome | None = "done",
         detail: str = "",
         depth: int = 0,
     ) -> None:
@@ -30,7 +30,7 @@ class ToolCallRow(Static):
         self.frame_index = 0
         self.is_complete = is_complete
         self.is_stopping = False
-        self.outcome: Outcome = outcome
+        self.outcome: Outcome | None = outcome
         self.detail = detail
         self.started_at = monotonic()
         self.spinner_timer = None
@@ -81,8 +81,10 @@ class ToolCallRow(Static):
 # Every outcome is answered here and nowhere else, so no call site ever
 # picks a symbol, and one left unanswered is a return type this function
 # cannot satisfy.
-def _describe_outcome(outcome: Outcome, symbol: str, label: str, detail: str) -> tuple[str, str]:
+def _describe_outcome(outcome: Outcome | None, symbol: str, label: str, detail: str) -> tuple[str, str]:
     match outcome:
+        case None:
+            return copy.TOOL_CALL_UNFINISHED_SYMBOL, copy.TOOL_CALL_UNFINISHED.format(label=label)
         case "done":
             return symbol, label
         case "empty":

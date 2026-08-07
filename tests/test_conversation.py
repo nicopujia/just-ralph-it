@@ -28,11 +28,13 @@ from tests.doubles.specs_generation import (
     COMMIT,
     FINISHED_ROW,
     STARTED_ROW,
+    THOUGHT,
     generate_blocked,
     generate_failing,
     generate_interrupted,
     generate_stopped,
     generate_succeeding,
+    generate_thinking,
 )
 from tests.doubles.workspace import install_workspace
 
@@ -130,7 +132,10 @@ def test_closes_the_row_a_blocked_run_left_open(monkeypatch: pytest.MonkeyPatch)
 
     assert events[-2] == ToolCallFinished(STARTED_ROW.call_id, STARTED_ROW.label, "failed")
     assert events[-1] == TurnFinished("blocked", "Your project has uncommitted changes.")
-    assert conversation.session.transcript[-1].items[-1].outcome == "failed"
+    # The row the sweep closes is the one already written down, so a
+    # turn that ended under an open row records it once.
+    tool_items = [item for item in conversation.session.transcript[-1].items if item.type == "tool"]
+    assert [(item.text, item.outcome) for item in tool_items] == [(STARTED_ROW.label, "failed")]
 
 
 def test_keeps_a_turn_alive_when_a_provider_failure_hits_a_tool() -> None:
@@ -213,7 +218,13 @@ def test_restores_a_tool_call_that_failed_as_a_failure() -> None:
     turns = build_conversation(FakeClient([])).restore()
 
     item = turns[-1].items[0]
-    assert (item.type, item.text, item.symbol, item.outcome) == ("tool", "Edited note", "✏️", "failed")
+    assert (item.type, item.text, item.symbol, item.outcome, item.detail) == (
+        "tool",
+        "Edited note",
+        "✏️",
+        "failed",
+        "Unknown note `n9`.",
+    )
 
 
 def test_restores_the_reasoning_a_turn_streamed() -> None:
@@ -234,6 +245,62 @@ def test_restores_the_reasoning_a_turn_streamed() -> None:
         ("reasoning", "Weighing the options."),
         ("assistant", "How often does it deploy?"),
     ]
+
+
+def test_records_a_turn_in_the_order_its_events_arrived(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(
+        FakeClient([streamed_reply("Understood."), streamed_reply("The specifications are in.")])
+    )
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_thinking)
+    list(conversation.ralph())
+
+    items = build_conversation(FakeClient([])).restore()[-1].items
+
+    # The row reaches the screen when it opens, so a thought streamed
+    # under it is read after it, not before.
+    assert [(item.type, item.text) for item in items] == [
+        ("assistant", "Understood."),
+        ("tool", FINISHED_ROW.label),
+        ("reasoning", THOUGHT.text),
+        ("assistant", "The specifications are in."),
+    ]
+    assert [item.outcome for item in items if item.type == "tool"] == ["done"]
+
+
+def test_leaves_the_rows_nested_under_a_call_out_of_the_recording() -> None:
+    conversation = build_conversation(
+        FakeClient([
+            response(call("explore", "explore", query="deployment options")),
+            response(call("nested", "search_web", query="deployments")),
+            streamed_reply("Deployments run from main."),
+            streamed_reply("It deploys from main."),
+        ])
+    )
+
+    events = list(conversation.chat("How does it deploy?"))
+
+    assert [event.depth for event in events if isinstance(event, ToolCallStarted)] == [0, 1]
+    items = build_conversation(FakeClient([])).restore()[-1].items
+    assert [(item.type, item.text) for item in items] == [
+        ("tool", "Explored deployment options"),
+        ("assistant", "It deploys from main."),
+    ]
+
+
+def test_records_a_row_the_session_was_written_under() -> None:
+    conversation = build_conversation(
+        FakeClient([response(call("switch", "switch_topic", topic="Delivery")), streamed_reply("Noted.")])
+    )
+
+    events = conversation.chat("Deploy from main.")
+    next(events)
+    # A `^t` pressed while a row spins saves the session under it.
+    conversation.update_session(show_thinking_blocks=True)
+    events.close()
+
+    items = build_conversation(FakeClient([])).restore()[-1].items
+    assert [(item.type, item.text, item.outcome) for item in items] == [("tool", "Switching to Delivery", None)]
 
 
 def test_records_a_reply_the_provider_sent_whole() -> None:

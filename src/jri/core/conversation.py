@@ -40,7 +40,8 @@ class Item(BaseModel):
     type: Literal["assistant", "reasoning", "tool"]
     text: str = ""
     symbol: str = DEFAULT_SYMBOL
-    outcome: Outcome = "done"
+    # No outcome is a row still open where the session was written.
+    outcome: Outcome | None = None
     detail: str = ""
 
     model_config = ConfigDict(extra="forbid")
@@ -333,7 +334,7 @@ class Conversation:
     ) -> Generator[TurnEvent]:
         turn = self.session.transcript[-1]
         start = len(turn.items)
-        open_rows: list[ToolCallStarted] = []
+        open_rows: list[tuple[ToolCallStarted, Item | None]] = []
         failure: Exception | None = None
         try:
             for event in events:
@@ -366,10 +367,10 @@ class Conversation:
         # A row still open when the turn ended is closed here, with a
         # real event, so the recording and the renderer take it through
         # the one path they already have for a call that finished.
-        for row in reversed(open_rows):
+        for row, item in reversed(open_rows):
             closing = ToolCallFinished(row.call_id, row.label, "stopped" if stopped else "failed", depth=row.depth)
-            if not row.depth:
-                turn.items.append(Item(type="tool", text=row.label, symbol=row.symbol, outcome=closing.outcome))
+            if item is not None:
+                _close_row(item, closing)
             yield closing
         turn.ending = ending
         turn.detail = str(failure) if failure is not None else ""
@@ -420,23 +421,33 @@ def _can_replay(tool: Tool | None, arguments: str) -> bool:
     return True
 
 
-def _record_event(turn: Turn, start: int, open_rows: list[ToolCallStarted], event: AgentEvent) -> None:
+def _close_row(item: Item, event: ToolCallFinished) -> None:
+    item.text = event.label
+    item.outcome = event.outcome
+    item.detail = event.detail
+
+
+def _record_event(
+    turn: Turn, start: int, open_rows: list[tuple[ToolCallStarted, Item | None]], event: AgentEvent
+) -> None:
     match event:
         case ToolCallStarted():
-            open_rows.append(event)
+            # A row is written down where it opened, so a delta the
+            # call streams under it is recorded after it, exactly as
+            # the screen shows the two.
+            item = Item(type="tool", text=event.label, symbol=event.symbol) if not event.depth else None
+            if item is not None:
+                turn.items.append(item)
+            open_rows.append((event, item))
         case ToolCallFinished():
-            symbol = DEFAULT_SYMBOL
-            for index, row in enumerate(open_rows):
+            for index, (row, item) in enumerate(open_rows):
                 if row.call_id == event.call_id:
-                    symbol = row.symbol
+                    if item is not None:
+                        _close_row(item, event)
                     # Whatever opened after a row is nested under it,
                     # so closing that row closes them with it.
                     del open_rows[index:]
                     break
-            if not event.depth:
-                turn.items.append(
-                    Item(type="tool", text=event.label, symbol=symbol, outcome=event.outcome, detail=event.detail)
-                )
         case TextDelta():
             _record_text(turn, start, "assistant", event.text)
         case ReasoningDelta():

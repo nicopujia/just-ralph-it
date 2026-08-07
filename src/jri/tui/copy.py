@@ -91,6 +91,8 @@ TOOL_CALL_FAILED_SYMBOL = "✗"
 TOOL_CALL_STOPPED = "{label} — stopped"
 TOOL_CALL_STOPPED_SYMBOL = "⊘"
 TOOL_CALL_STOPPING = "{label} — stopping…"
+TOOL_CALL_UNFINISHED = "{label} — unfinished"
+TOOL_CALL_UNFINISHED_SYMBOL = "⋯"
 TURN_BLOCKED = "Stopped because of your project's state:\n\n{error}\n\nSort that out and try again."
 TURN_ERROR = (
     f"Something went wrong:\n\n{{error}}\n\nTry again. If it keeps happening, report it at {ISSUES_URL} "

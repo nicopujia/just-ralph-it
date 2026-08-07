@@ -2,7 +2,7 @@ from collections.abc import Generator, Iterator
 from threading import Event
 from typing import TYPE_CHECKING
 
-from jri.core.ai import ToolCallFinished, ToolCallStarted
+from jri.core.ai import ReasoningDelta, ToolCallFinished, ToolCallStarted
 from jri.core.exceptions import RepositoryStateError
 
 if TYPE_CHECKING:
@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 COMMIT = "1a2b3c4"
 FINISHED_ROW = ToolCallFinished("commit", "Saved the specifications to your project", "done")
 STARTED_ROW = ToolCallStarted("commit", "Saving the specifications to your project", "💾")
+THOUGHT = ReasoningDelta("Weighing the options.")
 
 
 def generate_blocked(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
@@ -29,6 +30,13 @@ def generate_interrupted(_settings: "Settings", _cancelled: Event | None = None)
 
 def generate_succeeding(_settings: "Settings", _cancelled: Event | None = None) -> Generator[object, None, str]:
     yield STARTED_ROW
+    yield FINISHED_ROW
+    return COMMIT
+
+
+def generate_thinking(_settings: "Settings", _cancelled: Event | None = None) -> Generator[object, None, str]:
+    yield STARTED_ROW
+    yield THOUGHT
     yield FINISHED_ROW
     return COMMIT
 
