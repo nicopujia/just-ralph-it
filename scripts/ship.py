@@ -37,9 +37,8 @@ def main() -> None:
     git = shutil.which("git")
     if not uv or not git:
         raise RuntimeError("uv and git must both be installed")
-    check_number(root, version)
     remote, ref = read_upstream(git, root)
-    check_tag(git, root, remote, version)
+    check_number(git, root, remote, version)
     check_upstream(git, root, remote, ref)
     check_changes(git, root, frozenset())
     head = _read_git(git, root, "rev-parse", "HEAD")
@@ -67,10 +66,18 @@ def main() -> None:
         raise
 
 
-def check_number(root: Path, version: str) -> None:
+def check_number(git: str, root: Path, remote: str, version: str) -> None:
+    number = _read_number(version)
     current = check.read_version(root)
-    if _read_number(version) <= _read_number(current):
+    if number <= _read_number(current):
         raise RuntimeError(f"{version} does not come after {current}, the version pyproject.toml holds")
+    # A branch whose pyproject.toml is behind the tags would otherwise
+    # ship a number a release has already gone out under, and the tag
+    # for it is free precisely because that release took the other one.
+    newest = max(_read_releases(git, root, remote), default=())
+    if number <= newest:
+        released = ".".join(str(part) for part in newest)
+        raise RuntimeError(f"{version} does not come after {released}, the newest release a tag holds")
 
 
 def read_upstream(git: str, root: Path) -> tuple[str, str]:
@@ -84,12 +91,6 @@ def read_upstream(git: str, root: Path) -> tuple[str, str]:
         raise RuntimeError(f"{branch} tracks nothing, so a push has nowhere to go")
     remote, ref = upstream.split()
     return remote, ref
-
-
-def check_tag(git: str, root: Path, remote: str, version: str) -> None:
-    tag = f"{TAG_PREFIX}{version}"
-    if _read_git(git, root, "tag", "--list", tag) or _read_git(git, root, "ls-remote", "--tags", remote, tag):
-        raise RuntimeError(f"{tag} exists already, so {version} is a release that has gone out")
 
 
 def check_upstream(git: str, root: Path, remote: str, ref: str) -> None:
@@ -133,6 +134,19 @@ def bump_version(uv: str, root: Path, version: str) -> None:
         text = copy.read_text(encoding="utf-8")
         bumped = text.replace(spelling.format(version=current), spelling.format(version=version))
         copy.write_text(bumped, encoding="utf-8")
+
+
+def _read_releases(git: str, root: Path, remote: str) -> list[tuple[int, ...]]:
+    # A tag is a release wherever it sits: one this repository has not
+    # pushed yet and one it has never fetched both name a version that
+    # is taken. `ls-remote` writes `<oid>\trefs/tags/<tag>`, and an
+    # annotated tag earns a second line for the commit it peels to.
+    tags = (
+        *_read_git(git, root, "tag", "--list", f"{TAG_PREFIX}*").splitlines(),
+        *_read_git(git, root, "ls-remote", "--tags", remote, f"{TAG_PREFIX}*").splitlines(),
+    )
+    numbers = {line.rpartition("/")[2].removesuffix("^{}").removeprefix(TAG_PREFIX) for line in tags}
+    return [_read_number(number) for number in numbers if NUMBER_PATTERN.fullmatch(number)]
 
 
 def _read_number(version: str) -> tuple[int, ...]:
