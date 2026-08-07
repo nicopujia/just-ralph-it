@@ -3,7 +3,7 @@ import os
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Collection, Generator, Sequence
+from collections.abc import Collection, Generator, Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -79,7 +79,18 @@ class Locks:
     # another command already held when this one began is that
     # command's, whatever became of this one.
     def release(self, standing: Collection[Path]) -> None:
-        for path in self.standing - frozenset(standing):
+        self._remove(self.standing - frozenset(standing))
+
+    # Every lock that stops these commands, whenever it was taken. Only
+    # a caller holding a reason no command of this repository's can be
+    # running may ask for it, since there is no `then` here to tell a
+    # lock a dead command left from one a live command holds.
+    def clear(self) -> None:
+        self._remove(self.blocking)
+
+    @staticmethod
+    def _remove(paths: Iterable[Path]) -> None:
+        for path in paths:
             try:
                 path.unlink(missing_ok=True)
             except OSError:
@@ -136,6 +147,19 @@ class Repository:
             candidate.mkdir(parents=True, exist_ok=True)
         except OSError as error:
             raise NotRepositoryError(f"Cannot initialize Git: {candidate}") from error
+        # Every other command here runs inside `_run`, which knows what
+        # stood before it and takes away only what it left. `init` runs
+        # before there is a repository to snapshot, and the lock it has
+        # to get past belongs to a run that is already gone. What says
+        # so is the refusal above: a lock guards one command of a
+        # repository's against another, and Git will not call this path
+        # a repository, so no command of one is running here. `init`
+        # writes the config and then HEAD, each under its own lock, and
+        # a kill between the two leaves one standing that stops every
+        # `init` after it -- over a `.git` no `Repository` can be built
+        # on to report it.
+        directory = candidate / ".git"
+        Locks((directory,), (directory / "config", directory / "HEAD")).clear()
         result = subprocess.run(
             [resolved_executable, "-C", str(candidate), "init", "--quiet"], check=False, capture_output=True
         )

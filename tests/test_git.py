@@ -19,6 +19,14 @@ diff --git a/README.md b/README.md
 +The reporter renders totals.
 """
 SECTIONED_README = b"# Store\nKeeps orders.\n\n# Reporter\nKeeps orders.\n"
+# What a hard kill inside `git init` leaves behind, by the lock it was
+# holding: the command writes the config and then HEAD, each under one,
+# so the wreck is what it had written by then with that lock standing.
+# Built rather than killed for, and what makes the built state the
+# killed one is where Git stops in it: `rev-parse` calls neither a
+# repository, and the next `init` reports `File exists` over the config
+# and `cannot lock ref` over HEAD, exactly as it does over a real kill.
+KILLED_INITS = (("config.lock", ("config", "HEAD")), ("HEAD.lock", ("HEAD",)))
 
 
 def test_rejects_a_missing_git_executable(tmp_path: Path) -> None:
@@ -51,6 +59,37 @@ def test_keeps_the_worktree_an_existing_repository_already_has(
 
     assert repository.path == (tmp_path / "repo").resolve()
     assert repository.has_commit()
+
+
+@pytest.mark.parametrize(("lock", "unwritten"), KILLED_INITS)
+def test_initializes_over_what_a_killed_initialization_left(
+    tmp_path: Path, run_git: RunGit, lock: str, unwritten: tuple[str, ...]
+) -> None:
+    root = tmp_path / "project"
+    root.mkdir()
+    run_git(root, "init", "-q")
+    for name in unwritten:
+        (root / ".git" / name).unlink()
+    (root / ".git" / lock).touch()
+
+    repository = git.Repository.init(root)
+
+    assert repository.path == root.resolve()
+    assert git.find_root(root) == root.resolve()
+    assert read_git_locks(root) == ()
+
+
+def test_leaves_the_locks_over_a_repository_that_already_exists(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    held = tuple(repository.path / ".git" / name for name, _ in KILLED_INITS)
+    for path in held:
+        path.touch()
+
+    git.Repository.init(repository.path)
+
+    assert read_git_locks(repository.path) == tuple(sorted(held))
 
 
 def test_finds_worktree_root_from_any_subdirectory(tmp_path: Path, create_repository: CreateRepository) -> None:
