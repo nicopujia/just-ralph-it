@@ -1,3 +1,6 @@
+import re
+from collections.abc import Iterator
+from pathlib import Path
 from threading import Event
 from typing import TYPE_CHECKING, cast
 
@@ -5,8 +8,18 @@ import pytest
 from openai import omit
 from pydantic import BaseModel
 
-from jri.core.ai import BLOCK_NOTICE, LLMRunner, ReasoningDelta, TextDelta
+from jri.core.ai import (
+    BLOCK_NOTICE,
+    Explorer,
+    Interviewer,
+    LLMRunner,
+    ReasoningDelta,
+    TextDelta,
+    architect,
+    functional_analyst,
+)
 from jri.core.exceptions import ModelError, UsageLimitError
+from jri.core.notes import Notebook
 from tests.doubles.openai import (
     FakeClient,
     disconnection,
@@ -22,11 +35,22 @@ from tests.doubles.openai import (
     stopped_stream,
     streamed_reply,
 )
+from tests.doubles.settings import build_settings
 
 if TYPE_CHECKING:
     from openai import OpenAI, OpenAIError
 
     from tests.doubles.openai import Round
+
+# The depths a prompt line is written at: a heading at the margin, a
+# bullet under it, and the continuation of a bullet that wrapped.
+PROMPT_INDENTS = (0, 4, 6)
+# Ruff bounds a source line at 120 columns, and a prompt line spends
+# four of them on the indentation of the shallowest block that can
+# hold it, two on its quotes and two on the `\n` it ends with, so a
+# line wider than this is two literals that ran together.
+PROMPT_MAX_WIDTH = 112
+PROMPT_SECTION = re.compile(r"[A-Z][A-Za-z ]*:")
 
 
 @pytest.fixture
@@ -44,12 +68,90 @@ def build_streaming_runner(*rounds: "Round | OpenAIError") -> LLMRunner:
     return LLMRunner(client=cast("OpenAI", FakeClient(rounds)), model="test")
 
 
+def build_agents(path: Path) -> list[Explorer | Interviewer]:
+    settings = build_settings(FakeClient([]), search_api_key="BRAVE_SEARCH_API_KEY")
+    # The Explorer writes its working directory into its prompt, so a
+    # directory of this machine's would leave the width of one line to
+    # whatever `tmp_path` happens to be.
+    return [Interviewer(settings, Notebook(path / "notebook.yaml")), Explorer(settings, Path("/jri"))]
+
+
+def build_prompts(path: Path) -> dict[str, str]:
+    settings = build_settings(FakeClient([]))
+    return {
+        **{type(agent).__name__: agent.prompt for agent in build_agents(path)},
+        "Architect": architect.Architect(settings).runner.prompt,
+        "Architect.FINAL_PROMPT": architect.Architect.FINAL_PROMPT,
+        "Architect.REPAIR_PROMPT": architect.Architect.REPAIR_PROMPT,
+        "FunctionalAnalyst": functional_analyst.FunctionalAnalyst(settings).runner.prompt,
+        "FunctionalAnalyst.REPAIR_PROMPT": functional_analyst.FunctionalAnalyst.REPAIR_PROMPT,
+    }
+
+
+# Each line with the ones it stands between, and `None` where the
+# prompt begins or ends, so a rule about what a line sits under tells
+# the top of a document from a line sitting under a blank one.
+def read_prompt_lines(path: Path) -> Iterator[tuple[str, str | None, str, str | None]]:
+    for name, text in build_prompts(path).items():
+        lines = text.split("\n")
+        for number, line in enumerate(lines):
+            above = lines[number - 1] if number else None
+            below = lines[number + 1] if number + 1 < len(lines) else None
+            yield f"{name}:{number + 1}", above, line, below
+
+
 def test_sends_a_prompt_exactly_as_written_under_the_block_notice() -> None:
     written = "Role: Tester.\n\nConstraints:\n    - An indented line whose indentation is the prompt's own.\n"
 
     runner = LLMRunner(client=cast("OpenAI", FakeClient([])), model="test", prompt=written)
 
     assert runner.prompt == f"{written}\n\n{BLOCK_NOTICE}"
+
+
+def test_wraps_every_prompt_line_inside_the_source_line_holding_it(tmp_path: Path) -> None:
+    lines = read_prompt_lines(tmp_path)
+
+    assert [(label, len(line)) for label, _, line, _ in lines if len(line) > PROMPT_MAX_WIDTH] == []
+
+
+def test_separates_the_words_of_every_prompt_line_with_one_space(tmp_path: Path) -> None:
+    lines = read_prompt_lines(tmp_path)
+
+    assert [(label, line) for label, _, line, _ in lines if "  " in line.lstrip(" ") or line != line.rstrip()] == []
+
+
+def test_indents_every_prompt_line_to_a_depth_the_document_uses(tmp_path: Path) -> None:
+    lines = read_prompt_lines(tmp_path)
+
+    assert [
+        (label, line) for label, _, line, _ in lines if line and len(line) - len(line.lstrip(" ")) not in PROMPT_INDENTS
+    ] == []
+
+
+def test_opens_a_section_under_every_blank_line_of_a_prompt(tmp_path: Path) -> None:
+    lines = read_prompt_lines(tmp_path)
+
+    assert [
+        (label, below) for label, _, line, below in lines if not line and (not below or below.startswith(" "))
+    ] == []
+
+
+def test_stands_every_section_of_a_prompt_under_a_blank_line(tmp_path: Path) -> None:
+    lines = read_prompt_lines(tmp_path)
+
+    assert [(label, line) for label, above, line, _ in lines if above and PROMPT_SECTION.match(line)] == []
+
+
+def test_ends_every_prompt_at_the_last_line_it_wrote(tmp_path: Path) -> None:
+    prompts = build_prompts(tmp_path)
+
+    assert [name for name, text in prompts.items() if text != text.strip()] == []
+
+
+def test_flows_every_tool_description_into_one_single_spaced_line(tmp_path: Path) -> None:
+    descriptions = [capability.description for agent in build_agents(tmp_path) for capability in agent.tools]
+
+    assert [text for text in descriptions if text != " ".join(text.split())] == []
 
 
 def test_returns_the_parsed_output() -> None:
