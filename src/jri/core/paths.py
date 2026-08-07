@@ -11,6 +11,10 @@ VISUALIZATION_FILE = f"{WORKSPACE_DIR}/visualization.html"
 GENERATION_DIR = f"{WORKSPACE_DIR}/generation"
 
 ACCEPTANCE_FILE = f"{GENERATION_DIR}/acceptance.json"
+# A rename writes the record, and a lock is held on the file that was
+# renamed away rather than on the name, so what an acceptance is held
+# by is a file no write of JRI's ever replaces.
+ACCEPTANCE_LOCK_FILE = f"{GENERATION_DIR}/acceptance.lock"
 
 LOGS_DIR = f"{WORKSPACE_DIR}/logs"
 

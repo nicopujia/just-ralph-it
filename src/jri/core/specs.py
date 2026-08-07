@@ -1,4 +1,5 @@
 import logging
+import os
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
@@ -6,6 +7,7 @@ from pathlib import Path, PurePosixPath
 from pydantic import BaseModel, ConfigDict
 
 from jri.lib import files, git, prompt
+from jri.lib.lock import Lock
 
 from . import paths
 from .exceptions import PersistenceError, RepositoryStateError, SpecsError
@@ -32,11 +34,14 @@ class Baseline:
 # An acceptance under way, written down before it touches the project
 # so that undoing it never depends on reading the worktree back: the
 # patch is what was applied, `accepted` is the acceptance commit the
-# project held before it, and `indexed` the paths Git already tracked.
+# project held before it, `indexed` the paths Git already tracked, and
+# `pid` the run carrying it out, so a lock left in `.git` beside this
+# is told from one the run reading it is holding right now.
 class Acceptance(BaseModel):
     accepted: str | None
     patch: str
     indexed: tuple[str, ...]
+    pid: int
 
     model_config = ConfigDict(extra="forbid")
 
@@ -132,23 +137,31 @@ class Specs:
             accepted=baseline.accepted,
             patch=patch.decode(),
             indexed=self.repository.read_staged_paths(paths.COMMITTED_PATHS),
+            pid=os.getpid(),
         )
-        self._record_acceptance(acceptance)
-        self.repository.apply_patch(patch)
-        try:
-            # The intent alone, so JRI never writes over content the
-            # user staged for a path of its own. What the project
-            # ignores does not decide this: `.jri` is JRI's to keep in
-            # Git, and a project that ignores it Ralphs like any other
-            # rather than failing once the generation has run.
-            self.repository.stage(paths.COMMITTED_PATHS, intent_to_add=True, force=True)
-            commit = self.repository.commit(
-                "jri: update specifications", trailers=(ACCEPTANCE_TRAILER,), paths=paths.COMMITTED_PATHS
-            )
-        except git.Error:
-            self._undo_acceptance(acceptance)
-            raise
-        self.workspace.acceptance_file.unlink(missing_ok=True)
+        self.workspace.open_generation_dir()
+        # Taken for exactly the span in which the Git commands below can
+        # leave a lock behind in `.git`, and dropped by the operating
+        # system when a kill ends that span, so the run that reads the
+        # record back learns whether the run that wrote it is still
+        # there without asking a pid the system may have handed on.
+        with Lock(self.workspace.acceptance_lock_file):
+            files.write_atomically(self.workspace.acceptance_file, acceptance.model_dump_json())
+            self.repository.apply_patch(patch)
+            try:
+                # The intent alone, so JRI never writes over content the
+                # user staged for a path of its own. What the project
+                # ignores does not decide this: `.jri` is JRI's to keep
+                # in Git, and a project that ignores it Ralphs like any
+                # other rather than failing once the generation has run.
+                self.repository.stage(paths.COMMITTED_PATHS, intent_to_add=True, force=True)
+                commit = self.repository.commit(
+                    "jri: update specifications", trailers=(ACCEPTANCE_TRAILER,), paths=paths.COMMITTED_PATHS
+                )
+            except git.Error:
+                self._undo_acceptance(acceptance)
+                raise
+            self.workspace.acceptance_file.unlink(missing_ok=True)
         logger.info("specs_committed commit=%s", commit)
         return commit
 
@@ -161,6 +174,10 @@ class Specs:
         acceptance = self._read_acceptance()
         if acceptance is None:
             return
+        self._release_index_lock(acceptance)
+        # Undoing writes the index, so a lock still standing here would
+        # come back as Git's own words about a path inside `.git`.
+        self._check_index_lock()
         accepted = self.repository.find_commit(ACCEPTANCE_TRAILER) if self.repository.has_commit() else None
         # The kill may have landed after Git wrote the commit, and past
         # that point the patch is the project's: reversing it would
@@ -171,9 +188,34 @@ class Specs:
             return
         self._undo_acceptance(acceptance)
 
-    def _record_acceptance(self, acceptance: Acceptance) -> None:
-        self.workspace.open_generation_dir()
-        files.write_atomically(self.workspace.acceptance_file, acceptance.model_dump_json())
+    # Git's own guard against two commands writing the index at once,
+    # so JRI takes it away only where it can say whose it is: a record
+    # says an acceptance was under way, a pid that is not this one says
+    # the run doing it was another, and a lock the operating system has
+    # already dropped says that run is dead. Anything else is a lock
+    # JRI cannot account for, and `_check_index_lock` names it instead.
+    def _release_index_lock(self, acceptance: Acceptance) -> None:
+        index_lock_file = self.repository.index_lock_file
+        if not index_lock_file.exists():
+            return
+        if acceptance.pid == os.getpid() or Lock(self.workspace.acceptance_lock_file).is_held():
+            return
+        index_lock_file.unlink(missing_ok=True)
+        logger.info("index_lock_released path=%s", index_lock_file)
+
+    # Whichever Git command meets this file next says so and stops,
+    # which is a message about a path inside `.git` in the middle of a
+    # run about specifications. What a killed acceptance of JRI's left
+    # is already gone by here, so what stands is either a command
+    # running now or one nothing of JRI's accounts for -- and either
+    # way the user is the one who can tell which, once they are told
+    # which file it is.
+    def _check_index_lock(self) -> None:
+        if self.repository.index_lock_file.exists():
+            raise RepositoryStateError(
+                "Git's index is locked. Wait for the command holding it, or, if none is running, remove "
+                f"`{self.repository.index_lock_file}` before Ralphing."
+            )
 
     def _read_acceptance(self) -> Acceptance | None:
         if not self.workspace.acceptance_file.exists():
@@ -279,6 +321,7 @@ class Specs:
             ) from error
 
     def _check_state(self) -> None:
+        self._check_index_lock()
         # Off a branch, Git takes the commit and leaves it reachable
         # only from where HEAD stands, so going back to the branch
         # loses it: every stopped rebase, every bisect, and every

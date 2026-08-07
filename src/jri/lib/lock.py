@@ -73,12 +73,29 @@ class Lock:
         # since the descriptor it was entered on is gone from the child.
         descriptor = _descriptors.pop(self, None)
         if descriptor is not None:
+            _release(descriptor, taken=True)
+
+    # The operating system drops the lock when its holder dies, so one
+    # that cannot be taken this instant is one whose holder is running.
+    # Asking is not taking: what this gets hold of it lets go of again,
+    # so a caller learns the answer without becoming the holder.
+    def is_held(self) -> bool:
+        try:
+            descriptor = os.open(self.path, os.O_CREAT | os.O_RDWR, LOCK_FILE_PERMISSIONS)
+        except OSError as error:
+            raise LockError(f"The lock file {self.path} cannot be opened.") from error
+        taken = False
+        try:
             if sys.platform == "win32":
-                os.lseek(descriptor, 0, os.SEEK_SET)
-                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, LOCKED_BYTES)
+                msvcrt.locking(descriptor, msvcrt.LK_NBLCK, LOCKED_BYTES)
             else:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
-            os.close(descriptor)
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            taken = True
+        except OSError:
+            return True
+        finally:
+            _release(descriptor, taken=taken)
+        return False
 
 
 def _drop_inherited() -> None:
@@ -88,6 +105,19 @@ def _drop_inherited() -> None:
     for descriptor in _descriptors.values():
         os.close(descriptor)
     _descriptors.clear()
+
+
+# Closing drops a lock the descriptor still holds, and `locking` leaves
+# a range it was never given behind, so the two go together and only
+# where a lock was taken.
+def _release(descriptor: int, *, taken: bool) -> None:
+    if taken:
+        if sys.platform == "win32":
+            os.lseek(descriptor, 0, os.SEEK_SET)
+            msvcrt.locking(descriptor, msvcrt.LK_UNLCK, LOCKED_BYTES)
+        else:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+    os.close(descriptor)
 
 
 if sys.platform != "win32":

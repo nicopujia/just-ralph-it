@@ -70,6 +70,10 @@ class Workspace:
         return self.root / paths.ACCEPTANCE_FILE
 
     @property
+    def acceptance_lock_file(self) -> Path:
+        return self.root / paths.ACCEPTANCE_LOCK_FILE
+
+    @property
     def reset_paths(self) -> tuple[Path, ...]:
         return tuple(self.root / path for path in paths.RESET_PATHS)
 

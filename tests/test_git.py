@@ -1,3 +1,4 @@
+import os
 import shutil
 import tempfile
 from pathlib import Path
@@ -106,6 +107,32 @@ def test_reads_the_status_of_a_path_the_project_ignores(tmp_path: Path, create_r
 
     assert repository.read_status(["build"]) == ()
     assert repository.read_status(["build"], ignored=True) == (git.Status("build/report.md", "!", "!"),)
+
+
+def test_names_the_file_git_guards_the_index_with(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path)
+
+    repository.index_lock_file.touch()
+
+    with pytest.raises(git.Error, match=r"index\.lock"):
+        repository.stage(("README.md",))
+
+
+def test_leaves_the_index_alone_where_a_read_would_only_be_refreshing_it(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+    # The index caches what `stat` said about each file it holds, so a
+    # tracked file whose timestamp no longer matches is one Git writes
+    # a refreshed index for -- under the lock, and for a read.
+    os.utime(repository.path / "README.md", (0, 0))
+    index = repository.path / ".git/index"
+    before = index.stat()
+
+    repository.read_status()
+
+    after = index.stat()
+    assert (after.st_mtime_ns, after.st_ino) == (before.st_mtime_ns, before.st_ino)
 
 
 def test_reads_the_status_of_paths_a_repository_without_commits_may_not_hold(tmp_path: Path) -> None:

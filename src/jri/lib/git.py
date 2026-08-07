@@ -49,13 +49,19 @@ class Repository:
         self.executable = Path(resolved_executable)
         candidate = Path(path).resolve()
         result = subprocess.run(
-            [str(self.executable), "-C", str(candidate), "rev-parse", "--show-toplevel"],
+            [str(self.executable), "-C", str(candidate), "rev-parse", "--show-toplevel", "--absolute-git-dir"],
             check=False,
             capture_output=True,
         )
         if result.returncode:
             raise NotRepositoryError(os.fsdecode(result.stderr).strip() or f"Not a Git worktree: {candidate}")
-        self.path = Path(os.fsdecode(result.stdout).strip()).resolve()
+        # Git answers the two in the order they were asked for, and the
+        # directory holding the repository is not `.git` under the
+        # worktree wherever a link, a `GIT_DIR` or a second worktree
+        # puts it somewhere else.
+        top_level, git_directory = os.fsdecode(result.stdout).splitlines()
+        self.path = Path(top_level).resolve()
+        self._git_directory = Path(git_directory).resolve()
 
     @classmethod
     def init(cls, path: Path | str, executable: str = "git") -> Self:
@@ -75,6 +81,14 @@ class Repository:
         if result.returncode:
             raise NotRepositoryError(os.fsdecode(result.stderr).strip() or f"Cannot initialize Git: {candidate}")
         return cls(candidate, executable)
+
+    # Git's guard against two commands writing the index at once: it
+    # makes this file, writes the new index into it and renames it over
+    # the index, so a command that dies in between leaves it standing
+    # and every later one refuses.
+    @property
+    def index_lock_file(self) -> Path:
+        return self._git_directory / "index.lock"
 
     def has_commit(self, revision: str = "HEAD") -> bool:
         arguments = ("rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}")
@@ -228,9 +242,13 @@ class Repository:
     def _run(
         self, *arguments: str, stdin: bytes | None = None, check: bool = True
     ) -> subprocess.CompletedProcess[bytes]:
-        result = subprocess.run(
-            [str(self.executable), "-C", str(self.path), *arguments], input=stdin, check=False, capture_output=True
-        )
+        # A read of Git's takes the index lock to write the index it
+        # refreshed on the way, and a read killed inside that leaves the
+        # lock standing over a repository nothing was changing. This
+        # drops the write and nothing else: a command that has to have
+        # the lock, like a commit, still takes it.
+        command = [str(self.executable), "--no-optional-locks", "-C", str(self.path), *arguments]
+        result = subprocess.run(command, input=stdin, check=False, capture_output=True)
         if check and result.returncode:
             self._raise(result)
         return result

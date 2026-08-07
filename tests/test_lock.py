@@ -74,3 +74,34 @@ def test_reports_a_lock_path_that_is_not_a_file(tmp_path: Path) -> None:
         pass
 
     assert path.is_dir()
+
+
+def test_reports_the_lock_a_holder_still_running_has(tmp_path: Path) -> None:
+    path = tmp_path / "lock"
+
+    with hold(path):
+        assert Lock(path).is_held()
+
+
+def test_reports_no_holder_for_a_lock_a_killed_holder_left(tmp_path: Path) -> None:
+    path = tmp_path / "lock"
+
+    with hold(path) as holder:
+        holder.kill()
+        holder.wait()
+
+        assert not Lock(path).is_held()
+
+
+def test_reports_no_holder_for_a_lock_nothing_ever_took(tmp_path: Path) -> None:
+    assert not Lock(tmp_path / "lock").is_held()
+    # Asking is not taking, so the lock is still there to be had.
+    assert take(tmp_path / "lock")
+
+
+def test_reports_a_lock_file_it_cannot_open_to_answer_who_holds_it(tmp_path: Path) -> None:
+    path = tmp_path / "directory"
+    path.mkdir()
+
+    with pytest.raises(LockError, match="cannot be opened"):
+        Lock(path).is_held()
