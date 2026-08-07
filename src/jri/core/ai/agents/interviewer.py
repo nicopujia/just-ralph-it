@@ -154,7 +154,13 @@ class Interviewer(Agent):
     )
     def explore(self, query: str) -> Stream:
         report = yield from Explorer(self.settings, Workspace.find().root).report(query)
-        yield ToolOutput(report or "Exploration produced no report.", "done" if report else "empty")
+        if not report:
+            yield ToolOutput("Exploration produced no report.", "empty")
+            return
+        # A report is written by a model that read the web, and one long
+        # enough gets a sentence of JRI's after it, so it is quoted for
+        # the same reason the pages behind it are.
+        yield ToolOutput(prompt.render(exploration_report=report))
 
     @tool(
         "Turn to a project topic by its name or ID, creating it when it does not exist.",

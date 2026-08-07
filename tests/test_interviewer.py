@@ -265,7 +265,7 @@ def test_explores_reporting_only_what_follows_the_last_nested_tool_call(tmp_path
     events = list(interviewer.explore("cats"))
 
     assert [event.call_id for event in events if isinstance(event, ToolCallStarted)] == ["c1"]
-    assert events[-1] == ToolOutput("Cats are mammals.")
+    assert events[-1] == ToolOutput("Exploration report:\n```\nCats are mammals.\n```")
 
 
 def test_explores_reporting_nothing_when_the_run_ends_on_a_tool_call(tmp_path: Path) -> None:

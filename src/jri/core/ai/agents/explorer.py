@@ -108,11 +108,16 @@ class Explorer(Agent):
         symbol="🌐",
         replayed=False,
     )
+    # Whatever comes back is quoted. A fetch is the one output long
+    # enough for JRI to end with a sentence of its own, and a page can
+    # be written to end with that very sentence: unquoted, the two read
+    # alike, and the fetch that arrived whole was the only thing making
+    # a page safe to hand over with no structure of JRI's around it.
     def fetch_web_page(self, url: str) -> str:
         logger.debug("fetch_url url=%r", url)
         if (video_transcript := youtube.fetch_transcript_from_url(url)) is not None:
             logger.info("fetch_finished source=youtube characters=%d", len(video_transcript))
-            return video_transcript
+            return prompt.render(video_transcript=video_transcript)
         data = bytearray()
         try:
             with httpx.stream("GET", url, follow_redirects=True, timeout=10.0) as response:
@@ -147,15 +152,15 @@ class Explorer(Agent):
                 reason = str(error) or type(error).__name__
             raise RuntimeError(reason) from error
         response_body = data.decode(response.encoding or "utf-8", errors="replace")
-        output = MarkdownConverter().convert(response_body)
-        logger.info("fetch_finished status_code=%d characters=%d", response.status_code, len(output))
+        page = MarkdownConverter().convert(response_body)
+        logger.info("fetch_finished status_code=%d characters=%d", response.status_code, len(page))
         logger.debug(
             "fetch_response final_url=%r headers=%r response_body=%r",
             str(response.url),
             dict(response.headers),
             response_body,
         )
-        return output
+        return prompt.render(web_page=page)
 
     @tool(
         (

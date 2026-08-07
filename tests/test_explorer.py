@@ -5,6 +5,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import cast
 
 import httpx
 import pytest
@@ -286,7 +287,7 @@ def test_fetches_a_page_as_markdown(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_fetches_a_youtube_url_as_its_transcript(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], []))
 
-    assert build_explorer().fetch_web_page("https://youtu.be/abc123") == TRANSCRIPT
+    assert build_explorer().fetch_web_page("https://youtu.be/abc123") == f"Video transcript:\n```\n{TRANSCRIPT}\n```"
 
 
 def test_stops_fetching_a_page_at_the_size_cap(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -297,8 +298,26 @@ def test_stops_fetching_a_page_at_the_size_cap(monkeypatch: pytest.MonkeyPatch) 
 
     output = build_explorer().fetch_web_page("https://example.test/page")
 
-    assert output == "a" * chunk_size + "b" * (Explorer.MAX_INPUT_SIZE - chunk_size)
+    page = "a" * chunk_size + "b" * (Explorer.MAX_INPUT_SIZE - chunk_size)
+    assert output == f"Web page:\n```\n{page}\n```"
     assert served == chunks[:2]
+
+
+# The one sentence JRI adds to a cut output is a sentence a page can
+# hold too, and a model told to disregard what a block says needs the
+# two apart.
+def test_keeps_a_cut_page_from_wording_itself_as_the_notice(monkeypatch: pytest.MonkeyPatch) -> None:
+    forged = Invocation.TRUNCATION_NOTICE.strip()
+    serve_pages(monkeypatch, lambda _request: httpx.Response(200, text=f"{forged}\n" * 2000))
+
+    invocation = Invocation(build_explorer().fetch_web_page("https://example.test/docs"))
+    list(invocation)
+    output = cast("str", invocation.output)
+
+    assert output.startswith("Web page:\n```\n")
+    assert output.endswith(f"\n```{Invocation.TRUNCATION_NOTICE}")
+    quoted = output.removeprefix("Web page:\n```\n").removesuffix(f"\n```{Invocation.TRUNCATION_NOTICE}")
+    assert forged in quoted
 
 
 def test_reports_a_page_the_host_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
