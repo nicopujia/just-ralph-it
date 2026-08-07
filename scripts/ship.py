@@ -28,7 +28,7 @@ def main() -> None:
     if not uv or not git:
         raise RuntimeError("uv and git must both be installed")
     check_number(root, version)
-    remote = read_remote(git, root)
+    remote, ref = read_upstream(git, root)
     check_tag(git, root, remote, version)
     check_changes(git, root, frozenset())
     bump_version(uv, root, version)
@@ -44,9 +44,13 @@ def main() -> None:
         # after it takes the edit back out.
         subprocess.run([git, "restore", "--", *BUMPED_PATHS], cwd=root, check=True)
         raise
-    subprocess.run([git, "add", "--", *BUMPED_PATHS], cwd=root, check=True)
-    subprocess.run([git, "commit", "--message", COMMIT_MESSAGE], cwd=root, check=True)
-    subprocess.run([git, "push"], cwd=root, check=True)
+    # `--only` writes the paths named as the worktree holds them and
+    # takes nothing else the index carries. The refspec leaves
+    # `push.default` no say in which branches go, and `--follow-tags`
+    # is refused because publish.yml releases whatever a `v` tag points
+    # at and no tag here has passed the gate this run just ran.
+    subprocess.run([git, "commit", "--only", "--message", COMMIT_MESSAGE, "--", *BUMPED_PATHS], cwd=root, check=True)
+    subprocess.run([git, "push", "--no-follow-tags", remote, f"HEAD:{ref}"], cwd=root, check=True)
 
 
 def check_number(root: Path, version: str) -> None:
@@ -55,14 +59,17 @@ def check_number(root: Path, version: str) -> None:
         raise RuntimeError(f"{version} does not come after {current}, the version pyproject.toml holds")
 
 
-def read_remote(git: str, root: Path) -> str:
+def read_upstream(git: str, root: Path) -> tuple[str, str]:
     branch = _read_git(git, root, "branch", "--show-current")
     if not branch:
         raise RuntimeError("HEAD is detached, so there is no branch to push")
-    remote = _read_git(git, root, "for-each-ref", "--format=%(upstream:remotename)", f"refs/heads/{branch}")
-    if not remote:
+    upstream = _read_git(
+        git, root, "for-each-ref", "--format=%(upstream:remotename) %(upstream:remoteref)", f"refs/heads/{branch}"
+    )
+    if not upstream:
         raise RuntimeError(f"{branch} tracks nothing, so a push has nowhere to go")
-    return remote
+    remote, ref = upstream.split()
+    return remote, ref
 
 
 def check_tag(git: str, root: Path, remote: str, version: str) -> None:
@@ -73,10 +80,16 @@ def check_tag(git: str, root: Path, remote: str, version: str) -> None:
 
 def check_changes(git: str, root: Path, allowed: frozenset[str]) -> None:
     # An untracked file under `src` is built into the wheel and lands
-    # in no commit, so it counts as a change like any other.
+    # in no commit, so it counts as a change like any other. So does a
+    # change the index holds and the worktree does not, which the gate
+    # never reads and `bump_version` overwrites where it lands on a
+    # bumped path, and so does an entry marked assume-unchanged or
+    # skip-worktree, which git compares to neither.
     changed = {
         *_read_git(git, root, "diff", "--name-only", "HEAD").splitlines(),
+        *_read_git(git, root, "diff", "--name-only", "--cached", "HEAD").splitlines(),
         *_read_git(git, root, "ls-files", "--others", "--exclude-standard").splitlines(),
+        *(line[2:] for line in _read_git(git, root, "ls-files", "-v").splitlines() if not line.startswith("H ")),
     }
     if unexpected := sorted(changed - allowed):
         raise RuntimeError("A release goes out of a tree holding nothing else:\n" + "\n".join(unexpected))
