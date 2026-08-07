@@ -62,10 +62,6 @@ class Workspace:
         return self.root / paths.GENERATION_DIR
 
     @property
-    def generation_gitignore_file(self) -> Path:
-        return self.root / paths.GENERATION_GITIGNORE_FILE
-
-    @property
     def acceptance_file(self) -> Path:
         return self.root / paths.ACCEPTANCE_FILE
 
@@ -76,13 +72,10 @@ class Workspace:
     # What a run writes down while it works, and never what it commits.
     def open_generation_dir(self) -> Path:
         self.generation_dir.mkdir(exist_ok=True, parents=True)
-        # `*` answers for the file stating it too, so the directory is
-        # invisible without a rule the project has to carry -- and so
-        # to `ls-files -co --exclude-standard`, which is both the tree
-        # a run copies for the Explorer and the one it sends the
-        # architect.
-        if not self.generation_gitignore_file.exists():
-            self.generation_gitignore_file.write_text("*\n", encoding="utf-8", newline="\n")
+        # Rooted at the workspace and closed by a slash, so the rule
+        # answers for this directory and for no `generation` a
+        # specification tree happens to hold.
+        self._ignore(f"/{self.generation_dir.name}/")
         return self.generation_dir
 
     # The rendered configuration comes in rather than being read from
@@ -103,14 +96,7 @@ class Workspace:
         Notebook(self.notebook_file)
         self.logs_dir.mkdir(exist_ok=True)
 
-        ignored = [path.name for path in (self.session_file, self.logs_dir, self.visualization_file)]
-        content = self.gitignore_file.read_text(encoding="utf-8") if self.gitignore_file.exists() else ""
-        missing = [name for name in ignored if name not in content.splitlines()]
-        if missing:
-            separator = "" if not content or content.endswith("\n") else "\n"
-            self.gitignore_file.write_text(
-                f"{content}{separator}{'\n'.join(missing)}\n", encoding="utf-8", newline="\n"
-            )
+        self._ignore(*(path.name for path in (self.session_file, self.logs_dir, self.visualization_file)))
 
         # The ignore file a project brought along is not JRI's to
         # rewrite, so only a repository JRI creates gets one, and what
@@ -121,6 +107,20 @@ class Workspace:
                 f"{'\n'.join(self.PROJECT_IGNORES)}\n", encoding="utf-8", newline="\n"
             )
         return Installation(self, created=created, repository_created=repository_created)
+
+    # Read back and topped up on every call, since a rule checked for
+    # its existence alone is one nothing puts back once something has
+    # replaced it. The file is the one JRI commits, so Git holds what
+    # it says and reports a line going missing -- where a rule sitting
+    # in the directory it hides ignores itself, and takes its own
+    # absence with it.
+    def _ignore(self, *patterns: str) -> None:
+        content = self.gitignore_file.read_text(encoding="utf-8") if self.gitignore_file.exists() else ""
+        missing = [pattern for pattern in patterns if pattern not in content.splitlines()]
+        if not missing:
+            return
+        separator = "" if not content or content.endswith("\n") else "\n"
+        self.gitignore_file.write_text(f"{content}{separator}{'\n'.join(missing)}\n", encoding="utf-8", newline="\n")
 
 
 @dataclass(frozen=True)

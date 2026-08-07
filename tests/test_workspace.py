@@ -182,17 +182,39 @@ def test_keeps_a_run_directory_out_of_the_project(
     workspace = install_workspace(tmp_path).workspace
     repository = git.Repository(tmp_path)
     tracked = repository.read_worktree_paths()
-    status = run_git(tmp_path, "status", "--porcelain", "-uall")
 
     (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
 
     assert repository.read_worktree_paths() == tracked
-    assert run_git(tmp_path, "status", "--porcelain", "-uall") == status
-    assert run_git(tmp_path, "check-ignore", "-v", f"{paths.GENERATION_DIR}/journal.jsonl") == (
-        f"{paths.GENERATION_GITIGNORE_FILE}:1:*\t{paths.GENERATION_DIR}/journal.jsonl"
+    assert not repository.read_status((paths.GENERATION_DIR,))
+    assert run_git(tmp_path, "check-ignore", "-v", f"{paths.GENERATION_DIR}/journal.jsonl").startswith(
+        f"{paths.GITIGNORE_FILE}:"
     )
-    # The rule ignores the file stating it, so nothing of the run
-    # reaches a commit the user makes of everything they have.
+    run_git(tmp_path, "add", "-A")
+    staged = repository.read_staged_paths()
+    assert not [path for path in staged if path.startswith(paths.GENERATION_DIR)]
+    # The rule states itself in a file Git takes, so a project that
+    # drops it has a change Git reports rather than a run quietly
+    # exposed.
+    assert paths.GITIGNORE_FILE in staged
+
+
+def test_puts_back_a_run_directory_rule_something_replaced(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    workspace = install_workspace(tmp_path).workspace
+    repository = git.Repository(tmp_path)
+    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
+    # Every ignore rule the workspace carries, since one still holding
+    # what JRI wrote would answer for the directory in the repaired
+    # rule's place and prove nothing.
+    for rule in sorted(workspace.directory.rglob(workspace.gitignore_file.name)):
+        rule.write_text("# nothing to ignore here\n")
+
+    workspace.open_generation_dir()
+
+    assert not repository.read_status((paths.GENERATION_DIR,))
     run_git(tmp_path, "add", "-A")
     assert not [path for path in repository.read_staged_paths() if path.startswith(paths.GENERATION_DIR)]
 
