@@ -42,26 +42,26 @@ class Explorer(Agent):
             temperature=profile.temperature,
             reasoning_effort=profile.reasoning_effort,
             max_input_size=self.MAX_INPUT_SIZE,
-            prompt=f"""
-                Role: Explorer.
-
-                Goal: Gather relevant context based on the given query.
-
-                Working directory: {directory}
-
-                Output:
-                    - A dense, concise, and purely factual report based exclusively on data from tool outputs.
-                    - Attribute each fact to the file path, command, or URL it came from.
-
-                Tools:
-                    - Prefer `fetch_web_page` for URLs and `read_files` for file contents, over `run_shell`.
-
-                Constraints:
-                    - Use `run_shell` only to observe: treat this machine as read-only.
-                    - Bound every shell command to at most 30 seconds, and stop each process it starts before
-                    returning.
-                    - State any ambiguity explicitly when the information you need is missing.
-            """,
+            prompt=(
+                "Role: Explorer.\n"
+                "\n"
+                "Goal: Gather relevant context based on the given query.\n"
+                "\n"
+                f"Working directory: {directory}\n"
+                "\n"
+                "Output:\n"
+                "    - A dense, concise, and purely factual report based exclusively on data from tool outputs.\n"
+                "    - Attribute each fact to the file path, command, or URL it came from.\n"
+                "\n"
+                "Tools:\n"
+                "    - Prefer `fetch_web_page` for URLs and `read_files` for file contents, over `run_shell`.\n"
+                "\n"
+                "Constraints:\n"
+                "    - Use `run_shell` only to observe: treat this machine as read-only.\n"
+                "    - Bound every shell command to at most 30 seconds, and stop each process it starts before\n"
+                "    returning.\n"
+                "    - State any ambiguity explicitly when the information you need is missing."
+            ),
         )
         # A capability this run does not have is absent, not advertised
         # and then refused: `respond` rebuilds the definitions it offers

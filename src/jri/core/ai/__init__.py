@@ -10,11 +10,12 @@ from .events import (
     TurnEvent,
     TurnFinished,
 )
-from .llm_runner import LLMRunner
+from .llm_runner import BLOCK_NOTICE, LLMRunner
 from .workflows import specs_generation
 from .workflows.specs_generation import architect, functional_analyst
 
 __all__ = [
+    "BLOCK_NOTICE",
     "DEFAULT_SYMBOL",
     "Agent",
     "AgentEvent",

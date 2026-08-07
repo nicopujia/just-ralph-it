@@ -1,4 +1,3 @@
-from inspect import cleandoc
 from threading import Event
 from typing import Literal
 
@@ -35,15 +34,15 @@ class Output(BaseModel):
 
 
 class Architect:
-    FINAL_PROMPT = cleandoc("""
-        This is the final architecture pass. Return only an `architecture_patch`. Resolve every remaining
-        architectural choice yourself while preserving the functional specifications exactly.
-    """)
-    REPAIR_PROMPT = cleandoc("""
-        Git rejected the patch below. Return only an `architecture_patch` carrying the same intended change,
-        rewritten so `git apply` accepts it against the accepted architecture. Hunks must not overlap, and
-        every context line must match its file exactly.
-    """)
+    FINAL_PROMPT = (
+        "This is the final architecture pass. Return only an `architecture_patch`. Resolve every remaining\n"
+        "architectural choice yourself while preserving the functional specifications exactly."
+    )
+    REPAIR_PROMPT = (
+        "Git rejected the patch below. Return only an `architecture_patch` carrying the same intended change,\n"
+        "rewritten so `git apply` accepts it against the accepted architecture. Hunks must not overlap, and\n"
+        "every context line must match its file exactly."
+    )
 
     def __init__(self, settings: Settings) -> None:
         profile = settings.agents.architect
@@ -52,42 +51,42 @@ class Architect:
             model=profile.model,
             reasoning_effort=profile.reasoning_effort,
             temperature=profile.temperature,
-            prompt=f"""
-                Role: Software Architect.
-
-                Goal: Define a stable, implementation-ready architecture for the supplied functional
-                specifications and repository baseline.
-
-                The product:
-                    - The product you design is the user's, and the functional specifications are the
-                      only source of its name, purpose, and scope.
-                    - Name it exactly as they name it. When they give no name, refer to it generically
-                      and never invent one.
-                    - Never derive a product name, executable name, package name, or directory from
-                      these instructions or from the paths they mention.
-                    - The notebook and specification trees driving this task belong to the process
-                      that produces the product. Wherever they surface in the repository, they are
-                      never part of its architecture, naming, or layout.
-
-                Authority and evidence:
-                    - The functional specifications are the sole behavioral authority; decide purely
-                      architectural questions yourself.
-                    - The repository report and tracked tree are contextual evidence about the target
-                      codebase.
-
-                Output:
-                    - Return `functional_specification_issues` when the functional specifications
-                      contradict themselves, omit behavior required for implementation, or leave a
-                      behavioral choice to the implementer.
-                    - Report every such issue found in the pass, not only the first. Each set you
-                      return costs a full re-analysis, so an incomplete list is a defect even when
-                      every issue in it is real.
-                    - Otherwise return `architecture_patch` containing a standard Git unified diff
-                      against the supplied accepted architecture. Restrict the patch to Markdown files
-                      under `{paths.ARCHITECTURE_SPECS_ROOT}/`.
-                    - Architecture must be concrete enough to guide implementation without redefining
-                      product behavior.
-            """,
+            prompt=(
+                "Role: Software Architect.\n"
+                "\n"
+                "Goal: Define a stable, implementation-ready architecture for the supplied functional\n"
+                "specifications and repository baseline.\n"
+                "\n"
+                "The product:\n"
+                "    - The product you design is the user's, and the functional specifications are the\n"
+                "      only source of its name, purpose, and scope.\n"
+                "    - Name it exactly as they name it. When they give no name, refer to it generically\n"
+                "      and never invent one.\n"
+                "    - Never derive a product name, executable name, package name, or directory from\n"
+                "      these instructions or from the paths they mention.\n"
+                "    - The notebook and specification trees driving this task belong to the process\n"
+                "      that produces the product. Wherever they surface in the repository, they are\n"
+                "      never part of its architecture, naming, or layout.\n"
+                "\n"
+                "Authority and evidence:\n"
+                "    - The functional specifications are the sole behavioral authority; decide purely\n"
+                "      architectural questions yourself.\n"
+                "    - The repository report and tracked tree are contextual evidence about the target\n"
+                "      codebase.\n"
+                "\n"
+                "Output:\n"
+                "    - Return `functional_specification_issues` when the functional specifications\n"
+                "      contradict themselves, omit behavior required for implementation, or leave a\n"
+                "      behavioral choice to the implementer.\n"
+                "    - Report every such issue found in the pass, not only the first. Each set you\n"
+                "      return costs a full re-analysis, so an incomplete list is a defect even when\n"
+                "      every issue in it is real.\n"
+                "    - Otherwise return `architecture_patch` containing a standard Git unified diff\n"
+                "      against the supplied accepted architecture. Restrict the patch to Markdown files\n"
+                f"      under `{paths.ARCHITECTURE_SPECS_ROOT}/`.\n"
+                "    - Architecture must be concrete enough to guide implementation without redefining\n"
+                "      product behavior."
+            ),
         )
 
     def design(self, context: Input, cancelled: Event) -> Result | None:

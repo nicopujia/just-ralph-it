@@ -5,7 +5,7 @@ import pytest
 from openai import omit
 from pydantic import BaseModel
 
-from jri.core.ai import LLMRunner, ReasoningDelta, TextDelta
+from jri.core.ai import BLOCK_NOTICE, LLMRunner, ReasoningDelta, TextDelta
 from jri.core.exceptions import ModelError, UsageLimitError
 from tests.doubles.openai import (
     FakeClient,
@@ -42,6 +42,14 @@ def build_runner(parsed: object) -> LLMRunner:
 
 def build_streaming_runner(*rounds: "Round | OpenAIError") -> LLMRunner:
     return LLMRunner(client=cast("OpenAI", FakeClient(rounds)), model="test")
+
+
+def test_sends_a_prompt_exactly_as_written_under_the_block_notice() -> None:
+    written = "Role: Tester.\n\nConstraints:\n    - An indented line whose indentation is the prompt's own.\n"
+
+    runner = LLMRunner(client=cast("OpenAI", FakeClient([])), model="test", prompt=written)
+
+    assert runner.prompt == f"{written}\n\n{BLOCK_NOTICE}"
 
 
 def test_returns_the_parsed_output() -> None:
