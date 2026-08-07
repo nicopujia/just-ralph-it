@@ -12,7 +12,7 @@ from jri import __version__
 from jri.core import logs, paths
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
-from tests.doubles.logs import list_log_files, read_session_log, run_beside, sabotage
+from tests.doubles.logs import Exploding, list_log_files, read_session_log, run_beside, sabotage
 from tests.doubles.openai import FakeClient
 from tests.doubles.settings import build_settings
 from tests.doubles.workspace import install_workspace
@@ -22,6 +22,10 @@ FAILURE_RECORD = "THE BUG HAPPENED HERE"
 # Big enough to fill the files below in few records, and inside the
 # bound a record has, so what fills them are whole records.
 FILLING_RECORD_BYTES = 32 * 1024
+# What `os.fsdecode` hands back for a byte no UTF-8 decoding claims,
+# and what `jri.lib.git` therefore hands a record for a repository
+# holding a file or a ref whose name is not valid UTF-8.
+LONE_SURROGATE_NAME = "refs/heads/caf\udce9.lock"
 OPENING_RECORD = "THE SESSION OPENED HERE"
 # Past the bound a record has, so the second run spends the
 # milliseconds its formatting and its truncation cost between making a
@@ -251,6 +255,38 @@ def test_reads_back_in_time_order_when_two_runs_write_at_once(tmp_path: Path) ->
     stamps = STAMP.findall(log)
     assert len(stamps) == SMALL_RECORDS + OVERSIZED_RECORDS
     assert stamps == sorted(stamps), "a record reached the file behind one stamped after it"
+
+
+def test_writes_on_when_a_record_cannot_be_rendered(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    logs.configure(settings)
+    logger = logging.getLogger("jri.chat")
+
+    logger.info("turn_finished ending=%d", "cancelled")
+    logger.warning("read_finished notes=%(count)d", {"notes": 1})
+    logger.error("output=%s", Exploding())
+    logger.info(FAILURE_RECORD)
+
+    log = read_session_log(tmp_path)
+    markers = [line for line in log.splitlines() if "unrendered_record" in line]
+    assert [line.split("] [")[3] for line in markers] == ["INFO", "WARNING", "ERROR"]
+    assert all(f"[{__version__}] [{os.getpid()}]" in line for line in markers)
+    assert all("[jri.chat] unrendered_record source=test_logs.py:" in line for line in markers)
+    assert FAILURE_RECORD in log
+
+
+def test_keeps_a_name_that_will_not_encode_as_the_escapes_it_is_written_in(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    logs.configure(settings)
+    logger = logging.getLogger("jri.chat")
+
+    logger.info("git_lock_released path=%s", LONE_SURROGATE_NAME)
+
+    log = read_session_log(tmp_path)
+    assert "path=refs/heads/caf\\udce9.lock" in log
+    assert "unrendered_record" not in log
 
 
 def test_explains_when_the_log_file_cannot_be_created(tmp_path: Path) -> None:

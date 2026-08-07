@@ -4,7 +4,7 @@ import sys
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 from jri.core import paths
 
@@ -114,6 +114,12 @@ def sabotage(workspace: Path, kind: str) -> None:
             lock_file.symlink_to(nowhere / lock_file.name)
         case _:
             raise AssertionError(kind)
+
+
+class Exploding:
+    @override
+    def __str__(self) -> str:
+        raise RuntimeError("boom")
 
 
 class Turns:

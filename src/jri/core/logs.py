@@ -64,6 +64,9 @@ LOG_STAMP_BYTES = len(LOG_STAMP.format(time="0000-00-00 00:00:00,000"))
 LOG_TIME_FORMAT = "%Y-%m-%d %H:%M:%S,%f"
 LOG_TIME_MICROSECOND_DIGITS = 3
 TRUNCATION_NOTICE = "... [{dropped} bytes dropped]"
+# Where the call that made the record is, since what the record was
+# going to say is the thing that could not be said.
+UNRENDERED_RECORD = "unrendered_record source={source}:{line}"
 
 
 def configure(settings: Settings) -> None:
@@ -104,7 +107,7 @@ class SessionLog(logging.Handler):
         # Rendering a record costs what the record is long, so it is
         # done out here: a run holding the lock for the milliseconds a
         # large record takes is a run every other one waits behind.
-        body = self.format(record).encode()
+        body = self._render(record)
         if LOG_STAMP_BYTES + len(body) > LOG_RECORD_BYTES:
             # The stamp and the notice take their room out of the
             # bound, and the widest count the notice can carry is the
@@ -155,6 +158,31 @@ class SessionLog(logging.Handler):
                 _discard(path)
             else:
                 _grant_owner_access(path)
+
+    # `logging` hands whatever a handler raises to whoever logged, and
+    # JRI logs from inside the generator a turn is, which `_run_turn`
+    # consumes under an `except Exception`: a record whose arguments do
+    # not fit its format, or holding an object whose `__str__` raises,
+    # would end the turn it was describing. So rendering is total, for
+    # every way a record can refuse rather than the ways anybody has
+    # met. What will not render at all leaves a marker where it fell,
+    # through this same formatter, so the line still names the release,
+    # the process, the level and the logger the way every other line
+    # does. What renders but will not encode is kept in the escapes
+    # Python writes it in rather than lost: `jri.lib.git` decodes every
+    # path a repository holds with `os.fsdecode`, so a name of the
+    # user's that is not valid UTF-8 reaches a record as a lone
+    # surrogate, and that name is usually what the record is about.
+    # `KeyboardInterrupt` is not a record refusing and goes on through.
+    def _render(self, record: logging.LogRecord) -> bytes:
+        rendered: str | None = None
+        with contextlib.suppress(Exception):
+            rendered = self.format(record)
+        if rendered is None:
+            marker = UNRENDERED_RECORD.format(source=record.filename, line=record.lineno)
+            fallen = logging.LogRecord(record.name, record.levelno, record.pathname, record.lineno, marker, None, None)
+            rendered = self.format(fallen)
+        return rendered.encode(errors="backslashreplace")
 
     def _write(self, body: bytes) -> None:
         # Both `jri chat` and `jri view` configure logging, so two runs
