@@ -1312,18 +1312,15 @@ def test_keeps_the_accepted_specifications_when_a_generation_fails(
     assert [note.text for note in conversation.notebook.graph.notes] == ["Report the totals too."]
 
 
-# Two paths of a model's can each be a specification of the model's own
-# root and still not both be writable: a file cannot hold a file. The
-# run ends naming the one that failed, since a path nobody names is a
-# path nobody can act on.
+# What a name is made of is not what a filesystem will hold: a part
+# past its own bound on one is a specification of the model's own root
+# that still cannot be written. The run ends naming it, since a path
+# nobody names is a path nobody can act on.
 def test_reports_a_specification_path_the_filesystem_refuses(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
-    conversation = build_conversation(
-        tmp_path,
-        build_client({"functional/behavior.md": "# Behavior\n", "functional/behavior.md/nested.md": "# Nested\n"}),
-    )
+    conversation = build_conversation(tmp_path, build_client({f"functional/{'behavior' * 40}.md": "# Behavior\n"}))
 
     assert read_ending(conversation.ralph(), "could not write the specification") == "failed"
     assert find_accepted_commit(tmp_path) is None
@@ -1402,6 +1399,12 @@ def test_refuses_architecture_specifications_edited_outside_jri(
         ("functionally/behavior.md", r"cannot change `functionally/behavior\.md`"),
         ("functional/nested/../behavior.md", r"cannot change `functional/nested/\.\./behavior\.md`"),
         ("functional/beha\x00vior.md", "cannot change `functional/beha\x00vior\\.md`"),
+        ("functional/behavior.md\n\nFile: functional/forged.md", "cannot change `functional/behavior\\.md\n"),
+        ("functional/*.md", r"cannot change `functional/\*\.md`"),
+        ("functional/a\\b.md", r"cannot change `functional/a\\b\.md`"),
+        ("functional/CON.md", r"cannot change `functional/CON\.md`"),
+        ("functional/nested /behavior.md", r"cannot change `functional/nested /behavior\.md`"),
+        ("functional/behavior.md/nested.md", r"cannot change `functional/behavior\.md/nested\.md`"),
     ],
     ids=[
         "outside-tree",
@@ -1415,6 +1418,12 @@ def test_refuses_architecture_specifications_edited_outside_jri(
         "root-prefix",
         "inside-traversal",
         "null-byte",
+        "line-break",
+        "pathspec-wildcard",
+        "backslash",
+        "windows-device-name",
+        "trailing-space",
+        "specification-directory",
     ],
 )
 def test_refuses_a_path_that_is_not_a_specification_of_its_root(
@@ -1425,6 +1434,21 @@ def test_refuses_a_path_that_is_not_a_specification_of_its_root(
     conversation = build_conversation(tmp_path, build_client(files, functional_deleted=[path] if deletes else []))
 
     assert read_ending(conversation.ralph(), reason) == "failed"
+    assert find_accepted_commit(tmp_path) is None
+    assert not (tmp_path / ".jri/specs").exists()
+
+
+# A specification Git reads as binary is one whose diff names the
+# file and carries none of its content, which is a patch the
+# acceptance cannot replay -- and a run ending over JRI's own write
+# where a model returned the text.
+def test_refuses_a_specification_body_git_would_read_as_binary(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    conversation = build_conversation(tmp_path, build_client({"functional/behavior.md": "# Behavior\x00\n"}))
+
+    assert read_ending(conversation.ralph(), "holds a null character") == "failed"
     assert find_accepted_commit(tmp_path) is None
     assert not (tmp_path / ".jri/specs").exists()
 

@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -20,6 +21,28 @@ from .workspace import Workspace
 # What the commit that accepted a generation calls itself, so Git can
 # answer which commit that was.
 ACCEPTANCE_TRAILER = "JRI-Specifications: accepted"
+# What a name inside the specification tree may be made of, allowed
+# rather than forbidden, so a character nothing here names is a
+# character no name holds. Such a name is a file on whichever machine
+# the project is cloned onto and a Git pathspec wherever JRI stages
+# it, and it answers to both at once: Windows refuses the control
+# characters and `<>:"/\|?*` outright and strips a trailing space or
+# dot off what is left, and Git reads `*?[]\` in a pathspec as a
+# pattern rather than as the file it names. The tree is JRI's own
+# machinery under two roots JRI named in English, so ASCII costs it
+# nothing -- what the project is written in lives in the body, which
+# this says nothing about.
+SPECIFICATION_NAME = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9 ._-]*[A-Za-z0-9_-])?")
+# Windows resolves each of these to a device however it is cased and
+# whatever extension follows it, so no file can carry one as a name.
+WINDOWS_DEVICE_NAMES = frozenset({
+    "AUX",
+    "CON",
+    "NUL",
+    "PRN",
+    *(f"COM{port}" for port in "123456789"),
+    *(f"LPT{port}" for port in "123456789"),
+})
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +112,13 @@ class Specs:
     ) -> None:
         if not files and not deleted:
             raise SpecsError("Specifications must change at least one file.")
+        # A null character is what makes Git read a file as binary, and
+        # a binary file's diff names it and carries none of its
+        # content, which `git apply` refuses. So the run would end
+        # blaming a write of JRI's for text a model returned.
+        binary = next((path for path, content in sorted(files.items()) if "\x00" in content), None)
+        if binary is not None:
+            raise SpecsError(f"Specifications are text, and `{binary}` holds a null character.")
         root = repository.path / paths.SPECS_DIR
         # A path named on both sides is a file the model both wrote and
         # removed, and the removal is the later word on it.
@@ -516,14 +546,13 @@ class Specs:
                 + "\n".join(f"- {path}" for path in links)
             )
 
-    # Where a path a model returned lands, and the one bound every
-    # such path answers to: a Markdown file inside the model's own
-    # root, reached without following a link. A diff a model wrote was
-    # held to the same bound by JRI's own reading of its paths and by
-    # `git apply` refusing to write through a link. A file a model
-    # writes is held to it here, and nowhere else.
-    @staticmethod
-    def _locate_specification(worktree: Path, raw_path: str, model_root: str) -> Path:
+    # Where a path a model returned lands, and every bound such a path
+    # answers to: a Markdown file inside the model's own root, named as
+    # `_names_a_file` spells out, reached without following a link. A
+    # file a model writes is held to all of this here, and nowhere
+    # else.
+    @classmethod
+    def _locate_specification(cls, worktree: Path, raw_path: str, model_root: str) -> Path:
         path = PurePosixPath(raw_path)
         destination = worktree / paths.SPECS_DIR / path
         try:
@@ -537,12 +566,23 @@ class Specs:
             located = destination.resolve().parent.is_relative_to(worktree.resolve() / paths.SPECS_DIR / model_root)
         except (OSError, ValueError):
             located = False
-        if (
-            path.is_absolute()
-            or ".." in path.parts
-            or path.suffix != ".md"
-            or not path.is_relative_to(model_root)
-            or not located
-        ):
+        if not cls._names_a_file(path) or path.suffix != ".md" or not path.is_relative_to(model_root) or not located:
             raise SpecsError(f"Specifications cannot change `{raw_path}`.")
         return destination
+
+    # What every part of such a path has to be: not a traversal, not
+    # the root of a filesystem, not a directory named like a
+    # specification -- `Specs.read` reads back whatever answers `*.md`,
+    # so a directory answering it ends the run with the operating
+    # system's words about a tree of JRI's own -- and a name each of
+    # the three platforms will hold and Git will read as the file it
+    # is rather than as a pathspec pattern.
+    @staticmethod
+    def _names_a_file(path: PurePosixPath) -> bool:
+        if path.is_absolute() or ".." in path.parts or any(part.endswith(".md") for part in path.parts[:-1]):
+            return False
+        return bool(path.parts) and all(
+            SPECIFICATION_NAME.fullmatch(part) is not None
+            and part.partition(".")[0].upper() not in WINDOWS_DEVICE_NAMES
+            for part in path.parts
+        )
