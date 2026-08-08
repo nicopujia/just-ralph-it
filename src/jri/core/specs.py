@@ -127,10 +127,11 @@ class Specs:
     # specification tree JRI can read back, since a patch nothing of
     # JRI's wrote can put a link where a specification goes, so the
     # tree is read here rather than by the round that would write
-    # against it. A draft that fails any of this is one no run meets
-    # again: it is dropped before anything else can go wrong, because a
-    # draft that stops every run and outlives them all would leave the
-    # user deleting a file JRI wrote.
+    # against it, and what it placed is held to what a model writing
+    # those same files would be held to. A draft that fails any of this
+    # is one no run meets again: it is dropped before anything else can
+    # go wrong, because a draft that stops every run and outlives them
+    # all would leave the user deleting a file JRI wrote.
     def resume(self, repository: git.Repository) -> tuple[str, ...] | None:
         draft = self._read_draft()
         try:
@@ -140,8 +141,9 @@ class Specs:
             drafted = tuple(
                 path for path in sorted(checked_out.keys() | placed.keys()) if checked_out.get(path) != placed.get(path)
             )
-        except (git.Error, SpecsError):
-            logger.info("draft_refused characters=%d", len(draft))
+            self._check_specifications(repository.path, checked_out, placed)
+        except (git.Error, SpecsError) as error:
+            logger.info("draft_refused characters=%d reason=%s", len(draft), error)
         else:
             if drafted:
                 return drafted
@@ -603,6 +605,44 @@ class Specs:
         # zero is the header it reads as.
         bounds = [*(number for number, line in enumerate(lines) if line.startswith("diff --git ")), len(lines)]
         return ["".join(lines[start:end]) for start, end in pairwise(bounds)]
+
+    # A draft is the one specification tree that reaches a commit with
+    # no answer of a model's behind it: the patch is a file on the
+    # user's disk, it outlives the run that composed it, and the JRI
+    # reading it is not the JRI that wrote it -- these very rules grew
+    # narrower over the series that added the draft, so a draft older
+    # than an upgrade can carry a name this JRI refuses to write. So
+    # what Git placed is weighed by what `Specs.write` weighs a model's
+    # answer by, and a draft carrying what no answer could is refused
+    # where the answer would have been. Held against what the checkout
+    # put there: a name or a fold the project's own specifications
+    # already carry is not this draft's to answer for, and the run
+    # meets it either way once the draft is gone.
+    @classmethod
+    def _check_specifications(
+        cls, worktree: Path, checked_out: Mapping[str, bytes], placed: Mapping[str, bytes]
+    ) -> None:
+        prefix = f"{paths.SPECS_DIR}/"
+        added = {path.removeprefix(prefix) for path in placed.keys() - checked_out.keys()}
+        for path, content in sorted(placed.items()):
+            name = path.removeprefix(prefix)
+            # A root is JRI's own word to a model and the draft's own
+            # claim here, so the name states which one it is under
+            # before it can be weighed against that one.
+            if name in added:
+                model_root = PurePosixPath(name).parts[0]
+                if model_root not in paths.SPECS_ROOTS:
+                    raise SpecsError(f"Specifications cannot change `{name}`.")
+                cls._locate_specification(worktree, name, model_root)
+            if content != checked_out.get(path) and b"\x00" in content:
+                raise SpecsError(f"Specifications are text, and `{name}` holds a null character.")
+        for model_root in paths.SPECS_ROOTS:
+            folded = cls._find_folded_names(worktree / paths.SPECS_DIR, model_root, ())
+            if folded is not None and added & set(folded):
+                raise SpecsError(
+                    f"Specifications cannot hold both `{folded[0]}` and `{folded[1]}`, which some filesystems read "
+                    "as one file."
+                )
 
     # A draft nothing can read says nothing, and neither does one
     # holding no bytes: both come back as the empty patch, which Git

@@ -57,6 +57,65 @@ diff --git a/README.md b/README.md
 +Total output is supported.
 """
 FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
+# Drafts placing a specification `Specs.write` refuses a model: a name
+# Windows resolves to a device, a name Git reads as a pathspec pattern,
+# a file under no root a model writes into, a name a filesystem folds
+# onto the one the project holds, and a body Git reads as binary.
+DEVICE_NAME_DRAFT = """\
+diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
+new file mode 100644
+--- /dev/null
++++ b/.jri/specs/functional/CON.md
+@@ -0,0 +1 @@
++# Console
+"""
+FOLDED_NAME_DRAFT = """\
+diff --git a/.jri/specs/functional/Behavior.md b/.jri/specs/functional/Behavior.md
+new file mode 100644
+--- /dev/null
++++ b/.jri/specs/functional/Behavior.md
+@@ -0,0 +1 @@
++# Behaviour
+"""
+NULL_BODY_DRAFT = (
+    "diff --git a/.jri/specs/functional/null.md b/.jri/specs/functional/null.md\n"
+    "new file mode 100644\n"
+    "--- /dev/null\n"
+    "+++ b/.jri/specs/functional/null.md\n"
+    "@@ -0,0 +1 @@\n"
+    "+# Null\x00byte\n"
+)
+PATTERN_NAME_DRAFT = """\
+diff --git a/.jri/specs/functional/b*.md b/.jri/specs/functional/b*.md
+new file mode 100644
+--- /dev/null
++++ b/.jri/specs/functional/b*.md
+@@ -0,0 +1 @@
++# Pattern
+"""
+# A filesystem that reads two names without case holds one file where
+# a folded pair needs two, so the tree a refusal over one is about
+# cannot be made there at all.
+FOLDS_CASE = sys.platform in {"darwin", "win32"}
+FOLDS_CASE_REASON = "two names a filesystem reads as one file are a pair it cannot be handed"
+ROOTLESS_DRAFT = """\
+diff --git a/.jri/specs/rogue/spec.md b/.jri/specs/rogue/spec.md
+new file mode 100644
+--- /dev/null
++++ b/.jri/specs/rogue/spec.md
+@@ -0,0 +1 @@
++# Rogue
+"""
+# A draft that changes a specification the project holds and adds
+# none, so nothing about the names in the tree is its doing.
+UPDATE_DRAFT = """\
+diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
+--- a/.jri/specs/functional/behavior.md
++++ b/.jri/specs/functional/behavior.md
+@@ -1 +1,2 @@
+ # Behavior
++Total output is supported.
+"""
 # A draft nothing of JRI's wrote: Git places a link wherever a patch
 # names one, and a link is a specification at neither end.
 LINKED_DRAFT = """\
@@ -1848,6 +1907,79 @@ def test_refuses_a_draft_that_places_no_specification(
         assert (staging.path / "README.md").read_text() == "# Project\n"
         assert not run_git(staging.path, "status", "--short")
     assert not Workspace(tmp_path).draft_file.exists()
+
+
+# A draft outlives the run that composed it and the JRI that composed
+# that run, so the specifications it places are the one tree reaching a
+# commit with no answer of a model's behind them. They answer to what
+# an answer would have answered to: the roots a model writes under, the
+# names a specification may carry, and a body that is text.
+@pytest.mark.parametrize(
+    "draft",
+    [
+        DEVICE_NAME_DRAFT,
+        PATTERN_NAME_DRAFT,
+        ROOTLESS_DRAFT,
+        pytest.param(FOLDED_NAME_DRAFT, marks=pytest.mark.skipif(FOLDS_CASE, reason=FOLDS_CASE_REASON)),
+        NULL_BODY_DRAFT,
+    ],
+    ids=["device-name", "pathspec-pattern", "outside-the-roots", "folded-name", "null-body"],
+)
+def test_refuses_a_draft_naming_a_specification_jri_would_not_write(
+    draft: str, tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    write_draft(tmp_path, draft)
+
+    with specs.repository.open_worktree(baseline.commit) as staging:
+        restored = specs.resume(staging)
+
+        assert restored is None
+        assert read_specifications(staging.path) == {
+            "architecture/design.md": "# Design\n",
+            "functional/behavior.md": "# Behavior\n",
+        }
+        assert not run_git(staging.path, "status", "--short")
+    assert not Workspace(tmp_path).draft_file.exists()
+
+
+# A name the project's own specifications carry is not the draft's
+# doing, and the round that writes beside it meets it whether the draft
+# was picked up or dropped -- so dropping the draft would cost the user
+# a run's work and buy nothing.
+@pytest.mark.parametrize(
+    ("standing", "content"),
+    [
+        pytest.param("Behavior.md", "# Standing\n", marks=pytest.mark.skipif(FOLDS_CASE, reason=FOLDS_CASE_REASON)),
+        ("(exports).md", "# Standing\n"),
+        ("binary.md", "# Standing\x00\n"),
+    ],
+    ids=["folded-name", "unwritable-name", "null-body"],
+)
+def test_keeps_a_draft_beside_a_specification_the_project_already_holds(
+    standing: str, content: str, tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    (tmp_path / ".jri/specs/functional" / standing).write_text(content, encoding="utf-8", newline="\n")
+    run_git(tmp_path, "add", "--force", ".jri/specs")
+    run_git(tmp_path, "commit", "-qm", f"jri: update specifications\n\n{ACCEPTANCE_TRAILER}")
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    write_draft(tmp_path, UPDATE_DRAFT)
+
+    with specs.repository.open_worktree(baseline.commit) as staging:
+        restored = specs.resume(staging)
+
+        assert restored == (".jri/specs/functional/behavior.md",)
+        assert (
+            read_specifications(staging.path)["functional/behavior.md"]
+            == (UPDATED_FUNCTIONAL_FILES["functional/behavior.md"])
+        )
+    assert Workspace(tmp_path).draft_file.exists()
 
 
 # What a run picks up is the delta the draft placed, and the

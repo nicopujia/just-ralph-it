@@ -39,6 +39,17 @@ type Row = ToolCallStarted | ToolCallFinished
 
 AMBIGUITIES = functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=["JSON or plain text?"])
 ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
+# A draft placing a specification `Specs.write` refuses a model: Git
+# reads a body holding a null character as binary, and the diff of a
+# binary file names it and carries none of its content.
+NULL_BODY_DRAFT = (
+    "diff --git a/.jri/specs/functional/null.md b/.jri/specs/functional/null.md\n"
+    "new file mode 100644\n"
+    "--- /dev/null\n"
+    "+++ b/.jri/specs/functional/null.md\n"
+    "@@ -0,0 +1 @@\n"
+    "+# Null\x00byte\n"
+)
 FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
 UPDATED_ARCHITECTURE_FILES = {"architecture/design.md": "# Design\nAdd a total accumulator.\n"}
 UPDATED_FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\nTotal output is supported.\n"}
@@ -698,6 +709,36 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
     (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").write_text("# Totals\nThe project reports totals.\n")
     run_git(tmp_path, "add", "--force", paths.FUNCTIONAL_SPECS_DIR)
     run_git(tmp_path, "commit", "-qm", f"jri: update specifications\n\n{ACCEPTANCE_TRAILER}")
+    client = FakeClient(
+        [streamed_reply("Repository report")],
+        parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+    )
+
+    rows, result = generate(client)
+
+    assert isinstance(result, str)
+    assert read_rows(rows)[:2] == [
+        ("ToolCallStarted", "resume", "Picking up the specifications a previous run drafted"),
+        ("ToolCallFinished", "resume", "The drafted specifications no longer fit your project"),
+    ]
+    assert not (tmp_path / paths.DRAFT_FILE).exists()
+    assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").read_text() == (
+        UPDATED_FUNCTIONAL_FILES["functional/behavior.md"]
+    )
+    assert not run_git(tmp_path, "status", "--short")
+
+
+# A draft carrying what no answer of a model's could is refused like
+# any other draft that does not fit. A run that met it only after
+# picking it up would end over a specification nothing of JRI's wrote
+# -- and since every ending but a commit keeps the draft, so would the
+# run after it, and the one after that.
+def test_starts_clean_when_the_draft_holds_what_jri_would_not_write(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    commit_specs()
+    (tmp_path / paths.DRAFT_FILE).write_text(NULL_BODY_DRAFT, encoding="utf-8", newline="\n")
     client = FakeClient(
         [streamed_reply("Repository report")],
         parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture(UPDATED_ARCHITECTURE_FILES)],

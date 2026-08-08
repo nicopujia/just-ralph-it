@@ -30,6 +30,10 @@ SPECS_DIR = f"{WORKSPACE_DIR}/specs"
 ARCHITECTURE_SPECS_ROOT = "architecture"
 FUNCTIONAL_SPECS_ROOT = "functional"
 
+# Every root a specification may stand under, for the reads that are
+# handed a path rather than the agent whose root it belongs to.
+SPECS_ROOTS = (ARCHITECTURE_SPECS_ROOT, FUNCTIONAL_SPECS_ROOT)
+
 ARCHITECTURE_SPECS_DIR = f"{SPECS_DIR}/{ARCHITECTURE_SPECS_ROOT}"
 FUNCTIONAL_SPECS_DIR = f"{SPECS_DIR}/{FUNCTIONAL_SPECS_ROOT}"
 
