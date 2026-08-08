@@ -254,6 +254,46 @@ def test_keeps_the_lock_a_running_command_holds_when_a_signal_ends_its_own_git(
         end_the_second_command(tmp_path)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a file that refuses a read is an access list `chmod` cannot write")
+def test_reports_git_refusing_a_repository_whose_head_cannot_be_read(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+    # Which locks a command of this repository's can leave is read off
+    # HEAD, and a HEAD nothing can read is a repository Git refuses:
+    # what the run ends over is Git's own words, not the read.
+    (tmp_path / ".git/HEAD").chmod(0o000)
+
+    try:
+        with pytest.raises(git.Error, match="not a git repository"):
+            repository.commit("second", paths=("README.md",))
+    finally:
+        (tmp_path / ".git/HEAD").chmod(0o600)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a hook that takes a lock needs a shell and `touch`")
+def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_its_own_git(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+    window = HOLD_A_SECOND_LOCK + KILL_THE_GIT
+
+    with open_a_commit_window(tmp_path, "index", window), pytest.raises(git.Error):
+        repository.commit("second", paths=("README.md",))
+
+    try:
+        assert is_the_second_command_running(tmp_path)
+        # The kill left the index lock its own Git was holding, which
+        # goes; the lock beside it is over a file no command here
+        # writes, and the process that took it is still going to use it.
+        assert read_git_locks(tmp_path) == (tmp_path / ".git/config.lock",)
+        assert repository.commit("second", paths=("README.md",))
+    finally:
+        end_the_second_command(tmp_path)
+
+
 @pytest.mark.skipif(
     sys.platform == "win32", reason="a directory that refuses a write is an access list `chmod` cannot write"
 )
@@ -265,7 +305,7 @@ def test_leaves_the_lock_it_is_refused_the_removal_of(tmp_path: Path) -> None:
     directory.chmod(0o500)
 
     try:
-        git.Locks((directory,)).release(())
+        git.Locks((directory,), (directory / "index",)).release(())
     finally:
         directory.chmod(0o700)
 

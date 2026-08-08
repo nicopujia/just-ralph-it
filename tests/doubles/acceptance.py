@@ -109,6 +109,17 @@ HOLD_A_SECOND_LOCK = (
 # The project's own hook refusing the commit, which is an ending Git
 # chooses and runs its exit handler for: the hook's 1 is Git's 1.
 REFUSE_THE_COMMIT = "exit 1\n"
+# A commit of the user's own, standing where every commit stands
+# longest: in the editor. Git takes the index lock ahead of the editor
+# and holds it until the commit is written, so the lock standing while
+# this waits is one a live process is still going to rename over the
+# index -- the state a leftover lock is told from and cannot be told
+# from by the file alone.
+COMMIT_EDITOR = '#!/bin/sh\necho "{message}" > "$1"\nuntil [ -e "{closed}" ]; do sleep 0.02; done\n'
+# What the editor waits for, so the commit is held for exactly as long
+# as a test needs it rather than for a time a slow machine outruns.
+EDITOR_CLOSED = "editor-closed"
+USER_COMMIT = "the user's own commit"
 # Ending the Git that ran the hook with a signal Git is asked to stop
 # at, which is where a Ctrl-C over the process group, a `pkill git` and
 # a supervisor's shutdown land. Git's handler takes its own locks away
@@ -202,6 +213,36 @@ def kill_amid_moving_the_branch(root: Path, patch: bytes) -> None:
 def kill_amid_writing_the_commit(root: Path, patch: bytes) -> None:
     with open_a_commit_window(root, "written", MARK_THE_WINDOW + HOLD_THE_WINDOW):
         _kill_inside_a_window(root, patch, WINDOW_MARKER)
+
+
+# A Git of the user's, live and holding the index lock, for as long as
+# the block lasts. What it is holding it for is its own write of the
+# index, which is what a run that takes the lock away costs it.
+@contextmanager
+def hold_a_commit_of_the_user_s(root: Path) -> "Iterator[subprocess.Popen[bytes]]":
+    executable = shutil.which("git")
+    assert executable is not None
+    closed = root / ".git" / EDITOR_CLOSED
+    editor = root / ".git/commit-editor"
+    editor.write_text(COMMIT_EDITOR.format(message=USER_COMMIT, closed=closed), encoding="utf-8")
+    editor.chmod(0o700)
+    (root / "README.md").write_bytes(b"# Project\nA line of the user's own.\n")
+    commit = subprocess.Popen(
+        [executable, "-C", str(root), "commit", "-a"],
+        env={**os.environ, "GIT_EDITOR": str(editor)},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    deadline = time.monotonic() + TIMEOUT
+    while not (root / ".git/index.lock").exists():
+        assert commit.poll() is None, "the commit ended before it took the index lock"
+        assert time.monotonic() < deadline, "the commit never took the index lock"
+        time.sleep(POLL)
+    try:
+        yield commit
+    finally:
+        closed.touch()
+        commit.communicate(timeout=TIMEOUT)
 
 
 @contextmanager

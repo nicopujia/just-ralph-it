@@ -1,5 +1,4 @@
 import logging
-import os
 import re
 from collections.abc import Generator, Iterable, Mapping, Sequence
 from contextlib import contextmanager, suppress
@@ -60,17 +59,14 @@ class Baseline:
 # An acceptance under way, written down before it touches the project
 # so that undoing it never depends on reading the worktree back: the
 # patch is what was applied, `accepted` is the acceptance commit the
-# project held before it, `indexed` the paths Git already tracked,
-# `locked` the locks Git already held, so one this acceptance goes on
-# to leave is told from one that was there before it, and `pid` the
-# run carrying it out, so a lock left in `.git` beside this is told
-# from one the run reading it is holding right now.
+# project held before it, and `indexed` the paths Git already tracked.
+# Nothing here says anything about a lock: the file a run leaves in
+# `.git` outlives it by however long the project goes unopened, and a
+# record cannot tell what took a lock in that time.
 class Acceptance(BaseModel):
     accepted: str | None
     patch: str
     indexed: tuple[str, ...]
-    locked: tuple[str, ...]
-    pid: int
 
     model_config = ConfigDict(extra="forbid")
 
@@ -297,15 +293,13 @@ class Specs:
             accepted=baseline.accepted,
             patch=patch.decode(),
             indexed=self.repository.read_staged_paths(paths.COMMITTED_PATHS),
-            locked=tuple(str(path) for path in self.repository.locks.standing),
-            pid=os.getpid(),
         )
         self.workspace.open_generation_dir()
-        # Taken for exactly the span in which the Git commands below can
-        # leave a lock behind in `.git`, and dropped by the operating
-        # system when a kill ends that span, so the run that reads the
-        # record back learns whether the run that wrote it is still
-        # there without asking a pid the system may have handed on.
+        # Taken for exactly the span this acceptance is under way in,
+        # and dropped by the operating system when a kill ends that
+        # span, so a run that reads the record back learns whether the
+        # run that wrote it is still there without asking a pid the
+        # system may have handed on.
         with Lock(self.workspace.acceptance_lock_file):
             files.write_atomically(self.workspace.acceptance_file, acceptance.model_dump_json())
             try:
@@ -353,35 +347,30 @@ class Specs:
     # only way out is for the user to delete files JRI wrote.
     def _reconcile(self) -> None:
         acceptance = self._read_acceptance()
-        if acceptance is None:
+        # A record whose lock is still held is an acceptance under way,
+        # and its patch, its index and the record itself are the run
+        # carrying it out to finish or to take back. The operating
+        # system is what answers whether that run is still there, since
+        # it frees the lock when the holder dies and hands on the pid
+        # the record could have named instead.
+        if acceptance is None or Lock(self.workspace.acceptance_lock_file).is_held():
             return
-        self._release_locks(acceptance)
         # Undoing writes the index, so a lock still standing here would
         # come back as Git's own words about a path inside `.git`.
         self._check_locks()
         self._settle_acceptance(acceptance)
 
-    # Git's own guard against two commands writing one file at once,
-    # so JRI takes one away only where it can say whose it is: a
-    # record says an acceptance was under way and names the locks Git
-    # already held when it opened, so a lock standing now that is not
-    # among them is one that acceptance left; a pid that is not this
-    # one says the run doing it was another; and a lock the operating
-    # system has already dropped says that run is dead. Anything else
-    # is a lock JRI cannot account for, and `_check_locks` names it
-    # instead.
-    def _release_locks(self, acceptance: Acceptance) -> None:
-        if acceptance.pid == os.getpid() or Lock(self.workspace.acceptance_lock_file).is_held():
-            return
-        self.repository.locks.release([Path(path) for path in acceptance.locked])
-
     # Whichever Git command meets one of these files next says so and
     # stops, which is a message about a path inside `.git` in the
-    # middle of a run about specifications. What a killed acceptance of
-    # JRI's left is already gone by here, so what stands is either a
-    # command running now or one nothing of JRI's accounts for -- and
-    # either way the user is the one who can tell which, once they are
-    # told which files they are.
+    # middle of a run about specifications. Naming them is all JRI does
+    # with them: a lock file carries no mark of who made it, the
+    # operating system frees nothing over it -- Git holds a lock by the
+    # file's existence and not by a lock the kernel would drop -- and
+    # the acceptance whose leftover it may be died however long before
+    # the project was next opened. So a lock a dead run of JRI's left
+    # and a lock a Git of the user's is holding this instant are one
+    # shape on disk, and the user is the one who can tell which, once
+    # they are told which files they are.
     def _check_locks(self) -> None:
         blocking = self.repository.locks.blocking
         if blocking:

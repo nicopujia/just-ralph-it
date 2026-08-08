@@ -92,11 +92,13 @@ class Locks:
         locks = (Path(f"{path}{self.SUFFIX}") for path in self.written)
         return tuple(lock for lock in locks if lock.exists())
 
-    # What stands now and did not stand then, and nothing else: a lock
-    # another command already held when this one began is that
-    # command's, whatever became of this one.
+    # What stops these commands, stands now and did not stand then,
+    # and nothing else: a lock already standing is whosever it already
+    # was, and a lock over a file these commands never write is one
+    # nothing here can name the holder of -- a second command's, for
+    # all this can tell, whose own process is still going to use it.
     def release(self, standing: Collection[Path]) -> None:
-        self._remove(self.standing - frozenset(standing))
+        self._remove(frozenset(self.blocking) - frozenset(standing))
 
     # Every lock that stops these commands, whenever it was taken. Only
     # a caller holding a reason no command of this repository's can be
@@ -132,6 +134,13 @@ class Repository:
     HANDLED_SIGNALS: ClassVar[frozenset[int]] = frozenset(
         member for member in signal.Signals if member.name in {"SIGHUP", "SIGINT", "SIGPIPE", "SIGQUIT", "SIGTERM"}
     )
+    # What HEAD holds in front of the ref it stands for, where it
+    # stands for one rather than for a commit of its own.
+    SYMBOLIC_HEAD: ClassVar[str] = "ref: "
+    # Where a commit of named paths composes the index it goes on to
+    # copy over the project's own, up to the number of the Git that
+    # writes it: no two Gits ever compose the same one.
+    TEMPORARY_INDEX: ClassVar[str] = "next-index-"
 
     def __init__(self, path: Path | str, executable: str = "git") -> None:
         resolved_executable = shutil.which(executable)
@@ -202,14 +211,17 @@ class Repository:
     # The files every command run here writes, so the only locks that
     # ever stop one: the index, and the two refs a commit moves. An
     # unborn branch counts, since HEAD names the branch a first commit
-    # would land on before that commit exists.
+    # would land on before that commit exists. Where HEAD points is
+    # read off the file Git keeps it in rather than asked of Git, since
+    # this is asked either side of every command run here and asking
+    # would run one of its own.
     @property
     def locks(self) -> Locks:
-        branch = os.fsdecode(self._ask("symbolic-ref", "--quiet", "HEAD").stdout).strip()
         written = [self._git_directory / "index", self._git_directory / "HEAD"]
-        if branch:
+        branch = self._read_branch()
+        if branch is not None:
             written.append(self._common_directory / branch)
-        return replace(self._locks, written=tuple(written))
+        return Locks((self._git_directory, self._common_directory), tuple(written))
 
     def has_commit(self, revision: str = "HEAD") -> bool:
         return not self._ask("rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}").returncode
@@ -394,9 +406,19 @@ class Repository:
             str(self.path),
             *arguments,
         ]
-        locks = self._locks
+        locks = self.locks
         standing = locks.standing
-        result = subprocess.run(command, input=stdin, check=False, capture_output=True)
+        # Started rather than run whole, so the pid is in hand: the one
+        # file below that says which process wrote it says so in its
+        # name, and the process it names is this one's own child.
+        with subprocess.Popen(
+            command,
+            stdin=subprocess.PIPE if stdin is not None else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        ) as process:
+            output, errors = process.communicate(stdin)
+        result = subprocess.CompletedProcess(command, process.returncode, output, errors)
         # Git takes its own locks away as a command of its ends, by an
         # exit handler for the ending it chose and by the one handler
         # `HANDLED_SIGNALS` names, which runs before the default action
@@ -404,15 +426,25 @@ class Repository:
         # nought is not on its own a command that left something: only
         # one naming a signal Git never handled is. Such a process is
         # reaped by the time this reads, which is what makes a lock it
-        # left a lock nothing is holding -- and a lock a second command
-        # took inside that same window is unlinked with it, since
-        # nothing on disk tells the two apart once the process that
-        # left one is gone. On Windows no signal reaches the exit code,
-        # so a lock a killed Git left stands until Git's own refusal
-        # names it, which is the side to be wrong on: a refusal is
-        # read, a broken transaction is not.
+        # left a lock nothing is holding. What that death answers for
+        # is the files this command itself writes, and only the ones it
+        # did not find already locked: a lock over anything else is a
+        # second command's, whose own process is still there to rename
+        # it over what it guards. Between those two, Git makes a lock
+        # file with `O_EXCL`, so nothing can make one over a file this
+        # command's own Git is already holding, and the span a second
+        # command could have taken one of these in is the span of this
+        # one command, either side of that hold. The index a commit of
+        # named paths composes goes with them, and that one is its own
+        # Git's outright: the lock over it carries the number of the
+        # Git that made it, and that Git is the child this started. On
+        # Windows no signal
+        # reaches the exit code, so a lock a killed Git left stands
+        # until Git's own refusal names it, which is the side to be
+        # wrong on: a refusal is read, a broken transaction is not.
         if result.returncode < 0 and -result.returncode not in self.HANDLED_SIGNALS:
-            locks.release(standing)
+            composed = self._git_directory / f"{self.TEMPORARY_INDEX}{process.pid}"
+            replace(locks, written=(*locks.written, composed)).release(standing)
         if check and result.returncode:
             self._raise(result)
         return result
@@ -430,11 +462,19 @@ class Repository:
             self._raise(result)
         return result
 
-    # What a command of this repository's can leave a lock in, asked
-    # for without asking Git anything, since asking would run a command.
-    @property
-    def _locks(self) -> Locks:
-        return Locks((self._git_directory, self._common_directory))
+    # The branch HEAD stands for. Git keeps HEAD in one file, whose
+    # whole content is the marker and the name of the ref it points
+    # at; a detached HEAD holds an object id there instead and stands
+    # for no branch. A HEAD nothing can read stands for none either,
+    # and what a repository in that state is, `is_on_branch` asks Git:
+    # a lock this cannot name is one `blocking` reports rather than one
+    # a release takes away.
+    def _read_branch(self) -> str | None:
+        try:
+            head = os.fsdecode((self._git_directory / "HEAD").read_bytes()).strip()
+        except OSError:
+            return None
+        return head.removeprefix(self.SYMBOLIC_HEAD) if head.startswith(self.SYMBOLIC_HEAD) else None
 
     @staticmethod
     def _raise(result: subprocess.CompletedProcess[bytes]) -> None:
