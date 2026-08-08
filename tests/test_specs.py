@@ -1295,6 +1295,34 @@ def test_removes_the_specification_files_a_model_deleted(
     assert not run_git(tmp_path, "status", "--short")
 
 
+# A generation whose specifications are the ones the project already
+# holds writes nothing, so there is nothing to accept and nothing to
+# take back: the turn ends on the models' conclusion, and the run
+# after it commits as any other would.
+def test_ends_a_generation_that_changed_nothing_without_leaving_a_record(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    accepted = find_accepted_commit(tmp_path)
+    restarted = build_conversation(tmp_path, successful_client())
+    restarted.restore()
+
+    assert read_ending(restarted.ralph()) == "replied"
+
+    assert find_accepted_commit(tmp_path) == accepted
+    assert run_git(tmp_path, "rev-parse", "HEAD") == accepted
+    assert not (tmp_path / ".jri/generation/acceptance.json").exists()
+    assert not run_git(tmp_path, "status", "--short")
+    changed = build_conversation(tmp_path, updated_client())
+    changed.restore()
+
+    list(changed.ralph())
+
+    assert find_accepted_commit(tmp_path) not in {None, accepted}
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
+
+
 def test_keeps_the_accepted_specifications_when_a_generation_fails(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:

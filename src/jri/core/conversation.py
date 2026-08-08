@@ -312,6 +312,11 @@ class Conversation:
         # the moment, and what holds beyond the moment is the prompt's.
         if isinstance(result, str):
             workflow_result = f"Specification generation succeeded in Git commit {result}."
+        elif isinstance(result, specs_generation.Unchanged):
+            workflow_result = (
+                "Specification generation changed nothing: the specifications the project already holds are the "
+                "ones the notebook asks for, so no commit was made."
+            )
         else:
             workflow_result = prompt.render(specification_generation_ambiguities=result.ambiguities)
         report: ResponseInputItemParam = {"role": "system", "content": workflow_result}

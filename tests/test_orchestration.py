@@ -16,7 +16,7 @@ from tests.doubles.openai import FakeClient, call, partial_reply, reply, respons
 from tests.doubles.settings import build_settings
 from tests.doubles.workspace import install_workspace
 
-type Result = functional_analyst.Ambiguities | str | None
+type Result = functional_analyst.Ambiguities | specs_generation.Unchanged | str | None
 type Row = ToolCallStarted | ToolCallFinished
 
 ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
@@ -184,6 +184,30 @@ def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
     # rather than as the nothing-changed an unreadable one would.
     assert "@@ -0,0 +1," in diff
     assert "+    n1: Ship a web app." in diff
+
+
+# Handed notes it has already answered, a model returns the
+# specifications the project holds -- the shape the prompt asks for
+# when nothing needs changing. Git reads that as no change at all,
+# which is the models' conclusion rather than a write that failed.
+def test_reports_a_generation_that_changed_nothing(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    commit_specs()
+    accepted = run_git(tmp_path, "rev-parse", "HEAD")
+    client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
+
+    rows, result = generate(client)
+
+    assert result == specs_generation.Unchanged()
+    assert read_rows(rows)[-2:] == [
+        ("ToolCallStarted", "commit", "Comparing the specifications with your project"),
+        ("ToolCallFinished", "commit", "Your project already holds these specifications"),
+    ]
+    assert run_git(tmp_path, "rev-parse", "HEAD") == accepted
+    assert not (tmp_path / paths.ACCEPTANCE_FILE).exists()
+    assert not run_git(tmp_path, "status", "--short")
 
 
 @pytest.mark.parametrize(

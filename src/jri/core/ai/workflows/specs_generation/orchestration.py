@@ -1,5 +1,6 @@
 import logging
 from collections.abc import Generator
+from dataclasses import dataclass
 from difflib import unified_diff
 from pathlib import Path, PurePosixPath
 from threading import Event
@@ -12,7 +13,7 @@ from jri.core.specs import Baseline, Specs
 
 from . import architect, functional_analyst
 
-type SpecsResult = functional_analyst.Ambiguities | str
+type SpecsResult = functional_analyst.Ambiguities | Unchanged | str
 
 MAX_CYCLES = 10
 
@@ -152,6 +153,18 @@ def generate(
         # into the project and the run sees it through.
         if cancelled.is_set():
             return None
+        # A generation that changes nothing is what the models
+        # concluded, not a failure of anyone's: they read the notes
+        # and wrote the specifications the project already holds.
+        # Git says so with an empty diff, and `git apply` refuses one
+        # -- so an acceptance over it would end the turn blaming a
+        # write that never happened, over a record no undo of that
+        # same empty patch can take back.
+        if not patch:
+            logger.info("specs_unchanged cycles=%d", cycle)
+            yield ai.ToolCallStarted("commit", "Comparing the specifications with your project", "💾")
+            yield ai.ToolCallFinished("commit", "Your project already holds these specifications", "done")
+            return Unchanged()
         # Saving is a step of its own, so a project state that blocks
         # the commit closes the row naming it rather than the design
         # row, whose work was already done and is nowhere at fault.
@@ -159,6 +172,13 @@ def generate(
         commit = specs.accept(patch, baseline)
         yield ai.ToolCallFinished("commit", "Saved the specifications to your project", "done")
         return commit
+
+
+# What a generation concluded when the specifications it wrote are
+# the ones the project already holds: no commit was made, because
+# there was nothing to commit.
+@dataclass(frozen=True)
+class Unchanged: ...
 
 
 # A trashed topic is thinking the user threw away, so the analyst
