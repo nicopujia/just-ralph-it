@@ -252,7 +252,7 @@ def test_explores_from_the_root_of_the_enclosing_repository(
     list(interviewer.explore("cats"))
 
     instructions = cast("list[dict[str, str]]", client.responses.inputs[0])[0]["content"]
-    assert f"Working directory: {repository.path}\n" in instructions
+    assert f"Working directory:\n```\n{repository.path}\n```\n" in instructions
 
 
 def test_explores_reporting_only_what_follows_the_last_nested_tool_call(tmp_path: Path) -> None:

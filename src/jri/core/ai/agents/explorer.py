@@ -47,7 +47,12 @@ class Explorer(Agent):
                 "\n"
                 "Goal: Gather relevant context based on the given query.\n"
                 "\n"
-                f"Working directory: {directory}\n"
+                # The filesystem named this, not JRI: a line break is a
+                # legal POSIX filename character, so as prose a
+                # directory whose name carries one writes further
+                # sections of these instructions, at the depth JRI's
+                # own sit at and ahead of them.
+                f"{prompt.render(working_directory=str(directory))}\n"
                 "\n"
                 "Output:\n"
                 "    - A dense, concise, and purely factual report based exclusively on data from tool outputs.\n"
