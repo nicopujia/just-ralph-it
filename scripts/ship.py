@@ -55,6 +55,7 @@ def main() -> None:
     check_upstream(git, root, remote, ref)
     check_changes(git, root, frozenset())
     head = _read_git(git, root, "rev-parse", "HEAD")
+    pushed: str | None = None
     try:
         bump_version(uv, root, version)
         # publish.yml gates a release on this exact run, so a release
@@ -63,7 +64,7 @@ def main() -> None:
         # The gate lets `ruff --fix` rewrite what it fixes, and a commit
         # of the version alone would push a tree nothing checked.
         check_changes(git, root, frozenset(BUMPED_PATHS))
-        subprocess.run([git, *COMMIT_COMMAND, "--", *BUMPED_PATHS], cwd=root, check=True)
+        pushed = commit_bump(git, root)
         # The refspec leaves `push.default` no say in which branches go,
         # and `--follow-tags` is refused because publish.yml releases
         # whatever a `v` tag points at and no tag here has passed the
@@ -72,17 +73,29 @@ def main() -> None:
     except BaseException:
         # The bump and the commit holding it are this script's own, and
         # the remote can take a commit while the gate runs, so a release
-        # turned down at the push takes both back out rather than
-        # leaving a `chore: version` for a release that never went out.
-        # Every way out is caught, not the two a check answers with: the
-        # gate parses every file under `src` and `tests` before it runs
-        # a command and then spends minutes running them, so the Ctrl-C
-        # of a developer who has thought better of it ends this run as
+        # turned down takes both back out rather than leaving a
+        # `chore: version` for a release that never went out. Every way
+        # out is caught, not the two a check answers with: the gate
+        # parses every file under `src` and `tests` before it runs a
+        # command and then spends minutes running them, so the Ctrl-C of
+        # a developer who has thought better of it ends this run as
         # readily as a check saying no, and it leaves the same tree
         # behind -- one the next run refuses twice, at the version
         # pyproject.toml now holds and at the changes it now carries.
-        subprocess.run([git, "reset", "--soft", head], cwd=root, check=True)
-        subprocess.run([git, "restore", "--staged", "--worktree", "--", *BUMPED_PATHS], cwd=root, check=True)
+        #
+        # What says it was turned down is the remote and not the push:
+        # a push whose Git dies past the ref update -- a `post-receive`
+        # killed along with the `receive-pack` running it, a connection
+        # dropped once the remote had written the ref -- writes the
+        # release and still comes back non-zero, and taking the bump
+        # back out over that leaves the release on the remote with
+        # nothing here holding it and every push after refused at both
+        # ends. A remote that will not answer has not said the release
+        # never went out, so its refusal stops the undo too, and the
+        # tree stays as it stands for a person to read.
+        if pushed is None or _read_upstream_commit(git, root, remote, ref) != pushed:
+            subprocess.run([git, "reset", "--soft", head], cwd=root, check=True)
+            subprocess.run([git, "restore", "--staged", "--worktree", "--", *BUMPED_PATHS], cwd=root, check=True)
         raise
 
 
@@ -127,10 +140,9 @@ def check_remote(git: str, root: Path, remote: str) -> None:
 
 
 def check_upstream(git: str, root: Path, remote: str, ref: str) -> None:
-    line = _read_git(git, root, "ls-remote", remote, ref)
-    if not line:
+    upstream = _read_upstream_commit(git, root, remote, ref)
+    if not upstream:
         return
-    upstream = line.split()[0]
     # A commit this repository does not hold is one this branch cannot
     # hold either, so `merge-base` is read by its exit code and the
     # fatal it prints over an unknown name is not passed on.
@@ -161,6 +173,15 @@ def check_changes(git: str, root: Path, allowed: frozenset[str]) -> None:
     }
     if unexpected := sorted(changed - allowed):
         raise RuntimeError("A release carries what a commit holds and nothing else:\n" + "\n".join(unexpected))
+
+
+# The release, named by what HEAD holds once the commit is in rather
+# than by the commit going through, since HEAD is what the push writes
+# to the remote and so the one thing the remote's answer is comparable
+# with.
+def commit_bump(git: str, root: Path) -> str:
+    subprocess.run([git, *COMMIT_COMMAND, "--", *BUMPED_PATHS], cwd=root, check=True)
+    return _read_git(git, root, "rev-parse", "HEAD")
 
 
 def bump_version(uv: str, root: Path, version: str) -> None:
@@ -215,6 +236,14 @@ def _read_releases(git: str, root: Path, remote: str) -> list[tuple[int, ...]]:
     )
     numbers = {line.rpartition("/")[2].removesuffix("^{}").removeprefix(TAG_PREFIX) for line in tags}
     return [_read_number(number) for number in numbers if NUMBER_PATTERN.fullmatch(number)]
+
+
+# What the remote holds a ref at, which is what a release having gone
+# out is: `ls-remote` writes `<oid>\t<ref>` for a ref it holds and
+# nothing at all for one it does not.
+def _read_upstream_commit(git: str, root: Path, remote: str, ref: str) -> str:
+    line = _read_git(git, root, "ls-remote", remote, ref)
+    return line.split()[0] if line else ""
 
 
 def _read_urls(git: str, root: Path, remote: str) -> Iterator[str]:
