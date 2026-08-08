@@ -134,6 +134,8 @@ class Specs:
     # all would leave the user deleting a file JRI wrote.
     def resume(self, repository: git.Repository) -> tuple[str, ...] | None:
         draft = self._read_draft()
+        standing = self._read_specification_tree(repository.path)
+        status = repository.read_status()
         try:
             checked_out = self.read(repository.path, paths.SPECS_DIR)
             repository.apply_patch(draft, index=True)
@@ -149,11 +151,7 @@ class Specs:
                 return drafted
             logger.info("draft_placed_nothing characters=%d", len(draft))
         self.workspace.drop_draft()
-        # Whatever Git placed goes back out, so a refused draft costs
-        # the run nothing but itself. A draft Git never placed has
-        # nothing to take back, and says so by refusing the reverse.
-        with suppress(git.Error):
-            repository.apply_patch(draft, index=True, reverse=True)
+        self._restore_specifications(repository, draft, standing, status)
         return None
 
     def write(
@@ -200,22 +198,7 @@ class Specs:
                     "drafted. Nothing was committed. Your notes stand, and your project keeps the "
                     "specifications it already had."
                 ) from error
-        # A file Git does not track is one `git diff` says nothing
-        # about, so every path this write touched goes into the index
-        # the acceptance's diff is read against. `git add` refuses a
-        # whole command over one path that names nothing, and a
-        # deletion of a file Git never held is such a path with nothing
-        # to record besides -- so what is staged is what Git can see:
-        # the files this write left on disk, and the entries it took
-        # away from under Git. Forced, since `.jri` is JRI's to keep in
-        # Git whatever the project's ignore rules say about it.
-        touched = [destination.relative_to(repository.path).as_posix() for destination in specifications]
-        staged = sorted(
-            {path for path in touched if (repository.path / path).is_file()}
-            | set(repository.read_staged_paths(touched))
-        )
-        if staged:
-            repository.stage(staged, force=True)
+        self._stage(repository, [destination.relative_to(repository.path).as_posix() for destination in specifications])
         logger.info("specifications_written root=%s files=%d deleted=%d", model_root, len(files), len(deleted))
 
     @staticmethod
@@ -643,6 +626,106 @@ class Specs:
                     f"Specifications cannot hold both `{folded[0]}` and `{folded[1]}`, which some filesystems read "
                     "as one file."
                 )
+
+    # What a refused draft placed goes back out, so it costs the run
+    # nothing but itself. Git takes back what it can, since a draft can
+    # name any path in the worktree and Git holds what stood where JRI
+    # read nothing; a draft Git never placed has nothing to take back,
+    # and says so by refusing the reverse. The specification tree is put
+    # back from the bytes JRI read instead, because how Git ended is not
+    # what Git wrote here either: `git apply --reverse` ends at nought
+    # over a patch naming one path in two `diff --git` sections having
+    # undone the second alone, and the first stands where the run would
+    # go on to read it, hand it to a model and commit it. Then the
+    # worktree is read back against what the checkout left, since a
+    # restore asserts as much as an apply does, and a worktree JRI
+    # cannot account for is one no round may write onto -- the draft is
+    # already gone by then, so the run after this one starts clean. What
+    # is taken away is this run's own: the worktree is the one
+    # `open_worktree` made for this run, under a temporary directory
+    # this run named and removes as it ends.
+    def _restore_specifications(
+        self,
+        repository: git.Repository,
+        draft: bytes,
+        standing: Mapping[str, bytes | None],
+        status: Sequence[git.Status],
+    ) -> None:
+        with suppress(git.Error):
+            repository.apply_patch(draft, index=True, reverse=True)
+        try:
+            self._stage(repository, self._write_specification_tree(repository.path, standing))
+        # Whatever stopped the restore part way, what the worktree holds
+        # is the question, and the read below is what asks it.
+        except (OSError, git.Error):
+            logger.exception("draft_restore_failed worktree=%s", repository.path)
+        if self._read_specification_tree(repository.path) != standing or repository.read_status() != status:
+            raise SpecsError(
+                "JRI could not take a drafted specification back out of the worktree it was writing in, so nothing "
+                "was committed. Your project keeps the specifications it already had. Try again."
+            )
+
+    # Every entry the tree holds that `standing` does not, taken away;
+    # every one it holds different bytes for, written again. What comes
+    # back is the paths that moved, for the index to be told about. An
+    # entry `standing` has no bytes for is one JRI never read, so it is
+    # nobody's here to write over.
+    @classmethod
+    def _write_specification_tree(cls, worktree: Path, standing: Mapping[str, bytes | None]) -> list[str]:
+        remaining = cls._read_specification_tree(worktree)
+        touched = sorted(remaining.keys() - standing.keys())
+        for relative in touched:
+            (worktree / relative).unlink()
+        for relative, content in sorted(standing.items()):
+            if content is None or remaining.get(relative) == content:
+                continue
+            destination = worktree / relative
+            destination.unlink(missing_ok=True)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(content)
+            touched.append(relative)
+        return touched
+
+    # Every entry standing under the specification tree, with the bytes
+    # that would put it back where JRI can read them and `None` where it
+    # cannot -- a link, a socket, a file the operating system refuses.
+    # `Specs.read` answers what a specification is; this answers what is
+    # there, so that a restore takes away what the checkout did not
+    # leave and leaves alone what it did.
+    @staticmethod
+    def _read_specification_tree(worktree: Path) -> dict[str, bytes | None]:
+        tree: dict[str, bytes | None] = {}
+        for path in sorted((worktree / paths.SPECS_DIR).rglob("*")):
+            if path.is_dir() and not path.is_symlink():
+                continue
+            content: bytes | None = None
+            if path.is_file() and not path.is_symlink():
+                try:
+                    content = path.read_bytes()
+                except OSError:
+                    logger.exception("specification_entry_unreadable path=%s", path)
+            tree[path.relative_to(worktree).as_posix()] = content
+        return tree
+
+    # A file Git does not track is one `git diff` says nothing about, so
+    # every path a write of JRI's touched goes into the index the
+    # acceptance's diff is read against. `git add` refuses a whole
+    # command over one path that names nothing, and a deletion of a file
+    # Git never held is such a path with nothing to record besides -- so
+    # what is staged is what Git can see: the files the write left on
+    # disk, and the entries it took away from under Git. Forced, since
+    # `.jri` is JRI's to keep in Git whatever the project's ignore rules
+    # say about it.
+    @staticmethod
+    def _stage(repository: git.Repository, touched: Sequence[str]) -> None:
+        if not touched:
+            return
+        staged = sorted(
+            {path for path in touched if (repository.path / path).is_file()}
+            | set(repository.read_staged_paths(touched))
+        )
+        if staged:
+            repository.stage(staged, force=True)
 
     # A draft nothing can read says nothing, and neither does one
     # holding no bytes: both come back as the empty patch, which Git

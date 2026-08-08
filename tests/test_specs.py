@@ -69,6 +69,24 @@ new file mode 100644
 @@ -0,0 +1 @@
 +# Console
 """
+# The same refusal over a draft that names its one path in two
+# sections, which is what a patch a run composed twice carries. Git
+# places both, and `git apply --reverse` ends at nought over it having
+# undone the second alone.
+REDRAFTED_DEVICE_NAME_DRAFT = """\
+diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
+new file mode 100644
+--- /dev/null
++++ b/.jri/specs/functional/CON.md
+@@ -0,0 +1 @@
++# Console
+diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
+--- a/.jri/specs/functional/CON.md
++++ b/.jri/specs/functional/CON.md
+@@ -1 +1,2 @@
+ # Console
++The console reports totals.
+"""
 FOLDED_NAME_DRAFT = """\
 diff --git a/.jri/specs/functional/Behavior.md b/.jri/specs/functional/Behavior.md
 new file mode 100644
@@ -292,6 +310,18 @@ def fail_the_acceptance_write(root: Path) -> Callable[..., None]:
         APPLY(repository, patch, check=check, reverse=reverse)
 
     return apply_patch
+
+
+# A worktree that stops taking writes between the apply that placed a
+# draft and the restore that would take it back out, which is the one
+# state a restore cannot get itself out of. The arguments are the ones
+# `resume` reaches this with, so a call it cannot stand in for fails
+# rather than standing in wrongly.
+def seal_the_specifications_after_applying(
+    repository: git.Repository, patch: bytes, *, index: bool = False, reverse: bool = False
+) -> None:
+    APPLY(repository, patch, index=index, reverse=reverse)
+    (repository.path / ".jri/specs/functional").chmod(0o500)
 
 
 def build_conversation(path: Path, client: FakeClient) -> Conversation:
@@ -1918,12 +1948,13 @@ def test_refuses_a_draft_that_places_no_specification(
     "draft",
     [
         DEVICE_NAME_DRAFT,
+        REDRAFTED_DEVICE_NAME_DRAFT,
         PATTERN_NAME_DRAFT,
         ROOTLESS_DRAFT,
         pytest.param(FOLDED_NAME_DRAFT, marks=pytest.mark.skipif(FOLDS_CASE, reason=FOLDS_CASE_REASON)),
         NULL_BODY_DRAFT,
     ],
-    ids=["device-name", "pathspec-pattern", "outside-the-roots", "folded-name", "null-body"],
+    ids=["device-name", "redrafted-device-name", "pathspec-pattern", "outside-the-roots", "folded-name", "null-body"],
 )
 def test_refuses_a_draft_naming_a_specification_jri_would_not_write(
     draft: str, tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
@@ -1936,6 +1967,66 @@ def test_refuses_a_draft_naming_a_specification_jri_would_not_write(
 
     with specs.repository.open_worktree(baseline.commit) as staging:
         restored = specs.resume(staging)
+
+        assert restored is None
+        assert read_specifications(staging.path) == {
+            "architecture/design.md": "# Design\n",
+            "functional/behavior.md": "# Behavior\n",
+        }
+        assert not run_git(staging.path, "status", "--short")
+    assert not Workspace(tmp_path).draft_file.exists()
+
+
+# A restore asserts as much as an apply does, so the worktree is read
+# back against what the checkout left. One JRI cannot be given back is
+# one no round may write onto: the run ends saying so rather than
+# writing, rendering and committing a specification it refused. The
+# draft is gone by then, so the run after this one starts from the
+# specifications the project holds.
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="a directory that refuses a write is an access list `chmod` cannot write"
+)
+def test_refuses_a_worktree_a_drafted_specification_could_not_be_taken_out_of(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    write_draft(tmp_path, REDRAFTED_DEVICE_NAME_DRAFT)
+    monkeypatch.setattr(git.Repository, "apply_patch", seal_the_specifications_after_applying)
+
+    with specs.repository.open_worktree(baseline.commit) as staging:
+        try:
+            with pytest.raises(SpecsError, match="could not take a drafted specification back out"):
+                specs.resume(staging)
+        finally:
+            (staging.path / ".jri/specs/functional").chmod(0o700)
+
+    assert not Workspace(tmp_path).draft_file.exists()
+
+
+# A specification the operating system will not hand over is not the
+# draft's doing, and JRI holds no bytes to put back for one: the
+# restore leaves it exactly where it stands rather than writing over
+# what it never read.
+@pytest.mark.skipif(sys.platform == "win32", reason="a file that refuses a read is an access list `chmod` cannot write")
+def test_leaves_a_specification_it_cannot_read_where_it_stands(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    write_draft(tmp_path, DEVICE_NAME_DRAFT)
+
+    with specs.repository.open_worktree(baseline.commit) as staging:
+        unreadable = staging.path / ".jri/specs/functional/behavior.md"
+        unreadable.chmod(0o000)
+        try:
+            restored = specs.resume(staging)
+        finally:
+            unreadable.chmod(0o644)
 
         assert restored is None
         assert read_specifications(staging.path) == {

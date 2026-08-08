@@ -51,6 +51,25 @@ NULL_BODY_DRAFT = (
     "+# Null\x00byte\n"
 )
 FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
+# The same refusal over a draft that names its one path in two
+# sections, which is what a patch a run composed twice carries: Git
+# places both, and `git apply --reverse` ends at nought over it having
+# undone the second alone. Windows resolves `CON` to a device however
+# it is cased, so no clone there could check the commit out.
+REDRAFTED_DEVICE_NAME_DRAFT = """\
+diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
+new file mode 100644
+--- /dev/null
++++ b/.jri/specs/functional/CON.md
+@@ -0,0 +1 @@
++# Console
+diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
+--- a/.jri/specs/functional/CON.md
++++ b/.jri/specs/functional/CON.md
+@@ -1 +1,2 @@
+ # Console
++The console reports totals.
+"""
 UPDATED_ARCHITECTURE_FILES = {"architecture/design.md": "# Design\nAdd a total accumulator.\n"}
 UPDATED_FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\nTotal output is supported.\n"}
 
@@ -729,16 +748,21 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
 
 
 # A draft carrying what no answer of a model's could is refused like
-# any other draft that does not fit. A run that met it only after
-# picking it up would end over a specification nothing of JRI's wrote
-# -- and since every ending but a commit keeps the draft, so would the
-# run after it, and the one after that.
+# any other draft that does not fit, and the refusal is what the run
+# goes on to write from: the specification is in no prompt, in no
+# commit, and in nothing the next run picks up. A run that met it only
+# after picking it up would end over a specification nothing of JRI's
+# wrote -- and since every ending but a commit keeps the draft, so
+# would the run after it, and the one after that.
+@pytest.mark.parametrize(
+    "draft", [NULL_BODY_DRAFT, REDRAFTED_DEVICE_NAME_DRAFT], ids=["null-body", "redrafted-device-name"]
+)
 def test_starts_clean_when_the_draft_holds_what_jri_would_not_write(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+    draft: str, tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     build_workspace(tmp_path, create_repository)
     commit_specs()
-    (tmp_path / paths.DRAFT_FILE).write_text(NULL_BODY_DRAFT, encoding="utf-8", newline="\n")
+    (tmp_path / paths.DRAFT_FILE).write_text(draft, encoding="utf-8", newline="\n")
     client = FakeClient(
         [streamed_reply("Repository report")],
         parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture(UPDATED_ARCHITECTURE_FILES)],
@@ -755,6 +779,11 @@ def test_starts_clean_when_the_draft_holds_what_jri_would_not_write(
     assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").read_text() == (
         UPDATED_FUNCTIONAL_FILES["functional/behavior.md"]
     )
+    assert "CON.md" not in "".join(read_prompts(client))
+    assert run_git(tmp_path, "ls-tree", "-r", "--name-only", result, "--", paths.SPECS_DIR).splitlines() == [
+        ".jri/specs/architecture/design.md",
+        ".jri/specs/functional/behavior.md",
+    ]
     assert not run_git(tmp_path, "status", "--short")
 
 
