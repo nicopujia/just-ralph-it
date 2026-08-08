@@ -1,7 +1,7 @@
 import logging
 import os
 import re
-from collections.abc import Generator, Mapping, Sequence
+from collections.abc import Generator, Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import pairwise
@@ -125,6 +125,12 @@ class Specs:
         specifications: dict[Path, str | None] = {
             self._locate_specification(repository.path, path, model_root): content for path, content in files.items()
         } | {self._locate_specification(repository.path, path, model_root): None for path in deleted}
+        folded = self._find_folded_names(root, model_root, (*files, *deleted))
+        if folded is not None:
+            raise SpecsError(
+                f"Specifications cannot hold both `{folded[0]}` and `{folded[1]}`, which some filesystems read as "
+                "one file."
+            )
         for destination, content in specifications.items():
             try:
                 # Removed rather than opened, so a link standing where a
@@ -165,25 +171,49 @@ class Specs:
 
     @staticmethod
     def read(worktree: Path, directory: str) -> dict[str, bytes]:
-        root = worktree / directory
-        return {path.relative_to(worktree).as_posix(): path.read_bytes() for path in sorted(root.rglob("*.md"))}
+        specifications: dict[str, bytes] = {}
+        for path in sorted((worktree / directory).rglob("*.md")):
+            relative = path.relative_to(worktree).as_posix()
+            # A specification is a plain file: a link is the text of
+            # its target to Git and the target itself to a read, so it
+            # is a specification at neither end, and a directory, a
+            # pipe or a socket is one at no end at all. Whichever it
+            # is, the run ends over the path inside the tree rather
+            # than over the operating system's words about a worktree
+            # of JRI's own, whose name is a temporary directory the
+            # user never asked for.
+            if path.is_symlink() or not path.is_file():
+                raise SpecsError(f"JRI writes plain specification files, and `{relative}` is not one.")
+            try:
+                specifications[relative] = path.read_bytes()
+            except OSError as error:
+                logger.exception("specification_read_failed path=%s", relative)
+                raise SpecsError(f"JRI could not read the specification `{relative}`: {error.strerror}") from error
+        return specifications
 
     @staticmethod
     def render(files: dict[str, bytes]) -> str:
         prefix = f"{paths.SPECS_DIR}/"
-        # A model named the file as much as it wrote the body: an rglob
-        # over the specification tree named the path, and the model
-        # named what that rglob had to find. So the name is quoted for
-        # the reason the body is -- as prose, a name carrying a line
-        # break writes a second `File:` entry, with a body of its own,
-        # inside the one block JRI is the author of.
-        return (
-            "\n\n".join(
-                prompt.render(file=path.removeprefix(prefix), content=content.decode())
-                for path, content in sorted(files.items())
-            )
-            or "(empty)"
-        )
+        rendered: list[str] = []
+        for path, content in sorted(files.items()):
+            name = path.removeprefix(prefix)
+            try:
+                body = content.decode()
+            # Everything JRI writes here is UTF-8, and Git hands back
+            # whatever a commit holds, so bytes that are not are bytes
+            # JRI did not write. Decoding them for a model is a choice
+            # about what they say, which is the user's to make.
+            except UnicodeDecodeError as error:
+                raise SpecsError(f"Specifications are UTF-8 text, and `{name}` is not.") from error
+            # A model named the file as much as it wrote the body: an
+            # rglob over the specification tree named the path, and
+            # the model named what that rglob had to find. So the name
+            # is quoted for the reason the body is -- as prose, a name
+            # carrying a line break writes a second `File:` entry,
+            # with a body of its own, inside the one block JRI is the
+            # author of.
+            rendered.append(prompt.render(file=name, content=body))
+        return "\n\n".join(rendered) or "(empty)"
 
     def accept(self, patch: bytes, baseline: Baseline) -> str:
         # A commit the user makes mid-run moves HEAD without touching
@@ -416,13 +446,15 @@ class Specs:
     # in the commit the record names, so applying the one to the other
     # is the worktree the acceptance would have left had nothing cut it
     # off. A rebuild Git cannot carry out says nothing about any path,
-    # and an undo with nothing to say leaves every leftover standing.
+    # and neither does one whose tree holds something JRI cannot read
+    # back as a specification; an undo with nothing to say leaves every
+    # leftover standing.
     def _rebuild_writes(self, acceptance: Acceptance) -> dict[str, bytes] | None:
         try:
             with self._open_pre_image(acceptance.accepted) as pre_image:
                 pre_image.apply_patch(acceptance.patch.encode())
                 return self.read(pre_image.path, paths.SPECS_DIR)
-        except git.Error:
+        except (git.Error, SpecsError):
             logger.exception("acceptance_rebuild_failed accepted=%s", acceptance.accepted)
             return None
 
@@ -546,6 +578,26 @@ class Specs:
                 + "\n".join(f"- {path}" for path in links)
             )
 
+    # Two names a filesystem reads without case are one file there and
+    # two here, and the tree is committed for every machine to check
+    # out. So a generation naming both leaves a repository whose
+    # specifications Windows and macOS cannot hold as written, and a
+    # rename that only changes case is one JRI cannot carry out at all:
+    # the write and the removal land on the same file, and the removal
+    # is second. What answers `*.md` in the root already stands beside
+    # what this write names, since either side can be the other's pair,
+    # and both are weighed as text: a `Path` is the one a filesystem
+    # that ignores case would fold them into, on a machine whose does.
+    @staticmethod
+    def _find_folded_names(root: Path, model_root: str, written: Iterable[str]) -> tuple[str, str] | None:
+        standing = {path.relative_to(root).as_posix() for path in (root / model_root).rglob("*.md")}
+        found: dict[str, str] = {}
+        for name in sorted(standing | {PurePosixPath(path).as_posix() for path in written}):
+            first = found.setdefault(name.lower(), name)
+            if first != name:
+                return first, name
+        return None
+
     # Where a path a model returned lands, and every bound such a path
     # answers to: a Markdown file inside the model's own root, named as
     # `_names_a_file` spells out, reached without following a link. A
@@ -571,15 +623,15 @@ class Specs:
         return destination
 
     # What every part of such a path has to be: not a traversal, not
-    # the root of a filesystem, not a directory named like a
-    # specification -- `Specs.read` reads back whatever answers `*.md`,
-    # so a directory answering it ends the run with the operating
-    # system's words about a tree of JRI's own -- and a name each of
-    # the three platforms will hold and Git will read as the file it
-    # is rather than as a pathspec pattern.
+    # the root of a filesystem, not a directory a specification glob
+    # answers -- `Specs.read` reads back whatever answers `*.md`, and
+    # that glob ignores case wherever the filesystem does, so `notes.MD`
+    # is one such directory on Windows and `notes.md` is one everywhere
+    # -- and a name each of the three platforms will hold and Git will
+    # read as the file it is rather than as a pathspec pattern.
     @staticmethod
     def _names_a_file(path: PurePosixPath) -> bool:
-        if path.is_absolute() or ".." in path.parts or any(part.endswith(".md") for part in path.parts[:-1]):
+        if path.is_absolute() or ".." in path.parts or any(part.lower().endswith(".md") for part in path.parts[:-1]):
             return False
         return bool(path.parts) and all(
             SPECIFICATION_NAME.fullmatch(part) is not None

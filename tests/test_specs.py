@@ -1,6 +1,8 @@
 import json
+import os
 import re
 import shutil
+import stat
 import sys
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
@@ -1274,6 +1276,107 @@ def test_renders_a_specification_whose_name_reads_like_a_file_header() -> None:
     assert rendered == f"File:\n````\nfunctional/{name}\n````\n\nContent:\n```\n# Behavior\n\n```"
 
 
+def test_refuses_to_render_a_specification_that_is_not_utf_8() -> None:
+    with pytest.raises(SpecsError, match=r"UTF-8 text, and `functional/behavior\.md` is not"):
+        Specs.render({".jri/specs/functional/behavior.md": b"\xff\xfe# Behavior\n"})
+
+
+# The tree is JRI's own machinery, and what a run reads out of it is
+# what a model is shown and what an acceptance commits. So what
+# answers the specification glob and is not a plain file ends the run
+# over the path inside the tree, rather than over the operating
+# system's words about a worktree JRI opened in a temporary directory
+# of its own.
+@pytest.mark.parametrize(
+    "stand",
+    [
+        Path.mkdir,
+        pytest.param(
+            os.mkfifo,
+            marks=pytest.mark.skipif(sys.platform == "win32", reason="a named pipe is not a file entry on Windows"),
+        ),
+    ],
+    ids=["directory", "pipe"],
+)
+def test_refuses_a_specification_tree_entry_that_is_not_a_plain_file(
+    tmp_path: Path, stand: Callable[[Path], object]
+) -> None:
+    worktree = tmp_path / "worktree"
+    (worktree / ".jri/specs/functional").mkdir(parents=True)
+    stand(worktree / ".jri/specs/functional/notes.md")
+
+    with pytest.raises(
+        SpecsError, match=r"plain specification files, and `\.jri/specs/functional/notes\.md` is not"
+    ) as (refusal):
+        Specs.read(worktree, ".jri/specs/functional")
+
+    assert str(worktree) not in str(refusal.value)
+
+
+# Git records a link as the text of its target, and a read follows it,
+# so a link standing where a specification goes is a file that was
+# never JRI's to show a model.
+@pytest.mark.parametrize("target", ["outside.md", "missing.md"], ids=["link", "dangling-link"])
+def test_refuses_a_specification_tree_entry_that_is_a_link(
+    tmp_path: Path, target: str, create_link: CreateLink
+) -> None:
+    worktree = tmp_path / "worktree"
+    (worktree / ".jri/specs/functional").mkdir(parents=True)
+    (tmp_path / "outside.md").write_text("# The file outside the tree\n")
+    create_link(worktree / ".jri/specs/functional/notes.md", tmp_path / target)
+
+    with pytest.raises(SpecsError, match=r"plain specification files, and `\.jri/specs/functional/notes\.md` is not"):
+        Specs.read(worktree, ".jri/specs/functional")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a mode is not what Windows withholds a read by")
+def test_reports_a_specification_it_cannot_read(tmp_path: Path) -> None:
+    worktree = tmp_path / "worktree"
+    (worktree / ".jri/specs/functional").mkdir(parents=True)
+    closed = worktree / ".jri/specs/functional/notes.md"
+    closed.write_text("# Notes\n")
+    closed.chmod(stat.S_IWUSR)
+    if os.access(closed, os.R_OK):
+        pytest.skip("this user reads a file whatever its mode withholds")
+
+    with pytest.raises(SpecsError, match=r"could not read the specification `\.jri/specs/functional/notes\.md`") as (
+        refusal
+    ):
+        Specs.read(worktree, ".jri/specs/functional")
+
+    assert str(worktree) not in str(refusal.value)
+
+
+# Two names a filesystem reads without case are one file on it, so a
+# tree holding both is one Windows and macOS cannot check out as
+# written -- and it is JRI that would have committed it.
+@pytest.mark.parametrize(
+    ("standing", "written", "deleted"),
+    [
+        ({}, {"functional/behavior.md": "# Behavior\n", "functional/Behavior.md": "# Behaviour\n"}, ()),
+        (FUNCTIONAL_FILES, {"functional/Behavior.md": "# Behaviour\n"}, ()),
+        (FUNCTIONAL_FILES, {}, ("functional/Behavior.md",)),
+    ],
+    ids=["named-twice", "recased-over-a-standing-one", "recased-in-a-removal"],
+)
+def test_refuses_specifications_a_filesystem_would_read_as_one_file(
+    tmp_path: Path,
+    standing: Mapping[str, str],
+    written: Mapping[str, str],
+    deleted: Sequence[str],
+    create_repository: CreateRepository,
+) -> None:
+    repository = create_repository(tmp_path)
+    specs = Specs(tmp_path)
+    if standing:
+        specs.write(repository, standing, (), "functional")
+
+    with pytest.raises(
+        SpecsError, match=r"both `functional/Behavior\.md` and `functional/behavior\.md`, which some filesystems"
+    ):
+        specs.write(repository, written, deleted, "functional")
+
+
 def test_removes_the_specification_files_a_model_deleted(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -1433,6 +1536,8 @@ def test_refuses_architecture_specifications_edited_outside_jri(
         ("functional/CON.md", r"cannot change `functional/CON\.md`"),
         ("functional/nested /behavior.md", r"cannot change `functional/nested /behavior\.md`"),
         ("functional/behavior.md/nested.md", r"cannot change `functional/behavior\.md/nested\.md`"),
+        ("functional/behavior.MD/nested.md", r"cannot change `functional/behavior\.MD/nested\.md`"),
+        ("functional/behavior.Md/nested.md", r"cannot change `functional/behavior\.Md/nested\.md`"),
     ],
     ids=[
         "outside-tree",
@@ -1452,6 +1557,8 @@ def test_refuses_architecture_specifications_edited_outside_jri(
         "windows-device-name",
         "trailing-space",
         "specification-directory",
+        "upper-case-specification-directory",
+        "mixed-case-specification-directory",
     ],
 )
 def test_refuses_a_path_that_is_not_a_specification_of_its_root(
