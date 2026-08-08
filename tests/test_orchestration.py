@@ -8,15 +8,32 @@ import pytest
 from yaml import safe_load
 
 from jri.core import paths
-from jri.core.ai import ToolCallFinished, ToolCallStarted, architect, functional_analyst, specs_generation
+from jri.core.ai import (
+    ReasoningDelta,
+    ToolCallFinished,
+    ToolCallStarted,
+    architect,
+    functional_analyst,
+    specs_generation,
+)
 from jri.core.exceptions import RepositoryStateError, SpecsError
 from jri.core.notes import Notebook
 from jri.core.specs import ACCEPTANCE_TRAILER
 from tests.conftest import CreateRepository, RunGit
-from tests.doubles.openai import FakeClient, call, partial_reply, reply, response, stopped_stream, streamed_reply
+from tests.doubles.openai import (
+    FakeClient,
+    call,
+    partial_reply,
+    reply,
+    response,
+    stopped_stream,
+    streamed_reply,
+    thought,
+)
 from tests.doubles.settings import build_settings
 from tests.doubles.workspace import install_workspace
 
+type Progress = ReasoningDelta | Row
 type Result = functional_analyst.Ambiguities | specs_generation.Unchanged | str | None
 type Row = ToolCallStarted | ToolCallFinished
 
@@ -34,22 +51,22 @@ def build_workspace(path: Path, create_repository: CreateRepository) -> None:
 
 def generate(
     client: FakeClient, stop_at: Row | None = None, cancelled: Event | None = None
-) -> tuple[list[Row], Result]:
+) -> tuple[list[Progress], Result]:
     captured: list[Result] = []
     cancelled = cancelled or Event()
     settings = build_settings(client)
 
-    def drive() -> Generator[Row]:
+    def drive() -> Generator[Progress]:
         captured.append((yield from specs_generation.generate(settings, cancelled)))
 
-    rows: list[Row] = []
+    events: list[Progress] = []
     # A stop reaches the run while the row naming the step it
     # interrupts is the one on screen.
-    for row in drive():
-        rows.append(row)
-        if row == stop_at:
+    for event in drive():
+        events.append(event)
+        if event == stop_at:
             cancelled.set()
-    return rows, captured[0]
+    return events, captured[0]
 
 
 def commit_specs() -> None:
@@ -90,6 +107,10 @@ def reported_issues(*issues: str) -> architect.Output:
     return architect.Output(result=architect.Issues(outcome="functional_specification_issues", issues=list(issues)))
 
 
+def build_thinking_call(output: functional_analyst.Output | architect.Output, text: str) -> list[object]:
+    return [thought(text), *response(reply(output.model_dump_json()))]
+
+
 def read_prompts(client: FakeClient) -> list[str]:
     return [
         str(message.get("content", ""))
@@ -98,8 +119,8 @@ def read_prompts(client: FakeClient) -> list[str]:
     ]
 
 
-def read_rows(rows: list[Row]) -> list[tuple[str, str, str]]:
-    return [(type(row).__name__, row.call_id, row.label) for row in rows]
+def read_rows(events: list[Progress]) -> list[tuple[str, str, str]]:
+    return [(type(row).__name__, row.call_id, row.label) for row in events if not isinstance(row, ReasoningDelta)]
 
 
 def test_returns_ambiguities_without_committing(
@@ -338,12 +359,48 @@ def test_opens_and_closes_a_row_for_every_model_call(tmp_path: Path, create_repo
     assert isinstance(result, str)
 
 
+# A call has one row of its own and publishes whatever it says about
+# its own reasoning while that row is open, so a thought is read under
+# the row of the model that thought it. A run whose models publish
+# nothing reads exactly as this one does with the thoughts taken out.
+def test_carries_the_thinking_of_a_call_between_its_two_rows(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    client = FakeClient(
+        [streamed_reply("Repository report")],
+        parsed=[
+            build_thinking_call(written_specs(), "Weighing the totals."),
+            build_thinking_call(designed_architecture(), "Weighing the layers."),
+        ],
+    )
+
+    events, result = generate(client)
+
+    assert isinstance(result, str)
+    assert [
+        ("Thought", event.text) if isinstance(event, ReasoningDelta) else (type(event).__name__, event.call_id)
+        for event in events
+    ] == [
+        ("ToolCallStarted", "functional-1"),
+        ("Thought", "Weighing the totals."),
+        ("ToolCallFinished", "functional-1"),
+        ("ToolCallStarted", "explorer"),
+        ("ToolCallFinished", "explorer"),
+        ("ToolCallStarted", "architecture-1"),
+        ("Thought", "Weighing the layers."),
+        ("ToolCallFinished", "architecture-1"),
+        ("ToolCallStarted", "commit"),
+        ("ToolCallFinished", "commit"),
+    ]
+
+
 def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
-    rows: list[Row] = []
+    rows: list[Progress] = []
 
     def block_the_project_once_the_design_lands() -> None:
         for row in specs_generation.generate(build_settings(client)):
@@ -690,7 +747,7 @@ def test_opens_no_row_for_a_run_with_no_draft_to_pick_up(tmp_path: Path, create_
 
     rows, _ = generate(client)
 
-    assert "resume" not in [row.call_id for row in rows]
+    assert "resume" not in [call_id for _, call_id, _ in read_rows(rows)]
 
 
 def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_repository: CreateRepository) -> None:
@@ -728,6 +785,27 @@ def test_reports_only_the_explorer_text_that_follows_its_last_tool_call(
 
     report = next(prompt for prompt in read_prompts(client) if "Repository analysis report:" in prompt)
     assert report.endswith("Repository analysis report:\n```\nFinal report\n```")
+
+
+# The study's thinking is the model working; its report is the
+# evidence the architect designs against. A thought reaches the reader
+# as a thought and never the architect as a fact about the project.
+def test_keeps_the_thinking_of_the_project_study_out_of_its_report(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    client = FakeClient(
+        [[thought("Weighing which files to read."), *streamed_reply("Repository report")]],
+        parsed=[written_specs(), designed_architecture()],
+    )
+
+    events, result = generate(client)
+
+    assert isinstance(result, str)
+    assert ReasoningDelta("Weighing which files to read.") in events
+    report = next(prompt for prompt in read_prompts(client) if "Repository analysis report:" in prompt)
+    assert report.endswith("Repository analysis report:\n```\nRepository report\n```")
+    assert "Weighing which files to read." not in report
 
 
 def test_keeps_what_the_repository_study_writes_out_of_the_project(

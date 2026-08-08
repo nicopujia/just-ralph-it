@@ -76,10 +76,13 @@ class Explorer(Agent):
 
     # Only the last uninterrupted stretch of text is the report: a tool
     # call means the run was still gathering, so whatever it had said
-    # before that is working-out rather than conclusion.
+    # before that is working-out rather than conclusion. A thought is
+    # working-out the model itself never called an answer, so it is
+    # passed on to be read and never joins the report: the report is
+    # what the architect is handed.
     def report(
         self, query: str, depth: int = 0, cancelled: Event | None = None
-    ) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished", None, str]:
+    ) -> Generator["ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished", None, str]:
         output: list[str] = []
         for event in self.send_message(query, cancelled):
             match event:
@@ -88,6 +91,8 @@ class Explorer(Agent):
                     yield replace(event, depth=depth)
                 case ai.ToolCallFinished():
                     yield replace(event, depth=depth)
+                case ai.ReasoningDelta():
+                    yield event
                 case ai.TextDelta():
                     output.append(event.text)
         return "".join(output)

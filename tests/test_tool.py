@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Annotated, cast
 import pytest
 from pydantic import PlainSerializer
 
-from jri.core.ai import Invocation, Tool, ToolCallStarted, ToolOutput, tool
+from jri.core.ai import Invocation, ReasoningDelta, Tool, ToolCallStarted, ToolOutput, tool
 from jri.core.exceptions import ReplayError
 from jri.lib import prompt
 
@@ -233,6 +233,22 @@ def test_reports_an_output_that_says_nothing_as_empty() -> None:
     assert invocation.output == "nothing found: one"
 
 
+# A sub-agent publishing its thinking is the call working, not a step
+# of it: the thought is passed on as it arrived, while the rows around
+# it are nested a level down. Asking a thought for a depth it has no
+# field for raises out of the stream, and the call reporting a failure
+# to the model over that is one that was working.
+def test_carries_a_sub_agent_thought_without_failing_the_call() -> None:
+    invocation = build_tool("think_aloud").invoke('{"text": "one"}')
+
+    events = list(invocation)
+
+    assert invocation.outcome == "done"
+    assert invocation.output == "thought aloud: one"
+    assert events[0] == ReasoningDelta("weighing one")
+    assert [event.depth for event in events if isinstance(event, ToolCallStarted)] == [1]
+
+
 def test_reports_a_stream_that_never_produced_an_output() -> None:
     invocation = build_tool("narrate").invoke('{"text": "one"}')
 
@@ -313,6 +329,13 @@ class Toolbox:
     def narrate(self, text: str) -> Generator[ToolCallStarted]:
         self.recorded.append(text)
         yield ToolCallStarted("step", text, "•")
+
+    @tool("Think out loud.", started_label="Thinking about {text}", finished_label="Thought about {text}")
+    def think_aloud(self, text: str) -> Generator[ReasoningDelta | ToolCallStarted | ToolOutput]:
+        self.recorded.append(text)
+        yield ReasoningDelta(f"weighing {text}")
+        yield ToolCallStarted("step", text, "•")
+        yield ToolOutput(f"thought aloud: {text}")
 
     @tool("Give up midway.", started_label="Giving up on {text}", finished_label="Gave up on {text}")
     def give_up(self, text: str) -> Generator[ToolOutput]:

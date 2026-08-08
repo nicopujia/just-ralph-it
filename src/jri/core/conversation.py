@@ -346,10 +346,11 @@ class Conversation:
         turn = self.session.transcript[-1]
         start = len(turn.items)
         open_rows: list[tuple[ToolCallStarted, Item | None]] = []
+        open_text: Item | None = None
         failure: Exception | None = None
         try:
             for event in events:
-                _record_event(turn, start, open_rows, event)
+                open_text = _record_event(turn, open_text, open_rows, event)
                 yield event
         except Exception as error:
             # What the user already saw stays written down; what the
@@ -438,9 +439,16 @@ def _close_row(item: Item, event: ToolCallFinished) -> None:
     item.detail = event.detail
 
 
+# The item the deltas arriving now are extending, or `None` where the
+# next one starts a fresh one. It answers exactly what the renderer
+# answers: a row opening ends the run of text above it, at any depth,
+# and a row closing ends nothing. So two thoughts a tool call stands
+# between are two blocks live and two items restored, rather than one
+# sentence made of both -- and a nested row, which nothing records,
+# still leaves the boundary it drew on screen.
 def _record_event(
-    turn: Turn, start: int, open_rows: list[tuple[ToolCallStarted, Item | None]], event: AgentEvent
-) -> None:
+    turn: Turn, open_text: Item | None, open_rows: list[tuple[ToolCallStarted, Item | None]], event: AgentEvent
+) -> Item | None:
     match event:
         case ToolCallStarted():
             # A row is written down where it opened, so a delta the
@@ -450,6 +458,7 @@ def _record_event(
             if item is not None:
                 turn.items.append(item)
             open_rows.append((event, item))
+            return None
         case ToolCallFinished():
             for index, (row, item) in enumerate(open_rows):
                 if row.call_id == event.call_id:
@@ -459,16 +468,17 @@ def _record_event(
                     # so closing that row closes them with it.
                     del open_rows[index:]
                     break
+            return open_text
         case TextDelta():
-            _record_text(turn, start, "assistant", event.text)
+            return _record_text(turn, open_text, "assistant", event.text)
         case ReasoningDelta():
-            _record_text(turn, start, "reasoning", event.text)
+            return _record_text(turn, open_text, "reasoning", event.text)
 
 
-def _record_text(turn: Turn, start: int, type_: Literal["assistant", "reasoning"], text: str) -> None:
-    # Only an item this turn appended can be extended; one left by an
-    # earlier turn is finished text.
-    if len(turn.items) > start and turn.items[-1].type == type_:
-        turn.items[-1].text += text
-    else:
-        turn.items.append(Item(type=type_, text=text))
+def _record_text(turn: Turn, open_text: Item | None, type_: Literal["assistant", "reasoning"], text: str) -> Item:
+    if open_text is not None and open_text.type == type_:
+        open_text.text += text
+        return open_text
+    item = Item(type=type_, text=text)
+    turn.items.append(item)
+    return item

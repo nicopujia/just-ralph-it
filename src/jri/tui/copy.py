@@ -66,6 +66,7 @@ QUIT = "Quit"
 QUIT_COMMAND = ":q"
 
 RALPHING = "Ralphing... [dim](don't close this window)[/dim]"
+RALPHING_THINKING_HINT = "Press ^t to watch the models think."
 RALPH_BUTTON = "Just Ralph It"
 RALPH_KEY = "^x j"
 RALPH_LETTER = "j"

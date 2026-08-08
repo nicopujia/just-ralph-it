@@ -12,12 +12,15 @@ type Round = Iterable[SimpleNamespace]
 REQUEST = httpx.Request("POST", "https://provider.test/responses")
 
 
-def response(*outputs: dict[str, Any]) -> Round:
+def response(*outputs: dict[str, Any], input_tokens: int | None = None) -> Round:
     events = [
         SimpleNamespace(type="response.output_item.done", output_index=index, item=_Item(output))
         for index, output in enumerate(outputs)
     ]
-    events.append(SimpleNamespace(type="response.completed", response=SimpleNamespace(usage=None)))
+    # A provider states what a call spent once, as it completes, and
+    # some state nothing at all.
+    usage = None if input_tokens is None else SimpleNamespace(input_tokens=input_tokens)
+    events.append(SimpleNamespace(type="response.completed", response=SimpleNamespace(usage=usage)))
     return events
 
 
@@ -29,12 +32,23 @@ def partial_reply(text: str) -> Round:
     return [_delta(text)]
 
 
+def thought(text: str, event_type: str = "response.reasoning_summary_text.delta") -> SimpleNamespace:
+    return SimpleNamespace(type=event_type, delta=text)
+
+
 def reasoning(text: str, event_type: str) -> Round:
-    return [SimpleNamespace(type=event_type, delta=text), *response()]
+    return [thought(text, event_type), *response()]
 
 
 def interrupted_reply(text: str) -> Round:
     yield _delta(text)
+    raise rate_limited()
+
+
+# The provider dropping the call after the model had begun thinking
+# out loud, so whatever it said is already on the reader's screen.
+def interrupted_thinking(text: str) -> Round:
+    yield thought(text)
     raise rate_limited()
 
 
@@ -45,6 +59,15 @@ def stopped_stream(cancelled: Event) -> Round:
     yield _delta("{")
     cancelled.set()
     yield _delta('"outcome":')
+    raise AssertionError("A stopped stream must be closed rather than read to its end.")
+
+
+# A stop pressed while the model is still thinking out loud, which is
+# where the minutes of a structured call are spent.
+def stopped_thinking(cancelled: Event) -> Round:
+    yield thought("Weighing ")
+    cancelled.set()
+    yield thought("the options.")
     raise AssertionError("A stopped stream must be closed rather than read to its end.")
 
 

@@ -641,6 +641,13 @@ class App(TextualApp[None]):
         self.ralph_button.display = False
         await self._clear_retry_buttons()
         self._show_ralphing()
+        # A run is minutes of rows, and whatever thinking the models
+        # publish under them is hidden until the reader asks for it.
+        # Nothing says so where they are already looking, and the hint
+        # would read as an instruction to hide what they can see if
+        # they had asked already.
+        if not self.is_reasoning_visible:
+            self.notify(copy.RALPHING_THINKING_HINT)
         turn_state = InterviewerTurnState(container=self.mounted_turns[-1][1], placeholder=None, is_ralphing=True)
         self.active_turn_state = turn_state
         App.ALLOW_SELECT = False

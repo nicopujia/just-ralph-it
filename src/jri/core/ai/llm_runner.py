@@ -77,19 +77,32 @@ class LLMRunner:
     # A stop is answered with no result at all, since a structured
     # output only half-streamed is no output. The loop reads the stop
     # too: past a failed attempt, retrying would spend another whole
-    # call on a run the user has already left.
+    # call on a run the user has already left. The result comes back
+    # through `parsed` rather than as a return, because a generator's
+    # return value cannot be read while its events are being drained.
     def parse(
         self, context: ResponseInputParam, output_type: type[Result], cancelled: Event | None = None
-    ) -> Result | None:
+    ) -> Generator[ReasoningDelta, None, Result | None]:
         self._check_size(context)
         cancelled = cancelled or Event()
         attempt = 1
+        parsed: list[Result | None] = []
         while not cancelled.is_set():
+            streamed = False
             try:
-                return self._parse(context, output_type, cancelled)
+                for thought in self._parse(context, output_type, cancelled, parsed):
+                    streamed = True
+                    yield thought
             except OpenAIError as error:
+                # A thought the user has already read is not thought
+                # again: a second attempt would stream a second chain
+                # of reasoning under the one row this call has.
+                if streamed:
+                    raise _read_failure(error) from error
                 self._wait_to_retry(error, attempt)
                 attempt += 1
+            else:
+                return parsed[-1]
         logger.info("parse_cancelled model=%s", self.model)
         return None
 
@@ -125,7 +138,9 @@ class LLMRunner:
             else:
                 return
 
-    def _parse(self, context: ResponseInputParam, output_type: type[Result], cancelled: Event) -> Result | None:
+    def _parse(
+        self, context: ResponseInputParam, output_type: type[Result], cancelled: Event, parsed: list[Result | None]
+    ) -> Generator[ReasoningDelta]:
         logger.info("parse_started model=%s input_items=%d", self.model, len(context))
         with self.client.responses.stream(
             model=self.model,
@@ -137,22 +152,38 @@ class LLMRunner:
             streamed_text = ""
             for event in stream:
                 _diagnose(event)
-                if event.type == "response.output_text.delta":
-                    streamed_text += event.delta
+                match event.type:
+                    # A summary is what the provider chooses to say
+                    # about its own reasoning, and whether it says
+                    # anything at all is the provider's to decide: a
+                    # call that streams none of these is the ordinary
+                    # case, and the rows carry the run without them.
+                    case (
+                        "response.reasoning.delta"
+                        | "response.reasoning_text.delta"
+                        | "response.reasoning_summary_text.delta"
+                    ):
+                        yield ReasoningDelta(event.delta)
+                    case "response.output_text.delta":
+                        streamed_text += event.delta
+                    case "response.completed":
+                        if usage := event.response.usage:
+                            logger.info("context_usage input_tokens=%d", usage.input_tokens)
                 # A structured response is minutes of streaming, so the
                 # stop is read here rather than once it ends. Leaving
                 # the block closes the stream, and asking the stream for
                 # the response it never finished would wait for it.
                 if cancelled.is_set():
                     logger.info("parse_cancelled model=%s", self.model)
-                    return None
+                    parsed.append(None)
+                    return
             response = stream.get_final_response()
         text = response.output_text or streamed_text
         if response.output_parsed is not None:
-            parsed = response.output_parsed
+            result = response.output_parsed
         elif text:
             try:
-                parsed = output_type.model_validate_json(text)
+                result = output_type.model_validate_json(text)
             except ValidationError as error:
                 # The worker recovers from a model that answered badly,
                 # but not from an error the model library raises.
@@ -160,8 +191,8 @@ class LLMRunner:
         else:
             raise ModelError("Model response did not contain a parsed output.")
         logger.info("parse_finished model=%s", self.model)
-        logger.debug("parse_output model=%s output=%r", self.model, parsed)
-        return parsed
+        logger.debug("parse_output model=%s output=%r", self.model, result)
+        parsed.append(result)
 
     def _wait_to_retry(self, error: OpenAIError, attempt: int) -> None:
         if attempt >= self.MAX_ATTEMPTS or not _can_retry(error):

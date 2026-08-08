@@ -12,7 +12,7 @@ from jri.core import ai
 from jri.core.exceptions import ReplayError
 from jri.lib import prompt
 
-type Stream = Generator[ai.ToolCallStarted | ai.ToolCallFinished | ToolOutput]
+type Stream = Generator[ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished | ToolOutput]
 
 DEFAULT_SYMBOL = "⚙︎"
 
@@ -87,6 +87,12 @@ class Invocation:
                 self._output = item.value
                 self._outcome = item.outcome
                 logger.debug("stream_output output=%r", item.value)
+            # A thought is the sub-agent thinking rather than a step of
+            # the call, so it has no row to nest and carries no depth to
+            # deepen; asking it for one would raise out of this loop and
+            # report a call that is working as failed.
+            elif isinstance(item, ai.ReasoningDelta):
+                yield item
             else:
                 logger.debug("stream_event value=%r", item)
                 yield replace(item, depth=item.depth + 1)

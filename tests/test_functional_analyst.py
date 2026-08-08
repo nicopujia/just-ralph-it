@@ -1,8 +1,8 @@
 from threading import Event
 from typing import cast
 
-from jri.core.ai import functional_analyst
-from tests.doubles.openai import FakeClient
+from jri.core.ai import ReasoningDelta, functional_analyst
+from tests.doubles.openai import FakeClient, reply, response, thought
 from tests.doubles.settings import build_settings
 
 CONTEXT = functional_analyst.Input(
@@ -23,23 +23,54 @@ def read_request(client: FakeClient) -> str:
     return str(cast("list[dict[str, object]]", client.responses.inputs[-1])[-1]["content"])
 
 
+def write(
+    analyst: functional_analyst.FunctionalAnalyst, context: functional_analyst.Input
+) -> tuple[list[ReasoningDelta], "functional_analyst.Result | None"]:
+    call = analyst.write(context, Event())
+    thoughts: list[ReasoningDelta] = []
+    while True:
+        try:
+            thoughts.append(next(call))
+        except StopIteration as stop:
+            return thoughts, cast("functional_analyst.Result | None", stop.value)
+
+
 def test_writes_the_specification_files() -> None:
     client = FakeClient([], parsed=[functional_analyst.Output(result=SPECIFICATIONS)])
 
-    assert build_analyst(client).write(CONTEXT, Event()) == SPECIFICATIONS
+    assert write(build_analyst(client), CONTEXT)[1] == SPECIFICATIONS
+
+
+# The analyst spends minutes on a call, and what it publishes while it
+# works belongs to the round the run has open, not to its answer.
+def test_streams_the_thinking_of_a_call_before_the_specifications_it_wrote() -> None:
+    client = FakeClient(
+        [],
+        parsed=[
+            [
+                thought("Weighing the totals."),
+                *response(reply(functional_analyst.Output(result=SPECIFICATIONS).model_dump_json())),
+            ]
+        ],
+    )
+
+    thoughts, result = write(build_analyst(client), CONTEXT)
+
+    assert thoughts == [ReasoningDelta("Weighing the totals.")]
+    assert result == SPECIFICATIONS
 
 
 def test_reports_ambiguities_instead_of_specifications() -> None:
     ambiguities = functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=["JSON or plain text?"])
     client = FakeClient([], parsed=[functional_analyst.Output(result=ambiguities)])
 
-    assert build_analyst(client).write(CONTEXT, Event()) == ambiguities
+    assert write(build_analyst(client), CONTEXT)[1] == ambiguities
 
 
 def test_asks_for_a_first_draft_from_the_notebook_alone() -> None:
     client = FakeClient([], parsed=[functional_analyst.Output(result=SPECIFICATIONS)])
 
-    build_analyst(client).write(CONTEXT, Event())
+    write(build_analyst(client), CONTEXT)
 
     request = read_request(client)
     assert "Current notebook:\n```\nDeploy from the main branch.\n```" in request
@@ -55,7 +86,7 @@ def test_revises_the_specifications_as_they_stand_against_the_architect_feedback
         update={"current_specs": "File: functional/behavior.md", "architect_feedback": ["Undefined totals."]}
     )
 
-    build_analyst(client).write(context, Event())
+    write(build_analyst(client), context)
 
     request = read_request(client)
     assert "Current functional specifications:\n```\nFile: functional/behavior.md\n```" in request

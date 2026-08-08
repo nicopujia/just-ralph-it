@@ -22,6 +22,7 @@ from tests.doubles.openai import (
     reply,
     response,
     streamed_reply,
+    thought,
 )
 from tests.doubles.settings import build_settings
 from tests.doubles.specs_generation import (
@@ -266,6 +267,30 @@ def test_records_a_turn_in_the_order_its_events_arrived(monkeypatch: pytest.Monk
         ("assistant", "The specifications are in."),
     ]
     assert [item.outcome for item in items if item.type == "tool"] == ["done"]
+
+
+# Nothing records a row nested under a call, and the run of text above
+# one still ends where it ends on screen: two thoughts a tool call
+# stands between are two thoughts, not one sentence made of both.
+def test_keeps_two_thoughts_a_nested_call_stands_between_apart() -> None:
+    conversation = build_conversation(
+        FakeClient([
+            response(call("explore", "explore", query="deployment options")),
+            [thought("Which files? "), *response(call("nested", "search_web", query="deployments"))],
+            [thought("Read it."), *streamed_reply("Deployments run from main.")],
+            streamed_reply("It deploys from main."),
+        ])
+    )
+
+    list(conversation.chat("How does it deploy?"))
+
+    items = build_conversation(FakeClient([])).restore()[-1].items
+    assert [(item.type, item.text) for item in items] == [
+        ("tool", "Explored deployment options"),
+        ("reasoning", "Which files? "),
+        ("reasoning", "Read it."),
+        ("assistant", "It deploys from main."),
+    ]
 
 
 def test_leaves_the_rows_nested_under_a_call_out_of_the_recording() -> None:

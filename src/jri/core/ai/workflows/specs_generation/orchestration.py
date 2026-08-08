@@ -14,6 +14,12 @@ from jri.lib import git
 
 from . import architect, functional_analyst
 
+# What a run says about itself while it lasts: the rows it opens and
+# closes, and the models' own thinking under them. No `TextDelta`: an
+# analyst's raw JSON and an explorer's report body are answers to JRI,
+# and the one voice this stream renders as a reply to the user is the
+# interviewer's.
+type Progress = ai.ReasoningDelta | ai.ToolCallStarted | ai.ToolCallFinished
 type SpecsResult = functional_analyst.Ambiguities | Unchanged | str
 
 MAX_CYCLES = 10
@@ -30,9 +36,7 @@ logger = logging.getLogger(__name__)
 # and the acceptance itself is the one step no stop interrupts, since
 # a half-applied patch or a staged index would be worse than never
 # stopping at all.
-def generate(
-    settings: Settings, cancelled: Event | None = None
-) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished", None, SpecsResult | None]:
+def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Progress, None, SpecsResult | None]:
     cancelled = cancelled or Event()
     specs = Specs(Path.cwd())
     analyst = functional_analyst.FunctionalAnalyst(settings)
@@ -68,7 +72,7 @@ def generate(
             yield ai.ToolCallStarted(
                 f"functional-{cycle}", _describe_writing(cycle, len(functional_context.architect_feedback or ())), "✍️"
             )
-            functional_result = analyst.write(functional_context, cancelled)
+            functional_result = yield from analyst.write(functional_context, cancelled)
             if functional_result is None:
                 return None
             if isinstance(functional_result, functional_analyst.Ambiguities):
@@ -116,7 +120,7 @@ def generate(
                 yield ai.ToolCallFinished("explorer", "Studied your existing project", "done")
 
             yield ai.ToolCallStarted(f"architecture-{cycle}", _describe_designing(cycle), "📐")
-            architecture_result = (designer.finish if cycle == MAX_CYCLES else designer.design)(
+            architecture_result = yield from (designer.finish if cycle == MAX_CYCLES else designer.design)(
                 architect.Input(
                     functional_specs=specs.render(functional),
                     current_architecture=specs.render(specs.read(staging.path, paths.ARCHITECTURE_SPECS_DIR)),

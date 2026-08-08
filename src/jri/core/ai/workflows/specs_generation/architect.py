@@ -1,3 +1,4 @@
+from collections.abc import Generator
 from threading import Event
 from typing import Literal
 
@@ -5,7 +6,7 @@ from openai.types.responses import ResponseInputParam
 from pydantic import BaseModel
 
 from jri.core import paths
-from jri.core.ai import LLMRunner
+from jri.core.ai import LLMRunner, ReasoningDelta
 from jri.core.settings import Settings
 from jri.lib import prompt
 
@@ -92,13 +93,15 @@ class Architect:
             ),
         )
 
-    def design(self, context: Input, cancelled: Event) -> Result | None:
-        output = self.runner.parse(self._build_input(context, self.runner.prompt), Output, cancelled)
+    def design(self, context: Input, cancelled: Event) -> Generator[ReasoningDelta, None, Result | None]:
+        output = yield from self.runner.parse(self._build_input(context, self.runner.prompt), Output, cancelled)
         return None if output is None else output.result
 
-    def finish(self, context: Input, cancelled: Event) -> Architecture | None:
-        return self.runner.parse(
-            self._build_input(context, f"{self.runner.prompt}\n\n{self.FINAL_PROMPT}"), Architecture, cancelled
+    def finish(self, context: Input, cancelled: Event) -> Generator[ReasoningDelta, None, Architecture | None]:
+        return (
+            yield from self.runner.parse(
+                self._build_input(context, f"{self.runner.prompt}\n\n{self.FINAL_PROMPT}"), Architecture, cancelled
+            )
         )
 
     @staticmethod
