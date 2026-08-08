@@ -364,7 +364,7 @@ def test_sends_the_architect_issues_back_to_the_functional_analyst(
     generate(client)
 
     revision = next(prompt for prompt in read_prompts(client) if "Rejected functional draft:" in prompt)
-    assert "File: functional/behavior.md" in revision
+    assert "functional/behavior.md" in revision
     assert "# Behavior" in revision
     assert "Architect feedback:\n  - Undefined totals.\n  - Unclear export." in revision
 

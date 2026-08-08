@@ -141,12 +141,15 @@ class Specs:
     @staticmethod
     def render(files: dict[str, bytes]) -> str:
         prefix = f"{paths.SPECS_DIR}/"
-        # The path is JRI's own: an rglob over the specification tree
-        # named it, under a root `_locate_specification` bounds. So it
-        # stays prose, while the body a model wrote is quoted.
+        # A model named the file as much as it wrote the body: an rglob
+        # over the specification tree named the path, and the model
+        # named what that rglob had to find. So the name is quoted for
+        # the reason the body is -- as prose, a name carrying a line
+        # break writes a second `File:` entry, with a body of its own,
+        # inside the one block JRI is the author of.
         return (
             "\n\n".join(
-                f"File: {path.removeprefix(prefix)}\n{prompt.render(content=content.decode())}"
+                prompt.render(file=path.removeprefix(prefix), content=content.decode())
                 for path, content in sorted(files.items())
             )
             or "(empty)"
