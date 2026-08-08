@@ -143,7 +143,7 @@ class Specs:
             drafted = tuple(
                 path for path in sorted(checked_out.keys() | placed.keys()) if checked_out.get(path) != placed.get(path)
             )
-            self._check_specifications(repository.path, checked_out, placed)
+            self._check_specifications(repository.path, standing, self._read_specification_tree(repository.path))
         except (git.Error, SpecsError) as error:
             logger.info("draft_refused characters=%d reason=%s", len(draft), error)
         else:
@@ -597,16 +597,21 @@ class Specs:
     # than an upgrade can carry a name this JRI refuses to write. So
     # what Git placed is weighed by what `Specs.write` weighs a model's
     # answer by, and a draft carrying what no answer could is refused
-    # where the answer would have been. Held against what the checkout
-    # put there: a name or a fold the project's own specifications
-    # already carry is not this draft's to answer for, and the run
-    # meets it either way once the draft is gone.
+    # where the answer would have been. Every entry the tree gained is
+    # weighed, not the Markdown alone: a patch places whatever it names,
+    # and a file `Specs.read` does not answer for is one no round reads,
+    # no commit takes and nothing else here would ever name again --
+    # it would simply stand in the user's project, under a directory of
+    # JRI's, as something JRI put there. Held against what the checkout
+    # put there: a name, a fold or a file the project's own
+    # specifications already carry is not this draft's to answer for,
+    # and the run meets it either way once the draft is gone.
     @classmethod
     def _check_specifications(
-        cls, worktree: Path, checked_out: Mapping[str, bytes], placed: Mapping[str, bytes]
+        cls, worktree: Path, standing: Mapping[str, bytes | None], placed: Mapping[str, bytes | None]
     ) -> None:
         prefix = f"{paths.SPECS_DIR}/"
-        added = {path.removeprefix(prefix) for path in placed.keys() - checked_out.keys()}
+        added = {path.removeprefix(prefix) for path in placed.keys() - standing.keys()}
         for path, content in sorted(placed.items()):
             name = path.removeprefix(prefix)
             # A root is JRI's own word to a model and the draft's own
@@ -617,7 +622,7 @@ class Specs:
                 if model_root not in paths.SPECS_ROOTS:
                     raise SpecsError(f"Specifications cannot change `{name}`.")
                 cls._locate_specification(worktree, name, model_root)
-            if content != checked_out.get(path) and b"\x00" in content:
+            if content is not None and content != standing.get(path) and b"\x00" in content:
                 raise SpecsError(f"Specifications are text, and `{name}` holds a null character.")
         for model_root in paths.SPECS_ROOTS:
             folded = cls._find_folded_names(worktree / paths.SPECS_DIR, model_root, ())

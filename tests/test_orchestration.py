@@ -70,6 +70,23 @@ diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
  # Console
 +The console reports totals.
 """
+# A draft that places a specification JRI would write beside a file it
+# never would: `Specs.read` answers for `*.md`, the commit takes
+# `*.md`, and nothing else names the second file again.
+FOREIGN_FILE_DRAFT = """\
+diff --git a/.jri/specs/functional/exports.md b/.jri/specs/functional/exports.md
+new file mode 100644
+--- /dev/null
++++ b/.jri/specs/functional/exports.md
+@@ -0,0 +1 @@
++# Exports
+diff --git a/.jri/specs/functional/notes.txt b/.jri/specs/functional/notes.txt
+new file mode 100644
+--- /dev/null
++++ b/.jri/specs/functional/notes.txt
+@@ -0,0 +1 @@
++Not a specification.
+"""
 UPDATED_ARCHITECTURE_FILES = {"architecture/design.md": "# Design\nAdd a total accumulator.\n"}
 UPDATED_FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\nTotal output is supported.\n"}
 
@@ -755,10 +772,12 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
 # wrote -- and since every ending but a commit keeps the draft, so
 # would the run after it, and the one after that.
 @pytest.mark.parametrize(
-    "draft", [NULL_BODY_DRAFT, REDRAFTED_DEVICE_NAME_DRAFT], ids=["null-body", "redrafted-device-name"]
+    ("draft", "refused"),
+    [(NULL_BODY_DRAFT, "null.md"), (REDRAFTED_DEVICE_NAME_DRAFT, "CON.md"), (FOREIGN_FILE_DRAFT, "exports.md")],
+    ids=["null-body", "redrafted-device-name", "not-a-specification"],
 )
 def test_starts_clean_when_the_draft_holds_what_jri_would_not_write(
-    draft: str, tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+    draft: str, refused: str, tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     build_workspace(tmp_path, create_repository)
     commit_specs()
@@ -779,7 +798,7 @@ def test_starts_clean_when_the_draft_holds_what_jri_would_not_write(
     assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").read_text() == (
         UPDATED_FUNCTIONAL_FILES["functional/behavior.md"]
     )
-    assert "CON.md" not in "".join(read_prompts(client))
+    assert refused not in "".join(read_prompts(client))
     assert run_git(tmp_path, "ls-tree", "-r", "--name-only", result, "--", paths.SPECS_DIR).splitlines() == [
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",

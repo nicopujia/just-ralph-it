@@ -103,6 +103,25 @@ NULL_BODY_DRAFT = (
     "@@ -0,0 +1 @@\n"
     "+# Null\x00byte\n"
 )
+# A draft that places a specification JRI would write beside a file it
+# never would. `Specs.read` answers for `*.md`, the commit takes
+# `*.md`, and nothing else here would name the second file again: it
+# would stand in the user's project, under a directory of JRI's, as
+# something JRI put there.
+FOREIGN_FILE_DRAFT = """\
+diff --git a/.jri/specs/functional/exports.md b/.jri/specs/functional/exports.md
+new file mode 100644
+--- /dev/null
++++ b/.jri/specs/functional/exports.md
+@@ -0,0 +1 @@
++# Exports
+diff --git a/.jri/specs/functional/notes.txt b/.jri/specs/functional/notes.txt
+new file mode 100644
+--- /dev/null
++++ b/.jri/specs/functional/notes.txt
+@@ -0,0 +1 @@
++Not a specification.
+"""
 PATTERN_NAME_DRAFT = """\
 diff --git a/.jri/specs/functional/b*.md b/.jri/specs/functional/b*.md
 new file mode 100644
@@ -1953,8 +1972,17 @@ def test_refuses_a_draft_that_places_no_specification(
         ROOTLESS_DRAFT,
         pytest.param(FOLDED_NAME_DRAFT, marks=pytest.mark.skipif(FOLDS_CASE, reason=FOLDS_CASE_REASON)),
         NULL_BODY_DRAFT,
+        FOREIGN_FILE_DRAFT,
     ],
-    ids=["device-name", "redrafted-device-name", "pathspec-pattern", "outside-the-roots", "folded-name", "null-body"],
+    ids=[
+        "device-name",
+        "redrafted-device-name",
+        "pathspec-pattern",
+        "outside-the-roots",
+        "folded-name",
+        "null-body",
+        "not-a-specification",
+    ],
 )
 def test_refuses_a_draft_naming_a_specification_jri_would_not_write(
     draft: str, tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
