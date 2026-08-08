@@ -102,6 +102,11 @@ class Locks:
 
 
 class Repository:
+    # The endings Git gives a question its own ending answers: nought
+    # for yes, one for no, and nothing else -- `--quiet` is what puts a
+    # refusal here rather than at the 128 a fatal ends with.
+    ANSWERS: ClassVar[frozenset[int]] = frozenset({0, 1})
+
     def __init__(self, path: Path | str, executable: str = "git") -> None:
         resolved_executable = shutil.which(executable)
         if resolved_executable is None:
@@ -173,15 +178,14 @@ class Repository:
     # would land on before that commit exists.
     @property
     def locks(self) -> Locks:
-        branch = os.fsdecode(self._run("symbolic-ref", "--quiet", "HEAD", check=False).stdout).strip()
+        branch = os.fsdecode(self._ask("symbolic-ref", "--quiet", "HEAD").stdout).strip()
         written = [self._git_directory / "index", self._git_directory / "HEAD"]
         if branch:
             written.append(self._common_directory / branch)
         return replace(self._locks, written=tuple(written))
 
     def has_commit(self, revision: str = "HEAD") -> bool:
-        arguments = ("rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}")
-        return self._run(*arguments, check=False).returncode == 0
+        return not self._ask("rev-parse", "--verify", "--quiet", f"{revision}^{{commit}}").returncode
 
     def has_conflicts(self) -> bool:
         return bool(self._run("ls-files", "--unmerged", "-z").stdout)
@@ -189,7 +193,7 @@ class Repository:
     def is_on_branch(self) -> bool:
         # An unborn branch counts: HEAD names it before any commit
         # exists, and that is where a first commit would land.
-        return self._run("symbolic-ref", "--quiet", "HEAD", check=False).returncode == 0
+        return not self._ask("symbolic-ref", "--quiet", "HEAD").returncode
 
     def read_head(self) -> str:
         return os.fsdecode(self._run("rev-parse", "HEAD").stdout).strip()
@@ -215,8 +219,23 @@ class Repository:
             position += 1
         return tuple(entries)
 
+    # `--ignore-missing` is what leaves Git's own ending as the answer:
+    # a revision naming nothing -- an unborn HEAD -- reaches no commit
+    # and Git still ends at nought, so nought is Git having looked and
+    # the empty answer is what it found. Without it that case is a
+    # fatal, and telling that fatal from every other one means asking a
+    # second question first, whose `no` a killed Git gives just as
+    # readily as a Git that looked.
     def find_commit(self, text: str, revision: str = "HEAD") -> str | None:
-        arguments = ("log", "--max-count=1", "--format=%H", "--fixed-strings", f"--grep={text}", revision)
+        arguments = (
+            "log",
+            "--max-count=1",
+            "--format=%H",
+            "--fixed-strings",
+            f"--grep={text}",
+            "--ignore-missing",
+            revision,
+        )
         return os.fsdecode(self._run(*arguments).stdout).strip() or None
 
     def read_file(self, revision: str, path: str) -> bytes:
@@ -363,6 +382,19 @@ class Repository:
         if result.returncode:
             locks.release(standing)
         if check and result.returncode:
+            self._raise(result)
+        return result
+
+    # An ending Git chose is an answer; an ending chosen for it is not.
+    # A signal lands where neither Git's exit handler nor its signal
+    # handlers reach -- an out-of-memory kill, a `pkill git`, a hook of
+    # the project's whose Git is killed -- and leaves the same silence
+    # and the same non-zero status a `no` leaves. Read as `no`, that
+    # silence is a state nothing looked at: a repository holding no
+    # commit, a HEAD on no branch, a branch whose lock nothing guards.
+    def _ask(self, *arguments: str) -> subprocess.CompletedProcess[bytes]:
+        result = self._run(*arguments, check=False)
+        if result.returncode not in self.ANSWERS:
             self._raise(result)
         return result
 

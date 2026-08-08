@@ -8,7 +8,15 @@ import pytest
 
 from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
-from tests.doubles.acceptance import KILL_THE_GIT, TAKE_THE_LOCK, open_a_commit_window, read_git_locks
+from tests.doubles.acceptance import (
+    HEAD_QUESTION,
+    KILL_THE_GIT,
+    TAKE_THE_LOCK,
+    WINDOW_MARKER,
+    install_a_killing_git,
+    open_a_commit_window,
+    read_git_locks,
+)
 
 CONTEXT_FREE_PATCH = b"""\
 diff --git a/README.md b/README.md
@@ -711,6 +719,22 @@ def test_reports_which_revisions_name_a_commit(
     assert repository.has_commit(first)
     assert not repository.has_commit("no-such-revision")
     assert not repository.has_commit(blob)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a Git that ends itself needs a shell and `kill`")
+def test_refuses_to_answer_for_a_git_that_never_answered(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    # The shim is armed by the marker a commit window leaves, and this
+    # asks about a repository that is past every window there is.
+    (repository.path / ".git" / WINDOW_MARKER).touch()
+    install_a_killing_git(monkeypatch, repository.path, HEAD_QUESTION)
+
+    with pytest.raises(git.Error):
+        git.Repository(repository.path).has_commit()
+
+    assert repository.has_commit()
 
 
 def test_reports_deleted_paths_on_the_side_they_were_deleted_from(

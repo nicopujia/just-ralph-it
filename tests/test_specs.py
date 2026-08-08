@@ -18,8 +18,11 @@ from jri.core.workspace import Workspace
 from jri.lib import git
 from tests.conftest import CreateLink, CreateRepository, RunGit
 from tests.doubles.acceptance import (
+    HEAD_QUESTION,
     KILL_THE_GIT,
+    MARK_THE_WINDOW,
     bound_the_acceptance_writes,
+    install_a_killing_git,
     kill_amid_moving_the_branch,
     kill_amid_staging,
     kill_amid_writing_the_commit,
@@ -693,6 +696,29 @@ def test_keeps_the_acceptance_a_killed_run_wrote_before_git_copied_the_index(
     assert not Workspace(tmp_path).acceptance_file.exists()
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
     assert not run_git(tmp_path, "status", "--short")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a Git that ends itself needs a shell and `kill`")
+def test_keeps_the_acceptance_a_second_killed_git_could_not_be_asked_about(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    # Whatever ends the Git writing the commit takes the next Git too:
+    # an out-of-memory kill and a `pkill git` are neither of them aimed
+    # at one process. So the settlement reading that commit back is
+    # asked with a Git that dies at the question.
+    install_a_killing_git(monkeypatch, tmp_path, HEAD_QUESTION)
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+
+    with open_a_commit_window(tmp_path, "written", MARK_THE_WINDOW + KILL_THE_GIT):
+        commit = specs.accept(ACCEPTANCE_PATCH, baseline)
+
+    assert commit == run_git(tmp_path, "rev-parse", "HEAD")
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert not run_git(tmp_path, "status", "--short")
+    assert not Workspace(tmp_path).acceptance_file.exists()
 
 
 @pytest.mark.parametrize(

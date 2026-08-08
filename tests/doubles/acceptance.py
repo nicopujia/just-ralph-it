@@ -1,4 +1,5 @@
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -6,6 +7,8 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import pytest
 
 from jri.core.workspace import Workspace
 
@@ -82,6 +85,16 @@ MARK_THE_WINDOW = f"touch .git/{WINDOW_MARKER}\n"
 # A second Git taking the lock: the file appears inside the span of a
 # command of JRI's, and outlives it, and is none of its business.
 TAKE_THE_LOCK = "touch .git/index.lock\n"
+# A Git that ends itself at one question and runs the real one at every
+# other, so what a run reads is one real death of one real process it
+# spawned rather than a status a double made up. `exec` leaves the pid
+# JRI spawned as the pid that dies, and the marker arms it, since the
+# questions worth killing are asked on the way in as well.
+KILLING_GIT = '#!/bin/sh\ncase "$*" in\n  *"{question}") [ -e "{marker}" ] && kill -9 $$ ;;\nesac\nexec "{git}" "$@"\n'
+# The question a settlement must not put in front of the one that
+# matters: silence is what a Git killed at it leaves, and silence here
+# reads as a project holding no commit at all.
+HEAD_QUESTION = "rev-parse --verify --quiet HEAD^{commit}"
 POLL = 0.0002
 # An acceptance nothing kills is over in well under a second, so this
 # is only ever waited out by one that never reached Git at all.
@@ -92,6 +105,20 @@ TIMEOUT = 60
 # off the filesystem rather than asked of the code under test.
 def read_git_locks(root: Path) -> tuple[Path, ...]:
     return tuple(sorted((root / ".git").rglob("*.lock")))
+
+
+# Ahead of the real Git for as long as the test holds the environment,
+# and under `.git`, where nothing a run reads ever looks.
+def install_a_killing_git(monkeypatch: pytest.MonkeyPatch, root: Path, question: str) -> None:
+    executable = shutil.which("git")
+    assert executable is not None
+    directory = root / ".git" / "killing-git"
+    directory.mkdir()
+    shim = directory / "git"
+    marker = root / ".git" / WINDOW_MARKER
+    shim.write_text(KILLING_GIT.format(question=question, marker=marker, git=executable), encoding="utf-8")
+    shim.chmod(0o700)
+    monkeypatch.setenv("PATH", f"{directory}{os.pathsep}{os.environ['PATH']}")
 
 
 def bound_the_acceptance_writes(root: Path, patch: bytes, limit: int) -> str:

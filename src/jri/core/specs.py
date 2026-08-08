@@ -361,9 +361,13 @@ class Specs:
     # asking Git how it went, and a commit that is there is the
     # project's from then on: reversing its patch would delete
     # specifications the user has, and leave every run after it
-    # refusing over the deletion.
+    # refusing over the deletion. One question, whose own ending is
+    # either the answer or an error the run ends on: a second question
+    # in front of it would answer `the project holds no commit` for a
+    # Git that was killed, which is this same mistake one command
+    # further back.
     def _settle_acceptance(self, acceptance: Acceptance) -> str | None:
-        accepted = self.repository.find_commit(ACCEPTANCE_TRAILER) if self.repository.has_commit() else None
+        accepted = self.repository.find_commit(ACCEPTANCE_TRAILER)
         if accepted == acceptance.accepted:
             self._undo_acceptance(acceptance)
             return None
