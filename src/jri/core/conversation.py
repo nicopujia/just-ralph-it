@@ -25,6 +25,7 @@ from .ai import (
     specs_generation,
 )
 from .exceptions import PersistenceError, ReplayError, RepositoryStateError, UsageLimitError
+from .generation import Generation
 from .notes import Graph, Notebook, TopicId
 from .settings import Settings
 from .workspace import Workspace
@@ -116,12 +117,27 @@ class Conversation:
     def retried_work(self) -> Work:
         return self.session.transcript[-1].work
 
+    # Whether a run this conversation started is still to be accounted
+    # for. Two facts, neither of them a claim: the turn says the work
+    # it opened was a generation, and the run directory holds a journal
+    # nothing has folded. A run in flight and a run that finished with
+    # nobody watching are the same state here, and the fold tells them
+    # apart by reading what the journal says.
+    @property
+    def pending_generation(self) -> bool:
+        return (
+            bool(self.session.transcript)
+            and self.session.transcript[-1].work == "generation"
+            and Generation(self.workspace).exists
+        )
+
     def chat(self, message: str, cancelled: Event | None = None) -> Generator[TurnEvent]:
         self.logger.info("chat_started")
         self.logger.debug("chat_message message=%r", message)
         checkpoint = self._capture_checkpoint(len(self.interviewer.history))
-        self.session.transcript.append(Turn(message=message, items=[], work="message"))
-        yield from self._report_turn(self.interviewer.send_message(message, cancelled), checkpoint, cancelled)
+        turn = Turn(message=message, items=[], work="message")
+        self.session.transcript.append(turn)
+        yield from self._report_turn(self.interviewer.send_message(message, cancelled), turn, checkpoint, cancelled)
 
     def retry(self, cancelled: Event | None = None) -> Generator[TurnEvent]:
         work = self.retried_work
@@ -152,8 +168,9 @@ class Conversation:
         # The turn is doing again what it was doing, so a retry that
         # fails is asked for again the same way, rather than sending a
         # report the interview opened the turn with as a message.
-        self.session.transcript[-1] = Turn(message=self.session.transcript[-1].message, items=[], work=work)
-        yield from self._report_turn(events, checkpoint, cancelled)
+        turn = Turn(message=self.session.transcript[-1].message, items=[], work=work)
+        self.session.transcript[-1] = turn
+        yield from self._report_turn(events, turn, checkpoint, cancelled)
 
     def rewind(self, checkpoint_index: int) -> None:
         history_index = self._find_prompts()[checkpoint_index]
@@ -229,11 +246,21 @@ class Conversation:
         checkpoint = self._capture_checkpoint(len(self.interviewer.history))
         # A run reports into the turn the user is looking at, since its
         # rows and its reply answer the message that turn opened with.
-        if self.session.transcript:
-            self.session.transcript[-1].work = "generation"
-        else:
+        if not self.session.transcript:
             self.session.transcript.append(Turn(message="", items=[], work="generation"))
-        yield from self._report_turn(self._generate_specs(cancelled), checkpoint, cancelled)
+        self.session.transcript[-1].work = "generation"
+        # Written down before the run leaves this process, so a window
+        # that dies has already said what the next one is picking up.
+        self.update_session(transcript=self.session.transcript)
+        # The run is recorded away from the session until it folds: its
+        # record while it lasts is the journal, in the run directory,
+        # and the session holds the turn as it stood when the run
+        # began. So a `^t` mid-run cannot write half a run down, and
+        # folding the same journal twice -- which is what a window
+        # dying mid-fold leaves the next one to do -- reads the same
+        # rows onto the same turn rather than onto the last fold's.
+        turn = self.session.transcript[-1].model_copy(deep=True)
+        yield from self._report_turn(self._generate_specs(cancelled, turn), turn, checkpoint, cancelled)
 
     def restore(self) -> list[Turn]:
         if not self.workspace.session_file.exists():
@@ -305,8 +332,15 @@ class Conversation:
                     f"or keep going from here. The call reported: {error}"
                 ) from error
 
-    def _generate_specs(self, cancelled: Event | None) -> Generator[AgentEvent]:
-        result = yield from specs_generation.generate(self.settings, cancelled)
+    def _generate_specs(self, cancelled: Event | None, turn: Turn) -> Generator[AgentEvent]:
+        # One entry point for starting a run and for picking one up:
+        # what the journal says happened is what this turn reports,
+        # whether the events arrive as they are made or all at once
+        # forty minutes in.
+        generation = Generation(self.workspace)
+        if not generation.exists:
+            generation.start()
+        result = yield from generation.follow(cancelled)
         # A run the user stopped reached no conclusion to report, and
         # spent nothing to reach it: the offer stands, and the model
         # hears about a run it would have nothing to say about.
@@ -329,8 +363,11 @@ class Conversation:
         self.interviewer.history.append(report)
         # Past the report the run is spent, whatever the reply to it
         # does: what asking again re-runs from here is that reply, and
-        # never the run the project already holds the commit of.
-        self.session.transcript[-1].work = "reply"
+        # never the run the project already holds the commit of. The
+        # rows the run wrote leave the journal for the session in the
+        # same write, so nothing is ever recorded in neither place.
+        turn.work = "reply"
+        self.session.transcript[-1] = turn
         # A run that reached a report consumed the notes it was offered,
         # whatever it concluded about them; one that never got there
         # leaves the offer standing for the user to spend again.
@@ -341,9 +378,8 @@ class Conversation:
     # Both views read this recording rather than deriving their own, so
     # the restored conversation is the one the user watched.
     def _report_turn(
-        self, events: Generator[AgentEvent], checkpoint: Checkpoint, cancelled: Event | None
+        self, events: Generator[AgentEvent], turn: Turn, checkpoint: Checkpoint, cancelled: Event | None
     ) -> Generator[TurnEvent]:
-        turn = self.session.transcript[-1]
         start = len(turn.items)
         open_rows: list[tuple[ToolCallStarted, Item | None]] = []
         open_text: Item | None = None
@@ -386,6 +422,10 @@ class Conversation:
             yield closing
         turn.ending = ending
         turn.detail = str(failure) if failure is not None else ""
+        # A turn recorded away from the session takes its place here,
+        # so the recording the next launch reads is the one this turn
+        # ended holding.
+        self.session.transcript[-1] = turn
         offer = self._stamp_offer()
         self.interviewer.offered_ralphing = False
         self.update_session(

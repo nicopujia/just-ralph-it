@@ -31,6 +31,7 @@ from tests.doubles.acceptance import (
     open_a_commit_window,
     read_git_locks,
 )
+from tests.doubles.generation import run_in_thread
 from tests.doubles.lock import hold
 from tests.doubles.openai import FakeClient, reply, response, streamed_reply
 from tests.doubles.settings import build_settings
@@ -345,6 +346,14 @@ def seal_the_specifications_after_applying(
     (repository.path / ".jri/specs/functional").chmod(0o500)
 
 
+# Every generation runs in a process of its own, and a suite that
+# spawned one would be reaching for a provider through a JRI nothing
+# here can hand a double to.
+@pytest.fixture(autouse=True)
+def run_the_generation_here(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_in_thread(monkeypatch)
+
+
 def build_conversation(path: Path, client: FakeClient) -> Conversation:
     install_workspace(path)
     return Conversation(build_settings(client))
@@ -409,11 +418,13 @@ def updated_client() -> FakeClient:
     return build_client(UPDATED_FUNCTIONAL_FILES, UPDATED_ARCHITECTURE_FILES)
 
 
+# A run is a process of its own, so a kill inside it reaches the window
+# as a record with no ending rather than as an exception to unwind.
 def kill_a_run(path: Path, method: str, kill: object) -> None:
     with pytest.MonkeyPatch.context() as killed:
         killed.setattr(git.Repository, method, kill)
-        with pytest.raises(KeyboardInterrupt):
-            list(build_conversation(path, successful_client()).ralph())
+        events = build_conversation(path, successful_client()).ralph()
+        assert read_ending(events, "stopped before it finished") == "failed"
 
 
 def test_commits_complete_specification_bundle(
@@ -661,8 +672,7 @@ def test_undoes_the_acceptance_a_killed_rewrite_left_unwritten(
         killed.setattr(git.Repository, "apply_patch", kill_the_run_amid_rewriting)
         conversation = build_conversation(tmp_path, updated_client())
         conversation.restore()
-        with pytest.raises(KeyboardInterrupt):
-            list(conversation.ralph())
+        assert read_ending(conversation.ralph(), "stopped before it finished") == "failed"
     assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
     restarted = build_conversation(tmp_path, updated_client())
     restarted.restore()
@@ -738,8 +748,7 @@ def test_puts_back_the_specification_a_killed_acceptance_deleted(
             tmp_path, build_client({}, UPDATED_ARCHITECTURE_FILES, functional_deleted=["functional/exports.md"])
         )
         conversation.restore()
-        with pytest.raises(KeyboardInterrupt):
-            list(conversation.ralph())
+        assert read_ending(conversation.ralph(), "stopped before it finished") == "failed"
     exports = tmp_path / ".jri/specs/functional/exports.md"
     assert not exports.exists()
 
@@ -936,17 +945,19 @@ def test_starts_over_a_record_the_operating_system_refuses(
 def test_reports_a_record_it_can_neither_read_nor_remove(tmp_path: Path, create_repository: CreateRepository) -> None:
     create_repository(tmp_path)
     kill_a_run(tmp_path, "commit", kill_the_run_after_committing)
+    # Something of the user's standing on the record's name: JRI can
+    # read nothing out of it and take nothing away, and the directory
+    # it is in has to stay writable, since the run's own journal goes
+    # there too.
     record = Workspace(tmp_path).acceptance_file
-    record.write_bytes(b"")
-    record.parent.chmod(0o500)
+    record.unlink()
+    record.mkdir()
+    (record / "not-a-record").write_bytes(b"")
 
-    try:
-        ending = read_ending(
-            build_conversation(tmp_path, updated_client()).ralph(),
-            rf"Could not remove the acceptance record `{re.escape(str(record))}`",
-        )
-    finally:
-        record.parent.chmod(0o700)
+    ending = read_ending(
+        build_conversation(tmp_path, updated_client()).ralph(),
+        rf"Could not remove the acceptance record `{re.escape(str(record))}`",
+    )
 
     assert ending == "failed"
     assert record.exists()

@@ -11,6 +11,7 @@ from jri.core.ai import Interviewer, ToolCallFinished, ToolCallStarted, TurnFini
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from tests.conftest import CreateRepository
+from tests.doubles.generation import run_in_thread
 from tests.doubles.openai import (
     FakeClient,
     Round,
@@ -32,12 +33,19 @@ from tests.doubles.specs_generation import (
     THOUGHT,
     generate_blocked,
     generate_failing,
-    generate_interrupted,
     generate_stopped,
     generate_succeeding,
     generate_thinking,
 )
 from tests.doubles.workspace import install_workspace
+
+
+# Every generation runs in a process of its own, and a suite that
+# spawned one would be reaching for a provider through a JRI nothing
+# here can hand a double to.
+@pytest.fixture(autouse=True)
+def run_the_generation_here(monkeypatch: pytest.MonkeyPatch) -> None:
+    run_in_thread(monkeypatch)
 
 
 def build_conversation(client: FakeClient) -> Conversation:
@@ -440,7 +448,7 @@ def test_keeps_the_offer_an_interrupted_generation_never_consumed(monkeypatch: p
         FakeClient([response(call("ready", "offer_ralphing")), streamed_reply("Click Just Ralph It.")])
     )
     list(conversation.chat("We're ready."))
-    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_interrupted)
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
 
     events = conversation.ralph()
     next(events)
@@ -547,6 +555,36 @@ def test_restores_a_just_ralph_it_run(monkeypatch: pytest.MonkeyPatch) -> None:
         ("assistant", "The specifications are in."),
     ]
     assert turns[-1].ending == "replied"
+
+
+def test_ends_a_run_the_process_before_it_did_not_stay_for(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+    events = conversation.ralph()
+    next(events)
+    # A `^t` pressed while the run is going saves the session under it.
+    conversation.update_session(show_thinking_blocks=True)
+    events.close()
+
+    restarted = build_conversation(FakeClient([streamed_reply("The specifications are in.")]))
+    restarted.restore()
+    assert restarted.pending_generation
+    folded = list(restarted.ralph())
+
+    # The turn ends in the process that reads the ending, with every
+    # row the run opened closed, and the rows are read once: while a
+    # run is in flight its record is the journal, so the session holds
+    # the turn as it stood before it rather than half of it twice.
+    assert [event.call_id for event in folded if isinstance(event, ToolCallStarted)] == [
+        event.call_id for event in folded if isinstance(event, ToolCallFinished)
+    ]
+    assert [event for event in folded if isinstance(event, TurnFinished)] == [TurnFinished("replied")]
+    assert [(item.type, item.text) for item in restarted.session.transcript[-1].items] == [
+        ("assistant", "Understood."),
+        ("tool", FINISHED_ROW.label),
+        ("assistant", "The specifications are in."),
+    ]
 
 
 def test_reports_a_finished_generation_without_barring_the_next_one(monkeypatch: pytest.MonkeyPatch) -> None:

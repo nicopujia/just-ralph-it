@@ -260,6 +260,12 @@ class App(TextualApp[None]):
     async def on_mount(self) -> None:
         self.watch(self.message_input, "is_shortcuts_open", self._sync_shortcut_hints)
         await self._restore_history()
+        # A run the window before this one left going is picked up
+        # through the very door that starts one, so the rows, the
+        # reply and the ending arrive exactly as they would have. One
+        # that finished unwatched folds on the first read.
+        if self.conversation.pending_generation:
+            await self._start_ralphing()
         await self._sync_ralph_button()
         self.set_focus(self.message_input)
         logger.info("mounted theme=%s", self.theme)

@@ -11,6 +11,7 @@ from jri import __version__
 from jri.core import logs, visualization
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
+from jri.core.generation import Generation
 from jri.core.settings import Settings
 from jri.core.workspace import Hold, Workspace
 from jri.lib import files, git
@@ -32,13 +33,23 @@ def main() -> None:
     init_parser.add_argument("--yes", action="store_true", help=copy.CLI_YES_HELP)
     for name, description in (("chat", copy.CLI_CHAT_HELP), ("view", copy.CLI_VIEW_HELP)):
         subparsers.add_parser(name, help=description, description=description)
+    # What `jri chat` starts a run as, in a process of its own. It
+    # carries no `help`, so it stays out of the commands the reader is
+    # offered: nothing about it is a way to use JRI, and a run started
+    # by hand would report into a conversation that never asked.
+    subparsers.add_parser("generate")
 
     arguments = parser.parse_args()
     if arguments.command is None:
         parser.print_help()
         return
 
-    handlers = {"init": lambda: _initialize(force=arguments.force, yes=arguments.yes), "chat": _chat, "view": _view}
+    handlers = {
+        "init": lambda: _initialize(force=arguments.force, yes=arguments.yes),
+        "chat": _chat,
+        "view": _view,
+        "generate": _generate,
+    }
 
     try:
         handlers[arguments.command]()
@@ -91,6 +102,16 @@ def _chat() -> None:
         hold.release()
         logger.info("finished")
         logging.shutdown()
+
+
+# The run itself, with no window around it. It takes the project's
+# generation lock rather than the chat's: the window that started it
+# still holds that one, and still has the notes and the session.
+def _generate() -> None:
+    settings = _load_settings()
+    logs.configure(settings)
+    settings.llm.validate_authentication()
+    Generation.execute(settings)
 
 
 def _view() -> None:

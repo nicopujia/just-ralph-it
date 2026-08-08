@@ -25,6 +25,21 @@ ACCEPTANCE_FILE = f"{GENERATION_DIR}/acceptance.json"
 # by is a file no write of JRI's ever replaces.
 ACCEPTANCE_LOCK_FILE = f"{GENERATION_DIR}/acceptance.lock"
 DRAFT_FILE = f"{GENERATION_DIR}/draft.patch"
+# Everything a run writes down about itself while it lasts, appended a
+# line at a time so that a run killed between two of them leaves every
+# line before the kill readable.
+JOURNAL_FILE = f"{GENERATION_DIR}/journal.jsonl"
+# The lock the runner holds for as long as it lives, which is how a
+# process that is not it finds out whether it is still there.
+GENERATION_LOCK_FILE = f"{GENERATION_DIR}/lock"
+# A stop asked for from the process the run is not in. The runner polls
+# for it, since a signal cannot cross to a process group of its own on
+# Windows and a stop must reach the run the same way on all three.
+CANCEL_FILE = f"{GENERATION_DIR}/cancel"
+# Whatever the runner writes outside its own log -- an interpreter
+# traceback, a library writing to standard error -- so a run that died
+# before it could record anything still says something.
+RUNNER_LOG_FILE = f"{GENERATION_DIR}/runner.log"
 
 LOGS_DIR = f"{WORKSPACE_DIR}/logs"
 
