@@ -1,6 +1,8 @@
+import itertools
 import logging
 import os
 import re
+import shutil
 import sys
 import threading
 from pathlib import Path
@@ -12,7 +14,16 @@ from jri import __version__
 from jri.core import logs, paths
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
-from tests.doubles.logs import Exploding, list_log_files, read_session_log, run_beside, sabotage
+from tests.doubles.logs import (
+    LOG_PATHS,
+    SABOTAGE_SHAPES,
+    Exploding,
+    list_log_files,
+    read_session_log,
+    read_user_files,
+    run_beside,
+    sabotage,
+)
 from tests.doubles.openai import FakeClient
 from tests.doubles.settings import build_settings
 from tests.doubles.workspace import install_workspace
@@ -37,22 +48,33 @@ OVERSIZED_RECORDS = 40
 # record either run wrote is still there to read.
 RECORD_PADDING = "x" * 200
 RECORDS_PER_RUN = 200
-# The states `tests.doubles.logs.sabotage` knows how to leave behind.
-# What is missing from this list is what no unprivileged process can
-# make: a file the immutable or the append-only attribute is set on, a
-# device node, and a filesystem with nothing left on it.
-SABOTAGED_PATHS = (
-    "the directory gone",
-    "a file on the directory",
-    "a link going nowhere on the directory",
-    "a directory nothing may enter",
-    "a directory on the log file",
-    "a link going nowhere on the log file",
-    "a log file nothing may write",
-    "a directory on the rotated file",
-    "a directory on the session's opening",
-    "a directory on the lock",
-    "a link going nowhere on the lock",
+# Every path the log needs, crossed with every state an unprivileged
+# process can leave on one. What the cross leaves out, and why, is on
+# `SABOTAGE_SHAPES`.
+SABOTAGED_PATHS = tuple(itertools.product(LOG_PATHS, SABOTAGE_SHAPES))
+# The three of those the log has no way to tell from its own paths.
+# Nothing fails in any of them, so no repair ever comes, and what the
+# run writes -- its records in two of them, its lock file in the third
+# -- lands outside `.jri`. Each is a defect and not a decision: the
+# open on the log's own file carries `O_NOFOLLOW` for exactly this
+# reason, and these are the three ways around it.
+SABOTAGED_PATHS_THAT_ESCAPE = {
+    (paths.LOGS_DIR, "a link to a directory"): "a link the log needs no repair to follow is a link it keeps",
+    (paths.LOG_FILE, "a hard link"): "a second name for the user's file is a file, and `lstat` says so",
+    (paths.LOG_LOCK_FILE, "a link one write away"): "`jri.lib.lock` opens the lock without `O_NOFOLLOW`",
+}
+# The same cross, with those three marked. The marker is strict, so
+# containing one of them turns this red rather than passing quietly,
+# and the fix is what takes it off the list above.
+SABOTAGED_PATHS_TO_CONTAIN = tuple(
+    pytest.param(
+        path,
+        shape,
+        marks=[pytest.mark.xfail(strict=True, reason=SABOTAGED_PATHS_THAT_ESCAPE[path, shape])]
+        if (path, shape) in SABOTAGED_PATHS_THAT_ESCAPE
+        else [],
+    )
+    for path, shape in SABOTAGED_PATHS
 )
 SMALL_LOG_FILE_BYTES = 64 * 1024
 # What the first run writes for as long as the second is busy with the
@@ -61,8 +83,10 @@ SMALL_RECORDS = 2000
 STAMP = re.compile(r"^\[([\d-]+ [\d:,]+)\]", re.MULTILINE)
 TURN_RECORDS = 3
 TURNS = 2
-# A write that never comes back is what the pipe below is pinned
-# against, so the record is made from a thread this outlives.
+# A pipe nobody reads and a lock nobody drops both answer a write by
+# never coming back, so the sabotaged runs below make their records
+# from a thread they outlive, and a run that never comes back reads as
+# a failure rather than as a suite that stopped.
 WRITE_SECONDS = 10
 
 
@@ -123,9 +147,9 @@ def test_keeps_the_opening_of_a_session_that_fills_the_files_over_and_over(tmp_p
     assert FAILURE_RECORD in log
 
 
-@pytest.mark.parametrize("kind", SABOTAGED_PATHS)
+@pytest.mark.parametrize(("path", "shape"), SABOTAGED_PATHS)
 def test_writes_on_when_a_path_the_log_needs_is_not_what_it_must_be(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str, shape: str
 ) -> None:
     install_workspace(tmp_path)
     settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
@@ -135,35 +159,45 @@ def test_writes_on_when_a_path_the_log_needs_is_not_what_it_must_be(
     logger.info(OPENING_RECORD)
 
     try:
-        sabotage(tmp_path, kind)
+        sabotage(tmp_path, path, shape)
     except OSError as error:
         pytest.skip(f"this machine withholds what the sabotage needs: {error}")
-    # Past the bound above, so the record that lands last has been
-    # through a rename as well as through an append.
-    for _ in range(SMALL_LOG_FILE_BYTES // FILLING_RECORD_BYTES + 1):
-        logger.info("x" * FILLING_RECORD_BYTES)
-    logger.info(FAILURE_RECORD)
+    writing = threading.Thread(target=_fill_past_the_bound, args=(logger,), daemon=True)
+    writing.start()
+    writing.join(WRITE_SECONDS)
 
+    assert not writing.is_alive(), "an open on a name nobody answers for never came back, and the lock went with it"
     # Reading the directory back is itself the assertion that no name
     # the log rotates through still holds something else.
     assert FAILURE_RECORD in read_session_log(tmp_path)
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="no pipe of Windows' own answers to a path")
-def test_writes_on_when_a_pipe_stands_on_the_log_file(tmp_path: Path) -> None:
+# `O_NOFOLLOW` is what holds a link off the log's own name, and
+# Windows leaves the flag out, so what a link there does is what
+# nothing here has run.
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="a link on the log's own name is followed where `O_NOFOLLOW` is not"
+)
+@pytest.mark.parametrize(("path", "shape"), SABOTAGED_PATHS_TO_CONTAIN)
+def test_writes_nothing_outside_the_workspace_directory_when_a_path_the_log_needs_is_wrong(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str, shape: str
+) -> None:
     install_workspace(tmp_path)
     settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    monkeypatch.setattr(logs, "LOG_FILE_BYTES", SMALL_LOG_FILE_BYTES)
     logs.configure(settings)
     logger = logging.getLogger("jri")
-    (tmp_path / paths.LOG_FILE).unlink()
-    os.mkfifo(tmp_path / paths.LOG_FILE)
 
-    writing = threading.Thread(target=logger.info, args=(FAILURE_RECORD,), daemon=True)
+    try:
+        sabotage(tmp_path, path, shape)
+    except OSError as error:
+        pytest.skip(f"this machine withholds what the sabotage needs: {error}")
+    planted = read_user_files(tmp_path)
+    writing = threading.Thread(target=_fill_past_the_bound, args=(logger,), daemon=True)
     writing.start()
     writing.join(WRITE_SECONDS)
 
-    assert not writing.is_alive(), "the open on a pipe nobody reads never came back, and the lock went with it"
-    assert FAILURE_RECORD in read_session_log(tmp_path)
+    assert read_user_files(tmp_path) == planted
 
 
 def test_keeps_the_records_before_one_longer_than_the_whole_file(tmp_path: Path) -> None:
@@ -297,3 +331,36 @@ def test_explains_when_the_log_file_cannot_be_created(tmp_path: Path) -> None:
 
     with pytest.raises(PersistenceError, match="Could not create the log file"):
         logs.configure(build_settings(FakeClient([])))
+
+
+# The same name, taken while the session is already running: the log
+# clears what stands on the paths under it, and this one is not its
+# to clear, so the records go. The run is what must not go with them.
+def test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_directory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    install_workspace(tmp_path)
+    settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
+    logs.configure(settings)
+    logger = logging.getLogger("jri")
+    shutil.rmtree(tmp_path / paths.WORKSPACE_DIR)
+    (tmp_path / paths.WORKSPACE_DIR).write_text("what the user left where `.jri` was", encoding="utf-8")
+
+    logger.info(OPENING_RECORD)
+
+    # The terminal is a `jri chat` screen's, so a record the log
+    # cannot write is dropped rather than reported on it.
+    assert capsys.readouterr() == ("", "")
+    (tmp_path / paths.WORKSPACE_DIR).unlink()
+    logger.info(FAILURE_RECORD)
+    assert FAILURE_RECORD in read_session_log(tmp_path)
+
+
+# Past the bound the sabotaged runs set, so the record that lands last
+# has been through a rename as well as through an append. A pipe
+# nobody reads and a lock nobody drops both answer by never coming
+# back, so this is run from a thread the test outlives.
+def _fill_past_the_bound(logger: logging.Logger) -> None:
+    for _ in range(SMALL_LOG_FILE_BYTES // FILLING_RECORD_BYTES + 1):
+        logger.info("x" * FILLING_RECORD_BYTES)
+    logger.info(FAILURE_RECORD)
