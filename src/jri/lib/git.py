@@ -1,6 +1,7 @@
 import logging
 import os
 import shutil
+import signal
 import subprocess
 import tempfile
 from collections.abc import Collection, Generator, Iterable, Sequence
@@ -122,6 +123,15 @@ class Repository:
     # for yes, one for no, and nothing else -- `--quiet` is what puts a
     # refusal here rather than at the 128 a fatal ends with.
     ANSWERS: ClassVar[frozenset[int]] = frozenset({0, 1})
+    # The signals Git is asked to stop at. `sigchain_push_common` gives
+    # all of them one handler, which takes away every lock the command
+    # holds and only then lets the default action end the process, so a
+    # death by one of these is reported as a signal over a command that
+    # left nothing of its own. Read off the numbers this platform has,
+    # since Windows names two of the five.
+    HANDLED_SIGNALS: ClassVar[frozenset[int]] = frozenset(
+        member for member in signal.Signals if member.name in {"SIGHUP", "SIGINT", "SIGPIPE", "SIGQUIT", "SIGTERM"}
+    )
 
     def __init__(self, path: Path | str, executable: str = "git") -> None:
         resolved_executable = shutil.which(executable)
@@ -388,19 +398,20 @@ class Repository:
         standing = locks.standing
         result = subprocess.run(command, input=stdin, check=False, capture_output=True)
         # Git takes its own locks away as a command of its ends, by an
-        # exit handler for the ending it chose and by a handler for the
-        # signals it is asked to stop at, so a command that reached
-        # either left none of its own, whatever that ending said. What
-        # reaches neither is a signal Git is not asked to stop at, and
-        # a status below nought is the kernel reporting one; the
-        # process is reaped by the time this reads, which is what makes
-        # a lock it left a lock nothing is holding. Every other lock
-        # standing here is a second command's, taken while this one ran
-        # and held by a process still running. On Windows no signal
-        # reaches the exit code, so a lock a killed Git left stands
-        # until Git's own refusal names it, which is the side to be
-        # wrong on: a refusal is read, a broken transaction is not.
-        if result.returncode < 0:
+        # exit handler for the ending it chose and by the one handler
+        # `HANDLED_SIGNALS` names, which runs before the default action
+        # the kernel then reports the death as. So a status below
+        # nought is not on its own a command that left something: only
+        # one naming a signal Git never handled is. Such a process is
+        # reaped by the time this reads, which is what makes a lock it
+        # left a lock nothing is holding -- and a lock a second command
+        # took inside that same window is unlinked with it, since
+        # nothing on disk tells the two apart once the process that
+        # left one is gone. On Windows no signal reaches the exit code,
+        # so a lock a killed Git left stands until Git's own refusal
+        # names it, which is the side to be wrong on: a refusal is
+        # read, a broken transaction is not.
+        if result.returncode < 0 and -result.returncode not in self.HANDLED_SIGNALS:
             locks.release(standing)
         if check and result.returncode:
             self._raise(result)

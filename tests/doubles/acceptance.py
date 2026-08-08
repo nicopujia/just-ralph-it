@@ -4,7 +4,7 @@ import signal
 import subprocess
 import sys
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -89,9 +89,32 @@ TAKE_THE_LOCK = "touch .git/index.lock\n"
 # be one that commit never takes: `config.lock` is what a `git config`
 # of a second command's writes under.
 TAKE_A_SECOND_LOCK = "touch .git/config.lock\n"
+# Where the second command records itself, so a test can read back
+# whether the process holding that lock is still there. Not a `.lock`,
+# so neither `read_git_locks` nor `Locks` ever counts it.
+SECOND_COMMAND_PID = "second-command-pid"
+# The same lock taken by a command that is still running when the
+# window closes, which is the state the release is answerable to: what
+# stands at the end is a live transaction, not a leftover. Three
+# things are load-bearing. Its output goes nowhere, since it inherits
+# the pipes a run reads Git through and holding those open would hold
+# the run open. It `exec`s the sleep, so the pid recorded is the pid
+# that has to be ended. And the wait is what puts the lock inside the
+# window rather than after it, where a release would never see it.
+HOLD_A_SECOND_LOCK = (
+    "sh -c 'touch .git/config.lock; exec sleep 30' >/dev/null 2>&1 &\n"
+    f"echo $! > .git/{SECOND_COMMAND_PID}\n"
+    "until [ -e .git/config.lock ]; do :; done\n"
+)
 # The project's own hook refusing the commit, which is an ending Git
 # chooses and runs its exit handler for: the hook's 1 is Git's 1.
 REFUSE_THE_COMMIT = "exit 1\n"
+# Ending the Git that ran the hook with a signal Git is asked to stop
+# at, which is where a Ctrl-C over the process group, a `pkill git` and
+# a supervisor's shutdown land. Git's handler takes its own locks away
+# and then lets the default action end it, so the kernel still reports
+# the death as a signal.
+SIGNAL_THE_GIT = "kill -{name} $PPID\n"
 # A Git that ends itself at one question and runs the real one at every
 # other, so what a run reads is one real death of one real process it
 # spawned rather than a status a double made up. `exec` leaves the pid
@@ -132,6 +155,22 @@ def install_a_killing_git(monkeypatch: pytest.MonkeyPatch, root: Path, question:
     shim.write_text(KILLING_GIT.format(question=question, marker=marker, git=executable), encoding="utf-8")
     shim.chmod(0o700)
     monkeypatch.setenv("PATH", f"{directory}{os.pathsep}{os.environ['PATH']}")
+
+
+# Whether the process that took the second command's lock is still
+# there to rename it over the file it guards: signal nought reaches a
+# live process and nothing else.
+def is_the_second_command_running(root: Path) -> bool:
+    try:
+        os.kill(_read_the_second_command(root), 0)
+    except OSError:
+        return False
+    return True
+
+
+def end_the_second_command(root: Path) -> None:
+    with suppress(OSError):
+        os.kill(_read_the_second_command(root), signal.SIGKILL)
 
 
 def bound_the_acceptance_writes(root: Path, patch: bytes, limit: int) -> str:
@@ -175,6 +214,10 @@ def open_a_commit_window(root: Path, window: str, action: str) -> "Iterator[None
         yield
     finally:
         hook.unlink()
+
+
+def _read_the_second_command(root: Path) -> int:
+    return int((root / ".git" / SECOND_COMMAND_PID).read_text(encoding="utf-8"))
 
 
 def _kill_inside_a_window(root: Path, patch: bytes, marker: str) -> None:

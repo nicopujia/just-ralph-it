@@ -10,14 +10,18 @@ from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.acceptance import (
     HEAD_QUESTION,
+    HOLD_A_SECOND_LOCK,
     KILL_THE_GIT,
     REFUSE_THE_COMMIT,
     ROOT_QUESTION,
+    SIGNAL_THE_GIT,
     TAKE_A_SECOND_LOCK,
     TAKE_THE_LOCK,
     WINDOW_MARKER,
     WORKTREE_QUESTION,
+    end_the_second_command,
     install_a_killing_git,
+    is_the_second_command_running,
     open_a_commit_window,
     read_git_locks,
 )
@@ -61,6 +65,11 @@ SECTIONED_README = b"# Store\nKeeps orders.\n\n# Reporter\nKeeps orders.\n"
 # repository, and the next `init` reports `File exists` over the config
 # and `cannot lock ref` over HEAD, exactly as it does over a real kill.
 KILLED_INITS = (("config.lock", ("config", "HEAD")), ("HEAD.lock", ("HEAD",)))
+# The signals Git is asked to stop at that a hook can end a commit
+# with. `sigchain_push_common` gives SIGPIPE the same handler as these
+# four, and Git ignores it over a commit, so it is the one member of
+# that handler's set no commit here can be made to die of.
+HANDLED_SIGNALS_A_COMMIT_DIES_OF = ("HUP", "INT", "QUIT", "TERM")
 
 
 def test_rejects_a_missing_git_executable(tmp_path: Path) -> None:
@@ -221,6 +230,28 @@ def test_keeps_the_lock_another_command_took_while_a_refused_one_ran(
         repository.commit("second", paths=("README.md",))
 
     assert read_git_locks(tmp_path) == (tmp_path / ".git/config.lock",)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a hook that signals its own Git needs a shell and `kill`")
+@pytest.mark.parametrize("name", HANDLED_SIGNALS_A_COMMIT_DIES_OF)
+def test_keeps_the_lock_a_running_command_holds_when_a_signal_ends_its_own_git(
+    tmp_path: Path, create_repository: CreateRepository, name: str
+) -> None:
+    repository = create_repository(tmp_path)
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+    window = HOLD_A_SECOND_LOCK + SIGNAL_THE_GIT.format(name=name)
+
+    with open_a_commit_window(tmp_path, "index", window), pytest.raises(git.Error):
+        repository.commit("second", paths=("README.md",))
+
+    try:
+        assert is_the_second_command_running(tmp_path)
+        assert read_git_locks(tmp_path) == (tmp_path / ".git/config.lock",)
+        # Git's handler took its own away before the signal ended it,
+        # so the lock left standing costs the next command nothing.
+        assert repository.commit("second", paths=("README.md",))
+    finally:
+        end_the_second_command(tmp_path)
 
 
 @pytest.mark.skipif(
