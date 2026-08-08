@@ -139,14 +139,14 @@ class Conversation:
         self.session.transcript.append(turn)
         yield from self._report_turn(self.interviewer.send_message(message, cancelled), turn, checkpoint, cancelled)
 
-    def retry(self, cancelled: Event | None = None) -> Generator[TurnEvent]:
+    def retry(self, cancelled: Event | None = None, detached: Event | None = None) -> Generator[TurnEvent]:
         work = self.retried_work
         # A run that failed reported nothing to the interview and asked
         # it for nothing, so there is no message to send again: the work
         # to redo is the run, exactly as the button that starts one
         # would redo it.
         if work == "generation":
-            yield from self.ralph(cancelled)
+            yield from self.ralph(cancelled, detached)
             return
         # A generation report opens a turn exactly as a prompt does, so
         # the turn is sent again from whichever opened it. Truncating to
@@ -242,7 +242,7 @@ class Conversation:
         )
         self.logger.info("rewound checkpoint=%d interview_items=%d", checkpoint_index, history_index)
 
-    def ralph(self, cancelled: Event | None = None) -> Generator[TurnEvent]:
+    def ralph(self, cancelled: Event | None = None, detached: Event | None = None) -> Generator[TurnEvent]:
         checkpoint = self._capture_checkpoint(len(self.interviewer.history))
         # A run reports into the turn the user is looking at, since its
         # rows and its reply answer the message that turn opened with.
@@ -260,7 +260,7 @@ class Conversation:
         # dying mid-fold leaves the next one to do -- reads the same
         # rows onto the same turn rather than onto the last fold's.
         turn = self.session.transcript[-1].model_copy(deep=True)
-        yield from self._report_turn(self._generate_specs(cancelled, turn), turn, checkpoint, cancelled)
+        yield from self._report_turn(self._generate_specs(cancelled, detached, turn), turn, checkpoint, cancelled)
 
     def restore(self) -> list[Turn]:
         if not self.workspace.session_file.exists():
@@ -332,7 +332,7 @@ class Conversation:
                     f"or keep going from here. The call reported: {error}"
                 ) from error
 
-    def _generate_specs(self, cancelled: Event | None, turn: Turn) -> Generator[AgentEvent]:
+    def _generate_specs(self, cancelled: Event | None, detached: Event | None, turn: Turn) -> Generator[AgentEvent]:
         # One entry point for starting a run and for picking one up:
         # what the journal says happened is what this turn reports,
         # whether the events arrive as they are made or all at once
@@ -340,7 +340,11 @@ class Conversation:
         generation = Generation(self.workspace)
         if not generation.exists:
             generation.start()
-        result = yield from generation.follow(cancelled)
+        # A window that leaves stops watching and nothing else: the
+        # `RunDetached` this raises is no failure, so it crosses
+        # `_report_turn` without ending the turn, and the turn is
+        # ended by the window that picks the run up.
+        result = yield from generation.follow(cancelled, detached)
         # A run the user stopped reached no conclusion to report, and
         # spent nothing to reach it: the offer stands, and the model
         # hears about a run it would have nothing to say about.

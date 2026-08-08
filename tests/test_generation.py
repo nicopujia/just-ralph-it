@@ -10,7 +10,7 @@ import pytest
 
 from jri.core import paths
 from jri.core.ai import ReasoningDelta, ToolCallStarted
-from jri.core.exceptions import Error, PersistenceError, RepositoryStateError, UsageLimitError
+from jri.core.exceptions import Error, PersistenceError, RepositoryStateError, RunDetached, UsageLimitError
 from jri.core.generation import Generation
 from jri.core.workspace import Workspace
 from tests.conftest import CreateRepository, RunGit
@@ -307,6 +307,63 @@ def test_stops_a_run_that_is_saying_nothing(tmp_path: Path, monkeypatch: pytest.
     assert answer is None
     runner.join(timeout=CONCLUDES_WITHIN)
     assert not runner.is_alive()
+
+
+def test_leaves_a_run_going_when_the_window_watching_it_leaves(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    detached = threading.Event()
+    generation = build_generation(tmp_path)
+    monkeypatch.setattr("jri.core.generation.specs_generation.generate", generate_stopped)
+    generation.workspace.open_generation_dir()
+    runner = threading.Thread(target=Generation.execute, args=(build_settings(FakeClient([])),), daemon=True)
+    runner.start()
+    while not generation.exists:
+        time.sleep(POLL)
+
+    events = generation.follow(None, detached)
+    next(events)
+    detached.set()
+    with pytest.raises(RunDetached):
+        list(events)
+
+    # The window went and the run stayed: nothing of the run's was
+    # folded away, nothing was asked to stop, and the record the next
+    # window reads is where the run left it.
+    assert runner.is_alive()
+    assert generation.exists
+    assert not generation.cancel_file.exists()
+    # And the run is still there to be stopped by whoever comes back.
+    generation.cancel_file.touch()
+    runner.join(timeout=CONCLUDES_WITHIN)
+    assert not runner.is_alive()
+    assert read_journal(generation)[-1]["kind"] == "conclusion"
+
+
+def test_hands_on_a_stop_the_window_asked_for_before_it_left(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    cancelled, detached = threading.Event(), threading.Event()
+    generation = build_generation(tmp_path)
+    monkeypatch.setattr("jri.core.generation.specs_generation.generate", generate_silently)
+    generation.workspace.open_generation_dir()
+    runner = threading.Thread(target=Generation.execute, args=(build_settings(FakeClient([])),), daemon=True)
+    runner.start()
+    while not generation.exists:
+        time.sleep(POLL)
+
+    # A window closed in the same breath as the stop it was asked for,
+    # in the middle of the model call a run spends its time in. The run
+    # is in another process, so a stop nothing wrote down never reaches
+    # it, and the window is not there to be asked again.
+    def leave() -> None:
+        cancelled.set()
+        detached.set()
+
+    threading.Timer(STOPS_AFTER, leave).start()
+    with pytest.raises(RunDetached):
+        list(generation.follow(cancelled, detached))
+
+    assert generation.cancel_file.exists()
+    runner.join(timeout=CONCLUDES_WITHIN)
+    assert not runner.is_alive()
+    assert read_journal(generation)[-1]["ending"] == "stopped"
 
 
 def test_refuses_a_second_run_while_one_holds_the_lock(tmp_path: Path) -> None:

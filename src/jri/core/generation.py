@@ -16,7 +16,7 @@ from jri.lib.lock import Lock, LockError
 
 from . import paths
 from .ai import ReasoningDelta, ToolCallFinished, ToolCallStarted, specs_generation
-from .exceptions import Error, PersistenceError, RepositoryStateError, UsageLimitError
+from .exceptions import Error, PersistenceError, RepositoryStateError, RunDetached, UsageLimitError
 from .settings import Settings
 from .workspace import Workspace
 
@@ -231,11 +231,24 @@ class Generation:
     # another process, so the only thing that can end it is the run
     # itself reading that it was asked to.
     def follow(
-        self, cancelled: threading.Event | None = None
+        self, cancelled: threading.Event | None = None, detached: threading.Event | None = None
     ) -> Generator["specs_generation.Progress", None, "specs_generation.SpecsResult | None"]:
         requested = False
         thought = ""
         for record in self._read():
+            # A stop the follower was asked for is handed on before the
+            # window leaving can end the following, so closing a window
+            # right after asking still stops the run.
+            if cancelled is not None and cancelled.is_set() and not requested:
+                self.cancel_file.touch()
+                requested = True
+                logger.info("generation_stop_requested")
+            # The window is gone and the run is not its to take with
+            # it. Nothing here is folded or unlinked: the journal is
+            # the record, and the next window reads it from the top.
+            if detached is not None and detached.is_set():
+                logger.info("generation_detached")
+                raise RunDetached
             if isinstance(record, Thought):
                 thought += record.text
                 continue
@@ -247,10 +260,6 @@ class Generation:
                 return _answer(record)
             if record is not None:
                 yield _replay(record)
-            if cancelled is not None and cancelled.is_set() and not requested:
-                self.cancel_file.touch()
-                requested = True
-                logger.info("generation_stop_requested")
         # Nothing is left folded here: the reader comes back with
         # `None` on the pass before the one it ends on, so a run of
         # thoughts is always flushed by the loop above.

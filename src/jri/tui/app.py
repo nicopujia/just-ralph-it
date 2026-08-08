@@ -26,7 +26,7 @@ from jri.core.ai import (
     TurnFinished,
 )
 from jri.core.conversation import Conversation
-from jri.core.exceptions import PersistenceError
+from jri.core.exceptions import PersistenceError, RunDetached
 from jri.lib import appearance
 
 from . import copy, styles
@@ -110,6 +110,9 @@ class App(TextualApp[None]):
         super().__init__()
         self.theme = styles.THEME_LIGHT if appearance.read() == "light" else styles.THEME_DARK
         self.conversation = conversation
+        # Set once, when this window is on its way out, for whatever is
+        # following a run that outlives it.
+        self.detached = Event()
         self.restored_turns = conversation.restore()
         self.is_reasoning_visible = conversation.session.show_thinking_blocks
         # Restored turns mount newest-first, so this is also the
@@ -270,6 +273,14 @@ class App(TextualApp[None]):
         self.set_focus(self.message_input)
         logger.info("mounted theme=%s", self.theme)
 
+    # The last thing the window does, and the only thing a run needs
+    # from it: whoever is following one is told to stop following, so
+    # the thread it is following in comes back rather than holding the
+    # terminal for as long as the run lasts.
+    def on_unmount(self) -> None:
+        self.detached.set()
+        logger.info("unmounted")
+
     def watch_active_turn_state(self) -> None:
         self.message_input.is_turn_active = self.is_busy
 
@@ -316,18 +327,27 @@ class App(TextualApp[None]):
         # worker never leaves a row spinning on an event that the
         # conversation could not get as far as yielding.
         finished = TurnFinished("failed", copy.INTERNAL_ERROR)
+        detached = False
         try:
             for event in events:
                 if isinstance(event, TurnFinished):
                     finished = event
                     continue
                 self._call_from_thread(self._render_agent_event, turn_state, event)
+        # The window is leaving and the run is not: there is no ending
+        # to render, no turn to end, and nothing to write down. The run
+        # goes on recording itself, and the window that picks it up
+        # ends the turn from what it recorded.
+        except RunDetached:
+            detached = True
+            logger.info("turn_detached")
         except Exception as error:
             logger.exception("turn_worker_failed")
             finished = TurnFinished("failed", str(error))
         finally:
             events.close()
-            self._call_from_thread(self._finish_turn, turn_state, finished)
+            if not detached:
+                self._call_from_thread(self._finish_turn, turn_state, finished)
 
     # --- Callbacks -------------------------------------------------- #
 
@@ -632,7 +652,7 @@ class App(TextualApp[None]):
         self.last_escape_at = 0.0
         App.ALLOW_SELECT = False
         self.messages_container.anchor()
-        self._run_turn(self.conversation.retry(turn_state.cancelled), turn_state)
+        self._run_turn(self.conversation.retry(turn_state.cancelled, self.detached), turn_state)
 
     # The panel covers the message input rather than replacing it, so
     # the box both are in goes on being measured by the input for as
@@ -658,7 +678,7 @@ class App(TextualApp[None]):
         self.active_turn_state = turn_state
         App.ALLOW_SELECT = False
         self.messages_container.anchor()
-        self._run_turn(self.conversation.ralph(turn_state.cancelled), turn_state)
+        self._run_turn(self.conversation.ralph(turn_state.cancelled, self.detached), turn_state)
 
     async def _sync_ralph_button(self) -> None:
         if self.ralph_button.is_mounted:

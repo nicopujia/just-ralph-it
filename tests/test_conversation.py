@@ -9,7 +9,7 @@ import pytest
 from jri.core import paths
 from jri.core.ai import Interviewer, ToolCallFinished, ToolCallStarted, TurnFinished, functional_analyst
 from jri.core.conversation import Conversation
-from jri.core.exceptions import PersistenceError
+from jri.core.exceptions import PersistenceError, RunDetached
 from tests.conftest import CreateRepository
 from tests.doubles.generation import run_in_thread
 from tests.doubles.openai import (
@@ -585,6 +585,75 @@ def test_ends_a_run_the_process_before_it_did_not_stay_for(monkeypatch: pytest.M
         ("tool", FINISHED_ROW.label),
         ("assistant", "The specifications are in."),
     ]
+
+
+def test_writes_nothing_down_when_the_window_leaves_a_run_running(monkeypatch: pytest.MonkeyPatch) -> None:
+    detached = Event()
+    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+
+    events = conversation.ralph(None, detached)
+    watched = [next(events)]
+    started = conversation.workspace.session_file.read_bytes()
+    detached.set()
+    with pytest.raises(RunDetached):
+        watched.extend(events)
+
+    # The turn is not over, so nothing about it is written down: the
+    # window leaving is not an ending, and a session claiming one would
+    # meet the next window with a turn that never happened.
+    assert conversation.workspace.session_file.read_bytes() == started
+    assert not [event for event in watched if isinstance(event, TurnFinished)]
+
+
+def test_ends_a_run_the_window_walked_out_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    detached = Event()
+    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+
+    detached.set()
+    with pytest.raises(RunDetached):
+        list(conversation.ralph(None, detached))
+
+    restarted = build_conversation(FakeClient([streamed_reply("The specifications are in.")]))
+    restarted.restore()
+    assert restarted.pending_generation
+    folded = list(restarted.ralph())
+
+    # What the window left behind is a run and its record, and the
+    # window that comes back ends the turn from it: every row closed,
+    # one ending, and the reply to a run nobody watched.
+    assert [event.call_id for event in folded if isinstance(event, ToolCallStarted)] == [
+        event.call_id for event in folded if isinstance(event, ToolCallFinished)
+    ]
+    assert [event for event in folded if isinstance(event, TurnFinished)] == [TurnFinished("replied")]
+    assert [(item.type, item.text) for item in restarted.session.transcript[-1].items] == [
+        ("assistant", "Understood."),
+        ("tool", FINISHED_ROW.label),
+        ("assistant", "The specifications are in."),
+    ]
+
+
+def test_keeps_the_offer_a_detached_run_never_spent(monkeypatch: pytest.MonkeyPatch) -> None:
+    detached = Event()
+    conversation = build_conversation(
+        FakeClient([response(call("ready", "offer_ralphing")), streamed_reply("Click Just Ralph It.")])
+    )
+    list(conversation.chat("We're ready."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+
+    detached.set()
+    with pytest.raises(RunDetached):
+        list(conversation.ralph(None, detached))
+
+    # The run is still going, so the notes it was offered are still
+    # spent by nothing: the window that picks it up is the one that
+    # retires the offer.
+    restarted = build_conversation(FakeClient([]))
+    restarted.restore()
+    assert restarted.is_ready_to_ralph
 
 
 def test_reports_a_finished_generation_without_barring_the_next_one(monkeypatch: pytest.MonkeyPatch) -> None:

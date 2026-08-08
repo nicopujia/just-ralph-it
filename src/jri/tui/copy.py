@@ -65,7 +65,7 @@ PERSISTENCE_ERROR = "Persistence failed: {error}"
 QUIT = "Quit"
 QUIT_COMMAND = ":q"
 
-RALPHING = "Ralphing... [dim](don't close this window)[/dim]"
+RALPHING = "Ralphing... [dim](this will take a long time... you may close this window)[/dim]"
 RALPHING_THINKING_HINT = "Press ^t to watch the models think."
 RALPH_BUTTON = "Just Ralph It"
 RALPH_KEY = "^x j"
@@ -118,9 +118,9 @@ WORKSPACE_HELD = """Another JRI is already open in this project, in the window r
 
 One JRI at a time writes the notes and the conversation, so this one cannot start beside it.
 
-Taking over kills that window where it stands: the reply it is writing, and any Just Ralph It run it is in the
-middle of, are lost, and the terminal it was drawing in will need `reset`. What it has already saved is kept:
-the notes, the conversation, and the specifications a run had drafted.
+Taking over kills that window where it stands: the reply it is writing is lost, and the terminal it was drawing
+in will need `reset`. What it has already saved is kept: the notes, the conversation, and the specifications a
+run had drafted. A Just Ralph It run is a process of its own, so it keeps going, and this window picks it up.
 
 The answer comes from a lock in `.jri`, which JRI takes to be on a local disk. Over a network filesystem it is
 not dependable.

@@ -36,9 +36,11 @@ def run_in_thread(monkeypatch: pytest.MonkeyPatch) -> None:
     asked: list[Settings] = []
     ralph = Conversation.ralph
 
-    def ask(conversation: Conversation, cancelled: "Event | None" = None) -> "Generator[TurnEvent]":
+    def ask(
+        conversation: Conversation, cancelled: "Event | None" = None, detached: "Event | None" = None
+    ) -> "Generator[TurnEvent]":
         asked.append(conversation.settings)
-        return ralph(conversation, cancelled)
+        return ralph(conversation, cancelled, detached)
 
     def start(generation: Generation) -> None:
         generation.workspace.open_generation_dir()
