@@ -8,6 +8,7 @@ import tomllib
 from argparse import ArgumentParser
 from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import check
 
@@ -26,6 +27,11 @@ NUMBER_PATTERN = re.compile(r"\d+\.\d+\.\d+")
 # carried path held under any other -- a link, a gitlink -- names
 # bytes the build reads from wherever the entry points instead.
 REGULAR_MODES = frozenset({"100644", "100755"})
+# Which repository a directory belongs to, asked the one way that makes
+# two answers comparable: absolute, since git writes `.git` for the
+# repository it is standing in, and the common directory, since a
+# linked worktree's own is private to it while its refs are not.
+REPOSITORY_COMMAND = ("rev-parse", "--path-format=absolute", "--git-common-dir")
 # publish.yml releases whatever a `v` tag points at, so the tags are
 # the record of what went out and pyproject.toml only says what is next.
 TAG_PREFIX = "v"
@@ -44,6 +50,7 @@ def main() -> None:
     if not uv or not git:
         raise RuntimeError("uv and git must both be installed")
     remote, ref = read_upstream(git, root)
+    check_remote(git, root, remote)
     check_number(git, root, remote, version)
     check_upstream(git, root, remote, ref)
     check_changes(git, root, frozenset())
@@ -97,6 +104,19 @@ def read_upstream(git: str, root: Path) -> tuple[str, str]:
         raise RuntimeError(f"{branch} tracks nothing, so a push has nowhere to go")
     remote, ref = upstream.split()
     return remote, ref
+
+
+def check_remote(git: str, root: Path, remote: str) -> None:
+    # `.` is what git calls the remote of a branch tracking a local
+    # branch, and a remote of any name can be given this repository
+    # too. Every guard here asks the remote what it holds and the push
+    # writes to it, so a remote that is this repository has the guards
+    # reading the tree they are checking and the release landing where
+    # it started, with nothing to reject it.
+    here = _read_git(git, root, *REPOSITORY_COMMAND)
+    for url in _read_urls(git, root, remote):
+        if _read_repository(git, root, url) == here:
+            raise RuntimeError(f"{remote} is {url}, this repository, so a release would go nowhere")
 
 
 def check_upstream(git: str, root: Path, remote: str, ref: str) -> None:
@@ -188,6 +208,34 @@ def _read_releases(git: str, root: Path, remote: str) -> list[tuple[int, ...]]:
     )
     numbers = {line.rpartition("/")[2].removesuffix("^{}").removeprefix(TAG_PREFIX) for line in tags}
     return [_read_number(number) for number in numbers if NUMBER_PATTERN.fullmatch(number)]
+
+
+def _read_urls(git: str, root: Path, remote: str) -> Iterator[str]:
+    # `--get-url` expands `insteadOf` and writes a name it holds no
+    # remote for straight back, which is how `.` arrives here, and a
+    # `pushurl` takes the push somewhere the guards reading `url`
+    # never look.
+    yield _read_git(git, root, "ls-remote", "--get-url", remote)
+    if remote in _read_git(git, root, "remote").splitlines():
+        yield _read_git(git, root, "remote", "get-url", "--push", remote)
+
+
+def _read_repository(git: str, root: Path, url: str) -> str:
+    # A URL git reads as a directory is read as one here too, against
+    # the root git resolves a relative one against, and
+    # `--git-common-dir` answers for a linked worktree with the
+    # repository it shares rather than the worktree. A URL naming no
+    # directory here is a repository somewhere this run is not.
+    split = urlsplit(url)
+    read = subprocess.run(
+        [git, "-C", root / (split.path if split.scheme == "file" else url), *REPOSITORY_COMMAND],
+        cwd=root,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        encoding="utf-8",
+    )
+    return read.stdout.strip()
 
 
 def _read_number(version: str) -> tuple[int, ...]:
