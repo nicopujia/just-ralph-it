@@ -95,6 +95,12 @@ KILLING_GIT = '#!/bin/sh\ncase "$*" in\n  *"{question}") [ -e "{marker}" ] && ki
 # matters: silence is what a Git killed at it leaves, and silence here
 # reads as a project holding no commit at all.
 HEAD_QUESTION = "rev-parse --verify --quiet HEAD^{commit}"
+# Which worktree holds a path, asked once by `find_root` and once, with
+# the two directories a `Repository` is built from after it, on the way
+# into one. The shim matches the tail of a command line, so each is
+# armed on its own.
+ROOT_QUESTION = "rev-parse --show-toplevel"
+WORKTREE_QUESTION = "rev-parse --show-toplevel --absolute-git-dir --git-common-dir"
 POLL = 0.0002
 # An acceptance nothing kills is over in well under a second, so this
 # is only ever waited out by one that never reached Git at all.

@@ -11,8 +11,10 @@ from tests.conftest import CreateRepository, RunGit
 from tests.doubles.acceptance import (
     HEAD_QUESTION,
     KILL_THE_GIT,
+    ROOT_QUESTION,
     TAKE_THE_LOCK,
     WINDOW_MARKER,
+    WORKTREE_QUESTION,
     install_a_killing_git,
     open_a_commit_window,
     read_git_locks,
@@ -700,6 +702,40 @@ def test_reports_no_root_when_git_is_not_installed(
     monkeypatch.setenv("PATH", str(tmp_path / "without-git"))
 
     assert git.find_root(repository.path) is None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a Git that ends itself needs a shell and `kill`")
+def test_refuses_to_place_a_root_a_killed_git_never_answered_for(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    nested = repository.path / "packages"
+    nested.mkdir()
+    (repository.path / ".git" / WINDOW_MARKER).touch()
+    install_a_killing_git(monkeypatch, repository.path, ROOT_QUESTION)
+
+    with pytest.raises(git.Error):
+        git.find_root(nested)
+    with pytest.raises(git.Error):
+        git.Repository.init(nested)
+
+    # Read as `no worktree holds this`, the silence puts a second
+    # repository inside the one that is already there.
+    assert not (nested / ".git").exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a Git that ends itself needs a shell and `kill`")
+def test_refuses_to_call_a_killed_git_a_missing_worktree(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / ".git" / WINDOW_MARKER).touch()
+    install_a_killing_git(monkeypatch, repository.path, WORKTREE_QUESTION)
+
+    with pytest.raises(git.Error) as raised:
+        git.Repository(repository.path)
+
+    assert not isinstance(raised.value, git.NotRepositoryError)
 
 
 def test_rejects_reading_the_head_of_a_repository_without_commits(tmp_path: Path) -> None:

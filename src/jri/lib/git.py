@@ -9,7 +9,22 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import ClassVar, Self
 
-__all__ = ["Error", "Locks", "NotInstalledError", "NotRepositoryError", "Repository", "Status", "find_root"]
+__all__ = [
+    "ROOT_ANSWERS",
+    "Error",
+    "Locks",
+    "NotInstalledError",
+    "NotRepositoryError",
+    "Repository",
+    "Status",
+    "find_root",
+]
+
+# The endings `rev-parse` gives the question of which worktree holds a
+# path: nought carrying the answer, and the 128 a fatal ends at, which
+# is where every path no worktree holds arrives -- one outside every
+# repository, one in a bare one, one that is not there at all.
+ROOT_ANSWERS = frozenset({0, 128})
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +36,7 @@ def find_root(path: Path) -> Path | None:
     result = subprocess.run(
         [executable, "-C", str(path), "rev-parse", "--show-toplevel"], check=False, capture_output=True
     )
+    _check_root_answered(result, path)
     return Path(os.fsdecode(result.stdout).strip()).resolve() if not result.returncode else None
 
 
@@ -126,6 +142,7 @@ class Repository:
             check=False,
             capture_output=True,
         )
+        _check_root_answered(result, candidate)
         if result.returncode:
             raise NotRepositoryError(os.fsdecode(result.stderr).strip() or f"Not a Git worktree: {candidate}")
         # Git answers the three in the order they were asked for, and
@@ -408,3 +425,20 @@ class Repository:
     def _raise(result: subprocess.CompletedProcess[bytes]) -> None:
         message = os.fsdecode(result.stderr).strip() or os.fsdecode(result.stdout).strip()
         raise Error(message or "Git command failed.")
+
+
+# Where the regress stops. A Git killed at this question leaves the
+# same silence and the same not-nought a path outside every worktree
+# leaves, and asking a second Git which of the two it was only moves
+# the silence one process along: the causes are aimed at no single
+# process, so the Git that would confirm dies as readily as the Git
+# that was asked. What tells them apart without asking anything is the
+# ending already in hand -- not Git's word but the kernel's report of
+# how Git ended -- weighed against the endings this question has.
+def _check_root_answered(result: subprocess.CompletedProcess[bytes], path: Path) -> None:
+    if result.returncode in ROOT_ANSWERS:
+        return
+    raise Error(
+        os.fsdecode(result.stderr).strip()
+        or f"Git ended at {result.returncode} over {path}, so which worktree holds it went unanswered"
+    )

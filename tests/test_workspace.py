@@ -1,3 +1,4 @@
+import sys
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ from jri.core.settings import Settings
 from jri.core.workspace import Installation, Workspace
 from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
+from tests.doubles.acceptance import ROOT_QUESTION, WINDOW_MARKER, install_a_killing_git
 from tests.doubles.openai import FakeClient
 from tests.doubles.settings import build_settings
 from tests.doubles.workspace import install_workspace
@@ -83,6 +85,29 @@ def test_finds_the_workspace_at_the_root_of_the_enclosing_repository(
 
 def test_falls_back_to_the_working_directory_outside_a_repository(tmp_path: Path) -> None:
     assert Workspace.find().root == tmp_path
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a Git that ends itself needs a shell and `kill`")
+def test_refuses_a_root_a_killed_git_never_placed(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    nested = repository.path / "packages" / "app"
+    nested.mkdir(parents=True)
+    (repository.path / ".git" / WINDOW_MARKER).touch()
+    monkeypatch.chdir(nested)
+    install_a_killing_git(monkeypatch, repository.path, ROOT_QUESTION)
+
+    with pytest.raises(git.Error):
+        Workspace.find()
+    with pytest.raises(git.Error):
+        install_workspace(nested)
+
+    # Silence read as `no repository here` is what puts the workspace
+    # in the directory the command was run from and a repository of its
+    # own under it.
+    assert not (nested / paths.WORKSPACE_DIR).exists()
+    assert not (nested / ".git").exists()
 
 
 def test_initializes_a_workspace_inside_an_existing_repository(
