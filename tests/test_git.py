@@ -30,6 +30,28 @@ diff --git a/README.md b/README.md
  The store keeps orders.
 +The reporter renders totals.
 """
+# Two hunks whose header and body disagree: one counting more lines
+# than the body holds, one cut back to the single context line a write
+# stopped part way through leaves. Re-derived from their bodies, the
+# first places a change nobody wrote a header for and the second
+# places nothing at all.
+MISCOUNTED_PATCHES = (
+    b"""\
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1,7 +1,9 @@
+-# Project
++# Renamed
+""",
+    b"""\
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1 +1,2 @@
+ # Project
+""",
+)
 SECTIONED_README = b"# Store\nKeeps orders.\n\n# Reporter\nKeeps orders.\n"
 # What a hard kill inside `git init` leaves behind, by the lock it was
 # holding: the command writes the config and then HEAD, each under one,
@@ -844,20 +866,21 @@ def test_rejects_a_commit_with_nothing_staged(tmp_path: Path, create_repository:
         repository.commit("jri: test")
 
 
-def test_applies_a_patch_whose_hunk_counts_are_wrong(tmp_path: Path, create_repository: CreateRepository) -> None:
+# A hunk header counts the lines its body has to hold, so the two are
+# weighed against each other and a patch whose body disagrees is
+# refused whole. Reading the body over the header instead answers a
+# hunk cut back to its context with a patch that applies and writes
+# nothing, which is an ending no caller can tell from a patch placed.
+@pytest.mark.parametrize("patch", MISCOUNTED_PATCHES, ids=["overcounted", "cut short"])
+def test_rejects_a_patch_whose_hunk_counts_are_wrong(
+    tmp_path: Path, create_repository: CreateRepository, patch: bytes
+) -> None:
     repository = create_repository(tmp_path / "repo")
-    patch = b"""\
-diff --git a/README.md b/README.md
---- a/README.md
-+++ b/README.md
-@@ -1,7 +1,9 @@
--# Project
-+# Renamed
-"""
 
-    repository.apply_patch(patch)
+    with pytest.raises(git.Error):
+        repository.apply_patch(patch)
 
-    assert (repository.path / "README.md").read_text() == "# Renamed\n"
+    assert (repository.path / "README.md").read_bytes() == b"# Project\n"
 
 
 def test_removes_the_worktree_when_the_body_raises(

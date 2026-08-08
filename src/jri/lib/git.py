@@ -317,9 +317,7 @@ class Repository:
         reverse: bool = False,
         zero_context: bool = False,
     ) -> None:
-        # Recount hunk line counts from the patch body: models
-        # routinely miscount them while the body itself is correct.
-        arguments = ["apply", "--recount"]
+        arguments = ["apply"]
         if zero_context:
             # Lift the two pins Git puts on a hunk with too little
             # context to be placed by: one holds a hunk without
