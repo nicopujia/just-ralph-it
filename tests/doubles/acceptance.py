@@ -85,6 +85,13 @@ MARK_THE_WINDOW = f"touch .git/{WINDOW_MARKER}\n"
 # A second Git taking the lock: the file appears inside the span of a
 # command of JRI's, and outlives it, and is none of its business.
 TAKE_THE_LOCK = "touch .git/index.lock\n"
+# The same from a window a commit is still inside, so the lock has to
+# be one that commit never takes: `config.lock` is what a `git config`
+# of a second command's writes under.
+TAKE_A_SECOND_LOCK = "touch .git/config.lock\n"
+# The project's own hook refusing the commit, which is an ending Git
+# chooses and runs its exit handler for: the hook's 1 is Git's 1.
+REFUSE_THE_COMMIT = "exit 1\n"
 # A Git that ends itself at one question and runs the real one at every
 # other, so what a run reads is one real death of one real process it
 # spawned rather than a status a double made up. `exec` leaves the pid

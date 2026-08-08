@@ -391,12 +391,18 @@ class Repository:
         result = subprocess.run(command, input=stdin, check=False, capture_output=True)
         # Git takes its own locks away as a command of its ends, by an
         # exit handler for the ending it chose and by a handler for the
-        # signals it is asked to stop at, so one that came back with
-        # nothing wrong left none. One that came back wrong may have
-        # been killed where neither handler reaches -- and it is reaped
-        # by the time this reads, which is what makes a lock it left a
-        # lock nothing is holding.
-        if result.returncode:
+        # signals it is asked to stop at, so a command that reached
+        # either left none of its own, whatever that ending said. What
+        # reaches neither is a signal Git is not asked to stop at, and
+        # a status below nought is the kernel reporting one; the
+        # process is reaped by the time this reads, which is what makes
+        # a lock it left a lock nothing is holding. Every other lock
+        # standing here is a second command's, taken while this one ran
+        # and held by a process still running. On Windows no signal
+        # reaches the exit code, so a lock a killed Git left stands
+        # until Git's own refusal names it, which is the side to be
+        # wrong on: a refusal is read, a broken transaction is not.
+        if result.returncode < 0:
             locks.release(standing)
         if check and result.returncode:
             self._raise(result)

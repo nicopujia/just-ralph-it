@@ -11,7 +11,9 @@ from tests.conftest import CreateRepository, RunGit
 from tests.doubles.acceptance import (
     HEAD_QUESTION,
     KILL_THE_GIT,
+    REFUSE_THE_COMMIT,
     ROOT_QUESTION,
+    TAKE_A_SECOND_LOCK,
     TAKE_THE_LOCK,
     WINDOW_MARKER,
     WORKTREE_QUESTION,
@@ -184,6 +186,19 @@ def test_keeps_the_lock_another_command_took_while_its_own_ran(
         repository.commit("second", paths=("README.md",))
 
     assert read_git_locks(tmp_path) == (tmp_path / ".git/index.lock",)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a hook that takes a lock needs a shell and `touch`")
+def test_keeps_the_lock_another_command_took_while_a_refused_one_ran(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+
+    with open_a_commit_window(tmp_path, "index", TAKE_A_SECOND_LOCK + REFUSE_THE_COMMIT), pytest.raises(git.Error):
+        repository.commit("second", paths=("README.md",))
+
+    assert read_git_locks(tmp_path) == (tmp_path / ".git/config.lock",)
 
 
 @pytest.mark.skipif(
