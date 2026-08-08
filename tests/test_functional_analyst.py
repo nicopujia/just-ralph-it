@@ -8,7 +8,11 @@ from tests.doubles.settings import build_settings
 CONTEXT = functional_analyst.Input(
     notebook="Deploy from the main branch.", notebook_diff="+Deploy from the main branch.", accepted_specs="(empty)"
 )
-PATCH = functional_analyst.Patch(outcome="specification_patch", patch="diff --git a/functional/x.md b/x.md\n")
+SPECIFICATIONS = functional_analyst.Specifications(
+    outcome="specifications",
+    files=[functional_analyst.File(path="functional/behavior.md", content="# Behavior\n")],
+    deleted_paths=[],
+)
 
 
 def build_analyst(client: FakeClient) -> functional_analyst.FunctionalAnalyst:
@@ -19,13 +23,13 @@ def read_request(client: FakeClient) -> str:
     return str(cast("list[dict[str, object]]", client.responses.inputs[-1])[-1]["content"])
 
 
-def test_writes_a_specification_patch() -> None:
-    client = FakeClient([], parsed=[functional_analyst.Output(result=PATCH)])
+def test_writes_the_specification_files() -> None:
+    client = FakeClient([], parsed=[functional_analyst.Output(result=SPECIFICATIONS)])
 
-    assert build_analyst(client).write(CONTEXT, Event()) == PATCH
+    assert build_analyst(client).write(CONTEXT, Event()) == SPECIFICATIONS
 
 
-def test_reports_ambiguities_instead_of_a_patch() -> None:
+def test_reports_ambiguities_instead_of_specifications() -> None:
     ambiguities = functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=["JSON or plain text?"])
     client = FakeClient([], parsed=[functional_analyst.Output(result=ambiguities)])
 
@@ -33,7 +37,7 @@ def test_reports_ambiguities_instead_of_a_patch() -> None:
 
 
 def test_asks_for_a_first_draft_from_the_notebook_alone() -> None:
-    client = FakeClient([], parsed=[functional_analyst.Output(result=PATCH)])
+    client = FakeClient([], parsed=[functional_analyst.Output(result=SPECIFICATIONS)])
 
     build_analyst(client).write(CONTEXT, Event())
 
@@ -43,7 +47,7 @@ def test_asks_for_a_first_draft_from_the_notebook_alone() -> None:
 
 
 def test_revises_against_the_rejected_draft_and_the_architect_feedback() -> None:
-    client = FakeClient([], parsed=[functional_analyst.Output(result=PATCH)])
+    client = FakeClient([], parsed=[functional_analyst.Output(result=SPECIFICATIONS)])
     context = CONTEXT.model_copy(
         update={"rejected_specs": "File: functional/behavior.md", "architect_feedback": ["Undefined totals."]}
     )

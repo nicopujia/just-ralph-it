@@ -82,9 +82,7 @@ def build_prompts(path: Path) -> dict[str, str]:
         **{type(agent).__name__: agent.prompt for agent in build_agents(path)},
         "Architect": architect.Architect(settings).runner.prompt,
         "Architect.FINAL_PROMPT": architect.Architect.FINAL_PROMPT,
-        "Architect.REPAIR_PROMPT": architect.Architect.REPAIR_PROMPT,
         "FunctionalAnalyst": functional_analyst.FunctionalAnalyst(settings).runner.prompt,
-        "FunctionalAnalyst.REPAIR_PROMPT": functional_analyst.FunctionalAnalyst.REPAIR_PROMPT,
     }
 
 

@@ -9,7 +9,12 @@ from jri.core.ai import LLMRunner
 from jri.core.settings import Settings
 from jri.lib import prompt
 
-type Result = Ambiguities | Patch
+type Result = Ambiguities | Specifications
+
+
+class File(BaseModel):
+    path: str
+    content: str
 
 
 class Input(BaseModel):
@@ -25,22 +30,17 @@ class Ambiguities(BaseModel):
     ambiguities: list[str]
 
 
-class Patch(BaseModel):
-    outcome: Literal["specification_patch"]
-    patch: str
+class Specifications(BaseModel):
+    outcome: Literal["specifications"]
+    files: list[File]
+    deleted_paths: list[str]
 
 
 class Output(BaseModel):
-    result: Ambiguities | Patch
+    result: Ambiguities | Specifications
 
 
 class FunctionalAnalyst:
-    REPAIR_PROMPT = (
-        "Git rejected the patch below. Return only a `specification_patch` carrying the same intended change,\n"
-        "rewritten so `git apply` accepts it against the accepted functional specifications. Hunks must not\n"
-        "overlap, and every context line must match its file exactly."
-    )
-
     def __init__(self, settings: Settings) -> None:
         profile = settings.agents.functional_analyst
         self.runner = LLMRunner(
@@ -67,9 +67,11 @@ class FunctionalAnalyst:
                 "Output:\n"
                 "    - Return `ambiguities` when any unresolved behavioral decision blocks a single\n"
                 "      faithful implementation and the notebook has not delegated it to you by name.\n"
-                "    - Otherwise return `specification_patch` containing a standard Git unified diff\n"
-                "      against the supplied accepted functional specifications. Restrict the patch to\n"
-                f"      Markdown files under `{paths.FUNCTIONAL_SPECS_ROOT}/`.\n"
+                "    - Otherwise return `specifications`, carrying for every file you change its\n"
+                "      complete final content: the whole file as it must end up, never an excerpt, a\n"
+                "      fragment, or a diff. A file you leave out keeps the content the accepted\n"
+                "      functional specifications give it, and a file you remove is named under\n"
+                f"      `deleted_paths`. Every path is a Markdown file under `{paths.FUNCTIONAL_SPECS_ROOT}/`.\n"
                 "\n"
                 "Behavioral authority:\n"
                 "    - The complete current notebook is authoritative. The notebook diff only shows\n"
@@ -92,8 +94,9 @@ class FunctionalAnalyst:
                 "Revision rules:\n"
                 "    - When Architect feedback is supplied, resolve it against the whole notebook and\n"
                 "      its delegated authority.\n"
-                "    - The rejected draft is context only. Produce a complete replacement patch from\n"
-                "      the accepted baseline.\n"
+                "    - The rejected draft is context only, and a file you leave out falls back to the\n"
+                "      accepted baseline rather than to the draft. Rewrite every file the draft\n"
+                "      changed that still needs changing, not only the ones the feedback names.\n"
                 "    - Escalate feedback as ambiguities when it requires user authority, exposes\n"
                 "      contradictory requirements, or has materially different behavioral solutions\n"
                 "      whose choice the notebook has not delegated to you by name."
@@ -103,21 +106,6 @@ class FunctionalAnalyst:
     def write(self, context: Input, cancelled: Event) -> Result | None:
         output = self.runner.parse(self._build_input(context), Output, cancelled)
         return None if output is None else output.result
-
-    def repair(self, context: Input, patch: str, error: str, cancelled: Event) -> str | None:
-        output = self.runner.parse(
-            [
-                *self._build_input(context),
-                # Instructions of ours are told apart from the quoted
-                # data they are about, since a block is what the model
-                # is told never to obey.
-                {"role": "user", "content": self.REPAIR_PROMPT},
-                {"role": "user", "content": prompt.render(rejected_patch=patch, git_error=error)},
-            ],
-            Patch,
-            cancelled,
-        )
-        return None if output is None else output.patch
 
     def _build_input(self, context: Input) -> ResponseInputParam:
         return [

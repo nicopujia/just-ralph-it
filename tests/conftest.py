@@ -46,7 +46,9 @@ def run_git() -> RunGit:
 def create_link() -> CreateLink:
     def create(path: Path, target: Path) -> None:
         try:
-            path.symlink_to(target)
+            # Windows keeps a link to a directory apart from a link to
+            # a file, and refuses to follow one made as the other.
+            path.symlink_to(target, target_is_directory=target.is_dir())
         except OSError as error:
             pytest.skip(f"a link needs a privilege this machine withholds: {error}")
 

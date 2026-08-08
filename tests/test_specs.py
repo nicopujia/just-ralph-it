@@ -2,7 +2,7 @@ import json
 import re
 import shutil
 import sys
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Never
 
@@ -39,137 +39,11 @@ new file mode 100644
 @@ -0,0 +1 @@
 +# Behavior
 """
-FUNCTIONAL_PATCH = """\
-diff --git a/functional/behavior.md b/functional/behavior.md
-new file mode 100644
---- /dev/null
-+++ b/functional/behavior.md
-@@ -0,0 +1 @@
-+# Behavior
-"""
-ARCHITECTURE_PATCH = """\
-diff --git a/architecture/design.md b/architecture/design.md
-new file mode 100644
---- /dev/null
-+++ b/architecture/design.md
-@@ -0,0 +1 @@
-+# Design
-"""
-MISCOUNTED_FUNCTIONAL_PATCH = """\
-diff --git a/functional/behavior.md b/functional/behavior.md
-new file mode 100644
---- /dev/null
-+++ b/functional/behavior.md
-@@ -0,0 +1,9 @@
-+# Behavior
-+Totals are supported.
-"""
-RENAME_PATCH = """\
-diff --git a/functional/behavior.md b/functional/other.md
-similarity index 100%
-rename from functional/behavior.md
-rename to ../../../escape.md
-"""
-FUNCTIONAL_UPDATE = """\
-diff --git a/functional/behavior.md b/functional/behavior.md
---- a/functional/behavior.md
-+++ b/functional/behavior.md
-@@ -1 +1,2 @@
- # Behavior
-+Total output is supported.
-"""
-ARCHITECTURE_UPDATE = """\
-diff --git a/architecture/design.md b/architecture/design.md
---- a/architecture/design.md
-+++ b/architecture/design.md
-@@ -1 +1,2 @@
- # Design
-+Add a total accumulator.
-"""
-UNMATCHED_FUNCTIONAL_UPDATE = """\
-diff --git a/functional/behavior.md b/functional/behavior.md
---- a/functional/behavior.md
-+++ b/functional/behavior.md
-@@ -1 +1,2 @@
- # Never written
-+Total output is supported.
-"""
-SECTIONED_ARCHITECTURE_PATCH = """\
-diff --git a/architecture/design.md b/architecture/design.md
-new file mode 100644
---- /dev/null
-+++ b/architecture/design.md
-@@ -0,0 +1,3 @@
-+# Design
-+The store keeps orders.
-+Everything runs offline.
-"""
-CONTEXT_FREE_ARCHITECTURE_UPDATE = """\
-diff --git a/architecture/design.md b/architecture/design.md
---- a/architecture/design.md
-+++ b/architecture/design.md
-@@ -2 +2,2 @@
- The store keeps orders.
-+The reporter renders totals.
-"""
-FUNCTIONAL_PAIR_PATCH = """\
-diff --git a/functional/behavior.md b/functional/behavior.md
-new file mode 100644
---- /dev/null
-+++ b/functional/behavior.md
-@@ -0,0 +1 @@
-+# Behavior
-diff --git a/functional/exports.md b/functional/exports.md
-new file mode 100644
---- /dev/null
-+++ b/functional/exports.md
-@@ -0,0 +1 @@
-+# Exports
-"""
-FUNCTIONAL_DELETION_PATCH = """\
-diff --git a/functional/exports.md b/functional/exports.md
-deleted file mode 100644
---- a/functional/exports.md
-+++ /dev/null
-@@ -1 +0,0 @@
--# Exports
-"""
-TIMEOUT_PROSE_PATCH = """\
-diff --git a/functional/behavior.md b/functional/behavior.md
-new file mode 100644
---- /dev/null
-+++ b/functional/behavior.md
-@@ -0,0 +1,2 @@
-+# Behavior
-+An export request times out after 120000 milliseconds.
-"""
-BINARY_PROSE_PATCH = """\
-diff --git a/functional/behavior.md b/functional/behavior.md
-new file mode 100644
---- /dev/null
-+++ b/functional/behavior.md
-@@ -0,0 +1,3 @@
-+# Behavior
-+Binary files are stored outside the repository.
-+A GIT binary patch never belongs in a specification.
-"""
-OPERATOR_PROSE_PATCH = """\
-diff --git a/functional/behavior.md b/functional/behavior.md
-new file mode 100644
---- /dev/null
-+++ b/functional/behavior.md
-@@ -0,0 +1,2 @@
-+# Behavior
-+++ and -- adjust the quantity of an order line.
-"""
-SPACED_NAME_PATCH = """\
-diff --git a/functional/user guide.md b/functional/user guide.md
-new file mode 100644
---- /dev/null
-+++ b/functional/user guide.md
-@@ -0,0 +1 @@
-+# User guide
-"""
+ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
+FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
+FUNCTIONAL_PAIR_FILES = {"functional/behavior.md": "# Behavior\n", "functional/exports.md": "# Exports\n"}
+UPDATED_ARCHITECTURE_FILES = {"architecture/design.md": "# Design\nAdd a total accumulator.\n"}
+UPDATED_FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\nTotal output is supported.\n"}
 # A specification far longer than `WRITE_BOUND`, so a write the kernel
 # cuts off at that bound leaves a beginning of one behind. The update
 # rewrites a single line, which `git apply` carries out by writing the
@@ -328,24 +202,40 @@ def find_accepted_commit(path: Path) -> str | None:
     return git.Repository(path).find_commit(ACCEPTANCE_TRAILER)
 
 
-def build_client(functional_patch: str, architecture_patch: str = ARCHITECTURE_PATCH) -> FakeClient:
+def build_client(
+    functional: Mapping[str, str],
+    architecture: Mapping[str, str] = ARCHITECTURE_FILES,
+    *,
+    functional_deleted: Sequence[str] = (),
+    architecture_deleted: Sequence[str] = (),
+) -> FakeClient:
     return FakeClient(
         [streamed_reply("Repository report"), response(reply("Specifications ready."))],
         parsed=[
             functional_analyst.Output(
-                result=functional_analyst.Patch(outcome="specification_patch", patch=functional_patch)
+                result=functional_analyst.Specifications(
+                    outcome="specifications",
+                    files=[functional_analyst.File(path=path, content=content) for path, content in functional.items()],
+                    deleted_paths=list(functional_deleted),
+                )
             ),
-            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=architecture_patch)),
+            architect.Output(
+                result=architect.Architecture(
+                    outcome="architecture",
+                    files=[architect.File(path=path, content=content) for path, content in architecture.items()],
+                    deleted_paths=list(architecture_deleted),
+                )
+            ),
         ],
     )
 
 
 def successful_client() -> FakeClient:
-    return build_client(FUNCTIONAL_PATCH)
+    return build_client(FUNCTIONAL_FILES)
 
 
 def updated_client() -> FakeClient:
-    return build_client(FUNCTIONAL_UPDATE, ARCHITECTURE_UPDATE)
+    return build_client(UPDATED_FUNCTIONAL_FILES, UPDATED_ARCHITECTURE_FILES)
 
 
 def kill_a_run(path: Path, method: str, kill: object) -> None:
@@ -375,49 +265,6 @@ def test_commits_complete_specification_bundle(
         ".jri/specs/architecture/design.md",
         ".jri/specs/functional/behavior.md",
     ]
-    assert not run_git(tmp_path, "status", "--short")
-
-
-def test_commits_specifications_whose_patch_miscounts_its_hunk(
-    tmp_path: Path, create_repository: CreateRepository
-) -> None:
-    create_repository(tmp_path)
-    client = FakeClient(
-        [streamed_reply("Repository report"), response(reply("Specifications ready."))],
-        parsed=[
-            functional_analyst.Output(
-                result=functional_analyst.Patch(outcome="specification_patch", patch=MISCOUNTED_FUNCTIONAL_PATCH)
-            ),
-            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_PATCH)),
-        ],
-    )
-    conversation = build_conversation(tmp_path, client)
-
-    list(conversation.ralph())
-
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotals are supported.\n"
-    assert find_accepted_commit(tmp_path) is not None
-
-
-# The second generation is where a patch stops creating files and
-# starts editing them, so it is the first one whose hunks carry
-# context at all -- and the models write none of it after the change.
-def test_commits_specifications_whose_patch_carries_no_trailing_context(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
-) -> None:
-    create_repository(tmp_path)
-    list(build_conversation(tmp_path, build_client(FUNCTIONAL_PATCH, SECTIONED_ARCHITECTURE_PATCH)).ralph())
-    first_spec_commit = find_accepted_commit(tmp_path)
-    updated = build_conversation(tmp_path, build_client(FUNCTIONAL_UPDATE, CONTEXT_FREE_ARCHITECTURE_UPDATE))
-    updated.restore()
-
-    list(updated.ralph())
-
-    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == (
-        "# Design\nThe store keeps orders.\nThe reporter renders totals.\nEverything runs offline.\n"
-    )
-    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\nTotal output is supported.\n"
-    assert find_accepted_commit(tmp_path) not in {None, first_spec_commit}
     assert not run_git(tmp_path, "status", "--short")
 
 
@@ -712,11 +559,13 @@ def test_puts_back_the_specification_a_killed_acceptance_deleted(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
-    list(build_conversation(tmp_path, build_client(FUNCTIONAL_PAIR_PATCH)).ralph())
+    list(build_conversation(tmp_path, build_client(FUNCTIONAL_PAIR_FILES)).ralph())
     accepted = find_accepted_commit(tmp_path)
     with pytest.MonkeyPatch.context() as killed:
         killed.setattr(git.Repository, "stage", kill_the_run_before_staging)
-        conversation = build_conversation(tmp_path, build_client(FUNCTIONAL_DELETION_PATCH, ARCHITECTURE_UPDATE))
+        conversation = build_conversation(
+            tmp_path, build_client({}, UPDATED_ARCHITECTURE_FILES, functional_deleted=["functional/exports.md"])
+        )
         conversation.restore()
         with pytest.raises(KeyboardInterrupt):
             list(conversation.ralph())
@@ -1414,12 +1263,14 @@ def test_renders_a_specification_that_reads_like_a_file_header() -> None:
     assert rendered == f"File: functional/behavior.md\nContent:\n```\n{body}\n```"
 
 
-def test_commits_a_specification_the_analyst_deleted(
+def test_removes_the_specification_files_a_model_deleted(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
-    list(build_conversation(tmp_path, build_client(FUNCTIONAL_PAIR_PATCH)).ralph())
-    restarted = build_conversation(tmp_path, build_client(FUNCTIONAL_DELETION_PATCH, ARCHITECTURE_UPDATE))
+    list(build_conversation(tmp_path, build_client(FUNCTIONAL_PAIR_FILES)).ralph())
+    restarted = build_conversation(
+        tmp_path, build_client({}, UPDATED_ARCHITECTURE_FILES, functional_deleted=["functional/exports.md"])
+    )
     restarted.restore()
 
     list(restarted.ralph())
@@ -1433,87 +1284,65 @@ def test_commits_a_specification_the_analyst_deleted(
     assert not run_git(tmp_path, "status", "--short")
 
 
-def test_reports_a_valid_patch_that_git_never_applies(tmp_path: Path, create_repository: CreateRepository) -> None:
-    create_repository(tmp_path)
-    client = FakeClient(
-        [],
-        parsed=[
-            functional_analyst.Output(
-                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
-            ),
-            *[functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)] * 2,
-        ],
-    )
-    conversation = build_conversation(tmp_path, client)
-
-    finished = list(conversation.ralph())[-1]
-
-    assert isinstance(finished, TurnFinished)
-    assert finished.ending == "failed"
-    assert finished.detail == (
-        "JRI could not write the functional specifications it drafted, after 3 attempts. Nothing was "
-        "committed. Your notes stand, and your project keeps the specifications it already had."
-    )
-    assert find_accepted_commit(tmp_path) is None
-    assert not (tmp_path / ".jri/specs").exists()
-
-
-def test_keeps_the_accepted_specifications_when_a_patch_never_applies(
+def test_keeps_the_accepted_specifications_when_a_generation_fails(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
     list(build_conversation(tmp_path, successful_client()).ralph())
     first_spec_commit = find_accepted_commit(tmp_path)
-    client = FakeClient(
-        [],
-        parsed=[
-            functional_analyst.Output(
-                result=functional_analyst.Patch(outcome="specification_patch", patch=UNMATCHED_FUNCTIONAL_UPDATE)
-            ),
-            *[functional_analyst.Patch(outcome="specification_patch", patch=UNMATCHED_FUNCTIONAL_UPDATE)] * 2,
-        ],
-    )
-    conversation = build_conversation(tmp_path, client)
+    conversation = build_conversation(tmp_path, build_client({"functional/behavior.txt": "# Behavior\n"}))
     conversation.restore()
     conversation.interviewer.notebook.add(["Report the totals too."], "t1")
 
-    assert read_ending(conversation.ralph(), "JRI could not write the functional specifications") == "failed"
+    assert read_ending(conversation.ralph(), r"cannot change `functional/behavior\.txt`") == "failed"
 
     assert find_accepted_commit(tmp_path) == first_spec_commit
     assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
     assert [note.text for note in conversation.notebook.graph.notes] == ["Report the totals too."]
 
 
+# Two paths of a model's can each be a specification of the model's own
+# root and still not both be writable: a file cannot hold a file. The
+# run ends naming the one that failed, since a path nobody names is a
+# path nobody can act on.
+def test_reports_a_specification_path_the_filesystem_refuses(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    conversation = build_conversation(
+        tmp_path,
+        build_client({"functional/behavior.md": "# Behavior\n", "functional/behavior.md/nested.md": "# Nested\n"}),
+    )
+
+    assert read_ending(conversation.ralph(), "could not write the specification") == "failed"
+    assert find_accepted_commit(tmp_path) is None
+    assert not (tmp_path / ".jri/specs").exists()
+
+
+# The models write the files and Git writes the diff, so what reads
+# like patch metadata is metadata only once Git has composed it -- and
+# that diff is what the acceptance replays into the project.
 @pytest.mark.parametrize(
-    ("patch", "path", "content"),
+    ("path", "content"),
     [
+        ("functional/behavior.md", "# Behavior\nAn export request times out after 120000 milliseconds.\n"),
         (
-            TIMEOUT_PROSE_PATCH,
-            "functional/behavior.md",
-            "# Behavior\nAn export request times out after 120000 milliseconds.\n",
-        ),
-        (
-            BINARY_PROSE_PATCH,
             "functional/behavior.md",
             (
                 "# Behavior\nBinary files are stored outside the repository.\n"
                 "A GIT binary patch never belongs in a specification.\n"
             ),
         ),
-        (
-            OPERATOR_PROSE_PATCH,
-            "functional/behavior.md",
-            "# Behavior\n++ and -- adjust the quantity of an order line.\n",
-        ),
-        (SPACED_NAME_PATCH, "functional/user guide.md", "# User guide\n"),
+        ("functional/behavior.md", "# Behavior\n++ and -- adjust the quantity of an order line.\n"),
+        ("functional/user guide.md", "# User guide\n"),
     ],
     ids=["timeout-in-milliseconds", "binary-prose", "operator-prose", "spaced-file-name"],
 )
 def test_accepts_specifications_that_read_like_patch_metadata(
-    tmp_path: Path, patch: str, path: str, content: str, create_repository: CreateRepository
+    tmp_path: Path, path: str, content: str, create_repository: CreateRepository
 ) -> None:
     create_repository(tmp_path)
-    conversation = build_conversation(tmp_path, build_client(patch))
+    conversation = build_conversation(tmp_path, build_client({path: content}))
 
     list(conversation.ralph())
 
@@ -1547,65 +1376,123 @@ def test_refuses_architecture_specifications_edited_outside_jri(
     assert read_ending(conversation.ralph(), "differ from the ones JRI accepted") == "blocked"
 
 
+@pytest.mark.parametrize("deletes", [False, True], ids=["written", "deleted"])
 @pytest.mark.parametrize(
-    ("patch", "reason"),
+    ("path", "reason"),
     [
-        (
-            FUNCTIONAL_PATCH.replace(
-                "--- /dev/null\n+++ b/functional/behavior.md", "--- a/README.md\n+++ b/README.md"
-            ).replace("@@ -0,0 +1 @@", "@@ -1 +1 @@"),
-            r"README\.md",
-        ),
-        (FUNCTIONAL_PATCH.replace("new file mode 100644", "index 0000000..e69de29 120000"), "modes or symlinks"),
-        (FUNCTIONAL_PATCH.replace("new file mode 100644", "new file mode 100755"), "modes or symlinks"),
-        (FUNCTIONAL_PATCH.replace("new file mode 100644", "old mode 100644\nnew mode 100755"), "modes or symlinks"),
-        (FUNCTIONAL_PATCH.replace("+# Behavior", "GIT binary patch"), "binary files"),
-        (FUNCTIONAL_PATCH.replace("+# Behavior", "Binary files a/x.md and b/x.md differ"), "binary files"),
-        (
-            FUNCTIONAL_PATCH.replace("functional/behavior.md", "functional/../../../escape.md"),
-            r"cannot change `functional/\.\./\.\./\.\./escape\.md`",
-        ),
-        (FUNCTIONAL_PATCH.replace("behavior.md", "behavior.txt"), r"cannot change `functional/behavior\.txt`"),
-        (FUNCTIONAL_PATCH.replace("functional/behavior.md", "/etc/escape.md"), r"cannot change `/etc/escape\.md`"),
-        (
-            FUNCTIONAL_PATCH.replace("functional/behavior.md", "architecture/behavior.md"),
-            r"cannot change `architecture/behavior\.md`",
-        ),
-        (
-            FUNCTIONAL_PATCH.replace("functional/behavior.md", ".jri/specs/functional/behavior.md"),
-            r"cannot change `\.jri/specs/functional/behavior\.md`",
-        ),
-        (FUNCTIONAL_PATCH.replace("+++ b/functional/behavior.md", "+++ behavior.md"), "Malformed"),
-        (FUNCTIONAL_PATCH.replace("diff --git a/functional", "diff --git functional"), "Malformed"),
-        (RENAME_PATCH, r"cannot change `\.\./\.\./\.\./escape\.md`"),
-        ("", "at least one file"),
+        ("README.md", r"cannot change `README\.md`"),
+        ("functional/../../../escape.md", r"cannot change `functional/\.\./\.\./\.\./escape\.md`"),
+        ("functional/behavior.txt", r"cannot change `functional/behavior\.txt`"),
+        ("/etc/escape.md", r"cannot change `/etc/escape\.md`"),
+        ("architecture/behavior.md", r"cannot change `architecture/behavior\.md`"),
+        (".jri/specs/functional/behavior.md", r"cannot change `\.jri/specs/functional/behavior\.md`"),
+        ("functional", "cannot change `functional`"),
+        ("", "cannot change ``"),
+        ("functionally/behavior.md", r"cannot change `functionally/behavior\.md`"),
+        ("functional/nested/../behavior.md", r"cannot change `functional/nested/\.\./behavior\.md`"),
+        ("functional/beha\x00vior.md", "cannot change `functional/beha\x00vior\\.md`"),
     ],
     ids=[
         "outside-tree",
-        "symlink",
-        "executable",
-        "mode-change",
-        "binary-hunk",
-        "binary-summary",
         "traversal",
         "non-markdown",
         "absolute-path",
         "sibling-root",
         "real-workspace-path",
-        "malformed-header",
-        "malformed-diff-line",
-        "rename-escape",
-        "empty",
+        "root-itself",
+        "empty-path",
+        "root-prefix",
+        "inside-traversal",
+        "null-byte",
     ],
 )
-def test_refuses_unsafe_specification_patch(
-    tmp_path: Path, patch: str, reason: str, create_repository: CreateRepository
+def test_refuses_a_path_that_is_not_a_specification_of_its_root(
+    tmp_path: Path, path: str, reason: str, create_repository: CreateRepository, *, deletes: bool
 ) -> None:
     create_repository(tmp_path)
-    client = FakeClient(
-        [],
-        parsed=[functional_analyst.Output(result=functional_analyst.Patch(outcome="specification_patch", patch=patch))],
-    )
-    conversation = build_conversation(tmp_path, client)
+    files = {} if deletes else {path: "# Behavior\n"}
+    conversation = build_conversation(tmp_path, build_client(files, functional_deleted=[path] if deletes else []))
 
     assert read_ending(conversation.ralph(), reason) == "failed"
+    assert find_accepted_commit(tmp_path) is None
+    assert not (tmp_path / ".jri/specs").exists()
+
+
+def test_refuses_specifications_that_change_no_file(tmp_path: Path, create_repository: CreateRepository) -> None:
+    create_repository(tmp_path)
+    conversation = build_conversation(tmp_path, build_client({}))
+
+    assert read_ending(conversation.ralph(), "at least one file") == "failed"
+    assert find_accepted_commit(tmp_path) is None
+
+
+# A link answers to none of the rules the path itself is read against,
+# and `git apply` refused to write through one wherever it stood --
+# under the model's root, at it, or above it. Nothing else does now.
+@pytest.mark.parametrize(
+    ("linked", "path"),
+    [
+        (".jri", "functional/escape.md"),
+        (".jri/specs", "functional/escape.md"),
+        (".jri/specs/functional", "functional/escape.md"),
+        (".jri/specs/functional/nested", "functional/nested/escape.md"),
+    ],
+    ids=["workspace", "specification-tree", "model-root", "inside-the-root"],
+)
+def test_refuses_a_specification_a_link_would_put_outside_its_root(
+    tmp_path: Path, linked: str, path: str, create_repository: CreateRepository, create_link: CreateLink
+) -> None:
+    repository = create_repository(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    link = tmp_path / linked
+    link.parent.mkdir(parents=True, exist_ok=True)
+    create_link(link, outside)
+
+    with pytest.raises(SpecsError, match=rf"cannot change `{re.escape(path)}`"):
+        Specs(tmp_path).write(repository, {path: "# Escape\n"}, (), "functional")
+
+    assert not list(outside.rglob("*.md"))
+
+
+def test_writes_the_specification_files_a_model_returned(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path)
+    (tmp_path / ".gitignore").write_text(".jri/\n")
+    (tmp_path / ".jri/specs/functional").mkdir(parents=True)
+    (tmp_path / ".jri/specs/functional/gone.md").write_text("# Gone\n")
+    run_git(tmp_path, "add", "--force", ".gitignore", ".jri")
+    run_git(tmp_path, "commit", "-qm", "add specifications")
+
+    Specs(tmp_path).write(
+        repository,
+        {"functional/behavior.md": "# Behavior\n", "functional/nested/exports.md": "# Exports\n"},
+        ["functional/gone.md"],
+        "functional",
+    )
+
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/functional/nested/exports.md").read_text() == "# Exports\n"
+    assert not (tmp_path / ".jri/specs/functional/gone.md").exists()
+    # Staged, whatever the project's ignore rules say, because the diff
+    # the staging worktree hands the acceptance is read from the index.
+    assert run_git(tmp_path, "diff", "--cached", "--name-only").splitlines() == [
+        ".jri/specs/functional/behavior.md",
+        ".jri/specs/functional/gone.md",
+        ".jri/specs/functional/nested/exports.md",
+    ]
+
+
+# A path a model both writes and removes is a path it has said two
+# things about, and the removal is the later of them.
+def test_removes_a_specification_the_same_answer_also_wrote(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+
+    Specs(tmp_path).write(
+        repository, {"functional/behavior.md": "# Behavior\n"}, ["functional/behavior.md"], "functional"
+    )
+
+    assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()

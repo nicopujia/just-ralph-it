@@ -1,4 +1,4 @@
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Mapping, Sequence
 from pathlib import Path
 from threading import Event
 from typing import cast
@@ -19,54 +19,10 @@ from tests.doubles.workspace import install_workspace
 type Result = functional_analyst.Ambiguities | str | None
 type Row = ToolCallStarted | ToolCallFinished
 
-ARCHITECTURE_PATCH = """\
-diff --git a/architecture/design.md b/architecture/design.md
-new file mode 100644
---- /dev/null
-+++ b/architecture/design.md
-@@ -0,0 +1 @@
-+# Design
-"""
-FUNCTIONAL_PATCH = """\
-diff --git a/functional/behavior.md b/functional/behavior.md
-new file mode 100644
---- /dev/null
-+++ b/functional/behavior.md
-@@ -0,0 +1 @@
-+# Behavior
-"""
-FUNCTIONAL_UPDATE = """\
-diff --git a/functional/behavior.md b/functional/behavior.md
---- a/functional/behavior.md
-+++ b/functional/behavior.md
-@@ -1 +1,2 @@
- # Behavior
-+Total output is supported.
-"""
-FUNCTIONAL_DELETION_PATCH = """\
-diff --git a/functional/behavior.md b/functional/behavior.md
-deleted file mode 100644
---- a/functional/behavior.md
-+++ /dev/null
-@@ -1 +0,0 @@
--# Behavior
-"""
-ARCHITECTURE_DELETION_PATCH = """\
-diff --git a/architecture/design.md b/architecture/design.md
-deleted file mode 100644
---- a/architecture/design.md
-+++ /dev/null
-@@ -1 +0,0 @@
--# Design
-"""
-ARCHITECTURE_UPDATE = """\
-diff --git a/architecture/design.md b/architecture/design.md
---- a/architecture/design.md
-+++ b/architecture/design.md
-@@ -1 +1,2 @@
- # Design
-+Add a total accumulator.
-"""
+ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
+FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
+UPDATED_ARCHITECTURE_FILES = {"architecture/design.md": "# Design\nAdd a total accumulator.\n"}
+UPDATED_FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\nTotal output is supported.\n"}
 
 
 def build_workspace(path: Path, create_repository: CreateRepository) -> None:
@@ -100,14 +56,32 @@ def commit_specs() -> None:
     assert isinstance(commit, str)
 
 
-def written_specs() -> functional_analyst.Output:
+def written_specs(
+    files: Mapping[str, str] = FUNCTIONAL_FILES, deleted: Sequence[str] = ()
+) -> functional_analyst.Output:
     return functional_analyst.Output(
-        result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_PATCH)
+        result=functional_analyst.Specifications(
+            outcome="specifications",
+            files=[functional_analyst.File(path=path, content=content) for path, content in files.items()],
+            deleted_paths=list(deleted),
+        )
     )
 
 
-def designed_architecture() -> architect.Output:
-    return architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_PATCH))
+def designed_architecture(
+    files: Mapping[str, str] = ARCHITECTURE_FILES, deleted: Sequence[str] = ()
+) -> architect.Output:
+    return architect.Output(result=drafted_architecture(files, deleted))
+
+
+def drafted_architecture(
+    files: Mapping[str, str] = ARCHITECTURE_FILES, deleted: Sequence[str] = ()
+) -> architect.Architecture:
+    return architect.Architecture(
+        outcome="architecture",
+        files=[architect.File(path=path, content=content) for path, content in files.items()],
+        deleted_paths=list(deleted),
+    )
 
 
 def reported_issues(*issues: str) -> architect.Output:
@@ -176,12 +150,7 @@ def test_writes_specifications_without_diffing_the_topics_the_user_threw_away(
     Notebook(tmp_path / paths.NOTEBOOK_FILE).add(["Export the data as CSV."], "t1")
     client = FakeClient(
         [streamed_reply("Repository report")],
-        parsed=[
-            functional_analyst.Output(
-                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
-            ),
-            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_UPDATE)),
-        ],
+        parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture(UPDATED_ARCHITECTURE_FILES)],
     )
 
     _, result = generate(client)
@@ -249,22 +218,8 @@ def test_stops_a_run_without_touching_the_project(
 
 @pytest.mark.parametrize(
     "queue_responses",
-    [
-        lambda cancelled: [stopped_stream(cancelled)],
-        lambda cancelled: [
-            functional_analyst.Output(
-                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
-            ),
-            stopped_stream(cancelled),
-        ],
-        lambda cancelled: [written_specs(), stopped_stream(cancelled)],
-        lambda cancelled: [
-            written_specs(),
-            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_UPDATE)),
-            stopped_stream(cancelled),
-        ],
-    ],
-    ids=["writing", "repairing-the-specifications", "designing", "repairing-the-architecture"],
+    [lambda cancelled: [stopped_stream(cancelled)], lambda cancelled: [written_specs(), stopped_stream(cancelled)]],
+    ids=["writing", "designing"],
 )
 def test_stops_a_run_while_a_model_is_still_answering(
     queue_responses: Callable[[Event], list[object]],
@@ -414,6 +369,36 @@ def test_sends_the_architect_issues_back_to_the_functional_analyst(
     assert "Architect feedback:\n  - Undefined totals.\n  - Unclear export." in revision
 
 
+# A round starts from a fresh checkout of the accepted baseline, so a
+# file the analyst leaves out of its answer keeps the content that
+# baseline gives it -- which is what the revision rule tells the
+# analyst, and what makes an answer naming one file a whole answer.
+def test_keeps_the_accepted_specification_a_round_left_out(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    client = FakeClient(
+        [streamed_reply("Repository report")],
+        parsed=[written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}), designed_architecture()],
+    )
+    generate(client)
+    Notebook(tmp_path / paths.NOTEBOOK_FILE).add(["Report the totals too."], "t1")
+
+    _, result = generate(
+        FakeClient(
+            [streamed_reply("Repository report")],
+            parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture()],
+        )
+    )
+
+    assert isinstance(result, str)
+    assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "exports.md").read_text() == "# Exports\n"
+    assert run_git(tmp_path, "show", "--format=", "--name-only").splitlines() == [
+        ".jri/notebook.yaml",
+        ".jri/specs/functional/behavior.md",
+    ]
+
+
 def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     parsed: list[object] = [
@@ -421,12 +406,12 @@ def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_r
         for _ in range(specs_generation.MAX_CYCLES - 1)
         for item in (written_specs(), reported_issues("Unclear export."))
     ]
-    parsed.extend([written_specs(), architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_PATCH)])
+    parsed.extend([written_specs(), drafted_architecture()])
     client = FakeClient([streamed_reply("Repository report")], parsed=parsed)
 
     rows, result = generate(client)
 
-    assert client.responses.options[-1]["text_format"] is architect.Patch
+    assert client.responses.options[-1]["text_format"] is architect.Architecture
     assert len([row for row in rows if isinstance(row, ToolCallStarted) and "polish" in row.call_id]) == (
         specs_generation.MAX_CYCLES - 1
     )
@@ -528,111 +513,45 @@ def test_refuses_an_empty_repository_report(tmp_path: Path, create_repository: C
         generate(client)
 
 
-def test_refuses_a_patch_that_deletes_every_functional_specification(
+def test_refuses_an_analyst_that_deletes_every_functional_specification(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
     commit_specs()
-    client = FakeClient(
-        [],
-        parsed=[
-            functional_analyst.Output(
-                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_DELETION_PATCH)
-            )
-        ],
-    )
+    client = FakeClient([], parsed=[written_specs({}, list(FUNCTIONAL_FILES))])
 
     with pytest.raises(SpecsError, match="Functional specifications cannot be empty"):
         generate(client)
 
 
-def test_refuses_a_patch_that_deletes_every_architecture_specification(
+def test_refuses_an_architect_that_deletes_every_architecture_specification(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
     commit_specs()
     client = FakeClient(
         [streamed_reply("Repository report")],
-        parsed=[
-            functional_analyst.Output(
-                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
-            ),
-            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_DELETION_PATCH)),
-        ],
+        parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture({}, list(ARCHITECTURE_FILES))],
     )
 
     with pytest.raises(SpecsError, match="Architecture specifications cannot be empty"):
         generate(client)
 
 
-def test_sends_a_rejected_functional_patch_back_to_the_analyst(
+def test_refuses_functional_specifications_that_leave_their_root(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[
-            functional_analyst.Output(
-                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
-            ),
-            functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_PATCH),
-            designed_architecture(),
-        ],
-    )
-
-    _, result = generate(client)
-
-    assert isinstance(result, str)
-    repair = next(prompt for prompt in read_prompts(client) if "Rejected patch:" in prompt)
-    assert FUNCTIONAL_UPDATE in repair
-    assert "Git error:" in repair
-
-
-def test_sends_a_rejected_architecture_patch_back_to_the_architect(
-    tmp_path: Path, create_repository: CreateRepository
-) -> None:
-    build_workspace(tmp_path, create_repository)
-    client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[
-            written_specs(),
-            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_UPDATE)),
-            architect.Patch(outcome="architecture_patch", patch=ARCHITECTURE_PATCH),
-        ],
-    )
-
-    _, result = generate(client)
-
-    assert isinstance(result, str)
-    assert (tmp_path / paths.ARCHITECTURE_SPECS_DIR / "design.md").read_text() == "# Design\n"
-
-
-def test_refuses_a_repaired_patch_that_leaves_its_root(tmp_path: Path, create_repository: CreateRepository) -> None:
-    build_workspace(tmp_path, create_repository)
-    client = FakeClient(
-        [],
-        parsed=[
-            functional_analyst.Output(
-                result=functional_analyst.Patch(outcome="specification_patch", patch=FUNCTIONAL_UPDATE)
-            ),
-            functional_analyst.Patch(outcome="specification_patch", patch=ARCHITECTURE_PATCH),
-        ],
-    )
+    client = FakeClient([], parsed=[written_specs(ARCHITECTURE_FILES)])
 
     with pytest.raises(SpecsError, match=r"cannot change `architecture/design\.md`"):
         generate(client)
 
 
-def test_refuses_an_architecture_patch_that_leaves_its_root(
-    tmp_path: Path, create_repository: CreateRepository
-) -> None:
+def test_refuses_an_architecture_that_leaves_its_root(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
-        [streamed_reply("Repository report")],
-        parsed=[
-            written_specs(),
-            architect.Output(result=architect.Patch(outcome="architecture_patch", patch=FUNCTIONAL_PATCH)),
-        ],
+        [streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture(FUNCTIONAL_FILES)]
     )
 
     with pytest.raises(SpecsError, match=r"cannot change `functional/behavior\.md`"):

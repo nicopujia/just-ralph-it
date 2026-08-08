@@ -1,7 +1,6 @@
 import logging
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from difflib import unified_diff
-from functools import partial
 from pathlib import Path, PurePosixPath
 from threading import Event
 
@@ -10,14 +9,12 @@ from jri.core.exceptions import PersistenceError, SpecsError
 from jri.core.notes import Notebook
 from jri.core.settings import Settings
 from jri.core.specs import Baseline, Specs
-from jri.lib import git
 
 from . import architect, functional_analyst
 
 type SpecsResult = functional_analyst.Ambiguities | str
 
 MAX_CYCLES = 10
-MAX_PATCH_ATTEMPTS = 3
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +43,8 @@ def generate(
     cycle = 0
 
     # The last cycle asks the architect to finish, which always
-    # answers with a patch, so the loop always ends with a result.
+    # answers with an architecture, so the loop always ends with a
+    # result.
     while True:
         cycle += 1
         logger.info("specs_cycle_started cycle=%d", cycle)
@@ -65,16 +63,12 @@ def generate(
             )
 
         with specs.repository.open_worktree(baseline.commit) as staging:
-            _apply_patch(
-                specs,
+            specs.write(
                 staging,
+                {file.path: file.content for file in functional_result.files},
+                functional_result.deleted_paths,
                 paths.FUNCTIONAL_SPECS_ROOT,
-                functional_result.patch,
-                partial(analyst.repair, functional_context),
-                cancelled,
             )
-            if cancelled.is_set():
-                return None
             functional = specs.read(staging.path, paths.FUNCTIONAL_SPECS_DIR)
             if not functional:
                 raise SpecsError("Functional specifications cannot be empty.")
@@ -108,14 +102,14 @@ def generate(
                 open_row = ai.ToolCallStarted("architecture", "Designing the project architecture", "📐")
                 yield open_row
 
-            context = architect.Input(
-                functional_specs=specs.render(functional),
-                accepted_architecture=specs.render(baseline.architecture),
-                tracked_repository_tree=list(specs.repository.read_worktree_paths()),
-                explorer_report=explorer_report,
-            )
-            architecture_result = (
-                designer.finish(context, cancelled) if cycle == MAX_CYCLES else designer.design(context, cancelled)
+            architecture_result = (designer.finish if cycle == MAX_CYCLES else designer.design)(
+                architect.Input(
+                    functional_specs=specs.render(functional),
+                    accepted_architecture=specs.render(baseline.architecture),
+                    tracked_repository_tree=list(specs.repository.read_worktree_paths()),
+                    explorer_report=explorer_report,
+                ),
+                cancelled,
             )
             if architecture_result is None:
                 return None
@@ -140,16 +134,12 @@ def generate(
                 )
                 continue
 
-            _apply_patch(
-                specs,
+            specs.write(
                 staging,
+                {file.path: file.content for file in architecture_result.files},
+                architecture_result.deleted_paths,
                 paths.ARCHITECTURE_SPECS_ROOT,
-                architecture_result.patch,
-                partial(designer.repair, context),
-                cancelled,
             )
-            if cancelled.is_set():
-                return None
             if not specs.read(staging.path, paths.ARCHITECTURE_SPECS_DIR):
                 raise SpecsError("Architecture specifications cannot be empty.")
             patch = staging.diff(baseline.commit, paths=(paths.FUNCTIONAL_SPECS_DIR, paths.ARCHITECTURE_SPECS_DIR))
@@ -196,41 +186,3 @@ def _build_functional_context(specs: Specs, baseline: Baseline) -> functional_an
         ),
         accepted_specs=specs.render(baseline.functional),
     )
-
-
-# A diff a model got slightly wrong is its mistake to correct, not a
-# reason to throw the whole run away, so the rejection goes back to
-# the model that wrote it. The safety validation runs on every try,
-# since a repaired patch is no more trusted than the first one.
-def _apply_patch(
-    specs: Specs,
-    staging: git.Repository,
-    root: str,
-    patch: str,
-    repair: Callable[[str, str, Event], str | None],
-    cancelled: Event,
-) -> None:
-    for attempt in range(1, MAX_PATCH_ATTEMPTS + 1):
-        try:
-            specs.apply(staging, patch, root)
-        except git.Error as error:
-            if attempt == MAX_PATCH_ATTEMPTS:
-                # Git's own rejection is a fact about a diff the user
-                # never saw, and it is already in the log twice over.
-                # What is theirs to know is that a run of theirs ended
-                # and what it left behind, which is nothing.
-                raise SpecsError(
-                    f"JRI could not write the {root} specifications it drafted, after "
-                    f"{MAX_PATCH_ATTEMPTS} attempts. Nothing was committed. Your notes stand, and your "
-                    "project keeps the specifications it already had."
-                ) from error
-            logger.info("patch_repair_requested root=%s attempt=%d", root, attempt)
-            repaired = repair(patch, str(error), cancelled)
-            # A repair the user stopped leaves the patch unapplied in a
-            # worktree the run is about to throw away, and the caller
-            # reads the stop rather than being told about it twice.
-            if repaired is None:
-                return
-            patch = repaired
-        else:
-            return

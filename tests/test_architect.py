@@ -11,20 +11,24 @@ CONTEXT = architect.Input(
     tracked_repository_tree=["README.md"],
     explorer_report="One Python package.",
 )
-PATCH = architect.Patch(outcome="architecture_patch", patch="diff --git a/architecture/x.md b/architecture/x.md\n")
+ARCHITECTURE = architect.Architecture(
+    outcome="architecture",
+    files=[architect.File(path="architecture/design.md", content="# Design\n")],
+    deleted_paths=[],
+)
 
 
 def build_architect(client: FakeClient) -> architect.Architect:
     return architect.Architect(build_settings(client))
 
 
-def test_designs_an_architecture_patch() -> None:
-    client = FakeClient([], parsed=[architect.Output(result=PATCH)])
+def test_designs_the_architecture_files() -> None:
+    client = FakeClient([], parsed=[architect.Output(result=ARCHITECTURE)])
 
-    assert build_architect(client).design(CONTEXT, Event()) == PATCH
+    assert build_architect(client).design(CONTEXT, Event()) == ARCHITECTURE
 
 
-def test_reports_functional_issues_instead_of_a_patch() -> None:
+def test_reports_functional_issues_instead_of_an_architecture() -> None:
     issues = architect.Issues(outcome="functional_specification_issues", issues=["Undefined totals."])
     client = FakeClient([], parsed=[architect.Output(result=issues)])
 
@@ -35,9 +39,9 @@ def test_reports_functional_issues_instead_of_a_patch() -> None:
 
 
 def test_leaves_the_final_pass_no_way_to_report_issues() -> None:
-    client = FakeClient([], parsed=[PATCH])
+    client = FakeClient([], parsed=[ARCHITECTURE])
 
-    assert build_architect(client).finish(CONTEXT, Event()) == PATCH
-    assert client.responses.options[-1]["text_format"] is architect.Patch
+    assert build_architect(client).finish(CONTEXT, Event()) == ARCHITECTURE
+    assert client.responses.options[-1]["text_format"] is architect.Architecture
     prompt = cast("list[dict[str, object]]", client.responses.inputs[-1])[0]["content"]
     assert str(prompt).endswith(architect.Architect.FINAL_PROMPT)

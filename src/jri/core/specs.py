@@ -1,6 +1,6 @@
 import logging
 import os
-from collections.abc import Generator
+from collections.abc import Generator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from itertools import pairwise
@@ -84,23 +84,54 @@ class Specs:
             architecture,
         )
 
-    def apply(self, repository: git.Repository, patch: str, model_root: str) -> None:
-        self._validate_patch(patch, model_root)
-        try:
-            # A model writes hunks with no trailing context, which Git
-            # otherwise takes for a patch against the end of a file and
-            # refuses anywhere else. The lines a hunk quotes still have
-            # to be in the file, `_validate_patch` above still allows no
-            # path but a Markdown specification under the model's own
-            # root, and the worktree this lands in is one the run throws
-            # away -- so what a hunk gains is the freedom to sit
-            # elsewhere in a file JRI wrote and is about to diff.
-            repository.apply_patch(patch.encode(), index=True, directory=paths.SPECS_DIR, zero_context=True)
-        except git.Error:
-            # The patch is the only evidence of why generation failed.
-            logger.exception("patch_rejected root=%s patch=%r", model_root, patch)
-            raise
-        logger.info("patch_applied root=%s characters=%d", model_root, len(patch))
+    def write(
+        self, repository: git.Repository, files: Mapping[str, str], deleted: Sequence[str], model_root: str
+    ) -> None:
+        if not files and not deleted:
+            raise SpecsError("Specifications must change at least one file.")
+        root = repository.path / paths.SPECS_DIR
+        # A path named on both sides is a file the model both wrote and
+        # removed, and the removal is the later word on it.
+        specifications: dict[Path, str | None] = {
+            self._locate_specification(repository.path, path, model_root): content for path, content in files.items()
+        } | {self._locate_specification(repository.path, path, model_root): None for path in deleted}
+        for destination, content in specifications.items():
+            try:
+                # Removed rather than opened, so a link standing where a
+                # specification goes is what JRI writes over instead of
+                # what it writes through.
+                destination.unlink(missing_ok=True)
+                if content is not None:
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_text(content, encoding="utf-8", newline="")
+            # What the filesystem refuses a path for -- a name it cannot
+            # hold, a directory where a file stands -- is a fact about
+            # the path a model returned, so the run ends naming it
+            # rather than unwinding as a fault of JRI's own.
+            except (OSError, ValueError) as error:
+                logger.exception("specification_write_failed path=%s", destination)
+                raise SpecsError(
+                    f"JRI could not write the specification `{destination.relative_to(root).as_posix()}` it "
+                    "drafted. Nothing was committed. Your notes stand, and your project keeps the "
+                    "specifications it already had."
+                ) from error
+        # A file Git does not track is one `git diff` says nothing
+        # about, so every path this write touched goes into the index
+        # the acceptance's diff is read against. `git add` refuses a
+        # whole command over one path that names nothing, and a
+        # deletion of a file Git never held is such a path with nothing
+        # to record besides -- so what is staged is what Git can see:
+        # the files this write left on disk, and the entries it took
+        # away from under Git. Forced, since `.jri` is JRI's to keep in
+        # Git whatever the project's ignore rules say about it.
+        touched = [destination.relative_to(repository.path).as_posix() for destination in specifications]
+        staged = sorted(
+            {path for path in touched if (repository.path / path).is_file()}
+            | set(repository.read_staged_paths(touched))
+        )
+        if staged:
+            repository.stage(staged, force=True)
+        logger.info("specifications_written root=%s files=%d deleted=%d", model_root, len(files), len(deleted))
 
     @staticmethod
     def read(worktree: Path, directory: str) -> dict[str, bytes]:
@@ -111,8 +142,8 @@ class Specs:
     def render(files: dict[str, bytes]) -> str:
         prefix = f"{paths.SPECS_DIR}/"
         # The path is JRI's own: an rglob over the specification tree
-        # named it, under a root `_validate_patch` bounds. So it stays
-        # prose, while the body a model wrote is quoted.
+        # named it, under a root `_locate_specification` bounds. So it
+        # stays prose, while the body a model wrote is quoted.
         return (
             "\n\n".join(
                 f"File: {path.removeprefix(prefix)}\n{prompt.render(content=content.decode())}"
@@ -461,13 +492,14 @@ class Specs:
             raise RepositoryStateError(
                 "Commit or remove these files before Ralphing:\n" + "\n".join(f"- {path}" for path in blockers)
             )
-        # What `_validate_patch` refuses inside a patch, the files JRI
-        # commits may not be either. Git records a link as the text of
-        # its target, so the notebook comes back out of the commit as a
-        # path where the notes should be, and a specification read out
-        # of a worktree is whatever the link points at -- a file that
-        # was never JRI's to show a model. These are `COMMITTED_PATHS`
-        # again, as the filesystem rather than Git spells them.
+        # What `_locate_specification` refuses a model's path for, the
+        # files JRI commits may not be either. Git records a link as
+        # the text of its target, so the notebook comes back out of the
+        # commit as a path where the notes should be, and a
+        # specification read out of a worktree is whatever the link
+        # points at -- a file that was never JRI's to show a model.
+        # These are `COMMITTED_PATHS` again, as the filesystem rather
+        # than Git spells them.
         committed = (
             self.workspace.config_file,
             self.workspace.gitignore_file,
@@ -481,47 +513,33 @@ class Specs:
                 + "\n".join(f"- {path}" for path in links)
             )
 
+    # Where a path a model returned lands, and the one bound every
+    # such path answers to: a Markdown file inside the model's own
+    # root, reached without following a link. A diff a model wrote was
+    # held to the same bound by JRI's own reading of its paths and by
+    # `git apply` refusing to write through a link. A file a model
+    # writes is held to it here, and nowhere else.
     @staticmethod
-    def _validate_patch(patch: str, model_root: str) -> None:
-        patch_paths: list[str] = []
-        in_hunk = False
-        for line in patch.splitlines():
-            # Only the metadata of a patch says what it changes, since
-            # a hunk body is prose that may read exactly like it. Every
-            # body line carries a prefix, which the metadata never has.
-            if in_hunk and (not line or line.startswith((" ", "+", "-", "\\"))):
-                continue
-            in_hunk = line.startswith("@@ ")
-            if in_hunk:
-                continue
-            if line == "GIT binary patch" or line.startswith("Binary files "):
-                raise SpecsError("Specification patches cannot contain binary files.")
-            if (
-                line.startswith(("old mode ", "new mode "))
-                or (line.startswith(("new file mode ", "deleted file mode ")) and not line.endswith(" 100644"))
-                or (line.startswith("index ") and line.endswith(" 120000"))
-            ):
-                raise SpecsError("Specification patches cannot change file modes or symlinks.")
-            if line.startswith("diff --git "):
-                # A file name may hold spaces, and Git leaves it
-                # unquoted, so the halves are told apart by the
-                # prefixes bounding them rather than by splitting.
-                header = line.removeprefix("diff --git ")
-                middle = header.find(" b/")
-                if not header.startswith("a/") or middle < 0:
-                    raise SpecsError("Malformed specification patch path.")
-                patch_paths.extend((header[2:middle], header[middle + len(" b/") :]))
-            elif line.startswith(("--- ", "+++ ")):
-                raw_path = line[4:].split("\t", maxsplit=1)[0]
-                if raw_path != "/dev/null":
-                    if not raw_path.startswith(("a/", "b/")):
-                        raise SpecsError("Malformed specification patch path.")
-                    patch_paths.append(raw_path[2:])
-            elif line.startswith(("rename from ", "rename to ", "copy from ", "copy to ")):
-                patch_paths.append(line.split(" ", maxsplit=2)[2])
-        if not patch_paths:
-            raise SpecsError("Specification patch must change at least one file.")
-        for raw_path in patch_paths:
-            path = PurePosixPath(raw_path)
-            if path.is_absolute() or ".." in path.parts or path.suffix != ".md" or not path.is_relative_to(model_root):
-                raise SpecsError(f"Specification patch cannot change `{raw_path}`.")
+    def _locate_specification(worktree: Path, raw_path: str, model_root: str) -> Path:
+        path = PurePosixPath(raw_path)
+        destination = worktree / paths.SPECS_DIR / path
+        try:
+            # A link anywhere between the worktree and the file answers
+            # to none of the rules below, which read the path and not
+            # the disk it names, and the bound is spelled out from the
+            # worktree Git itself made so that a link standing where a
+            # directory of JRI's own goes is caught here too. A name
+            # the filesystem will not even be asked about is no more a
+            # specification than one that leaves the root.
+            located = destination.resolve().parent.is_relative_to(worktree.resolve() / paths.SPECS_DIR / model_root)
+        except (OSError, ValueError):
+            located = False
+        if (
+            path.is_absolute()
+            or ".." in path.parts
+            or path.suffix != ".md"
+            or not path.is_relative_to(model_root)
+            or not located
+        ):
+            raise SpecsError(f"Specifications cannot change `{raw_path}`.")
+        return destination

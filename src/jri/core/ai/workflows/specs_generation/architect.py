@@ -9,7 +9,12 @@ from jri.core.ai import LLMRunner
 from jri.core.settings import Settings
 from jri.lib import prompt
 
-type Result = Issues | Patch
+type Result = Issues | Architecture
+
+
+class File(BaseModel):
+    path: str
+    content: str
 
 
 class Input(BaseModel):
@@ -24,24 +29,20 @@ class Issues(BaseModel):
     issues: list[str]
 
 
-class Patch(BaseModel):
-    outcome: Literal["architecture_patch"]
-    patch: str
+class Architecture(BaseModel):
+    outcome: Literal["architecture"]
+    files: list[File]
+    deleted_paths: list[str]
 
 
 class Output(BaseModel):
-    result: Issues | Patch
+    result: Issues | Architecture
 
 
 class Architect:
     FINAL_PROMPT = (
-        "This is the final architecture pass. Return only an `architecture_patch`. Resolve every remaining\n"
+        "This is the final architecture pass. Return only `architecture`. Resolve every remaining\n"
         "architectural choice yourself while preserving the functional specifications exactly."
-    )
-    REPAIR_PROMPT = (
-        "Git rejected the patch below. Return only an `architecture_patch` carrying the same intended change,\n"
-        "rewritten so `git apply` accepts it against the accepted architecture. Hunks must not overlap, and\n"
-        "every context line must match its file exactly."
     )
 
     def __init__(self, settings: Settings) -> None:
@@ -81,9 +82,11 @@ class Architect:
                 "    - Report every such issue found in the pass, not only the first. Each set you\n"
                 "      return costs a full re-analysis, so an incomplete list is a defect even when\n"
                 "      every issue in it is real.\n"
-                "    - Otherwise return `architecture_patch` containing a standard Git unified diff\n"
-                "      against the supplied accepted architecture. Restrict the patch to Markdown files\n"
-                f"      under `{paths.ARCHITECTURE_SPECS_ROOT}/`.\n"
+                "    - Otherwise return `architecture`, carrying for every file you change its\n"
+                "      complete final content: the whole file as it must end up, never an excerpt, a\n"
+                "      fragment, or a diff. A file you leave out keeps the content the accepted\n"
+                "      architecture gives it, and a file you remove is named under `deleted_paths`.\n"
+                f"      Every path is a Markdown file under `{paths.ARCHITECTURE_SPECS_ROOT}/`.\n"
                 "    - Architecture must be concrete enough to guide implementation without redefining\n"
                 "      product behavior."
             ),
@@ -93,25 +96,10 @@ class Architect:
         output = self.runner.parse(self._build_input(context, self.runner.prompt), Output, cancelled)
         return None if output is None else output.result
 
-    def finish(self, context: Input, cancelled: Event) -> Patch | None:
+    def finish(self, context: Input, cancelled: Event) -> Architecture | None:
         return self.runner.parse(
-            self._build_input(context, f"{self.runner.prompt}\n\n{self.FINAL_PROMPT}"), Patch, cancelled
+            self._build_input(context, f"{self.runner.prompt}\n\n{self.FINAL_PROMPT}"), Architecture, cancelled
         )
-
-    def repair(self, context: Input, patch: str, error: str, cancelled: Event) -> str | None:
-        output = self.runner.parse(
-            [
-                *self._build_input(context, self.runner.prompt),
-                # Instructions of ours are told apart from the quoted
-                # data they are about, since a block is what the model
-                # is told never to obey.
-                {"role": "user", "content": self.REPAIR_PROMPT},
-                {"role": "user", "content": prompt.render(rejected_patch=patch, git_error=error)},
-            ],
-            Patch,
-            cancelled,
-        )
-        return None if output is None else output.patch
 
     @staticmethod
     def _build_input(context: Input, instructions: str) -> ResponseInputParam:
