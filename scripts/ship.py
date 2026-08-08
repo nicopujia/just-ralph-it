@@ -16,6 +16,13 @@ import check
 # and uv_build keeps them out of the wheel and the sdist alike, so
 # they are the one thing there a release does not carry.
 CACHE_PATHSPEC = ":(exclude,glob)**/__pycache__/**"
+# The endings git chooses when asked which repository a directory
+# belongs to: nought with the answer, and 128 over a directory it
+# cannot enter and over one holding no repository, which are the same
+# answer here. Anything else is a git that never looked, and the empty
+# answer read off one of those is a remote `check_remote` waves
+# through -- including this repository itself.
+DIRECTORY_ANSWERS = frozenset({0, 128})
 # `--only` writes the paths it names, but it writes them through a
 # temporary index git hands the pre-commit hook in GIT_INDEX_FILE, and
 # a formatter hook that stages what it rewrites has that in the commit
@@ -271,6 +278,8 @@ def _read_repository(git: str, root: Path, url: str) -> str:
         stderr=subprocess.DEVNULL,
         encoding="utf-8",
     )
+    if read.returncode not in DIRECTORY_ANSWERS:
+        raise RuntimeError(f"Git ended at {read.returncode} over {url}, so whose repository it is went unanswered")
     return read.stdout.strip()
 
 
