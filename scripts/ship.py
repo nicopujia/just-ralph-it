@@ -55,8 +55,8 @@ def main() -> None:
     check_upstream(git, root, remote, ref)
     check_changes(git, root, frozenset())
     head = _read_git(git, root, "rev-parse", "HEAD")
-    bump_version(uv, root, version)
     try:
+        bump_version(uv, root, version)
         # publish.yml gates a release on this exact run, so a release
         # that cannot pass it is stopped here rather than on the tag.
         check.check_project(root, contracts=True)
@@ -69,11 +69,18 @@ def main() -> None:
         # whatever a `v` tag points at and no tag here has passed the
         # gate this run just ran.
         subprocess.run([git, "push", "--no-follow-tags", remote, f"HEAD:{ref}"], cwd=root, check=True)
-    except (RuntimeError, subprocess.CalledProcessError):
+    except BaseException:
         # The bump and the commit holding it are this script's own, and
         # the remote can take a commit while the gate runs, so a release
         # turned down at the push takes both back out rather than
         # leaving a `chore: version` for a release that never went out.
+        # Every way out is caught, not the two a check answers with: the
+        # gate parses every file under `src` and `tests` before it runs
+        # a command and then spends minutes running them, so the Ctrl-C
+        # of a developer who has thought better of it ends this run as
+        # readily as a check saying no, and it leaves the same tree
+        # behind -- one the next run refuses twice, at the version
+        # pyproject.toml now holds and at the changes it now carries.
         subprocess.run([git, "reset", "--soft", head], cwd=root, check=True)
         subprocess.run([git, "restore", "--staged", "--worktree", "--", *BUMPED_PATHS], cwd=root, check=True)
         raise
