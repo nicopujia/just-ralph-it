@@ -10,6 +10,7 @@ from openai.types.shared import ReasoningEffort
 
 from jri.core import ai
 from jri.core.exceptions import ModelError
+from jri.lib import prompt
 
 from .tool import DEFAULT_SYMBOL, Invocation, Tool
 
@@ -123,7 +124,10 @@ class Agent:
         elif tool:
             invocation = tool.invoke(arguments)
         else:
-            invocation = Invocation(f"Unknown tool `{name}`.", failed=True)
+            # The name is the model's own, so JRI's sentence about it
+            # is one that name can write a second, contradicting copy
+            # of, naming a tool this run does answer to.
+            invocation = Invocation(prompt.render(tool_call_failed=f"Unknown tool `{name}`."), failed=True)
         for event in invocation:
             yield event
             if cancelled.is_set():
