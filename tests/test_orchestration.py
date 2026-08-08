@@ -598,6 +598,30 @@ def test_resumes_the_draft_a_run_left_behind(
     ]
 
 
+# The row counts the draft, which is a delta: a specification the
+# project already holds is one the checkout put there, and no part of
+# what the run picked up. A mature specification tree would otherwise
+# report forty files for a draft that changed one.
+def test_counts_the_draft_rather_than_the_specifications_the_project_holds(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    build_workspace(tmp_path, create_repository)
+    commit_specs()
+    stopped = FakeClient(
+        [streamed_reply("Repository report")], parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture()]
+    )
+    generate(stopped, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
+    client = FakeClient(
+        [streamed_reply("Repository report")],
+        parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture(UPDATED_ARCHITECTURE_FILES)],
+    )
+
+    rows, result = generate(client)
+
+    assert isinstance(result, str)
+    assert read_rows(rows)[1] == ("ToolCallFinished", "resume", "Picked up a draft of 1 specification file")
+
+
 # A draft the project has moved past is refused whole, and refusing it
 # is not a failure of the run that met it: the run writes from the
 # specifications the project holds, commits, and never meets that draft

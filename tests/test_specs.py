@@ -45,6 +45,17 @@ new file mode 100644
 +# Behavior
 """
 ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
+# A draft that places, and places nothing under the specification
+# tree, so a run reading Git's ending would report specifications
+# picked up over a patch that never named one.
+FOREIGN_DRAFT = """\
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1 +1,2 @@
+ # Project
++Total output is supported.
+"""
 FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
 # A draft nothing of JRI's wrote: Git places a link wherever a patch
 # names one, and a link is a specification at neither end.
@@ -68,6 +79,16 @@ diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.
 -# Totals
 +# Behavior
 +Total output is supported.
+"""
+# A draft a write the kernel cut off left behind: the hunk header
+# still counts the lines the whole hunk had, and the body holds the
+# first of them.
+TRUNCATED_DRAFT = """\
+diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
+--- a/.jri/specs/functional/behavior.md
++++ b/.jri/specs/functional/behavior.md
+@@ -1 +1,2 @@
+ # Behavior
 """
 FUNCTIONAL_PAIR_FILES = {"functional/behavior.md": "# Behavior\n", "functional/exports.md": "# Exports\n"}
 UPDATED_ARCHITECTURE_FILES = {"architecture/design.md": "# Design\nAdd a total accumulator.\n"}
@@ -1782,6 +1803,56 @@ def test_refuses_a_draft_that_puts_a_link_where_a_specification_goes(
     assert not Workspace(tmp_path).draft_file.exists()
 
 
+# A draft cut off inside a hunk quotes fewer lines than its header
+# counts, and `git apply --recount` reads the body over the header, so
+# such a draft is a patch Git places and writes nothing of. What the
+# run picked up is weighed by reading the tree back, so a draft none
+# of which reached it is one no run reports picking up.
+def test_refuses_a_draft_cut_off_inside_its_hunk(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    write_draft(tmp_path, TRUNCATED_DRAFT)
+
+    with specs.repository.open_worktree(baseline.commit) as staging:
+        restored = specs.resume(staging)
+
+        assert restored is None
+        assert read_specifications(staging.path) == {
+            "architecture/design.md": "# Design\n",
+            "functional/behavior.md": "# Behavior\n",
+        }
+        assert not run_git(staging.path, "status", "--short")
+    assert not Workspace(tmp_path).draft_file.exists()
+
+
+# A draft is a file on the user's disk, so what Git places for it need
+# not be a specification at all. Nothing of the run's work is in such a
+# patch, and whatever it did place goes back out with it.
+def test_refuses_a_draft_that_places_no_specification(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    write_draft(tmp_path, FOREIGN_DRAFT)
+
+    with specs.repository.open_worktree(baseline.commit) as staging:
+        restored = specs.resume(staging)
+
+        assert restored is None
+        assert (staging.path / "README.md").read_text() == "# Project\n"
+        assert not run_git(staging.path, "status", "--short")
+    assert not Workspace(tmp_path).draft_file.exists()
+
+
+# What a run picks up is the delta the draft placed, and the
+# specifications the project already holds are no part of it: the
+# checkout put those there.
 def test_picks_up_the_draft_a_run_before_it_wrote(tmp_path: Path, create_repository: CreateRepository) -> None:
     create_repository(tmp_path)
     list(build_conversation(tmp_path, successful_client()).ralph())
@@ -1794,12 +1865,11 @@ def test_picks_up_the_draft_a_run_before_it_wrote(tmp_path: Path, create_reposit
     with specs.repository.open_worktree(baseline.commit) as staging:
         restored = specs.resume(staging)
 
-        assert restored is not None
+        assert restored == (".jri/specs/functional/behavior.md",)
         assert read_specifications(staging.path) == {
             "architecture/design.md": "# Design\n",
             "functional/behavior.md": UPDATED_FUNCTIONAL_FILES["functional/behavior.md"],
         }
-        assert sorted(restored) == [".jri/specs/architecture/design.md", ".jri/specs/functional/behavior.md"]
 
 
 # The run directory answers for itself in the ignore file JRI commits,

@@ -188,23 +188,24 @@ class Unchanged: ...
 
 
 # A run picking up where another left off says so where it says
-# everything else, in a row of its own, and what it says is read back
-# off the tree Git placed rather than asserted beside it. A draft the
-# project has moved past is no failure of this run's: it closes the row
-# empty and the run writes from the specifications the project holds,
-# which is exactly where a run with no draft starts. A run with nothing
-# to pick up opens no row at all, so the row appearing is itself the
-# news that this run resumed.
+# everything else, in a row of its own, and the number it closes with
+# is the specifications the tree holds that the checkout did not --
+# read back after Git wrote, never inferred from how Git ended. A draft
+# the project has moved past is no failure of this run's: it closes the
+# row empty and the run writes from the specifications the project
+# holds, which is exactly where a run with no draft starts. A run with
+# nothing to pick up opens no row at all, so the row appearing is
+# itself the news that this run resumed.
 def _resume(specs: Specs, staging: git.Repository) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished"]:
     if not specs.drafted:
         return
     yield ai.ToolCallStarted("resume", "Picking up the specifications a previous run drafted", "↩️")
-    restored = specs.resume(staging)
-    if restored is None:
+    drafted = specs.resume(staging)
+    if drafted is None:
         yield ai.ToolCallFinished("resume", "The drafted specifications no longer fit your project", "empty")
         return
-    logger.info("draft_resumed files=%d", len(restored))
-    yield ai.ToolCallFinished("resume", f"Picked up a draft of {len(restored)} specification files", "done")
+    logger.info("draft_resumed files=%d", len(drafted))
+    yield ai.ToolCallFinished("resume", _describe_picked_up(len(drafted)), "done")
 
 
 # A trashed topic is thinking the user threw away, so the analyst
@@ -234,6 +235,12 @@ def _build_functional_context(specs: Specs, baseline: Baseline, staging: git.Rep
         ),
         current_specs=specs.render(specs.read(staging.path, paths.FUNCTIONAL_SPECS_DIR)),
     )
+
+
+def _describe_picked_up(files: int) -> str:
+    if files == 1:
+        return "Picked up a draft of 1 specification file"
+    return f"Picked up a draft of {files} specification files"
 
 
 # The first round is the only one the notes alone explain; every round

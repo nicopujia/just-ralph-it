@@ -118,21 +118,34 @@ class Specs:
     # specifications the project holds` -- and Git is what puts that to
     # the test: the whole patch is weighed before any of it is written,
     # so a draft the specifications have moved past leaves the worktree
-    # exactly as the checkout left it. What Git can place may still not
-    # be a specification tree JRI can read back, since a patch nothing
-    # of JRI's wrote can put a link where a specification goes, so the
+    # exactly as the checkout left it. How Git ended is not what Git
+    # wrote, so what comes back is the tree read either side of the
+    # apply and weighed against itself: a draft none of which reached
+    # the specifications is one no run picked up, whatever Git's ending
+    # said, and the delta is the draft rather than the tree the
+    # checkout placed under it. What Git can place may still not be a
+    # specification tree JRI can read back, since a patch nothing of
+    # JRI's wrote can put a link where a specification goes, so the
     # tree is read here rather than by the round that would write
-    # against it. A draft that fails either test is one no run meets
+    # against it. A draft that fails any of this is one no run meets
     # again: it is dropped before anything else can go wrong, because a
     # draft that stops every run and outlives them all would leave the
     # user deleting a file JRI wrote.
-    def resume(self, repository: git.Repository) -> dict[str, bytes] | None:
+    def resume(self, repository: git.Repository) -> tuple[str, ...] | None:
         draft = self._read_draft()
         try:
+            checked_out = self.read(repository.path, paths.SPECS_DIR)
             repository.apply_patch(draft, index=True)
-            return self.read(repository.path, paths.SPECS_DIR)
+            placed = self.read(repository.path, paths.SPECS_DIR)
+            drafted = tuple(
+                path for path in sorted(checked_out.keys() | placed.keys()) if checked_out.get(path) != placed.get(path)
+            )
         except (git.Error, SpecsError):
             logger.info("draft_refused characters=%d", len(draft))
+        else:
+            if drafted:
+                return drafted
+            logger.info("draft_placed_nothing characters=%d", len(draft))
         self.workspace.drop_draft()
         # Whatever Git placed goes back out, so a refused draft costs
         # the run nothing but itself. A draft Git never placed has
