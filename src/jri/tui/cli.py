@@ -12,7 +12,7 @@ from jri.core import logs, visualization
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from jri.core.settings import Settings
-from jri.core.workspace import Workspace
+from jri.core.workspace import Hold, Workspace
 from jri.lib import files, git
 from jri.lib.providers import codex
 
@@ -74,6 +74,11 @@ def _chat() -> None:
     settings = _load_settings()
     logs.configure(settings)
     settings.llm.validate_authentication()
+    # Asked and answered before the app exists, so the question reaches
+    # a terminal nothing else is drawing in.
+    hold = Workspace.find().open_hold()
+    if not hold.take() and not _take_over(hold):
+        raise SystemExit(1)
     conversation = Conversation(settings)
     app = App(conversation)
     logger.info("started")
@@ -83,6 +88,7 @@ def _chat() -> None:
         logger.exception("failed")
         raise
     finally:
+        hold.release()
         logger.info("finished")
         logging.shutdown()
 
@@ -136,9 +142,28 @@ def _confirm_reset(workspace: Workspace) -> bool:
     if not existing:
         return True
     print(copy.FORCE_WARNING.format(paths="\n".join(f"- {files.shorten_path(target)}" for target in existing)))
+    return _confirm(copy.FORCE_PROMPT)
+
+
+def _take_over(hold: Hold) -> bool:
+    print(copy.WORKSPACE_HELD.format(holder=hold.holder))
+    if not _confirm(copy.WORKSPACE_HELD_PROMPT):
+        print(copy.WORKSPACE_HELD_KEPT)
+        return False
+    if not hold.evict():
+        print(copy.WORKSPACE_HELD_STANDING)
+        return False
+    return True
+
+
+def _confirm(prompt: str) -> bool:
     try:
-        return input(copy.FORCE_PROMPT).strip().casefold() in {"y", "yes"}
-    except EOFError:
+        return input(prompt).strip().casefold() in {"y", "yes"}
+    # A pipe with nothing in it, a runner, a terminal an editor owns
+    # and a keyboard that ends the line answer the same nothing, and a
+    # process started with no standard input at all has none to ask,
+    # which `input` reports as a broken state rather than an ending.
+    except (EOFError, RuntimeError):
         return False
 
 

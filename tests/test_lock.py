@@ -99,6 +99,62 @@ def test_reports_no_holder_for_a_lock_nothing_ever_took(tmp_path: Path) -> None:
     assert take(tmp_path / "lock")
 
 
+def test_takes_a_lock_nothing_holds_without_waiting_for_it(tmp_path: Path) -> None:
+    path = tmp_path / "lock"
+    lock = Lock(path)
+
+    assert lock.take()
+
+    assert not take(path)
+    lock.release()
+    assert take(path)
+
+
+def test_refuses_a_lock_another_process_holds_rather_than_waiting(tmp_path: Path) -> None:
+    path = tmp_path / "lock"
+
+    with hold(path):
+        started = time.monotonic()
+
+        assert not Lock(path).take()
+
+        assert time.monotonic() - started < HELD_FOR
+
+
+def test_hands_back_the_record_the_holder_wrote(tmp_path: Path) -> None:
+    path = tmp_path / "lock"
+    lock = Lock(path)
+
+    assert lock.take("12345")
+
+    # Read through a handle of its own while the lock stands, which is
+    # what a second process reading it has.
+    assert Lock(path).holder == "12345"
+    lock.release()
+
+
+def test_replaces_the_record_the_holder_before_it_wrote(tmp_path: Path) -> None:
+    path = tmp_path / "lock"
+    first = Lock(path)
+    assert first.take("123456789")
+    first.release()
+
+    second = Lock(path)
+    assert second.take("42")
+
+    assert Lock(path).holder == "42"
+    second.release()
+
+
+def test_hands_back_no_record_where_no_holder_wrote_one(tmp_path: Path) -> None:
+    path = tmp_path / "lock"
+
+    assert not Lock(path).holder
+
+    with Lock(path):
+        assert not Lock(path).holder
+
+
 def test_reports_a_lock_file_it_cannot_open_to_answer_who_holds_it(tmp_path: Path) -> None:
     path = tmp_path / "directory"
     path.mkdir()

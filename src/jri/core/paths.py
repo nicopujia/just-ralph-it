@@ -8,6 +8,15 @@ NOTEBOOK_FILE = f"{WORKSPACE_DIR}/notebook.yaml"
 SESSION_FILE = f"{WORKSPACE_DIR}/session.json"
 VISUALIZATION_FILE = f"{WORKSPACE_DIR}/visualization.html"
 
+# The lock one chat holds a project by, carrying the pid of the process
+# holding it.
+LOCK_FILE = f"{WORKSPACE_DIR}/lock"
+# Taking that lock and writing down who took it are one step, held
+# apart by this: a reader that gets through here while the lock is held
+# is reading the record of the process holding it, and never one the
+# holder before it left.
+CLAIM_FILE = f"{WORKSPACE_DIR}/lock.claim"
+
 GENERATION_DIR = f"{WORKSPACE_DIR}/generation"
 
 ACCEPTANCE_FILE = f"{GENERATION_DIR}/acceptance.json"

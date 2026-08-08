@@ -1,14 +1,23 @@
 import logging
+import os
 import shutil
+import signal
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 
 from jri.lib import git
+from jri.lib.lock import Lock
 
 from . import paths
+from .exceptions import PersistenceError
 from .notes import Notebook
 from .repository import Repository
+
+# A pid is a 32-bit number on both platforms, so a record naming
+# anything larger names no process and is not a record JRI wrote.
+MAX_PID = 2**31 - 1
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +105,17 @@ class Workspace:
         except OSError:
             logger.exception("draft_removal_failed path=%r", self.draft_file)
 
+    # One chat writes the notes, the conversation and the run, so one
+    # chat at a time has the project. Neither file is ever deleted:
+    # they are the two a live window may be holding this instant.
+    def open_hold(self) -> "Hold":
+        self.directory.mkdir(exist_ok=True, parents=True)
+        # Rooted and named one by one, so the rules answer for these
+        # two files and for nothing a specification tree happens to
+        # hold under the same names.
+        self._ignore(*(f"/{Path(path).name}" for path in (paths.LOCK_FILE, paths.CLAIM_FILE)))
+        return Hold(self)
+
     # What a run writes down while it works, and never what it commits.
     def open_generation_dir(self) -> Path:
         self.generation_dir.mkdir(exist_ok=True, parents=True)
@@ -155,3 +175,85 @@ class Installation:
     workspace: Workspace
     created: bool
     repository_created: bool
+
+
+class Hold:
+    # The claim is held for the two system calls that take the lock and
+    # name the taker, so one still standing after this is one nothing
+    # here can wait out.
+    CLAIMED_WITHIN = 1.0
+    # A window that stopped answering still holds the project, so what
+    # a takeover waits for is the operating system freeing the lock of
+    # a process that is gone.
+    FREED_WITHIN = 5.0
+    POLL = 0.05
+
+    def __init__(self, workspace: Workspace) -> None:
+        self.lock = Lock(workspace.root / paths.LOCK_FILE)
+        self.claim = Lock(workspace.root / paths.CLAIM_FILE)
+        self.holder: int | None = None
+
+    # Whether this process has the project now, and where it does not,
+    # the pid of the JRI that has it. The lock is what says the holder
+    # is running, since the operating system frees it when its holder
+    # dies; the record inside it is what says which process that is,
+    # and it was written under the claim this reads it under.
+    def take(self) -> bool:
+        if not self._claim():
+            raise PersistenceError(
+                f"JRI could not find out whether this project is already open: `{self.claim.path}` stayed locked. "
+                "Close any other JRI window, then try again."
+            )
+        try:
+            taken = self.lock.take(str(os.getpid()))
+            record = "" if taken else self.lock.holder
+        finally:
+            self.claim.release()
+        if taken:
+            self.holder = None
+            return True
+        if not record.isdigit() or int(record) > MAX_PID:
+            raise PersistenceError(
+                f"Something holds `{self.lock.path}` without saying what it is, so JRI will not end it. "
+                "Close any other JRI window, then try again."
+            )
+        self.holder = int(record)
+        logger.info("hold_refused holder=%d", self.holder)
+        return False
+
+    # The other window is killed rather than asked to close, since one
+    # that stopped answering would never hear the asking. What says it
+    # ended is the lock coming free -- the operating system's answer
+    # about the process -- and never the signal being sent.
+    def evict(self) -> bool:
+        holder = self.holder
+        if holder is not None:
+            logger.info("hold_eviction_started holder=%d", holder)
+            try:
+                # One process and never a group: what that window
+                # started is in a session of its own, and the terminal
+                # the user is sitting in is in this one.
+                os.kill(holder, signal.SIGTERM)
+            except OSError:
+                # A window that ended while the question stood is a
+                # window this has nothing left to end.
+                logger.exception("hold_kill_failed holder=%d", holder)
+        deadline = time.monotonic() + self.FREED_WITHIN
+        while not self.take():
+            if time.monotonic() >= deadline:
+                logger.info("hold_eviction_failed holder=%d", holder)
+                return False
+            time.sleep(self.POLL)
+        logger.info("hold_eviction_finished holder=%d", holder)
+        return True
+
+    def release(self) -> None:
+        self.lock.release()
+
+    def _claim(self) -> bool:
+        deadline = time.monotonic() + self.CLAIMED_WITHIN
+        while not self.claim.take():
+            if time.monotonic() >= deadline:
+                return False
+            time.sleep(self.POLL)
+        return True

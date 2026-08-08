@@ -114,4 +114,18 @@ VIEW_NO_NOTES = "The notebook has no notes yet. Run `jri chat` to start the inte
 VIEW_OPENED = "Wrote the notes graph to {file} and opened it in your browser."
 VIEW_UNOPENED = "Wrote the notes graph to {file}. Open it in a browser to see it."
 
+WORKSPACE_HELD = """Another JRI is already open in this project, in the window running process {holder}.
+
+One JRI at a time writes the notes and the conversation, so this one cannot start beside it.
+
+Taking over kills that window where it stands: the reply it is writing, and any Just Ralph It run it is in the
+middle of, are lost, and the terminal it was drawing in will need `reset`. What it has already saved is kept:
+the notes, the conversation, and the specifications a run had drafted.
+
+The answer comes from a lock in `.jri`, which JRI takes to be on a local disk. Over a network filesystem it is
+not dependable.
+"""
+WORKSPACE_HELD_KEPT = "The other window is still running, so this one did not start."
+WORKSPACE_HELD_PROMPT = "Type `y` to kill it and take over, or anything else to leave it running: "
+WORKSPACE_HELD_STANDING = "The other window did not let the project go. Close it, then run `jri chat` again."
 WORKSPACE_MISSING = "No JRI workspace here. Run `jri init` to create one."

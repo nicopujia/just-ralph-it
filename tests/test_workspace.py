@@ -1,4 +1,6 @@
+import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -6,14 +8,20 @@ import yaml
 
 from jri.core import paths
 from jri.core.conversation import Conversation
+from jri.core.exceptions import PersistenceError
 from jri.core.settings import Settings
-from jri.core.workspace import Installation, Workspace
+from jri.core.workspace import Hold, Installation, Workspace
 from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.acceptance import ROOT_QUESTION, WINDOW_MARKER, install_a_killing_git
+from tests.doubles.lock import hold
 from tests.doubles.openai import FakeClient
 from tests.doubles.settings import build_settings
-from tests.doubles.workspace import install_workspace
+from tests.doubles.workspace import hold_workspace, hold_workspace_slowly, install_workspace
+
+# Long enough that a read of the record lands inside it, and short
+# enough to sit inside the wait a claim is given.
+RECORDS_AFTER = 0.4
 
 
 def test_initializes_a_workspace_ready_to_use(tmp_path: Path) -> None:
@@ -251,6 +259,164 @@ def test_clears_a_run_directory_a_reset_asks_for(tmp_path: Path) -> None:
     install_workspace(tmp_path, force=True)
 
     assert not workspace.generation_dir.exists()
+
+
+def test_refuses_a_second_jri_in_one_project(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+
+    with hold_workspace(tmp_path) as window:
+        hold = Workspace(tmp_path).open_hold()
+
+        assert not hold.take()
+        # The window that has it, read out of the lock it holds rather
+        # than out of a file anything could have left behind.
+        assert hold.holder == window.pid
+
+
+def test_takes_over_the_project_from_the_window_it_killed(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+
+    with hold_workspace(tmp_path) as window:
+        hold = Workspace(tmp_path).open_hold()
+        assert not hold.take()
+
+        assert hold.evict()
+
+        assert window.poll() is not None, "the window that held the project is still running"
+        assert hold.holder is None
+        # A takeover leaves the project held rather than free: the
+        # window it killed is gone and this one has what it had.
+        assert not Workspace(tmp_path).open_hold().take()
+    hold.release()
+
+
+def test_takes_the_project_the_window_let_go_of_while_the_question_stood(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+
+    with hold_workspace(tmp_path) as window:
+        hold = Workspace(tmp_path).open_hold()
+        assert not hold.take()
+        window.kill()
+        window.wait()
+
+        assert hold.evict()
+
+        assert hold.holder is None
+    hold.release()
+
+
+def test_takes_the_project_a_killed_window_never_let_go_of(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+
+    with hold_workspace(tmp_path) as window:
+        window.kill()
+        window.wait()
+        hold = Workspace(tmp_path).open_hold()
+
+        assert hold.take()
+
+        # The lock outlives its holder as a file and not as a lock, so
+        # nothing here had to work out whose it was or take it away.
+        assert hold.lock.path.exists()
+        assert hold.holder is None
+    hold.release()
+
+
+def test_names_the_window_that_has_the_project_and_not_the_one_before_it(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+    with hold_workspace(tmp_path) as killed:
+        killed.kill()
+        killed.wait()
+
+    with hold_workspace_slowly(tmp_path, RECORDS_AFTER) as window:
+        hold = Workspace(tmp_path).open_hold()
+        started = time.monotonic()
+
+        assert not hold.take()
+
+        assert hold.holder == window.pid
+        assert hold.holder != killed.pid
+        # Waiting is what makes this a read taken while the record on
+        # disk was still the killed window's, so the pid handed back is
+        # the pid of the process the lock says is running.
+        assert time.monotonic() - started >= RECORDS_AFTER / 2
+
+
+def test_refuses_a_project_held_by_something_that_does_not_name_itself(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+
+    with hold_workspace(tmp_path, record="a name no pid has"), pytest.raises(PersistenceError, match="without saying"):
+        Workspace(tmp_path).open_hold().take()
+
+
+def test_refuses_a_project_whose_claim_it_cannot_settle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    monkeypatch.setattr(Hold, "CLAIMED_WITHIN", 0.1)
+
+    with hold(tmp_path / paths.CLAIM_FILE), pytest.raises(PersistenceError, match="stayed locked"):
+        workspace.open_hold().take()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a kill on Windows is a termination no process can turn down")
+def test_reports_the_window_that_would_not_let_the_project_go(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    install_workspace(tmp_path)
+    monkeypatch.setattr(Hold, "FREED_WITHIN", 0.3)
+
+    with hold_workspace(tmp_path, deaf=True) as window:
+        hold = Workspace(tmp_path).open_hold()
+        assert not hold.take()
+
+        assert not hold.evict()
+
+        # The signal went out and the lock stayed taken, so the project
+        # is the window's still and this run says so rather than
+        # starting a second JRI over it.
+        assert window.poll() is None
+        assert hold.holder == window.pid
+
+
+def test_frees_the_project_when_the_chat_holding_it_ends(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    hold = workspace.open_hold()
+    assert hold.take()
+
+    hold.release()
+
+    second = workspace.open_hold()
+    assert second.take()
+    second.release()
+
+
+def test_keeps_the_lock_a_chat_holds_out_of_the_project(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    workspace = install_workspace(tmp_path).workspace
+    repository = git.Repository(tmp_path)
+    tracked = repository.read_worktree_paths()
+
+    hold = workspace.open_hold()
+    assert hold.take()
+
+    assert repository.read_worktree_paths() == tracked
+    assert not repository.read_status((paths.LOCK_FILE, paths.CLAIM_FILE))
+    run_git(tmp_path, "add", "-A")
+    staged = repository.read_staged_paths()
+    assert not [path for path in staged if path in {paths.LOCK_FILE, paths.CLAIM_FILE}]
+    assert paths.GITIGNORE_FILE in staged
+    hold.release()
+
+
+def test_names_this_process_as_the_one_holding_the_project(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    hold = workspace.open_hold()
+
+    assert hold.take()
+
+    # What a second JRI reads to decide whose window it would be
+    # killing, so it says this one and never the pid of a run before it.
+    assert hold.lock.holder == str(os.getpid())
+    hold.release()
 
 
 def test_keeps_the_rest_of_the_project_when_resetting_the_workspace(tmp_path: Path) -> None:
