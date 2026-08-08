@@ -209,6 +209,12 @@ class Conversation:
             raise
 
         del self.session.transcript[checkpoint_index:]
+        # A rewind puts the notes back the way they stood before the
+        # turns it drops, so specifications a run drafted from the notes
+        # it dropped are work about a conversation that no longer
+        # happened. The next run writes from the specifications the
+        # project holds, exactly as this conversation last left them.
+        self.workspace.drop_draft()
         offer = self._stamp_offer()
         self.interviewer.offered_ralphing = False
         self.update_session(

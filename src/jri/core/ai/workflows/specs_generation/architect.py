@@ -19,7 +19,7 @@ class File(BaseModel):
 
 class Input(BaseModel):
     functional_specs: str
-    accepted_architecture: str
+    current_architecture: str
     tracked_repository_tree: list[str]
     explorer_report: str
 
@@ -84,7 +84,7 @@ class Architect:
                 "      every issue in it is real.\n"
                 "    - Otherwise return `architecture`, carrying for every file you change its\n"
                 "      complete final content: the whole file as it must end up, never an excerpt, a\n"
-                "      fragment, or a diff. A file you leave out keeps the content the accepted\n"
+                "      fragment, or a diff. A file you leave out keeps the content the current\n"
                 "      architecture gives it, and a file you remove is named under `deleted_paths`.\n"
                 f"      Every path is a Markdown file under `{paths.ARCHITECTURE_SPECS_ROOT}/`.\n"
                 "    - Architecture must be concrete enough to guide implementation without redefining\n"
@@ -109,7 +109,7 @@ class Architect:
                 "role": "user",
                 "content": prompt.render(
                     functional_specifications=context.functional_specs,
-                    accepted_architecture=context.accepted_architecture,
+                    current_architecture=context.current_architecture,
                     tracked_repository_tree=context.tracked_repository_tree,
                     repository_analysis_report=context.explorer_report,
                 ),

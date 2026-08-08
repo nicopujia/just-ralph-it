@@ -6,7 +6,7 @@ from tests.doubles.openai import FakeClient
 from tests.doubles.settings import build_settings
 
 CONTEXT = functional_analyst.Input(
-    notebook="Deploy from the main branch.", notebook_diff="+Deploy from the main branch.", accepted_specs="(empty)"
+    notebook="Deploy from the main branch.", notebook_diff="+Deploy from the main branch.", current_specs="(empty)"
 )
 SPECIFICATIONS = functional_analyst.Specifications(
     outcome="specifications",
@@ -43,20 +43,25 @@ def test_asks_for_a_first_draft_from_the_notebook_alone() -> None:
 
     request = read_request(client)
     assert "Current notebook:\n```\nDeploy from the main branch.\n```" in request
-    assert "Rejected functional draft:" not in request
+    assert "Architect feedback:" not in request
 
 
-def test_revises_against_the_rejected_draft_and_the_architect_feedback() -> None:
+# The analyst is asked to change the specifications it is shown, so
+# there is no second copy of them for a file it leaves out to fall back
+# to, and no draft named as rejected when it is the one being kept.
+def test_revises_the_specifications_as_they_stand_against_the_architect_feedback() -> None:
     client = FakeClient([], parsed=[functional_analyst.Output(result=SPECIFICATIONS)])
     context = CONTEXT.model_copy(
-        update={"rejected_specs": "File: functional/behavior.md", "architect_feedback": ["Undefined totals."]}
+        update={"current_specs": "File: functional/behavior.md", "architect_feedback": ["Undefined totals."]}
     )
 
     build_analyst(client).write(context, Event())
 
     request = read_request(client)
-    assert "Rejected functional draft:\n```\nFile: functional/behavior.md\n```" in request
+    assert "Current functional specifications:\n```\nFile: functional/behavior.md\n```" in request
     assert "Architect feedback:\n  - Undefined totals." in request
+    assert "Rejected functional draft:" not in request
+    assert "Accepted functional specifications:" not in request
 
 
 # A model copies the tail of the rule it followed into the

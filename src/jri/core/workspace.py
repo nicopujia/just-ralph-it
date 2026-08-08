@@ -1,3 +1,4 @@
+import logging
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,8 @@ from jri.lib import git
 from . import paths
 from .notes import Notebook
 from .repository import Repository
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -74,8 +77,24 @@ class Workspace:
         return self.root / paths.ACCEPTANCE_LOCK_FILE
 
     @property
+    def draft_file(self) -> Path:
+        return self.root / paths.DRAFT_FILE
+
+    @property
     def reset_paths(self) -> tuple[Path, ...]:
         return tuple(self.root / path for path in paths.RESET_PATHS)
+
+    # A draft states what it is a delta onto, and every run that picks
+    # one up puts that claim to Git before believing it, so a draft
+    # nothing can take away is refused rather than obeyed. That is why
+    # this reports a removal it could not make instead of raising one:
+    # a run stopped over a file JRI itself wrote would have no way out
+    # but the user deleting it.
+    def drop_draft(self) -> None:
+        try:
+            self.draft_file.unlink(missing_ok=True)
+        except OSError:
+            logger.exception("draft_removal_failed path=%r", self.draft_file)
 
     # What a run writes down while it works, and never what it commits.
     def open_generation_dir(self) -> Path:

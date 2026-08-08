@@ -46,6 +46,29 @@ new file mode 100644
 """
 ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
 FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
+# A draft nothing of JRI's wrote: Git places a link wherever a patch
+# names one, and a link is a specification at neither end.
+LINKED_DRAFT = """\
+diff --git a/.jri/specs/functional/link.md b/.jri/specs/functional/link.md
+new file mode 120000
+index 0000000..1234567
+--- /dev/null
++++ b/.jri/specs/functional/link.md
+@@ -0,0 +1 @@
++README.md
+\\ No newline at end of file
+"""
+# A draft written onto specifications the project has since moved
+# past, so the lines it quotes are not the ones standing there.
+STALE_DRAFT = """\
+diff --git a/.jri/specs/functional/behavior.md b/.jri/specs/functional/behavior.md
+--- a/.jri/specs/functional/behavior.md
++++ b/.jri/specs/functional/behavior.md
+@@ -1 +1,2 @@
+-# Totals
++# Behavior
++Total output is supported.
+"""
 FUNCTIONAL_PAIR_FILES = {"functional/behavior.md": "# Behavior\n", "functional/exports.md": "# Exports\n"}
 UPDATED_ARCHITECTURE_FILES = {"architecture/design.md": "# Design\nAdd a total accumulator.\n"}
 UPDATED_FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\nTotal output is supported.\n"}
@@ -205,6 +228,18 @@ def read_ending(events: Iterable[TurnEvent], reason: str = "") -> Ending:
 
 def find_accepted_commit(path: Path) -> str | None:
     return git.Repository(path).find_commit(ACCEPTANCE_TRAILER)
+
+
+def write_draft(path: Path, patch: str) -> None:
+    Workspace(path).open_generation_dir()
+    Workspace(path).draft_file.write_text(patch, encoding="utf-8", newline="\n")
+
+
+def read_specifications(worktree: Path) -> dict[str, str]:
+    return {
+        path.relative_to(worktree / ".jri/specs").as_posix(): path.read_text(encoding="utf-8")
+        for path in sorted((worktree / ".jri/specs").rglob("*.md"))
+    }
 
 
 def build_client(
@@ -1692,3 +1727,112 @@ def test_removes_a_specification_the_same_answer_also_wrote(
     )
 
     assert not (tmp_path / ".jri/specs/functional/behavior.md").exists()
+
+
+# A draft says it is a delta onto the specifications the project
+# holds, and Git is asked before a run believes it: the whole patch is
+# weighed before any of it lands, so a refusal leaves the run's
+# worktree exactly as the checkout made it.
+def test_refuses_a_draft_the_specifications_moved_past(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    write_draft(tmp_path, STALE_DRAFT)
+
+    with specs.repository.open_worktree(baseline.commit) as staging:
+        restored = specs.resume(staging)
+
+        assert restored is None
+        assert read_specifications(staging.path) == {
+            "architecture/design.md": "# Design\n",
+            "functional/behavior.md": "# Behavior\n",
+        }
+        assert not run_git(staging.path, "status", "--short")
+    assert not Workspace(tmp_path).draft_file.exists()
+
+
+# A draft is a file on the user's disk, so a patch nothing of JRI's
+# wrote can be there -- and Git will happily place a link where a
+# specification goes. `Specs.read` refuses such a tree, and a run that
+# only met that refusal after picking the draft up would end over it,
+# then meet the very same draft on the run after, and the one after
+# that.
+def test_refuses_a_draft_that_puts_a_link_where_a_specification_goes(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    write_draft(tmp_path, LINKED_DRAFT)
+
+    with specs.repository.open_worktree(baseline.commit) as staging:
+        restored = specs.resume(staging)
+
+        assert restored is None
+        assert not (staging.path / ".jri/specs/functional/link.md").is_symlink()
+        assert read_specifications(staging.path) == {
+            "architecture/design.md": "# Design\n",
+            "functional/behavior.md": "# Behavior\n",
+        }
+        assert not run_git(staging.path, "status", "--short")
+    assert not Workspace(tmp_path).draft_file.exists()
+
+
+def test_picks_up_the_draft_a_run_before_it_wrote(tmp_path: Path, create_repository: CreateRepository) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    with specs.repository.open_worktree(baseline.commit) as drafting:
+        specs.write(drafting, UPDATED_FUNCTIONAL_FILES, (), "functional")
+        specs.save_draft(drafting, baseline)
+
+    with specs.repository.open_worktree(baseline.commit) as staging:
+        restored = specs.resume(staging)
+
+        assert restored is not None
+        assert read_specifications(staging.path) == {
+            "architecture/design.md": "# Design\n",
+            "functional/behavior.md": UPDATED_FUNCTIONAL_FILES["functional/behavior.md"],
+        }
+        assert sorted(restored) == [".jri/specs/architecture/design.md", ".jri/specs/functional/behavior.md"]
+
+
+# The run directory answers for itself in the ignore file JRI commits,
+# so the draft is out of `git status`, out of the tree the architect is
+# shown, and out of the copy the repository study runs in.
+def test_keeps_a_draft_out_of_the_project(tmp_path: Path, create_repository: CreateRepository, run_git: RunGit) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+
+    with specs.repository.open_worktree(baseline.commit) as drafting:
+        specs.write(drafting, UPDATED_FUNCTIONAL_FILES, (), "functional")
+        specs.save_draft(drafting, baseline)
+
+    assert Workspace(tmp_path).draft_file.exists()
+    assert ".jri/generation/draft.patch" not in specs.repository.read_worktree_paths()
+    assert not run_git(tmp_path, "status", "--short")
+
+
+# A run whose specifications are the ones already committed composed
+# no delta at all, and an empty file is not a draft: it is a nothing
+# for the next run to make sense of.
+def test_forgets_a_draft_whose_specifications_the_project_already_holds(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    list(build_conversation(tmp_path, successful_client()).ralph())
+    specs = Specs(tmp_path)
+    baseline = specs.prepare()
+    write_draft(tmp_path, STALE_DRAFT)
+
+    with specs.repository.open_worktree(baseline.commit) as staging:
+        assert specs.save_draft(staging, baseline) == b""
+
+    assert not Workspace(tmp_path).draft_file.exists()

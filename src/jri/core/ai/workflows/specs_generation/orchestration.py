@@ -10,6 +10,7 @@ from jri.core.exceptions import PersistenceError, SpecsError
 from jri.core.notes import Notebook
 from jri.core.settings import Settings
 from jri.core.specs import Baseline, Specs
+from jri.lib import git
 
 from . import architect, functional_analyst
 
@@ -38,32 +39,41 @@ def generate(
     designer = architect.Architect(settings)
     baseline = specs.prepare()
     explorer_report: str | None = None
-    functional_context = _build_functional_context(specs, baseline)
     open_row = ai.ToolCallStarted("functional", "Writing functional specifications from your project notes", "✍️")
 
     cycle = 0
 
-    # The last cycle asks the architect to finish, which always
-    # answers with an architecture, so the loop always ends with a
-    # result.
-    while True:
-        cycle += 1
-        logger.info("specs_cycle_started cycle=%d", cycle)
-        if cycle == 1:
-            yield open_row
-        functional_result = analyst.write(functional_context, cancelled)
-        if functional_result is None:
-            return None
-        if isinstance(functional_result, functional_analyst.Ambiguities):
-            logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.ambiguities))
-            yield ai.ToolCallFinished(open_row.call_id, "Found project details to clarify", "done")
-            return functional_result
-        if cycle == 1:
-            yield ai.ToolCallFinished(
-                open_row.call_id, "Wrote functional specifications from your project notes", "done"
-            )
+    # One worktree for the whole run, and the specifications it holds
+    # are what every round writes onto. So a round answering the
+    # architect edits the draft the architect read, and what a run that
+    # ends early leaves behind is the draft as far as it got, saved
+    # after every write for the next run to pick up. Nothing is carried
+    # between the rounds as a list of what they settled: the draft is
+    # the settlement.
+    with specs.repository.open_worktree(baseline.commit) as staging:
+        yield from _resume(specs, staging)
+        functional_context = _build_functional_context(specs, baseline, staging)
 
-        with specs.repository.open_worktree(baseline.commit) as staging:
+        # The last cycle asks the architect to finish, which always
+        # answers with an architecture, so the loop always ends with a
+        # result.
+        while True:
+            cycle += 1
+            logger.info("specs_cycle_started cycle=%d", cycle)
+            if cycle == 1:
+                yield open_row
+            functional_result = analyst.write(functional_context, cancelled)
+            if functional_result is None:
+                return None
+            if isinstance(functional_result, functional_analyst.Ambiguities):
+                logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.ambiguities))
+                yield ai.ToolCallFinished(open_row.call_id, "Found project details to clarify", "done")
+                return functional_result
+            if cycle == 1:
+                yield ai.ToolCallFinished(
+                    open_row.call_id, "Wrote functional specifications from your project notes", "done"
+                )
+
             specs.write(
                 staging,
                 {file.path: file.content for file in functional_result.files},
@@ -73,6 +83,7 @@ def generate(
             functional = specs.read(staging.path, paths.FUNCTIONAL_SPECS_DIR)
             if not functional:
                 raise SpecsError("Functional specifications cannot be empty.")
+            specs.save_draft(staging, baseline)
 
             if explorer_report is None:
                 yield ai.ToolCallStarted("explorer", "Studying your existing project", "🔎")
@@ -106,7 +117,7 @@ def generate(
             architecture_result = (designer.finish if cycle == MAX_CYCLES else designer.design)(
                 architect.Input(
                     functional_specs=specs.render(functional),
-                    accepted_architecture=specs.render(baseline.architecture),
+                    current_architecture=specs.render(specs.read(staging.path, paths.ARCHITECTURE_SPECS_DIR)),
                     tracked_repository_tree=list(specs.repository.read_worktree_paths()),
                     explorer_report=explorer_report,
                 ),
@@ -128,10 +139,7 @@ def generate(
                 )
                 yield open_row
                 functional_context = functional_context.model_copy(
-                    update={
-                        "rejected_specs": specs.render(functional),
-                        "architect_feedback": architecture_result.issues,
-                    }
+                    update={"current_specs": specs.render(functional), "architect_feedback": architecture_result.issues}
                 )
                 continue
 
@@ -143,35 +151,36 @@ def generate(
             )
             if not specs.read(staging.path, paths.ARCHITECTURE_SPECS_DIR):
                 raise SpecsError("Architecture specifications cannot be empty.")
-            patch = staging.diff(baseline.commit, paths=(paths.FUNCTIONAL_SPECS_DIR, paths.ARCHITECTURE_SPECS_DIR))
+            patch = specs.save_draft(staging, baseline)
 
-        yield ai.ToolCallFinished(
-            open_row.call_id, "Designed the project architecture" if cycle == 1 else open_row.label, "done"
-        )
-        # The last moment a stop still costs the user nothing but the
-        # run: past the row below, the specifications are on their way
-        # into the project and the run sees it through.
-        if cancelled.is_set():
-            return None
-        # A generation that changes nothing is what the models
-        # concluded, not a failure of anyone's: they read the notes
-        # and wrote the specifications the project already holds.
-        # Git says so with an empty diff, and `git apply` refuses one
-        # -- so an acceptance over it would end the turn blaming a
-        # write that never happened, over a record no undo of that
-        # same empty patch can take back.
-        if not patch:
-            logger.info("specs_unchanged cycles=%d", cycle)
-            yield ai.ToolCallStarted("commit", "Comparing the specifications with your project", "💾")
-            yield ai.ToolCallFinished("commit", "Your project already holds these specifications", "done")
-            return Unchanged()
-        # Saving is a step of its own, so a project state that blocks
-        # the commit closes the row naming it rather than the design
-        # row, whose work was already done and is nowhere at fault.
-        yield ai.ToolCallStarted("commit", "Saving the specifications to your project", "💾")
-        commit = specs.accept(patch, baseline)
-        yield ai.ToolCallFinished("commit", "Saved the specifications to your project", "done")
-        return commit
+            yield ai.ToolCallFinished(
+                open_row.call_id, "Designed the project architecture" if cycle == 1 else open_row.label, "done"
+            )
+            # The last moment a stop still costs the user nothing but
+            # the run: past the row below, the specifications are on
+            # their way into the project and the run sees it through.
+            if cancelled.is_set():
+                return None
+            # A generation that changes nothing is what the models
+            # concluded, not a failure of anyone's: they read the notes
+            # and wrote the specifications the project already holds.
+            # Git says so with an empty diff, and `git apply` refuses
+            # one -- so an acceptance over it would end the turn blaming
+            # a write that never happened, over a record no undo of that
+            # same empty patch can take back.
+            if not patch:
+                logger.info("specs_unchanged cycles=%d", cycle)
+                yield ai.ToolCallStarted("commit", "Comparing the specifications with your project", "💾")
+                yield ai.ToolCallFinished("commit", "Your project already holds these specifications", "done")
+                return Unchanged()
+            # Saving is a step of its own, so a project state that
+            # blocks the commit closes the row naming it rather than the
+            # design row, whose work was already done and is nowhere at
+            # fault.
+            yield ai.ToolCallStarted("commit", "Saving the specifications to your project", "💾")
+            commit = specs.accept(patch, baseline)
+            yield ai.ToolCallFinished("commit", "Saved the specifications to your project", "done")
+            return commit
 
 
 # What a generation concluded when the specifications it wrote are
@@ -181,11 +190,33 @@ def generate(
 class Unchanged: ...
 
 
+# A run picking up where another left off says so where it says
+# everything else, in a row of its own, and what it says is read back
+# off the tree Git placed rather than asserted beside it. A draft the
+# project has moved past is no failure of this run's: it closes the row
+# empty and the run writes from the specifications the project holds,
+# which is exactly where a run with no draft starts. A run with nothing
+# to pick up opens no row at all, so the row appearing is itself the
+# news that this run resumed.
+def _resume(specs: Specs, staging: git.Repository) -> Generator["ai.ToolCallStarted | ai.ToolCallFinished"]:
+    if not specs.drafted:
+        return
+    yield ai.ToolCallStarted("resume", "Picking up the specifications a previous run drafted", "↩️")
+    restored = specs.resume(staging)
+    if restored is None:
+        yield ai.ToolCallFinished("resume", "The drafted specifications no longer fit your project", "empty")
+        return
+    logger.info("draft_resumed files=%d", len(restored))
+    yield ai.ToolCallFinished("resume", f"Picked up a draft of {len(restored)} specification files", "done")
+
+
 # A trashed topic is thinking the user threw away, so the analyst
 # reads the notebook without it -- on both sides of the diff, since a
 # document filtered against a raw one reports every topic ever trashed
-# as a change this generation has to answer for.
-def _build_functional_context(specs: Specs, baseline: Baseline) -> functional_analyst.Input:
+# as a change this generation has to answer for. The specifications it
+# writes onto are the ones standing in the run's own worktree, which is
+# the accepted baseline until a draft or an earlier round moves it.
+def _build_functional_context(specs: Specs, baseline: Baseline, staging: git.Repository) -> functional_analyst.Input:
     notebook = Notebook.exclude_trashed(baseline.notebook)
     try:
         accepted_notebook = Notebook.exclude_trashed(baseline.accepted_notebook)
@@ -204,5 +235,5 @@ def _build_functional_context(specs: Specs, baseline: Baseline) -> functional_an
                 tofile=f"b/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
             )
         ),
-        accepted_specs=specs.render(baseline.functional),
+        current_specs=specs.render(specs.read(staging.path, paths.FUNCTIONAL_SPECS_DIR)),
     )

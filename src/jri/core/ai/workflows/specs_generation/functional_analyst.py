@@ -20,8 +20,7 @@ class File(BaseModel):
 class Input(BaseModel):
     notebook: str
     notebook_diff: str
-    accepted_specs: str
-    rejected_specs: str | None = None
+    current_specs: str
     architect_feedback: list[str] | None = None
 
 
@@ -69,7 +68,7 @@ class FunctionalAnalyst:
                 "      faithful implementation and the notebook has not delegated it to you by name.\n"
                 "    - Otherwise return `specifications`, carrying for every file you change its\n"
                 "      complete final content: the whole file as it must end up, never an excerpt, a\n"
-                "      fragment, or a diff. A file you leave out keeps the content the accepted\n"
+                "      fragment, or a diff. A file you leave out keeps the content the current\n"
                 "      functional specifications give it, and a file you remove is named under\n"
                 f"      `deleted_paths`. Every path is a Markdown file under `{paths.FUNCTIONAL_SPECS_ROOT}/`.\n"
                 "\n"
@@ -92,11 +91,9 @@ class FunctionalAnalyst:
                 "      out of scope.\n"
                 "\n"
                 "Revision rules:\n"
-                "    - When Architect feedback is supplied, resolve it against the whole notebook and\n"
-                "      its delegated authority.\n"
-                "    - The rejected draft is context only, and a file you leave out falls back to the\n"
-                "      accepted baseline rather than to the draft. Rewrite every file the draft\n"
-                "      changed that still needs changing, not only the ones the feedback names.\n"
+                "    - When Architect feedback is supplied, it is about the current functional\n"
+                "      specifications: resolve it against the whole notebook and its delegated\n"
+                "      authority, and return only the files that resolving it changes.\n"
                 "    - Escalate feedback as ambiguities when it requires user authority, exposes\n"
                 "      contradictory requirements, or has materially different behavioral solutions\n"
                 "      whose choice the notebook has not delegated to you by name."
@@ -115,8 +112,7 @@ class FunctionalAnalyst:
                 "content": prompt.render(
                     current_notebook=context.notebook,
                     notebook_diff_from_accepted_baseline=context.notebook_diff,
-                    accepted_functional_specifications=context.accepted_specs,
-                    rejected_functional_draft=context.rejected_specs,
+                    current_functional_specifications=context.current_specs,
                     architect_feedback=context.architect_feedback,
                 ),
             },

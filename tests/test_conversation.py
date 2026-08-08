@@ -1005,6 +1005,22 @@ def test_keeps_the_offer_made_before_the_rewind_point() -> None:
     assert restarted.is_ready_to_ralph
 
 
+# A rewind puts the notes back the way they stood before the turns it
+# drops, so specifications a run drafted from the notes it dropped are
+# work about a conversation that no longer happened.
+def test_drops_the_draft_a_rewind_moved_past() -> None:
+    conversation = build_conversation(FakeClient([streamed_reply("Noted."), streamed_reply("Also noted.")]))
+    list(conversation.chat("We're ready."))
+    list(conversation.chat("One more thing."))
+    draft = conversation.workspace.draft_file
+    draft.parent.mkdir(parents=True, exist_ok=True)
+    draft.write_text("diff --git a/x b/x\n", encoding="utf-8")
+
+    conversation.rewind(1)
+
+    assert not draft.exists()
+
+
 def test_skips_tool_calls_that_are_not_replayed_when_rewinding() -> None:
     # Only the rounds a run without a second exploration needs, so
     # replaying `explore` would starve the turn after the rewind.

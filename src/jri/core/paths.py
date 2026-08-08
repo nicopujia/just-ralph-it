@@ -15,6 +15,7 @@ ACCEPTANCE_FILE = f"{GENERATION_DIR}/acceptance.json"
 # renamed away rather than on the name, so what an acceptance is held
 # by is a file no write of JRI's ever replaces.
 ACCEPTANCE_LOCK_FILE = f"{GENERATION_DIR}/acceptance.lock"
+DRAFT_FILE = f"{GENERATION_DIR}/draft.patch"
 
 LOGS_DIR = f"{WORKSPACE_DIR}/logs"
 

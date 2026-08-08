@@ -2,7 +2,7 @@ import logging
 import os
 import re
 from collections.abc import Generator, Iterable, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path, PurePosixPath
@@ -106,6 +106,40 @@ class Specs:
             functional,
             architecture,
         )
+
+    # Whether a run before this one left specifications it never got to
+    # commit. Nothing is recorded beside the draft to say so: the file
+    # is there or it is not, and what it holds is weighed by Git.
+    @property
+    def drafted(self) -> bool:
+        return self.workspace.draft_file.exists()
+
+    # A draft says one thing -- `I am what a run wrote onto the
+    # specifications the project holds` -- and Git is what puts that to
+    # the test: the whole patch is weighed before any of it is written,
+    # so a draft the specifications have moved past leaves the worktree
+    # exactly as the checkout left it. What Git can place may still not
+    # be a specification tree JRI can read back, since a patch nothing
+    # of JRI's wrote can put a link where a specification goes, so the
+    # tree is read here rather than by the round that would write
+    # against it. A draft that fails either test is one no run meets
+    # again: it is dropped before anything else can go wrong, because a
+    # draft that stops every run and outlives them all would leave the
+    # user deleting a file JRI wrote.
+    def resume(self, repository: git.Repository) -> dict[str, bytes] | None:
+        draft = self._read_draft()
+        try:
+            repository.apply_patch(draft, index=True)
+            return self.read(repository.path, paths.SPECS_DIR)
+        except (git.Error, SpecsError):
+            logger.info("draft_refused characters=%d", len(draft))
+        self.workspace.drop_draft()
+        # Whatever Git placed goes back out, so a refused draft costs
+        # the run nothing but itself. A draft Git never placed has
+        # nothing to take back, and says so by refusing the reverse.
+        with suppress(git.Error):
+            repository.apply_patch(draft, index=True, reverse=True)
+        return None
 
     def write(
         self, repository: git.Repository, files: Mapping[str, str], deleted: Sequence[str], model_root: str
@@ -215,6 +249,34 @@ class Specs:
             rendered.append(prompt.render(file=name, content=body))
         return "\n\n".join(rendered) or "(empty)"
 
+    # The run's work so far, written down where the next run will look
+    # for it and handed back as the patch this one would commit. Git
+    # composes it, so what is kept is a delta onto the specifications
+    # the project holds rather than anything a model said about one --
+    # and a run whose specifications are the ones already committed has
+    # composed nothing, which is a draft to take away rather than an
+    # empty file for the next run to make sense of.
+    def save_draft(self, repository: git.Repository, baseline: Baseline) -> bytes:
+        patch = repository.diff(baseline.commit, paths=(paths.FUNCTIONAL_SPECS_DIR, paths.ARCHITECTURE_SPECS_DIR))
+        if not patch:
+            self.workspace.drop_draft()
+            return patch
+        # The directory answers for itself in the ignore file JRI
+        # commits, so the draft is out of `git add -A`, out of the copy
+        # the repository study runs in, and out of the tree the
+        # architect is shown, from the first run that writes one.
+        self.workspace.open_generation_dir()
+        try:
+            files.write_atomically(self.workspace.draft_file, patch.decode())
+            logger.info("draft_saved characters=%d", len(patch))
+        # Keeping the work is what the draft is for, and a run stopped
+        # over a place to keep it would be a run that lost the work
+        # outright -- and so would every run after it, since nothing
+        # about the place would have changed.
+        except OSError:
+            logger.exception("draft_write_failed path=%r", self.workspace.draft_file)
+        return patch
+
     def accept(self, patch: bytes, baseline: Baseline) -> str:
         # A commit the user makes mid-run moves HEAD without touching
         # what this run is about, so what has to have held still is the
@@ -278,6 +340,11 @@ class Specs:
                     raise
             else:
                 self._drop_acceptance()
+        # The commit is what the draft was working towards, so it is
+        # what spends it: from here the project holds those
+        # specifications and a run resuming the delta onto them would
+        # be writing them twice.
+        self.workspace.drop_draft()
         logger.info("specs_committed commit=%s", commit)
         return commit
 
@@ -523,6 +590,18 @@ class Specs:
         # zero is the header it reads as.
         bounds = [*(number for number, line in enumerate(lines) if line.startswith("diff --git ")), len(lines)]
         return ["".join(lines[start:end]) for start, end in pairwise(bounds)]
+
+    # A draft nothing can read says nothing, and neither does one
+    # holding no bytes: both come back as the empty patch, which Git
+    # refuses like any other draft it cannot place, so a run that meets
+    # one is told the draft no longer fits rather than left wondering
+    # whether it was picked up.
+    def _read_draft(self) -> bytes:
+        try:
+            return self.workspace.draft_file.read_bytes()
+        except OSError:
+            logger.exception("draft_read_failed path=%r", self.workspace.draft_file)
+            return b""
 
     def _read_notebook(self) -> bytes:
         try:
