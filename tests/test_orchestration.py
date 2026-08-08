@@ -114,8 +114,8 @@ def test_returns_ambiguities_without_committing(
 
     assert result == ambiguities
     assert read_rows(rows) == [
-        ("ToolCallStarted", "functional", "Writing functional specifications from your project notes"),
-        ("ToolCallFinished", "functional", "Found project details to clarify"),
+        ("ToolCallStarted", "functional-1", "Writing functional specifications from your project notes"),
+        ("ToolCallFinished", "functional-1", "Found project details to clarify"),
     ]
     assert run_git(tmp_path, "rev-parse", "HEAD") == head
     assert not (tmp_path / paths.SPECS_DIR).exists()
@@ -215,9 +215,9 @@ def test_reports_a_generation_that_changed_nothing(
 @pytest.mark.parametrize(
     "stop_at",
     [
-        ToolCallStarted("functional", "Writing functional specifications from your project notes", "✍️"),
-        ToolCallStarted("architecture", "Designing the project architecture", "📐"),
-        ToolCallFinished("architecture", "Designed the project architecture", "done"),
+        ToolCallStarted("functional-1", "Writing functional specifications from your project notes", "✍️"),
+        ToolCallStarted("architecture-1", "Designing the project architecture", "📐"),
+        ToolCallFinished("architecture-1", "Designed the project architecture", "done"),
     ],
     ids=["writing", "designing", "designed"],
 )
@@ -286,7 +286,11 @@ def test_stops_the_repository_study_without_calling_it_a_failure(
     assert architect.Output not in [options.get("text_format") for options in client.responses.options]
 
 
-def test_reports_one_row_per_polishing_round(tmp_path: Path, create_repository: CreateRepository) -> None:
+# Every call to a model is a wait of its own, minutes long, so it says
+# on screen who is working and on which round -- and it says it in a
+# row of its own, opened when the call starts and closed on what that
+# call answered.
+def test_opens_and_closes_a_row_for_every_model_call(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
         [streamed_reply("Repository report")],
@@ -305,21 +309,32 @@ def test_reports_one_row_per_polishing_round(tmp_path: Path, create_repository: 
     rows, result = generate(client)
 
     assert read_rows(rows) == [
-        ("ToolCallStarted", "functional", "Writing functional specifications from your project notes"),
-        ("ToolCallFinished", "functional", "Wrote functional specifications from your project notes"),
+        ("ToolCallStarted", "functional-1", "Writing functional specifications from your project notes"),
+        ("ToolCallFinished", "functional-1", "Wrote functional specifications from your project notes"),
         ("ToolCallStarted", "explorer", "Studying your existing project"),
         ("ToolCallFinished", "explorer", "Studied your existing project"),
-        ("ToolCallStarted", "architecture", "Designing the project architecture"),
-        ("ToolCallFinished", "architecture", "Drafted the project architecture"),
-        ("ToolCallStarted", "polish-1", "3 issues found. Polishing... (round 1)"),
-        ("ToolCallFinished", "polish-1", "3 issues found. Polishing... (round 1)"),
-        ("ToolCallStarted", "polish-2", "1 issues found. Polishing... (round 2)"),
-        ("ToolCallFinished", "polish-2", "1 issues found. Polishing... (round 2)"),
-        ("ToolCallStarted", "polish-3", "2 issues found. Polishing... (round 3)"),
-        ("ToolCallFinished", "polish-3", "2 issues found. Polishing... (round 3)"),
+        ("ToolCallStarted", "architecture-1", "Designing the project architecture"),
+        ("ToolCallFinished", "architecture-1", "Found 3 issues in the functional specifications"),
+        ("ToolCallStarted", "functional-2", "3 issues found. Rewriting the functional specifications (round 2)"),
+        ("ToolCallFinished", "functional-2", "Rewrote the functional specifications (round 2)"),
+        ("ToolCallStarted", "architecture-2", "Reviewing the project architecture against them (round 2)"),
+        ("ToolCallFinished", "architecture-2", "Found 1 issues in the functional specifications"),
+        ("ToolCallStarted", "functional-3", "1 issues found. Rewriting the functional specifications (round 3)"),
+        ("ToolCallFinished", "functional-3", "Rewrote the functional specifications (round 3)"),
+        ("ToolCallStarted", "architecture-3", "Reviewing the project architecture against them (round 3)"),
+        ("ToolCallFinished", "architecture-3", "Found 2 issues in the functional specifications"),
+        ("ToolCallStarted", "functional-4", "2 issues found. Rewriting the functional specifications (round 4)"),
+        ("ToolCallFinished", "functional-4", "Rewrote the functional specifications (round 4)"),
+        ("ToolCallStarted", "architecture-4", "Reviewing the project architecture against them (round 4)"),
+        ("ToolCallFinished", "architecture-4", "Designed the project architecture"),
         ("ToolCallStarted", "commit", "Saving the specifications to your project"),
         ("ToolCallFinished", "commit", "Saved the specifications to your project"),
     ]
+    # Saving is JRI's own work rather than a model's, so every other row
+    # answers for exactly one call the run made.
+    assert len([row for row in rows if isinstance(row, ToolCallStarted) and row.call_id != "commit"]) == len(
+        client.responses.inputs
+    )
     assert isinstance(result, str)
 
 
@@ -333,7 +348,7 @@ def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
     def block_the_project_once_the_design_lands() -> None:
         for row in specs_generation.generate(build_settings(client)):
             rows.append(row)
-            if isinstance(row, ToolCallFinished) and row.call_id == "architecture":
+            if isinstance(row, ToolCallFinished) and row.call_id == "architecture-1":
                 stray = tmp_path / paths.FUNCTIONAL_SPECS_DIR / "stray.md"
                 stray.parent.mkdir(parents=True)
                 stray.write_text("blocked")
@@ -342,14 +357,12 @@ def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
         block_the_project_once_the_design_lands()
 
     assert read_rows(rows)[-2:] == [
-        ("ToolCallFinished", "architecture", "Designed the project architecture"),
+        ("ToolCallFinished", "architecture-1", "Designed the project architecture"),
         ("ToolCallStarted", "commit", "Saving the specifications to your project"),
     ]
 
 
-def test_finishes_the_open_polishing_round_when_ambiguities_appear(
-    tmp_path: Path, create_repository: CreateRepository
-) -> None:
+def test_finishes_the_open_round_when_ambiguities_appear(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
         [streamed_reply("Repository report")],
@@ -365,12 +378,41 @@ def test_finishes_the_open_polishing_round_when_ambiguities_appear(
     rows, _ = generate(client)
 
     assert read_rows(rows)[-2:] == [
-        ("ToolCallStarted", "polish-1", "2 issues found. Polishing... (round 1)"),
-        ("ToolCallFinished", "polish-1", "Found project details to clarify"),
+        ("ToolCallStarted", "functional-2", "2 issues found. Rewriting the functional specifications (round 2)"),
+        ("ToolCallFinished", "functional-2", "Found project details to clarify"),
     ]
     assert [row.call_id for row in rows if isinstance(row, ToolCallStarted)] == [
         row.call_id for row in rows if isinstance(row, ToolCallFinished)
     ]
+
+
+# The number a round opens with is the length of the list of issues
+# that round is being sent, so the screen cannot claim a round is
+# answering more or fewer than the analyst was handed.
+def test_names_the_issues_the_round_it_opens_answers(tmp_path: Path, create_repository: CreateRepository) -> None:
+    build_workspace(tmp_path, create_repository)
+    client = FakeClient(
+        [streamed_reply("Repository report")],
+        parsed=[
+            written_specs(),
+            reported_issues("Undefined totals.", "Unclear export.", "Missing errors."),
+            written_specs(),
+            reported_issues("Missing errors."),
+            written_specs(),
+            designed_architecture(),
+        ],
+    )
+
+    rows, result = generate(client)
+
+    assert isinstance(result, str)
+    assert [row.label for row in rows if isinstance(row, ToolCallStarted) and "functional" in row.call_id][1:] == [
+        "3 issues found. Rewriting the functional specifications (round 2)",
+        "1 issues found. Rewriting the functional specifications (round 3)",
+    ]
+    revisions = [prompt for prompt in read_prompts(client) if "Architect feedback:" in prompt]
+    assert revisions[0].endswith("Architect feedback:\n  - Undefined totals.\n  - Unclear export.\n  - Missing errors.")
+    assert revisions[1].endswith("Architect feedback:\n  - Missing errors.")
 
 
 def test_sends_the_architect_issues_back_to_the_functional_analyst(
@@ -505,7 +547,7 @@ def test_keeps_the_draft_a_stopped_run_wrote(tmp_path: Path, create_repository: 
     build_workspace(tmp_path, create_repository)
     client = FakeClient([streamed_reply("Repository report")], parsed=[written_specs(), designed_architecture()])
 
-    _, result = generate(client, ToolCallFinished("architecture", "Designed the project architecture", "done"))
+    _, result = generate(client, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
 
     assert result is None
     draft = (tmp_path / paths.DRAFT_FILE).read_text()
@@ -535,7 +577,7 @@ def test_resumes_the_draft_a_run_left_behind(
         [streamed_reply("Repository report")],
         parsed=[written_specs({**FUNCTIONAL_FILES, "functional/exports.md": "# Exports\n"}), designed_architecture()],
     )
-    generate(stopped, ToolCallFinished("architecture", "Designed the project architecture", "done"))
+    generate(stopped, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
     client = FakeClient(
         [streamed_reply("Repository report")],
         parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture(UPDATED_ARCHITECTURE_FILES)],
@@ -569,7 +611,7 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
         [streamed_reply("Repository report")],
         parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture(UPDATED_ARCHITECTURE_FILES)],
     )
-    generate(stopped, ToolCallFinished("architecture", "Designed the project architecture", "done"))
+    generate(stopped, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
     # Another accepted generation moves the specifications out from
     # under the draft, so what it says it is a delta onto is gone.
     (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").write_text("# Totals\nThe project reports totals.\n")
@@ -640,9 +682,9 @@ def test_asks_the_architect_to_finish_on_the_last_cycle(tmp_path: Path, create_r
     rows, result = generate(client)
 
     assert client.responses.options[-1]["text_format"] is architect.Architecture
-    assert len([row for row in rows if isinstance(row, ToolCallStarted) and "polish" in row.call_id]) == (
-        specs_generation.MAX_CYCLES - 1
-    )
+    assert [row.call_id for row in rows if isinstance(row, ToolCallStarted) and "architecture" in row.call_id] == [
+        f"architecture-{cycle}" for cycle in range(1, specs_generation.MAX_CYCLES + 1)
+    ]
     assert isinstance(result, str)
 
 

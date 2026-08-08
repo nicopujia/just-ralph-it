@@ -39,7 +39,6 @@ def generate(
     designer = architect.Architect(settings)
     baseline = specs.prepare()
     explorer_report: str | None = None
-    open_row = ai.ToolCallStarted("functional", "Writing functional specifications from your project notes", "✍️")
 
     cycle = 0
 
@@ -60,19 +59,23 @@ def generate(
         while True:
             cycle += 1
             logger.info("specs_cycle_started cycle=%d", cycle)
-            if cycle == 1:
-                yield open_row
+            # A row is one model call, named after the cycle rather than
+            # held in a variable the call after it overwrites: a row two
+            # calls share names the wrong agent for the whole of the
+            # second. What it says it is answering is the length of the
+            # very list the analyst is being sent, so the number on
+            # screen cannot disagree with what it was asked to fix.
+            yield ai.ToolCallStarted(
+                f"functional-{cycle}", _describe_writing(cycle, len(functional_context.architect_feedback or ())), "✍️"
+            )
             functional_result = analyst.write(functional_context, cancelled)
             if functional_result is None:
                 return None
             if isinstance(functional_result, functional_analyst.Ambiguities):
                 logger.info("specs_ambiguities cycle=%d count=%d", cycle, len(functional_result.ambiguities))
-                yield ai.ToolCallFinished(open_row.call_id, "Found project details to clarify", "done")
+                yield ai.ToolCallFinished(f"functional-{cycle}", "Found project details to clarify", "done")
                 return functional_result
-            if cycle == 1:
-                yield ai.ToolCallFinished(
-                    open_row.call_id, "Wrote functional specifications from your project notes", "done"
-                )
+            yield ai.ToolCallFinished(f"functional-{cycle}", _describe_written(cycle), "done")
 
             specs.write(
                 staging,
@@ -111,9 +114,8 @@ def generate(
                 if not explorer_report:
                     raise SpecsError("Repository exploration produced no report.")
                 yield ai.ToolCallFinished("explorer", "Studied your existing project", "done")
-                open_row = ai.ToolCallStarted("architecture", "Designing the project architecture", "📐")
-                yield open_row
 
+            yield ai.ToolCallStarted(f"architecture-{cycle}", _describe_designing(cycle), "📐")
             architecture_result = (designer.finish if cycle == MAX_CYCLES else designer.design)(
                 architect.Input(
                     functional_specs=specs.render(functional),
@@ -127,17 +129,14 @@ def generate(
                 return None
             if isinstance(architecture_result, architect.Issues):
                 logger.info("specs_issues cycle=%d count=%d", cycle, len(architecture_result.issues))
-                # A polish row has no separate closing phrasing,
-                # so it closes under the label it opened with.
+                # A pass that found issues wrote no architecture, so the
+                # row closes on what the call answered rather than on a
+                # design nothing holds.
                 yield ai.ToolCallFinished(
-                    open_row.call_id, "Drafted the project architecture" if cycle == 1 else open_row.label, "done"
+                    f"architecture-{cycle}",
+                    f"Found {len(architecture_result.issues)} issues in the functional specifications",
+                    "done",
                 )
-                open_row = ai.ToolCallStarted(
-                    f"polish-{cycle}",
-                    f"{len(architecture_result.issues)} issues found. Polishing... (round {cycle})",
-                    "🗒️",
-                )
-                yield open_row
                 functional_context = functional_context.model_copy(
                     update={"current_specs": specs.render(functional), "architect_feedback": architecture_result.issues}
                 )
@@ -153,9 +152,7 @@ def generate(
                 raise SpecsError("Architecture specifications cannot be empty.")
             patch = specs.save_draft(staging, baseline)
 
-            yield ai.ToolCallFinished(
-                open_row.call_id, "Designed the project architecture" if cycle == 1 else open_row.label, "done"
-            )
+            yield ai.ToolCallFinished(f"architecture-{cycle}", "Designed the project architecture", "done")
             # The last moment a stop still costs the user nothing but
             # the run: past the row below, the specifications are on
             # their way into the project and the run sees it through.
@@ -237,3 +234,24 @@ def _build_functional_context(specs: Specs, baseline: Baseline, staging: git.Rep
         ),
         current_specs=specs.render(specs.read(staging.path, paths.FUNCTIONAL_SPECS_DIR)),
     )
+
+
+# The first round is the only one the notes alone explain; every round
+# after it answers the round before, and carries its number so that a
+# transcript of eight rows says which of them is which.
+def _describe_writing(cycle: int, issues: int) -> str:
+    if cycle == 1:
+        return "Writing functional specifications from your project notes"
+    return f"{issues} issues found. Rewriting the functional specifications (round {cycle})"
+
+
+def _describe_written(cycle: int) -> str:
+    if cycle == 1:
+        return "Wrote functional specifications from your project notes"
+    return f"Rewrote the functional specifications (round {cycle})"
+
+
+def _describe_designing(cycle: int) -> str:
+    if cycle == 1:
+        return "Designing the project architecture"
+    return f"Reviewing the project architecture against them (round {cycle})"
