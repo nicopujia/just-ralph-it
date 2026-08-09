@@ -5,6 +5,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from typing import IO
 
 import pytest
 
@@ -75,6 +76,29 @@ def write_journal(tmp_path: Path, *lines: str) -> Generation:
 
 def read_journal(generation: Generation) -> list[dict[str, object]]:
     return [json.loads(line) for line in generation.journal_file.read_text(encoding="utf-8").splitlines()]
+
+
+# Windows refuses to remove a file any process still has open, and a
+# suite run on Linux would never find that out. What stands in for the
+# platform is this process's own handles: the files opened here are the
+# real ones the code under test opened, and the refusal is raised
+# against exactly those it has not closed yet.
+def refuse_removing_an_open_file(monkeypatch: pytest.MonkeyPatch) -> None:
+    handles: list[IO[bytes]] = []
+    open_file, unlink = Path.open, Path.unlink
+
+    def track(self: Path, mode: str = "r", *arguments: object, **keywords: object) -> IO[bytes]:
+        handle = open_file(self, mode, *arguments, **keywords)  # type: ignore[call-overload]
+        handles.append(handle)
+        return handle
+
+    def refuse(self: Path, *, missing_ok: bool = False) -> None:
+        if any(handle.name == str(self) and not handle.closed for handle in handles):
+            raise PermissionError(32, "The process cannot access the file because it is being used by another process")
+        unlink(self, missing_ok=missing_ok)
+
+    monkeypatch.setattr(Path, "open", track)
+    monkeypatch.setattr(Path, "unlink", refuse)
 
 
 def test_writes_every_event_a_run_produced(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -242,6 +266,39 @@ def test_forgets_the_record_of_a_run_it_folded(tmp_path: Path, monkeypatch: pyte
     # that keeps it out of the project.
     assert generation.workspace.generation_dir.is_dir()
     assert f"/{paths.GENERATION_DIR.rpartition('/')[2]}/" in generation.workspace.gitignore_file.read_text()
+
+
+def test_lets_go_of_the_journal_before_it_forgets_a_run_it_folded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generation = run(tmp_path, monkeypatch, generate_succeeding)
+    refuse_removing_an_open_file(monkeypatch)
+
+    list(generation.follow())
+
+    # The reader is suspended inside the journal when the ending it just
+    # handed on is folded, and a platform that refuses to remove a file
+    # this process holds open would leave the record of a finished run
+    # for every Ralph after it to attach to instead of starting.
+    assert not generation.exists
+
+
+def test_lets_go_of_the_journal_before_it_forgets_a_record_it_could_not_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    generation = write_journal(
+        tmp_path,
+        json.dumps({"version": "0", "pid": 1, "started": "now"}),
+        json.dumps({"kind": "text", "text": "I have written your specifications."}),
+    )
+    refuse_removing_an_open_file(monkeypatch)
+
+    with pytest.raises(Error, match="could not read"):
+        list(generation.follow())
+
+    # A journal the refusal left behind meets every run after this one
+    # with the same refusal, and it is the reader's own file to let go.
+    assert not generation.exists
 
 
 def test_keeps_the_record_of_a_run_still_writing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

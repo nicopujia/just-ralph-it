@@ -5,6 +5,7 @@ import sys
 import threading
 import time
 from collections.abc import Generator
+from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import IO, Any, Literal, cast
@@ -233,39 +234,19 @@ class Generation:
     def follow(
         self, cancelled: threading.Event | None = None, detached: threading.Event | None = None
     ) -> Generator["specs_generation.Progress", None, "specs_generation.SpecsResult | None"]:
-        requested = False
-        thought = ""
-        for record in self._read():
-            # A stop the follower was asked for is handed on before the
-            # window leaving can end the following, so closing a window
-            # right after asking still stops the run.
-            if cancelled is not None and cancelled.is_set() and not requested:
-                self.cancel_file.touch()
-                requested = True
-                logger.info("generation_stop_requested")
-            # The window is gone and the run is not its to take with
-            # it. Nothing here is folded or unlinked: the journal is
-            # the record, and the next window reads it from the top.
-            if detached is not None and detached.is_set():
-                logger.info("generation_detached")
-                raise RunDetached
-            if isinstance(record, Thought):
-                thought += record.text
-                continue
-            if thought:
-                yield ReasoningDelta(thought)
-                thought = ""
-            if isinstance(record, Conclusion):
-                self.discard()
-                return _answer(record)
-            if record is not None:
-                yield _replay(record)
-        # Nothing is left folded here: the reader comes back with
-        # `None` on the pass before the one it ends on, so a run of
-        # thoughts is always flushed by the loop above.
-        # The lock came free with no ending written, so the process
-        # that was writing this is gone and nothing will finish it.
+        try:
+            conclusion = yield from self._watch(cancelled, detached)
+        # A record nothing can read ends a run as surely as one that
+        # says it failed, and a journal left behind would meet every run
+        # after this one with the same refusal.
+        except Error:
+            self.discard()
+            raise
         self.discard()
+        if conclusion is not None:
+            return _answer(conclusion)
+        # The lock came free with no ending written, so the process that
+        # was writing this is gone and nothing will finish it.
         raise Error("The generation stopped before it finished, and its process is gone. Try again.")
 
     # What is left of a run whose record has been read. Only the files
@@ -295,6 +276,47 @@ class Generation:
             except OSError:
                 logger.exception("generation_record_removal_failed path=%r", path)
 
+    # Every record the run wrote, handed on as it arrives, and the
+    # ending if the run got as far as writing one. The reader is let go
+    # of before this comes back, whether it comes back with an ending or
+    # with a failure: it holds the journal open at every point it is
+    # suspended at, and a file this process still has open is one
+    # Windows refuses to remove.
+    def _watch(
+        self, cancelled: threading.Event | None, detached: threading.Event | None
+    ) -> Generator["specs_generation.Progress", None, Conclusion | None]:
+        requested = False
+        thought = ""
+        with closing(self._read()) as records:
+            for record in records:
+                # A stop the follower was asked for is handed on before
+                # the window leaving can end the following, so closing a
+                # window right after asking still stops the run.
+                if cancelled is not None and cancelled.is_set() and not requested:
+                    self.cancel_file.touch()
+                    requested = True
+                    logger.info("generation_stop_requested")
+                # The window is gone and the run is not its to take with
+                # it. Nothing here is folded or unlinked: the journal is
+                # the record, and the next window reads it from the top.
+                if detached is not None and detached.is_set():
+                    logger.info("generation_detached")
+                    raise RunDetached
+                if isinstance(record, Thought):
+                    thought += record.text
+                    continue
+                if thought:
+                    yield ReasoningDelta(thought)
+                    thought = ""
+                if isinstance(record, Conclusion):
+                    return record
+                if record is not None:
+                    yield _replay(record)
+        # Nothing is left unsaid here: the reader comes back with `None`
+        # on the pass before the one it ends on, so a run of thoughts is
+        # always flushed by the loop above.
+        return None
+
     # Every line the journal has grown, one at a time, and `None` on
     # each pass that found nothing new. Only whole lines are read: a
     # run the operating system killed mid-append leaves a partial line,
@@ -308,15 +330,7 @@ class Generation:
                 lines = (pending + journal.read()).split(b"\n")
                 pending = lines.pop()
                 for line in lines:
-                    try:
-                        yield _read_line(line, number)
-                    # A record nothing can read ends a run as surely as
-                    # one that says it failed, and a journal left
-                    # behind would meet every run after this one with
-                    # the same refusal.
-                    except Error:
-                        self.discard()
-                        raise
+                    yield _read_line(line, number)
                     number += 1
                 if last:
                     return
