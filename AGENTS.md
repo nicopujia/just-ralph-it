@@ -15,6 +15,8 @@ After changes: `scripts/check.py`
 - State the model can change carries what it asserts about; no prose keeps a claim honest
 - JRI commits `.jri` and nothing else, and no file of the user's stops a run
 - A turn ends with a `TurnFinished`, and every row it opened is closed
+- One JRI to a project: a second takes the hold or refuses, and nothing is written for two at once
+- What another process may still hold is never JRI's to remove, whatever JRI's own is doing
 
 ## Order
 - Module (groups 1 blank line apart): dunders, types, constants, public vars, private vars, public funcs, public classes, private funcs, private classes
