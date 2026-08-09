@@ -1,5 +1,4 @@
 import os
-import pty
 import sys
 import threading
 
@@ -14,7 +13,10 @@ STANDS_FOR = 1.0
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a pseudo-terminal is the one terminal a test can hang up")
 def test_answers_the_hangup_of_the_terminal_the_process_was_started_in(monkeypatch: pytest.MonkeyPatch) -> None:
-    master, slave = pty.openpty()
+    # `os.openpty` rather than `pty.openpty`: importing `pty` reaches
+    # `termios`, which Windows has not, and a module that fails to
+    # import is a collection error the skip above never answers.
+    master, slave = os.openpty()
     with os.fdopen(slave, "rb", buffering=0) as terminal:
         for stream in ("__stdin__", "__stdout__", "__stderr__"):
             monkeypatch.setattr(sys, stream, terminal)

@@ -1676,20 +1676,22 @@ def test_refuses_to_render_a_specification_that_is_not_utf_8() -> None:
 @pytest.mark.parametrize(
     "stand",
     [
-        Path.mkdir,
+        "mkdir",
         pytest.param(
-            os.mkfifo,
+            "mkfifo",
             marks=pytest.mark.skipif(sys.platform == "win32", reason="a named pipe is not a file entry on Windows"),
         ),
     ],
     ids=["directory", "pipe"],
 )
-def test_refuses_a_specification_tree_entry_that_is_not_a_plain_file(
-    tmp_path: Path, stand: Callable[[Path], object]
-) -> None:
+def test_refuses_a_specification_tree_entry_that_is_not_a_plain_file(tmp_path: Path, stand: str) -> None:
     worktree = tmp_path / "worktree"
     (worktree / ".jri/specs/functional").mkdir(parents=True)
-    stand(worktree / ".jri/specs/functional/notes.md")
+    # The name of the call rather than the call itself: a decorator is
+    # read at import, and Windows has no `os.mkfifo` to name there, so
+    # naming it ends the collection before the skip beside it ever
+    # answers for the platform.
+    getattr(os, stand)(worktree / ".jri/specs/functional/notes.md")
 
     with pytest.raises(
         SpecsError, match=r"plain specification files, and `\.jri/specs/functional/notes\.md` is not"
