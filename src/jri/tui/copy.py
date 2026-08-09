@@ -12,7 +12,7 @@ CANCEL_TURN_STARTED = "Stopping response…"
 CLI_CHAT_HELP = "Chat with the interviewer in the terminal UI."
 CLI_FORCE_HELP = (
     "Re-create the JRI workspace: write the configuration file again and delete the conversation, the notes, "
-    "the logs, and the generated specifications."
+    "the logs, the generated specifications, and what the last Just Ralph It run left behind."
 )
 CLI_INIT_HELP = "Set the project up with the default JRI configuration."
 CLI_VERSION_HELP = "Show the JRI version and exit."
@@ -45,7 +45,7 @@ INIT_EXISTING = "A JRI workspace already exists at {directory}."
 INIT_NEXT_STEPS = "Open {config_file} and follow its comments, then run `jri chat`."
 INIT_RECREATED = (
     "Re-created the JRI workspace at {directory}, replacing its configuration, notes, conversation, logs, "
-    "and specifications."
+    "specifications, and the record of the last Just Ralph It run."
 )
 INIT_REPOSITORY = "Initialized a Git repository here."
 INSERT_NEWLINE = "Insert newline"

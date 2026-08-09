@@ -132,11 +132,7 @@ class Workspace:
         Repository.init(self.root)
         created = not self.config_file.exists()
         if force:
-            for path in self.reset_paths:
-                if path.is_dir():
-                    shutil.rmtree(path)
-                else:
-                    path.unlink(missing_ok=True)
+            self._reset()
         self.directory.mkdir(exist_ok=True, parents=True)
         if created or force:
             self.config_file.write_text(config, encoding="utf-8", newline="\n")
@@ -154,6 +150,48 @@ class Workspace:
                 f"{'\n'.join(self.PROJECT_IGNORES)}\n", encoding="utf-8", newline="\n"
             )
         return Installation(self, created=created, repository_created=repository_created)
+
+    # A reset empties what two live processes are writing, and neither
+    # answers for the other: the window that has the project writes the
+    # notes, the conversation and the logs, and a run in a process of
+    # its own writes the run directory, which outlives the window that
+    # started it. So the project is taken the way a chat takes it, and
+    # the run is asked about through the lock it holds for as long as it
+    # lives. The run is the worse of the two to lose: a runner whose
+    # lock went with the directory leaves the next Ralph reading no run
+    # in flight and starting a second one beside it, each on an inode
+    # the other cannot see. Holding the project is also what makes the
+    # run's answer keep, since a run is only ever started by a window
+    # that has the project.
+    def _reset(self) -> None:
+        generation_lock = self.root / paths.GENERATION_LOCK_FILE
+        hold = self.open_hold()
+        if not hold.take():
+            raise PersistenceError(
+                f"Another JRI is already open in this project, in the window running process {hold.holder}. "
+                "It is still writing the notes and the conversation a reset deletes, so nothing was deleted. "
+                "Close that window, then try again."
+            )
+        try:
+            # A lock file that is not there is a lock nothing holds, and
+            # taking one to ask with would put the run directory back a
+            # moment before this empties it.
+            if generation_lock.exists() and Lock(generation_lock).is_held():
+                raise PersistenceError(
+                    "A Just Ralph It run is still going in this project, in a process of its own. A reset takes "
+                    "the run directory away from it, and the run after that would start beside it rather than "
+                    "after it, so nothing was deleted. Run `jri chat` to watch it or stop it, then try again."
+                )
+            self._clear()
+        finally:
+            hold.release()
+
+    def _clear(self) -> None:
+        for path in self.reset_paths:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink(missing_ok=True)
 
     # Read back and topped up on every call, since a rule checked for
     # its existence alone is one nothing puts back once something has

@@ -14,7 +14,7 @@ from jri.core.workspace import Hold, Installation, Workspace
 from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.acceptance import ROOT_QUESTION, WINDOW_MARKER, install_a_killing_git
-from tests.doubles.lock import hold
+from tests.doubles.lock import hold, take
 from tests.doubles.openai import FakeClient
 from tests.doubles.settings import build_settings
 from tests.doubles.workspace import hold_workspace, hold_workspace_slowly, install_workspace
@@ -205,7 +205,12 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
     assert not (base_dir / "visualization.html").exists()
     assert not (base_dir / "specs").exists()
     assert not (base_dir / "logs" / "old.log").exists()
-    assert (base_dir / ".gitignore").read_text() == "custom-cache\nsession.json\nlogs\nvisualization.html\n"
+    # A reset takes the project the way a chat does, so the rules that
+    # hide the two files a hold is kept in are placed before it makes
+    # them, exactly as they are for a window.
+    assert (base_dir / ".gitignore").read_text() == (
+        "custom-cache\n/lock\n/lock.claim\nsession.json\nlogs\nvisualization.html\n"
+    )
 
 
 def test_keeps_a_run_directory_out_of_the_project(
@@ -259,6 +264,89 @@ def test_clears_a_run_directory_a_reset_asks_for(tmp_path: Path) -> None:
     install_workspace(tmp_path, force=True)
 
     assert not workspace.generation_dir.exists()
+
+
+def test_refuses_a_reset_while_a_window_has_the_project(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
+    workspace.draft_file.write_text("diff --git a/x b/x\n")
+    (tmp_path / paths.FUNCTIONAL_SPECS_DIR).mkdir(parents=True)
+    (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").write_text("# what the project does\n")
+
+    with hold_workspace(tmp_path) as window:
+        with pytest.raises(PersistenceError, match=str(window.pid)):
+            install_workspace(tmp_path, force=True)
+
+        assert window.poll() is None, "the window holding the project was left to write into a workspace that went"
+        assert workspace.draft_file.read_text() == "diff --git a/x b/x\n"
+        assert (workspace.generation_dir / "journal.jsonl").read_text() == "what a model said\n"
+        assert (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").read_text() == "# what the project does\n"
+        assert workspace.notebook_file.exists()
+
+
+def test_refuses_a_reset_while_a_run_is_still_going(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    journal = workspace.open_generation_dir() / "journal.jsonl"
+    journal.write_text("what a model said\n")
+
+    with hold(tmp_path / paths.GENERATION_LOCK_FILE) as runner:
+        with pytest.raises(PersistenceError, match="run is still going"):
+            install_workspace(tmp_path, force=True)
+
+        assert runner.poll() is None, "the run was left writing into a directory that went"
+        assert journal.read_text() == "what a model said\n"
+        # The lock the runner took is the lock still standing, so the
+        # next run reads a run in flight rather than starting beside it.
+        assert not take(tmp_path / paths.GENERATION_LOCK_FILE)
+
+
+def test_leaves_a_workspace_alone_while_a_window_has_the_project(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    notebook = (
+        workspace.notebook_file
+        .read_text()
+        .replace("notes: {}", "notes: {n1: What the window wrote.}")
+        .replace("next_note_id: n1", "next_note_id: n2")
+    )
+    workspace.notebook_file.write_text(notebook)
+
+    with hold_workspace(tmp_path) as window:
+        installation = install_workspace(tmp_path)
+
+        # Nothing here is a reset, so the window that has the project
+        # keeps everything it has written and this says so rather than
+        # refusing.
+        assert not installation.created
+        assert workspace.notebook_file.read_text() == notebook
+        assert window.poll() is None
+
+
+def test_resets_the_project_the_window_holding_it_let_go_of(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
+    with hold_workspace(tmp_path) as window:
+        window.kill()
+        window.wait()
+
+    install_workspace(tmp_path, force=True)
+
+    assert not workspace.generation_dir.exists()
+
+
+def test_resets_a_project_whose_run_already_ended(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
+    # The lock a run leaves behind is a file and not a holder, so a
+    # reset after one is a reset nothing is standing in the way of.
+    (tmp_path / paths.GENERATION_LOCK_FILE).touch()
+
+    install_workspace(tmp_path, force=True)
+
+    assert not workspace.generation_dir.exists()
+    # The project goes back the moment the reset is done with it, so the
+    # window the user opens next is not refused by the command that made
+    # room for it.
+    assert take(tmp_path / paths.LOCK_FILE)
 
 
 def test_refuses_a_second_jri_in_one_project(tmp_path: Path) -> None:
