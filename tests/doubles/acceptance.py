@@ -51,22 +51,25 @@ specs.accept(patch, baseline)
 # as `<old> <new> <ref>`, one to a line, and are read whole so that Git
 # never writes into a pipe the hook has already closed.
 REFERENCE_TRANSACTION = '#!/bin/sh\n[ "$1" = {phase} ] || exit 0\ngrep " refs/heads/" >/dev/null || exit 0\n'
-# The windows a hook of the project's own opens onto a commit of Git's,
-# each named by where Git runs it: a commit of named paths takes the
-# index lock before `pre-commit` and keeps it to the end, the ref
-# transaction that lands the commit calls `reference-transaction`
-# twice -- `prepared` with the locks over HEAD and over the branch
-# already taken, then `committed` with the commit written and the index
-# Git wrote it from not yet copied over the project's own -- and
-# `post-commit` runs past the last of them, where a lock standing
-# belongs to whoever took it and to nothing of this commit's. So a hook
-# that runs at all is a window Git is in, rather than one a poll has to
-# catch.
-COMMIT_WINDOWS = {
+# The windows a hook of the project's own opens onto a command of
+# Git's, each named by where Git runs it. Four are inside a commit of
+# named paths: it takes the index lock before `pre-commit` and keeps it
+# to the end, the ref transaction that lands the commit calls
+# `reference-transaction` twice -- `prepared` with the locks over HEAD
+# and over the branch already taken, then `committed` with the commit
+# written and the index Git wrote it from not yet copied over the
+# project's own -- and `post-commit` runs past the last of them, where a
+# lock standing belongs to whoever took it and to nothing of this
+# commit's. The fifth is inside `git worktree add`, which locks nothing
+# of the main worktree's at any point, so every one of those files is
+# free for a second command for the whole span. A hook that runs at all
+# is a window Git is in, rather than one a poll has to catch.
+HOOK_WINDOWS = {
     "index": ("pre-commit", "#!/bin/sh\n"),
     "branch": ("reference-transaction", REFERENCE_TRANSACTION.format(phase="prepared")),
     "written": ("reference-transaction", REFERENCE_TRANSACTION.format(phase="committed")),
     "past": ("post-commit", "#!/bin/sh\n"),
+    "worktree": ("post-checkout", "#!/bin/sh\n"),
 }
 # What a hook makes to say the window it runs in is open.
 WINDOW_MARKER = "window-open"
@@ -82,17 +85,16 @@ HOLD_THE_WINDOW = "sleep 30\n"
 # carry a number of Git's own in the name, so a poll waiting on a lock
 # catches the commit at its start or never.
 MARK_THE_WINDOW = f"touch .git/{WINDOW_MARKER}\n"
-# A second Git taking the lock: the file appears inside the span of a
-# command of JRI's, and outlives it, and is none of its business.
-TAKE_THE_LOCK = "touch .git/index.lock\n"
-# The same from a window a commit is still inside, so the lock has to
-# be one that commit never takes: `config.lock` is what a `git config`
-# of a second command's writes under.
-TAKE_A_SECOND_LOCK = "touch .git/config.lock\n"
 # Where the second command records itself, so a test can read back
 # whether the process holding that lock is still there. Not a `.lock`,
 # so neither `read_git_locks` nor `Locks` ever counts it.
 SECOND_COMMAND_PID = "second-command-pid"
+# A second Git taking a lock over one of the files a command of JRI's
+# writes: the file appears inside the span of that command, and
+# outlives it, and is none of its business. Named in full because a
+# hook does not always run where the repository is -- `post-checkout`
+# runs in the worktree `git worktree add` has just made.
+TAKE_THE_LOCK = "touch {directory}/{lock}\n"
 # The same lock taken by a command that is still running when the
 # window closes, which is the state the release is answerable to: what
 # stands at the end is a live transaction, not a leftover. Three
@@ -101,11 +103,20 @@ SECOND_COMMAND_PID = "second-command-pid"
 # the run open. It `exec`s the sleep, so the pid recorded is the pid
 # that has to be ended. And the wait is what puts the lock inside the
 # window rather than after it, where a release would never see it.
-HOLD_A_SECOND_LOCK = (
-    "sh -c 'touch .git/config.lock; exec sleep 30' >/dev/null 2>&1 &\n"
-    f"echo $! > .git/{SECOND_COMMAND_PID}\n"
-    "until [ -e .git/config.lock ]; do :; done\n"
+HOLD_THE_LOCK = (
+    "sh -c 'touch {directory}/{lock}; exec sleep 30' >/dev/null 2>&1 &\n"
+    f"echo $! > {{directory}}/{SECOND_COMMAND_PID}\n"
+    "until [ -e {directory}/{lock} ]; do :; done\n"
 )
+# A clean filter of the project's own, which is the one window inside
+# `git apply` -- no hook of any kind runs there. Git runs it over what
+# the patch left in the worktree to turn that into what it would store,
+# and where the apply was asked for the index it has taken the index
+# lock before it gets that far, so the same window stands either side of
+# the one thing that tells those two applies apart. `cat` is what makes
+# the filter a filter: Git reads the content back off it.
+APPLY_FILTER = "apply-window"
+FILTERED_PATH = "README.md"
 # The project's own hook refusing the commit, which is an ending Git
 # chooses and runs its exit handler for: the hook's 1 is Git's 1.
 REFUSE_THE_COMMIT = "exit 1\n"
@@ -202,7 +213,7 @@ def kill_amid_staging(root: Path, patch: bytes) -> None:
 # and then moves the ref the commit lands on under two more, and a run
 # killed there leaves locks over HEAD and over the branch as well.
 def kill_amid_moving_the_branch(root: Path, patch: bytes) -> None:
-    with open_a_commit_window(root, "branch", HOLD_THE_WINDOW):
+    with open_a_window(root, "branch", HOLD_THE_WINDOW):
         _kill_inside_a_window(root, patch, "HEAD.lock")
 
 
@@ -211,7 +222,7 @@ def kill_amid_moving_the_branch(root: Path, patch: bytes) -> None:
 # commit holding specifications beside an index that never heard of
 # them.
 def kill_amid_writing_the_commit(root: Path, patch: bytes) -> None:
-    with open_a_commit_window(root, "written", MARK_THE_WINDOW + HOLD_THE_WINDOW):
+    with open_a_window(root, "written", MARK_THE_WINDOW + HOLD_THE_WINDOW):
         _kill_inside_a_window(root, patch, WINDOW_MARKER)
 
 
@@ -246,8 +257,8 @@ def hold_a_commit_of_the_user_s(root: Path) -> "Iterator[subprocess.Popen[bytes]
 
 
 @contextmanager
-def open_a_commit_window(root: Path, window: str, action: str) -> "Iterator[None]":
-    name, preamble = COMMIT_WINDOWS[window]
+def open_a_window(root: Path, window: str, action: str) -> "Iterator[None]":
+    name, preamble = HOOK_WINDOWS[window]
     hook = root / ".git/hooks" / name
     hook.write_text(preamble + action, encoding="utf-8")
     hook.chmod(0o700)
@@ -255,6 +266,28 @@ def open_a_commit_window(root: Path, window: str, action: str) -> "Iterator[None
         yield
     finally:
         hook.unlink()
+
+
+@contextmanager
+def open_an_apply_window(root: Path, action: str) -> "Iterator[None]":
+    executable = shutil.which("git")
+    assert executable is not None
+    driver = root / ".git" / APPLY_FILTER
+    driver.write_text(f"#!/bin/sh\n{action}cat\n", encoding="utf-8")
+    driver.chmod(0o700)
+    attributes = root / ".gitattributes"
+    attributes.write_text(f"{FILTERED_PATH} filter={APPLY_FILTER}\n", encoding="utf-8")
+    subprocess.run(
+        [executable, "-C", str(root), "config", f"filter.{APPLY_FILTER}.clean", str(driver)],
+        check=True,
+        capture_output=True,
+    )
+    try:
+        yield
+    finally:
+        # What closes the window is this file: the driver and the
+        # setting reach nothing with no path put in front of them.
+        attributes.unlink()
 
 
 def _read_the_second_command(root: Path) -> int:

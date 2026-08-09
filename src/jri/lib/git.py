@@ -134,6 +134,13 @@ class Repository:
     HANDLED_SIGNALS: ClassVar[frozenset[int]] = frozenset(
         member for member in signal.Signals if member.name in {"SIGHUP", "SIGINT", "SIGPIPE", "SIGQUIT", "SIGTERM"}
     )
+    # The commands whose Git takes the index lock before it writes
+    # anything and keeps it to its last write, so that a lock over the
+    # index they leave behind is one nothing else could have made: Git
+    # makes a lock file with `O_EXCL`, and this Git had it. `apply` is
+    # one of them only where it was asked for the index. Every read and
+    # every `worktree` takes it at no point at all.
+    INDEX_HOLDERS: ClassVar[frozenset[str]] = frozenset({"add", "checkout", "commit", "reset"})
     # What HEAD holds in front of the ref it stands for, where it
     # stands for one rather than for a commit of its own.
     SYMBOLIC_HEAD: ClassVar[str] = "ref: "
@@ -427,24 +434,30 @@ class Repository:
         # one naming a signal Git never handled is. Such a process is
         # reaped by the time this reads, which is what makes a lock it
         # left a lock nothing is holding. What that death answers for
-        # is the files this command itself writes, and only the ones it
-        # did not find already locked: a lock over anything else is a
-        # second command's, whose own process is still there to rename
-        # it over what it guards. Between those two, Git makes a lock
-        # file with `O_EXCL`, so nothing can make one over a file this
-        # command's own Git is already holding, and the span a second
-        # command could have taken one of these in is the span of this
-        # one command, either side of that hold. The index a commit of
-        # named paths composes goes with them, and that one is its own
-        # Git's outright: the lock over it carries the number of the
-        # Git that made it, and that Git is the child this started. On
-        # Windows no signal
-        # reaches the exit code, so a lock a killed Git left stands
-        # until Git's own refusal names it, which is the side to be
-        # wrong on: a refusal is read, a broken transaction is not.
+        # is the files this command's own Git could have been holding,
+        # and only the ones it did not find already locked. The index a
+        # commit of named paths composes is its own Git's outright: the
+        # lock over it carries the number of the Git that made it, and
+        # that Git is the child this started. The project's index goes
+        # with it only under a command that had the lock over it, and
+        # HEAD and the branch only under a commit, the one command here
+        # that moves them. Under anything else those files are free for
+        # the whole span, so a lock over one is a second command's,
+        # whose own process is still there to rename it over what it
+        # guards, and naming it is all this may do -- what a lock left
+        # standing costs the run that meets it is a refusal, and what
+        # taking it away costs the commit holding it is that commit. On
+        # Windows no signal reaches the exit code, so a lock a killed
+        # Git left stands until Git's own refusal names it, which is
+        # the side to be wrong on for the same reason.
         if result.returncode < 0 and -result.returncode not in self.HANDLED_SIGNALS:
-            composed = self._git_directory / f"{self.TEMPORARY_INDEX}{process.pid}"
-            replace(locks, written=(*locks.written, composed)).release(standing)
+            index, *refs = locks.written
+            written = [self._git_directory / f"{self.TEMPORARY_INDEX}{process.pid}"]
+            if arguments[0] in self.INDEX_HOLDERS or (arguments[0] == "apply" and "--index" in arguments):
+                written.append(index)
+            if arguments[0] == "commit":
+                written.extend(refs)
+            replace(locks, written=tuple(written)).release(standing)
         if check and result.returncode:
             self._raise(result)
         return result

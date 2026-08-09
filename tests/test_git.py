@@ -10,19 +10,19 @@ from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.acceptance import (
     HEAD_QUESTION,
-    HOLD_A_SECOND_LOCK,
+    HOLD_THE_LOCK,
     KILL_THE_GIT,
     REFUSE_THE_COMMIT,
     ROOT_QUESTION,
     SIGNAL_THE_GIT,
-    TAKE_A_SECOND_LOCK,
     TAKE_THE_LOCK,
     WINDOW_MARKER,
     WORKTREE_QUESTION,
     end_the_second_command,
     install_a_killing_git,
     is_the_second_command_running,
-    open_a_commit_window,
+    open_a_window,
+    open_an_apply_window,
     read_git_locks,
 )
 
@@ -57,6 +57,14 @@ diff --git a/README.md b/README.md
 """,
 )
 SECTIONED_README = b"# Store\nKeeps orders.\n\n# Reporter\nKeeps orders.\n"
+RENAMING_PATCH = b"""\
+diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1 +1 @@
+-# Project
++# Renamed
+"""
 # What a hard kill inside `git init` leaves behind, by the lock it was
 # holding: the command writes the config and then HEAD, each under one,
 # so the wreck is what it had written by then with that lock standing.
@@ -213,7 +221,7 @@ def test_keeps_the_lock_another_command_took_while_its_own_ran(
     repository = create_repository(tmp_path)
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
 
-    with open_a_commit_window(tmp_path, "past", TAKE_THE_LOCK):
+    with open_a_window(tmp_path, "past", TAKE_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock")):
         repository.commit("second", paths=("README.md",))
 
     assert read_git_locks(tmp_path) == (tmp_path / ".git/index.lock",)
@@ -225,11 +233,14 @@ def test_keeps_the_lock_another_command_took_while_a_refused_one_ran(
 ) -> None:
     repository = create_repository(tmp_path)
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+    # HEAD rather than the index, since the commit is holding the index
+    # lock here and no second command could have taken that one.
+    window = TAKE_THE_LOCK.format(directory=tmp_path / ".git", lock="HEAD.lock") + REFUSE_THE_COMMIT
 
-    with open_a_commit_window(tmp_path, "index", TAKE_A_SECOND_LOCK + REFUSE_THE_COMMIT), pytest.raises(git.Error):
+    with open_a_window(tmp_path, "index", window), pytest.raises(git.Error):
         repository.commit("second", paths=("README.md",))
 
-    assert read_git_locks(tmp_path) == (tmp_path / ".git/config.lock",)
+    assert read_git_locks(tmp_path) == (tmp_path / ".git/HEAD.lock",)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a hook that signals its own Git needs a shell and `kill`")
@@ -239,17 +250,19 @@ def test_keeps_the_lock_a_running_command_holds_when_a_signal_ends_its_own_git(
 ) -> None:
     repository = create_repository(tmp_path)
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
-    window = HOLD_A_SECOND_LOCK + SIGNAL_THE_GIT.format(name=name)
+    window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="HEAD.lock") + SIGNAL_THE_GIT.format(name=name)
 
-    with open_a_commit_window(tmp_path, "index", window), pytest.raises(git.Error):
+    with open_a_window(tmp_path, "index", window), pytest.raises(git.Error):
         repository.commit("second", paths=("README.md",))
 
     try:
         assert is_the_second_command_running(tmp_path)
-        assert read_git_locks(tmp_path) == (tmp_path / ".git/config.lock",)
+        assert read_git_locks(tmp_path) == (tmp_path / ".git/HEAD.lock",)
         # Git's handler took its own away before the signal ended it,
-        # so the lock left standing costs the next command nothing.
-        assert repository.commit("second", paths=("README.md",))
+        # so what the next command meets is the second command's lock
+        # and nothing this one left, and what it does is say so.
+        with pytest.raises(git.Error, match=r"HEAD\.lock"):
+            repository.commit("second", paths=("README.md",))
     finally:
         end_the_second_command(tmp_path)
 
@@ -272,24 +285,23 @@ def test_reports_git_refusing_a_repository_whose_head_cannot_be_read(
         (tmp_path / ".git/HEAD").chmod(0o600)
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="a hook that takes a lock needs a shell and `touch`")
-def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_its_own_git(
-    tmp_path: Path, create_repository: CreateRepository
+@pytest.mark.skipif(sys.platform == "win32", reason="a hook that kills its own Git needs a shell and `kill`")
+@pytest.mark.parametrize("lock", ["index.lock", "HEAD.lock"])
+def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_a_git_that_never_took_it(
+    tmp_path: Path, create_repository: CreateRepository, lock: str
 ) -> None:
     repository = create_repository(tmp_path)
-    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
-    window = HOLD_A_SECOND_LOCK + KILL_THE_GIT
+    # `git worktree add` locks nothing of the main worktree's, so a
+    # second command has the whole of its span to take one of these in
+    # and the kill below answers for none of them.
+    window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock=lock) + KILL_THE_GIT
 
-    with open_a_commit_window(tmp_path, "index", window), pytest.raises(git.Error):
-        repository.commit("second", paths=("README.md",))
+    with open_a_window(tmp_path, "worktree", window), pytest.raises(git.Error), repository.open_worktree("HEAD"):
+        pass
 
     try:
         assert is_the_second_command_running(tmp_path)
-        # The kill left the index lock its own Git was holding, which
-        # goes; the lock beside it is over a file no command here
-        # writes, and the process that took it is still going to use it.
-        assert read_git_locks(tmp_path) == (tmp_path / ".git/config.lock",)
-        assert repository.commit("second", paths=("README.md",))
+        assert read_git_locks(tmp_path) == (tmp_path / ".git" / lock,)
     finally:
         end_the_second_command(tmp_path)
 
@@ -320,7 +332,7 @@ def test_frees_the_locks_the_git_it_started_died_holding(
     repository = create_repository(tmp_path)
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
 
-    with open_a_commit_window(tmp_path, window, KILL_THE_GIT), pytest.raises(git.Error):
+    with open_a_window(tmp_path, window, KILL_THE_GIT), pytest.raises(git.Error):
         repository.commit("second", paths=("README.md",))
 
     assert read_git_locks(tmp_path) == ()
@@ -329,6 +341,39 @@ def test_frees_the_locks_the_git_it_started_died_holding(
     assert run_git(tmp_path, "log", "--format=%s") == "initial"
     assert repository.commit("second", paths=("README.md",))
     assert run_git(tmp_path, "log", "--format=%s").splitlines() == ["second", "initial"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a filter that kills its own Git needs a shell and `kill`")
+def test_frees_the_index_lock_the_apply_it_started_died_holding(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+
+    with open_an_apply_window(tmp_path, KILL_THE_GIT), pytest.raises(git.Error):
+        repository.apply_patch(RENAMING_PATCH, index=True)
+
+    assert read_git_locks(tmp_path) == ()
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+    assert repository.commit("second", paths=("README.md",))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a filter that kills its own Git needs a shell and `kill`")
+def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_an_apply_that_took_none(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+    # An apply that was not asked for the index never takes its lock, so
+    # the one standing at the end is the second command's whole.
+    window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + KILL_THE_GIT
+
+    with open_an_apply_window(tmp_path, window), pytest.raises(git.Error):
+        repository.apply_patch(RENAMING_PATCH)
+
+    try:
+        assert is_the_second_command_running(tmp_path)
+        assert read_git_locks(tmp_path) == (tmp_path / ".git/index.lock",)
+    finally:
+        end_the_second_command(tmp_path)
 
 
 def test_leaves_the_index_alone_where_a_read_would_only_be_refreshing_it(

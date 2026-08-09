@@ -28,7 +28,7 @@ from tests.doubles.acceptance import (
     kill_amid_moving_the_branch,
     kill_amid_staging,
     kill_amid_writing_the_commit,
-    open_a_commit_window,
+    open_a_window,
     read_git_locks,
 )
 from tests.doubles.generation import run_in_thread
@@ -826,7 +826,7 @@ def test_keeps_the_acceptance_the_git_a_hook_killed_had_already_committed(
 ) -> None:
     create_repository(tmp_path)
 
-    with open_a_commit_window(tmp_path, window, KILL_THE_GIT):
+    with open_a_window(tmp_path, window, KILL_THE_GIT):
         ending = read_ending(build_conversation(tmp_path, successful_client()).ralph())
 
     # Git came back non-zero over a commit it had written, and the run
@@ -890,7 +890,7 @@ def test_keeps_the_acceptance_a_second_killed_git_could_not_be_asked_about(
     specs = Specs(tmp_path)
     baseline = specs.prepare()
 
-    with open_a_commit_window(tmp_path, "written", MARK_THE_WINDOW + KILL_THE_GIT):
+    with open_a_window(tmp_path, "written", MARK_THE_WINDOW + KILL_THE_GIT):
         commit = specs.accept(ACCEPTANCE_PATCH, baseline)
 
     assert commit == run_git(tmp_path, "rev-parse", "HEAD")
@@ -1049,7 +1049,7 @@ def test_frees_the_locks_the_git_a_run_that_lives_on_started_died_holding(
     create_repository(tmp_path)
     list(build_conversation(tmp_path, successful_client()).ralph())
     accepted = find_accepted_commit(tmp_path)
-    with open_a_commit_window(tmp_path, "index", KILL_THE_GIT):
+    with open_a_window(tmp_path, "index", KILL_THE_GIT):
         assert read_ending(build_conversation(tmp_path, updated_client()).ralph(), "Git command failed") == "failed"
     # The run that lived through it undid its own acceptance and took
     # its record with it, so nothing is left to say whose a lock is by
