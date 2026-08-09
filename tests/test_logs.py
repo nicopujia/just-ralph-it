@@ -3,7 +3,6 @@ import logging
 import os
 import re
 import shutil
-import sys
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -172,12 +171,6 @@ def test_writes_on_when_a_path_the_log_needs_is_not_what_it_must_be(
     assert FAILURE_RECORD in read_session_log(tmp_path)
 
 
-# `O_NOFOLLOW` is what holds a link off the log's own name, and
-# Windows leaves the flag out, so what a link there does is what
-# nothing here has run.
-@pytest.mark.skipif(
-    sys.platform == "win32", reason="a link on the log's own name is followed where `O_NOFOLLOW` is not"
-)
 @pytest.mark.parametrize(("path", "shape"), SABOTAGED_PATHS_TO_CONTAIN)
 def test_writes_nothing_outside_the_workspace_directory_when_a_path_the_log_needs_is_wrong(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, path: str, shape: str

@@ -1,4 +1,5 @@
 import contextlib
+import errno
 import itertools
 import logging
 import os
@@ -197,9 +198,19 @@ class SessionLog(logging.Handler):
                 # The size of the file the open below will write to,
                 # which is that file and never what a link standing on
                 # its name points at.
-                size = self.file.lstat().st_size
+                standing = self.file.lstat()
             except FileNotFoundError:
                 size = 0
+            else:
+                # `O_NOFOLLOW` is what keeps the open below off a link
+                # on this name, and Windows carries no such flag, so
+                # there the `lstat` the size already costs is what
+                # finds the link, and the failure it raises is what
+                # brings the repair. `ELOOP` is the failure the flag
+                # itself would have raised.
+                if sys.platform == "win32" and stat.S_ISLNK(standing.st_mode):
+                    raise OSError(errno.ELOOP, os.strerror(errno.ELOOP), str(self.file))
+                size = standing.st_size
             if size and size + len(line) > LOG_FILE_BYTES:
                 self._rotate()
             with open(self.file, "ab", opener=_open_the_log) as stream:
