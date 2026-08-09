@@ -22,7 +22,10 @@ from . import copy
 from .app import App
 
 # What a shell reports for a process a hangup ended, which is what
-# ended this one even though it is the one taking the ending.
+# ended this one even though it is the one taking the ending. It is
+# also exactly what a delivered SIGHUP leaves behind, so the status
+# says nothing about which of the two ended the window: the
+# `terminal_hung_up` record below is the only thing that does.
 HANGUP_STATUS = 129
 # The same for an interrupt, which is an ending the user asked for
 # rather than a failure to report: a traceback over it says JRI broke
@@ -201,6 +204,8 @@ def _take_over(hold: Hold) -> bool:
 # the project back with everything else it took, and a run is a process
 # of its own, so the next window reads its journal and ends the turn
 # from it -- and this is that ending, taken rather than waited for.
+# Getting here at all means SIGHUP did not end the window first, which
+# is the uncommon half of the cases `lib.terminal` sets out.
 def _end_hung_up_window() -> None:
     logger.info("terminal_hung_up")
     os._exit(HANGUP_STATUS)

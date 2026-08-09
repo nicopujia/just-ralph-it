@@ -15,6 +15,15 @@ POLL = 0.25
 # so nothing written there arrives and nothing read from it comes back.
 # A process still drawing into one has no way left of saying so and no
 # way of being asked to stop.
+#
+# The ordinary closing of a terminal emulator never reaches here: that
+# terminal is the process's controlling one, so the kernel sends SIGHUP
+# to the foreground group and the default disposition ends the process
+# in hundredths of a second, watch or no watch. This is for the cases
+# the signal misses -- a pty that is nobody's controlling terminal, and
+# an ignored SIGHUP inherited across exec from a parent like `nohup` --
+# where a process with nowhere left to draw otherwise runs on for as
+# long as its work lasts, holding everything it holds.
 def end_on_hangup(end: Callable[[], None]) -> None:
     threading.Thread(target=_wait_for_hangup, args=(end,), daemon=True).start()
 
@@ -46,8 +55,12 @@ def _list_descriptors() -> Iterator[int]:
 
 
 def _wait_for_hangup(end: Callable[[], None]) -> None:
-    # A console window closing reaches its process as an event Windows
-    # ends it on, and `poll` there answers about sockets alone.
+    # `select.poll` is not a thing Windows has: the class, `POLLHUP` and
+    # `POLLERR` are all absent there, so this guard is what stands
+    # between the watch and an `AttributeError` rather than belt over
+    # braces. It is `select.select` that Windows answers for sockets
+    # alone. Returning loses nothing anyway, since a console window
+    # closing reaches its process as an event the system ends it on.
     if sys.platform == "win32":
         return
     descriptors = tuple(_list_descriptors())
