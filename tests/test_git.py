@@ -22,10 +22,11 @@ from tests.doubles.acceptance import (
     end_the_second_command,
     install_a_killing_git,
     is_the_second_command_running,
+    open_a_filter_window,
     open_a_window,
-    open_an_apply_window,
     read_git_locks,
     read_the_locks_the_window_saw,
+    stale_the_filtered_path,
 )
 
 CONTEXT_FREE_PATCH = b"""\
@@ -351,7 +352,7 @@ def test_frees_the_index_lock_the_apply_it_started_died_holding(
 ) -> None:
     repository = create_repository(tmp_path)
 
-    with open_an_apply_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT), pytest.raises(git.Error):
+    with open_a_filter_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT, side="smudge"), pytest.raises(git.Error):
         repository.apply_patch(RENAMING_PATCH, index=True)
 
     # What the release answers for is a lock the dead apply was holding,
@@ -371,8 +372,69 @@ def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_an_apply_that_t
     # the one standing at the end is the second command's whole.
     window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + KILL_THE_GIT
 
-    with open_an_apply_window(tmp_path, window), pytest.raises(git.Error):
+    with open_a_filter_window(tmp_path, window, side="smudge"), pytest.raises(git.Error):
         repository.apply_patch(RENAMING_PATCH)
+
+    try:
+        assert is_the_second_command_running(tmp_path)
+        assert read_git_locks(tmp_path) == (tmp_path / ".git/index.lock",)
+    finally:
+        end_the_second_command(tmp_path)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a filter that kills its own Git needs a shell and `kill`")
+def test_frees_the_index_lock_the_staging_it_started_died_holding(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+
+    with open_a_filter_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT, side="clean"), pytest.raises(git.Error):
+        repository.stage(("README.md",))
+
+    # What the release answers for is a lock the dead staging was
+    # holding, and a command that never took one leaves the same empty
+    # `.git`, so what the window saw is what tells those two apart.
+    assert read_the_locks_the_window_saw(tmp_path) == (".git/index.lock",)
+    assert read_git_locks(tmp_path) == ()
+    assert repository.commit("second", paths=("README.md",))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a filter that kills its own Git needs a shell and `kill`")
+def test_keeps_the_lock_over_head_a_running_command_holds_when_a_kill_ends_a_staging(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+    # A commit is the one command here that moves HEAD and the branch,
+    # so a staging leaves both free for the whole of its span however
+    # firmly it is holding the index, and the lock over HEAD standing at
+    # the end is the second command's whole.
+    window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="HEAD.lock") + KILL_THE_GIT
+
+    with open_a_filter_window(tmp_path, window, side="clean"), pytest.raises(git.Error):
+        repository.stage(("README.md",))
+
+    try:
+        assert is_the_second_command_running(tmp_path)
+        assert read_git_locks(tmp_path) == (tmp_path / ".git/HEAD.lock",)
+    finally:
+        end_the_second_command(tmp_path)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a filter that kills its own Git needs a shell and `kill`")
+def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_a_read(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+    # A read of Git's takes the index lock at no point at all, so a
+    # second command has the whole of its span to take that lock in and
+    # the kill below answers for none of it.
+    stale_the_filtered_path(tmp_path)
+    window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + KILL_THE_GIT
+
+    with open_a_filter_window(tmp_path, window, side="clean"), pytest.raises(git.Error):
+        repository.read_status()
 
     try:
         assert is_the_second_command_running(tmp_path)

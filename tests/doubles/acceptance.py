@@ -116,20 +116,23 @@ HOLD_THE_LOCK = (
     f"echo $! > {{directory}}/{SECOND_COMMAND_PID}\n"
     "until [ -e {directory}/{lock} ]; do :; done\n"
 )
-# A smudge filter of the project's own, which is the one window inside
-# `git apply` -- no hook of any kind runs there. Git runs it over the
-# bytes it is about to leave in the worktree, which is work both
-# applies do, and where the apply was asked for the index it has taken
-# the index lock before it gets that far, so the same window stands
-# either side of the one thing that tells those two applies apart. The
-# clean side stands there for one of them only: an apply asked for the
-# index patches the blob the index already names and writes the result
-# straight back as another, so its one read of the worktree is the
-# re-hash settling whether an entry Git cannot date apart from its
-# index still matches -- which the same second of the clock arms and a
-# faster machine disarms. `cat` is what makes the filter a filter: Git
-# reads the content back off it.
-APPLY_FILTER = "apply-window"
+# A filter of the project's own, which is the window inside the
+# commands that run no hook of any kind: `git apply`, `git add` and a
+# read all put the bytes of a path the project points at one through
+# it. Which side of it runs is which way the bytes are going -- the
+# smudge side over what Git is about to leave in the worktree, the
+# clean side over what it is reading back out of one -- and `cat` is
+# what makes either a filter, since Git reads the content back off
+# what it ran. Both applies smudge, and where the apply was asked for
+# the index it has taken the index lock before it gets that far, so
+# the same window stands either side of the one thing that tells those
+# two applies apart. The clean side stands inside an apply for one of
+# them only: an apply asked for the index patches the blob the index
+# already names and writes the result straight back as another, so its
+# one read of the worktree is the re-hash settling whether an entry
+# Git cannot date apart from its index still matches -- which the same
+# second of the clock arms and a faster machine disarms.
+WINDOW_FILTER = "window-filter"
 FILTERED_PATH = "README.md"
 # The project's own hook refusing the commit, which is an ending Git
 # chooses and runs its exit handler for: the hook's 1 is Git's 1.
@@ -289,16 +292,16 @@ def open_a_window(root: Path, window: str, action: str) -> "Iterator[None]":
 
 
 @contextmanager
-def open_an_apply_window(root: Path, action: str) -> "Iterator[None]":
+def open_a_filter_window(root: Path, action: str, *, side: str) -> "Iterator[None]":
     executable = shutil.which("git")
     assert executable is not None
-    driver = root / ".git" / APPLY_FILTER
+    driver = root / ".git" / WINDOW_FILTER
     driver.write_text(f"#!/bin/sh\n{action}cat\n", encoding="utf-8")
     driver.chmod(0o700)
     attributes = root / ".gitattributes"
-    attributes.write_text(f"{FILTERED_PATH} filter={APPLY_FILTER}\n", encoding="utf-8")
+    attributes.write_text(f"{FILTERED_PATH} filter={WINDOW_FILTER}\n", encoding="utf-8")
     subprocess.run(
-        [executable, "-C", str(root), "config", f"filter.{APPLY_FILTER}.smudge", str(driver)],
+        [executable, "-C", str(root), "config", f"filter.{WINDOW_FILTER}.{side}", str(driver)],
         check=True,
         capture_output=True,
     )
@@ -308,6 +311,19 @@ def open_an_apply_window(root: Path, action: str) -> "Iterator[None]":
         # What closes the window is this file: the driver and the
         # setting reach nothing with no path put in front of them.
         attributes.unlink()
+
+
+# A tracked file the index can tell nothing about from what it recorded
+# of it: the bytes are the bytes the index already holds, so the size
+# still matches and cannot decide it, and the date is one no write of
+# this run's could have left. What is left for Git is to read the file
+# back through the clean side of the filter and hash it, which is what
+# puts a window inside a read. Neither half is a race, unlike a write
+# landing in the second the index was written in.
+def stale_the_filtered_path(root: Path) -> None:
+    path = root / FILTERED_PATH
+    path.write_bytes(path.read_bytes())
+    os.utime(path, (0, 0))
 
 
 def _read_the_second_command(root: Path) -> int:
