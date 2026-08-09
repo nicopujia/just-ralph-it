@@ -21,6 +21,7 @@ from jri.core.ai import (
 )
 from jri.core.exceptions import ModelError, UsageLimitError
 from jri.core.notes import Notebook
+from jri.core.settings import ReasoningEffort
 from tests.doubles.openai import (
     FakeClient,
     disconnection,
@@ -342,6 +343,18 @@ def test_sends_temperature_only_when_configured(temperature: float | None) -> No
     read_parsed(LLMRunner(client=cast("OpenAI", client), model="test", temperature=temperature))
 
     assert client.responses.options[-1]["temperature"] == (omit if temperature is None else temperature)
+
+
+# `max` is a level the provider serves and the pinned provider library
+# does not list, so a run that drops it on the way out would leave the
+# setting accepted and inert.
+@pytest.mark.parametrize("effort", ["xhigh", "max"], ids=["listed", "unlisted"])
+def test_sends_the_reasoning_effort_it_was_given(effort: ReasoningEffort) -> None:
+    client = FakeClient([], parsed=[Output(answer="ready")])
+
+    read_parsed(LLMRunner(client=cast("OpenAI", client), model="test", reasoning_effort=effort))
+
+    assert client.responses.options[-1]["reasoning"] == {"effort": effort, "summary": "auto"}
 
 
 def test_rejects_a_context_over_the_input_size_limit() -> None:

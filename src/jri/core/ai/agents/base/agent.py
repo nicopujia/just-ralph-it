@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, ClassVar, cast
 
 from openai import OpenAI
 from openai.types.responses import ResponseInputParam
-from openai.types.shared import ReasoningEffort
 
 from jri.core import ai
 from jri.core.exceptions import ModelError
+from jri.core.settings import ReasoningEffort
 from jri.lib import prompt
 
 from .tool import DEFAULT_SYMBOL, Invocation, Tool

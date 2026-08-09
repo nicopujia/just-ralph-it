@@ -14,9 +14,12 @@ from . import paths
 from .workspace import Workspace
 
 type LoggingLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-# Narrower than the provider library's, whose values come and go with
-# its version, so the accepted efforts are the documented ones.
-type ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None
+# JRI's own list rather than the provider library's, whose values come
+# and go with its version and lag the levels a provider already
+# serves. Which of them a model offers is the model's to answer, and
+# it answers by rejecting the request, so this documents the
+# vocabulary rather than promising any of it works.
+type ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"] | None
 type Temperature = Annotated[float, Field(ge=0, le=2)] | None
 
 APPLICATION_NAME = "jri"
@@ -33,8 +36,9 @@ class AgentProfile(BaseModel):
     reasoning_effort: ReasoningEffort = Field(
         default=None,
         description=(
-            "Reasoning effort: none, minimal, low, medium, high, or xhigh. Setting none turns reasoning off, "
-            "where omitting this leaves the model its own default."
+            "Reasoning effort: none, minimal, low, medium, high, xhigh, or max. Setting none turns reasoning off, "
+            "where omitting this leaves the model its own default. Not every model offers every one of these, and a "
+            "model rejects an effort it does not offer."
         ),
     )
     temperature: Temperature = Field(

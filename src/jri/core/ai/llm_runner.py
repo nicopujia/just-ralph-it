@@ -5,17 +5,20 @@ from dataclasses import dataclass
 from http import HTTPStatus
 from threading import Event
 from time import sleep
-from typing import Any, ClassVar, TypeVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, TypeVar, cast
 
 from openai import APIConnectionError, APIStatusError, Omit, OpenAI, OpenAIError, omit
 from openai.types.responses import FunctionToolParam, ResponseInputParam, ResponseStreamEvent
-from openai.types.shared import ReasoningEffort
 from openai.types.shared_params import Reasoning
 from pydantic import BaseModel, ValidationError
 
 from jri.core.exceptions import ModelError, UsageLimitError
+from jri.core.settings import ReasoningEffort
 
 from .events import AgentEvent, ReasoningDelta, TextDelta
+
+if TYPE_CHECKING:
+    from openai.types.shared import ReasoningEffort as ProviderReasoningEffort
 
 # A fence only bounds what the model has been told a fence is, so
 # every prompt this runner sends ends with the same notice.
@@ -69,6 +72,14 @@ class LLMRunner:
     def sampling(self) -> float | Omit:
         return omit if self.temperature is None else self.temperature
 
+    # The provider library's efforts are one version's snapshot of what
+    # the models offer, and a model can offer a level that snapshot
+    # never named, so the effort the settings accepted is the one that
+    # goes on the wire and the provider is left to answer for it.
+    @property
+    def reasoning(self) -> Reasoning:
+        return Reasoning(effort=cast("ProviderReasoningEffort", self.reasoning_effort), summary="auto")
+
     def respond(self, context: ResponseInputParam, tools: Sequence[FunctionToolParam] = ()) -> Response:
         self._check_size(context)
         outputs_by_index: dict[int, dict[str, Any]] = {}
@@ -120,7 +131,7 @@ class LLMRunner:
                     model=self.model,
                     input=context,
                     tools=tools,
-                    reasoning=Reasoning(effort=self.reasoning_effort, summary="auto"),
+                    reasoning=self.reasoning,
                     temperature=self.sampling,
                     stream=True,
                 ) as stream:
@@ -146,7 +157,7 @@ class LLMRunner:
             model=self.model,
             input=context,
             text_format=output_type,
-            reasoning=Reasoning(effort=self.reasoning_effort, summary="auto"),
+            reasoning=self.reasoning,
             temperature=self.sampling,
         ) as stream:
             streamed_text = ""
