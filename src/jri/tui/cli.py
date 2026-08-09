@@ -1,5 +1,6 @@
 import argparse
 import logging
+import os
 import webbrowser
 
 import yaml
@@ -14,11 +15,15 @@ from jri.core.exceptions import PersistenceError
 from jri.core.generation import Generation
 from jri.core.settings import Settings
 from jri.core.workspace import Hold, Workspace
-from jri.lib import files, git
+from jri.lib import files, git, terminal
 from jri.lib.providers import codex
 
 from . import copy
 from .app import App
+
+# What a shell reports for a process a hangup ended, which is what
+# ended this one even though it is the one taking the ending.
+HANGUP_STATUS = 129
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +98,7 @@ def _chat() -> None:
     conversation = Conversation(settings)
     app = App(conversation)
     logger.info("started")
+    terminal.end_on_hangup(_end_hung_up_window)
     try:
         app.run()
     except BaseException:
@@ -175,6 +181,19 @@ def _take_over(hold: Hold) -> bool:
         print(copy.WORKSPACE_HELD_STANDING)
         return False
     return True
+
+
+# The terminal this window was drawing in is gone, and its own ending
+# is not one it can be asked for: the event loop blocks inside a write
+# to a terminal that will never read again, so a request to quit is a
+# message nothing would ever collect. Every ending JRI already has
+# leans on the process going -- the operating system takes the hold on
+# the project back with everything else it took, and a run is a process
+# of its own, so the next window reads its journal and ends the turn
+# from it -- and this is that ending, taken rather than waited for.
+def _end_hung_up_window() -> None:
+    logger.info("terminal_hung_up")
+    os._exit(HANGUP_STATUS)
 
 
 def _confirm(prompt: str) -> bool:
