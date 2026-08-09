@@ -29,7 +29,7 @@ topics:
     n30: Git history is the sole immutable version store for generated specification sets; JRI does not maintain duplicate per-run specification directories.
     n31: The working tree contains only the currently checked-out canonical functional and architectural specification trees; prior versions remain available through Git history.
     n32: The Git commit containing a successfully generated specification bundle identifies that immutable specification version and its source notebook state.
-    n33: JRI stores mutable implementation-workflow status and the active specification commit pointer in the existing ignored `.jri/session.json`; durable specification identity and provenance are derived from Git.
+    n33: JRI stores the mutable conversation and workflow status in the existing ignored `.jri/session.json`; durable specification identity and provenance are derived from Git, and the accepted commit is found by its acceptance trailer rather than recorded as a pointer.
     n34: Ralph executes in a dedicated JRI-managed Git worktree under `.jri/worktree/` on an implementation branch.
     n35: A dedicated implementation worktree should omit JRI's ignored runtime artifacts so Ralph sees a simpler repository environment.
     n36: Calling `just_ralph_it` must refuse to proceed when the source repository has unrelated tracked changes or nonignored untracked files; ignored runtime artifacts and JRI-managed project-definition changes do not block dispatch.
@@ -45,7 +45,7 @@ topics:
     n46: If resolving Architect feedback requires a behavioral decision outside confirmed delegated authority, involves contradictory requirements, or presents materially different behavioral alternatives, the Functional Analyst returns the issue to the Interviewer for discussion with the user.
     n47: The Functional Analyst and Architect may iterate over uncommitted draft specifications until the Architect accepts the functional specifications and successfully produces architectural specifications.
     n48: When Architect feedback can be resolved by the Functional Analyst under confirmed delegation, JRI automatically continues the Functional Analyst-to-Architect loop within the same `just_ralph_it` call without involving the Interviewer.
-    n49: When Architect feedback requires user input, JRI discards all uncommitted draft specifications, returns the issue to the Interviewer, and restarts the full Functional Analyst and Architect pipeline from the updated notebook on the next `just_ralph_it` call.
+    n49: When Architect feedback requires user input, JRI keeps the uncommitted draft specifications, returns the issue to the Interviewer, and picks that draft up again on the next `just_ralph_it` call, running the full Functional Analyst and Architect pipeline over the notebook as it then stands.
     n50: The Functional Analyst and Architect should not simply subclass the existing conversational `Agent`; their focused LLM execution should use shared lower-level Responses machinery within the implementation workflow.
     n51: JRI itself orchestrates the loop between the Functional Analyst and Architect rather than allowing either agent to invoke the other directly.
     n52: 'The implementation pipeline is a workflow: predetermined application code controls the sequence and decides the next action at runtime.'
@@ -55,26 +55,33 @@ topics:
     n56: The new task-oriented execution abstraction should be named in workflow terms rather than called `TaskAgent`; the exact class boundaries and names remain to be defined.
     n57: The Functional Analyst and Architect do not have tools; JRI supplies each workflow step with all inputs required to produce one typed result.
     n58: The project implementation workflow should live under `src/jri/core/workflows/`.
-    n59: After the Functional Analyst produces a valid draft, the implementation workflow invokes the Explorer agent against the implementation worktree before invoking the Architect.
+    n59: After the Functional Analyst produces a valid draft, the implementation workflow invokes the Explorer agent against a throwaway copy of the project as it stands on disk before invoking the Architect.
     n60: The user confirmed that Functional Analyst and Architect responsibilities remain separate LLM transformations rather than being combined.
     n61: Architectural direction must be defined once before the Ralph implementation loop begins and remain the stable big-picture guide across Ralph iterations.
     n62: Ralph must not be responsible for defining the initial architecture because its iterative execution assumes that stable architecture already exists.
     n63: The implementation workflow preserves separate Functional Analyst and Architect steps, with behavioral authority isolated from repository-aware architectural design.
     n64: The Architect receives the accepted functional draft, the exact repository baseline identity and tracked file tree, and the Explorer's repository analysis report.
-    n65: The Explorer's repository analysis is generated from the implementation worktree state that the resulting architecture will target.
+    n65: The Explorer's repository analysis is generated from the project as it stands on disk rather than from the commit JRI sits on, and it runs in a throwaway copy so that nothing the study writes reaches the project.
     n66: The Explorer is an autonomous agent invoked at a predetermined point inside the application-controlled implementation workflow.
     n67: 'The Explorer''s repository-analysis report is ephemeral: JRI uses it as Architect input and does not commit it with the functional and architectural specifications.'
     n68: The Explorer report is contextual evidence only; functional specifications remain the behavioral authority and architectural specifications remain the implementation authority.
     n69: The Explorer produces a repository-general analysis rather than tailoring its report to the functional specifications; the Architect combines that general context with the separately supplied functional draft.
     n70: JRI may reuse the ephemeral Explorer report across Functional Analyst–Architect iterations while the analyzed repository baseline remains unchanged.
     n71: A project update is handled by comparing the current notebook with the previously accepted notebook state, generating successor specification patches, and restarting Ralph only after a new complete specification bundle is accepted.
-    n95: 'The Architect returns a typed terminal outcome: either functional-specification issues for the Functional Analyst or a successful architectural-specification patch whose payload is a standard Git unified diff.'
-    n96: Initial architectural-spec generation patches an empty architecture tree, while updates patch the existing accepted architecture tree.
-    n97: JRI validates and applies a successful architectural patch in isolated staging, then atomically commits the resulting complete architectural tree together with the staged complete functional-spec tree.
+    n95: 'The Architect returns a typed terminal outcome: either functional-specification issues for the Functional Analyst or a set of architecture files, each carrying its complete final content, together with the paths it removes.'
+    n96: The Architect writes onto the architecture tree the run's worktree holds, which is empty for an initial generation, the accepted tree for an update, and a resumed draft where an earlier run left one.
+    n97: JRI writes a successful architecture into that same isolated worktree, then atomically commits the resulting complete architectural tree together with the complete functional-spec tree.
     n98: Committed functional specifications live under `.jri/specs/functional/` as Markdown files.
     n99: Committed architectural specifications live under `.jri/specs/architecture/` as Markdown files.
     n101: The tracked `.jri/specs/` tree is JRI-owned project knowledge and is available to Ralph in the implementation worktree.
     n102: JRI does not create `.jri/specs/manifest.json`; the existing ignored `.jri/session.json` holds mutable workflow state, while Git commits provide durable specification provenance.
+    n110: A `just_ralph_it` run executes in a process of its own, detached from the window that started it, so closing that window leaves the run going and reopening the chat picks it up again.
+    n111: The run holds an operating-system lock for as long as its process lives, which is how any other process finds out whether a run is still going without trusting a recorded process id.
+    n112: A run's record while it lasts is an append-only journal, written a line at a time, so a run whose window died is read back from the top by the next window rather than lost.
+    n113: The ignored run directory `.jri/generation/` holds the journal, the run lock, the draft and the acceptance record, and is kept out of the project by a rule in the committed `.jri/.gitignore` that JRI restores every time it opens the directory.
+    n114: 'The commit accepting a generation carries a `JRI-Specifications: accepted` trailer, which is how JRI asks Git which specification version is the accepted one.'
+    n115: JRI writes an acceptance record into the run directory before the commit touches the project, so a run killed part way through an acceptance is finished or taken back by the next run rather than left for the user to sort out.
+    n116: 'One JRI holds a project at a time: a second window either takes the hold over from the first or refuses to open, and a workspace reset refuses while a window or a run still holds what it would delete.'
 - id: t3
   name: Functional specifications
   status: open
@@ -103,7 +110,7 @@ topics:
     n73: JRI must determine how a notebook-changing user update affects existing functional specifications, architectural specifications, implementation state, and subsequent workflow execution.
     n74: An active Ralph loop is coordinated with candidate notebook updates by a deterministic notebook-identity check between iterations rather than by semantic update classification.
     n75: The notebook may evolve through multiple interview turns before the user and Interviewer agree that the updated definition is complete, so JRI must distinguish work-in-progress definition changes from an accepted update.
-    n76: A completed notebook update becomes successor functional and architectural specifications through the same staged unified-diff workflow used for initial generation.
+    n76: A completed notebook update becomes successor functional and architectural specifications through the same staged workflow used for initial generation.
     n77: The user's only responsibility is to share thoughts with the Interviewer in natural language; the user must not manage Ralph, Git, worktrees, specification versions, workflow states, pause controls, or update commands directly.
     n78: JRI and the Interviewer must translate natural-language project discussion into candidate notebook updates, acceptance boundaries, specification regeneration, and Ralph lifecycle actions.
     n79: JRI automatically coordinates notebook changes and Ralph by ending the loop before the next iteration whenever the current notebook identity differs from the active specification bundle's notebook identity.
@@ -114,14 +121,14 @@ topics:
     n84: If the notebook identities differ, JRI lets any current Ralph iteration finish but starts no subsequent iteration; the active Ralph loop exits without requiring a pause protocol.
     n85: A stopped Ralph loop does not resume merely because the notebook later reverts or changes again.
     n86: Ralph restarts only after a `just_ralph_it` call successfully completes the Functional Analyst, Explorer, and Architect workflow and establishes a new accepted specification bundle.
-    n87: The unified Functional Analyst workflow receives the complete current `.jri/notebook.yaml`, its Git diff from the accepted notebook baseline, and existing accepted functional specifications if any; this same input model supports initial generation and later updates.
-    n88: 'Brand-new functional-spec generation and updates use the same workflow: an empty or accepted spec baseline is patched after whole-notebook ambiguity review, with the complete current notebook remaining authoritative.'
-    n89: 'The Functional Analyst returns a typed terminal outcome: either an ambiguity report or a successful specification patch whose payload is a standard Git unified diff.'
-    n90: Initial functional-spec generation uses an empty specification tree as its patch baseline, while updates use the existing accepted functional-spec tree; both follow the same patch workflow.
-    n91: Before applying a Functional Analyst patch, JRI validates unified-diff syntax, rejects absolute or parent-traversal paths, restricts changes to expected Markdown files under the functional-spec directory, and verifies applicability with Git.
-    n92: JRI applies a valid functional-spec patch to isolated uncommitted staging and gives the Architect the complete resulting functional-spec tree rather than only the patch.
-    n93: If the Functional Analyst emits a malformed or inapplicable patch, JRI treats it as a technical workflow-generation failure rather than a user-facing behavioral ambiguity.
-    n94: When FA or Architect later requires user input, JRI discards the staged patched specifications without committing them.
+    n87: The unified Functional Analyst workflow receives the complete current `.jri/notebook.yaml`, its diff from the accepted notebook baseline, and the functional specifications standing in the run's own worktree; this same input model supports initial generation and later updates.
+    n88: 'Brand-new functional-spec generation and updates use the same workflow: whatever specifications the run''s worktree holds are rewritten after whole-notebook ambiguity review, with the complete current notebook remaining authoritative.'
+    n89: 'The Functional Analyst returns a typed terminal outcome: either an ambiguity report or a set of specification files, each carrying its complete final content, together with the paths it removes.'
+    n90: 'A run writes onto whatever functional specifications its worktree holds: nothing at all for an initial generation, the accepted functional-spec tree for an update, and a resumed draft where an earlier run left one.'
+    n91: Before writing a returned specification file, JRI rejects absolute, parent-traversal and link-crossing paths, restricts changes to Markdown files under the writing agent's own specification root, and refuses names the filesystems the project may be cloned onto cannot hold.
+    n92: JRI writes the returned functional specifications into an isolated uncommitted worktree and gives the Architect the complete resulting functional-spec tree rather than only what the model returned.
+    n93: If the Functional Analyst returns a path or a content JRI refuses to write, JRI treats it as a technical workflow-generation failure rather than a user-facing behavioral ambiguity.
+    n94: When FA or Architect later requires user input, JRI keeps what the run wrote as an uncommitted draft patch rather than discarding it.
 connections:
 - n9 starts with n4
 - n4 is read by n5
@@ -185,6 +192,7 @@ connections:
 - n42 implements atomic commit required by n43
 - n48 automates revisions permitted by n45
 - n48 executes loop described by n47
+- n49 preserves the draft iterated over in n47
 - n49 handles escalation required by n46
 - n49 restarts from authoritative source n4
 - n50 would implement n5
@@ -249,17 +257,17 @@ connections:
 - n87 proposes strategy for n76
 - n87 changes input and output contract of n5
 - n89 must preserve unified initial-and-update logic in n88
-- n90 defines baseline semantics for patch in n89
-- n91 validates patch payload from n89
+- n90 defines the base written onto in n89
+- n91 validates the paths returned by n89
 - n92 occurs after successful validation by n91
 - n92 supplies complete staged input to n7
 - n93 is failure outcome when validation fails in n91
-- n94 cleans staged result created by n92
-- n94 implements draft discard required by n49
+- n94 keeps the staged result created by n92
+- n94 keeps the draft resumed by n49
 - n95 implements issue outcome described by n41
 - n95 defines terminal contract for n7
-- n96 defines patch baseline for n95
-- n97 handles successful patch from n95
+- n96 defines the base written onto in n95
+- n97 handles the successful architecture from n95
 - n97 implements atomic commit required by n42
 - n97 commits alongside staged functional tree from n92
 - n98 is destination tree staged by n92
@@ -289,4 +297,19 @@ connections:
 - n109 governs naming of current project artifact in n103
 - n109 governs naming of runtime artifact in n105
 - n109 governs naming of generated artifact in n106
-next_note_id: n110
+- n110 detaches execution of n52
+- n110 is started by the tool call in n19
+- n110 supports the unattended operation intended by n82
+- n111 reports the liveness of the run detached in n110
+- n112 records the work of the run detached in n110
+- n113 holds the journal written by n112
+- n113 holds the draft kept by n94
+- n113 keeps the run directory out of the version store in n30
+- n114 marks the commit created by n42
+- n114 identifies the version described by n32
+- n33 finds the accepted commit through n114
+- n115 guards the atomic commit in n42
+- n115 is written into the run directory in n113
+- n116 keeps one holder of the mutable state in n33
+- n116 keeps a second run from starting beside n110
+next_note_id: n117
