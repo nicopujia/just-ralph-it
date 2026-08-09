@@ -264,25 +264,34 @@ class Hold:
     # ended is the lock coming free -- the operating system's answer
     # about the process -- and never the signal being sent.
     def evict(self) -> bool:
-        holder = self.holder
-        if holder is not None:
-            logger.info("hold_eviction_started holder=%d", holder)
-            try:
-                # One process and never a group: what that window
-                # started is in a session of its own, and the terminal
-                # the user is sitting in is in this one.
-                os.kill(holder, signal.SIGTERM)
-            except OSError:
-                # A window that ended while the question stood is a
-                # window this has nothing left to end.
-                logger.exception("hold_kill_failed holder=%d", holder)
+        signalled: int | None = None
         deadline = time.monotonic() + self.FREED_WITHIN
+        # What is signalled is the pid the refusal in the condition
+        # above just read under the claim, and never the one the `take`
+        # before the question read: the answer took however long the
+        # user took, a pid is handed on the moment its process ends, and
+        # the number a window that let the project go leaves behind
+        # belongs to whoever wears it next. So there is one process this
+        # can end, and it is the one holding the project this instant.
         while not self.take():
+            holder = self.holder
+            if signalled is None and holder is not None:
+                logger.info("hold_eviction_started holder=%d", holder)
+                try:
+                    # One process and never a group: what that window
+                    # started is in a session of its own, and the
+                    # terminal the user is sitting in is in this one.
+                    os.kill(holder, signal.SIGTERM)
+                except OSError:
+                    # A window that ended between that read and this is
+                    # a window this has nothing left to end.
+                    logger.exception("hold_kill_failed holder=%d", holder)
+                signalled = holder
             if time.monotonic() >= deadline:
-                logger.info("hold_eviction_failed holder=%d", holder)
+                logger.info("hold_eviction_failed holder=%r", self.holder)
                 return False
             time.sleep(self.POLL)
-        logger.info("hold_eviction_finished holder=%d", holder)
+        logger.info("hold_eviction_finished signalled=%r", signalled)
         return True
 
     def release(self) -> None:

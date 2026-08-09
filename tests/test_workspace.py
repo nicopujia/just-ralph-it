@@ -10,14 +10,20 @@ from jri.core import paths
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from jri.core.settings import Settings
-from jri.core.workspace import Hold, Installation, Workspace
+from jri.core.workspace import MAX_PID, Hold, Installation, Workspace
 from jri.lib import git
 from tests.conftest import CreateRepository, RunGit
 from tests.doubles.acceptance import ROOT_QUESTION, WINDOW_MARKER, install_a_killing_git
 from tests.doubles.lock import hold, take
 from tests.doubles.openai import FakeClient
 from tests.doubles.settings import build_settings
-from tests.doubles.workspace import hold_workspace, hold_workspace_slowly, install_workspace
+from tests.doubles.workspace import (
+    hold_workspace,
+    hold_workspace_slowly,
+    install_workspace,
+    run_a_bystander,
+    watch_a_bystander,
+)
 
 # Long enough that a read of the record lands inside it, and short
 # enough to sit inside the wait a claim is given.
@@ -393,6 +399,49 @@ def test_takes_the_project_the_window_let_go_of_while_the_question_stood(tmp_pat
     hold.release()
 
 
+def test_ends_no_process_but_the_one_holding_the_project(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+
+    # The number a window leaves behind is handed on the moment it ends,
+    # and the question standing between the read and the eviction takes
+    # however long the user takes to answer it. A live process the
+    # record names but that never held the project is that pid after the
+    # hand-on -- staged rather than raced, since nothing here can make
+    # the operating system reuse one.
+    with run_a_bystander(tmp_path) as bystander, hold_workspace(tmp_path, record=str(bystander.pid)) as window:
+        hold = Workspace(tmp_path).open_hold()
+        assert not hold.take()
+        assert hold.holder == bystander.pid
+        window.kill()
+        window.wait()
+
+        assert hold.evict()
+
+        assert watch_a_bystander(tmp_path, bystander), "a process that never held the project was signalled"
+    hold.release()
+
+
+def test_ends_the_window_that_has_the_project_and_not_the_one_before_it(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+
+    with run_a_bystander(tmp_path) as bystander, hold_workspace(tmp_path, record=str(bystander.pid)) as first:
+        hold = Workspace(tmp_path).open_hold()
+        assert not hold.take()
+        assert hold.holder == bystander.pid
+        first.kill()
+        first.wait()
+        # The project changes hands while the question stands. The user
+        # asked for the project rather than for a particular window, so
+        # what a takeover ends is whichever window has it -- and the pid
+        # the question named is not that window and no longer anything.
+        with hold_workspace(tmp_path) as second:
+            assert hold.evict()
+
+            assert second.poll() is not None, "the window that had the project is still running"
+        assert watch_a_bystander(tmp_path, bystander), "a process that never held the project was signalled"
+    hold.release()
+
+
 def test_takes_the_project_a_killed_window_never_let_go_of(tmp_path: Path) -> None:
     install_workspace(tmp_path)
 
@@ -461,6 +510,27 @@ def test_reports_the_window_that_would_not_let_the_project_go(tmp_path: Path, mo
         # starting a second JRI over it.
         assert window.poll() is None
         assert hold.holder == window.pid
+
+
+def test_takes_no_project_from_a_signal_that_reached_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    install_workspace(tmp_path)
+    monkeypatch.setattr(Hold, "FREED_WITHIN", 0.3)
+
+    # The largest pid JRI will read out of a lock, which is orders of
+    # magnitude past the largest any of the three platforms hands out.
+    # The operating system answers about it exactly as it answers about
+    # a window that ended between the record being read and the signal
+    # going out, which is the only moment left where that can happen.
+    with hold_workspace(tmp_path, record=str(MAX_PID)) as window:
+        hold = Workspace(tmp_path).open_hold()
+        assert not hold.take()
+
+        assert not hold.evict()
+
+        # A signal nothing received is not a window ended, and the lock
+        # staying taken is what says so.
+        assert window.poll() is None
+        assert hold.holder == MAX_PID
 
 
 def test_frees_the_project_when_the_chat_holding_it_ends(tmp_path: Path) -> None:
