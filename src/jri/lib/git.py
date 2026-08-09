@@ -135,12 +135,14 @@ class Repository:
         member for member in signal.Signals if member.name in {"SIGHUP", "SIGINT", "SIGPIPE", "SIGQUIT", "SIGTERM"}
     )
     # The commands whose Git takes the index lock before it writes
-    # anything and keeps it to its last write, so that a lock over the
-    # index they leave behind is one nothing else could have made: Git
-    # makes a lock file with `O_EXCL`, and this Git had it. `apply` is
-    # one of them only where it was asked for the index. Every read and
-    # every `worktree` takes it at no point at all.
-    INDEX_HOLDERS: ClassVar[frozenset[str]] = frozenset({"add", "checkout", "commit", "reset"})
+    # anything and keeps it to its last write whatever else the line
+    # asked of them, so that a lock over the index they leave behind is
+    # one nothing else could have made: Git makes a lock file with
+    # `O_EXCL`, and this Git had it. Every read and every `worktree`
+    # takes it at no point at all. `apply` and `commit` hold it over
+    # part of what they are asked for and over the rest not at all,
+    # which is the reading `_held_the_index` makes of the line.
+    INDEX_HOLDERS: ClassVar[frozenset[str]] = frozenset({"add", "checkout", "reset"})
     # What HEAD holds in front of the ref it stands for, where it
     # stands for one rather than for a commit of its own.
     SYMBOLIC_HEAD: ClassVar[str] = "ref: "
@@ -453,7 +455,7 @@ class Repository:
         if result.returncode < 0 and -result.returncode not in self.HANDLED_SIGNALS:
             index, *refs = locks.written
             written = [self._git_directory / f"{self.TEMPORARY_INDEX}{process.pid}"]
-            if arguments[0] in self.INDEX_HOLDERS or (arguments[0] == "apply" and "--index" in arguments):
+            if self._held_the_index(arguments):
                 written.append(index)
             if arguments[0] == "commit":
                 written.extend(refs)
@@ -461,6 +463,25 @@ class Repository:
         if check and result.returncode:
             self._raise(result)
         return result
+
+    # Whether this command's own Git held the lock over the project's
+    # index from before its first write of it to its last. Read off the
+    # line rather than off the caller that built it, since the line is
+    # what Git answered to. An `apply` held it where it was asked for
+    # the index. A commit held it where it names the paths it is of,
+    # which it composes an index of its own from and copies over the
+    # project's at the very end; a commit of everything already staged
+    # writes the index it refreshed under that lock and renames it over
+    # the file inside `prepare_index`, ahead of the first hook, so every
+    # hook and every reference transaction after it stands where the
+    # index is free and a second command has that whole span to take it
+    # in.
+    def _held_the_index(self, arguments: Sequence[str]) -> bool:
+        if arguments[0] in self.INDEX_HOLDERS:
+            return True
+        if arguments[0] == "apply":
+            return "--index" in arguments
+        return arguments[0] == "commit" and "--" in arguments
 
     # An ending Git chose is an answer; an ending chosen for it is not.
     # A signal lands where neither Git's exit handler nor its signal

@@ -63,7 +63,11 @@ REFERENCE_TRANSACTION = '#!/bin/sh\n[ "$1" = {phase} ] || exit 0\ngrep " refs/he
 # commit's. The fifth is inside `git worktree add`, which locks nothing
 # of the main worktree's at any point, so every one of those files is
 # free for a second command for the whole span. A hook that runs at all
-# is a window Git is in, rather than one a poll has to catch.
+# is a window Git is in, rather than one a poll has to catch. A commit
+# of no named paths runs the same hooks and holds the index at none of
+# them: it renames the index it refreshed over the file inside
+# `prepare_index`, ahead of `pre-commit`, so `index` names where that
+# lock would be rather than where it is.
 HOOK_WINDOWS = {
     "index": ("pre-commit", "#!/bin/sh\n"),
     "branch": ("reference-transaction", REFERENCE_TRANSACTION.format(phase="prepared")),

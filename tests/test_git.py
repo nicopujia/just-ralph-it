@@ -443,6 +443,29 @@ def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_a_read(
         end_the_second_command(tmp_path)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a filter that kills its own Git needs a shell and `kill`")
+def test_keeps_the_lock_a_running_command_holds_when_a_kill_ends_a_commit_of_no_named_paths(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path)
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+    repository.stage(("README.md",))
+    # A commit of everything already staged renames the index it
+    # refreshed over the file before `pre-commit` runs, so the index is
+    # free for the whole of the hook and the kill below answers for
+    # none of it.
+    window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock="index.lock") + KILL_THE_GIT
+
+    with open_a_window(tmp_path, "index", window), pytest.raises(git.Error):
+        repository.commit("second")
+
+    try:
+        assert is_the_second_command_running(tmp_path)
+        assert read_git_locks(tmp_path) == (tmp_path / ".git/index.lock",)
+    finally:
+        end_the_second_command(tmp_path)
+
+
 def test_leaves_the_index_alone_where_a_read_would_only_be_refreshing_it(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
