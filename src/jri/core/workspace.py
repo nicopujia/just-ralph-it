@@ -3,9 +3,10 @@ import os
 import shutil
 import signal
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 from jri.lib import git
 from jri.lib.lock import Lock
@@ -14,6 +15,9 @@ from . import paths
 from .exceptions import PersistenceError
 from .notes import Notebook
 from .repository import Repository
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 # A pid is a 32-bit number on both platforms, so a record naming
 # anything larger names no process and is not a record JRI wrote.
@@ -89,10 +93,6 @@ class Workspace:
     def draft_file(self) -> Path:
         return self.root / paths.DRAFT_FILE
 
-    @property
-    def reset_paths(self) -> tuple[Path, ...]:
-        return tuple(self.root / path for path in paths.RESET_PATHS)
-
     # A draft states what it is a delta onto, and every run that picks
     # one up puts that claim to Git before believing it, so a draft
     # nothing can take away is refused rather than obeyed. That is why
@@ -125,32 +125,12 @@ class Workspace:
         self._ignore(f"/{self.generation_dir.name}/")
         return self.generation_dir
 
-    # The rendered configuration comes in rather than being read from
-    # `Settings`, so locating a workspace never depends on loading one.
-    def install(self, config: str, *, force: bool = False) -> "Installation":
-        repository_created = git.find_root(self.root) is None
-        Repository.init(self.root)
-        created = not self.config_file.exists()
-        if force:
-            self._reset()
-        self.directory.mkdir(exist_ok=True, parents=True)
-        if created or force:
-            self.config_file.write_text(config, encoding="utf-8", newline="\n")
-        Notebook(self.notebook_file)
-        self.logs_dir.mkdir(exist_ok=True)
-
-        self._ignore(*(path.name for path in (self.session_file, self.logs_dir, self.visualization_file)))
-
-        # The ignore file a project brought along is not JRI's to
-        # rewrite, so only a repository JRI creates gets one, and what
-        # it holds is what keeps those patterns out of the first commit
-        # the user makes.
-        if repository_created and not self.project_gitignore_file.exists():
-            self.project_gitignore_file.write_text(
-                f"{'\n'.join(self.PROJECT_IGNORES)}\n", encoding="utf-8", newline="\n"
-            )
-        return Installation(self, created=created, repository_created=repository_created)
-
+    # A reset that nothing is standing in the way of, and the
+    # permission to go through with one. Both refusals are read before
+    # the caller is handed anything, so a command that warns about what
+    # `--force` deletes warns only where JRI would go through with it,
+    # rather than asking for an answer it then has nothing to do with.
+    #
     # A reset empties what two live processes are writing, and neither
     # answers for the other: the window that has the project writes the
     # notes, the conversation and the logs, and a run in a process of
@@ -160,10 +140,16 @@ class Workspace:
     # lives. The run is the worse of the two to lose: a runner whose
     # lock went with the directory leaves the next Ralph reading no run
     # in flight and starting a second one beside it, each on an inode
-    # the other cannot see. Holding the project is also what makes the
-    # run's answer keep, since a run is only ever started by a window
-    # that has the project.
-    def _reset(self) -> None:
+    # the other cannot see.
+    #
+    # The project is held for as long as the caller keeps this, which
+    # is what makes asking late an answer about now rather than about
+    # then: a second window is refused the project meanwhile, and a run
+    # is only ever started by a window that has the project, so neither
+    # answer can turn from no to yes under a question. A run that ends
+    # while one is on screen only leaves less to lose than was said.
+    @contextmanager
+    def open_reset(self) -> "Generator[Reset]":
         generation_lock = self.root / paths.GENERATION_LOCK_FILE
         hold = self.open_hold()
         if not hold.take():
@@ -182,12 +168,47 @@ class Workspace:
                     "the run directory away from it, and the run after that would start beside it rather than "
                     "after it, so nothing was deleted. Run `jri chat` to watch it or stop it, then try again."
                 )
-            self._clear()
+            yield Reset(tuple(path for path in (self.config_file, *self._reset_paths) if path.exists()))
         finally:
             hold.release()
 
+    # The rendered configuration comes in rather than being read from
+    # `Settings`, so locating a workspace never depends on loading one.
+    # Starting over takes a `Reset`, which only `open_reset` hands out
+    # and only under the hold: what empties a project is never a flag a
+    # caller can set without having asked the project about it first.
+    def install(self, config: str, *, reset: "Reset | None" = None) -> "Installation":
+        repository_created = git.find_root(self.root) is None
+        Repository.init(self.root)
+        created = not self.config_file.exists()
+        if reset is not None:
+            self._clear()
+        self.directory.mkdir(exist_ok=True, parents=True)
+        if created or reset is not None:
+            self.config_file.write_text(config, encoding="utf-8", newline="\n")
+        Notebook(self.notebook_file)
+        self.logs_dir.mkdir(exist_ok=True)
+
+        self._ignore(*(path.name for path in (self.session_file, self.logs_dir, self.visualization_file)))
+
+        # The ignore file a project brought along is not JRI's to
+        # rewrite, so only a repository JRI creates gets one, and what
+        # it holds is what keeps those patterns out of the first commit
+        # the user makes.
+        if repository_created and not self.project_gitignore_file.exists():
+            self.project_gitignore_file.write_text(
+                f"{'\n'.join(self.PROJECT_IGNORES)}\n", encoding="utf-8", newline="\n"
+            )
+        return Installation(self, created=created, repository_created=repository_created)
+
+    # Everything `--force` replaces, whether it is there or not, which
+    # is the workspace's own list rather than a caller's.
+    @property
+    def _reset_paths(self) -> tuple[Path, ...]:
+        return tuple(self.root / path for path in paths.RESET_PATHS)
+
     def _clear(self) -> None:
-        for path in self.reset_paths:
+        for path in self._reset_paths:
             if path.is_dir():
                 shutil.rmtree(path)
             else:
@@ -213,6 +234,16 @@ class Installation:
     workspace: Workspace
     created: bool
     repository_created: bool
+
+
+# A reset JRI would go through with, and what it replaces as that
+# stood when the refusals were read. Only `Workspace.open_reset` hands
+# one out, and only for as long as it holds the project, so a caller
+# holding one has both refusals behind it and the state they answered
+# about still standing.
+@dataclass(frozen=True)
+class Reset:
+    paths: tuple[Path, ...]
 
 
 class Hold:

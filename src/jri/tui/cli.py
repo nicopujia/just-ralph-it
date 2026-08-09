@@ -13,7 +13,7 @@ from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError
 from jri.core.generation import Generation
 from jri.core.settings import Settings
-from jri.core.workspace import Hold, Workspace
+from jri.core.workspace import Hold, Reset, Workspace
 from jri.lib import browser, files, git, terminal
 from jri.lib.providers import codex
 
@@ -83,10 +83,21 @@ def main() -> None:
 
 def _initialize(*, force: bool, yes: bool) -> None:
     workspace = Workspace.find()
-    if force and not (yes or _confirm_reset(workspace)):
-        print(copy.FORCE_CANCELLED)
-        raise SystemExit(1)
-    installation = workspace.install(Settings.render_config(), force=force)
+    config = Settings.render_config()
+    if force:
+        # Asked inside the reset, so the warning and the question come
+        # after what would refuse them: a window still writing the
+        # notes and a run still going are both reported before a user
+        # is offered a deletion, rather than after they confirmed one.
+        # The project stays held while they read, so the answer is
+        # about the project as it will be when the deletion happens.
+        with workspace.open_reset() as reset:
+            if not (yes or _confirm_reset(reset)):
+                print(copy.FORCE_CANCELLED)
+                raise SystemExit(1)
+            installation = workspace.install(config, reset=reset)
+    else:
+        installation = workspace.install(config)
     # A repository is created only where the command was run: a
     # workspace inside one already has its root, and the path a
     # relative line would name here is `.`.
@@ -177,11 +188,10 @@ def _describe_issue(issue: ErrorDetails) -> str:
     )
 
 
-def _confirm_reset(workspace: Workspace) -> bool:
-    existing = [target for target in (workspace.config_file, *workspace.reset_paths) if target.exists()]
-    if not existing:
+def _confirm_reset(reset: Reset) -> bool:
+    if not reset.paths:
         return True
-    print(copy.FORCE_WARNING.format(paths="\n".join(f"- {files.shorten_path(target)}" for target in existing)))
+    print(copy.FORCE_WARNING.format(paths="\n".join(f"- {files.shorten_path(target)}" for target in reset.paths)))
     return _confirm(copy.FORCE_PROMPT)
 
 

@@ -306,6 +306,66 @@ def test_refuses_a_reset_while_a_run_is_still_going(tmp_path: Path) -> None:
         assert not take(tmp_path / paths.GENERATION_LOCK_FILE)
 
 
+# A reset is settled before anything is said about it, so a command
+# that warns a user and waits for an answer never gets as far as the
+# warning where the reset is one JRI refuses. The body below stands
+# where that warning is: reaching it at all is the failure.
+def test_refuses_a_held_project_before_naming_what_a_reset_replaces(tmp_path: Path) -> None:
+    install_workspace(tmp_path)
+    named: list[tuple[Path, ...]] = []
+
+    with hold_workspace(tmp_path) as window:
+        with pytest.raises(PersistenceError, match=str(window.pid)), Workspace(tmp_path).open_reset() as reset:
+            named.append(reset.paths)
+
+        assert not named, "a refusal was read only after something had been asked about the deletion"
+
+
+def test_refuses_a_running_run_before_naming_what_a_reset_replaces(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    workspace.open_generation_dir()
+    named: list[tuple[Path, ...]] = []
+
+    with hold(tmp_path / paths.GENERATION_LOCK_FILE):
+        with pytest.raises(PersistenceError, match="run is still going"), workspace.open_reset() as reset:
+            named.append(reset.paths)
+
+        assert not named, "a refusal was read only after something had been asked about the deletion"
+
+
+# Asking late is worth the ordering only if the answer is about the
+# project as it will be when the deletion happens. Nothing else may
+# take the project while a reset is open: that is what keeps a second
+# window from opening between the reading and the deleting, and a run
+# is only ever started by a window that has the project.
+def test_keeps_the_project_while_a_reset_is_open(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+
+    with workspace.open_reset():
+        assert not take(tmp_path / paths.LOCK_FILE)
+
+    assert take(tmp_path / paths.LOCK_FILE)
+
+
+# What a warning is written from, so that a user reading one reads the
+# workspace rather than a second list of what a reset covers.
+def test_names_what_a_reset_replaces_and_nothing_it_would_leave(tmp_path: Path) -> None:
+    workspace = install_workspace(tmp_path).workspace
+    workspace.open_generation_dir()
+    (tmp_path / paths.FUNCTIONAL_SPECS_DIR).mkdir(parents=True)
+
+    with workspace.open_reset() as reset:
+        assert set(reset.paths) == {
+            workspace.config_file,
+            workspace.notebook_file,
+            workspace.logs_dir,
+            workspace.generation_dir,
+            tmp_path / paths.SPECS_DIR,
+        }
+        assert workspace.session_file not in reset.paths
+        assert workspace.visualization_file not in reset.paths
+
+
 def test_leaves_a_workspace_alone_while_a_window_has_the_project(tmp_path: Path) -> None:
     workspace = install_workspace(tmp_path).workspace
     notebook = (

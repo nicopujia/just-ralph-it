@@ -78,8 +78,17 @@ STARTS_WITHIN = 30
 TICKS_WITHIN = 5.0
 
 
+# The command's own two steps, in its own order: a reset is opened
+# first, and what installing over an existing workspace takes is what
+# that hands back. The question `jri init --force` asks between the two
+# is the window's, and nothing here stands in for it.
 def install_workspace(path: Path, *, force: bool = False) -> Installation:
-    return Workspace(path).install(Settings.render_config(), force=force)
+    workspace = Workspace(path)
+    config = Settings.render_config()
+    if not force:
+        return workspace.install(config)
+    with workspace.open_reset() as reset:
+        return workspace.install(config, reset=reset)
 
 
 # A JRI holding the project from a process of its own, since a lock the
