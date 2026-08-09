@@ -2086,7 +2086,11 @@ def test_refuses_a_draft_the_specifications_moved_past(
 # specification goes. `Specs.read` refuses such a tree, and a run that
 # only met that refusal after picking the draft up would end over it,
 # then meet the very same draft on the run after, and the one after
-# that.
+# that. Windows is left out because Git checks a link entry out there
+# as a plain file holding the text of its target, so no draft can put a
+# link in a worktree for the refusal to meet -- what the refusal reads,
+# `Path.is_symlink`, answers no on every path such a checkout leaves.
+@pytest.mark.skipif(sys.platform == "win32", reason="a Git checkout on Windows leaves a link entry as a plain file")
 def test_refuses_a_draft_that_puts_a_link_where_a_specification_goes(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:

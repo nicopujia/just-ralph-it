@@ -1,3 +1,4 @@
+import sys
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import suppress
 from pathlib import Path
@@ -163,6 +164,21 @@ def read_prompts(client: FakeClient) -> list[str]:
         str(message.get("content", ""))
         for context in client.responses.inputs
         for message in cast("list[dict[str, object]]", context)
+    ]
+
+
+# What a tool answered, which is where a path a model was shown lands:
+# an output item carries its text under `output` rather than under the
+# `content` a message has. Taken apart rather than searched as one
+# string, since `repr` over the whole context doubles every separator a
+# path carries on a filesystem that spells them with backslashes.
+def read_tool_outputs(client: FakeClient) -> list[str]:
+    return [
+        str(item.get("text", ""))
+        for context in client.responses.inputs
+        for message in cast("list[dict[str, object]]", context)
+        if message.get("type") == "function_call_output"
+        for item in cast("list[dict[str, object]]", message["output"])
     ]
 
 
@@ -934,7 +950,7 @@ def test_studies_the_project_as_it_stands_on_disk(
     instructions = next(prompt for prompt in read_prompts(client) if "Role: Explorer." in prompt)
     directory = Path(instructions.split("Working directory:\n```\n")[1].split("\n```\n")[0])
     assert not directory.is_relative_to(tmp_path.resolve())
-    assert str(directory / paths.NOTEBOOK_FILE) in str(client.responses.inputs)
+    assert any(str(directory / paths.NOTEBOOK_FILE) in output for output in read_tool_outputs(client))
 
 
 def test_studies_a_project_whose_only_commit_holds_no_project_files(tmp_path: Path, run_git: RunGit) -> None:
@@ -951,6 +967,10 @@ def test_studies_a_project_whose_only_commit_holds_no_project_files(tmp_path: Pa
     assert "README.md" in tree
 
 
+# A newline is a character Windows refuses in a name outright, so no
+# repository checked out there holds a path like this one for the tree
+# to have to quote whole.
+@pytest.mark.skipif(sys.platform == "win32", reason="Windows holds no file whose name carries a newline")
 def test_reports_a_file_name_holding_a_newline_as_one_tracked_path(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:

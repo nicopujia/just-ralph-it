@@ -906,7 +906,11 @@ def test_removes_the_worktree_once_it_closes(
         location = worktree.path
 
     assert not location.exists()
-    assert str(location) not in run_git(repository.path, "worktree", "list", "--porcelain")
+    # Git spells a path with forward slashes whatever the platform, so
+    # the porcelain is read against the POSIX spelling of the path
+    # rather than against the one the filesystem uses. Every worktree
+    # read below is against the same spelling, and for the same reason.
+    assert location.as_posix() not in run_git(repository.path, "worktree", "list", "--porcelain")
 
 
 def test_clears_worktrees_leaked_by_a_killed_process(
@@ -917,10 +921,10 @@ def test_clears_worktrees_leaked_by_a_killed_process(
     run_git(repository.path, "worktree", "add", "--detach", str(leaked), "HEAD")
     shutil.rmtree(leaked)
 
-    assert str(leaked) in run_git(repository.path, "worktree", "list", "--porcelain")
+    assert leaked.as_posix() in run_git(repository.path, "worktree", "list", "--porcelain")
 
     with repository.open_worktree():
-        assert str(leaked) not in run_git(repository.path, "worktree", "list", "--porcelain")
+        assert leaked.as_posix() not in run_git(repository.path, "worktree", "list", "--porcelain")
 
 
 def test_rejects_initializing_without_a_git_executable(tmp_path: Path) -> None:
@@ -1105,7 +1109,7 @@ def test_removes_the_worktree_when_the_body_raises(
         fail_inside_the_worktree()
 
     assert not locations[0].exists()
-    assert str(locations[0]) not in run_git(repository.path, "worktree", "list", "--porcelain")
+    assert locations[0].as_posix() not in run_git(repository.path, "worktree", "list", "--porcelain")
 
 
 def test_survives_a_worktree_that_was_already_removed(
