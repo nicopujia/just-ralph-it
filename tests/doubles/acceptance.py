@@ -84,10 +84,14 @@ KILL_THE_GIT = "kill -9 $PPID\n"
 # Standing still in the window instead, long enough for a kill from
 # outside to take the whole run down inside it.
 HOLD_THE_WINDOW = "sleep 30\n"
-# Saying so on the way in, since the locks standing in this window
-# either stood before `pre-commit` -- the one over the index -- or
-# carry a number of Git's own in the name, so a poll waiting on a lock
-# catches the commit at its start or never.
+# Saying so on the way in, which is what a poll waits for wherever a
+# lock will not do. Inside the commit, the locks standing either stood
+# before `pre-commit` -- the one over the index -- or carry a number of
+# Git's own in the name, so a poll on a lock catches that commit at its
+# start or never. Inside `git add`, the lock is the very one the kill
+# is about, but it stands for a moment whether the window opened or
+# not, so only the marker tells a kill held inside it from one that
+# raced it.
 MARK_THE_WINDOW = f"touch .git/{WINDOW_MARKER}\n"
 # Every lock standing while the window is open, written down where a
 # test can read it back after the run. A window that opened where the
@@ -138,6 +142,20 @@ HOLD_THE_LOCK = (
 # second of the clock arms and a faster machine disarms.
 WINDOW_FILTER = "window-filter"
 FILTERED_PATH = "README.md"
+# A monitor of the project's own, which is the one window inside `git
+# add`: Git takes the index lock before it reads the index, and
+# reading it is where it asks a monitor what the worktree has done
+# since. Every other command an acceptance runs asks that same
+# question with nothing locked -- the apply, and every read ahead of
+# it -- so the index lock standing is what tells the staging apart
+# from those, and a monitor that holds only there puts the window
+# inside the one command whose lock a kill is meant to leave behind.
+# What Git makes of an empty answer is a warning on its way to reading
+# the worktree itself, and what it makes of a refusal is the same read
+# without the warning, so a refusal is how every other command is let
+# by.
+WINDOW_MONITOR = "window-monitor"
+MONITOR_THE_INDEX_LOCK = "#!/bin/sh\n[ -e {directory}/index.lock ] || exit 1\n"
 # The project's own hook refusing the commit, which is an ending Git
 # chooses and runs its exit handler for: the hook's 1 is Git's 1.
 REFUSE_THE_COMMIT = "exit 1\n"
@@ -233,7 +251,8 @@ def bound_the_acceptance_writes(root: Path, patch: bytes, limit: int) -> str:
 
 
 def kill_amid_staging(root: Path, patch: bytes) -> None:
-    _kill_inside_a_window(root, patch, "index.lock")
+    with open_a_monitor_window(root, MARK_THE_WINDOW + HOLD_THE_WINDOW):
+        _kill_inside_a_window(root, patch, WINDOW_MARKER)
 
 
 # The far end of the same commit: Git writes the index under one lock
@@ -297,24 +316,33 @@ def open_a_window(root: Path, window: str, action: str) -> "Iterator[None]":
 
 @contextmanager
 def open_a_filter_window(root: Path, action: str, *, side: str) -> "Iterator[None]":
-    executable = shutil.which("git")
-    assert executable is not None
     driver = root / ".git" / WINDOW_FILTER
     driver.write_text(f"#!/bin/sh\n{action}cat\n", encoding="utf-8")
     driver.chmod(0o700)
     attributes = root / ".gitattributes"
     attributes.write_text(f"{FILTERED_PATH} filter={WINDOW_FILTER}\n", encoding="utf-8")
-    subprocess.run(
-        [executable, "-C", str(root), "config", f"filter.{WINDOW_FILTER}.{side}", str(driver)],
-        check=True,
-        capture_output=True,
-    )
+    _configure(root, f"filter.{WINDOW_FILTER}.{side}", str(driver))
     try:
         yield
     finally:
         # What closes the window is this file: the driver and the
         # setting reach nothing with no path put in front of them.
         attributes.unlink()
+
+
+@contextmanager
+def open_a_monitor_window(root: Path, action: str) -> "Iterator[None]":
+    directory = root / ".git"
+    monitor = directory / WINDOW_MONITOR
+    monitor.write_text(MONITOR_THE_INDEX_LOCK.format(directory=directory) + action, encoding="utf-8")
+    monitor.chmod(0o700)
+    _configure(root, "core.fsmonitor", str(monitor))
+    try:
+        yield
+    finally:
+        # What closes this one is the setting: a monitor Git no longer
+        # knows about is a file under `.git` like any other.
+        _configure(root, "--unset", "core.fsmonitor")
 
 
 # A tracked file the index can tell nothing about from what it recorded
@@ -328,6 +356,12 @@ def stale_the_filtered_path(root: Path) -> None:
     path = root / FILTERED_PATH
     path.write_bytes(path.read_bytes())
     os.utime(path, (0, 0))
+
+
+def _configure(root: Path, *setting: str) -> None:
+    executable = shutil.which("git")
+    assert executable is not None
+    subprocess.run([executable, "-C", str(root), "config", *setting], check=True, capture_output=True)
 
 
 def _read_the_second_command(root: Path) -> int:
