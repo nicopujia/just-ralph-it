@@ -24,6 +24,10 @@ from .app import App
 # What a shell reports for a process a hangup ended, which is what
 # ended this one even though it is the one taking the ending.
 HANGUP_STATUS = 129
+# The same for an interrupt, which is an ending the user asked for
+# rather than a failure to report: a traceback over it says JRI broke
+# where it did what it was told.
+INTERRUPTED_STATUS = 130
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +71,12 @@ def main() -> None:
     except PersistenceError as error:
         print(copy.PERSISTENCE_ERROR.format(error=error))
         raise SystemExit(1) from error
+    # Every stretch a command spends waiting on something other than an
+    # answer: an eviction waiting for a lock to come free, a browser
+    # being opened, a window being drawn. A question is answered where
+    # it is asked, below.
+    except KeyboardInterrupt as interrupt:
+        raise SystemExit(INTERRUPTED_STATUS) from interrupt
 
 
 def _initialize(*, force: bool, yes: bool) -> None:
@@ -198,13 +208,22 @@ def _end_hung_up_window() -> None:
 
 def _confirm(prompt: str) -> bool:
     try:
-        return input(prompt).strip().casefold() in {"y", "yes"}
+        answer = input(prompt)
     # A pipe with nothing in it, a runner, a terminal an editor owns
     # and a keyboard that ends the line answer the same nothing, and a
     # process started with no standard input at all has none to ask,
     # which `input` reports as a broken state rather than an ending.
     except (EOFError, RuntimeError):
         return False
+    # An interrupt is the plainest way there is of saying anything but
+    # `y`, and both questions offer that ending: one leaves the other
+    # window running, the other deletes nothing. The terminal has
+    # already echoed `^C` beside the question, so what answers it
+    # starts on a line of its own.
+    except KeyboardInterrupt:
+        print()
+        return False
+    return answer.strip().casefold() in {"y", "yes"}
 
 
 if __name__ == "__main__":
