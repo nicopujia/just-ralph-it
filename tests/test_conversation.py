@@ -10,8 +10,10 @@ from jri.core import paths
 from jri.core.ai import Interviewer, ToolCallFinished, ToolCallStarted, TurnFinished, functional_analyst
 from jri.core.conversation import Conversation
 from jri.core.exceptions import PersistenceError, RunDetached
+from jri.core.generation import Generation
 from tests.conftest import CreateRepository
 from tests.doubles.generation import run_in_thread
+from tests.doubles.lock import hold
 from tests.doubles.openai import (
     FakeClient,
     Round,
@@ -555,6 +557,39 @@ def test_restores_a_just_ralph_it_run(monkeypatch: pytest.MonkeyPatch) -> None:
         ("assistant", "The specifications are in."),
     ]
     assert turns[-1].ending == "replied"
+
+
+def test_refuses_to_ralph_beside_a_run_already_going(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+    conversation.workspace.open_generation_dir()
+
+    # A runner between taking the lock and writing its first line: the
+    # project holds a run in flight and no record of one yet.
+    with hold(conversation.workspace.root / paths.GENERATION_LOCK_FILE):
+        events = list(conversation.ralph())
+
+    # The turn ends on the refusal rather than on a second run, and
+    # nothing of the run in flight is taken away to make room for one.
+    assert events[-1] == TurnFinished("failed", "A generation is already running in this project.")
+    assert not (conversation.workspace.root / paths.JOURNAL_FILE).exists()
+
+
+def test_ends_a_turn_whose_runner_died_before_writing_anything(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
+    list(conversation.chat("Build a reporting CLI."))
+
+    def fall_over(_: object) -> None:
+        raise OSError("the runner fell over on its way up")
+
+    monkeypatch.setattr(Generation, "execute", fall_over)
+    events = list(conversation.ralph())
+
+    # A window that waited for a journal this runner will never write
+    # would wait out `STARTS_WITHIN` and report the same thing a minute
+    # later.
+    assert events[-1] == TurnFinished("failed", "JRI could not start the generation. It wrote nothing about why.")
 
 
 def test_ends_a_run_the_process_before_it_did_not_stay_for(monkeypatch: pytest.MonkeyPatch) -> None:
