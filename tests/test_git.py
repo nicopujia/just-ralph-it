@@ -12,6 +12,7 @@ from tests.doubles.acceptance import (
     HEAD_QUESTION,
     HOLD_THE_LOCK,
     KILL_THE_GIT,
+    RECORD_THE_LOCKS,
     REFUSE_THE_COMMIT,
     ROOT_QUESTION,
     SIGNAL_THE_GIT,
@@ -24,6 +25,7 @@ from tests.doubles.acceptance import (
     open_a_window,
     open_an_apply_window,
     read_git_locks,
+    read_the_locks_the_window_saw,
 )
 
 CONTEXT_FREE_PATCH = b"""\
@@ -349,9 +351,12 @@ def test_frees_the_index_lock_the_apply_it_started_died_holding(
 ) -> None:
     repository = create_repository(tmp_path)
 
-    with open_an_apply_window(tmp_path, KILL_THE_GIT), pytest.raises(git.Error):
+    with open_an_apply_window(tmp_path, RECORD_THE_LOCKS + KILL_THE_GIT), pytest.raises(git.Error):
         repository.apply_patch(RENAMING_PATCH, index=True)
 
+    # What the release answers for is a lock the dead apply was holding,
+    # and an apply that never took one leaves the same empty `.git`.
+    assert read_the_locks_the_window_saw(tmp_path) == (".git/index.lock",)
     assert read_git_locks(tmp_path) == ()
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
     assert repository.commit("second", paths=("README.md",))

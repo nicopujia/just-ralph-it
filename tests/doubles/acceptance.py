@@ -85,6 +85,14 @@ HOLD_THE_WINDOW = "sleep 30\n"
 # carry a number of Git's own in the name, so a poll waiting on a lock
 # catches the commit at its start or never.
 MARK_THE_WINDOW = f"touch .git/{WINDOW_MARKER}\n"
+# Every lock standing while the window is open, written down where a
+# test can read it back after the run. A window that opened where the
+# lock it is about was free leaves the same empty `.git` behind as one
+# that opened inside that lock and had it released, so only what the
+# window itself saw tells those apart. Not a `.lock`, so nothing
+# counting those counts it.
+LOCKS_IN_THE_WINDOW = "locks-in-the-window"
+RECORD_THE_LOCKS = f"ls .git/*.lock > .git/{LOCKS_IN_THE_WINDOW} 2>/dev/null\n"
 # Where the second command records itself, so a test can read back
 # whether the process holding that lock is still there. Not a `.lock`,
 # so neither `read_git_locks` nor `Locks` ever counts it.
@@ -108,13 +116,19 @@ HOLD_THE_LOCK = (
     f"echo $! > {{directory}}/{SECOND_COMMAND_PID}\n"
     "until [ -e {directory}/{lock} ]; do :; done\n"
 )
-# A clean filter of the project's own, which is the one window inside
-# `git apply` -- no hook of any kind runs there. Git runs it over what
-# the patch left in the worktree to turn that into what it would store,
-# and where the apply was asked for the index it has taken the index
-# lock before it gets that far, so the same window stands either side of
-# the one thing that tells those two applies apart. `cat` is what makes
-# the filter a filter: Git reads the content back off it.
+# A smudge filter of the project's own, which is the one window inside
+# `git apply` -- no hook of any kind runs there. Git runs it over the
+# bytes it is about to leave in the worktree, which is work both
+# applies do, and where the apply was asked for the index it has taken
+# the index lock before it gets that far, so the same window stands
+# either side of the one thing that tells those two applies apart. The
+# clean side stands there for one of them only: an apply asked for the
+# index patches the blob the index already names and writes the result
+# straight back as another, so its one read of the worktree is the
+# re-hash settling whether an entry Git cannot date apart from its
+# index still matches -- which the same second of the clock arms and a
+# faster machine disarms. `cat` is what makes the filter a filter: Git
+# reads the content back off it.
 APPLY_FILTER = "apply-window"
 FILTERED_PATH = "README.md"
 # The project's own hook refusing the commit, which is an ending Git
@@ -163,6 +177,12 @@ TIMEOUT = 60
 # off the filesystem rather than asked of the code under test.
 def read_git_locks(root: Path) -> tuple[Path, ...]:
     return tuple(sorted((root / ".git").rglob("*.lock")))
+
+
+# The same, as the window saw it: named from the worktree root, which
+# is where Git runs a filter of the project's own.
+def read_the_locks_the_window_saw(root: Path) -> tuple[str, ...]:
+    return tuple((root / ".git" / LOCKS_IN_THE_WINDOW).read_text(encoding="utf-8").split())
 
 
 # Ahead of the real Git for as long as the test holds the environment,
@@ -278,7 +298,7 @@ def open_an_apply_window(root: Path, action: str) -> "Iterator[None]":
     attributes = root / ".gitattributes"
     attributes.write_text(f"{FILTERED_PATH} filter={APPLY_FILTER}\n", encoding="utf-8")
     subprocess.run(
-        [executable, "-C", str(root), "config", f"filter.{APPLY_FILTER}.clean", str(driver)],
+        [executable, "-C", str(root), "config", f"filter.{APPLY_FILTER}.smudge", str(driver)],
         check=True,
         capture_output=True,
     )
