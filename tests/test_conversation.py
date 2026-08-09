@@ -8,7 +8,7 @@ import pytest
 
 from jri.core import paths
 from jri.core.ai import Interviewer, ToolCallFinished, ToolCallStarted, TurnFinished, functional_analyst
-from jri.core.conversation import Conversation
+from jri.core.conversation import RETRYABLE_ENDINGS, Conversation
 from jri.core.exceptions import PersistenceError, RunDetached
 from jri.core.generation import Generation
 from tests.conftest import CreateRepository
@@ -88,6 +88,24 @@ def rename_recorded_parameter(conversation: Conversation, old: str, new: str) ->
             arguments[new] = arguments.pop(old)
             item["arguments"] = json.dumps(arguments)
     session_file.write_text(json.dumps(session), encoding="utf-8")
+
+
+# The last turn as the file on disk has it, which is the only thing a
+# window that died left the next one.
+def read_recorded_turn(conversation: Conversation) -> dict[str, object]:
+    session = json.loads(conversation.workspace.session_file.read_text(encoding="utf-8"))
+    return cast("dict[str, object]", session["transcript"][-1])
+
+
+# A window that goes while the reply to a run is streaming: the fold
+# has written the turn down and nothing has replied on it yet.
+def die_in_the_reply(conversation: Conversation) -> None:
+    events = conversation.ralph()
+    for _ in events:
+        if read_recorded_turn(conversation)["work"] == "reply":
+            break
+    events.close()
+    assert read_recorded_turn(conversation)["work"] == "reply", "the run never reached the reply"
 
 
 def test_leaves_the_workspace_untouched_until_a_command_reads_it(tmp_path: Path) -> None:
@@ -689,6 +707,104 @@ def test_keeps_the_offer_a_detached_run_never_spent(monkeypatch: pytest.MonkeyPa
     restarted = build_conversation(FakeClient([]))
     restarted.restore()
     assert restarted.is_ready_to_ralph
+
+
+def test_leaves_the_turn_of_a_run_a_window_can_pick_up_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    detached = Event()
+    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+
+    detached.set()
+    with pytest.raises(RunDetached):
+        list(conversation.ralph(None, detached))
+
+    restarted = build_conversation(FakeClient([streamed_reply("The specifications are in.")]))
+    turns = restarted.restore()
+
+    # A run still in the run directory is a turn something is coming to
+    # end, so restoring settles nothing about it. An ending written
+    # here would put a notice over a turn that is about to go on.
+    assert turns[-1].ending is None
+    assert restarted.pending_generation
+
+
+def test_stops_a_run_carrying_the_ending_of_the_turn_it_reports_into(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
+    list(conversation.chat("Build a reporting CLI."))
+    assert conversation.session.transcript[-1].ending == "replied"
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+
+    events = conversation.ralph()
+    next(events)
+    recorded = read_recorded_turn(conversation)
+    events.close()
+
+    # The turn is a run now, and the reply it made before the run is
+    # not a reply this run has made.
+    assert recorded["work"] == "generation"
+    assert recorded["ending"] is None
+
+
+def test_records_no_reply_for_a_turn_a_dead_window_left_mid_reply(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(
+        FakeClient([streamed_reply("Understood."), streamed_reply("The specifications are in.")])
+    )
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+
+    die_in_the_reply(conversation)
+
+    # The turn is written down at the fold, before the reply exists, so
+    # what it says about how it went has to be nothing.
+    assert read_recorded_turn(conversation)["ending"] is None
+
+
+def test_settles_a_turn_no_process_is_left_to_finish(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(
+        FakeClient([streamed_reply("Understood."), streamed_reply("The specifications are in.")])
+    )
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+    die_in_the_reply(conversation)
+
+    restarted = build_conversation(FakeClient([]))
+    turns = restarted.restore()
+
+    # The run is folded and its window is gone, so nothing is coming
+    # back to end this turn. It says what became of it -- to this
+    # window and to the next one -- and that is an ending worth asking
+    # again from, since the reply it opened for was never written.
+    assert turns[-1].ending == "interrupted"
+    assert turns[-1].ending in RETRYABLE_ENDINGS
+    assert read_recorded_turn(restarted)["ending"] == "interrupted"
+    assert [(item.type, item.text) for item in turns[-1].items] == [
+        ("assistant", "Understood."),
+        ("tool", FINISHED_ROW.label),
+    ]
+
+
+def test_replies_to_a_run_again_after_a_window_died_in_the_reply(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(
+        FakeClient([streamed_reply("Understood."), streamed_reply("The reply nobody read.")])
+    )
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+    die_in_the_reply(conversation)
+
+    restarted = build_conversation(FakeClient([streamed_reply("The specifications are in.")]))
+    restarted.restore()
+    events = list(restarted.retry())
+
+    # The commit is in the project and the report is in the interview,
+    # so what asking again is owed is the reply about them. A single
+    # report is the run not being paid for twice.
+    assert events[-1] == TurnFinished("replied")
+    assert ("assistant", "The specifications are in.") in [
+        (item.type, item.text) for item in restarted.session.transcript[-1].items
+    ]
+    reports = [item["content"] for item in restarted.session.interview[1:] if item.get("role") == "system"]
+    assert reports == [f"Specification generation succeeded in Git commit {COMMIT}."]
 
 
 def test_reports_a_finished_generation_without_barring_the_next_one(monkeypatch: pytest.MonkeyPatch) -> None:

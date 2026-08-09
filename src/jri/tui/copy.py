@@ -100,6 +100,7 @@ TURN_ERROR = (
     "and attach the .jri/ directory as a zip."
 )
 TURN_EXHAUSTED = "Your ChatGPT or API usage limit has been reached. Check your plan and try again later."
+TURN_INTERRUPTED = "_JRI closed before this finished._"
 TURN_NO_RESPONSE = "_No response received._"
 TURN_STOPPED = "_Response stopped._"
 

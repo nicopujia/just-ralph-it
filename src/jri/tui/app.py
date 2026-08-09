@@ -17,7 +17,6 @@ from textual.widgets import Button, Footer, Header, LoadingIndicator, Markdown, 
 
 from jri.core.ai import (
     AgentEvent,
-    Ending,
     ReasoningDelta,
     TextDelta,
     ToolCallFinished,
@@ -25,14 +24,12 @@ from jri.core.ai import (
     TurnEvent,
     TurnFinished,
 )
-from jri.core.conversation import Conversation
+from jri.core.conversation import RETRYABLE_ENDINGS, Conversation, TurnEnding
 from jri.core.exceptions import PersistenceError, RunDetached
 from jri.lib import appearance
 
 from . import copy, styles
 from .widgets import MessageInput, MessagesContainer, ToolCallRow
-
-RETRYABLE_ENDINGS = frozenset[Ending]({"empty", "failed", "exhausted"})
 
 logger = logging.getLogger(__name__)
 
@@ -713,14 +710,21 @@ class App(TextualApp[None]):
 # Every ending is answered here and nowhere else, so the live view and
 # the restored one say the same thing, and one left unanswered is a
 # return type this function cannot satisfy.
-def _describe_ending(ending: Ending, detail: str) -> tuple[str, str]:
+def _describe_ending(ending: TurnEnding | None, detail: str) -> tuple[str, str]:
     match ending:
+        # A turn still open has nothing to say about how it went, and
+        # the run it is open for is the one this window picks up.
+        case None:
+            return "", styles.INTERVIEWER_MESSAGE_CLASSES
         case "replied":
             return "", styles.INTERVIEWER_MESSAGE_CLASSES
         case "empty":
             return copy.TURN_NO_RESPONSE, styles.INTERVIEWER_MESSAGE_CLASSES
         case "stopped":
             return copy.TURN_STOPPED, styles.INTERVIEWER_MESSAGE_CLASSES
+        # A window that went is not a failure of the turn's either.
+        case "interrupted":
+            return copy.TURN_INTERRUPTED, styles.INTERVIEWER_MESSAGE_CLASSES
         case "failed":
             return copy.TURN_ERROR.format(error=detail), styles.INTERVIEWER_ERROR_CLASSES
         case "exhausted":

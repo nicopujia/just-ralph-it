@@ -35,6 +35,16 @@ if TYPE_CHECKING:
 
 # What a turn was last doing, and so what asking for it again re-runs.
 type Work = Literal["message", "generation", "reply"]
+# How a turn is recorded as having gone. `interrupted` is the one no
+# `TurnFinished` carries: a turn ends that way only where the process
+# holding it went before it could end, so nothing was left to yield it.
+type TurnEnding = Ending | Literal["interrupted"]
+
+# The endings that leave the work a turn opened undone, and so the ones
+# asking for that turn again has something to do. What ends a turn is
+# here, so what makes one worth asking for again is too, rather than in
+# whichever view puts the offer up.
+RETRYABLE_ENDINGS = frozenset[TurnEnding]({"empty", "failed", "exhausted", "interrupted"})
 
 
 class Item(BaseModel):
@@ -56,7 +66,11 @@ class Turn(BaseModel):
     # that never wrote it. A turn states it, and a file from before it
     # is one to start again from rather than one to retry blindly.
     work: Work
-    ending: Ending = "replied"
+    # No ending is a turn still open where the session was written. A
+    # turn is written down before it is over, so the field says what
+    # has happened to it rather than what usually happens: one that
+    # claimed a reply would send the next window looking for one.
+    ending: TurnEnding | None = None
     detail: str = ""
 
     model_config = ConfigDict(extra="forbid")
@@ -248,7 +262,12 @@ class Conversation:
         # rows and its reply answer the message that turn opened with.
         if not self.session.transcript:
             self.session.transcript.append(Turn(message="", items=[], work="generation"))
-        self.session.transcript[-1].work = "generation"
+        # The turn is open again, and how it went the last time it was
+        # over is not how this run has gone.
+        opened = self.session.transcript[-1]
+        opened.work = "generation"
+        opened.ending = None
+        opened.detail = ""
         # Written down before the run leaves this process, so a window
         # that dies has already said what the next one is picking up.
         self.update_session(transcript=self.session.transcript)
@@ -259,7 +278,7 @@ class Conversation:
         # folding the same journal twice -- which is what a window
         # dying mid-fold leaves the next one to do -- reads the same
         # rows onto the same turn rather than onto the last fold's.
-        turn = self.session.transcript[-1].model_copy(deep=True)
+        turn = opened.model_copy(deep=True)
         yield from self._report_turn(self._generate_specs(cancelled, detached, turn), turn, checkpoint, cancelled)
 
     def restore(self) -> list[Turn]:
@@ -280,6 +299,7 @@ class Conversation:
         self.interviewer.active_topic_id = self.session.active_topic_id
         self.interviewer.failed_call_ids = list(self.session.failed_call_ids)
         self.logger.info("restored interview_items=%d", len(self.session.interview))
+        self._settle_interrupted_turn()
         return self.session.transcript
 
     def update_session(self, **values: object) -> None:
@@ -304,6 +324,20 @@ class Conversation:
         if not self.session.interview:
             return self.interviewer.history
         return [self.interviewer.history[0], *cast("ResponseInputParam", self.session.interview[1:])]
+
+    # A turn the session holds open is a turn whose process is gone:
+    # this one is starting, and one JRI holds a project at a time. So
+    # unless it left a run behind for this window to pick up, nothing
+    # is coming to end it, and it is written down as what became of it
+    # -- which is also what puts the offer to ask for it again up.
+    def _settle_interrupted_turn(self) -> None:
+        if not self.session.transcript or self.session.transcript[-1].ending is not None:
+            return
+        if self.pending_generation:
+            return
+        self.session.transcript[-1].ending = "interrupted"
+        self.update_session(transcript=self.session.transcript)
+        self.logger.info("turn_interrupted work=%s", self.session.transcript[-1].work)
 
     def _find_prompts(self) -> list[int]:
         return [
