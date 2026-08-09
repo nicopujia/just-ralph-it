@@ -492,6 +492,7 @@ class App(TextualApp[None]):
         turn_state.active_markdown, turn_state.active_markdown_text = None, ""
         turn_state.active_reasoning, turn_state.active_reasoning_text = None, ""
         row = ToolCallRow(event.label, symbol=event.symbol, depth=event.depth)
+        row.age_by(event.age)
         if turn_state.cancelled.is_set():
             row.mark_stopping()
         turn_state.tool_rows[event.call_id] = row

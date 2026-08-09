@@ -44,6 +44,13 @@ class ToolCallRow(Static):
         if self.spinner_timer is not None:
             self.spinner_timer.stop()
 
+    # A run lives in a process of its own, so the window drawing this
+    # row may have attached to it long after the call began. What the
+    # record says about that is how far back the count starts, and a
+    # call that began here is aged by nothing.
+    def age_by(self, age: float) -> None:
+        self.started_at -= age
+
     def mark_complete(self, label: str, outcome: Outcome, detail: str = "") -> None:
         self.is_complete = True
         self.label = label

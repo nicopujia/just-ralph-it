@@ -6,11 +6,11 @@ import threading
 import time
 from collections.abc import Generator
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import IO, Any, Literal, cast
 
-from pydantic import BaseModel, ConfigDict, RootModel, ValidationError
+from pydantic import AwareDatetime, BaseModel, ConfigDict, RootModel, ValidationError
 
 from jri import __version__
 from jri.lib.lock import Lock, LockError
@@ -62,12 +62,18 @@ class Thought(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# A row and when the call under it began. The stamp is on the wall
+# clock the two processes share and never a monotonic reading, which
+# means nothing outside the process that took it, and it is required
+# to carry its zone: a naive one read against an aware `now` is an
+# error, so it is refused here as the record JRI did not write.
 class RowOpened(BaseModel):
     kind: Literal["row_opened"]
     call_id: str
     label: str
     symbol: str
     depth: int
+    started: AwareDatetime
 
     model_config = ConfigDict(extra="forbid")
 
@@ -427,7 +433,12 @@ def _describe(event: "specs_generation.Progress") -> Thought | RowOpened | RowCl
             return Thought(kind="thought", text=event.text)
         case ToolCallStarted():
             return RowOpened(
-                kind="row_opened", call_id=event.call_id, label=event.label, symbol=event.symbol, depth=event.depth
+                kind="row_opened",
+                call_id=event.call_id,
+                label=event.label,
+                symbol=event.symbol,
+                depth=event.depth,
+                started=datetime.now(UTC) - timedelta(seconds=event.age),
             )
         case ToolCallFinished():
             return RowClosed(
@@ -460,7 +471,16 @@ def _read_line(line: bytes, number: int) -> Thought | RowOpened | RowClosed | Co
 def _replay(record: RowOpened | RowClosed) -> "specs_generation.Progress":
     match record:
         case RowOpened():
-            return ToolCallStarted(record.call_id, record.label, record.symbol, depth=record.depth)
+            return ToolCallStarted(
+                record.call_id,
+                record.label,
+                record.symbol,
+                depth=record.depth,
+                # A clock the machine moved between the two readings
+                # can put the start after the reading of it, and a
+                # call that began in the future began now.
+                age=max((datetime.now(UTC) - record.started).total_seconds(), 0.0),
+            )
         case RowClosed():
             return ToolCallFinished(
                 record.call_id, record.label, record.outcome, detail=record.detail, depth=record.depth

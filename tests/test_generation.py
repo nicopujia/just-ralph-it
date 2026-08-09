@@ -4,6 +4,8 @@ import subprocess
 import sys
 import threading
 import time
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import IO
 
@@ -40,6 +42,9 @@ from tests.doubles.specs_generation import (
 )
 from tests.doubles.workspace import install_workspace
 
+# A run a window attaches to six minutes in, which is the reading the
+# journal has to answer for and the screen has to show.
+AGED = 360.0
 # A provider nothing answers at, so a run that reached a model call
 # would fail rather than quietly leaving the machine.
 CONFIG = "llm:\n  provider: http://127.0.0.1:9/v1\n  api_key: JRI_TEST_API_KEY\nlogging:\n  level: CRITICAL\n"
@@ -61,6 +66,11 @@ STARTS_WITHIN = 60.0
 # Long enough that the reader has taken in everything the journal held
 # when it opened, so what the stop lands in is a silent run.
 STOPS_AFTER = 0.5
+# What a record written a moment ago may have aged by the time it is
+# read back, on a machine under load. Loose against the clock and
+# tight against `AGED`, so a row counted from the replay rather than
+# from its call cannot pass for one counted from either.
+WRITTEN_WITHIN = 30.0
 
 
 def build_generation(tmp_path: Path) -> Generation:
@@ -84,6 +94,17 @@ def write_journal(tmp_path: Path, *lines: str) -> Generation:
 
 def read_journal(generation: Generation) -> list[dict[str, object]]:
     return [json.loads(line) for line in generation.journal_file.read_text(encoding="utf-8").splitlines()]
+
+
+def write_row(started: object, *, call_id: str = "commit", label: str = "Saving") -> str:
+    return json.dumps({
+        "kind": "row_opened",
+        "call_id": call_id,
+        "label": label,
+        "symbol": "💾",
+        "depth": 0,
+        "started": started,
+    })
 
 
 # Windows refuses to remove a file any process still has open, and a
@@ -115,6 +136,10 @@ def test_writes_every_event_a_run_produced(tmp_path: Path, monkeypatch: pytest.M
     header, *records = read_journal(generation)
 
     assert header["pid"] == os.getpid()
+    # The row says when its call began, since the window reading it
+    # back may be one that attached to the run long after this.
+    opened = datetime.fromisoformat(str(records[0].pop("started")))
+    assert 0 <= (datetime.now(UTC) - opened).total_seconds() < WRITTEN_WITHIN
     assert records == [
         {"kind": "row_opened", "call_id": "commit", "label": STARTED_ROW.label, "symbol": "💾", "depth": 0},
         {"kind": "thought", "text": THOUGHT.text},
@@ -136,7 +161,13 @@ def test_reads_back_the_events_a_journal_holds(tmp_path: Path, monkeypatch: pyte
     events = generation.follow()
     replayed = list(events)
 
-    assert replayed == [STARTED_ROW, THOUGHT, FINISHED_ROW]
+    opened = replayed[0]
+    assert isinstance(opened, ToolCallStarted)
+    assert replace(opened, age=0.0) == STARTED_ROW
+    # The run wrote this a moment ago, so what comes back says the call
+    # is starting rather than that it has been going a while.
+    assert opened.age < WRITTEN_WITHIN
+    assert replayed[1:] == [THOUGHT, FINISHED_ROW]
 
 
 @pytest.mark.parametrize(
@@ -217,9 +248,7 @@ def test_folds_the_deltas_a_backlog_holds_into_one(tmp_path: Path) -> None:
 
 def test_ignores_the_partial_line_a_killed_writer_left(tmp_path: Path) -> None:
     generation = write_journal(
-        tmp_path,
-        json.dumps({"version": "0", "pid": 1, "started": "now"}),
-        json.dumps({"kind": "row_opened", "call_id": "commit", "label": "Saving", "symbol": "💾", "depth": 0}),
+        tmp_path, json.dumps({"version": "0", "pid": 1, "started": "now"}), write_row(datetime.now(UTC).isoformat())
     )
     with generation.journal_file.open("ab") as journal:
         journal.write(b'{"kind": "thou')
@@ -231,7 +260,63 @@ def test_ignores_the_partial_line_a_killed_writer_left(tmp_path: Path) -> None:
 
     # The whole lines before the kill still reached the screen, and
     # the one the kill cut in half stopped nothing.
-    assert replayed == [ToolCallStarted("commit", "Saving", "💾")]
+    assert [replace(event, age=0.0) if isinstance(event, ToolCallStarted) else event for event in replayed] == [
+        ToolCallStarted("commit", "Saving", "💾")
+    ]
+
+
+# The bug this answers: a window attaching to a run six minutes in drew
+# the row the run was on as `0m 09s`, which was how long ago the record
+# had been replayed into that window rather than how long the phase had
+# been going. The journal is append-only and its records are what a
+# replay reads, so the true start is in the file to be read.
+def test_counts_an_open_row_from_when_its_call_began(tmp_path: Path) -> None:
+    generation = write_journal(
+        tmp_path,
+        json.dumps({"version": "0", "pid": 1, "started": "now"}),
+        write_row((datetime.now(UTC) - timedelta(seconds=AGED)).isoformat()),
+    )
+
+    replayed: list[object] = []
+    with pytest.raises(Error, match="stopped before it finished"):
+        replayed.extend(generation.follow())
+
+    opened = replayed[0]
+    assert isinstance(opened, ToolCallStarted)
+    assert AGED <= opened.age < AGED + WRITTEN_WITHIN
+
+
+def test_counts_a_row_a_moved_clock_dated_ahead_of_the_reading_from_now(tmp_path: Path) -> None:
+    generation = write_journal(
+        tmp_path,
+        json.dumps({"version": "0", "pid": 1, "started": "now"}),
+        write_row((datetime.now(UTC) + timedelta(seconds=AGED)).isoformat()),
+    )
+
+    replayed: list[object] = []
+    with pytest.raises(Error, match="stopped before it finished"):
+        replayed.extend(generation.follow())
+
+    opened = replayed[0]
+    assert isinstance(opened, ToolCallStarted)
+    # A row that began after it was read is a clock the machine moved
+    # between the two readings, and never a call to draw a timer
+    # counting up to it.
+    assert not opened.age
+
+
+# A start with no zone is read against a `now` that has one, which is
+# an error rather than a reading. So it is refused where every other
+# line JRI cannot make sense of is.
+def test_refuses_a_row_whose_start_names_no_zone(tmp_path: Path) -> None:
+    generation = write_journal(
+        tmp_path,
+        json.dumps({"version": "0", "pid": 1, "started": "now"}),
+        write_row(datetime.now(UTC).replace(tzinfo=None).isoformat()),
+    )
+
+    with pytest.raises(Error, match="could not read what this generation wrote down"):
+        list(generation.follow())
 
 
 def test_reports_a_run_whose_writer_died_as_interrupted(tmp_path: Path) -> None:

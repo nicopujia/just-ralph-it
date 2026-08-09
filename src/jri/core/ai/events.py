@@ -23,6 +23,13 @@ class ToolCallStarted:
     label: str
     symbol: str
     depth: int = 0
+    # How long the call had already been going when this event was
+    # made, which is nothing at all for one starting now. A run lives
+    # in a process of its own and a window may attach to it minutes
+    # in, replaying what the run wrote down: the row that window draws
+    # counts from when the call began and not from when the record
+    # reached the screen.
+    age: float = 0.0
 
 
 # A call that finished says how it went, so no default lets a row be
