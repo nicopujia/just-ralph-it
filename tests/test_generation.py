@@ -442,16 +442,16 @@ def test_refuses_a_runner_while_one_holds_the_lock(tmp_path: Path) -> None:
         Generation.execute(build_settings(FakeClient([])))
 
 
-def test_reports_a_run_directory_it_cannot_write_in(tmp_path: Path) -> None:
+def test_reports_a_run_log_it_cannot_open(tmp_path: Path) -> None:
     generation = build_generation(tmp_path)
     generation.workspace.open_generation_dir()
-    generation.workspace.generation_dir.chmod(0o500)
+    # A name the run needs for a file and something else already holds
+    # is refused by every platform, where a mode dropped on a directory
+    # is a POSIX permission Windows does not answer to.
+    generation.runner_log_file.mkdir()
 
-    try:
-        with pytest.raises(PersistenceError, match="Could not start the generation"):
-            generation.start()
-    finally:
-        generation.workspace.generation_dir.chmod(0o700)
+    with pytest.raises(PersistenceError, match="Could not start the generation"):
+        generation.start()
 
 
 def test_reports_a_runner_that_could_not_start(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
