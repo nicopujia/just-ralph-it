@@ -2,7 +2,7 @@ import re
 
 from yaml import safe_dump
 
-__all__ = ["render", "truncate"]
+__all__ = ["quote", "render", "truncate"]
 
 # A block ends at a fence of its own length, and that fence is longer
 # than any backtick run the text holds, so nothing the text says can
@@ -24,6 +24,12 @@ STRUCTURE_INDENTATION = "  "
 YAML_LINE_BREAK = re.compile(r"[\n\x85\u2028\u2029]")
 
 
+def quote(text: str) -> str:
+    runs: list[str] = re.findall(f"{FENCE}+", text)
+    fence = FENCE * max(MIN_FENCE_LENGTH, max((len(run) for run in runs), default=0) + 1)
+    return f"{fence}\n{text}\n{fence}"
+
+
 def render(**blocks: str | list[str] | dict[str, str] | None) -> str:
     rendered: list[str] = []
     for label, value in blocks.items():
@@ -31,9 +37,7 @@ def render(**blocks: str | list[str] | dict[str, str] | None) -> str:
             continue
         title = label.replace("_", " ").capitalize()
         if isinstance(value, str):
-            runs: list[str] = re.findall(f"{FENCE}+", value)
-            fence = FENCE * max(MIN_FENCE_LENGTH, max((len(run) for run in runs), default=0) + 1)
-            rendered.append(f"{title}:\n{fence}\n{value}\n{fence}")
+            rendered.append(f"{title}:\n{quote(value)}")
         else:
             # A set quotes itself through the serializer the notebook
             # already writes with, so no item can forge a sibling and

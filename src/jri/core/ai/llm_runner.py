@@ -12,8 +12,9 @@ from openai.types.responses import FunctionToolParam, ResponseInputParam, Respon
 from openai.types.shared_params import Reasoning
 from pydantic import BaseModel, ValidationError
 
-from jri.core.exceptions import ModelError, UsageLimitError
+from jri.core.exceptions import ModelError, ProviderRefusalError, ProviderUnavailableError, UsageLimitError
 from jri.core.settings import ReasoningEffort
+from jri.lib import prompt
 
 from .events import AgentEvent, ReasoningDelta, TextDelta
 
@@ -34,6 +35,9 @@ TRANSIENT_STATUSES = frozenset({HTTPStatus.REQUEST_TIMEOUT, HTTPStatus.CONFLICT,
 
 EXHAUSTION_CODES = frozenset({"insufficient_quota", "usage_limit_reached", "billing_hard_limit_reached"})
 """Codes of a spent budget, which no amount of waiting refills."""
+
+STATUS_PHRASES = {int(status): status.phrase for status in HTTPStatus}
+"""What a status is called; a provider may use one nobody named."""
 
 Result = TypeVar("Result", bound=BaseModel)
 
@@ -109,7 +113,7 @@ class LLMRunner:
                 # again: a second attempt would stream a second chain
                 # of reasoning under the one row this call has.
                 if streamed:
-                    raise _read_failure(error) from error
+                    raise self._read_failure(error) from error
                 self._wait_to_retry(error, attempt)
                 attempt += 1
             else:
@@ -142,7 +146,7 @@ class LLMRunner:
                 # A turn the user already saw part of cannot start over
                 # without repeating what it said.
                 if streamed:
-                    raise _read_failure(error) from error
+                    raise self._read_failure(error) from error
                 outputs_by_index.clear()
                 self._wait_to_retry(error, attempt)
                 attempt += 1
@@ -207,10 +211,38 @@ class LLMRunner:
 
     def _wait_to_retry(self, error: OpenAIError, attempt: int) -> None:
         if attempt >= self.MAX_ATTEMPTS or not _can_retry(error):
-            raise _read_failure(error) from error
+            raise self._read_failure(error) from error
         delay = min(_read_retry_hint(error) or self.RETRY_DELAY * 2 ** (attempt - 1), self.MAX_RETRY_DELAY)
         logger.warning("request_retrying model=%s attempt=%d delay=%.3f error=%s", self.model, attempt, delay, error)
         sleep(delay)
+
+    # The provider's own exceptions are no `RuntimeError`, so they
+    # cross every net JRI holds; here is where they become JRI's, told
+    # apart by what each leaves the user to do. A spent budget is the
+    # failure no waiting clears. A refusal is an answer no second
+    # asking changes, which is the knowledge `_can_retry` already
+    # decides an attempt by. An address that answered nothing, or a
+    # provider reporting a fault of its own, may answer later. What is
+    # left is JRI's own, and only that is worth reporting to JRI.
+    def _read_failure(self, error: OpenAIError) -> ModelError:
+        if isinstance(error, APIConnectionError):
+            return ProviderUnavailableError(
+                f"Could not reach the provider at {self.client.base_url}: {_read_cause(error)}"
+            )
+        if not isinstance(error, APIStatusError):
+            return ModelError(str(error))
+        # The provider's words are quoted rather than told as JRI's:
+        # a message JRI did not write says who wrote it, and a block
+        # nothing inside it can close keeps a body of any shape --
+        # a sentence, an object, a gateway's HTML -- from reading as
+        # this one's own.
+        answer = (
+            f"The provider at {self.client.base_url} answered {_name_status(error.status_code)}, saying:\n"
+            f"{prompt.quote(_read_body(error))}"
+        )
+        if error.code in EXHAUSTION_CODES:
+            return UsageLimitError(answer)
+        return ProviderUnavailableError(answer) if _can_retry(error) else ProviderRefusalError(answer)
 
     @staticmethod
     def _decode(
@@ -256,14 +288,29 @@ class LLMRunner:
             raise ModelError(f"Request context is {size} bytes, over the {self.max_input_size} byte limit.")
 
 
-# The provider's own exceptions are no `RuntimeError`, so they cross
-# every net JRI holds; here is where they become JRI's, and a budget
-# already spent is worth a name of its own, since it is the one
-# failure no amount of retrying or waiting ever clears.
-def _read_failure(error: OpenAIError) -> ModelError:
-    if isinstance(error, APIStatusError) and error.code in EXHAUSTION_CODES:
-        return UsageLimitError(str(error))
-    return ModelError(str(error))
+# `Connection error.` is the library's own words for anything the
+# transport raised, and the transport's are the ones that tell a name
+# that does not resolve from a port that refuses.
+def _read_cause(error: APIConnectionError) -> str:
+    return str(error.__cause__ or "").strip() or error.message
+
+
+def _name_status(status: int) -> str:
+    return f"{status} {STATUS_PHRASES[status]}" if status in STATUS_PHRASES else str(status)
+
+
+# What the provider said, as near to its own sentence as its answer
+# gets. A provider that explains itself does so in `message`, and the
+# rest of that object is the same fact spelled for a machine; a body
+# of any other shape is passed on whole rather than summarised away,
+# and the raw exception reaches the log either way.
+def _read_body(error: APIStatusError) -> str:
+    body = error.body
+    if isinstance(body, dict) and isinstance(message := body.get("message"), str) and message.strip():
+        return message
+    if body is None:
+        return error.message
+    return body if isinstance(body, str) else json.dumps(body, indent=2, ensure_ascii=False)
 
 
 def _can_retry(error: OpenAIError) -> bool:

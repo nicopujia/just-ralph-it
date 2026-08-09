@@ -7,7 +7,7 @@ from typing import cast
 import pytest
 
 from jri.core import paths
-from jri.core.ai import Interviewer, ToolCallFinished, ToolCallStarted, TurnFinished, functional_analyst
+from jri.core.ai import Interviewer, LLMRunner, ToolCallFinished, ToolCallStarted, TurnFinished, functional_analyst
 from jri.core.conversation import RETRYABLE_ENDINGS, Conversation
 from jri.core.exceptions import PersistenceError, RunDetached
 from jri.core.generation import Generation
@@ -15,9 +15,12 @@ from tests.conftest import CreateRepository
 from tests.doubles.generation import run_in_thread
 from tests.doubles.lock import hold
 from tests.doubles.openai import (
+    BASE_URL,
+    RATE_LIMIT_MESSAGE,
     FakeClient,
     Round,
     call,
+    disconnection,
     failure,
     partial_reply,
     rate_limited,
@@ -134,7 +137,10 @@ def test_reads_the_notes_without_reaching_the_provider() -> None:
         (failure("provider failed"), TurnFinished("failed", "provider failed")),
         (
             rate_limited(code="insufficient_quota"),
-            TurnFinished("exhausted", "Rate limit reached on tokens per min (TPM)."),
+            TurnFinished(
+                "exhausted",
+                f"The provider at {BASE_URL}/ answered 429 Too Many Requests, saying:\n```\n{RATE_LIMIT_MESSAGE}\n```",
+            ),
         ),
     ],
     ids=["replied", "empty", "failed", "exhausted"],
@@ -150,6 +156,26 @@ def test_ends_every_turn_with_its_rows_closed(last_round: object, finished: Turn
         event.call_id for event in events if isinstance(event, ToolCallFinished)
     ]
     assert events[-1] == finished
+
+
+# A provider that refused and a provider that answered nothing at all
+# are each the provider's, and a turn says which of the two it ended
+# on so that the view can stop calling either a fault in JRI, and stop
+# offering a second wait for an answer that will not change.
+@pytest.mark.parametrize(
+    ("rounds", "ending"),
+    [([rejection()], "refused"), ([disconnection()] * LLMRunner.MAX_ATTEMPTS, "unavailable")],
+    ids=["refused", "unavailable"],
+)
+def test_ends_a_turn_the_provider_failed_by_whose_failure_it_was(
+    monkeypatch: pytest.MonkeyPatch, rounds: list[object], ending: str
+) -> None:
+    monkeypatch.setattr("jri.core.ai.llm_runner.sleep", lambda _delay: None)
+    conversation = build_conversation(FakeClient(cast("list[Round]", rounds)))
+
+    events = list(conversation.chat("Deploy from main."))
+
+    assert [event.ending for event in events if isinstance(event, TurnFinished)] == [ending]
 
 
 def test_closes_the_row_a_blocked_run_left_open(monkeypatch: pytest.MonkeyPatch) -> None:

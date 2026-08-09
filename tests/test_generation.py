@@ -11,7 +11,14 @@ import pytest
 
 from jri.core import paths
 from jri.core.ai import ReasoningDelta, ToolCallStarted
-from jri.core.exceptions import Error, PersistenceError, RepositoryStateError, RunDetached, UsageLimitError
+from jri.core.exceptions import (
+    Error,
+    PersistenceError,
+    ProviderRefusalError,
+    RepositoryStateError,
+    RunDetached,
+    UsageLimitError,
+)
 from jri.core.generation import Generation
 from jri.core.workspace import Workspace
 from tests.conftest import CreateRepository, RunGit
@@ -25,6 +32,7 @@ from tests.doubles.specs_generation import (
     THOUGHT,
     generate_blocked,
     generate_failing,
+    generate_refused,
     generate_silently,
     generate_stopped,
     generate_succeeding,
@@ -161,8 +169,12 @@ def test_reads_back_what_a_run_answered(
     [
         (generate_blocked, RepositoryStateError, "Your project has uncommitted changes."),
         (generate_failing, Error, "The architect could not be reached."),
+        # A refusal folded back as a plain failure would invite the
+        # user to report their own configuration as a bug in JRI, and
+        # to wait out an answer that never changes.
+        (generate_refused, ProviderRefusalError, "400 Bad Request"),
     ],
-    ids=["blocked", "failed"],
+    ids=["blocked", "failed", "refused"],
 )
 def test_names_the_failure_a_run_ended_on(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, workflow: object, error: type[Exception], message: str

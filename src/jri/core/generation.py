@@ -17,7 +17,15 @@ from jri.lib.lock import Lock, LockError
 
 from . import paths
 from .ai import ReasoningDelta, ToolCallFinished, ToolCallStarted, specs_generation
-from .exceptions import Error, PersistenceError, RepositoryStateError, RunDetached, UsageLimitError
+from .exceptions import (
+    Error,
+    PersistenceError,
+    ProviderRefusalError,
+    ProviderUnavailableError,
+    RepositoryStateError,
+    RunDetached,
+    UsageLimitError,
+)
 from .settings import Settings
 from .workspace import Workspace
 
@@ -82,7 +90,9 @@ class RowClosed(BaseModel):
 # reports no commit.
 class Conclusion(BaseModel):
     kind: Literal["conclusion"]
-    ending: Literal["committed", "unchanged", "ambiguities", "stopped", "exhausted", "blocked", "failed"]
+    ending: Literal[
+        "committed", "unchanged", "ambiguities", "stopped", "exhausted", "refused", "unavailable", "blocked", "failed"
+    ]
     commit: str = ""
     ambiguities: tuple[str, ...] = ()
     detail: str = ""
@@ -166,6 +176,12 @@ class Generation:
         except UsageLimitError as error:
             logger.exception("generation_exhausted")
             return Conclusion(kind="conclusion", ending="exhausted", detail=str(error))
+        except ProviderRefusalError as error:
+            logger.exception("generation_refused")
+            return Conclusion(kind="conclusion", ending="refused", detail=str(error))
+        except ProviderUnavailableError as error:
+            logger.exception("generation_unavailable")
+            return Conclusion(kind="conclusion", ending="unavailable", detail=str(error))
         except RepositoryStateError as error:
             logger.info("generation_blocked reason=%s", error)
             return Conclusion(kind="conclusion", ending="blocked", detail=str(error))
@@ -372,6 +388,10 @@ def _answer(conclusion: Conclusion) -> "specs_generation.SpecsResult | None":
             return None
         case "exhausted":
             raise UsageLimitError(conclusion.detail)
+        case "refused":
+            raise ProviderRefusalError(conclusion.detail)
+        case "unavailable":
+            raise ProviderUnavailableError(conclusion.detail)
         case "blocked":
             raise RepositoryStateError(conclusion.detail)
         case "failed":

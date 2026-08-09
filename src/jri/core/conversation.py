@@ -24,7 +24,14 @@ from .ai import (
     TurnFinished,
     specs_generation,
 )
-from .exceptions import PersistenceError, ReplayError, RepositoryStateError, UsageLimitError
+from .exceptions import (
+    PersistenceError,
+    ProviderRefusalError,
+    ProviderUnavailableError,
+    ReplayError,
+    RepositoryStateError,
+    UsageLimitError,
+)
 from .generation import Generation
 from .notes import Graph, Notebook, TopicId
 from .settings import Settings
@@ -40,11 +47,13 @@ type Work = Literal["message", "generation", "reply"]
 # holding it went before it could end, so nothing was left to yield it.
 type TurnEnding = Ending | Literal["interrupted"]
 
-# The endings that leave the work a turn opened undone, and so the ones
-# asking for that turn again has something to do. What ends a turn is
-# here, so what makes one worth asking for again is too, rather than in
-# whichever view puts the offer up.
-RETRYABLE_ENDINGS = frozenset[TurnEnding]({"empty", "failed", "exhausted", "interrupted"})
+# The endings that leave the work a turn opened undone AND that asking
+# again could carry further. What ends a turn is here, so what makes
+# one worth asking for again is too, rather than in whichever view puts
+# the offer up. A refusal is left out of it: the provider answered, and
+# it answers the same request the same way, so the offer would promise
+# a second wait for the first answer.
+RETRYABLE_ENDINGS = frozenset[TurnEnding]({"empty", "failed", "unavailable", "exhausted", "interrupted"})
 
 
 class Item(BaseModel):
@@ -439,6 +448,10 @@ class Conversation:
         replied = any(item.type == "assistant" for item in turn.items[start:])
         if isinstance(failure, UsageLimitError):
             ending: Ending = "exhausted"
+        elif isinstance(failure, ProviderRefusalError):
+            ending = "refused"
+        elif isinstance(failure, ProviderUnavailableError):
+            ending = "unavailable"
         elif isinstance(failure, RepositoryStateError):
             ending = "blocked"
         elif failure is not None:

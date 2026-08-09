@@ -3,7 +3,7 @@ from threading import Event
 from typing import TYPE_CHECKING
 
 from jri.core.ai import ReasoningDelta, ToolCallFinished, ToolCallStarted
-from jri.core.exceptions import RepositoryStateError
+from jri.core.exceptions import ProviderRefusalError, RepositoryStateError
 
 if TYPE_CHECKING:
     from jri.core.settings import Settings
@@ -25,6 +25,13 @@ def generate_blocked(_settings: "Settings", _cancelled: Event | None = None) -> 
 def generate_failing(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
     yield STARTED_ROW
     raise RuntimeError("The architect could not be reached.")
+
+
+# The reasoning effort an architect's model does not offer, which the
+# provider answers the same way on every attempt of every run.
+def generate_refused(_settings: "Settings", _cancelled: Event | None = None) -> Iterator[object]:
+    yield STARTED_ROW
+    raise ProviderRefusalError("The provider answered 400 Bad Request, saying:\n```\nUnsupported value.\n```")
 
 
 def generate_succeeding(_settings: "Settings", _cancelled: Event | None = None) -> Generator[object, None, str]:

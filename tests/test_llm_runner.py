@@ -5,6 +5,7 @@ from pathlib import Path
 from threading import Event
 from typing import TYPE_CHECKING, cast
 
+import httpx
 import pytest
 from openai import omit
 from pydantic import BaseModel
@@ -19,11 +20,13 @@ from jri.core.ai import (
     architect,
     functional_analyst,
 )
-from jri.core.exceptions import ModelError, UsageLimitError
+from jri.core.exceptions import ModelError, ProviderRefusalError, ProviderUnavailableError, UsageLimitError
 from jri.core.notes import Notebook
 from jri.core.settings import ReasoningEffort
 from tests.doubles.openai import (
+    BASE_URL,
     FakeClient,
+    bad_gateway,
     disconnection,
     failed_response,
     incomplete_response,
@@ -397,19 +400,65 @@ def test_waits_longer_after_each_rate_limit_left_unexplained(waits: list[float])
 def test_reports_a_rate_limit_that_outlasts_the_retries(waits: list[float]) -> None:
     runner = build_streaming_runner(*[rate_limited()] * LLMRunner.MAX_ATTEMPTS)
 
-    with pytest.raises(ModelError, match="Rate limit reached"):
+    # A provider still rate limiting after every attempt is the
+    # provider's side rather than a fault of JRI's, whatever the
+    # message ends up framed by.
+    with pytest.raises(ProviderUnavailableError, match="Rate limit reached"):
         list(runner.respond([]).events)
 
     assert len(waits) == LLMRunner.MAX_ATTEMPTS - 1
 
 
 def test_reports_a_rejected_request_without_retrying(waits: list[float]) -> None:
-    runner = build_streaming_runner(rejection(), streamed_reply("ready"))
+    # The reply behind it is what a retry would have reached, so the
+    # refusal standing is what says no attempt was spent on it.
+    runner = build_streaming_runner(
+        rejection("Unsupported value: 'minimal' is not supported with `gpt-5.6-sol`."), streamed_reply("ready")
+    )
 
-    with pytest.raises(ModelError, match="Unknown model"):
+    with pytest.raises(ProviderRefusalError) as refusal:
         list(runner.respond([]).events)
 
+    # The request that will be refused identically however often it is
+    # asked for is told apart by class, and what the provider said is
+    # its own sentence in a block of JRI's rather than the dictionary
+    # Python prints it inside.
+    assert str(refusal.value) == (
+        f"The provider at {BASE_URL}/ answered 400 Bad Request, saying:\n"
+        "```\nUnsupported value: 'minimal' is not supported with `gpt-5.6-sol`.\n```"
+    )
     assert waits == []
+
+
+# `Connection error.` names neither what JRI was trying to reach nor
+# what happened when it tried, and both are what the user needs to
+# tell an address they mistyped from one that is merely down.
+def test_names_the_address_it_could_not_reach(waits: list[float]) -> None:
+    dropped = disconnection(httpx.ConnectError("[Errno -2] Name or service not known"))
+    runner = build_streaming_runner(*[dropped] * LLMRunner.MAX_ATTEMPTS)
+
+    with pytest.raises(ProviderUnavailableError) as failure:
+        list(runner.respond([]).events)
+
+    assert str(failure.value) == (f"Could not reach the provider at {BASE_URL}/: [Errno -2] Name or service not known")
+    assert len(waits) == LLMRunner.MAX_ATTEMPTS - 1
+
+
+# A gateway between JRI and the provider answers for itself, in
+# whatever it writes rather than in the provider's shape, and the
+# status and that body are what a user debugging one has to go on.
+def test_passes_on_a_body_that_says_nothing_of_itself(waits: list[float]) -> None:
+    outage = bad_gateway("<html><body><h1>502 Bad Gateway</h1></body></html>")
+    runner = build_streaming_runner(*[outage] * LLMRunner.MAX_ATTEMPTS)
+
+    with pytest.raises(ProviderUnavailableError) as failure:
+        list(runner.respond([]).events)
+
+    assert str(failure.value) == (
+        f"The provider at {BASE_URL}/ answered 502 Bad Gateway, saying:\n"
+        "```\n<html><body><h1>502 Bad Gateway</h1></body></html>\n```"
+    )
+    assert len(waits) == LLMRunner.MAX_ATTEMPTS - 1
 
 
 def test_reports_an_exhausted_usage_limit_without_retrying(waits: list[float]) -> None:

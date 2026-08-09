@@ -725,8 +725,15 @@ def _describe_ending(ending: TurnEnding | None, detail: str) -> tuple[str, str]:
         # A window that went is not a failure of the turn's either.
         case "interrupted":
             return copy.TURN_INTERRUPTED, styles.INTERVIEWER_MESSAGE_CLASSES
+        # Only a failure that could be JRI's own asks for an issue and
+        # a zip: a provider that refused or that could not be reached
+        # is answered where the answer is, and never in the tracker.
         case "failed":
             return copy.TURN_ERROR.format(error=detail), styles.INTERVIEWER_ERROR_CLASSES
+        case "refused":
+            return copy.TURN_REFUSED.format(error=detail), styles.INTERVIEWER_ERROR_CLASSES
+        case "unavailable":
+            return copy.TURN_UNAVAILABLE.format(error=detail), styles.INTERVIEWER_ERROR_CLASSES
         case "exhausted":
             return copy.TURN_EXHAUSTED, styles.INTERVIEWER_ERROR_CLASSES
         # A repository the user has to sort out is not a crash.

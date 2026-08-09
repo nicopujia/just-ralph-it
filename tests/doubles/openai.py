@@ -5,11 +5,13 @@ from types import SimpleNamespace
 from typing import Any, Self, cast
 
 import httpx
-from openai import APIConnectionError, BadRequestError, OpenAIError, RateLimitError
+from openai import APIConnectionError, BadRequestError, InternalServerError, OpenAIError, RateLimitError
 
 type Round = Iterable[SimpleNamespace]
 
-REQUEST = httpx.Request("POST", "https://provider.test/responses")
+BASE_URL = "https://provider.test/v1"
+RATE_LIMIT_MESSAGE = "Rate limit reached on tokens per min (TPM)."
+REQUEST = httpx.Request("POST", f"{BASE_URL}/responses")
 
 
 def response(*outputs: dict[str, Any], input_tokens: int | None = None) -> Round:
@@ -74,16 +76,35 @@ def stopped_thinking(cancelled: Event) -> Round:
 def rate_limited(hint: str | None = None, code: str | None = None) -> RateLimitError:
     headers = {} if hint is None else {"retry-after-ms": hint}
     response = httpx.Response(429, headers=headers, request=REQUEST)
-    return RateLimitError("Rate limit reached on tokens per min (TPM).", response=response, body={"code": code})
+    body = {"message": RATE_LIMIT_MESSAGE, "code": code}
+    return RateLimitError(f"Error code: 429 - {{'error': {body!r}}}", response=response, body=body)
 
 
-def disconnection() -> APIConnectionError:
-    return APIConnectionError(request=REQUEST)
+# What the provider library raises for anything the transport did,
+# with the transport's own account of it chained behind, exactly as
+# the library chains it.
+def disconnection(cause: Exception | None = None) -> APIConnectionError:
+    error = APIConnectionError(request=REQUEST)
+    error.__cause__ = cause
+    return error
 
 
-def rejection() -> BadRequestError:
+def rejection(message: str = "Unknown model.") -> BadRequestError:
     response = httpx.Response(400, request=REQUEST)
-    return BadRequestError("Unknown model.", response=response, body=None)
+    # The library hands the exception the object under `error`, which
+    # is where a provider spells out what it refused and why.
+    return BadRequestError(
+        f"Error code: 400 - {{'error': {{'message': {message!r}}}}}",
+        response=response,
+        body={"message": message, "type": "invalid_request_error"},
+    )
+
+
+# A gateway standing between JRI and the provider, answering for
+# itself in a body of no shape the provider library knows.
+def bad_gateway(body: str) -> InternalServerError:
+    response = httpx.Response(502, request=REQUEST)
+    return InternalServerError(body, response=response, body=body)
 
 
 def failure(message: str) -> Round:
@@ -110,6 +131,9 @@ def reply(text: str) -> dict[str, Any]:
 class FakeClient:
     def __init__(self, rounds: Iterable[Round | OpenAIError], *, parsed: Iterable[object] = ()) -> None:
         self.responses = _Responses(rounds, parsed)
+        # A real client normalizes what the settings named into the
+        # address it sends to, and a failure names that address.
+        self.base_url = httpx.URL(f"{BASE_URL}/")
 
 
 def _delta(text: str) -> SimpleNamespace:

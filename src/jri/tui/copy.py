@@ -102,7 +102,18 @@ TURN_ERROR = (
 TURN_EXHAUSTED = "Your ChatGPT or API usage limit has been reached. Check your plan and try again later."
 TURN_INTERRUPTED = "_JRI closed before this finished._"
 TURN_NO_RESPONSE = "_No response received._"
+TURN_REFUSED = (
+    "{error}\n\n"
+    "The provider refused the request rather than failing at it, so asking for it again changes nothing on its own. "
+    "What JRI asks with is in .jri/config.yaml: llm.provider, llm.api_key, and each agent's model, reasoning effort "
+    "and temperature. Change what needs changing there, then start JRI again."
+)
 TURN_STOPPED = "_Response stopped._"
+TURN_UNAVAILABLE = (
+    "{error}\n\n"
+    "llm.provider in .jri/config.yaml decides the address JRI sends to. Check that it is the one you meant and that "
+    "this machine can reach it, then try again."
+)
 
 UNDO_MESSAGE = "Undo message"
 UNDO_MESSAGE_KEY = "^x u"
