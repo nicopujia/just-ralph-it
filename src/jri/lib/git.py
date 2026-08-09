@@ -143,6 +143,9 @@ class Repository:
     # part of what they are asked for and over the rest not at all,
     # which is the reading `_held_the_index` makes of the line.
     INDEX_HOLDERS: ClassVar[frozenset[str]] = frozenset({"add", "checkout", "reset"})
+    # The mode Git records a symbolic link under, in the index and in
+    # every tree written from it.
+    LINK_MODE: ClassVar[str] = "120000"
     # What HEAD holds in front of the ref it stands for, where it
     # stands for one rather than for a commit of its own.
     SYMBOLIC_HEAD: ClassVar[str] = "ref: "
@@ -302,9 +305,24 @@ class Repository:
             command.extend(["--", *paths])
         return self._run(*command).stdout
 
-    def read_staged_paths(self, paths: Sequence[str] = ()) -> tuple[str, ...]:
-        output = self._run("ls-files", "-z", "--", *paths).stdout
-        return tuple(os.fsdecode(path) for path in output.split(b"\0") if path)
+    # Every path the index holds under these pathspecs, or, where
+    # `linked` asks for them, only the ones it holds as symbolic links.
+    # A link is a mode the index records rather than a shape the
+    # worktree has to have: where the platform makes none -- a Windows
+    # without the privilege for one -- a checkout writes such an entry
+    # out as a plain file holding the target's text, and `git add` over
+    # that file records the link straight back, so the mode outlives
+    # every worktree that cannot show it. The index answers rather than
+    # a commit, because the index is what the next commit is written
+    # from.
+    def read_staged_paths(self, paths: Sequence[str] = (), *, linked: bool = False) -> tuple[str, ...]:
+        # `<mode> SP <object> SP <stage> TAB <path>`, and only `-z`
+        # leaves the path as the bytes it is rather than as a quoted
+        # rendering of them.
+        output = self._run("ls-files", "--stage", "-z", "--", *paths).stdout
+        records = (os.fsdecode(record).split(" ", 2) for record in output.split(b"\0") if record)
+        entries = ((mode, rest.partition("\t")[2]) for mode, _, rest in records)
+        return tuple(path for mode, path in entries if not linked or mode == self.LINK_MODE)
 
     def read_worktree_paths(self) -> tuple[str, ...]:
         output = self._run("ls-files", "-co", "--exclude-standard", "-z").stdout

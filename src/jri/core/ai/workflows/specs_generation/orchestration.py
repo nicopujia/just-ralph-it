@@ -87,7 +87,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 functional_result.deleted_paths,
                 paths.FUNCTIONAL_SPECS_ROOT,
             )
-            functional = specs.read(staging.path, paths.FUNCTIONAL_SPECS_DIR)
+            functional = specs.read(staging, paths.FUNCTIONAL_SPECS_DIR)
             if not functional:
                 raise SpecsError("Functional specifications cannot be empty.")
             specs.save_draft(staging, baseline)
@@ -123,7 +123,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
             architecture_result = yield from (designer.finish if cycle == MAX_CYCLES else designer.design)(
                 architect.Input(
                     functional_specs=specs.render(functional),
-                    current_architecture=specs.render(specs.read(staging.path, paths.ARCHITECTURE_SPECS_DIR)),
+                    current_architecture=specs.render(specs.read(staging, paths.ARCHITECTURE_SPECS_DIR)),
                     tracked_repository_tree=list(specs.repository.read_worktree_paths()),
                     explorer_report=explorer_report,
                 ),
@@ -152,7 +152,7 @@ def generate(settings: Settings, cancelled: Event | None = None) -> Generator[Pr
                 architecture_result.deleted_paths,
                 paths.ARCHITECTURE_SPECS_ROOT,
             )
-            if not specs.read(staging.path, paths.ARCHITECTURE_SPECS_DIR):
+            if not specs.read(staging, paths.ARCHITECTURE_SPECS_DIR):
                 raise SpecsError("Architecture specifications cannot be empty.")
             patch = specs.save_draft(staging, baseline)
 
@@ -237,7 +237,7 @@ def _build_functional_context(specs: Specs, baseline: Baseline, staging: git.Rep
                 tofile=f"b/{PurePosixPath(paths.NOTEBOOK_FILE).name}",
             )
         ),
-        current_specs=specs.render(specs.read(staging.path, paths.FUNCTIONAL_SPECS_DIR)),
+        current_specs=specs.render(specs.read(staging, paths.FUNCTIONAL_SPECS_DIR)),
     )
 
 

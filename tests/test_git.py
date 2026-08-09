@@ -649,6 +649,23 @@ def test_reads_the_paths_the_index_holds(tmp_path: Path, create_repository: Crea
     assert repository.read_staged_paths(["notes.md", "untracked.md"]) == ("notes.md",)
 
 
+# A link is a mode the index records, and a worktree on a platform
+# that makes no links holds a plain file for it -- so the question is
+# put to the index rather than to the disk, and the answer is the same
+# on every machine the same commit is checked out on.
+def test_reads_the_paths_the_index_holds_as_links(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path / "repo")
+    (repository.path / "notes.md").write_bytes(b"README.md")
+    blob = run_git(repository.path, "hash-object", "-w", "--", "notes.md")
+    run_git(repository.path, "update-index", "--add", "--cacheinfo", f"120000,{blob},notes.md")
+
+    assert repository.read_staged_paths(linked=True) == ("notes.md",)
+    assert repository.read_staged_paths(["README.md"], linked=True) == ()
+    assert not (repository.path / "notes.md").is_symlink()
+
+
 def test_stages_a_path_the_project_ignores(tmp_path: Path, create_repository: CreateRepository) -> None:
     repository = create_repository(tmp_path / "repo")
     (repository.path / ".gitignore").write_bytes(b"notes.md\n")

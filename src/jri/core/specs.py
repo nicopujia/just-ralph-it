@@ -133,9 +133,9 @@ class Specs:
         standing = self._read_specification_tree(repository.path)
         status = repository.read_status()
         try:
-            checked_out = self.read(repository.path, paths.SPECS_DIR)
+            checked_out = self.read(repository, paths.SPECS_DIR)
             repository.apply_patch(draft, index=True)
-            placed = self.read(repository.path, paths.SPECS_DIR)
+            placed = self.read(repository, paths.SPECS_DIR)
             drafted = tuple(
                 path for path in sorted(checked_out.keys() | placed.keys()) if checked_out.get(path) != placed.get(path)
             )
@@ -197,20 +197,33 @@ class Specs:
         self._stage(repository, [destination.relative_to(repository.path).as_posix() for destination in specifications])
         logger.info("specifications_written root=%s files=%d deleted=%d", model_root, len(files), len(deleted))
 
+    # A specification is a plain file, and who is asked decides what
+    # that means: to the filesystem a link is an entry a read follows
+    # elsewhere, to Git it is a mode, and only the mode survives a
+    # platform that makes no links. A Windows checkout writes a
+    # `120000` entry out as a plain file holding the target's text,
+    # which `Path.is_symlink` answers `no` over -- so a run there would
+    # hand a model a path where a specification's body goes, and its
+    # acceptance would record the mode straight back, leaving the
+    # refusal to fall due on whoever next checks that commit out where
+    # links are made. So Git is asked as well, once for the directory
+    # being read, and that is where the cost is put: what a run reads
+    # here is what a model is shown and what an acceptance commits, and
+    # a generation reads a handful of times.
     @staticmethod
-    def read(worktree: Path, directory: str) -> dict[str, bytes]:
+    def read(repository: git.Repository, directory: str) -> dict[str, bytes]:
+        linked = frozenset(repository.read_staged_paths((directory,), linked=True))
         specifications: dict[str, bytes] = {}
-        for path in sorted((worktree / directory).rglob("*.md")):
-            relative = path.relative_to(worktree).as_posix()
-            # A specification is a plain file: a link is the text of
-            # its target to Git and the target itself to a read, so it
-            # is a specification at neither end, and a directory, a
-            # pipe or a socket is one at no end at all. Whichever it
-            # is, the run ends over the path inside the tree rather
-            # than over the operating system's words about a worktree
-            # of JRI's own, whose name is a temporary directory the
-            # user never asked for.
-            if path.is_symlink() or not path.is_file():
+        for path in sorted((repository.path / directory).rglob("*.md")):
+            relative = path.relative_to(repository.path).as_posix()
+            # A link is a specification at neither end, since it is the
+            # text of its target to Git and the target itself to a
+            # read, and a directory, a pipe or a socket is one at no
+            # end at all. Whichever it is, the run ends over the path
+            # inside the tree rather than over the operating system's
+            # words about a worktree of JRI's own, whose name is a
+            # temporary directory the user never asked for.
+            if relative in linked or path.is_symlink() or not path.is_file():
                 raise SpecsError(f"JRI writes plain specification files, and `{relative}` is not one.")
             try:
                 specifications[relative] = path.read_bytes()
@@ -456,11 +469,14 @@ class Specs:
     # a path standing with the very bytes the commit holds is a path
     # only the index disagrees about, whoever wrote it, so putting that
     # index back to the commit takes nothing off the disk and nothing
-    # out of any commit. A link is not such a path, since the bytes are
-    # its target's rather than its own. Everything else stands where
-    # `_check_state` names it, and the record stands with it, an
-    # acceptance under way being all it still says; it goes once
-    # nothing under the specifications is loose.
+    # out of any commit. A link the filesystem shows is not such a
+    # path, since a read of it gives the target's bytes rather than its
+    # own; one only Git holds -- a checkout that had no link to make --
+    # is, and putting its entry back to a commit that already records
+    # the link leaves the mode standing where `_check_state` names it.
+    # Everything else stands where that same check names it, and the
+    # record stands with it, an acceptance under way being all it still
+    # says; it goes once nothing under the specifications is loose.
     def _settle_unreadable_acceptance(self) -> None:
         settled: list[str] = []
         # A first acceptance dies against a project holding no commit,
@@ -556,7 +572,7 @@ class Specs:
         try:
             with self._open_pre_image(acceptance.accepted) as pre_image:
                 pre_image.apply_patch(acceptance.patch.encode())
-                return self.read(pre_image.path, paths.SPECS_DIR)
+                return self.read(pre_image, paths.SPECS_DIR)
         except (git.Error, SpecsError):
             logger.exception("acceptance_rebuild_failed accepted=%s", acceptance.accepted)
             return None
@@ -821,15 +837,25 @@ class Specs:
         # commit as a path where the notes should be, and a
         # specification read out of a worktree is whatever the link
         # points at -- a file that was never JRI's to show a model.
-        # These are `COMMITTED_PATHS` again, as the filesystem rather
-        # than Git spells them.
+        # Both are asked, because a link is a shape on disk to one and
+        # a mode to the other, and neither answer covers the other's
+        # ground: the filesystem holds a link Git never heard of, and
+        # Git holds one where the platform makes none -- a Windows
+        # checkout leaves a `120000` entry standing as a plain file,
+        # which the run would read as a specification, hand to a model
+        # as its body and commit the mode straight back over. The
+        # filesystem is asked about `COMMITTED_PATHS` as it spells
+        # them, and Git about the same paths as Git does.
         committed = (
             self.workspace.config_file,
             self.workspace.gitignore_file,
             self.workspace.notebook_file,
             *(self.workspace.root / paths.SPECS_DIR).rglob("*.md"),
         )
-        links = sorted(path.relative_to(self.workspace.root).as_posix() for path in committed if path.is_symlink())
+        links = sorted(
+            {path.relative_to(self.workspace.root).as_posix() for path in committed if path.is_symlink()}
+            | set(self.repository.read_staged_paths(paths.COMMITTED_PATHS, linked=True))
+        )
         if links:
             raise RepositoryStateError(
                 "JRI writes plain files, and these are links. Replace them before Ralphing:\n"

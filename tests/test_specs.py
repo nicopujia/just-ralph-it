@@ -1543,6 +1543,34 @@ def test_refuses_a_specification_git_holds_as_a_link(
     assert find_accepted_commit(tmp_path) is None
 
 
+# The same refusal on a machine that makes no links, where a checkout
+# leaves the entry standing as a plain file and Git's own status says
+# nothing about it. Unrefused, the run reads a path as the
+# specification's body and its acceptance records the link mode again
+# -- so the bad commit is written on the machine that cannot see it,
+# and the refusal falls due on the next machine that can. `core
+# .symlinks` is what a checkout asks rather than the platform, so the
+# condition is reachable wherever the tests run.
+def test_refuses_a_specification_git_holds_as_a_link_where_the_checkout_left_a_file(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    run_git(tmp_path, "config", "core.symlinks", "false")
+    conversation = build_conversation(tmp_path, successful_client())
+    leak = tmp_path / ".jri/specs/functional/leak.md"
+    leak.parent.mkdir(parents=True)
+    leak.write_text("secret.txt")
+    blob = run_git(tmp_path, "hash-object", "-w", "--", ".jri/specs/functional/leak.md")
+    run_git(tmp_path, "update-index", "--add", "--cacheinfo", f"120000,{blob},.jri/specs/functional/leak.md")
+    run_git(tmp_path, "commit", "-qm", "docs: link a specification by hand")
+
+    assert read_ending(conversation.ralph(), r"these are links.+\n- \.jri/specs/functional/leak\.md") == "blocked"
+
+    assert not leak.is_symlink()
+    assert not run_git(tmp_path, "status", "--short", "--", ".jri/specs")
+    assert find_accepted_commit(tmp_path) is None
+
+
 def test_refuses_a_notebook_git_would_hold_as_a_link(
     tmp_path: Path, create_repository: CreateRepository, create_link: CreateLink
 ) -> None:
@@ -1628,7 +1656,8 @@ def test_refuses_specifications_jri_never_accepted(
     assert read_ending(conversation.ralph(), "specifications JRI did not write") == "blocked"
 
 
-def test_reads_every_markdown_specification_under_a_root(tmp_path: Path) -> None:
+def test_reads_every_markdown_specification_under_a_root(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path)
     root = tmp_path / "specs" / "functional"
     (root / "nested").mkdir(parents=True)
     (root / "b.md").write_text("B")
@@ -1636,11 +1665,11 @@ def test_reads_every_markdown_specification_under_a_root(tmp_path: Path) -> None
     (root / "notes.txt").write_text("Not a specification.")
     (root / "nested" / "c.md").write_text("C")
 
-    specs = Specs.read(tmp_path, "specs/functional")
+    specs = Specs.read(repository, "specs/functional")
 
     assert list(specs) == ["specs/functional/a.md", "specs/functional/b.md", "specs/functional/nested/c.md"]
     assert specs["specs/functional/nested/c.md"] == b"C"
-    assert Specs.read(tmp_path, "specs/architecture") == {}
+    assert Specs.read(repository, "specs/architecture") == {}
 
 
 def test_renders_a_specification_that_reads_like_a_file_header() -> None:
@@ -1684,21 +1713,23 @@ def test_refuses_to_render_a_specification_that_is_not_utf_8() -> None:
     ],
     ids=["directory", "pipe"],
 )
-def test_refuses_a_specification_tree_entry_that_is_not_a_plain_file(tmp_path: Path, stand: str) -> None:
-    worktree = tmp_path / "worktree"
-    (worktree / ".jri/specs/functional").mkdir(parents=True)
+def test_refuses_a_specification_tree_entry_that_is_not_a_plain_file(
+    tmp_path: Path, stand: str, create_repository: CreateRepository
+) -> None:
+    repository = create_repository(tmp_path / "worktree")
+    (repository.path / ".jri/specs/functional").mkdir(parents=True)
     # The name of the call rather than the call itself: a decorator is
     # read at import, and Windows has no `os.mkfifo` to name there, so
     # naming it ends the collection before the skip beside it ever
     # answers for the platform.
-    getattr(os, stand)(worktree / ".jri/specs/functional/notes.md")
+    getattr(os, stand)(repository.path / ".jri/specs/functional/notes.md")
 
     with pytest.raises(
         SpecsError, match=r"plain specification files, and `\.jri/specs/functional/notes\.md` is not"
     ) as (refusal):
-        Specs.read(worktree, ".jri/specs/functional")
+        Specs.read(repository, ".jri/specs/functional")
 
-    assert str(worktree) not in str(refusal.value)
+    assert str(repository.path) not in str(refusal.value)
 
 
 # Git records a link as the text of its target, and a read follows it,
@@ -1706,22 +1737,49 @@ def test_refuses_a_specification_tree_entry_that_is_not_a_plain_file(tmp_path: P
 # never JRI's to show a model.
 @pytest.mark.parametrize("target", ["outside.md", "missing.md"], ids=["link", "dangling-link"])
 def test_refuses_a_specification_tree_entry_that_is_a_link(
-    tmp_path: Path, target: str, create_link: CreateLink
+    tmp_path: Path, target: str, create_repository: CreateRepository, create_link: CreateLink
 ) -> None:
-    worktree = tmp_path / "worktree"
-    (worktree / ".jri/specs/functional").mkdir(parents=True)
+    repository = create_repository(tmp_path / "worktree")
+    (repository.path / ".jri/specs/functional").mkdir(parents=True)
     (tmp_path / "outside.md").write_text("# The file outside the tree\n")
-    create_link(worktree / ".jri/specs/functional/notes.md", tmp_path / target)
+    create_link(repository.path / ".jri/specs/functional/notes.md", tmp_path / target)
 
     with pytest.raises(SpecsError, match=r"plain specification files, and `\.jri/specs/functional/notes\.md` is not"):
-        Specs.read(worktree, ".jri/specs/functional")
+        Specs.read(repository, ".jri/specs/functional")
+
+
+# The same entry where the platform makes no link to show: Git holds
+# the mode, the filesystem holds a plain file carrying the target's
+# text, and a refusal reading only `Path.is_symlink` would take that
+# file for a specification -- hand a model a path where the body goes,
+# and let the acceptance commit the mode straight back for whoever
+# next checks it out somewhere links are made. An index entry written
+# by hand is that condition on every machine, Windows being only the
+# machine that arrives at it by checking a commit out.
+def test_refuses_a_specification_tree_entry_git_holds_as_a_link(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path / "worktree")
+    notes = repository.path / ".jri/specs/functional/notes.md"
+    notes.parent.mkdir(parents=True)
+    notes.write_text("../../../README.md")
+    blob = run_git(repository.path, "hash-object", "-w", "--", ".jri/specs/functional/notes.md")
+    run_git(repository.path, "update-index", "--add", "--cacheinfo", f"120000,{blob},.jri/specs/functional/notes.md")
+
+    with pytest.raises(
+        SpecsError, match=r"plain specification files, and `\.jri/specs/functional/notes\.md` is not"
+    ) as (refusal):
+        Specs.read(repository, ".jri/specs/functional")
+
+    assert not notes.is_symlink()
+    assert str(repository.path) not in str(refusal.value)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a mode is not what Windows withholds a read by")
-def test_reports_a_specification_it_cannot_read(tmp_path: Path) -> None:
-    worktree = tmp_path / "worktree"
-    (worktree / ".jri/specs/functional").mkdir(parents=True)
-    closed = worktree / ".jri/specs/functional/notes.md"
+def test_reports_a_specification_it_cannot_read(tmp_path: Path, create_repository: CreateRepository) -> None:
+    repository = create_repository(tmp_path / "worktree")
+    (repository.path / ".jri/specs/functional").mkdir(parents=True)
+    closed = repository.path / ".jri/specs/functional/notes.md"
     closed.write_text("# Notes\n")
     closed.chmod(stat.S_IWUSR)
     if os.access(closed, os.R_OK):
@@ -1730,9 +1788,9 @@ def test_reports_a_specification_it_cannot_read(tmp_path: Path) -> None:
     with pytest.raises(SpecsError, match=r"could not read the specification `\.jri/specs/functional/notes\.md`") as (
         refusal
     ):
-        Specs.read(worktree, ".jri/specs/functional")
+        Specs.read(repository, ".jri/specs/functional")
 
-    assert str(worktree) not in str(refusal.value)
+    assert str(repository.path) not in str(refusal.value)
 
 
 # Two names a filesystem reads without case are one file on it, so a
@@ -2086,15 +2144,22 @@ def test_refuses_a_draft_the_specifications_moved_past(
 # specification goes. `Specs.read` refuses such a tree, and a run that
 # only met that refusal after picking the draft up would end over it,
 # then meet the very same draft on the run after, and the one after
-# that. Windows is left out because Git checks a link entry out there
-# as a plain file holding the text of its target, so no draft can put a
-# link in a worktree for the refusal to meet -- what the refusal reads,
-# `Path.is_symlink`, answers no on every path such a checkout leaves.
-@pytest.mark.skipif(sys.platform == "win32", reason="a Git checkout on Windows leaves a link entry as a plain file")
+# that. What the apply leaves is what `core.symlinks` answers rather
+# than what the platform is: a link the filesystem shows, or -- where
+# no link can be made, as on a Windows without the privilege for one
+# -- a plain file holding the target's text that only the index still
+# calls a link. Both are refused, and the second is the one a machine
+# reading `Path.is_symlink` alone would take for a specification.
+@pytest.mark.parametrize(
+    "symlinks",
+    [pytest.param("true", marks=pytest.mark.skipif(sys.platform == "win32", reason="Windows makes no link")), "false"],
+    ids=["link", "link-entry"],
+)
 def test_refuses_a_draft_that_puts_a_link_where_a_specification_goes(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+    tmp_path: Path, symlinks: str, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     create_repository(tmp_path)
+    run_git(tmp_path, "config", "core.symlinks", symlinks)
     list(build_conversation(tmp_path, successful_client()).ralph())
     specs = Specs(tmp_path)
     baseline = specs.prepare()
@@ -2104,7 +2169,7 @@ def test_refuses_a_draft_that_puts_a_link_where_a_specification_goes(
         restored = specs.resume(staging)
 
         assert restored is None
-        assert not (staging.path / ".jri/specs/functional/link.md").is_symlink()
+        assert not (staging.path / ".jri/specs/functional/link.md").exists(follow_symlinks=False)
         assert read_specifications(staging.path) == {
             "architecture/design.md": "# Design\n",
             "functional/behavior.md": "# Behavior\n",
