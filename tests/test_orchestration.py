@@ -168,18 +168,24 @@ def read_prompts(client: FakeClient) -> list[str]:
 
 
 # What a tool answered, which is where a path a model was shown lands:
-# an output item carries its text under `output` rather than under the
-# `content` a message has. Taken apart rather than searched as one
-# string, since `repr` over the whole context doubles every separator a
-# path carries on a filesystem that spells them with backslashes.
+# an output carries its text under `output` rather than under the
+# `content` a message has, as one string from most tools and as a list
+# of items from the ones that answer with images or files. Both are
+# taken apart rather than searched as one string, since `repr` over the
+# whole context doubles every separator a path carries on a filesystem
+# that spells them with backslashes.
 def read_tool_outputs(client: FakeClient) -> list[str]:
-    return [
-        str(item.get("text", ""))
-        for context in client.responses.inputs
-        for message in cast("list[dict[str, object]]", context)
-        if message.get("type") == "function_call_output"
-        for item in cast("list[dict[str, object]]", message["output"])
-    ]
+    answered: list[str] = []
+    for context in client.responses.inputs:
+        for message in cast("list[dict[str, object]]", context):
+            if message.get("type") != "function_call_output":
+                continue
+            output = message["output"]
+            if isinstance(output, str):
+                answered.append(output)
+            else:
+                answered += [str(item.get("text", "")) for item in cast("list[dict[str, object]]", output)]
+    return answered
 
 
 def read_rows(events: list[Progress]) -> list[tuple[str, str, str]]:
