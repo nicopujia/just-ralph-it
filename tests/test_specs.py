@@ -225,6 +225,12 @@ diff --git a/.jri/specs/functional/reference.md b/.jri/specs/functional/referenc
 +Reporting requirement 1 of the ledger.
 """
 WRITE_BOUND = 2048
+# Records of an acceptance JRI cannot read back: one a write of its own
+# was cut off part way through, and one carrying a field its model does
+# not name, which is what a record any other version of JRI wrote and a
+# record anything else scribbled in both come back as.
+TRUNCATED_RECORD = b'{"accepted": "93db9f5480'
+FOREIGN_RECORD = b'{"accepted": null, "patch": "", "indexed": [], "held": 999999}'
 # The methods a kill below stands in for, captured before it does, so
 # a stand-in can still run the real one.
 APPLY = git.Repository.apply_patch
@@ -899,9 +905,122 @@ def test_keeps_the_acceptance_a_second_killed_git_could_not_be_asked_about(
     assert not Workspace(tmp_path).acceptance_file.exists()
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="killing a whole process group is a job object, not `killpg`")
+def test_settles_the_index_beside_a_record_it_cannot_read(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    install_workspace(tmp_path)
+    kill_amid_writing_the_commit(tmp_path, ACCEPTANCE_PATCH)
+    accepted = find_accepted_commit(tmp_path)
+    (tmp_path / ".git/index.lock").unlink()
+    Workspace(tmp_path).acceptance_file.write_bytes(TRUNCATED_RECORD)
+    # The commit holds every one of these and the index Git wrote it
+    # from never reached the project, so each reads as one the index
+    # deleted -- and what the worktree holds for each is what the
+    # commit holds, whatever the record can no longer say.
+    assert run_git(tmp_path, "diff", "--cached", "--name-only", "HEAD").splitlines() == [
+        ".jri/.gitignore",
+        ".jri/config.yaml",
+        ".jri/notebook.yaml",
+        ".jri/specs/functional/behavior.md",
+    ]
+
+    baseline = Specs(tmp_path).prepare()
+
+    assert baseline.accepted == accepted
+    assert not Workspace(tmp_path).acceptance_file.exists()
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert not run_git(tmp_path, "status", "--short")
+
+
 @pytest.mark.parametrize(
     "damage",
-    [b"", b'{"accepted": "93db9f5480', b"\x9c\x00 not a record of anything"],
+    [FOREIGN_RECORD, TRUNCATED_RECORD, b"\x9c\x00 not a record of anything"],
+    ids=["a-foreign-field", "truncated", "corrupted-bytes"],
+)
+def test_keeps_the_leftovers_of_an_acceptance_it_cannot_read(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, damage: bytes
+) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
+    head = run_git(tmp_path, "rev-parse", "HEAD")
+    Workspace(tmp_path).acceptance_file.write_bytes(damage)
+
+    ending = read_ending(
+        build_conversation(tmp_path, successful_client()).ralph(),
+        r"Commit or remove these files before Ralphing:\n"
+        r"- \.jri/specs/architecture/design\.md\n- \.jri/specs/functional/behavior\.md",
+    )
+
+    # Which patch was applied is what the record held, so nothing the
+    # worktree holds is JRI's to take back and no commit is JRI's to
+    # reverse. The record stays: an acceptance was under way, and
+    # something it left is still loose.
+    assert ending == "blocked"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert (tmp_path / ".jri/specs/architecture/design.md").read_text() == "# Design\n"
+    assert run_git(tmp_path, "rev-parse", "HEAD") == head
+    assert Workspace(tmp_path).acceptance_file.read_bytes() == damage
+
+
+def test_keeps_the_leftovers_it_cannot_read_of_a_project_holding_no_commit(tmp_path: Path, run_git: RunGit) -> None:
+    run_git(tmp_path, "init", "-q")
+    (tmp_path / "README.md").write_text("# Project\n")
+    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
+    Workspace(tmp_path).acceptance_file.write_bytes(TRUNCATED_RECORD)
+
+    ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Commit or remove these files")
+
+    # A first acceptance dies against a project with no commit in it,
+    # so there is no commit for the settlement to ask about either.
+    assert ending == "blocked"
+    assert (tmp_path / ".jri/specs/functional/behavior.md").read_text() == "# Behavior\n"
+    assert Workspace(tmp_path).acceptance_file.read_bytes() == TRUNCATED_RECORD
+
+
+def test_keeps_the_content_the_user_staged_beside_a_record_it_cannot_read(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "stage", kill_the_run_before_staging)
+    config = tmp_path / ".jri/config.yaml"
+    config.write_text("# The configuration the user staged.\n")
+    run_git(tmp_path, "add", "--force", ".jri/config.yaml")
+    config.write_text("# The configuration the user went on editing.\n")
+    Workspace(tmp_path).acceptance_file.write_bytes(TRUNCATED_RECORD)
+
+    ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Commit or remove these files")
+
+    # Which paths the acceptance found staged is what the record held,
+    # so an entry no commit accounts for is one JRI leaves alone:
+    # resetting it puts back what HEAD has, and what the user staged
+    # here is nowhere else.
+    assert ending == "blocked"
+    assert run_git(tmp_path, "show", ":.jri/config.yaml") == "# The configuration the user staged."
+    assert config.read_text() == "# The configuration the user went on editing.\n"
+
+
+def test_keeps_the_record_an_acceptance_under_way_cannot_be_read_from(
+    tmp_path: Path, create_repository: CreateRepository
+) -> None:
+    create_repository(tmp_path)
+    kill_a_run(tmp_path, "commit", kill_the_run_before_committing)
+    Workspace(tmp_path).acceptance_file.write_bytes(TRUNCATED_RECORD)
+
+    # A read the operating system refuses for a moment says no more
+    # about the run holding the lock than a record of nought bytes
+    # does, and the record is that run's to finish out of.
+    with hold(Workspace(tmp_path).acceptance_lock_file):
+        ending = read_ending(build_conversation(tmp_path, successful_client()).ralph(), "Commit or remove these files")
+
+    assert ending == "blocked"
+    assert Workspace(tmp_path).acceptance_file.read_bytes() == TRUNCATED_RECORD
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [b"", TRUNCATED_RECORD, b"\x9c\x00 not a record of anything"],
     ids=["truncated-to-nothing", "truncated-mid-json", "corrupted-bytes"],
 )
 def test_starts_over_a_record_it_cannot_read(

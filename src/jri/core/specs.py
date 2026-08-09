@@ -346,18 +346,25 @@ class Specs:
     # starts a run stands through that refusal, so without this the
     # only way out is for the user to delete files JRI wrote.
     def _reconcile(self) -> None:
-        acceptance = self._read_acceptance()
+        if not self.workspace.acceptance_file.exists():
+            return
         # A record whose lock is still held is an acceptance under way,
         # and its patch, its index and the record itself are the run
         # carrying it out to finish or to take back. The operating
         # system is what answers whether that run is still there, since
         # it frees the lock when the holder dies and hands on the pid
-        # the record could have named instead.
-        if acceptance is None or Lock(self.workspace.acceptance_lock_file).is_held():
+        # the record could have named instead. Asked before the record
+        # is read, so that a read the operating system refuses for a
+        # moment is never a live acceptance's own record settled over.
+        if Lock(self.workspace.acceptance_lock_file).is_held():
             return
-        # Undoing writes the index, so a lock still standing here would
+        # Settling writes the index, so a lock still standing here would
         # come back as Git's own words about a path inside `.git`.
         self._check_locks()
+        acceptance = self._read_acceptance()
+        if acceptance is None:
+            self._settle_unreadable_acceptance()
+            return
         self._settle_acceptance(acceptance)
 
     # Whichever Git command meets one of these files next says so and
@@ -380,18 +387,17 @@ class Specs:
             )
 
     # A record JRI cannot read says nothing about the run that wrote
-    # it: not what that run applied, not what it staged, not whether
-    # it is still there. So it stops being evidence and goes, rather
-    # than standing in front of every run after it -- and whatever the
-    # run it described left in the worktree, `_check_state` names.
+    # it: not what that run applied, not what it staged, not which
+    # acceptance commit stood before it. What it is still evidence of
+    # is that a run was in the middle of an acceptance, and a truncated
+    # write, a corrupted file and a record an older JRI wrote all land
+    # here -- so it is settled over rather than taken away, and the
+    # settlement is the one below.
     def _read_acceptance(self) -> Acceptance | None:
-        if not self.workspace.acceptance_file.exists():
-            return None
         try:
             return Acceptance.model_validate_json(self.workspace.acceptance_file.read_bytes())
         except (OSError, ValidationError):
             logger.exception("acceptance_unreadable path=%s", self.workspace.acceptance_file)
-            self._drop_acceptance()
             return None
 
     # The record is JRI's own file, and a run that cannot take it away
@@ -438,6 +444,45 @@ class Specs:
         self._drop_acceptance()
         logger.info("acceptance_committed commit=%s", accepted)
         return accepted
+
+    # The same settlement with nothing to read it from. Which patch was
+    # applied is unknown, so nothing in the worktree is JRI's to take
+    # back; which paths the user had staged is unknown, so nothing they
+    # staged is JRI's to reset; and which acceptance commit stood
+    # before is unknown, so whether this one reached a commit cannot be
+    # asked at all -- and reversing one that did would delete
+    # specifications the user has. What is left is the step Git itself
+    # did not finish, and the worktree answers for that one on its own:
+    # a path standing with the very bytes the commit holds is a path
+    # only the index disagrees about, whoever wrote it, so putting that
+    # index back to the commit takes nothing off the disk and nothing
+    # out of any commit. A link is not such a path, since the bytes are
+    # its target's rather than its own. Everything else stands where
+    # `_check_state` names it, and the record stands with it, an
+    # acceptance under way being all it still says; it goes once
+    # nothing under the specifications is loose.
+    def _settle_unreadable_acceptance(self) -> None:
+        settled: list[str] = []
+        # A first acceptance dies against a project holding no commit,
+        # and there is nothing there for a worktree to agree with.
+        if self.repository.has_commit():
+            head = self.repository.read_head()
+            for entry in self.repository.read_status(paths.COMMITTED_PATHS, ignored=True):
+                standing = self.workspace.root / entry.path
+                # A path the commit does not hold is one Git answers
+                # about with a refusal rather than with bytes.
+                with suppress(OSError, git.Error):
+                    if (
+                        not standing.is_symlink()
+                        and standing.is_file()
+                        and standing.read_bytes() == self.repository.read_file(head, entry.path)
+                    ):
+                        settled.append(entry.path)
+        if settled:
+            self.repository.unstage(settled)
+        logger.info("acceptance_index_settled count=%d", len(settled))
+        if not self.repository.read_status((paths.COMMITTED_SPECS,), ignored=True):
+            self._drop_acceptance()
 
     def _undo_acceptance(self, acceptance: Acceptance) -> None:
         intended = self._rebuild_writes(acceptance)
