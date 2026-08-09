@@ -123,7 +123,7 @@ UNKNOWN_SETTING_SUGGESTION = "There is no such setting. Did you mean {setting}?"
 
 VIEW_NEXT_STEPS = "The page is a snapshot: run `jri view` again after `jri chat` to redraw it."
 VIEW_NO_NOTES = "The notebook has no notes yet. Run `jri chat` to start the interview."
-VIEW_OPENED = "Wrote the notes graph to {file} and opened it in your browser."
+VIEW_OPENED = "Wrote the notes graph to {file} and asked your browser to open it."
 VIEW_UNOPENED = "Wrote the notes graph to {file}. Open it in a browser to see it."
 
 WORKSPACE_HELD = """Another JRI is already open in this project, in the window running process {holder}.

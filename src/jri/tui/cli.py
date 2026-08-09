@@ -1,7 +1,6 @@
 import argparse
 import logging
 import os
-import webbrowser
 
 import yaml
 from dotenv import load_dotenv
@@ -15,7 +14,7 @@ from jri.core.exceptions import PersistenceError
 from jri.core.generation import Generation
 from jri.core.settings import Settings
 from jri.core.workspace import Hold, Workspace
-from jri.lib import files, git, terminal
+from jri.lib import browser, files, git, terminal
 from jri.lib.providers import codex
 
 from . import copy
@@ -140,9 +139,10 @@ def _view() -> None:
     graph = conversation.notebook.graph
     visualization_file = conversation.workspace.visualization_file
     visualization_file.write_text(visualization.render(graph), encoding="utf-8", newline="\n")
-    # Whether a browser opened is the browser's answer to give: over
-    # SSH, or on a machine with none installed, it is no.
-    opened = webbrowser.open(visualization_file.resolve().as_uri())
+    # Whether a browser was started is the browser's answer to give:
+    # over SSH, on a machine with none installed, and where the only
+    # one there is would draw over this terminal, it is no.
+    opened = browser.open_page(visualization_file.resolve().as_uri())
     print((copy.VIEW_OPENED if opened else copy.VIEW_UNOPENED).format(file=files.shorten_path(visualization_file)))
     print(copy.VIEW_NEXT_STEPS if graph.notes else copy.VIEW_NO_NOTES)
 
