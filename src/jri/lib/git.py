@@ -459,9 +459,13 @@ class Repository:
         # commit of named paths composes is its own Git's outright: the
         # lock over it carries the number of the Git that made it, and
         # that Git is the child this started. The project's index goes
-        # with it only under a command that had the lock over it, and
-        # HEAD and the branch only under a commit, the one command here
-        # that moves them. Under anything else those files are free for
+        # with it only under a command that had the lock over it. HEAD
+        # and the branch go with nothing at all: the one command here
+        # that moves them takes their locks in the reference
+        # transaction it ends with and holds them at no point ahead of
+        # it, so they stand free through every hook a commit runs, and
+        # an ending says nothing about which side of that line the
+        # death landed on. Under anything else those files are free for
         # the whole span, so a lock over one is a second command's,
         # whose own process is still there to rename it over what it
         # guards, and naming it is all this may do -- what a lock left
@@ -471,12 +475,10 @@ class Repository:
         # Git left stands until Git's own refusal names it, which is
         # the side to be wrong on for the same reason.
         if result.returncode < 0 and -result.returncode not in self.HANDLED_SIGNALS:
-            index, *refs = locks.written
+            index, *_ = locks.written
             written = [self._git_directory / f"{self.TEMPORARY_INDEX}{process.pid}"]
             if self._held_the_index(arguments):
                 written.append(index)
-            if arguments[0] == "commit":
-                written.extend(refs)
             replace(locks, written=tuple(written)).release(standing)
         if check and result.returncode:
             self._raise(result)

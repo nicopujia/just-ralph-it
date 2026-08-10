@@ -328,14 +328,13 @@ def test_leaves_the_lock_it_is_refused_the_removal_of(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a hook that kills its own Git needs a shell and `kill`")
-@pytest.mark.parametrize("window", ["index", "branch"])
 def test_frees_the_locks_the_git_it_started_died_holding(
-    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, window: str
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
     repository = create_repository(tmp_path)
     (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
 
-    with open_a_window(tmp_path, window, KILL_THE_GIT), pytest.raises(git.Error):
+    with open_a_window(tmp_path, "index", KILL_THE_GIT), pytest.raises(git.Error):
         repository.commit("second", paths=("README.md",))
 
     assert read_git_locks(tmp_path) == ()
@@ -344,6 +343,51 @@ def test_frees_the_locks_the_git_it_started_died_holding(
     assert run_git(tmp_path, "log", "--format=%s") == "initial"
     assert repository.commit("second", paths=("README.md",))
     assert run_git(tmp_path, "log", "--format=%s").splitlines() == ["second", "initial"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a hook that kills its own Git needs a shell and `kill`")
+def test_leaves_the_refs_a_commit_died_inside_its_transaction_holding(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
+) -> None:
+    repository = create_repository(tmp_path)
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+    branch = tmp_path / ".git" / f"{run_git(tmp_path, 'symbolic-ref', 'HEAD')}.lock"
+
+    with open_a_window(tmp_path, "branch", KILL_THE_GIT), pytest.raises(git.Error):
+        repository.commit("second", paths=("README.md",))
+
+    # These two are the commit's own here, and there is no reading of
+    # the ending that says so: the same files are a second command's
+    # over the whole span ahead of this transaction. What the refusal
+    # below costs is a run; what taking them away costs is the ref the
+    # second command was landing.
+    assert read_git_locks(tmp_path) == (tmp_path / ".git/HEAD.lock", branch)
+    assert run_git(tmp_path, "log", "--format=%s") == "initial"
+    with pytest.raises(git.Error, match=r"HEAD\.lock|cannot lock ref"):
+        repository.commit("second", paths=("README.md",))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a hook that kills its own Git needs a shell and `kill`")
+@pytest.mark.parametrize("lock", ["HEAD.lock", "branch"])
+def test_keeps_the_ref_lock_a_running_command_holds_when_a_kill_ends_a_commit(
+    tmp_path: Path, create_repository: CreateRepository, run_git: RunGit, lock: str
+) -> None:
+    repository = create_repository(tmp_path)
+    (tmp_path / "README.md").write_bytes(b"# Project\nTotals are supported.\n")
+    # A commit reaches its reference transaction past every hook, so
+    # HEAD and the branch stand free for the whole of `pre-commit` and
+    # a second command has that span to take either one in.
+    name = f"{run_git(tmp_path, 'symbolic-ref', 'HEAD')}.lock" if lock == "branch" else lock
+    window = HOLD_THE_LOCK.format(directory=tmp_path / ".git", lock=name) + KILL_THE_GIT
+
+    with open_a_window(tmp_path, "index", window), pytest.raises(git.Error):
+        repository.commit("second", paths=("README.md",))
+
+    try:
+        assert is_the_second_command_running(tmp_path)
+        assert read_git_locks(tmp_path) == (tmp_path / ".git" / name,)
+    finally:
+        end_the_second_command(tmp_path)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a filter that kills its own Git needs a shell and `kill`")
