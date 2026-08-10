@@ -755,6 +755,28 @@ def test_leaves_the_turn_of_a_run_a_window_can_pick_up_open(monkeypatch: pytest.
     assert restarted.pending_generation
 
 
+def test_leaves_the_turn_of_a_runner_that_has_written_nothing_yet_open(monkeypatch: pytest.MonkeyPatch) -> None:
+    conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
+    list(conversation.chat("Build a reporting CLI."))
+    monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
+    events = conversation.ralph()
+    next(events)
+    events.close()
+    # The state a window gone inside `Generation.start`'s wait leaves:
+    # the turn is written down as a run, and the runner it spawned
+    # holds the lock with the first line of its journal still to come.
+    # The discard is what waits this suite's own runner out and takes
+    # away the record it did get to write.
+    Generation(conversation.workspace).discard()
+
+    with hold(conversation.workspace.root / paths.GENERATION_LOCK_FILE):
+        turns = build_conversation(FakeClient([])).restore()
+
+    # A run whose process is still there is a turn something is coming
+    # to end, whatever the run directory holds of it yet.
+    assert turns[-1].ending is None
+
+
 def test_stops_a_run_carrying_the_ending_of_the_turn_it_reports_into(monkeypatch: pytest.MonkeyPatch) -> None:
     conversation = build_conversation(FakeClient([streamed_reply("Understood.")]))
     list(conversation.chat("Build a reporting CLI."))

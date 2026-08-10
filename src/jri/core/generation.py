@@ -169,6 +169,17 @@ class Generation:
     def exists(self) -> bool:
         return self.journal_file.exists()
 
+    # Whether a runner is alive here, whatever it has written down yet.
+    # It takes this lock before the first line of the journal and the
+    # operating system drops it when the process ends, so a run that
+    # has started and said nothing is a held lock over a run directory
+    # holding nothing. Asked of the file first, since a project no run
+    # has ever started in has no directory to make the lock under and
+    # taking one is how holding is asked about.
+    @property
+    def is_running(self) -> bool:
+        return self.lock.path.exists() and self.lock.is_held()
+
     # What the workflow answered, as the journal spells it. A failure
     # is classified here and nowhere else, so the process that folds
     # the journal derives the turn's ending from an exception class

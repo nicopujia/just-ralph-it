@@ -334,15 +334,20 @@ class Conversation:
             return self.interviewer.history
         return [self.interviewer.history[0], *cast("ResponseInputParam", self.session.interview[1:])]
 
-    # A turn the session holds open is a turn whose process is gone:
+    # A turn the session holds open is a turn whose window is gone:
     # this one is starting, and one JRI holds a project at a time. So
-    # unless it left a run behind for this window to pick up, nothing
-    # is coming to end it, and it is written down as what became of it
-    # -- which is also what puts the offer to ask for it again up.
+    # unless a run of it outlived that window, nothing is coming to end
+    # it, and it is written down as what became of it -- which is also
+    # what puts the offer to ask for it again up.
     def _settle_interrupted_turn(self) -> None:
         if not self.session.transcript or self.session.transcript[-1].ending is not None:
             return
-        if self.pending_generation:
+        # The journal is not the whole witness. A runner takes its lock
+        # before it writes the first line, and the window that spawned
+        # it waits there for as long as an import takes, so a window
+        # that died in that gap left a run directory holding nothing
+        # beside a process that is still coming to end this turn.
+        if self.pending_generation or Generation(self.workspace).is_running:
             return
         self.session.transcript[-1].ending = "interrupted"
         self.update_session(transcript=self.session.transcript)
