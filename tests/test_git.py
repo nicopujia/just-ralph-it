@@ -16,6 +16,7 @@ from tests.doubles.acceptance import (
     REFUSE_THE_COMMIT,
     ROOT_QUESTION,
     SIGNAL_THE_GIT,
+    STAGING_QUESTION,
     TAKE_THE_LOCK,
     WINDOW_MARKER,
     WORKTREE_QUESTION,
@@ -388,6 +389,30 @@ def test_keeps_the_ref_lock_a_running_command_holds_when_a_kill_ends_a_commit(
         assert read_git_locks(tmp_path) == (tmp_path / ".git" / name,)
     finally:
         end_the_second_command(tmp_path)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a Git that ends itself needs a shell and `kill`")
+def test_keeps_the_index_lock_that_was_standing_before_a_staging_a_kill_ended(
+    tmp_path: Path, create_repository: CreateRepository, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_repository(tmp_path)
+    index_lock = tmp_path / ".git/index.lock"
+    index_lock.touch()
+    (tmp_path / ".git" / WINDOW_MARKER).touch()
+    # A staging holds the index lock from before its first write of the
+    # index to its last, so a kill inside one is exactly where the
+    # release takes that lock away. The lock this one meets is not the
+    # one it took: it was already standing when the command started, so
+    # it is whosever it already was, and the kill says nothing about it.
+    # The repository is built after the shim is installed, since which
+    # Git a `Repository` runs is resolved once, on the way in.
+    install_a_killing_git(monkeypatch, tmp_path, STAGING_QUESTION)
+    repository = git.Repository(tmp_path)
+
+    with pytest.raises(git.Error):
+        repository.stage(("README.md",))
+
+    assert read_git_locks(tmp_path) == (index_lock,)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="a filter that kills its own Git needs a shell and `kill`")

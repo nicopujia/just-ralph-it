@@ -136,12 +136,14 @@ class Repository:
     )
     # The commands whose Git takes the index lock before it writes
     # anything and keeps it to its last write whatever else the line
-    # asked of them, so that a lock over the index they leave behind is
-    # one nothing else could have made: Git makes a lock file with
-    # `O_EXCL`, and this Git had it. Every read and every `worktree`
-    # takes it at no point at all. `apply` and `commit` hold it over
-    # part of what they are asked for and over the rest not at all,
-    # which is the reading `_held_the_index` makes of the line.
+    # asked of them. From the moment it has that lock the lock is its
+    # own -- Git makes the file with `O_EXCL`, and nothing takes it
+    # away from the Git holding it -- but the span before that moment
+    # is not covered, and no state read here tells the two apart, which
+    # is written out under `_held_the_index`. Every read and every
+    # `worktree` takes it at no point at all. `apply` and `commit` hold
+    # it over part of what they are asked for and over the rest not at
+    # all, which is the reading `_held_the_index` makes of the line.
     INDEX_HOLDERS: ClassVar[frozenset[str]] = frozenset({"add", "checkout", "reset"})
     # The mode Git records a symbolic link under, in the index and in
     # every tree written from it.
@@ -226,7 +228,11 @@ class Repository:
     # would land on before that commit exists. Where HEAD points is
     # read off the file Git keeps it in rather than asked of Git, since
     # this is asked either side of every command run here and asking
-    # would run one of its own.
+    # would run one of its own. A commit writes more files than these
+    # three -- it locks `AUTO_MERGE` and `packed-refs` as well -- and
+    # neither belongs here: with either standing stale a commit prints
+    # its error and still ends at nought, so neither is a lock that
+    # stops one.
     @property
     def locks(self) -> Locks:
         written = [self._git_directory / "index", self._git_directory / "HEAD"]
@@ -495,7 +501,24 @@ class Repository:
     # the file inside `prepare_index`, ahead of the first hook, so every
     # hook and every reference transaction after it stands where the
     # index is free and a second command has that whole span to take it
-    # in.
+    # in. What none of this covers is the span between the process
+    # starting and Git reaching for the lock at all: Git runs the
+    # loader and reads its configuration first, and on a small
+    # repository that is most of the command -- 80% of an `add`, 88% of
+    # a `reset`, 89% of a `checkout` and 69% of a commit of named
+    # paths, measured under Git 2.54 on Linux. A death in there leaves
+    # the same status and the same silence a death after it leaves, so
+    # a lock a second command took inside that span reads here as this
+    # Git's own and is taken away from a process still going to rename
+    # it over the index. Nothing tells the two apart: the index lock
+    # names no maker, unlike `next-index-<pid>`, and its size, its
+    # content and the ending read the same either side of the line. The
+    # only answer that stops guessing is to release the index lock
+    # never, which gives up every recovery from an acceptance killed
+    # mid-staging -- the whole of what the release is for -- to close a
+    # crossing that needs a second Git to take the lock inside that one
+    # span. That trade is not made here, and it is written down so that
+    # whoever makes it is holding both ends of it.
     def _held_the_index(self, arguments: Sequence[str]) -> bool:
         if arguments[0] in self.INDEX_HOLDERS:
             return True
