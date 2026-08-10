@@ -551,6 +551,18 @@ def test_reports_a_run_log_it_cannot_open(tmp_path: Path) -> None:
         generation.start()
 
 
+def test_reports_a_run_lock_it_cannot_open_rather_than_calling_the_run_over(tmp_path: Path) -> None:
+    generation = build_generation(tmp_path)
+    generation.workspace.open_generation_dir()
+    # The same name held by something no platform will open, standing
+    # in for the lock a `sudo jri` left owned by root and for the one
+    # on a mount that went read-only.
+    generation.lock.path.mkdir()
+
+    with pytest.raises(PersistenceError, match="Could not read the generation"):
+        _ = generation.is_running
+
+
 def test_reports_a_runner_that_could_not_start(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     generation = build_generation(tmp_path)
     monkeypatch.setattr(

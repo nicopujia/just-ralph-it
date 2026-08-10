@@ -713,8 +713,11 @@ class App(TextualApp[None]):
 # return type this function cannot satisfy.
 def _describe_ending(ending: TurnEnding | None, detail: str) -> tuple[str, str]:
     match ending:
-        # A turn still open has nothing to say about how it went, and
-        # the run it is open for is the one this window picks up.
+        # A turn still open has nothing to say about how it went. The
+        # run it is open for is the one this window picks up, except
+        # where a runner had taken its lock and written no journal yet:
+        # `on_mount` asks for the journal, so that turn is drawn open
+        # and stays unwatched until the user asks again.
         case None:
             return "", styles.INTERVIEWER_MESSAGE_CLASSES
         case "replied":

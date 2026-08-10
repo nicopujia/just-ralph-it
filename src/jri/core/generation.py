@@ -175,10 +175,24 @@ class Generation:
     # has started and said nothing is a held lock over a run directory
     # holding nothing. Asked of the file first, since a project no run
     # has ever started in has no directory to make the lock under and
-    # taking one is how holding is asked about.
+    # taking one is how holding is asked about. A lock file that will
+    # not open answers neither way, and this is asked on the way into a
+    # window, where reading that silence as `no` settles a turn a live
+    # runner is still coming to end. So it is said as what it is: a run
+    # directory that is not JRI's to open is a fact about the project,
+    # the same fact starting a run reports, rather than a traceback out
+    # of a window that never drew.
     @property
     def is_running(self) -> bool:
-        return self.lock.path.exists() and self.lock.is_held()
+        if not self.lock.path.exists():
+            return False
+        try:
+            return self.lock.is_held()
+        except LockError as error:
+            logger.exception("generation_lock_unreadable path=%r", self.lock.path)
+            raise PersistenceError(
+                f"Could not read the generation in `{self.workspace.generation_dir}`: {error}"
+            ) from error
 
     # What the workflow answered, as the journal spells it. A failure
     # is classified here and nowhere else, so the process that folds
@@ -295,7 +309,15 @@ class Generation:
     # process getting as far as exiting: a record left behind over
     # those milliseconds is one the next run would attach to instead of
     # starting. A lock still held past the wait is a run still writing,
-    # and none of this is its to take away.
+    # and none of this is its to take away -- at the price of the run
+    # after it, which finds the record standing and attaches to it
+    # rather than starting, and reports this run's ending again as its
+    # own. Nothing written down tells a record kept here from a record
+    # a window died before folding, so telling them apart is not a
+    # reading of the directory but a state neither has yet. What it
+    # takes is a runner slower than the wait between its last write and
+    # its process going: a stopped process or a hung filesystem, rather
+    # than a run.
     def discard(self) -> None:
         deadline = time.monotonic() + self.FREED_WITHIN
         while self.lock.is_held():
