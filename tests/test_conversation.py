@@ -378,6 +378,11 @@ def test_records_a_row_the_session_was_written_under() -> None:
     conversation.update_session(show_thinking_blocks=True)
     events.close()
 
+    # The turn had not replied when it was written down, and what a
+    # turn states is what has become of it rather than what usually
+    # does: an ending here would send the next window looking for a
+    # reply nobody made, and settle nothing for the user to ask again.
+    assert read_recorded_turn(conversation)["ending"] is None
     items = build_conversation(FakeClient([])).restore()[-1].items
     assert [(item.type, item.text, item.outcome) for item in items] == [("tool", "Switching to Delivery", None)]
 
