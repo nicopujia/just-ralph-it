@@ -1,7 +1,7 @@
+from . import issues
 from .notes import Graph
-from .support import ISSUES_URL
 
-DRAW_ERROR = f"The graph viewer loaded, but it could not draw the graph. Report it at {ISSUES_URL}."
+DRAW_ERROR = f"The graph viewer loaded, but it could not draw the graph. Report it at {issues.URL}."
 # The page fetches its drawing libraries instead of carrying them. JRI requires a model-provider network connection.
 # An offline viewer alone has no value.
 # A self-contained Mermaid build adds 3.6 MB to the wheel and each `jri view` page.

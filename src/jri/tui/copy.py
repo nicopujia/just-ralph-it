@@ -1,5 +1,5 @@
+from jri.core import issues
 from jri.core.ai import Interviewer
-from jri.core.support import ISSUES_URL
 
 # Keep alphabetical order. Put a blank line between initial letters.
 
@@ -96,7 +96,7 @@ TOOL_CALL_UNFINISHED = "{label} — unfinished"
 TOOL_CALL_UNFINISHED_SYMBOL = "⋯"
 TURN_BLOCKED = "Stopped because of your project's state:\n\n{error}\n\nSort that out and try again."
 TURN_ERROR = (
-    f"Something went wrong:\n\n{{error}}\n\nTry again. If it keeps happening, report it at {ISSUES_URL} "
+    f"Something went wrong:\n\n{{error}}\n\nTry again. If it keeps happening, report it at {issues.URL} "
     "and attach the .jri/ directory as a zip."
 )
 TURN_EXHAUSTED = "Your ChatGPT or API usage limit has been reached. Check your plan and try again later."
