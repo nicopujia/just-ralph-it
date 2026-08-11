@@ -40,9 +40,8 @@ type Row = ToolCallStarted | ToolCallFinished
 
 AMBIGUITIES = functional_analyst.Ambiguities(outcome="ambiguities", ambiguities=["JSON or plain text?"])
 ARCHITECTURE_FILES = {"architecture/design.md": "# Design\n"}
-# Check the behavior in `test_returns_ambiguities_without_committing`.
-# Check the behavior in `test_returns_ambiguities_without_committing`.
-# Check the behavior in `test_returns_ambiguities_without_committing`.
+# A null byte makes Git treat the file as binary, and `git apply` cannot diff a binary file. A resumed draft
+# carrying one must be refused before Git ever sees it.
 NULL_BODY_DRAFT = (
     "diff --git a/.jri/specs/functional/null.md b/.jri/specs/functional/null.md\n"
     "new file mode 100644\n"
@@ -52,11 +51,8 @@ NULL_BODY_DRAFT = (
     "+# Null\x00byte\n"
 )
 FUNCTIONAL_FILES = {"functional/behavior.md": "# Behavior\n"}
-# Check the behavior in `test_returns_ambiguities_without_committing`.
-# Check the behavior in `test_returns_ambiguities_without_committing`.
-# Check the behavior in `test_returns_ambiguities_without_committing`.
-# Check the behavior in `test_returns_ambiguities_without_committing`.
-# Check the behavior in `test_returns_ambiguities_without_committing`.
+# `CON` is a reserved Windows device name. JRI blocks it on every platform, not only Windows, so a project stays
+# portable if it is ever checked out there.
 REDRAFTED_DEVICE_NAME_DRAFT = """\
 diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
 new file mode 100644
@@ -71,9 +67,8 @@ diff --git a/.jri/specs/functional/CON.md b/.jri/specs/functional/CON.md
  # Console
 +The console reports totals.
 """
-# Check the behavior in `test_returns_ambiguities_without_committing`.
-# Check the behavior in `test_returns_ambiguities_without_committing`.
-# Check the behavior in `test_returns_ambiguities_without_committing`.
+# A draft is validated as one whole patch. One invalid entry refuses the whole draft, including its valid
+# changes, so a run resumes from the accepted baseline instead of keeping the good part.
 FOREIGN_FILE_DRAFT = """\
 diff --git a/.jri/specs/functional/exports.md b/.jri/specs/functional/exports.md
 new file mode 100644
@@ -108,8 +103,6 @@ def generate(
         captured.append((yield from specs_generation.generate(settings, cancelled)))
 
     events: list[Progress] = []
-    # Check the behavior in `test_returns_ambiguities_without_committing`.
-    # Check the behavior in `test_returns_ambiguities_without_committing`.
     for event in drive():
         events.append(event)
         if event == stop_at:
@@ -167,13 +160,6 @@ def read_prompts(client: FakeClient) -> list[str]:
     ]
 
 
-# Check the behavior in `test_returns_ambiguities_without_committing`.
-# Check the behavior in `test_returns_ambiguities_without_committing`.
-# Check the behavior in `test_returns_ambiguities_without_committing`.
-# Check the behavior in `test_returns_ambiguities_without_committing`.
-# Check the behavior in `test_returns_ambiguities_without_committing`.
-# Check the behavior in `test_returns_ambiguities_without_committing`.
-# Check the behavior in `test_returns_ambiguities_without_committing`.
 def read_tool_outputs(client: FakeClient) -> list[str]:
     answered: list[str] = []
     for context in client.responses.inputs:
@@ -271,17 +257,14 @@ def test_writes_specifications_against_an_accepted_notebook_it_cannot_read(
     assert any("Ship a web app." in prompt for prompt in prompts)
     assert not any("nonsense" in prompt for prompt in prompts)
     diff = next(prompt for prompt in prompts if "Notebook diff from accepted baseline:" in prompt)
-    # Check the behavior in `test_writes_specifications_against_an_accepted_notebook_it_cannot_read`.
-    # Check the behavior in `test_writes_specifications_against_an_accepted_notebook_it_cannot_read`.
-    # Check the behavior in `test_writes_specifications_against_an_accepted_notebook_it_cannot_read`.
+    # An unparsable accepted notebook falls back to an empty baseline instead of failing the run. The hunk header
+    # starting at line 0 confirms the diff was built against nothing, not against the unreadable "nonsense" bytes.
     assert "@@ -0,0 +1," in diff
     assert "+    n1: Ship a web app." in diff
 
 
-# Check the behavior in `test_reports_a_generation_that_changed_nothing`.
-# Check the behavior in `test_reports_a_generation_that_changed_nothing`.
-# Check the behavior in `test_reports_a_generation_that_changed_nothing`.
-# Check the behavior in `test_reports_a_generation_that_changed_nothing`.
+# `git apply` refuses an empty patch, so an unchanged generation must return before it ever tries to commit. It
+# cannot create and then remove an acceptance record, which would leave a window a killed run could get stuck in.
 def test_reports_a_generation_that_changed_nothing(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -321,13 +304,10 @@ def test_stops_a_run_without_touching_the_project(
     rows, result = generate(client, stop_at)
 
     assert result is None
-    # Check the behavior in `test_stops_a_run_without_touching_the_project`.
-    # Check the behavior in `test_stops_a_run_without_touching_the_project`.
     assert rows[-1] == stop_at
     assert run_git(tmp_path, "rev-parse", "HEAD") == head
     assert not (tmp_path / paths.SPECS_DIR).exists()
-    # Check the behavior in `test_stops_a_run_without_touching_the_project`.
-    # Check the behavior in `test_stops_a_run_without_touching_the_project`.
+    # Cancellation must still exit the worktree context manager; otherwise a temporary worktree survives the run.
     assert not run_git(tmp_path, "diff", "--cached")
     assert len(run_git(tmp_path, "worktree", "list").splitlines()) == 1
 
@@ -350,8 +330,6 @@ def test_stops_a_run_while_a_model_is_still_answering(
 
     _, result = generate(client, cancelled=cancelled)
 
-    # Check the behavior in `test_stops_a_run_while_a_model_is_still_answering`.
-    # Check the behavior in `test_stops_a_run_while_a_model_is_still_answering`.
     assert result is None
     assert run_git(tmp_path, "rev-parse", "HEAD") == head
     assert not (tmp_path / paths.SPECS_DIR).exists()
@@ -363,23 +341,19 @@ def test_stops_the_repository_study_without_calling_it_a_failure(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
     build_workspace(tmp_path, create_repository)
-    # Check the behavior in `test_stops_the_repository_study_without_calling_it_a_failure`.
-    # Check the behavior in `test_stops_the_repository_study_without_calling_it_a_failure`.
     client = FakeClient(
         [response(call("read", "read_files", paths=["README.md"]))], parsed=[written_specs(), designed_architecture()]
     )
 
     rows, result = generate(client, ToolCallStarted("explorer", "Studying your existing project", "🔎"))
 
+    # Cancellation is checked before the empty-report check, so stopping the explorer early reads as a clean stop,
+    # not a broken report.
     assert result is None
     assert read_rows(rows)[-1] == ("ToolCallStarted", "explorer", "Studying your existing project")
     assert architect.Output not in [options.get("text_format") for options in client.responses.options]
 
 
-# Check the behavior in `test_opens_and_closes_a_row_for_every_model_call`.
-# Check the behavior in `test_opens_and_closes_a_row_for_every_model_call`.
-# Check the behavior in `test_opens_and_closes_a_row_for_every_model_call`.
-# Check the behavior in `test_opens_and_closes_a_row_for_every_model_call`.
 def test_opens_and_closes_a_row_for_every_model_call(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
@@ -420,18 +394,14 @@ def test_opens_and_closes_a_row_for_every_model_call(tmp_path: Path, create_repo
         ("ToolCallStarted", "commit", "Saving the specifications to your project"),
         ("ToolCallFinished", "commit", "Saved the specifications to your project"),
     ]
-    # Check the behavior in `test_opens_and_closes_a_row_for_every_model_call`.
-    # Check the behavior in `test_opens_and_closes_a_row_for_every_model_call`.
+    # Every started row but `commit` must map to one model request; a mismatch would mean a call the model made
+    # with no row shown, or a row shown for no call.
     assert len([row for row in rows if isinstance(row, ToolCallStarted) and row.call_id != "commit"]) == len(
         client.responses.inputs
     )
     assert isinstance(result, str)
 
 
-# Check the behavior in `test_carries_the_thinking_of_a_call_between_its_two_rows`.
-# Check the behavior in `test_carries_the_thinking_of_a_call_between_its_two_rows`.
-# Check the behavior in `test_carries_the_thinking_of_a_call_between_its_two_rows`.
-# Check the behavior in `test_carries_the_thinking_of_a_call_between_its_two_rows`.
 def test_carries_the_thinking_of_a_call_between_its_two_rows(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -482,6 +452,8 @@ def test_leaves_the_saving_row_open_when_the_project_blocks_the_commit(
     with pytest.raises(RepositoryStateError, match=r"stray\.md"):
         block_the_project_once_the_design_lands()
 
+    # The generator itself does not close a row on a raised error. A higher layer resolves open rows once
+    # `TurnFinished` arrives, so this row is left open here by design, not by omission.
     assert read_rows(rows)[-2:] == [
         ("ToolCallFinished", "architecture-1", "Designed the project architecture"),
         ("ToolCallStarted", "commit", "Saving the specifications to your project"),
@@ -512,9 +484,6 @@ def test_finishes_the_open_round_when_ambiguities_appear(tmp_path: Path, create_
     ]
 
 
-# Check the behavior in `test_names_the_issues_the_round_it_opens_answers`.
-# Check the behavior in `test_names_the_issues_the_round_it_opens_answers`.
-# Check the behavior in `test_names_the_issues_the_round_it_opens_answers`.
 def test_names_the_issues_the_round_it_opens_answers(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
@@ -564,11 +533,8 @@ def test_sends_the_architect_issues_back_to_the_functional_analyst(
     assert "Rejected functional draft:" not in revision
 
 
-# Check the behavior in `test_keeps_the_accepted_specification_a_round_left_out`.
-# Check the behavior in `test_keeps_the_accepted_specification_a_round_left_out`.
-# Check the behavior in `test_keeps_the_accepted_specification_a_round_left_out`.
-# Check the behavior in `test_keeps_the_accepted_specification_a_round_left_out`.
-# Check the behavior in `test_keeps_the_accepted_specification_a_round_left_out`.
+# `Specs.write` touches only the files a round returns. A file the model does not resend keeps its prior content
+# and stays out of the next commit's diff, so a round need not restate every accepted file to leave it alone.
 def test_keeps_the_accepted_specification_a_round_left_out(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -595,12 +561,8 @@ def test_keeps_the_accepted_specification_a_round_left_out(
     ]
 
 
-# Check the behavior in `test_polishes_the_draft_the_last_round_wrote`.
-# Check the behavior in `test_polishes_the_draft_the_last_round_wrote`.
-# Check the behavior in `test_polishes_the_draft_the_last_round_wrote`.
-# Check the behavior in `test_polishes_the_draft_the_last_round_wrote`.
-# Check the behavior in `test_polishes_the_draft_the_last_round_wrote`.
-# Check the behavior in `test_polishes_the_draft_the_last_round_wrote`.
+# A later round's prompt carries every current file, not only the one the architect flagged, so the model can
+# leave a file untouched while still seeing its content.
 def test_polishes_the_draft_the_last_round_wrote(tmp_path: Path, create_repository: CreateRepository) -> None:
     build_workspace(tmp_path, create_repository)
     client = FakeClient(
@@ -624,8 +586,6 @@ def test_polishes_the_draft_the_last_round_wrote(tmp_path: Path, create_reposito
     )
 
 
-# Check the behavior in `test_asks_the_first_round_for_specifications_against_the_accepted_baseline`.
-# Check the behavior in `test_asks_the_first_round_for_specifications_against_the_accepted_baseline`.
 def test_asks_the_first_round_for_specifications_against_the_accepted_baseline(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -645,10 +605,6 @@ def test_asks_the_first_round_for_specifications_against_the_accepted_baseline(
     assert UPDATED_FUNCTIONAL_FILES["functional/behavior.md"] not in first
 
 
-# Check the behavior in `test_keeps_the_draft_a_run_that_reached_no_commit_wrote`.
-# Check the behavior in `test_keeps_the_draft_a_run_that_reached_no_commit_wrote`.
-# Check the behavior in `test_keeps_the_draft_a_run_that_reached_no_commit_wrote`.
-# Check the behavior in `test_keeps_the_draft_a_run_that_reached_no_commit_wrote`.
 @pytest.mark.parametrize(
     "queue_tail",
     [[functional_analyst.Output(result=AMBIGUITIES)], [written_specs(), designed_architecture(FUNCTIONAL_FILES)]],
@@ -691,10 +647,6 @@ def test_forgets_the_draft_a_run_committed(tmp_path: Path, create_repository: Cr
     assert not (tmp_path / paths.DRAFT_FILE).exists()
 
 
-# Check the behavior in `test_resumes_the_draft_a_run_left_behind`.
-# Check the behavior in `test_resumes_the_draft_a_run_left_behind`.
-# Check the behavior in `test_resumes_the_draft_a_run_left_behind`.
-# Check the behavior in `test_resumes_the_draft_a_run_left_behind`.
 def test_resumes_the_draft_a_run_left_behind(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -724,10 +676,6 @@ def test_resumes_the_draft_a_run_left_behind(
     ]
 
 
-# Check the behavior in `test_counts_the_draft_rather_than_the_specifications_the_project_holds`.
-# Check the behavior in `test_counts_the_draft_rather_than_the_specifications_the_project_holds`.
-# Check the behavior in `test_counts_the_draft_rather_than_the_specifications_the_project_holds`.
-# Check the behavior in `test_counts_the_draft_rather_than_the_specifications_the_project_holds`.
 def test_counts_the_draft_rather_than_the_specifications_the_project_holds(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -748,10 +696,6 @@ def test_counts_the_draft_rather_than_the_specifications_the_project_holds(
     assert read_rows(rows)[1] == ("ToolCallFinished", "resume", "Picked up a draft of 1 specification file")
 
 
-# Check the behavior in `test_starts_clean_when_the_drafted_specifications_no_longer_fit`.
-# Check the behavior in `test_starts_clean_when_the_drafted_specifications_no_longer_fit`.
-# Check the behavior in `test_starts_clean_when_the_drafted_specifications_no_longer_fit`.
-# Check the behavior in `test_starts_clean_when_the_drafted_specifications_no_longer_fit`.
 def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -762,8 +706,8 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
         parsed=[written_specs(UPDATED_FUNCTIONAL_FILES), designed_architecture(UPDATED_ARCHITECTURE_FILES)],
     )
     generate(stopped, ToolCallFinished("architecture-1", "Designed the project architecture", "done"))
-    # Check the behavior in `test_starts_clean_when_the_drafted_specifications_no_longer_fit`.
-    # Check the behavior in `test_starts_clean_when_the_drafted_specifications_no_longer_fit`.
+    # Re-committing behavior.md with the acceptance trailer moves the baseline the stopped draft's patch was built
+    # against, so the patch can no longer apply — the same as if a user edited a specification between runs.
     (tmp_path / paths.FUNCTIONAL_SPECS_DIR / "behavior.md").write_text("# Totals\nThe project reports totals.\n")
     run_git(tmp_path, "add", "--force", paths.FUNCTIONAL_SPECS_DIR)
     run_git(tmp_path, "commit", "-qm", f"jri: update specifications\n\n{ACCEPTANCE_TRAILER}")
@@ -786,13 +730,6 @@ def test_starts_clean_when_the_drafted_specifications_no_longer_fit(
     assert not run_git(tmp_path, "status", "--short")
 
 
-# Check the behavior in `test_starts_clean_when_the_draft_holds_what_jri_would_not_write`.
-# Check the behavior in `test_starts_clean_when_the_draft_holds_what_jri_would_not_write`.
-# Check the behavior in `test_starts_clean_when_the_draft_holds_what_jri_would_not_write`.
-# Check the behavior in `test_starts_clean_when_the_draft_holds_what_jri_would_not_write`.
-# Check the behavior in `test_starts_clean_when_the_draft_holds_what_jri_would_not_write`.
-# Check the behavior in `test_starts_clean_when_the_draft_holds_what_jri_would_not_write`.
-# Check the behavior in `test_starts_clean_when_the_draft_holds_what_jri_would_not_write`.
 @pytest.mark.parametrize(
     ("draft", "refused"),
     [(NULL_BODY_DRAFT, "null.md"), (REDRAFTED_DEVICE_NAME_DRAFT, "CON.md"), (FOREIGN_FILE_DRAFT, "exports.md")],
@@ -828,12 +765,6 @@ def test_starts_clean_when_the_draft_holds_what_jri_would_not_write(
     assert not run_git(tmp_path, "status", "--short")
 
 
-# Check the behavior in `test_runs_through_a_draft_it_can_neither_read_nor_replace`.
-# Check the behavior in `test_runs_through_a_draft_it_can_neither_read_nor_replace`.
-# Check the behavior in `test_runs_through_a_draft_it_can_neither_read_nor_replace`.
-# Check the behavior in `test_runs_through_a_draft_it_can_neither_read_nor_replace`.
-# Check the behavior in `test_runs_through_a_draft_it_can_neither_read_nor_replace`.
-# Check the behavior in `test_runs_through_a_draft_it_can_neither_read_nor_replace`.
 def test_runs_through_a_draft_it_can_neither_read_nor_replace(
     tmp_path: Path, create_repository: CreateRepository, run_git: RunGit
 ) -> None:
@@ -898,9 +829,6 @@ def test_reports_only_the_explorer_text_that_follows_its_last_tool_call(
     assert report.endswith("Repository analysis report:\n```\nFinal report\n```")
 
 
-# Check the behavior in `test_keeps_the_thinking_of_the_project_study_out_of_its_report`.
-# Check the behavior in `test_keeps_the_thinking_of_the_project_study_out_of_its_report`.
-# Check the behavior in `test_keeps_the_thinking_of_the_project_study_out_of_its_report`.
 def test_keeps_the_thinking_of_the_project_study_out_of_its_report(
     tmp_path: Path, create_repository: CreateRepository
 ) -> None:
@@ -955,6 +883,8 @@ def test_studies_the_project_as_it_stands_on_disk(
     assert paths.NOTEBOOK_FILE in tree
     instructions = next(prompt for prompt in read_prompts(client) if "Role: Explorer." in prompt)
     directory = Path(instructions.split("Working directory:\n```\n")[1].split("\n```\n")[0])
+    # The explorer works in a disposable copy of the repository, not the project directory itself, so its own
+    # reported working directory must never resolve back to the real project path.
     assert not directory.is_relative_to(tmp_path.resolve())
     assert any(str(directory / paths.NOTEBOOK_FILE) in output for output in read_tool_outputs(client))
 
@@ -969,13 +899,14 @@ def test_studies_a_project_whose_only_commit_holds_no_project_files(tmp_path: Pa
 
     generate(client)
 
+    # `README.md` is never committed here. Listing worktree files, not only the tracked tree, catches a file the
+    # user has not committed yet.
     tree = next(prompt for prompt in read_prompts(client) if "Tracked repository tree:" in prompt)
     assert "README.md" in tree
 
 
-# Check the behavior in `test_reports_a_file_name_holding_a_newline_as_one_tracked_path`.
-# Check the behavior in `test_reports_a_file_name_holding_a_newline_as_one_tracked_path`.
-# Check the behavior in `test_reports_a_file_name_holding_a_newline_as_one_tracked_path`.
+# `git ls-files` output is read with `-z`, NUL-separated, so a real file name that embeds a newline stays one
+# entry. A naive newline split would misread its tail as a second, unrelated path.
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows holds no file whose name carries a newline")
 def test_reports_a_file_name_holding_a_newline_as_one_tracked_path(
     tmp_path: Path, create_repository: CreateRepository

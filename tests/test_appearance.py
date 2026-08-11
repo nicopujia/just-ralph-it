@@ -12,6 +12,7 @@ def test_reads_a_dark_system_appearance(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 def test_reads_a_light_system_appearance(monkeypatch: pytest.MonkeyPatch) -> None:
+    # macOS sets `AppleInterfaceStyle` only in dark mode. `defaults read` reports nothing in light mode.
     serve_appearance(monkeypatch, system="Darwin", reported="")
 
     assert appearance.read() == "light"

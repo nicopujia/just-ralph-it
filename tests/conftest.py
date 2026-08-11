@@ -122,6 +122,8 @@ def isolate_logging() -> Iterator[None]:
     logger.handlers, logger.level, logger.propagate = existing, level, propagate
 
 
+# `GIT_DIR` overrides the repository that a command's `-C` flag names. A test that inherits it from the
+# calling shell would run Git against that repository instead of its own `tmp_path` one.
 @pytest.fixture(autouse=True)
 def isolate_git(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
     config = tmp_path_factory.mktemp("git") / "config"

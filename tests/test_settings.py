@@ -278,6 +278,9 @@ def test_needs_no_subscription_login_for_another_provider(tmp_path: Path, monkey
     Settings.load().llm.validate_authentication()
 
 
+# Settings has no generic environment-variable override layer, unlike common 12-factor config tools. Only an
+# `api_key` value naming a variable is ever read from the environment, so a `JRI_`-prefixed variable here must
+# have no effect.
 def test_takes_every_setting_from_the_configuration_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     config = yaml.safe_load(Settings.render_config())
     config["agents"]["interviewer"] |= {"model": "file-model", "reasoning_effort": "low"}

@@ -29,42 +29,20 @@ from tests.doubles.workspace import install_workspace
 
 EARLIER_RUN = "[an earlier run] left this"
 FAILURE_RECORD = "THE BUG HAPPENED HERE"
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
 FILLING_RECORD_BYTES = 32 * 1024
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
+# A lone surrogate is how Python represents a git ref byte sequence that is not valid UTF-8 (`surrogateescape`).
 LONE_SURROGATE_NAME = "refs/heads/caf\udce9.lock"
 OPENING_RECORD = "THE SESSION OPENED HERE"
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
 OVERSIZED_PADDING = "y" * (logs.LOG_RECORD_BYTES * 4)
 OVERSIZED_RECORDS = 40
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
 RECORD_PADDING = "x" * 200
 RECORDS_PER_RUN = 200
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
 SABOTAGED_PATHS = tuple(itertools.product(LOG_PATHS, SABOTAGE_SHAPES))
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
 SABOTAGED_PATHS_THAT_ESCAPE = {
     (paths.LOGS_DIR, "a link to a directory"): "a link the log needs no repair to follow is a link it keeps",
     (paths.LOG_FILE, "a hard link"): "a second name for the user's file is a file, and `lstat` says so",
     (paths.LOG_LOCK_FILE, "a link one write away"): "`jri.lib.lock` opens the lock without `O_NOFOLLOW`",
 }
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
 SABOTAGED_PATHS_TO_CONTAIN = tuple(
     pytest.param(
         path,
@@ -76,16 +54,10 @@ SABOTAGED_PATHS_TO_CONTAIN = tuple(
     for path, shape in SABOTAGED_PATHS
 )
 SMALL_LOG_FILE_BYTES = 64 * 1024
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
 SMALL_RECORDS = 2000
 STAMP = re.compile(r"^\[([\d-]+ [\d:,]+)\]", re.MULTILINE)
 TURN_RECORDS = 3
 TURNS = 2
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
-# Check the behavior in `test_appends_a_run_to_the_log_the_session_already_has`.
 WRITE_SECONDS = 10
 
 
@@ -166,8 +138,6 @@ def test_writes_on_when_a_path_the_log_needs_is_not_what_it_must_be(
     writing.join(WRITE_SECONDS)
 
     assert not writing.is_alive(), "an open on a name nobody answers for never came back, and the lock went with it"
-    # Check the behavior in `test_writes_on_when_a_path_the_log_needs_is_not_what_it_must_be`.
-    # Check the behavior in `test_writes_on_when_a_path_the_log_needs_is_not_what_it_must_be`.
     assert FAILURE_RECORD in read_session_log(tmp_path)
 
 
@@ -200,8 +170,7 @@ def test_keeps_the_records_before_one_longer_than_the_whole_file(tmp_path: Path)
     logs.configure(settings)
     logger = logging.getLogger("jri")
     logger.info("THE BUG HAPPENED HERE")
-    # Check the behavior in `test_keeps_the_records_before_one_longer_than_the_whole_file`.
-    # Check the behavior in `test_keeps_the_records_before_one_longer_than_the_whole_file`.
+    # A fetched response is a realistic source of a record this large: a call can return an oversized body in one line.
     logger.info("fetch_response response_body=%r", "z" * (logs.LOG_FILE_BYTES * 2))
 
     files = list_log_files(tmp_path)
@@ -212,8 +181,7 @@ def test_keeps_the_records_before_one_longer_than_the_whole_file(tmp_path: Path)
     assert len(written.encode()) <= logs.LOG_RECORD_BYTES
     notice = re.search(r"\[(\d+) bytes dropped\]", written)
     assert notice
-    # Check the behavior in `test_keeps_the_records_before_one_longer_than_the_whole_file`.
-    # Check the behavior in `test_keeps_the_records_before_one_longer_than_the_whole_file`.
+    # Confirm the dropped count is honest, not merely present, by checking it against the record's real size.
     assert len(written.encode()) + int(notice.group(1)) > logs.LOG_FILE_BYTES * 2
 
 
@@ -221,8 +189,7 @@ def test_reads_back_in_the_order_two_runs_of_a_session_wrote(tmp_path: Path, mon
     install_workspace(tmp_path)
     settings = build_settings(FakeClient([])).model_copy(update={"logging": SimpleNamespace(level="INFO")})
     monkeypatch.setattr(logs, "LOG_FILE_BYTES", SMALL_LOG_FILE_BYTES)
-    # Check the behavior in `test_reads_back_in_the_order_two_runs_of_a_session_wrote`.
-    # Check the behavior in `test_reads_back_in_the_order_two_runs_of_a_session_wrote`.
+    # Fill the file near its bound so the first records the runs write force a rotation, instead of waiting for one.
     filler = "." * (SMALL_LOG_FILE_BYTES - len(EARLIER_RUN) - 1)
     (tmp_path / paths.LOG_FILE).write_text(f"{EARLIER_RUN}{filler}\n")
     logs.configure(settings)
@@ -317,18 +284,12 @@ def test_keeps_a_name_that_will_not_encode_as_the_escapes_it_is_written_in(tmp_p
 
 
 def test_explains_when_the_log_file_cannot_be_created(tmp_path: Path) -> None:
-    # Check the behavior in `test_explains_when_the_log_file_cannot_be_created`.
-    # Check the behavior in `test_explains_when_the_log_file_cannot_be_created`.
-    # Check the behavior in `test_explains_when_the_log_file_cannot_be_created`.
     (tmp_path / paths.WORKSPACE_DIR).write_text("not a directory")
 
     with pytest.raises(PersistenceError, match="Could not create the log file"):
         logs.configure(build_settings(FakeClient([])))
 
 
-# Check the behavior in `test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_directory`.
-# Check the behavior in `test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_directory`.
-# Check the behavior in `test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_directory`.
 def test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_directory(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -341,18 +302,13 @@ def test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_d
 
     logger.info(OPENING_RECORD)
 
-    # Check the behavior in `test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_directory`.
-    # Check the behavior in `test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_directory`.
+    # `jri chat` owns the terminal and redraws it live. Writing anything here would corrupt that screen.
     assert capsys.readouterr() == ("", "")
     (tmp_path / paths.WORKSPACE_DIR).unlink()
     logger.info(FAILURE_RECORD)
     assert FAILURE_RECORD in read_session_log(tmp_path)
 
 
-# Check the behavior in `test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_directory`.
-# Check the behavior in `test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_directory`.
-# Check the behavior in `test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_directory`.
-# Check the behavior in `test_costs_the_records_and_not_the_run_when_a_file_stands_on_the_workspace_directory`.
 def _fill_past_the_bound(logger: logging.Logger) -> None:
     for _ in range(SMALL_LOG_FILE_BYTES // FILLING_RECORD_BYTES + 1):
         logger.info("x" * FILLING_RECORD_BYTES)

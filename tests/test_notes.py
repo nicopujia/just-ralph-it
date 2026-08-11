@@ -509,9 +509,8 @@ def test_keeps_a_connection_that_says_more_than_where_a_note_sits(tmp_path: Path
     assert Notebook(notebook.path).graph.connections == [beyond, elsewhere]
 
 
-# Check the behavior in `test_loads_a_notebook_already_holding_a_containment_connection`.
-# Check the behavior in `test_loads_a_notebook_already_holding_a_containment_connection`.
-# Check the behavior in `test_loads_a_notebook_already_holding_a_containment_connection`.
+# Loading a graph does not check for containment restatement; only `connect()` does. A file written by hand,
+# or saved before this rule existed, must still load and its connection must still be removable.
 def test_loads_a_notebook_already_holding_a_containment_connection(tmp_path: Path) -> None:
     path = tmp_path / "notebook.yaml"
     path.write_text(

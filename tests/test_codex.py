@@ -108,6 +108,8 @@ def test_refreshes_a_login_whose_expiry_cannot_be_read(
 @pytest.mark.parametrize(
     ("expires", "refreshes"), [(NOW + 30, 1), (NOW + 31, 0)], ids=["within-the-skew", "beyond-the-skew"]
 )
+# The check treats a token as expired 30 seconds early, so a request begun just before real expiry does not fail
+# mid-flight. Pin the exact boundary so a change to that skew does not go unnoticed.
 def test_treats_a_login_about_to_expire_as_expired(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, expires: int, refreshes: int
 ) -> None:
@@ -219,6 +221,7 @@ def test_adopts_the_login_a_sibling_process_refreshed(tmp_path: Path, monkeypatc
 
     client.responses.with_raw_response.create(model="gpt-5.6-sol", input="Hello.")
 
+    # A refresh token works once. Reusing the one a sibling already spent would get this process rejected too.
     assert provider.calls == []
     assert requests[1].headers["Authorization"] == f"Bearer {sibling['access_token']}"
     assert json.loads((tmp_path / "auth.json").read_text())["tokens"] == {**sibling, "account_id": "account"}
@@ -312,7 +315,8 @@ def test_reports_a_refresh_the_sibling_process_left_without_an_account(
     with pytest.raises(codex.AuthError, match="incomplete"):
         retry_after_rejection(codex.Auth(ORIGINATOR), lambda: write_login(tmp_path, sibling))
 
-    # Check the behavior in `test_reports_a_refresh_the_sibling_process_left_without_an_account`.
+    # The account id must gate the write. Without it, the freshly exchanged tokens would replace the sibling's
+    # record with an equally incomplete one, instead of leaving it for a later, valid refresh to fix.
     assert json.loads((tmp_path / "auth.json").read_text())["tokens"] == sibling
 
 
@@ -383,6 +387,8 @@ def test_stops_asking_for_a_login_after_a_second_rejection(tmp_path: Path, monke
     rejections = [httpx.codes.UNAUTHORIZED, httpx.codes.UNAUTHORIZED]
     client = build_client(tmp_path, monkeypatch, requests, statuses=rejections)
 
+    # The flow retries once, not forever, so an account whose login is actually broken fails fast instead of
+    # hammering the token endpoint.
     with pytest.raises(openai.AuthenticationError):
         client.responses.with_raw_response.create(model="gpt-5.6-sol", input="Hello.")
 

@@ -10,9 +10,8 @@ CATALOG = {"openai/gpt-5.6-sol": {"limit": {"context": CONTEXT_LIMIT}}}
 FALLBACK = 9_000
 
 
-# Check the behavior in `test_reads_the_context_limit_the_catalog_really_publishes`.
-# Check the behavior in `test_reads_the_context_limit_the_catalog_really_publishes`.
-# Check the behavior in `test_reads_the_context_limit_the_catalog_really_publishes`.
+# This is the one live check against models.dev. Every other test here trusts a double that could drift from
+# what the real catalog actually serves for the configured model.
 @pytest.mark.contract
 def test_reads_the_context_limit_the_catalog_really_publishes() -> None:
     assert get_context_limit(AgentProfiles().interviewer.model) is not None
@@ -107,8 +106,8 @@ def test_reads_the_catalog_once_for_a_model_it_answered_for(monkeypatch: pytest.
 
 
 def test_estimates_tokens_from_the_byte_size_of_the_payload() -> None:
-    # Check the behavior in `test_estimates_tokens_from_the_byte_size_of_the_payload`.
-    # Check the behavior in `test_estimates_tokens_from_the_byte_size_of_the_payload`.
+    # The estimate uses UTF-8 byte length, not character count, so accented and non-ASCII text must cost more
+    # tokens here. Otherwise a budget for such text would run low silently.
     assert estimate_tokens("é" * 300, None) == estimate_tokens("a" * 300, None) + 100
 
 

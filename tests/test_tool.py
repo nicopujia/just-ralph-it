@@ -14,8 +14,6 @@ if TYPE_CHECKING:
 
 
 TRUNCATION_NOTICE = "[Output truncated. Try splitting into more targeted calls.]"
-# Check the behavior in `test_keeps_a_long_source_file_whole`.
-# Check the behavior in `test_keeps_a_long_source_file_whole`.
 QUOTED_RUN = "`" * 40
 QUOTING_FENCE = "`" * 41
 
@@ -28,18 +26,10 @@ def build_tool(name: str) -> Tool:
     return build_tools(Toolbox())[name]
 
 
-# Check the behavior in `test_keeps_a_long_source_file_whole`.
-# Check the behavior in `test_keeps_a_long_source_file_whole`.
 def fail_to_describe(text: str) -> str:
     raise RuntimeError(f"Could not describe {text}.")
 
 
-# Check the behavior in `test_keeps_a_long_source_file_whole`.
-# Check the behavior in `test_keeps_a_long_source_file_whole`.
-# Check the behavior in `test_keeps_a_long_source_file_whole`.
-# Check the behavior in `test_keeps_a_long_source_file_whole`.
-# Check the behavior in `test_keeps_a_long_source_file_whole`.
-# Check the behavior in `test_keeps_a_long_source_file_whole`.
 def test_keeps_a_long_source_file_whole() -> None:
     body = "x" * 90_000
 
@@ -65,9 +55,8 @@ def test_keeps_output_of_exactly_the_maximum_length() -> None:
     assert invocation.output == "x" * Invocation.MAX_OUTPUT_LENGTH
 
 
-# Check the behavior in `test_ends_the_block_a_cut_output_leaves_open`.
-# Check the behavior in `test_ends_the_block_a_cut_output_leaves_open`.
-# Check the behavior in `test_ends_the_block_a_cut_output_leaves_open`.
+# A cut that leaves the quoted block open would place the truncation notice, JRI's own words, inside untrusted tool
+# output. The model could then read injected text in that output as text JRI wrote.
 def test_ends_the_block_a_cut_output_leaves_open() -> None:
     quoted = prompt.render(content=f"{QUOTED_RUN}\n" + "x" * Invocation.MAX_OUTPUT_LENGTH)
 
@@ -175,9 +164,6 @@ def test_labels_a_call_by_its_tool_name_when_the_arguments_are_invalid() -> None
     assert discovered.format_label(discovered.started_label, '{"text": "one"}') == "Echoing one"
 
 
-# Check the behavior in `test_keeps_a_call_whose_label_cannot_be_worded`.
-# Check the behavior in `test_keeps_a_call_whose_label_cannot_be_worded`.
-# Check the behavior in `test_keeps_a_call_whose_label_cannot_be_worded`.
 def test_keeps_a_call_whose_label_cannot_be_worded(caplog: pytest.LogCaptureFixture) -> None:
     discovered = build_tool("describe")
 
@@ -218,8 +204,7 @@ def test_reports_the_reason_a_call_failed() -> None:
 
     list(invocation)
 
-    # Check the behavior in `test_reports_the_reason_a_call_failed`.
-    # Check the behavior in `test_reports_the_reason_a_call_failed`.
+    # A row shows this detail on one line. An error message of unbounded length would overflow it.
     assert invocation.detail == "x" * Invocation.MAX_DETAIL_LENGTH
     assert cast("str", invocation.output).startswith("partial: x\n\nTool call failed:")
 
@@ -233,11 +218,7 @@ def test_reports_an_output_that_says_nothing_as_empty() -> None:
     assert invocation.output == "nothing found: one"
 
 
-# Check the behavior in `test_carries_a_sub_agent_thought_without_failing_the_call`.
-# Check the behavior in `test_carries_a_sub_agent_thought_without_failing_the_call`.
-# Check the behavior in `test_carries_a_sub_agent_thought_without_failing_the_call`.
-# Check the behavior in `test_carries_a_sub_agent_thought_without_failing_the_call`.
-# Check the behavior in `test_carries_a_sub_agent_thought_without_failing_the_call`.
+# `replace` would raise here: `ReasoningDelta` carries no `depth` field, unlike the other events a call can yield.
 def test_carries_a_sub_agent_thought_without_failing_the_call() -> None:
     invocation = build_tool("think_aloud").invoke('{"text": "one"}')
 
@@ -263,8 +244,6 @@ def test_marks_a_stream_abandoned_before_its_output_as_failed() -> None:
 
     next(iter(invocation))
 
-    # Check the behavior in `test_marks_a_stream_abandoned_before_its_output_as_failed`.
-    # Check the behavior in `test_marks_a_stream_abandoned_before_its_output_as_failed`.
     assert cast("str", invocation.output).startswith("Tool call failed:")
     assert invocation.outcome == "failed"
 
@@ -279,8 +258,7 @@ def test_skips_a_tool_that_is_not_replayed() -> None:
     assert toolbox.recorded == ["two"]
 
 
-# Check the behavior in `test_reports_a_replayed_call_that_could_not_be_made_again`.
-# Check the behavior in `test_reports_a_replayed_call_that_could_not_be_made_again`.
+# Replay has no model to read the rendered failure text `invoke` would produce, so it must raise the reason instead.
 def test_reports_a_replayed_call_that_could_not_be_made_again() -> None:
     tools = build_tools(Toolbox())
 

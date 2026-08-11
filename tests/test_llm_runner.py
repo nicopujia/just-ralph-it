@@ -200,6 +200,8 @@ def test_stops_a_parse_rather_than_retrying_it_for_a_run_left_behind(monkeypatch
     assert len(client.responses.options) == 1
 
 
+# JRI can point at any OpenAI-compatible provider, not only OpenAI. `response.reasoning.delta` names no event the
+# pinned provider library defines; another provider sends reasoning under it. Read all three names.
 @pytest.mark.parametrize(
     "event_type", ["response.reasoning.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.delta"]
 )
@@ -210,6 +212,7 @@ def test_streams_the_reasoning_of_the_model(event_type: str) -> None:
     assert list(runner.respond([]).events) == [ReasoningDelta("weighing the options")]
 
 
+# Same reasoning as `test_streams_the_reasoning_of_the_model`: a non-OpenAI provider can use the unlisted event name.
 @pytest.mark.parametrize(
     "event_type", ["response.reasoning.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.delta"]
 )

@@ -41,8 +41,6 @@ def test_writes_the_specification_files() -> None:
     assert write(build_analyst(client), CONTEXT)[1] == SPECIFICATIONS
 
 
-# Check the behavior in `test_streams_the_thinking_of_a_call_before_the_specifications_it_wrote`.
-# Check the behavior in `test_streams_the_thinking_of_a_call_before_the_specifications_it_wrote`.
 def test_streams_the_thinking_of_a_call_before_the_specifications_it_wrote() -> None:
     client = FakeClient(
         [],
@@ -77,9 +75,6 @@ def test_asks_for_a_first_draft_from_the_notebook_alone() -> None:
     assert "Architect feedback:" not in request
 
 
-# Check the behavior in `test_revises_the_specifications_as_they_stand_against_the_architect_feedback`.
-# Check the behavior in `test_revises_the_specifications_as_they_stand_against_the_architect_feedback`.
-# Check the behavior in `test_revises_the_specifications_as_they_stand_against_the_architect_feedback`.
 def test_revises_the_specifications_as_they_stand_against_the_architect_feedback() -> None:
     client = FakeClient([], parsed=[functional_analyst.Output(result=SPECIFICATIONS)])
     context = CONTEXT.model_copy(
@@ -95,10 +90,6 @@ def test_revises_the_specifications_as_they_stand_against_the_architect_feedback
     assert "Accepted functional specifications:" not in request
 
 
-# Check the behavior in `test_gates_every_escalation_on_what_the_notebook_delegated`.
-# Check the behavior in `test_gates_every_escalation_on_what_the_notebook_delegated`.
-# Check the behavior in `test_gates_every_escalation_on_what_the_notebook_delegated`.
-# Check the behavior in `test_gates_every_escalation_on_what_the_notebook_delegated`.
 def test_gates_every_escalation_on_what_the_notebook_delegated() -> None:
     prompt = build_analyst(FakeClient([])).runner.prompt.replace("\n      ", " ")
 

@@ -82,6 +82,8 @@ def test_draws_a_topic_whose_name_holds_a_delimiter() -> None:
     assert 't1(["Delivery #124; Packaging<br/>[open]<br/>How it ships"]):::topic' in diagram
 
 
+# The page embeds CSS and JavaScript, and both use `%` and `{}`. A `%`-format or `str.format` substitution would
+# read those characters as its own placeholders and corrupt the page.
 def test_leaves_the_percentages_and_braces_of_the_page_alone() -> None:
     page = render(build_graph())
 
@@ -102,6 +104,8 @@ def test_pins_the_page_to_the_scheme_the_graph_is_drawn_for() -> None:
     assert 'theme: "default"' in page
 
 
+# A notebook graph is wider than it is tall. Centring it would split the leftover viewport height into a band
+# above and a band below; anchoring it at the top spends that height once, past the last note.
 def test_opens_the_graph_at_its_top_instead_of_its_middle() -> None:
     page = render(build_graph())
 

@@ -45,9 +45,6 @@ from tests.doubles.specs_generation import (
 from tests.doubles.workspace import install_workspace
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
 @pytest.fixture(autouse=True)
 def run_the_generation_here(monkeypatch: pytest.MonkeyPatch) -> None:
     run_in_thread(monkeypatch)
@@ -57,7 +54,6 @@ def build_conversation(client: FakeClient) -> Conversation:
     return Conversation(build_settings(client))
 
 
-# This test data supports the tests below.
 def rename_recorded_calls(conversation: Conversation, name: str) -> None:
     session_file = conversation.workspace.session_file
     session = json.loads(session_file.read_text(encoding="utf-8"))
@@ -67,8 +63,6 @@ def rename_recorded_calls(conversation: Conversation, name: str) -> None:
     session_file.write_text(json.dumps(session), encoding="utf-8")
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
 def rewrite_recorded_call(conversation: Conversation, name: str, **arguments: object) -> None:
     session_file = conversation.workspace.session_file
     session = json.loads(session_file.read_text(encoding="utf-8"))
@@ -78,8 +72,6 @@ def rewrite_recorded_call(conversation: Conversation, name: str, **arguments: ob
     session_file.write_text(json.dumps(session), encoding="utf-8")
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
 def rename_recorded_parameter(conversation: Conversation, old: str, new: str) -> None:
     session_file = conversation.workspace.session_file
     session = json.loads(session_file.read_text(encoding="utf-8"))
@@ -93,15 +85,11 @@ def rename_recorded_parameter(conversation: Conversation, old: str, new: str) ->
     session_file.write_text(json.dumps(session), encoding="utf-8")
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
 def read_recorded_turn(conversation: Conversation) -> dict[str, object]:
     session = json.loads(conversation.workspace.session_file.read_text(encoding="utf-8"))
     return cast("dict[str, object]", session["transcript"][-1])
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
 def die_in_the_reply(conversation: Conversation) -> None:
     events = conversation.ralph()
     for _ in events:
@@ -158,10 +146,6 @@ def test_ends_every_turn_with_its_rows_closed(last_round: object, finished: Turn
     assert events[-1] == finished
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
 @pytest.mark.parametrize(
     ("rounds", "ending"),
     [([rejection()], "refused"), ([disconnection()] * LLMRunner.MAX_ATTEMPTS, "unavailable")],
@@ -187,8 +171,6 @@ def test_closes_the_row_a_blocked_run_left_open(monkeypatch: pytest.MonkeyPatch)
 
     assert events[-2] == ToolCallFinished(STARTED_ROW.call_id, STARTED_ROW.label, "failed")
     assert events[-1] == TurnFinished("blocked", "Your project has uncommitted changes.")
-    # Check that JRI closes the row a blocked run left open.
-    # Check that JRI closes the row a blocked run left open.
     tool_items = [item for item in conversation.session.transcript[-1].items if item.type == "tool"]
     assert [(item.text, item.outcome) for item in tool_items] == [(STARTED_ROW.label, "failed")]
 
@@ -312,8 +294,6 @@ def test_records_a_turn_in_the_order_its_events_arrived(monkeypatch: pytest.Monk
 
     items = build_conversation(FakeClient([])).restore()[-1].items
 
-    # Check that JRI records a turn in the order its events arrived.
-    # Check that JRI records a turn in the order its events arrived.
     assert [(item.type, item.text) for item in items] == [
         ("assistant", "Understood."),
         ("tool", FINISHED_ROW.label),
@@ -323,9 +303,6 @@ def test_records_a_turn_in_the_order_its_events_arrived(monkeypatch: pytest.Monk
     assert [item.outcome for item in items if item.type == "tool"] == ["done"]
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
 def test_keeps_two_thoughts_a_nested_call_stands_between_apart() -> None:
     conversation = build_conversation(
         FakeClient([
@@ -374,14 +351,11 @@ def test_records_a_row_the_session_was_written_under() -> None:
 
     events = conversation.chat("Deploy from main.")
     next(events)
-    # Check that JRI records a row the session was written under.
+    # A settings write shares `self.session.transcript` with the turn a live chat is still filling. A save
+    # taken here must carry the row the turn already opened, not a stale copy from before the row existed.
     conversation.update_session(show_thinking_blocks=True)
     events.close()
 
-    # Check that JRI records a row the session was written under.
-    # Check that JRI records a row the session was written under.
-    # Check that JRI records a row the session was written under.
-    # Check that JRI records a row the session was written under.
     assert read_recorded_turn(conversation)["ending"] is None
     items = build_conversation(FakeClient([])).restore()[-1].items
     assert [(item.type, item.text, item.outcome) for item in items] == [("tool", "Switching to Delivery", None)]
@@ -522,8 +496,6 @@ def test_stops_a_generation_the_user_asked_to_stop(monkeypatch: pytest.MonkeyPat
     next(events)
     cancelled.set()
 
-    # Check that JRI stops a generation the user asked to stop.
-    # Check that JRI stops a generation the user asked to stop.
     assert list(events) == [
         ToolCallFinished(STARTED_ROW.call_id, STARTED_ROW.label, "stopped"),
         TurnFinished("stopped"),
@@ -616,13 +588,9 @@ def test_refuses_to_ralph_beside_a_run_already_going(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
     conversation.workspace.open_generation_dir()
 
-    # Check that JRI refuses to ralph beside a run already going.
-    # Check that JRI refuses to ralph beside a run already going.
     with hold(conversation.workspace.root / paths.GENERATION_LOCK_FILE):
         events = list(conversation.ralph())
 
-    # Check that JRI refuses to ralph beside a run already going.
-    # Check that JRI refuses to ralph beside a run already going.
     assert events[-1] == TurnFinished("failed", "A generation is already running in this project.")
     assert not (conversation.workspace.root / paths.JOURNAL_FILE).exists()
 
@@ -637,9 +605,6 @@ def test_ends_a_turn_whose_runner_died_before_writing_anything(monkeypatch: pyte
     monkeypatch.setattr(Generation, "execute", fall_over)
     events = list(conversation.ralph())
 
-    # Check that JRI ends a turn whose runner died before writing anything.
-    # Check that JRI ends a turn whose runner died before writing anything.
-    # Check that JRI ends a turn whose runner died before writing anything.
     assert events[-1] == TurnFinished("failed", "JRI could not start the generation. It wrote nothing about why.")
 
 
@@ -649,7 +614,6 @@ def test_ends_a_run_the_process_before_it_did_not_stay_for(monkeypatch: pytest.M
     monkeypatch.setattr("jri.core.conversation.specs_generation.generate", generate_succeeding)
     events = conversation.ralph()
     next(events)
-    # Check that JRI ends a run the process before it did not stay for.
     conversation.update_session(show_thinking_blocks=True)
     events.close()
 
@@ -658,10 +622,6 @@ def test_ends_a_run_the_process_before_it_did_not_stay_for(monkeypatch: pytest.M
     assert restarted.pending_generation
     folded = list(restarted.ralph())
 
-    # Check that JRI ends a run the process before it did not stay for.
-    # Check that JRI ends a run the process before it did not stay for.
-    # Check that JRI ends a run the process before it did not stay for.
-    # Check that JRI ends a run the process before it did not stay for.
     assert [event.call_id for event in folded if isinstance(event, ToolCallStarted)] == [
         event.call_id for event in folded if isinstance(event, ToolCallFinished)
     ]
@@ -686,9 +646,8 @@ def test_writes_nothing_down_when_the_window_leaves_a_run_running(monkeypatch: p
     with pytest.raises(RunDetached):
         watched.extend(events)
 
-    # Check that JRI writes nothing down when the window leaves a run running.
-    # Check that JRI writes nothing down when the window leaves a run running.
-    # Check that JRI writes nothing down when the window leaves a run running.
+    # `RunDetached` is a `BaseException`, not an `Exception`: catching it here as a turn failure would report
+    # a run that is still going elsewhere as stopped or failed.
     assert conversation.workspace.session_file.read_bytes() == started
     assert not [event for event in watched if isinstance(event, TurnFinished)]
 
@@ -708,9 +667,6 @@ def test_ends_a_run_the_window_walked_out_on(monkeypatch: pytest.MonkeyPatch) ->
     assert restarted.pending_generation
     folded = list(restarted.ralph())
 
-    # Check that JRI ends a run the window walked out on.
-    # Check that JRI ends a run the window walked out on.
-    # Check that JRI ends a run the window walked out on.
     assert [event.call_id for event in folded if isinstance(event, ToolCallStarted)] == [
         event.call_id for event in folded if isinstance(event, ToolCallFinished)
     ]
@@ -734,9 +690,6 @@ def test_keeps_the_offer_a_detached_run_never_spent(monkeypatch: pytest.MonkeyPa
     with pytest.raises(RunDetached):
         list(conversation.ralph(None, detached))
 
-    # Check that JRI keeps the offer a detached run never spent.
-    # Check that JRI keeps the offer a detached run never spent.
-    # Check that JRI keeps the offer a detached run never spent.
     restarted = build_conversation(FakeClient([]))
     restarted.restore()
     assert restarted.is_ready_to_ralph
@@ -755,9 +708,6 @@ def test_leaves_the_turn_of_a_run_a_window_can_pick_up_open(monkeypatch: pytest.
     restarted = build_conversation(FakeClient([streamed_reply("The specifications are in.")]))
     turns = restarted.restore()
 
-    # Check that JRI leaves the turn of a run a window can pick up open.
-    # Check that JRI leaves the turn of a run a window can pick up open.
-    # Check that JRI leaves the turn of a run a window can pick up open.
     assert turns[-1].ending is None
     assert restarted.pending_generation
 
@@ -769,18 +719,13 @@ def test_leaves_the_turn_of_a_runner_that_has_written_nothing_yet_open(monkeypat
     events = conversation.ralph()
     next(events)
     events.close()
-    # Check that JRI leaves the turn of a runner that has written nothing yet open.
-    # Check that JRI leaves the turn of a runner that has written nothing yet open.
-    # Check that JRI leaves the turn of a runner that has written nothing yet open.
-    # Check that JRI leaves the turn of a runner that has written nothing yet open.
-    # Check that JRI leaves the turn of a runner that has written nothing yet open.
+    # A runner takes its lock before it writes the first journal line, so a window can exit during that import
+    # delay. Discard the journal but keep the lock held, to reproduce a runner that is alive but has written nothing.
     Generation(conversation.workspace).discard()
 
     with hold(conversation.workspace.root / paths.GENERATION_LOCK_FILE):
         turns = build_conversation(FakeClient([])).restore()
 
-    # Check that JRI leaves the turn of a runner that has written nothing yet open.
-    # Check that JRI leaves the turn of a runner that has written nothing yet open.
     assert turns[-1].ending is None
 
 
@@ -795,8 +740,8 @@ def test_stops_a_run_carrying_the_ending_of_the_turn_it_reports_into(monkeypatch
     recorded = read_recorded_turn(conversation)
     events.close()
 
-    # Check that JRI stops a run carrying the ending of the turn it reports into.
-    # Check that JRI stops a run carrying the ending of the turn it reports into.
+    # `_settle_interrupted_turn` treats a turn with an ending as already closed. The stale "replied" ending
+    # must be cleared and saved before the run leaves this process, or a restart would miss the run in progress.
     assert recorded["work"] == "generation"
     assert recorded["ending"] is None
 
@@ -810,8 +755,6 @@ def test_records_no_reply_for_a_turn_a_dead_window_left_mid_reply(monkeypatch: p
 
     die_in_the_reply(conversation)
 
-    # Check that JRI records no reply for a turn a dead window left mid reply.
-    # Check that JRI records no reply for a turn a dead window left mid reply.
     assert read_recorded_turn(conversation)["ending"] is None
 
 
@@ -826,10 +769,6 @@ def test_settles_a_turn_no_process_is_left_to_finish(monkeypatch: pytest.MonkeyP
     restarted = build_conversation(FakeClient([]))
     turns = restarted.restore()
 
-    # Check that JRI settles a turn no process is left to finish.
-    # Check that JRI settles a turn no process is left to finish.
-    # Check that JRI settles a turn no process is left to finish.
-    # Check that JRI settles a turn no process is left to finish.
     assert turns[-1].ending == "interrupted"
     assert turns[-1].ending in RETRYABLE_ENDINGS
     assert read_recorded_turn(restarted)["ending"] == "interrupted"
@@ -851,9 +790,6 @@ def test_replies_to_a_run_again_after_a_window_died_in_the_reply(monkeypatch: py
     restarted.restore()
     events = list(restarted.retry())
 
-    # Check that JRI replies to a run again after a window died in the reply.
-    # Check that JRI replies to a run again after a window died in the reply.
-    # Check that JRI replies to a run again after a window died in the reply.
     assert events[-1] == TurnFinished("replied")
     assert ("assistant", "The specifications are in.") in [
         (item.type, item.text) for item in restarted.session.transcript[-1].items
@@ -904,8 +840,6 @@ def test_retries_the_reply_a_generation_report_opened(monkeypatch: pytest.Monkey
     events = list(conversation.retry())
 
     assert events[-1] == TurnFinished("replied")
-    # Check that JRI retries the reply a generation report opened.
-    # Check that JRI retries the reply a generation report opened.
     reports = [item["content"] for item in conversation.session.interview[1:] if item.get("role") == "system"]
     assert reports == [f"Specification generation succeeded in Git commit {COMMIT}."]
     assert conversation.session.transcript[-1].message == "Build a reporting CLI."
@@ -929,9 +863,6 @@ def test_runs_a_failed_generation_again_instead_of_the_message_before_it(monkeyp
     assert events[-1] == TurnFinished("replied")
     reports = [item["content"] for item in conversation.session.interview[1:] if item.get("role") == "system"]
     assert reports == [f"Specification generation succeeded in Git commit {COMMIT}."]
-    # Check that JRI runs a failed generation again instead of the message before it.
-    # Check that JRI runs a failed generation again instead of the message before it.
-    # Check that JRI runs a failed generation again instead of the message before it.
     assert [(item.type, item.text) for item in conversation.session.transcript[-1].items] == [
         ("tool", "Offered Just Ralph It"),
         ("assistant", "Click Just Ralph It."),
@@ -974,9 +905,6 @@ def test_replies_again_after_the_retry_of_a_reply_failed(monkeypatch: pytest.Mon
     events = list(conversation.retry())
 
     assert events[-1] == TurnFinished("replied")
-    # Check that JRI replies again after the retry of a reply failed.
-    # Check that JRI replies again after the retry of a reply failed.
-    # Check that JRI replies again after the retry of a reply failed.
     assert [item.get("content") for item in conversation.session.interview if item.get("role") == "user"] == [
         "Build a reporting CLI."
     ]
@@ -990,9 +918,8 @@ def test_rejects_a_session_saved_before_a_turn_recorded_its_work() -> None:
         del turn["work"]
     conversation.workspace.session_file.write_bytes(json.dumps(stored).encode())
 
-    # Check that JRI rejects a session saved before a turn recorded its work.
-    # Check that JRI rejects a session saved before a turn recorded its work.
-    # Check that JRI rejects a session saved before a turn recorded its work.
+    # A turn without `work` cannot say what a retry should repeat. Reject the file instead of guessing, so an
+    # older session never resumes with a fabricated kind of work.
     with pytest.raises(PersistenceError, match=r"Delete it .*--force"):
         build_conversation(FakeClient([])).restore()
 
@@ -1192,8 +1119,6 @@ def test_resends_the_prompt_when_retrying_a_turn_that_brought_no_reply() -> None
     assert ("assistant", "Retry succeeded.") in [(item.type, item.text) for item in turns[-1].items]
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
 def test_retries_the_newest_of_several_prompts() -> None:
     client = FakeClient([
         streamed_reply("What should it report on?"),
@@ -1343,9 +1268,6 @@ def test_keeps_the_offer_made_before_the_rewind_point() -> None:
     assert restarted.is_ready_to_ralph
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
 def test_drops_the_draft_a_rewind_moved_past() -> None:
     conversation = build_conversation(FakeClient([streamed_reply("Noted."), streamed_reply("Also noted.")]))
     list(conversation.chat("We're ready."))
@@ -1360,8 +1282,6 @@ def test_drops_the_draft_a_rewind_moved_past() -> None:
 
 
 def test_skips_tool_calls_that_are_not_replayed_when_rewinding() -> None:
-    # Check that JRI skips tool calls that are not replayed when rewinding.
-    # Check that JRI skips tool calls that are not replayed when rewinding.
     conversation = build_conversation(
         FakeClient([
             response(call("explore", "explore", query="deployment options")),
@@ -1420,9 +1340,6 @@ def test_refuses_a_rewind_through_a_call_this_version_no_longer_accepts() -> Non
     restarted = build_conversation(FakeClient([]))
     restarted.restore()
 
-    # Check that JRI refuses a rewind through a call this version no longer accepts.
-    # Check that JRI refuses a rewind through a call this version no longer accepts.
-    # Check that JRI refuses a rewind through a call this version no longer accepts.
     with pytest.raises(PersistenceError, match="`capture_notes` in a way this version of JRI cannot make again"):
         restarted.rewind(1)
 
@@ -1469,8 +1386,8 @@ def test_refuses_a_rewind_whose_replay_fails_inside_a_tool_that_took_the_call() 
     assert [(topic.id, topic.status) for topic in reopened.notebook.graph.topics] == [("t1", "open"), ("t2", "trashed")]
     assert [note.text for note in reopened.notebook.graph.notes] == ["Deploy from main.", "Roll back on failure."]
     assert reopened.interviewer.active_topic_id == "t1"
-    # Check that JRI refuses a rewind whose replay fails inside a tool that took the call.
-    # Check that JRI refuses a rewind whose replay fails inside a tool that took the call.
+    # A rewind that fails partway must leave nothing changed: the session, history, and notebook are restored
+    # in full, so a partial replay can never leave the notes half-rebuilt.
     assert offer is not None
     assert [note.text for note in offer.notes] == ["Deploy from main."]
     assert not reopened.is_ready_to_ralph

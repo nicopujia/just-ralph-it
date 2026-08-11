@@ -56,6 +56,8 @@ def test_reports_a_transcript_whose_contents_cannot_be_fetched(monkeypatch: pyte
 
 
 def test_reports_a_transcript_made_only_of_blank_snippets(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Auto-generated captions can list blank snippets for pauses or music. Without this check, JRI would hand the
+    # model an empty transcript as if it held real content.
     monkeypatch.setattr(youtube, "YouTubeTranscriptApi", lambda: FakeApi([], [], ["", "   ", "\n\t"]))
 
     with pytest.raises(RuntimeError, match="did not contain any text"):
@@ -64,6 +66,8 @@ def test_reports_a_transcript_made_only_of_blank_snippets(monkeypatch: pytest.Mo
 
 @pytest.mark.parametrize(
     "url",
+    # `youtube.com.evil.test` carries `youtube.com` as a prefix. Matching the host by substring, rather than by
+    # exact membership, would let an attacker-registered domain pass as YouTube.
     ["https://example.com/watch?v=abc123", "https://notyoutube.com/watch?v=abc123", "https://youtube.com.evil.test/"],
     ids=["other-site", "lookalike-host", "suffix-host"],
 )
@@ -72,6 +76,8 @@ def test_ignores_urls_outside_youtube(url: str) -> None:
 
 
 @pytest.mark.parametrize("url", ["youtube.com/watch?v=abc123", "youtu.be/abc123"], ids=["watch", "short-link"])
+# `urlparse` needs `//` to read a host. Without a scheme, `youtube.com/watch` parses as a path with no host, so it
+# looks the same as any other non-YouTube URL rather than raising.
 def test_ignores_youtube_urls_without_a_scheme(url: str) -> None:
     assert youtube.fetch_transcript_from_url(url) is None
 

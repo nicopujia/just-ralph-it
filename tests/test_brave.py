@@ -8,8 +8,6 @@ from tests.doubles.brave import RESULTS, FakeProvider, respond
 API_KEY_VARIABLE = "BRAVE_SEARCH_API_KEY"
 
 
-# Check the behavior in `test_searches_the_endpoint_brave_really_serves`.
-# Check the behavior in `test_searches_the_endpoint_brave_really_serves`.
 @pytest.mark.contract
 def test_searches_the_endpoint_brave_really_serves(read_credential: ReadCredential) -> None:
     results = brave.search(read_credential(API_KEY_VARIABLE), "just ralph it")

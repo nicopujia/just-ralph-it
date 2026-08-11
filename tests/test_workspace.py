@@ -25,8 +25,9 @@ from tests.doubles.workspace import (
     watch_a_bystander,
 )
 
-# This test data supports the tests below.
-# This test data supports the tests below.
+# The claim stays locked until the slow holder writes its own pid.
+# `Hold.take` must wait on that release, or it could read the killed
+# holder's stale record instead of the current one.
 RECORDS_AFTER = 0.4
 
 
@@ -56,8 +57,6 @@ def test_leaves_the_project_uncommitted_when_it_creates_the_repository(tmp_path:
     repository = git.Repository(tmp_path)
     assert not repository.has_commit()
     assert (tmp_path / paths.PROJECT_GITIGNORE_FILE).read_text() == ".DS_Store\n.env\n.env.*\n"
-    # Check that JRI leaves the project uncommitted when it creates the repository.
-    # Check that JRI leaves the project uncommitted when it creates the repository.
     assert {item.path for item in repository.read_status()} == {
         paths.PROJECT_GITIGNORE_FILE,
         paths.GITIGNORE_FILE,
@@ -117,9 +116,8 @@ def test_refuses_a_root_a_killed_git_never_placed(
     with pytest.raises(git.Error):
         install_workspace(nested)
 
-    # Check that JRI refuses a root a killed git never placed.
-    # Check that JRI refuses a root a killed git never placed.
-    # Check that JRI refuses a root a killed git never placed.
+    # A Git that dies mid-setup must not leave a half-made workspace or
+    # repository behind for a retry to mistake as already initialized.
     assert not (nested / paths.WORKSPACE_DIR).exists()
     assert not (nested / ".git").exists()
 
@@ -211,9 +209,8 @@ def test_resets_an_invalid_workspace_when_forced(tmp_path: Path) -> None:
     assert not (base_dir / "visualization.html").exists()
     assert not (base_dir / "specs").exists()
     assert not (base_dir / "logs" / "old.log").exists()
-    # Check that JRI resets an invalid workspace when forced.
-    # Check that JRI resets an invalid workspace when forced.
-    # Check that JRI resets an invalid workspace when forced.
+    # The reset paths never include the ignore file itself, only what it
+    # lists. A forced reset must keep a rule the file already held.
     assert (base_dir / ".gitignore").read_text() == (
         "custom-cache\n/lock\n/lock.claim\nsession.json\nlogs\nvisualization.html\n"
     )
@@ -237,9 +234,8 @@ def test_keeps_a_run_directory_out_of_the_project(
     run_git(tmp_path, "add", "-A")
     staged = repository.read_staged_paths()
     assert not [path for path in staged if path.startswith(paths.GENERATION_DIR)]
-    # Check that JRI keeps a run directory out of the project.
-    # Check that JRI keeps a run directory out of the project.
-    # Check that JRI keeps a run directory out of the project.
+    # An ignore rule that stays local only keeps the run directory out
+    # of this clone. Commit it so every clone excludes the same directory.
     assert paths.GITIGNORE_FILE in staged
 
 
@@ -250,9 +246,6 @@ def test_puts_back_a_run_directory_rule_something_replaced(
     workspace = install_workspace(tmp_path).workspace
     repository = git.Repository(tmp_path)
     (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
-    # Check that JRI puts back a run directory rule something replaced.
-    # Check that JRI puts back a run directory rule something replaced.
-    # Check that JRI puts back a run directory rule something replaced.
     for rule in sorted(workspace.directory.rglob(workspace.gitignore_file.name)):
         rule.write_text("# nothing to ignore here\n")
 
@@ -301,15 +294,9 @@ def test_refuses_a_reset_while_a_run_is_still_going(tmp_path: Path) -> None:
 
         assert runner.poll() is None, "the run was left writing into a directory that went"
         assert journal.read_text() == "what a model said\n"
-        # Check that JRI refuses a reset while a run is still going.
-        # Check that JRI refuses a reset while a run is still going.
         assert not take(tmp_path / paths.GENERATION_LOCK_FILE)
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
 def test_refuses_a_held_project_before_naming_what_a_reset_replaces(tmp_path: Path) -> None:
     install_workspace(tmp_path)
     named: list[tuple[Path, ...]] = []
@@ -333,11 +320,6 @@ def test_refuses_a_running_run_before_naming_what_a_reset_replaces(tmp_path: Pat
         assert not named, "a refusal was read only after something had been asked about the deletion"
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
-# This test data supports the tests below.
 def test_keeps_the_project_while_a_reset_is_open(tmp_path: Path) -> None:
     workspace = install_workspace(tmp_path).workspace
 
@@ -347,8 +329,6 @@ def test_keeps_the_project_while_a_reset_is_open(tmp_path: Path) -> None:
     assert take(tmp_path / paths.LOCK_FILE)
 
 
-# This test data supports the tests below.
-# This test data supports the tests below.
 def test_names_what_a_reset_replaces_and_nothing_it_would_leave(tmp_path: Path) -> None:
     workspace = install_workspace(tmp_path).workspace
     workspace.open_generation_dir()
@@ -379,9 +359,6 @@ def test_leaves_a_workspace_alone_while_a_window_has_the_project(tmp_path: Path)
     with hold_workspace(tmp_path) as window:
         installation = install_workspace(tmp_path)
 
-        # Check that JRI leaves a workspace alone while a window has the project.
-        # Check that JRI leaves a workspace alone while a window has the project.
-        # Check that JRI leaves a workspace alone while a window has the project.
         assert not installation.created
         assert workspace.notebook_file.read_text() == notebook
         assert window.poll() is None
@@ -402,16 +379,13 @@ def test_resets_the_project_the_window_holding_it_let_go_of(tmp_path: Path) -> N
 def test_resets_a_project_whose_run_already_ended(tmp_path: Path) -> None:
     workspace = install_workspace(tmp_path).workspace
     (workspace.open_generation_dir() / "journal.jsonl").write_text("what a model said\n")
-    # Check that JRI resets a project whose run already ended.
-    # Check that JRI resets a project whose run already ended.
     (tmp_path / paths.GENERATION_LOCK_FILE).touch()
 
     install_workspace(tmp_path, force=True)
 
     assert not workspace.generation_dir.exists()
-    # Check that JRI resets a project whose run already ended.
-    # Check that JRI resets a project whose run already ended.
-    # Check that JRI resets a project whose run already ended.
+    # A forced reset takes the project hold to run safely. Confirm it
+    # releases that hold afterward, or no chat could open next.
     assert take(tmp_path / paths.LOCK_FILE)
 
 
@@ -422,8 +396,6 @@ def test_refuses_a_second_jri_in_one_project(tmp_path: Path) -> None:
         hold = Workspace(tmp_path).open_hold()
 
         assert not hold.take()
-        # Check that JRI refuses a second jri in one project.
-        # Check that JRI refuses a second jri in one project.
         assert hold.holder == window.pid
 
 
@@ -438,8 +410,9 @@ def test_takes_over_the_project_from_the_window_it_killed(tmp_path: Path) -> Non
 
         assert window.poll() is not None, "the window that held the project is still running"
         assert hold.holder is None
-        # Check that JRI takes over the project from the window it killed.
-        # Check that JRI takes over the project from the window it killed.
+        # Eviction only returns once this process's own take succeeds.
+        # Confirm hold now actually holds the project, not just that it
+        # killed the window that did.
         assert not Workspace(tmp_path).open_hold().take()
     hold.release()
 
@@ -462,12 +435,9 @@ def test_takes_the_project_the_window_let_go_of_while_the_question_stood(tmp_pat
 def test_ends_no_process_but_the_one_holding_the_project(tmp_path: Path) -> None:
     install_workspace(tmp_path)
 
-    # Check that JRI ends no process but the one holding the project.
-    # Check that JRI ends no process but the one holding the project.
-    # Check that JRI ends no process but the one holding the project.
-    # Check that JRI ends no process but the one holding the project.
-    # Check that JRI ends no process but the one holding the project.
-    # Check that JRI ends no process but the one holding the project.
+    # The window records a bystander's pid, not its own. Kill the window
+    # directly so its lock is already free before eviction runs: eviction
+    # must never use that stale record to choose whom to signal.
     with run_a_bystander(tmp_path) as bystander, hold_workspace(tmp_path, record=str(bystander.pid)) as window:
         hold = Workspace(tmp_path).open_hold()
         assert not hold.take()
@@ -490,10 +460,9 @@ def test_ends_the_window_that_has_the_project_and_not_the_one_before_it(tmp_path
         assert hold.holder == bystander.pid
         first.kill()
         first.wait()
-        # Check that JRI ends the window that has the project and not the one before it.
-        # Check that JRI ends the window that has the project and not the one before it.
-        # Check that JRI ends the window that has the project and not the one before it.
-        # Check that JRI ends the window that has the project and not the one before it.
+        # A pid can be freed and reused once its process exits. Confirm
+        # eviction signals whoever holds the project when it runs, not a
+        # pid read earlier and now stale.
         with hold_workspace(tmp_path) as second:
             assert hold.evict()
 
@@ -512,8 +481,6 @@ def test_takes_the_project_a_killed_window_never_let_go_of(tmp_path: Path) -> No
 
         assert hold.take()
 
-        # Check that JRI takes the project a killed window never let go of.
-        # Check that JRI takes the project a killed window never let go of.
         assert hold.lock.path.exists()
         assert hold.holder is None
     hold.release()
@@ -533,9 +500,6 @@ def test_names_the_window_that_has_the_project_and_not_the_one_before_it(tmp_pat
 
         assert hold.holder == window.pid
         assert hold.holder != killed.pid
-        # Check that JRI names the window that has the project and not the one before it.
-        # Check that JRI names the window that has the project and not the one before it.
-        # Check that JRI names the window that has the project and not the one before it.
         assert time.monotonic() - started >= RECORDS_AFTER / 2
 
 
@@ -565,9 +529,6 @@ def test_reports_the_window_that_would_not_let_the_project_go(tmp_path: Path, mo
 
         assert not hold.evict()
 
-        # Check that JRI reports the window that would not let the project go.
-        # Check that JRI reports the window that would not let the project go.
-        # Check that JRI reports the window that would not let the project go.
         assert window.poll() is None
         assert hold.holder == window.pid
 
@@ -576,19 +537,15 @@ def test_takes_no_project_from_a_signal_that_reached_nothing(tmp_path: Path, mon
     install_workspace(tmp_path)
     monkeypatch.setattr(Hold, "FREED_WITHIN", 0.3)
 
-    # Check that JRI takes no project from a signal that reached nothing.
-    # Check that JRI takes no project from a signal that reached nothing.
-    # Check that JRI takes no project from a signal that reached nothing.
-    # Check that JRI takes no project from a signal that reached nothing.
-    # Check that JRI takes no project from a signal that reached nothing.
+    # MAX_PID is the largest pid Hold accepts as real, but no process
+    # holds it. A signal aimed at it must fail quietly, not derail
+    # eviction.
     with hold_workspace(tmp_path, record=str(MAX_PID)) as window:
         hold = Workspace(tmp_path).open_hold()
         assert not hold.take()
 
         assert not hold.evict()
 
-        # Check that JRI takes no project from a signal that reached nothing.
-        # Check that JRI takes no project from a signal that reached nothing.
         assert window.poll() is None
         assert hold.holder == MAX_PID
 
@@ -631,8 +588,6 @@ def test_names_this_process_as_the_one_holding_the_project(tmp_path: Path) -> No
 
     assert hold.take()
 
-    # Check that JRI names this process as the one holding the project.
-    # Check that JRI names this process as the one holding the project.
     assert hold.lock.holder == str(os.getpid())
     hold.release()
 
