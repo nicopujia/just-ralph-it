@@ -52,7 +52,37 @@ def test_keeps_the_partial_text_of_a_cancelled_response() -> None:
     cancelled.set()
     list(events)
 
-    assert cast("list[dict[str, object]]", agent.history)[-1] == {"role": "assistant", "content": "Half a th"}
+    assert cast("list[dict[str, object]]", agent.history)[-2] == {"role": "assistant", "content": "Half a th"}
+
+
+def test_records_a_cancelled_response_as_stopped() -> None:
+    cancelled = Event()
+    agent = build_agent([partial_reply("Half a th")])
+    events = agent.send_message("Go.", cancelled)
+
+    next(events)
+    cancelled.set()
+    list(events)
+
+    assert cast("list[dict[str, object]]", agent.history)[-1] == {
+        "role": "system",
+        "content": Agent.CANCELLATION_RECORD,
+    }
+
+
+def test_records_a_round_cancelled_after_its_calls_as_stopped() -> None:
+    cancelled = Event()
+    agent = build_agent([response(call("streamed", "narrate", text="one"), call("later", "echo", text="two"))])
+    events = agent.send_message("Go.", cancelled)
+
+    next(events)
+    cancelled.set()
+    list(events)
+
+    history = cast("list[dict[str, object]]", agent.history)
+    # The record follows the output of every call, so it states the end of the whole round.
+    assert history[-1] == {"role": "system", "content": Agent.CANCELLATION_RECORD}
+    assert history[-2]["call_id"] == "later"
 
 
 def test_reports_an_unknown_tool_to_the_model() -> None:

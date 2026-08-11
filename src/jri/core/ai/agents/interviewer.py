@@ -58,6 +58,8 @@ class Interviewer(Agent):
         "    - Connect every note you capture in the same turn you capture it, to the notes it depends\n"
         "    on, contradicts, or refines. Never wait for the user to ask for organization.\n"
         "    - Capture unresolved unknowns as notes before switching away from a topic.\n"
+        "    - A stopped reply of yours can leave a note half-written, unconnected, or under the wrong topic, and\n"
+        "    can leave a topic switched: read what it did, repair it, and say what you repaired.\n"
         "    - Update a topic once you and the user agree it is complete.\n"
         "    - Prefer answering your own questions with `explore` and/or `read_notes` when possible.\n"
         "    - Record only current requirements; replace superseded information instead of preserving history\n"

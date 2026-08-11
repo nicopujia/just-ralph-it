@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 @dataclass(kw_only=True)
 class Agent:
     MAX_ROUNDS: ClassVar[int] = 50
+    # A stopped reply ends where the user stopped it. Record the stop, because the text alone reads as a full reply.
+    CANCELLATION_RECORD: ClassVar[str] = "User stopped last reply. Items before this message are all that happened."
 
     initial_context: InitVar[ResponseInputParam | None] = None
 
@@ -82,7 +84,7 @@ class Agent:
             if cancelled.is_set():
                 if partial_text:
                     self.history.append({"role": "assistant", "content": "".join(partial_text)})
-                logger.info("message_cancelled agent=%s", type(self).__name__)
+                self._record_cancellation()
                 return
 
             self.history.extend(cast("list[ResponseInputItemParam]", response.outputs))
@@ -98,9 +100,14 @@ class Agent:
                 tool = tools_by_name.get(output["name"])
                 yield from self._invoke(output, tool, cancelled)
             if cancelled.is_set():
-                logger.info("message_cancelled agent=%s", type(self).__name__)
+                self._record_cancellation()
                 return
         raise ModelError(f"Agent exceeded the limit of {self.MAX_ROUNDS} response rounds.")
+
+    # A history item states what happened, not what to do next. The prompt owns what the agent does with a stop.
+    def _record_cancellation(self) -> None:
+        self.history.append({"role": "system", "content": self.CANCELLATION_RECORD})
+        logger.info("message_cancelled agent=%s", type(self).__name__)
 
     def _invoke(self, output: dict[str, object], tool: Tool | None, cancelled: Event) -> Generator["ai.AgentEvent"]:
         name = cast("str", output["name"])
