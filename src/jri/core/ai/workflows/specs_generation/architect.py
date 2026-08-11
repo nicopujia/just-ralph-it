@@ -6,7 +6,7 @@ from openai.types.responses import ResponseInputParam
 from pydantic import BaseModel
 
 from jri.core import paths
-from jri.core.ai import LLMRunner, ReasoningDelta
+from jri.core.ai import LLMRunner, ReasoningDelta, prompts
 from jri.core.settings import Settings
 from jri.lib import prompt
 
@@ -41,10 +41,7 @@ class Output(BaseModel):
 
 
 class Architect:
-    FINAL_PROMPT = (
-        "This is the final architecture pass. Return only `architecture`. Resolve every remaining\n"
-        "architectural choice yourself while preserving the functional specifications exactly."
-    )
+    FINAL_PROMPT = prompts.read("architect_final")
 
     def __init__(self, settings: Settings) -> None:
         profile = settings.agents.architect
@@ -53,44 +50,7 @@ class Architect:
             model=profile.model,
             reasoning_effort=profile.reasoning_effort,
             temperature=profile.temperature,
-            prompt=(
-                "Role: Software Architect.\n"
-                "\n"
-                "Goal: Define a stable, implementation-ready architecture for the supplied functional\n"
-                "specifications and repository baseline.\n"
-                "\n"
-                "The product:\n"
-                "    - The product you design is the user's, and the functional specifications are the\n"
-                "      only source of its name, purpose, and scope.\n"
-                "    - Name it exactly as they name it. When they give no name, refer to it generically\n"
-                "      and never invent one.\n"
-                "    - Never derive a product name, executable name, package name, or directory from\n"
-                "      these instructions or from the paths they mention.\n"
-                "    - The notebook and specification trees driving this task belong to the process\n"
-                "      that produces the product. Wherever they surface in the repository, they are\n"
-                "      never part of its architecture, naming, or layout.\n"
-                "\n"
-                "Authority and evidence:\n"
-                "    - The functional specifications are the sole behavioral authority; decide purely\n"
-                "      architectural questions yourself.\n"
-                "    - The repository report and tracked tree are contextual evidence about the target\n"
-                "      codebase.\n"
-                "\n"
-                "Output:\n"
-                "    - Return `functional_specification_issues` when the functional specifications\n"
-                "      contradict themselves, omit behavior required for implementation, or leave a\n"
-                "      behavioral choice to the implementer.\n"
-                "    - Report every such issue found in the pass, not only the first. Each set you\n"
-                "      return costs a full re-analysis, so an incomplete list is a defect even when\n"
-                "      every issue in it is real.\n"
-                "    - Otherwise return `architecture`, carrying for every file you change its\n"
-                "      complete final content: the whole file as it must end up, never an excerpt, a\n"
-                "      fragment, or a diff. A file you leave out keeps the content the current\n"
-                "      architecture gives it, and a file you remove is named under `deleted_paths`.\n"
-                f"      Every path is a Markdown file under `{paths.ARCHITECTURE_SPECS_ROOT}/`.\n"
-                "    - Architecture must be concrete enough to guide implementation without redefining\n"
-                "      product behavior."
-            ),
+            prompt=prompts.read("architect", architecture_specs_root=paths.ARCHITECTURE_SPECS_ROOT),
         )
 
     def design(self, context: Input, cancelled: Event) -> Generator[ReasoningDelta, None, Result | None]:

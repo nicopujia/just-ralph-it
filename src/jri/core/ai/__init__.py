@@ -1,3 +1,4 @@
+from . import prompts
 from .agents import DEFAULT_SYMBOL, Agent, Explorer, Interviewer, Invocation, Tool, ToolOutput, tool
 from .events import (
     AgentEvent,
@@ -35,6 +36,7 @@ __all__ = [
     "TurnFinished",
     "architect",
     "functional_analyst",
+    "prompts",
     "specs_generation",
     "tool",
 ]

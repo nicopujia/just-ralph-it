@@ -405,7 +405,9 @@ def test_restores_an_interview_under_the_prompt_of_the_running_process() -> None
     restarted.restore()
 
     history = cast("list[dict[str, object]]", restarted.interviewer.history)
-    assert [item["content"] for item in history if item.get("role") == "system"] == [restarted.interviewer.prompt]
+    assert [item["content"] for item in history if item.get("role") == "system"] == [
+        restarted.interviewer.runner.prompt
+    ]
 
 
 def test_keeps_the_opening_message_of_a_session_saved_before_the_first_turn() -> None:

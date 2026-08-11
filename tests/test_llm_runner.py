@@ -50,14 +50,6 @@ if TYPE_CHECKING:
 
     from tests.doubles.openai import Round
 
-# These are the valid indentation depths for prompt lines.
-# They represent a heading, a list item, and its continuation.
-PROMPT_INDENTS = (0, 4, 6)
-# Ruff limits a source line to 120 columns.
-# A prompt line uses four columns for the shallowest indentation.
-# It also uses four columns for quotes and its final `\n`.
-# A wider prompt line joins two source literals.
-PROMPT_MAX_WIDTH = 112
 PROMPT_SECTION = re.compile(r"[A-Z][A-Za-z ]*:")
 
 
@@ -95,15 +87,15 @@ def build_streaming_runner(*rounds: "Round | OpenAIError") -> LLMRunner:
 def build_agents(path: Path) -> list[Explorer | Interviewer]:
     settings = build_settings(FakeClient([]), search_api_key="BRAVE_SEARCH_API_KEY")
     # Explorer puts its working directory in the prompt.
-    # A local temporary directory would make line widths variable.
-    # Use `/jri` so the test has a fixed path width.
+    # A local temporary directory would make its text variable between runs.
+    # Use `/jri` so the prompt is fixed.
     return [Interviewer(settings, Notebook(path / "notebook.yaml")), Explorer(settings, Path("/jri"))]
 
 
 def build_prompts(path: Path) -> dict[str, str]:
     settings = build_settings(FakeClient([]))
     return {
-        **{type(agent).__name__: agent.prompt for agent in build_agents(path)},
+        **{type(agent).__name__: agent.runner.prompt for agent in build_agents(path)},
         "Architect": architect.Architect(settings).runner.prompt,
         "Architect.FINAL_PROMPT": architect.Architect.FINAL_PROMPT,
         "FunctionalAnalyst": functional_analyst.FunctionalAnalyst(settings).runner.prompt,
@@ -130,24 +122,16 @@ def test_sends_a_prompt_exactly_as_written_under_the_block_notice() -> None:
     assert runner.prompt == f"{written}\n\n{BLOCK_NOTICE}"
 
 
-def test_wraps_every_prompt_line_inside_the_source_line_holding_it(tmp_path: Path) -> None:
-    lines = read_prompt_lines(tmp_path)
-
-    assert [(label, len(line)) for label, _, line, _ in lines if len(line) > PROMPT_MAX_WIDTH] == []
-
-
 def test_separates_the_words_of_every_prompt_line_with_one_space(tmp_path: Path) -> None:
     lines = read_prompt_lines(tmp_path)
 
-    assert [(label, line) for label, _, line, _ in lines if "  " in line.lstrip(" ") or line != line.rstrip()] == []
+    assert [(label, line) for label, _, line, _ in lines if "  " in line or line != line.rstrip()] == []
 
 
-def test_indents_every_prompt_line_to_a_depth_the_document_uses(tmp_path: Path) -> None:
+def test_starts_every_prompt_line_at_the_margin(tmp_path: Path) -> None:
     lines = read_prompt_lines(tmp_path)
 
-    assert [
-        (label, line) for label, _, line, _ in lines if line and len(line) - len(line.lstrip(" ")) not in PROMPT_INDENTS
-    ] == []
+    assert [(label, line) for label, _, line, _ in lines if line.startswith(" ")] == []
 
 
 def test_opens_a_section_under_every_blank_line_of_a_prompt(tmp_path: Path) -> None:

@@ -26,11 +26,11 @@ class Agent:
     # A stopped reply ends where the user stopped it. Record the stop, because the text alone reads as a full reply.
     CANCELLATION_RECORD: ClassVar[str] = "User stopped last reply. Items before this message are all that happened."
 
+    prompt: InitVar[str]
     initial_context: InitVar[ResponseInputParam | None] = None
 
     client: OpenAI
     model: str
-    prompt: str
     reasoning_effort: ReasoningEffort = None
     temperature: float | None = None
     max_input_size: int | None = None
@@ -40,19 +40,18 @@ class Agent:
     runner: "ai.LLMRunner" = field(init=False)
     failed_call_ids: list[str] = field(init=False, default_factory=list)
 
-    def __post_init__(self, initial_context: ResponseInputParam | None) -> None:
+    def __post_init__(self, prompt: str, initial_context: ResponseInputParam | None) -> None:
         self.tools = Tool.discover(self)
         self.runner = ai.LLMRunner(
             client=self.client,
             model=self.model,
-            prompt=self.prompt,
+            prompt=prompt,
             reasoning_effort=self.reasoning_effort,
             temperature=self.temperature,
             max_input_size=self.max_input_size,
         )
-        self.prompt = self.runner.prompt
         self.history = list(initial_context or [])
-        self.history.insert(0, {"role": "system", "content": self.prompt})
+        self.history.insert(0, {"role": "system", "content": self.runner.prompt})
 
     def get_context(self) -> ResponseInputParam:
         return self.history

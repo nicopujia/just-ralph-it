@@ -1,6 +1,6 @@
 ---
 name: prompt-engineering
-description: Write, compress, audit LLM agent system prompts—system prompts, AGENTS.md, CLAUDE.md, SKILL.md. Also when an agent ignores instructions, over-searches, stops early, or drifts scope.
+description: Write, compress, audit LLM inputs—system prompts, AGENTS.md, SKILL.md. Use also when an agent ignores instructions, over-searches, stops early, or drifts scope.
 ---
 # Agent prompts
 Aim: the smallest set of high-signal lines that reliably produces the behavior. Attention is finite — each token added dilutes the rest, and recall degrades as context grows.
