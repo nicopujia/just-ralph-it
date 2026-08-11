@@ -107,7 +107,10 @@ def check_member_order(*roots: Path) -> None:
         )
     ]
     if disorder:
-        raise RuntimeError("Members must follow the documented order:\n" + "\n".join(disorder))
+        raise RuntimeError(
+            f"A module orders its members {', '.join(MODULE_GROUPS)}. A class orders its members "
+            f"{', '.join(CLASS_GROUPS)}.\n" + "\n".join(disorder)
+        )
 
 
 def check_constant_publicity(*roots: Path) -> None:

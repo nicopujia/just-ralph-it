@@ -1,27 +1,21 @@
-# Workflow
+# Just Ralph It (JRI)
+[Concept doc](https://nicolaspujia.com/just-ralph-it.md)
+
+## Workflow
 After changes: `scripts/check.py`
 
-# Style
-- Trust types and JRI-managed data
-- DDD naming, modules included: `Agent.get_context`, NEVER `BaseOpenAIAgent.get_agent_context`; `repository.py`, NEVER `constants.py`
-- Functions/methods = verbs; except properties, event handlers, decorators
-- Helpers only for: repeated logic, unavoidable extractions, linter alerts
+## Style
 - Prefer cleanest long-term approach—no backwards-compat code
+- Trust types and JRI-managed data
 - `lib` = JRI-agnostic business logic only
 - `tui` = UI only, no tests
-- Comments use ASD-STE100 Simplified Technical English
+- Helpers only for: repeated logic, unavoidable extractions, linter alerts
+- DDD naming, modules included: `Agent.get_context`, NEVER `BaseOpenAIAgent.get_agent_context`; `repository.py`, NEVER `constants.py`
+- Functions/methods = verbs; except properties, event handlers, decorators
+- Comments use ASD-STE100
 
 ## Boundaries
-- Text JRI did not author reaches a model through `lib.prompt.render`, or whole with no structure of JRI's around it to forge
-- State the model can change carries what it asserts about; no prose keeps a claim honest
-- JRI commits `.jri` and nothing else, and no file of the user's stops a run
-- A turn ends with a `TurnFinished`, and every row it opened is closed
-- One JRI to a project: a second takes the hold or refuses, and nothing is written for two at once
-- What another process may still hold is never JRI's to remove, whatever JRI's own is doing
-
-## Order
-- Module (groups 1 blank line apart): dunders, types, constants, public vars, private vars, public funcs, public classes, private funcs, private classes
-- Class: constants, nested types, magic methods, public methods, private methods
-
-# Project
-[Concept doc](https://nicolaspujia.com/just-ralph-it.md)
+- JRI must pass text it did not write through `lib.prompt.render`, or send it alone as a whole message with no JRI wording beside it to copy
+- JRI must remove a file only when no other process may still hold it, and must leave it otherwise, whether JRI's own run finished, stopped, or failed
+- JRI must resolve concurrent access by exclusion, not coordination: a second instance takes the hold or stops, and only the holder writes a project file
+- Every turn must end with a `TurnFinished` and close every row it opened, whether the run finished, stopped, or failed
