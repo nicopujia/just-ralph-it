@@ -14,14 +14,17 @@ from . import paths
 from .workspace import Workspace
 
 type LoggingLevel = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-# Use JRI reasoning-effort values, not the provider-library list. The provider decides whether a model supports a value.
-# This type documents values. It does not promise support.
+# Use the JRI reasoning-effort values, not the provider library list. The provider decides if a model supports a value.
+# This type documents the values. It does not promise support.
 type ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"] | None
 type Temperature = Annotated[float, Field(ge=0, le=2)] | None
 
 APPLICATION_NAME = "jri"
 COMMENT_WIDTH = 100
-CONFIG_INTRO = "The values below are the ones JRI already uses, and the commented ones are optional."
+CONFIG_INTRO = (
+    "Welcome to JRI! You can use this file now, with no changes. The values below are the defaults JRI uses. "
+    "The commented lines are optional settings: remove the # to turn one on."
+)
 
 
 def read_api_key(variable: str) -> str:
@@ -29,17 +32,19 @@ def read_api_key(variable: str) -> str:
 
 
 class AgentProfile(BaseModel):
-    model: str = Field(description="Model ID.")
+    model: str = Field(description="ID of the model.")
     reasoning_effort: ReasoningEffort = Field(
         default=None,
         description=(
-            "Reasoning effort: none, minimal, low, medium, high, xhigh, or max. Setting none turns reasoning off, "
-            "where omitting this leaves the model its own default. Not every model offers every one of these, and a "
-            "model rejects an effort it does not offer."
+            "Reasoning effort. The values are: none, minimal, low, medium, high, xhigh, and max. The value none "
+            "turns reasoning off. Omit this setting to let the model pick its own default. Not every model supports "
+            "every value. A model rejects a value it does not support."
         ),
     )
     temperature: Temperature = Field(
-        default=None, examples=[0.2], description="Sampling temperature: 0 is focused and 2 is varied."
+        default=None,
+        examples=[0.2],
+        description="Sampling temperature. The value 0 gives focused output. The value 2 gives varied output.",
     )
 
     model_config = ConfigDict(extra="forbid")
@@ -48,25 +53,26 @@ class AgentProfile(BaseModel):
 class AgentProfiles(BaseModel):
     interviewer: AgentProfile = Field(
         default=AgentProfile(model="gpt-5.6-sol", reasoning_effort="medium"),
-        description="Leads the requirements gathering interview. Recommended model type: smart yet relatively fast.",
+        description="Leads the requirements-gathering interview. Recommended model type: smart, and fairly fast.",
     )
     explorer: AgentProfile = Field(
         default=AgentProfile(model="gpt-5.6-terra", reasoning_effort="low"),
         description=(
-            "Runs shell commands, reads files, and browses the web on the interviewer's behalf. "
-            "Recommended model type: low cost, fast and with vision capabilities."
+            "Runs shell commands, reads files, and browses the web for the interviewer. "
+            "Recommended model type: low cost, fast, and able to read images."
         ),
     )
     functional_analyst: AgentProfile = Field(
         default=AgentProfile(model="gpt-5.6-sol", reasoning_effort="xhigh"),
         description=(
-            "Turns the interview notes into functional specifications. Recommended model type: as smart as possible."
+            "Turns the interview notes into functional specifications. "
+            "Recommended model type: the smartest model available."
         ),
     )
     architect: AgentProfile = Field(
         default=AgentProfile(model="gpt-5.6-sol", reasoning_effort="xhigh"),
         description=(
-            "Designs the system that satisfies those specifications. Recommended model type: as smart as possible."
+            "Designs the system that meets those specifications. Recommended model type: the smartest model available."
         ),
     )
 
@@ -77,20 +83,19 @@ class LLM(BaseModel):
     provider: str = Field(
         default="openai-subscription",
         description=(
-            'Either "openai-subscription", to reuse a ChatGPT subscription through the Codex CLI, or the base URL '
-            "of any OpenAI-compatible provider, such as https://api.openai.com/v1\n\n"
-            "The subscription needs the Codex CLI (https://learn.chatgpt.com/docs/codex/cli) to store its "
-            'credentials in a file, so set `cli_auth_credentials_store = "file"` in ~/.codex/config.toml and run '
-            "`codex login`."
+            'Set this to "openai-subscription" to reuse a ChatGPT subscription through the Codex CLI. Or set this '
+            "to the base URL of an OpenAI-compatible provider, for example https://api.openai.com/v1\n\n"
+            "The subscription option needs the Codex CLI (https://learn.chatgpt.com/docs/codex/cli). "
+            'Set `cli_auth_credentials_store = "file"` in ~/.codex/config.toml. Then run `codex login`.'
         ),
     )
     api_key: str | None = Field(
         default=None,
         examples=["OPENAI_API_KEY"],
         description=(
-            "Name of the environment variable holding the API key of the provider above. Required unless the "
-            'provider is "openai-subscription". NEVER put the key itself here: JRI reads it from your shell and '
-            "from the .env file at the root of your project."
+            "Name of the environment variable that holds the API key for the provider above. This setting is "
+            'required unless the provider is "openai-subscription". Do not put the key itself here. JRI reads the '
+            "key from your shell, or from the .env file at the root of your project."
         ),
     )
 
@@ -111,7 +116,7 @@ class BraveSearch(BaseModel):
     api_key: str | None = Field(
         default=None,
         examples=["BRAVE_SEARCH_API_KEY"],
-        description="Name of the environment variable holding the Brave Search LLM Context API key.",
+        description="Name of the environment variable that holds the Brave Search LLM Context API key.",
     )
 
     model_config = ConfigDict(extra="forbid")
@@ -121,7 +126,8 @@ class Logging(BaseModel):
     level: LoggingLevel = Field(
         default="INFO",
         description=(
-            f"Minimum logging level: DEBUG, INFO, WARNING, ERROR, or CRITICAL. Logs are saved under {paths.LOGS_DIR}/."
+            "Minimum logging level. The values are: DEBUG, INFO, WARNING, ERROR, and CRITICAL. "
+            f"JRI saves logs in the {paths.LOGS_DIR}/ directory."
         ),
     )
 
@@ -129,23 +135,25 @@ class Logging(BaseModel):
 
 
 class Settings(BaseModel):
-    llm: LLM = Field(default_factory=LLM, description="Provider every agent sends its model requests to.")
+    llm: LLM = Field(default_factory=LLM, description="The provider that every agent sends model requests to.")
     brave_search: BraveSearch = Field(
         default_factory=BraveSearch,
         description=(
-            "Web search for the explorer agent, on top of the shell, files, and URLs it always has. "
-            "Get a key at https://brave.com/search/api/."
+            "Adds web search for the explorer agent. The explorer agent already has the shell, files, and URLs. "
+            "Get an API key at https://brave.com/search/api/."
         ),
     )
     agents: AgentProfiles = Field(
         default_factory=AgentProfiles,
         description=(
-            "Each agent picks a model available on the provider above. Omit the reasoning effort on models without "
-            "reasoning, and the temperature to let the model pick it; reasoning models reject the temperature "
-            "outright."
+            "Each agent uses a model from the provider above. Omit the reasoning effort for models that do not "
+            "support reasoning. Omit the temperature to let the model pick its own value. Reasoning models reject "
+            "the temperature setting."
         ),
     )
-    logging: Logging = Field(default_factory=Logging, description="Diagnostics JRI writes down while it runs.")
+    logging: Logging = Field(
+        default_factory=Logging, description="The diagnostic messages that JRI writes while it runs."
+    )
 
     model_config = ConfigDict(extra="forbid")
 
@@ -171,7 +179,8 @@ class Settings(BaseModel):
         unknown = str(path[-1])
         matches = difflib.get_close_matches(unknown, candidates, n=1)
         if not matches:
-            # A short abbreviation can fail similarity matching. Suggest it only when it matches one setting prefix.
+            # A short abbreviation can fail the similarity match. Suggest the abbreviation only if it matches one
+            # setting prefix.
             prefixed = [name for name in candidates if name.startswith(unknown)]
             matches = prefixed if len(prefixed) == 1 else []
         return ".".join([*map(str, path[:-1]), *matches]) if matches else None
@@ -218,7 +227,8 @@ def _render_settings(model: type[BaseModel], values: BaseModel | None, level: in
 
 
 def _reject_setting(path: tuple[str, ...], message: str) -> ValidationError:
-    # A cross-setting validation error still belongs to one setting. Report it at that setting, not the whole file.
+    # A cross-setting validation error still belongs to one setting. Report the error at that setting, not at the
+    # whole file.
     return ValidationError.from_exception_data(
         Settings.__name__,
         [

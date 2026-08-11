@@ -1,82 +1,87 @@
-# The values below are the ones JRI already uses, and the commented ones are optional.
+# Welcome to JRI! You can use this file now, with no changes. The values below are the defaults JRI
+# uses. The commented lines are optional settings: remove the # to turn one on.
 
-# Provider every agent sends its model requests to.
+# The provider that every agent sends model requests to.
 llm:
-  # Either "openai-subscription", to reuse a ChatGPT subscription through the Codex CLI, or the base
-  # URL of any OpenAI-compatible provider, such as https://api.openai.com/v1.
+  # Set this to "openai-subscription" to reuse a ChatGPT subscription through the Codex CLI. Or set
+  # this to the base URL of an OpenAI-compatible provider, for example https://api.openai.com/v1
   #
-  # The subscription needs the Codex CLI (https://learn.chatgpt.com/docs/codex/cli) to store its
-  # credentials in a file, so set `cli_auth_credentials_store = "file"` in ~/.codex/config.toml and
-  # run `codex login`.
+  # The subscription option needs the Codex CLI (https://learn.chatgpt.com/docs/codex/cli). Set
+  # `cli_auth_credentials_store = "file"` in ~/.codex/config.toml. Then run `codex login`.
   provider: openai-subscription
 
-  # Name of the environment variable holding the API key of the provider above. Required unless the
-  # provider is "openai-subscription". NEVER put the key itself here: JRI reads it from your shell and
-  # from the .env file at the root of your project.
+  # Name of the environment variable that holds the API key for the provider above. This setting is
+  # required unless the provider is "openai-subscription". Do not put the key itself here. JRI reads
+  # the key from your shell, or from the .env file at the root of your project.
   # api_key: OPENAI_API_KEY
 
-# Web search for the explorer agent, on top of the shell, files, and URLs it always has. Get a key at
-# https://brave.com/search/api/.
+# Adds web search for the explorer agent. The explorer agent already has the shell, files, and URLs.
+# Get an API key at https://brave.com/search/api/.
 # brave_search:
-  # Name of the environment variable holding the Brave Search LLM Context API key.
+  # Name of the environment variable that holds the Brave Search LLM Context API key.
   # api_key: BRAVE_SEARCH_API_KEY
 
-# Each agent picks a model available on the provider above. Omit the reasoning effort on models
-# without reasoning, and the temperature to let the model pick it; reasoning models reject the
-# temperature outright.
+# Each agent uses a model from the provider above. Omit the reasoning effort for models that do not
+# support reasoning. Omit the temperature to let the model pick its own value. Reasoning models reject
+# the temperature setting.
 agents:
-  # Leads the requirements gathering interview. Recommended model type: smart yet relatively fast.
+  # Leads the requirements-gathering interview. Recommended model type: smart, and fairly fast.
   interviewer:
-    # Model ID.
+    # ID of the model.
     model: gpt-5.6-sol
 
-    # Reasoning effort: none, minimal, low, medium, high, or xhigh. Setting none turns reasoning off,
-    # where omitting this leaves the model its own default.
+    # Reasoning effort. The values are: none, minimal, low, medium, high, xhigh, and max. The value
+    # none turns reasoning off. Omit this setting to let the model pick its own default. Not every
+    # model supports every value. A model rejects a value it does not support.
     reasoning_effort: medium
 
-    # Sampling temperature: 0 is focused and 2 is varied.
+    # Sampling temperature. The value 0 gives focused output. The value 2 gives varied output.
     # temperature: 0.2
 
-  # Runs shell commands, reads files, and browses the web on the interviewer's behalf. Recommended
-  # model type: low cost, fast and with vision capabilities.
+  # Runs shell commands, reads files, and browses the web for the interviewer. Recommended model type:
+  # low cost, fast, and able to read images.
   explorer:
-    # Model ID.
+    # ID of the model.
     model: gpt-5.6-terra
 
-    # Reasoning effort: none, minimal, low, medium, high, or xhigh. Setting none turns reasoning off,
-    # where omitting this leaves the model its own default.
+    # Reasoning effort. The values are: none, minimal, low, medium, high, xhigh, and max. The value
+    # none turns reasoning off. Omit this setting to let the model pick its own default. Not every
+    # model supports every value. A model rejects a value it does not support.
     reasoning_effort: low
 
-    # Sampling temperature: 0 is focused and 2 is varied.
+    # Sampling temperature. The value 0 gives focused output. The value 2 gives varied output.
     # temperature: 0.2
 
-  # Turns the interview notes into functional specifications. Recommended model type: as smart as
-  # possible.
+  # Turns the interview notes into functional specifications. Recommended model type: the smartest
+  # model available.
   functional_analyst:
-    # Model ID.
+    # ID of the model.
     model: gpt-5.6-sol
 
-    # Reasoning effort: none, minimal, low, medium, high, or xhigh. Setting none turns reasoning off,
-    # where omitting this leaves the model its own default.
+    # Reasoning effort. The values are: none, minimal, low, medium, high, xhigh, and max. The value
+    # none turns reasoning off. Omit this setting to let the model pick its own default. Not every
+    # model supports every value. A model rejects a value it does not support.
     reasoning_effort: xhigh
 
-    # Sampling temperature: 0 is focused and 2 is varied.
+    # Sampling temperature. The value 0 gives focused output. The value 2 gives varied output.
     # temperature: 0.2
 
-  # Designs the system that satisfies those specifications. Recommended model type: as smart as
-  # possible.
+  # Designs the system that meets those specifications. Recommended model type: the smartest model
+  # available.
   architect:
-    # Model ID.
+    # ID of the model.
     model: gpt-5.6-sol
 
-    # Reasoning effort: none, minimal, low, medium, high, or xhigh. Setting none turns reasoning off,
-    # where omitting this leaves the model its own default.
+    # Reasoning effort. The values are: none, minimal, low, medium, high, xhigh, and max. The value
+    # none turns reasoning off. Omit this setting to let the model pick its own default. Not every
+    # model supports every value. A model rejects a value it does not support.
     reasoning_effort: xhigh
 
-    # Sampling temperature: 0 is focused and 2 is varied.
+    # Sampling temperature. The value 0 gives focused output. The value 2 gives varied output.
     # temperature: 0.2
 
-# Diagnostics JRI writes down while it runs.
+# The diagnostic messages that JRI writes while it runs.
 logging:
-  # Minimum logging level: DEBUG, INFO, WARNING, ERROR, or CRITICAL. Logs are saved under .jri/logs/.
+  # Minimum logging level. The values are: DEBUG, INFO, WARNING, ERROR, and CRITICAL. JRI saves logs
+  # in the .jri/logs/ directory.
   level: INFO
